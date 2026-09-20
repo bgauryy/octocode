@@ -3,7 +3,10 @@ import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { McpServer } from '@modelcontextprotocol/server';
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
-import { DIRECT_TOOL_DEFINITIONS } from '@octocodeai/octocode-core/schema';
+import {
+  DIRECT_TOOL_DEFINITIONS,
+  getNativeContractFingerprint,
+} from '@octocodeai/octocode-core/schema';
 
 const require = createRequire(import.meta.url);
 
@@ -22,21 +25,6 @@ export function loadNativeBinding(env = process.env) {
     throw new Error('The candidate addon does not export NativeRuntime');
   }
   return binding;
-}
-
-// Order-independent canonical serialization, so a schema comparison is not
-// tripped by benign key-ordering differences between the JS and Rust emitters.
-function canonicalJson(value) {
-  if (Array.isArray(value)) {
-    return `[${value.map(canonicalJson).join(',')}]`;
-  }
-  if (value && typeof value === 'object') {
-    return `{${Object.keys(value)
-      .sort()
-      .map(key => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
-      .join(',')}}`;
-  }
-  return JSON.stringify(value ?? null);
 }
 
 export function createNativeMcp({ env = process.env, binding } = {}) {
@@ -73,33 +61,21 @@ export function createNativeMcp({ env = process.env, binding } = {}) {
     DIRECT_TOOL_DEFINITIONS.map(definition => [definition.name, definition])
   );
 
-  // Schemas are advertised from @octocodeai/octocode-core but *enforced* by the
-  // native runtime's own embedded contract — two independently-versioned
-  // artifacts. Tool-name presence is guarded below, but a schema-shape mismatch
-  // (a field required on one side and optional on the other) is otherwise silent:
-  // a client call valid per the advertised schema gets rejected by the enforcer,
-  // or vice-versa. Surface it (non-fatally, on stderr — stdout carries the MCP
-  // protocol) so the divergence is visible instead of manifesting as confusing
-  // per-call validation errors. The native catalog carries the enforced schema.
-  const drifted = [];
-  for (const tool of availableTools) {
-    const definition = definitions.get(tool.name);
-    if (!definition || tool.inputSchema === undefined) {
-      continue;
-    }
-    if (
-      canonicalJson(tool.inputSchema) !== canonicalJson(definition.inputSchema) ||
-      canonicalJson(tool.outputSchema) !== canonicalJson(definition.outputSchema)
-    ) {
-      drifted.push(tool.name);
-    }
+  // The native runtime and core package independently embed the same canonical
+  // contract IR. Compare that shared identity rather than unlike runtime
+  // representations (native JSON Schema versus Standard Schema/Zod objects).
+  const coreFingerprint = getNativeContractFingerprint();
+  const nativeFingerprint = catalog.fingerprint;
+  if (typeof nativeFingerprint !== 'string' || nativeFingerprint.length === 0) {
+    void runtime.close();
+    throw new Error('Native catalog does not expose a contract fingerprint');
   }
-  if (drifted.length > 0) {
+  if (nativeFingerprint !== coreFingerprint) {
     console.error(
-      '[octocode-mcp] WARNING: advertised tool schema (@octocodeai/octocode-core) ' +
-        'does not match the native runtime\'s enforced schema for: ' +
-        `${drifted.join(', ')}. Clients may be shown a schema the runtime rejects; ` +
-        'realign the core schema package with the native contract.'
+      '[octocode-mcp] WARNING: advertised contract fingerprint ' +
+        `${coreFingerprint} (@octocodeai/octocode-core) does not match native ` +
+        `${nativeFingerprint}. Clients may be shown a contract the runtime rejects; ` +
+        'realign the core package and native generated contract.'
     );
   }
 

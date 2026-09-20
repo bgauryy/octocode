@@ -229,7 +229,7 @@ function shortPath(p: string, maxLen = 50): string {
 
 /**
  * Extract a human-readable one-liner from a tool call's args object.
- * All octocode tools take `{ queries: [...] }` at the top level.
+ * Octocode accepts one direct query or `{ queries: [...] }` for a batch.
  * Dispatches per tool name to show the most useful information.
  */
 export function buildToolCallSummary(toolName: string, args: unknown): string {

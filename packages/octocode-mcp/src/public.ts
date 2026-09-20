@@ -6,6 +6,7 @@ import {
 } from './native/index.mjs';
 
 export interface NativeRuntime {
+  readonly abiVersion: number;
   catalog(): NativeCatalog;
   executeMcp(requestId: string, tool: string, input: unknown): Promise<unknown>;
   cancel(requestId: string): boolean;
@@ -27,6 +28,7 @@ export interface NativeCatalogTool {
 }
 
 export interface NativeCatalog {
+  fingerprint: string;
   server?: { name: string; title?: string; version: string };
   mcpInstructions?: string;
   tools: NativeCatalogTool[];

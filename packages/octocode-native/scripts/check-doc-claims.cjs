@@ -13,6 +13,7 @@
 //   2. Root-README tool count ↔ the ToolId enum in tools/id.rs
 //   3. docs/CONFIGURATION.md env-var names ↔ config sources (both ways for
 //      resolver SOURCE_KEYS)
+//   4. Active source/docs/examples contain no retired pre-v20 CLI grammar
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -128,6 +129,72 @@ if (!sourceKeys) {
     }
   }
 }
+
+// 4. Retired CLI grammar ----------------------------------------------------
+// Historical benchmark receipts keep their original commands. Everything
+// else that is maintained must use `scheme` and direct root tool commands.
+const retiredCliPatterns = [
+  /\bnode\s+[^\n]*octocode(?:\.js)?\s+tools(?:\s|$)/,
+  /\bnpx(?:\s+-y)?\s+octocode\s+tools(?:\s|$)/,
+  /\bcontext\s+--(?:json|compact|minimal)\b/,
+  /--scheme(?:-view)?\b/,
+  /--queries\b/,
+  /\[\s*['"]tools['"]\s*,\s*['"][A-Za-z]/,
+];
+const retiredCliSelfTest = [
+  'node packages/octocode/out/octocode.js tools localFetch --scheme --json',
+  "['tools', 'localFetch', '--queries', '{}']",
+  'octocode context --compact',
+];
+if (retiredCliSelfTest.some((sample) => !retiredCliPatterns.some((pattern) => pattern.test(sample)))) {
+  fail('retired CLI grammar', 'the detector self-test no longer recognizes a retired command shape');
+}
+if (
+  retiredCliPatterns.some((pattern) =>
+    pattern.test("node packages/octocode/out/octocode.js scheme localFetch --view query --compact"),
+  )
+) {
+  fail('retired CLI grammar', 'the detector self-test rejects the current scheme grammar');
+}
+
+const ignoredDirs = new Set([
+  '.git',
+  '.octocode',
+  'node_modules',
+  'out',
+  'dist',
+  'target',
+  'coverage',
+  'octocode-benchmark',
+]);
+const ignoredFiles = new Set([
+  path.join(repoRoot, 'docs/JEV_BENCHMARK.md'),
+  path.join(repoRoot, 'packages/octocode-native/scripts/check-doc-claims.cjs'),
+  path.join(repoRoot, 'skills/octocode-research/scripts/check-guidance.mjs'),
+  path.join(repoRoot, 'packages/octocode/skills/octocode-research/scripts/check-guidance.mjs'),
+]);
+const activeExtensions = new Set(['.md', '.rs', '.ts', '.mts', '.cts', '.js', '.mjs', '.cjs']);
+function scanRetiredCliGrammar(dir) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (ignoredDirs.has(entry.name)) continue;
+    const file = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      scanRetiredCliGrammar(file);
+      continue;
+    }
+    if (ignoredFiles.has(file) || !activeExtensions.has(path.extname(entry.name))) continue;
+    const lines = read(file).split('\n');
+    for (let index = 0; index < lines.length; index += 1) {
+      if (retiredCliPatterns.some((pattern) => pattern.test(lines[index]))) {
+        fail(
+          'retired CLI grammar',
+          `${path.relative(repoRoot, file)}:${index + 1} still contains: ${lines[index].trim()}`,
+        );
+      }
+    }
+  }
+}
+scanRetiredCliGrammar(repoRoot);
 
 if (failures.length > 0) {
   console.error('check-doc-claims: pinned doc claims drifted from source:\n');

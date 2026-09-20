@@ -3,7 +3,7 @@
 Docs in this directory belong to the Pi harness extension.
 Keep harness runtime, bundled tools, Awareness wiring, prompt/override behavior,
 and Pi UI notes here. Exact tool field schemas remain generated/runtime-owned:
-use `node $OCTOCODE_CLI tools <name> --scheme`.
+use `node $OCTOCODE_CLI scheme <name> --view query`.
 
 ## Index
 

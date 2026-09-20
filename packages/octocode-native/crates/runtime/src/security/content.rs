@@ -34,6 +34,31 @@ fn is_key_body_line(line: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '/' | '='))
 }
 
+/// File names that can hold a private key without carrying a recognizable
+/// BEGIN/END boundary in the selected view. This is deliberately conservative:
+/// a `.pem` file may contain a public certificate, but exposing an ambiguous
+/// base64-only window is worse than redacting that window.
+fn is_private_key_path(path: Option<&Path>) -> bool {
+    let Some(path) = path else {
+        return false;
+    };
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    matches!(extension.as_str(), "pem" | "key" | "p8" | "pk8" | "ppk")
+        || matches!(
+            file_name.as_str(),
+            "id_rsa" | "id_dsa" | "id_ecdsa" | "id_ed25519"
+        )
+}
+
 /// Redact private-key material from a single sanitized leaf when a key boundary
 /// marker survived full-block redaction — the signal that a bounded read or
 /// search-context window split the key across its BEGIN/END boundary, so the
@@ -42,8 +67,9 @@ fn is_key_body_line(line: &str) -> bool {
 /// (already collapsed to one marker) and non-key content stay byte-identical.
 /// Redaction is line-for-line, preserving the leaf's line count so the tool's
 /// reported line ranges remain accurate.
-fn redact_split_private_key(text: &str) -> Option<String> {
-    if !text.lines().any(is_private_key_boundary) {
+fn redact_split_private_key(text: &str, file_path: Option<&Path>) -> Option<String> {
+    let has_boundary = text.lines().any(is_private_key_boundary);
+    if !has_boundary && !is_private_key_path(file_path) {
         return None;
     }
     let mut changed = false;
@@ -121,7 +147,7 @@ impl ContentSecurity {
             // key that a bounded read/search window split across its BEGIN/END
             // boundary (the anchored built-in patterns only match a complete
             // block, so a single-boundary window would otherwise leak the body).
-            if let Some(guarded) = redact_split_private_key(&native.content) {
+            if let Some(guarded) = redact_split_private_key(&native.content, file_path) {
                 let mut secrets = native.secrets_detected;
                 secrets.push(SPLIT_KEY_SECRET.to_owned());
                 return SanitizationResult {
@@ -157,7 +183,7 @@ impl ContentSecurity {
                 };
             }
         }
-        if let Some(guarded) = redact_split_private_key(&sanitized) {
+        if let Some(guarded) = redact_split_private_key(&sanitized, file_path) {
             if !secrets.iter().any(|name| name == SPLIT_KEY_SECRET) {
                 secrets.push(SPLIT_KEY_SECRET.to_owned());
             }
@@ -369,11 +395,12 @@ mod tests {
     fn split_private_key_guard_targets_only_key_markers() {
         // Body-only base64 with no key marker → guard is a no-op (must not
         // redact ordinary base64 that happens to appear in source).
-        assert!(redact_split_private_key("aGVsbG8gd29ybGQ=\nc29tZSBkYXRhIGhlcmU=").is_none());
+        assert!(redact_split_private_key("aGVsbG8gd29ybGQ=\nc29tZSBkYXRhIGhlcmU=", None).is_none());
         // A window holding only the BEGIN boundary + body (END is in the next
         // window) → the body must be redacted.
         let out = redact_split_private_key(
             "config header line\n-----BEGIN RSA PRIVATE KEY-----\nMIIEpQIBAAKCAQEA7Yn8xK2vJ9qLmN3pQrSt",
+            None,
         )
         .expect("split private key must be redacted");
         assert!(!out.contains("MIIEpQIB"), "key body leaked: {out}");
@@ -383,7 +410,9 @@ mod tests {
         );
         assert_eq!(out.lines().count(), 3, "line count must be preserved");
         // A public certificate boundary is not a private key → no-op.
-        assert!(redact_split_private_key("-----BEGIN CERTIFICATE-----\nMIIBpayload").is_none());
+        assert!(
+            redact_split_private_key("-----BEGIN CERTIFICATE-----\nMIIBpayload", None).is_none()
+        );
     }
 
     #[test]
@@ -396,6 +425,24 @@ mod tests {
             !result.content.contains("MIIEpQIB"),
             "key body leaked from a split search/read window: {}",
             result.content
+        );
+    }
+
+    #[test]
+    fn body_only_pem_window_does_not_leak_through_sanitize_text() {
+        let policy = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+        let key_body = "MIIEpQIBAAKCAQEA7Yn8xK2vJ9qLmN3pQrStUvWxYz0123456789AbCdEfGhIjKlMn";
+        let result = policy.sanitize_text(key_body, Some(Path::new("secrets/deploy-key.pem")));
+        assert!(result.has_secrets, "body-only PEM window must be flagged");
+        assert!(
+            !result.content.contains(key_body),
+            "key body leaked from a body-only search/read window: {}",
+            result.content
+        );
+        assert_eq!(
+            result.content.lines().count(),
+            key_body.lines().count(),
+            "redaction must preserve source-line mapping"
         );
     }
 

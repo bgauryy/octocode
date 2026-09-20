@@ -17,9 +17,9 @@ Every acceptance run must cover the shared contract as well as tool-specific beh
 After building the CLI, run these commands from the monorepo root:
 
 ```bash
-node packages/octocode/out/octocode.js tools --json
-node packages/octocode/out/octocode.js tools localFetch --scheme --json --compact
-node packages/octocode/out/octocode.js tools ghGetHistoryItem --scheme --json
+node packages/octocode/out/octocode.js scheme --compact
+node packages/octocode/out/octocode.js scheme localFetch --view query --compact
+node packages/octocode/out/octocode.js scheme ghGetHistoryItem --view query
 ```
 
 The discovery catalog contains 12 tools, with 10 enabled by default when no Jev key is resolved. Enabled tools depend on local-tool,
@@ -73,7 +73,8 @@ an already-truncated prompt.
 - Check row-local `meta.evidence` and `meta.diagnostics` after public response
   shaping. Do not document a separate invented evidence or warning envelope.
 - Inspect the registered descriptor as well as TypeScript interfaces. MCP
-  publishes no `outputSchema`; static output types are not runtime validation.
+  publishes an `outputSchema` for every direct tool; exercise real structured
+  results against it rather than treating static output types as validation.
 - Check `kind` and `confidence`, then the operation's actual completeness fields.
   Do not require nonexistent universal `answerReady` or `complete` metadata.
 - Verify `none` views against selected source after expected security redaction.

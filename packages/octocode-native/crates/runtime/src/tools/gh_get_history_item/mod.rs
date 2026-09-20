@@ -596,7 +596,7 @@ async fn pull_request<R: CredentialResolver>(
         row["body"] = json!(text);
         content_pagination.insert("body".into(), pagination);
     }
-    if want_files {
+    let no_selected_files_matched = if want_files {
         shape_pr_files(
             &mut row,
             &mut content_pagination,
@@ -605,8 +605,10 @@ async fn pull_request<R: CredentialResolver>(
             query,
             patch_selector,
             patch_mode,
-        );
-    }
+        )
+    } else {
+        false
+    };
     if want_discussion || want_inline {
         shape_pr_comments(&mut row, &mut content_pagination, comments, &states, query);
     }
@@ -635,7 +637,14 @@ async fn pull_request<R: CredentialResolver>(
     if !content_pagination.is_empty() {
         row["contentPagination"] = Value::Object(content_pagination);
     }
-    let mut out = json!({"pullRequests":[row]});
+    let mut out = json!({"type":"pullRequests","pullRequests":[row]});
+    if no_selected_files_matched {
+        out["status"] = json!("empty");
+        out["errorCode"] = json!("noSelectedFilesMatched");
+        out["hints"] = json!([
+            "No changed file matched the requested patches.files or patches.ranges path. Copy a path from content.changedFiles or request changedFiles:true first."
+        ]);
+    }
     promote_pr_continuations(&mut out, query);
     Ok(out)
 }
@@ -734,7 +743,7 @@ fn shape_pr_files(
     query: &GhGetHistoryItemQuery,
     selector: Option<&Map<String, Value>>,
     patch_mode: &str,
-) {
+) -> bool {
     let mut selected_names = selector
         .and_then(|v| v.get("files"))
         .and_then(Value::as_array)
@@ -768,6 +777,12 @@ fn shape_pr_files(
             selected_names.push(file.clone());
         }
     }
+    let selection_requested = patch_mode == "selected" && !selected_names.is_empty();
+    let selected_path_matched = !selection_requested
+        || files.iter().any(|file| {
+            let path = str_at(file, "/filename").unwrap_or("");
+            selected_names.iter().any(|selected| selected == path)
+        });
     let needle = query.match_string.as_deref().map(str::to_lowercase);
     let filtered = files
         .into_iter()
@@ -818,13 +833,21 @@ fn shape_pr_files(
             .and_then(Value::as_array)
             .into_iter()
             .flatten()
-            .find_map(|v| v.get("patchPagination"))
+            .find_map(|v| {
+                v.get("patchPagination")
+                    .filter(|page| page["hasMore"] == true)
+            })
             .cloned()
-        && patch_page["hasMore"] == true
     {
         pagination.insert("patches".into(), patch_page);
     }
     pagination.insert("changedFiles".into(), page);
+    let provider_has_more = states
+        .get("changedFiles")
+        .and_then(|state| state.get("hasMore"))
+        .and_then(Value::as_bool)
+        == Some(true);
+    selection_requested && !selected_path_matched && !provider_has_more
 }
 
 fn shape_pr_comments(
@@ -1801,6 +1824,119 @@ mod tests {
         assert_eq!(
             super::graphql_collection_state(&incomplete, "files", true),
             super::GraphqlCollection::Incomplete
+        );
+    }
+
+    fn patch_query(offset: usize) -> GhGetHistoryItemQuery {
+        serde_json::from_value(json!({
+            "operation":"pullRequest",
+            "owner":"a",
+            "repo":"b",
+            "number":1,
+            "charOffset":offset,
+            "charLength":2,
+            "minify":"none"
+        }))
+        .expect("patch query fixture should be valid")
+    }
+
+    #[test]
+    fn multi_file_patch_continuation_survives_a_completed_first_file() {
+        let query = patch_query(2);
+        let mut row = json!({});
+        let mut pagination = Map::new();
+        let files = vec![
+            json!({"filename":"short.rs","status":"modified","patch":"ABCD"}),
+            json!({"filename":"long.rs","status":"modified","patch":"abcdefgh"}),
+        ];
+
+        let no_match = shape_pr_files(
+            &mut row,
+            &mut pagination,
+            files,
+            &Map::new(),
+            &query,
+            None,
+            "all",
+        );
+
+        assert!(!no_match);
+        assert_eq!(row["changedFiles"][0]["patch"], "CD");
+        assert_eq!(row["changedFiles"][0]["patchPagination"]["hasMore"], false);
+        assert_eq!(row["changedFiles"][1]["patch"], "cd");
+        assert_eq!(pagination["patches"]["hasMore"], true);
+        assert_eq!(pagination["patches"]["nextCharOffset"], 4);
+
+        let source = json!({"filename":"long.rs","status":"modified","patch":"abcdefgh"});
+        let rebuilt = [0, 2, 4, 6]
+            .into_iter()
+            .filter_map(|offset| {
+                shape_file(&source, true, &patch_query(offset))["patch"]
+                    .as_str()
+                    .map(str::to_owned)
+            })
+            .collect::<String>();
+        assert_eq!(rebuilt.as_bytes(), b"abcdefgh");
+    }
+
+    #[test]
+    fn selected_missing_path_is_distinct_from_a_valid_selection() {
+        let query = patch_query(0);
+        let files = vec![json!({
+            "filename":"src/lib.rs",
+            "status":"modified",
+            "patch":"abcd"
+        })];
+        let shape = |selection: Value| {
+            let mut row = json!({});
+            let mut pagination = Map::new();
+            let no_match = shape_pr_files(
+                &mut row,
+                &mut pagination,
+                files.clone(),
+                &Map::new(),
+                &query,
+                selection.as_object(),
+                "selected",
+            );
+            (row, no_match)
+        };
+
+        let (valid, valid_no_match) = shape(json!({"files":["src/lib.rs"]}));
+        assert!(!valid_no_match);
+        assert_eq!(valid["changedFiles"][0]["path"], "src/lib.rs");
+
+        let (missing, missing_no_match) = shape(json!({"files":["src/missing.rs"]}));
+        assert!(missing_no_match);
+        assert!(missing.get("changedFiles").is_none());
+
+        let mut incomplete_state = Map::new();
+        incomplete_state.insert("changedFiles".into(), json!({"hasMore":true}));
+        let mut incomplete = json!({});
+        let mut incomplete_pagination = Map::new();
+        assert!(!shape_pr_files(
+            &mut incomplete,
+            &mut incomplete_pagination,
+            files.clone(),
+            &incomplete_state,
+            &query,
+            json!({"files":["src/missing.rs"]}).as_object(),
+            "selected",
+        ));
+
+        let mut output = json!({"type":"pullRequests","pullRequests":[missing]});
+        if missing_no_match {
+            output["status"] = json!("empty");
+            output["errorCode"] = json!("noSelectedFilesMatched");
+            output["hints"] = json!(["copy a changed file path"]);
+        }
+        assert_eq!(output["status"], "empty");
+        assert_eq!(output["type"], "pullRequests");
+        assert_eq!(output["errorCode"], "noSelectedFilesMatched");
+        assert!(
+            output["hints"]
+                .as_array()
+                .is_some_and(|hints| !hints.is_empty())
         );
     }
 

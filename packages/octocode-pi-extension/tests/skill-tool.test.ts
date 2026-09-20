@@ -317,8 +317,8 @@ test('partial skill content and file lists recover completely through executable
     assert.ok(visible.includes('MCPTool') && visible.includes('"chunkType":"bytes"'), 'recovery is visible to the model');
     const cli = fileURLToPath(new URL('../../octocode/out/octocode.js', import.meta.url));
     const execute = (tool: string, query: Record<string, unknown>) => {
-      const child = spawnSync(process.execPath, [cli, 'tools', tool, '--queries', JSON.stringify(query), '--compact'], { cwd, encoding: 'utf8', timeout: 20_000, env: { ...process.env, ENABLE_LOCAL: 'true' } });
-      assert.equal(child.status, 0, `${child.stdout}\n${child.stderr}`);
+      const child = spawnSync(process.execPath, [cli, tool, JSON.stringify(query), '--compact'], { cwd, encoding: 'utf8', timeout: 20_000, env: { ...process.env, ENABLE_LOCAL: 'true' } });
+      assert.ok(child.status === 0 || child.status === 6, `${child.stdout}\n${child.stderr}`);
       const response = JSON.parse(child.stdout);
       const row = response.results[0];
       assert.notEqual(row.status, 'error', JSON.stringify(row));

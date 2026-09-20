@@ -7,6 +7,7 @@ use reqwest::header::{ACCEPT, AUTHORIZATION, HeaderValue, USER_AGENT};
 use secrecy::{ExposeSecret, SecretString};
 use std::fmt;
 use std::future::Future;
+use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -36,6 +37,7 @@ pub struct ArtifactHttpRequest {
     pub url: Url,
     pub accept: &'static str,
     pub authorization: Option<SecretString>,
+    pub(crate) dns_pin: Option<DnsPin>,
 }
 
 impl fmt::Debug for ArtifactHttpRequest {
@@ -50,6 +52,15 @@ impl fmt::Debug for ArtifactHttpRequest {
             )
             .finish()
     }
+}
+
+/// A custom registry DNS result that was checked by the registry policy and
+/// must be reused for the actual connection. Reusing these exact addresses
+/// closes the validation-to-connect DNS rebinding window.
+#[derive(Clone, Debug)]
+pub(crate) struct DnsPin {
+    pub host: String,
+    pub addresses: Vec<SocketAddr>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -73,17 +84,27 @@ pub struct SystemArtifactHttp {
 
 impl SystemArtifactHttp {
     pub fn new() -> Result<Self, ArtifactError> {
-        let client = reqwest::Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .map_err(|_| {
-                ArtifactError::new(
-                    "provider_error",
-                    "Failed to initialize artifact registry HTTP client.",
-                )
-            })?;
+        let client = build_client(None)?;
         Ok(Self { client })
     }
+}
+
+fn build_client(dns_pin: Option<&DnsPin>) -> Result<reqwest::Client, ArtifactError> {
+    let mut builder = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none());
+    if let Some(pin) = dns_pin {
+        // A proxy would resolve the target independently and defeat the pin.
+        // Custom registries admitted by this path therefore connect directly
+        // to the exact public addresses validated by npm policy.
+        builder = builder
+            .no_proxy()
+            .resolve_to_addrs(&pin.host, &pin.addresses);
+    }
+    builder.build().map_err(|_| {
+        ArtifactError::new(
+            "provider_error",
+            "Failed to initialize artifact registry HTTP client.",
+        )
+    })
 }
 
 impl ArtifactHttp for SystemArtifactHttp {
@@ -93,10 +114,13 @@ impl ArtifactHttp for SystemArtifactHttp {
         budget: &'a RequestBudget,
     ) -> ArtifactHttpFuture<'a> {
         Box::pin(async move {
+            let client = match request.dns_pin.as_ref() {
+                Some(pin) => build_client(Some(pin))?,
+                None => self.client.clone(),
+            };
             for attempt in 0..2 {
                 check_budget(budget)?;
-                let mut builder = self
-                    .client
+                let mut builder = client
                     .get(request.url.clone())
                     .header(USER_AGENT, "octocode-rust/1")
                     .header(ACCEPT, request.accept);
@@ -202,6 +226,18 @@ impl RegistryClient<'_> {
         not_found_is_empty: bool,
         authorization: Option<SecretString>,
     ) -> Result<Option<serde_json::Value>, ArtifactError> {
+        self.json_with_dns_pin(artifact_type, url, not_found_is_empty, authorization, None)
+            .await
+    }
+
+    pub(crate) async fn json_with_dns_pin(
+        &self,
+        artifact_type: ArtifactType,
+        url: Url,
+        not_found_is_empty: bool,
+        authorization: Option<SecretString>,
+        dns_pin: Option<DnsPin>,
+    ) -> Result<Option<serde_json::Value>, ArtifactError> {
         let anonymous = authorization.is_none();
         if anonymous {
             let key = cache_key(&url);
@@ -222,6 +258,7 @@ impl RegistryClient<'_> {
                     url: url.clone(),
                     accept: "application/json",
                     authorization,
+                    dns_pin,
                 },
                 self.budget,
             )
@@ -253,6 +290,7 @@ impl RegistryClient<'_> {
                     url,
                     accept: "application/xml",
                     authorization: None,
+                    dns_pin: None,
                 },
                 self.budget,
             )
@@ -319,6 +357,8 @@ pub(crate) fn invalid_response(artifact_type: ArtifactType) -> ArtifactError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     struct NoHttp;
 
@@ -387,5 +427,32 @@ mod tests {
         let limited = classify(429).expect_err("429");
         assert_eq!(limited.code, "rate_limit");
         assert_eq!(limited.status, Some(429));
+    }
+
+    #[tokio::test]
+    async fn dns_pin_connects_to_the_validated_address() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/package"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("{}"))
+            .mount(&server)
+            .await;
+        let port = server.address().port();
+        let request = ArtifactHttpRequest {
+            url: Url::parse(&format!("http://registry.invalid:{port}/package")).expect("test URL"),
+            accept: "application/json",
+            authorization: None,
+            dns_pin: Some(DnsPin {
+                host: "registry.invalid".to_owned(),
+                addresses: vec![*server.address()],
+            }),
+        };
+        let budget = RequestBudget::with_timeout(Duration::from_secs(15), 1024);
+        let response = SystemArtifactHttp::new()
+            .expect("HTTP client")
+            .get(request, &budget)
+            .await
+            .expect("pinned request reaches the validated address");
+        assert_eq!(response.status, 200);
     }
 }

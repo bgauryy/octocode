@@ -4,7 +4,7 @@ Load when checking why a tool constraint or research rule exists. Verify current
 
 | Claim area | Primary source | What to verify |
 |---|---|---|
-| Octocode invocation and fields | Runtime `tools --json --compact` and `tools <name> --scheme --json` | availability, operations, relations, limits; implementation and tests in the matching checkout |
+| Octocode invocation and fields | Runtime `scheme --compact` and `scheme <name> --view query --compact` | availability, operations, relations, limits; implementation and tests in the matching checkout |
 | GitHub search | [REST search](https://docs.github.com/en/rest/search/search) | indexed scope, incomplete results, result caps, search qualifiers |
 | Exact file/ref reads | [Repository contents](https://docs.github.com/en/rest/repos/contents) | ref semantics and file/directory responses |
 | Provider pagination and efficiency | [Pagination](https://docs.github.com/en/rest/using-the-rest-api/using-pagination-in-the-rest-api) and [REST best practices](https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api) | provider links, conditional requests, rate limits |

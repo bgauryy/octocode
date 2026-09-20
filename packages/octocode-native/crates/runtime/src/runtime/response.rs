@@ -375,6 +375,9 @@ pub fn result_row(
 ) -> Value {
     preserve_continuation_metadata(&mut data, query);
     if let Some(object) = data.as_object_mut() {
+        if object.get("isPartial") == Some(&Value::Null) {
+            object.insert("isPartial".into(), Value::Bool(false));
+        }
         for key in [
             "status",
             "cache",
@@ -911,6 +914,18 @@ mod tests {
             terminal.pointer("/meta/diagnostics/codes"),
             Some(&json!(["terminalLimitReached"]))
         );
+    }
+
+    #[test]
+    fn result_rows_normalize_null_is_partial_to_false() {
+        let row = result_row(
+            "ghGetFileContent",
+            0,
+            &json!({"debug":false}),
+            json!({"files":[],"isPartial":null}),
+            None,
+        );
+        assert_eq!(row.pointer("/data/isPartial"), Some(&json!(false)));
     }
 
     #[test]

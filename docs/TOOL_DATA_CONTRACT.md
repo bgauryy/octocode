@@ -3,8 +3,8 @@
 This reference explains how agents carry evidence through the research layer of the Octocode agentic toolkit. It covers handoffs among Octocode's eleven tools. Use the [tool reference](OCTOCODE_TOOLS.md) for operation fields and the [local workflow](LOCAL_RESEARCH_WORKFLOW.md) for choosing the next evidence source. Inspect the live schema when constructing an unfamiliar request; compact fields are a summary, while the full schema retains nested and conditional constraints.
 
 ```sh
-node packages/octocode/out/octocode.js tools --json
-node packages/octocode/out/octocode.js tools astSearch --scheme --json
+node packages/octocode/out/octocode.js scheme --compact
+node packages/octocode/out/octocode.js scheme astSearch --view query
 ```
 
 The CLI discovery catalog includes disabled tools: eleven tools are discoverable and ten are enabled by default. MCP registers the enabled subset. Check `availability` and effective configuration. Enabling a tool does not install a language server or supply provider credentials.
@@ -21,7 +21,10 @@ The CLI discovery catalog includes disabled tools: eleven tools are discoverable
 | Response shaping and pagination | [native response module](../packages/octocode-native/crates/runtime/src/response/mod.rs) | Row status, evidence, presentation, and executable continuations. |
 | MCP registration | [public adapter](../packages/octocode-mcp/src/public.ts) | Publishes Standard Schema definitions and forwards execution to the native runtime. |
 
-MCP publishes no `outputSchema`. It returns `structuredContent` and text content, but clients cannot discover a per-tool output JSON Schema from `tools/list`. This is an output-discovery limitation, not proof that responses are untyped internally. MCP makes output schemas optional; when a server advertises one, its structured results must conform. See the [MCP tools specification](https://modelcontextprotocol.io/specification/2025-06-18/server/tools#output-schema).
+MCP publishes each enabled tool's `outputSchema` together with its input schema.
+Responses carry matching `structuredContent` plus a text representation. MCP
+makes output schemas optional, but Octocode advertises them deliberately, so its
+structured results must conform. See the [MCP tools specification](https://modelcontextprotocol.io/specification/2025-06-18/server/tools#output-schema).
 
 ## Requests and result rows
 

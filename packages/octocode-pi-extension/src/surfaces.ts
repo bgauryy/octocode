@@ -24,7 +24,10 @@ export function buildSurfaceSpec(
       return buildAwarenessCliInvocation([...prefix, ...rest]);
     }
     case 'tools':
-      return { cmd: 'npx', args: ['octocode', 'tools', ...rest] };
+      // The v20 CLI exposes `scheme` and direct tool names at the root. Keep
+      // the Pi surface name for callers, but do not reintroduce the removed
+      // `tools` subcommand into the spawned process.
+      return { cmd: 'npx', args: ['octocode', ...rest] };
     case 'skills':
       return { cmd: 'npx', args: ['octocode', 'skill', ...rest] };
     default: {

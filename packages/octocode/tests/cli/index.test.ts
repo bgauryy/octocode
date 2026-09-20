@@ -35,7 +35,7 @@ describe('runCLI native boundary', () => {
 
   it('delegates public tool commands without interpreting their arguments', async () => {
     const { runCLI } = await import('../../src/cli/index.js');
-    const argv = ['tools', 'localFetch', '--queries', '{"path":"/tmp/a"}'];
+    const argv = ['localFetch', '{"path":"/tmp/a","reasoning":"test"}'];
     await expect(runCLI(argv)).resolves.toBe(true);
     expect(mocks.delegate).toHaveBeenCalledWith('/native/octocode', argv);
     expect(mocks.skillHandler).not.toHaveBeenCalled();

@@ -1,11 +1,11 @@
-use super::http::RegistryClient;
+use super::http::{DnsPin, RegistryClient};
 use super::util::{encode_component, endpoint, object_for, required, safe_url, string, total};
 use super::{
     ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState, ArtifactQuery,
     ArtifactType, ResolvedNpmRegistry,
 };
 use serde_json::Value;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, ToSocketAddrs};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs};
 use url::{Host, Url};
 
 pub(crate) async fn npm(
@@ -15,11 +15,11 @@ pub(crate) async fn npm(
     client: &RegistryClient<'_>,
     allow_private_registry: bool,
 ) -> Result<ArtifactProviderPage, ArtifactError> {
-    validate_registry(query, registry, allow_private_registry)?;
+    let dns_pin = validate_registry(query, registry, allow_private_registry)?;
     if let Some(name) = query.package_name.as_deref() {
-        exact(name, registry, client).await
+        exact(name, registry, client, dns_pin).await
     } else {
-        search(query, state, registry, client).await
+        search(query, state, registry, client, dns_pin).await
     }
 }
 
@@ -27,7 +27,7 @@ fn validate_registry(
     query: &ArtifactQuery,
     registry: &ResolvedNpmRegistry,
     allow_private_registry: bool,
-) -> Result<(), ArtifactError> {
+) -> Result<Option<DnsPin>, ArtifactError> {
     let base = &registry.base;
     if !matches!(base.scheme(), "http" | "https")
         || !base.username().is_empty()
@@ -38,18 +38,6 @@ fn validate_registry(
         return Err(ArtifactError::new(
             "invalid_query",
             "Invalid npm registry URL: use HTTP(S) without credentials, query or fragment.",
-        ));
-    }
-    // SSRF guard: refuse to fetch from loopback, link-local, or private
-    // (RFC-1918/ULA/CGNAT) hosts. The `base` is what actually gets fetched and
-    // reflects the caller-supplied `registry` (a mismatch is rejected below),
-    // so blocking it here covers the request target. Public registries such as
-    // registry.npmjs.org resolve to public addresses and are unaffected.
-    if !allow_private_registry && is_blocked_host(base.host()) {
-        return Err(ArtifactError::new(
-            "invalid_query",
-            "Invalid npm registry URL: loopback, link-local, and private hosts are not allowed \
-             (set network.allowPrivateRegistry / OCTOCODE_ALLOW_PRIVATE_REGISTRY to permit).",
         ));
     }
     if let Some(requested) = query.registry.as_deref() {
@@ -66,41 +54,78 @@ fn validate_registry(
             ));
         }
     }
-    Ok(())
+    if allow_private_registry {
+        return Ok(None);
+    }
+    validate_registry_target(base)
 }
 
 fn trim_registry(url: &Url) -> String {
     url.as_str().trim_end_matches('/').to_owned()
 }
 
-/// True when the registry host targets a private/loopback/link-local address
-/// and must not be fetched (SSRF protection). IP literals are checked directly;
-/// domains are checked for localhost and, best-effort, resolved so a name that
-/// points at a private address is also blocked. Unresolvable names are allowed
-/// (the actual request will fail on its own).
-fn is_blocked_host(host: Option<Host<&str>>) -> bool {
-    match host {
-        Some(Host::Ipv4(ip)) => is_blocked_v4(&ip),
-        Some(Host::Ipv6(ip)) => is_blocked_v6(&ip),
-        Some(Host::Domain(name)) => is_blocked_domain(name),
-        None => true,
+fn registry_target_error() -> ArtifactError {
+    ArtifactError::new(
+        "invalid_query",
+        "Invalid npm registry URL: loopback, link-local, and private hosts are not allowed \
+         (set network.allowPrivateRegistry / OCTOCODE_ALLOW_PRIVATE_REGISTRY to permit).",
+    )
+}
+
+/// Validate a custom registry target and return the exact public DNS answers
+/// that the HTTP transport must use. The official npm registry is the sole
+/// hostname allowlist entry; every other domain is resolved once, rejects a
+/// mixed public/private answer, and is pinned through connect.
+fn validate_registry_target(base: &Url) -> Result<Option<DnsPin>, ArtifactError> {
+    match base.host() {
+        Some(Host::Ipv4(ip)) if is_blocked_v4(&ip) => Err(registry_target_error()),
+        Some(Host::Ipv6(ip)) if is_blocked_v6(&ip) => Err(registry_target_error()),
+        Some(Host::Ipv4(_) | Host::Ipv6(_)) => Ok(None),
+        Some(Host::Domain(name)) => {
+            let dns_host = name.to_ascii_lowercase();
+            let host = dns_host.trim_end_matches('.');
+            if host.is_empty() || host == "localhost" || host.ends_with(".localhost") {
+                return Err(registry_target_error());
+            }
+            if base.scheme() == "https"
+                && host == "registry.npmjs.org"
+                && base.port_or_known_default() == Some(443)
+            {
+                return Ok(None);
+            }
+            let port = base
+                .port_or_known_default()
+                .ok_or_else(registry_target_error)?;
+            let addresses: Vec<SocketAddr> = (dns_host.as_str(), port)
+                .to_socket_addrs()
+                .map_err(|_| {
+                    ArtifactError::new(
+                        "provider_error",
+                        "Custom npm registry hostname could not be resolved safely.",
+                    )
+                })?
+                .collect();
+            validate_resolved_addresses(&addresses)?;
+            Ok(Some(DnsPin {
+                host: dns_host,
+                addresses,
+            }))
+        }
+        None => Err(registry_target_error()),
     }
 }
 
-fn is_blocked_domain(name: &str) -> bool {
-    let host = name.trim_end_matches('.').to_ascii_lowercase();
-    if host.is_empty() || host == "localhost" || host.ends_with(".localhost") {
-        return true;
+fn validate_resolved_addresses(addresses: &[SocketAddr]) -> Result<(), ArtifactError> {
+    if addresses.is_empty() {
+        return Err(ArtifactError::new(
+            "provider_error",
+            "Custom npm registry hostname resolved without any usable address.",
+        ));
     }
-    match (host.as_str(), 443u16).to_socket_addrs() {
-        Ok(addrs) => {
-            let mut resolved = addrs.peekable();
-            // Only block on a positive resolution to a private address; an
-            // empty or failed lookup falls through to the real request.
-            resolved.peek().is_some() && resolved.all(|addr| is_blocked_ip(&addr.ip()))
-        }
-        Err(_) => false,
+    if addresses.iter().any(|address| is_blocked_ip(&address.ip())) {
+        return Err(registry_target_error());
     }
+    Ok(())
 }
 
 fn is_blocked_ip(ip: &IpAddr) -> bool {
@@ -159,6 +184,7 @@ async fn exact(
     package_name: &str,
     registry: &ResolvedNpmRegistry,
     client: &RegistryClient<'_>,
+    dns_pin: Option<DnsPin>,
 ) -> Result<ArtifactProviderPage, ArtifactError> {
     let (name, version) = split_npm_coordinate(package_name);
     let encoded = if let Some(scoped) = name.strip_prefix('@') {
@@ -174,11 +200,12 @@ async fn exact(
         &format!("{encoded}/{}", encode_component(spec)),
     )?;
     let response = client
-        .json(
+        .json_with_dns_pin(
             ArtifactType::Npm,
             request_url,
             true,
             registry.authorization.clone(),
+            dns_pin,
         )
         .await?;
     let Some(response) = response else {
@@ -241,6 +268,7 @@ async fn search(
     state: &ArtifactProviderState,
     registry: &ResolvedNpmRegistry,
     client: &RegistryClient<'_>,
+    dns_pin: Option<DnsPin>,
 ) -> Result<ArtifactProviderPage, ArtifactError> {
     let offset = state.offset.unwrap_or(0);
     let size = query.page_size.unwrap_or(10);
@@ -258,11 +286,12 @@ async fn search(
         ],
     )?;
     let response = client
-        .json(
+        .json_with_dns_pin(
             ArtifactType::Npm,
             url,
             false,
             registry.authorization.clone(),
+            dns_pin,
         )
         .await?
         .ok_or_else(|| ArtifactError::new("provider_error", "npm registry search failed."))?;
@@ -374,9 +403,9 @@ mod tests {
     use super::normalize_repository;
     use super::{
         ArtifactQuery, ArtifactType, ResolvedNpmRegistry, is_blocked_v4, is_blocked_v6,
-        validate_registry,
+        validate_registry, validate_resolved_addresses,
     };
-    use std::net::{Ipv4Addr, Ipv6Addr};
+    use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
     use url::Url;
 
     fn npm_registry(url: &str) -> ResolvedNpmRegistry {
@@ -420,6 +449,18 @@ mod tests {
         assert!(is_blocked_v6(&Ipv6Addr::LOCALHOST));
         assert!(is_blocked_v6(&Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1)));
         assert!(is_blocked_v6(&Ipv6Addr::new(0xfc00, 0, 0, 0, 0, 0, 0, 1)));
+    }
+
+    #[test]
+    fn rejects_mixed_public_private_dns_answers() {
+        let addresses = [
+            SocketAddr::from(([104, 16, 0, 1], 443)),
+            SocketAddr::from(([127, 0, 0, 1], 443)),
+        ];
+        let error = validate_resolved_addresses(&addresses)
+            .expect_err("one blocked answer must reject the complete DNS result");
+        assert_eq!(error.code, "invalid_query");
+        assert!(validate_resolved_addresses(&[addresses[0]]).is_ok());
     }
 
     #[test]

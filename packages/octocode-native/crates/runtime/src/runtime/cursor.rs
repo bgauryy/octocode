@@ -3,6 +3,7 @@ use hmac::{Hmac, KeyInit, Mac};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use std::io::Read;
 use std::path::Path;
 use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -320,6 +321,32 @@ fn now() -> Result<u64, CursorError> {
 }
 
 impl ReadCursor {
+    pub fn create(
+        tool: &str,
+        query: Value,
+        source_sha256: String,
+        scope: String,
+    ) -> Result<String, CursorError> {
+        if !matches!(tool, "localFetch" | "localSearch")
+            || !query.is_object()
+            || source_sha256.is_empty()
+        {
+            return Err(CursorError::Invalid);
+        }
+        if tool == "localSearch" && query["snapshot"].as_str() != Some(&source_sha256) {
+            return Err(CursorError::Invalid);
+        }
+        encode_to_token(&Self {
+            version: 1,
+            contract: crate::contracts::contract_fingerprint().into(),
+            scope,
+            expires_at: now()? + TOKEN_LIFETIME.as_secs(),
+            tool: tool.into(),
+            query,
+            source_sha256,
+        })
+    }
+
     pub fn decode(token: &str, scope: &str) -> Result<Self, CursorError> {
         let bytes = decode_raw(token)?;
         let cursor: Self = deserialize_and_check(&bytes, scope)?;
@@ -335,6 +362,41 @@ impl ReadCursor {
             return Err(CursorError::Invalid);
         }
         Ok(cursor)
+    }
+
+    pub fn verify_source(
+        &self,
+        paths: &crate::policy::path::PathPolicy,
+    ) -> Result<(), CursorError> {
+        if self.tool == "localSearch" {
+            // localSearch validates its directory snapshot during execution.
+            return Ok(());
+        }
+        let path = self
+            .query
+            .get("path")
+            .and_then(Value::as_str)
+            .ok_or(CursorError::Invalid)?;
+        let validated = paths
+            .validate_read(path)
+            .map_err(|_| CursorError::SourceUnavailable)?;
+        let mut file =
+            std::fs::File::open(validated.canonical).map_err(|_| CursorError::SourceUnavailable)?;
+        let mut digest = Sha256::new();
+        let mut buffer = [0_u8; 16 * 1024];
+        loop {
+            let read = file
+                .read(&mut buffer)
+                .map_err(|_| CursorError::SourceUnavailable)?;
+            if read == 0 {
+                break;
+            }
+            digest.update(&buffer[..read]);
+        }
+        if hex::encode(digest.finalize()) != self.source_sha256 {
+            return Err(CursorError::ChangedSource);
+        }
+        Ok(())
     }
 }
 
@@ -353,6 +415,22 @@ mod tests {
             UniversalCursor::decode(&token, "other-scope"),
             Err(CursorError::ChangedScope)
         ));
+    }
+
+    #[test]
+    fn read_tokens_round_trip_with_their_row_source_digest() {
+        let query = serde_json::json!({"path":"/workspace/a.rs","offset":10});
+        let token = ReadCursor::create(
+            "localFetch",
+            query.clone(),
+            "digest-a".into(),
+            "scope".into(),
+        )
+        .expect("read cursor");
+        let cursor = ReadCursor::decode(&token, "scope").expect("decode read cursor");
+        assert_eq!(cursor.tool, "localFetch");
+        assert_eq!(cursor.query, query);
+        assert_eq!(cursor.source_sha256, "digest-a");
     }
 
     #[test]

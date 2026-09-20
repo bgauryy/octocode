@@ -85,6 +85,12 @@ pub async fn execute<R: CredentialResolver, C: crate::providers::github::Conditi
             page_size,
             ..
         } => {
+            if !queries::code_has_narrowing_selector(query) {
+                return Err(ProviderError::new(
+                    ProviderErrorKind::Validation,
+                    "Code search requires non-empty keywords, path, extension, filename, or language; owner/repo alone is not a bounded code search.",
+                ));
+            }
             let q = queries::code(query);
             let current = page.unwrap_or(1);
             let per = page_size.unwrap_or(30).min(100);
@@ -333,6 +339,27 @@ mod tests {
     fn rejects_empty_and_unreachable_searches() {
         assert!(reject_window(11, 100).is_err());
         assert!(reject_window(10, 100).is_ok());
+        for raw in [
+            r#"{"operation":"code"}"#,
+            r#"{"operation":"code","keywords":[]}"#,
+            r#"{"operation":"code","keywords":["   "]}"#,
+            r#"{"operation":"code","owner":"o","repo":"r"}"#,
+        ] {
+            let query: GhSearchQuery =
+                serde_json::from_str(raw).expect("code search fixture should deserialize");
+            assert!(!queries::code_has_narrowing_selector(&query), "{raw}");
+        }
+        for raw in [
+            r#"{"operation":"code","keywords":["needle"]}"#,
+            r#"{"operation":"code","path":"src"}"#,
+            r#"{"operation":"code","extension":"rs"}"#,
+            r#"{"operation":"code","filename":"Cargo.toml"}"#,
+            r#"{"operation":"code","language":"rust"}"#,
+        ] {
+            let query: GhSearchQuery =
+                serde_json::from_str(raw).expect("bounded code search fixture should deserialize");
+            assert!(queries::code_has_narrowing_selector(&query), "{raw}");
+        }
     }
     #[test]
     fn parses_each_public_variant() {

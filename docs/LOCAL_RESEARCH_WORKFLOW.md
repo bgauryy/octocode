@@ -3,7 +3,10 @@
 This workflow covers the local-code research layer of the Octocode agentic toolkit. The public local tools are `localSearch`, `astSearch`, `localFetch`, and `lspSearch`. CLI and MCP share core-owned schemas and routing instructions, with execution in the native Rust runtime. Inspect a tool’s current schema before constructing an unfamiliar call:
 
 ```sh
-node packages/octocode/out/octocode.js tools localSearch astSearch localFetch lspSearch --scheme --json --compact
+node packages/octocode/out/octocode.js scheme localSearch --view query --compact
+node packages/octocode/out/octocode.js scheme astSearch --view query --compact
+node packages/octocode/out/octocode.js scheme localFetch --view query --compact
+node packages/octocode/out/octocode.js scheme lspSearch --view query --compact
 ```
 
 | Question | Tool and operation | Evidence returned |

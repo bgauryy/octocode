@@ -69,7 +69,7 @@ pub fn format_input_error(tool_name: &str, error: &ContractValidationError) -> V
             details.push(msg);
         }
         details.push(format!(
-            "Run tools {tool_name} --scheme --brief to see valid fields."
+            "Run scheme {tool_name} --view query --compact to see valid fields."
         ));
         return serde_json::json!({"kind":"octocode.toolError","version":1,"tool":tool_name,"error":format!("Unknown field(s): {}", fields.join(", ")),"details":details});
     }
@@ -996,7 +996,7 @@ fn validate_github_search_queries(input: &Value) -> Result<(), ContractValidatio
         let runnable = match operation {
             Some("code") => {
                 has_terms("keywords")
-                    || ["owner", "path", "extension", "filename", "language"]
+                    || ["path", "extension", "filename", "language"]
                         .iter()
                         .any(|field| has_text(field))
             }
@@ -1225,6 +1225,38 @@ mod tests {
     }
 
     #[test]
+    fn rejects_repo_scoped_code_wildcards_before_provider_io() {
+        let error = validate(
+            "ghSearch",
+            json!({"queries":[{
+                "operation":"code",
+                "owner":"octocode",
+                "repo":"octocode",
+                "reasoning":"Reject a repo-wide wildcard."
+            }]}),
+        )
+        .expect_err("owner/repo alone is not a runnable code search");
+        assert!(
+            error
+                .issues
+                .iter()
+                .any(|issue| issue.rule_id == "gh-search.runnable-constraint")
+        );
+
+        validate(
+            "ghSearch",
+            json!({"queries":[{
+                "operation":"code",
+                "owner":"octocode",
+                "repo":"octocode",
+                "path":"src",
+                "reasoning":"Run a path-bounded code search."
+            }]}),
+        )
+        .expect("path is an explicit code-search narrowing filter");
+    }
+
+    #[test]
     fn aggregates_schema_violations_across_fields_and_queries() {
         let error = validate(
             "localFetch",
@@ -1272,7 +1304,7 @@ mod tests {
             format_input_error("localFetch", &unknown),
             json!({
                 "kind":"octocode.toolError","version":1,"tool":"localFetch","error":"Unknown field(s): madeUp",
-                "details":["Remove unknown field(s) from query 1: madeUp", "Run tools localFetch --scheme --brief to see valid fields."]
+                "details":["Remove unknown field(s) from query 1: madeUp", "Run scheme localFetch --view query --compact to see valid fields."]
             })
         );
     }

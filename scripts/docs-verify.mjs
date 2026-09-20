@@ -325,10 +325,10 @@ function validatePrimaryToolGuidance() {
     },
     {
       file: 'packages/octocode/docs/OCTOCODE_CLI.md',
-      required: ['| GitHub | `ghSearch`', 'tools ghSearch --queries'],
+      required: ['| GitHub | `ghSearch`', 'octocode ghSearch'],
       forbidden: [
-        'tools ghSearchCode --queries',
-        'tools ghViewRepoStructure --queries',
+        'octocode ghSearchCode',
+        'octocode ghViewRepoStructure',
       ],
     },
     {
@@ -338,12 +338,12 @@ function validatePrimaryToolGuidance() {
     },
     {
       file: 'packages/octocode-benchmark/skills/octocode-benchmark/references/run-preflight.md',
-      required: ['tools ghSearch --queries', '"operation":"repositories"'],
+      required: ['ghSearch', '"operation":"repositories"'],
       forbidden: ['ghSearchCode', 'ghSearchRepos', 'ghViewRepoStructure'],
     },
     {
       file: 'packages/octocode-benchmark/skills/octocode-benchmark/scripts/check-prereqs.sh',
-      required: ['tools ghSearch --queries', '"operation":"repositories"'],
+      required: ['ghSearch', '"operation":"repositories"'],
       forbidden: ['ghSearchCode', 'ghSearchRepos', 'ghViewRepoStructure'],
     },
     {

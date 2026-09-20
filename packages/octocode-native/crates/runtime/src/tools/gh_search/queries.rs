@@ -20,6 +20,28 @@ fn push(parts: &mut Vec<String>, key: &str, value: Option<&str>) {
     }
 }
 
+pub(super) fn code_has_narrowing_selector(query: &GhSearchQuery) -> bool {
+    let GhSearchQuery::Code {
+        keywords,
+        path,
+        extension,
+        filename,
+        language,
+        ..
+    } = query
+    else {
+        return false;
+    };
+    keywords
+        .iter()
+        .flatten()
+        .any(|value| !value.trim().is_empty())
+        || [path, extension, filename, language]
+            .into_iter()
+            .flatten()
+            .any(|value| !value.trim().is_empty())
+}
+
 pub(super) fn code(query: &GhSearchQuery) -> String {
     let GhSearchQuery::Code {
         keywords,

@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/server';
+import { getNativeContractFingerprint } from '@octocodeai/octocode-core/schema';
 import { createNativeMcp, loadNativeBinding } from '../../src/native/index.mjs';
 
 class FakeRuntime {
   static instance;
+  abiVersion = 2;
   executions = [];
   closed = false;
   constructor() {
@@ -12,6 +14,7 @@ class FakeRuntime {
   }
   catalog() {
     return {
+      fingerprint: getNativeContractFingerprint(),
       mcpInstructions: 'local-only',
       tools: [
         {

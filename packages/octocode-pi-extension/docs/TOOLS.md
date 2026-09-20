@@ -588,7 +588,7 @@ Loaded via `@octocodeai/config`. Run `npx @octocodeai/config --keys` to inspect 
 
 ```bash
 # Exact active schema for any tool
-node $OCTOCODE_CLI tools <toolName> --scheme
+node $OCTOCODE_CLI scheme <toolName> --view query
 
 # List the current Octocode tool catalog
 node $OCTOCODE_CLI tools

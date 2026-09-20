@@ -240,7 +240,7 @@ pub async fn execute<R: CredentialResolver>(
                     }
                 })
                 .collect::<Vec<_>>();
-            let mut v = json!({"pullRequests":rows,"effectiveQuery":effective,"pagination":{"currentPage":current_page,"perPage":per,"hasMore":more,"nextPage":more.then_some(current_page+1)}});
+            let mut v = json!({"type":"pullRequests","pullRequests":rows,"effectiveQuery":effective,"pagination":{"currentPage":current_page,"perPage":per,"hasMore":more,"nextPage":more.then_some(current_page+1)}});
             if !result.listed {
                 v["pagination"]["totalPages"] = json!(pages);
                 v["pagination"]["totalMatches"] = json!(total);
@@ -393,7 +393,31 @@ fn labels(v: &Value) -> Vec<String> {
         .collect()
 }
 fn map_pr(v: Value) -> Value {
-    json!({"number":v["number"],"title":v["title"],"state":v["state"],"author":v.pointer("/user/login"),"labels":labels(&v),"createdAt":v["created_at"],"commentsCount":v["comments"]})
+    let merged_at = v
+        .get("merged_at")
+        .filter(|value| !value.is_null())
+        .or_else(|| {
+            v.pointer("/pull_request/merged_at")
+                .filter(|value| !value.is_null())
+        })
+        .cloned();
+    let state = if merged_at.is_some() {
+        json!("merged")
+    } else {
+        v["state"].clone()
+    };
+    let mut row = json!({
+        "number":v["number"],
+        "title":v.get("title").and_then(Value::as_str).unwrap_or(""),
+        "state":state,
+        "mergedAt":merged_at,
+        "author":v.pointer("/user/login").and_then(Value::as_str).unwrap_or(""),
+        "labels":labels(&v),
+        "createdAt":v.get("created_at").and_then(Value::as_str).unwrap_or(""),
+        "commentsCount":v.get("comments").and_then(Value::as_u64).unwrap_or(0)
+    });
+    remove_nulls(&mut row);
+    row
 }
 fn concise_row(v: &Value) -> Value {
     json!(format!(
@@ -621,5 +645,49 @@ mod tests {
             serde_json::from_str(r#"{"operation":"commits","owner":"a"}"#)
                 .expect("GitHub history search test data should be valid");
         assert!(build_query(&q).is_err());
+    }
+
+    #[test]
+    fn pull_request_rows_normalize_merged_state_from_list_and_search_shapes() {
+        let listed = map_pr(json!({
+            "number":1,
+            "title":"listed",
+            "state":"closed",
+            "merged_at":"2026-09-20T10:00:00Z",
+            "user":{"login":"dev"},
+            "labels":[],
+            "created_at":"2026-09-19T10:00:00Z",
+            "comments":2
+        }));
+        assert_eq!(listed["state"], "merged");
+        assert_eq!(listed["mergedAt"], "2026-09-20T10:00:00Z");
+        assert_eq!(listed["author"], "dev");
+        assert_eq!(listed["commentsCount"], 2);
+
+        let searched = map_pr(json!({
+            "number":2,
+            "title":"searched",
+            "state":"closed",
+            "pull_request":{"merged_at":"2026-09-20T11:00:00Z"},
+            "user":{"login":"dev"},
+            "labels":[],
+            "created_at":"2026-09-19T11:00:00Z",
+            "comments":0
+        }));
+        assert_eq!(searched["state"], "merged");
+        assert_eq!(searched["mergedAt"], "2026-09-20T11:00:00Z");
+
+        let closed = map_pr(json!({
+            "number":3,
+            "title":"closed",
+            "state":"closed",
+            "merged_at":null,
+            "user":{"login":"dev"},
+            "labels":[],
+            "created_at":"2026-09-19T12:00:00Z",
+            "comments":0
+        }));
+        assert_eq!(closed["state"], "closed");
+        assert!(closed.get("mergedAt").is_none());
     }
 }

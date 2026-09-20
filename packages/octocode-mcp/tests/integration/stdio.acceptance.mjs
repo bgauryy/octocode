@@ -131,7 +131,7 @@ const nextCall = async continuation => {
 };
 const executeCliTool = (name, queries) => JSON.parse(execFileSync(
   values.node,
-  [path.resolve(values.cli), 'tools', name, '--queries', JSON.stringify(queries), '--compact'],
+  [path.resolve(values.cli), name, JSON.stringify({ queries }), '--compact'],
   { encoding: 'utf8', timeout: 120_000, maxBuffer: 8 * 1024 * 1024, cwd: acceptanceCwd, env: acceptanceEnv }
 ));
 const pages = async (first, nextKey, collect) => {
@@ -199,7 +199,7 @@ try {
       const cli = JSON.parse(
         execFileSync(
           values.node,
-          [path.resolve(values.cli), 'tools', tool.name, '--scheme', '--json'],
+          [path.resolve(values.cli), 'scheme', tool.name, '--compact'],
           { encoding: 'utf8', timeout: 10_000, cwd: acceptanceCwd, env: acceptanceEnv }
         )
       );

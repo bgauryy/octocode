@@ -17,9 +17,9 @@ for validation requirements.
 Run these commands from the monorepo root after building the CLI:
 
 ```bash
-node packages/octocode/out/octocode.js tools --json
-node packages/octocode/out/octocode.js tools localSearch --scheme --json --compact
-node packages/octocode/out/octocode.js tools ghGetHistoryItem --scheme --json
+node packages/octocode/out/octocode.js scheme --compact
+node packages/octocode/out/octocode.js scheme localSearch --view query --compact
+node packages/octocode/out/octocode.js scheme ghGetHistoryItem --view query
 ```
 
 The catalog shows available tools and configuration gates. A compact schema

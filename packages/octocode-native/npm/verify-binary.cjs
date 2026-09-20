@@ -106,7 +106,7 @@ if (version.status !== 0 || !version.stdout.includes(pkg.version)) {
   );
 }
 
-const catalog = run(['tools', '--json'], {
+const catalog = run(['scheme', '--compact'], {
   env: { ...process.env, ENABLE_CLONE: 'false' },
 });
 const parsed = parseOutput(catalog);
@@ -121,7 +121,7 @@ if (
   );
 }
 
-const schema = run(['tools', '--scheme', 'lspSearch', '--compact']);
+const schema = run(['scheme', 'lspSearch', '--view', 'query', '--compact']);
 const schemaText = JSON.stringify(parseOutput(schema)?.querySchema ?? {});
 if (
   schema.status !== 0 ||

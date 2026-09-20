@@ -95,6 +95,71 @@ async fn local_fetch_pages_and_unions_through_the_runtime() {
 }
 
 #[tokio::test]
+async fn mcp_local_fetch_cursors_stale_only_the_mutated_batch_row() {
+    let workspace = Workspace::new();
+    let first_path = workspace.write("cursor-first.txt", "first-1\nfirst-2\n");
+    let second_path = workspace.write("cursor-second.txt", "second-1\nsecond-2\n");
+    let runtime = workspace.runtime(&[]);
+    let initial = runtime
+        .execute_mcp(
+            "mcp-local-cursor-batch".into(),
+            "localFetch".into(),
+            json!({"queries":[
+                {
+                    "path":first_path,
+                    "chunkType":"lines",
+                    "limit":1,
+                    "reasoning":"Page the first cursor fixture."
+                },
+                {
+                    "path":second_path,
+                    "chunkType":"lines",
+                    "limit":1,
+                    "reasoning":"Page the second cursor fixture."
+                }
+            ]}),
+        )
+        .await
+        .expect("MCP localFetch batch");
+    let rows = initial["structuredContent"]["results"]
+        .as_array()
+        .expect("MCP result rows");
+    let first_cursor = rows[0]["data"]["next"]["continue"]["cursor"]
+        .as_str()
+        .expect("first row cursor")
+        .to_owned();
+    let second_cursor = rows[1]["data"]["next"]["continue"]["cursor"]
+        .as_str()
+        .expect("second row cursor")
+        .to_owned();
+
+    std::fs::write(&first_path, "changed-1\nchanged-2\n").expect("mutate first source");
+    let stale = runtime
+        .execute(
+            "resume-mutated-local-row".into(),
+            "localFetch".into(),
+            json!({"cursor":first_cursor}),
+        )
+        .await
+        .expect_err("mutated source must stale its cursor");
+    assert_eq!(stale.code, "staleCursor");
+
+    let resumed = runtime
+        .execute(
+            "resume-unchanged-local-row".into(),
+            "localFetch".into(),
+            json!({"cursor":second_cursor}),
+        )
+        .await
+        .expect("unchanged source cursor remains valid");
+    assert_eq!(
+        resumed.structured_content["results"][0]["data"]["content"],
+        "second-2\n"
+    );
+    runtime.close().await;
+}
+
+#[tokio::test]
 async fn local_fetch_rejects_unknown_fields_at_the_contract() {
     let workspace = Workspace::new();
     let path = workspace.write("a.txt", "ok\n");

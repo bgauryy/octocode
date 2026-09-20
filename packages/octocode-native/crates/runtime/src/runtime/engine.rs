@@ -401,12 +401,17 @@ impl ToolRuntime {
             .and_then(|m| m["cursor"].as_str())
         {
             Some(tok) => {
-                let (dt, dq) = super::cursor::UniversalCursor::decode(tok, &scope)
-                    .map(|c| (c.tool, c.query))
-                    .or_else(|_| {
-                        super::cursor::ReadCursor::decode(tok, &scope).map(|c| (c.tool, c.query))
-                    })
-                    .map_err(|e| RuntimeError::new("invalidCursor", format!("{e:?}")))?;
+                let (dt, dq) = match super::cursor::UniversalCursor::decode(tok, &scope) {
+                    Ok(cursor) => (cursor.tool, cursor.query),
+                    Err(_) => {
+                        let cursor = super::cursor::ReadCursor::decode(tok, &scope)
+                            .map_err(cursor_runtime_error)?;
+                        cursor
+                            .verify_source(&self.paths)
+                            .map_err(cursor_runtime_error)?;
+                        (cursor.tool, cursor.query)
+                    }
+                };
                 if !self.is_available(&dt) {
                     return Err(RuntimeError::new(
                         "toolUnavailable",
@@ -532,6 +537,7 @@ impl ToolRuntime {
             .execute_blocking_admitted(admission, move |context| {
                 let mut rows = Vec::with_capacity(queries.len());
                 let mut source_digest = None;
+                let mut source_digests = Vec::with_capacity(queries.len());
                 let mut failure = None;
                 let mut jev_rows = if tool == "jev" {
                     let _enter = handle.enter();
@@ -571,9 +577,11 @@ impl ToolRuntime {
                         None => dispatcher.execute(&tool, query, &context)?,
                     };
                     context.check()?;
+                    let row_source_digest = result.source_digest;
                     if queries.len() == 1 {
-                        source_digest = result.source_digest;
+                        source_digest = row_source_digest.clone();
                     }
+                    source_digests.push(row_source_digest);
                     failure = failure.or(result.failure);
                     let mut row =
                         response::result_row(&tool, index, query, result.data, result.status);
@@ -636,7 +644,7 @@ impl ToolRuntime {
                 // Jev receipts retain executable tool/query pairs. Their tool
                 // scopes differ from the outer Jev request's cursor scope.
                 if !jev_output {
-                    inject_cursors(&mut structured_content, &cursor_scope);
+                    inject_cursors(&mut structured_content, &cursor_scope, &source_digests);
                 }
                 context.check()?;
                 Ok(ToolOutcome {
@@ -682,18 +690,30 @@ impl ToolRuntime {
     }
 }
 
-fn inject_cursors(value: &mut Value, scope: &str) {
-    inject_cursors_inner(value, scope, false);
+fn inject_cursors(value: &mut Value, scope: &str, source_digests: &[Option<String>]) {
+    inject_cursors_inner(value, scope, false, source_digests, None);
 }
 
-fn inject_cursors_inner(value: &mut Value, scope: &str, inside_next: bool) {
+fn inject_cursors_inner<'a>(
+    value: &mut Value,
+    scope: &str,
+    inside_next: bool,
+    source_digests: &'a [Option<String>],
+    row_source_digest: Option<&'a str>,
+) {
     match value {
         Value::Array(arr) => {
             for child in arr.iter_mut() {
-                inject_cursors_inner(child, scope, inside_next);
+                inject_cursors_inner(child, scope, inside_next, source_digests, row_source_digest);
             }
         }
         Value::Object(map) => {
+            let row_source_digest = map
+                .get("index")
+                .and_then(Value::as_u64)
+                .and_then(|index| source_digests.get(index as usize))
+                .and_then(Option::as_deref)
+                .or(row_source_digest);
             if let (true, Some(tool_str), Some(query_val)) = (
                 inside_next && !map.contains_key("cursor"),
                 map.get("tool").and_then(Value::as_str),
@@ -701,21 +721,50 @@ fn inject_cursors_inner(value: &mut Value, scope: &str, inside_next: bool) {
             ) {
                 let tool = tool_str.to_owned();
                 let query = query_val.clone();
-                if let Ok(token) =
-                    super::cursor::UniversalCursor::create(&tool, query, scope.to_owned())
-                {
+                let token = if matches!(tool.as_str(), "localFetch" | "localSearch") {
+                    row_source_digest.and_then(|digest| {
+                        super::cursor::ReadCursor::create(
+                            &tool,
+                            query.clone(),
+                            digest.to_owned(),
+                            scope.to_owned(),
+                        )
+                        .ok()
+                    })
+                } else {
+                    super::cursor::UniversalCursor::create(&tool, query, scope.to_owned()).ok()
+                };
+                if let Some(token) = token {
                     map.insert("cursor".into(), Value::String(token));
                 }
             }
             let keys: Vec<String> = map.keys().cloned().collect();
             for key in keys {
                 if let Some(child) = map.get_mut(&key) {
-                    inject_cursors_inner(child, scope, inside_next || key == "next");
+                    inject_cursors_inner(
+                        child,
+                        scope,
+                        inside_next || key == "next",
+                        source_digests,
+                        row_source_digest,
+                    );
                 }
             }
         }
         _ => {}
     }
+}
+
+fn cursor_runtime_error(error: super::cursor::CursorError) -> RuntimeError {
+    let code = if matches!(
+        error,
+        super::cursor::CursorError::ChangedSource | super::cursor::CursorError::SourceUnavailable
+    ) {
+        "staleCursor"
+    } else {
+        "invalidCursor"
+    };
+    RuntimeError::new(code, format!("{error:?}"))
 }
 
 fn runtime_execution_error(error: ExecutionError) -> RuntimeError {
@@ -735,5 +784,90 @@ fn runtime_execution_error(error: ExecutionError) -> RuntimeError {
 impl CancellationCheck for ExecutionContext {
     fn check(&self) -> Result<(), String> {
         ExecutionContext::check(self).map_err(|error| format!("{error:?}"))
+    }
+}
+
+#[cfg(test)]
+mod cursor_tests {
+    use super::*;
+    use crate::policy::path::PathPolicyConfig;
+    use sha2::{Digest, Sha256};
+
+    #[test]
+    fn local_fetch_continuations_are_bound_to_their_result_row_digest() {
+        let mut structured = json!({
+            "results":[
+                {"index":0,"data":{"next":{"continue":{"tool":"localFetch","query":{"path":"/workspace/a.rs","offset":1}}}}},
+                {"index":1,"data":{"next":{"continue":{"tool":"localFetch","query":{"path":"/workspace/b.rs","offset":1}}}}}
+            ]
+        });
+        inject_cursors(
+            &mut structured,
+            "scope",
+            &[Some("digest-a".into()), Some("digest-b".into())],
+        );
+
+        let first = structured["results"][0]["data"]["next"]["continue"]["cursor"]
+            .as_str()
+            .expect("first cursor");
+        let second = structured["results"][1]["data"]["next"]["continue"]["cursor"]
+            .as_str()
+            .expect("second cursor");
+        let first = super::super::cursor::ReadCursor::decode(first, "scope")
+            .expect("decode first read cursor");
+        let second = super::super::cursor::ReadCursor::decode(second, "scope")
+            .expect("decode second read cursor");
+        assert_eq!(first.source_sha256, "digest-a");
+        assert_eq!(second.source_sha256, "digest-b");
+        assert_ne!(first.source_sha256, second.source_sha256);
+    }
+
+    #[test]
+    fn changing_one_local_fetch_source_stales_only_that_rows_cursor() {
+        let root = tempfile::tempdir().expect("temp workspace");
+        let first_path = root.path().join("a.rs");
+        let second_path = root.path().join("b.rs");
+        std::fs::write(&first_path, b"first-v1").expect("write first fixture");
+        std::fs::write(&second_path, b"second-v1").expect("write second fixture");
+        let paths = PathPolicy::new(PathPolicyConfig {
+            workspace_root: Some(root.path().to_path_buf()),
+            ..Default::default()
+        })
+        .expect("path policy");
+        let digest = |bytes: &[u8]| hex::encode(Sha256::digest(bytes));
+        let first = super::super::cursor::ReadCursor::create(
+            "localFetch",
+            json!({"path":first_path}),
+            digest(b"first-v1"),
+            "scope".into(),
+        )
+        .and_then(|token| super::super::cursor::ReadCursor::decode(&token, "scope"))
+        .expect("first read cursor");
+        let second = super::super::cursor::ReadCursor::create(
+            "localFetch",
+            json!({"path":second_path}),
+            digest(b"second-v1"),
+            "scope".into(),
+        )
+        .and_then(|token| super::super::cursor::ReadCursor::decode(&token, "scope"))
+        .expect("second read cursor");
+
+        first.verify_source(&paths).expect("first initially fresh");
+        second
+            .verify_source(&paths)
+            .expect("second initially fresh");
+        std::fs::write(&first_path, b"first-v2").expect("mutate first fixture");
+
+        let first_error = first
+            .verify_source(&paths)
+            .expect_err("mutated first source must be stale");
+        assert_eq!(
+            first_error,
+            super::super::cursor::CursorError::ChangedSource
+        );
+        assert_eq!(cursor_runtime_error(first_error).code, "staleCursor");
+        second
+            .verify_source(&paths)
+            .expect("unchanged second source remains resumable");
     }
 }

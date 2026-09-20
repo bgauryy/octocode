@@ -2,6 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/server';
 
 export interface NativeRuntimeBinding {
   NativeRuntime: new (options?: Record<string, unknown>) => {
+    readonly abiVersion: number;
     catalog(): NativeCatalog;
     executeMcp(
       requestId: string,
@@ -24,6 +25,7 @@ export interface NativeCatalogTool {
 }
 
 export interface NativeCatalog {
+  fingerprint: string;
   server?: { name: string; title?: string; version: string };
   mcpInstructions?: string;
   tools: NativeCatalogTool[];

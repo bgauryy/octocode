@@ -18,10 +18,10 @@ function expectCommand(spec: ReturnType<typeof buildSurfaceSpec>): { cmd: string
 }
 
 describe('buildSurfaceSpec — external octocode CLI', () => {
-  it('tools maps to `npx octocode tools`', () => {
-    expect(buildSurfaceSpec('tools', ['--json'])).toEqual({
+  it('tools forwards the current direct CLI grammar without a retired subcommand', () => {
+    expect(buildSurfaceSpec('tools', ['scheme', 'localFetch', '--view', 'query', '--compact'])).toEqual({
       cmd: 'npx',
-      args: ['octocode', 'tools', '--json'],
+      args: ['octocode', 'scheme', 'localFetch', '--view', 'query', '--compact'],
     });
   });
 

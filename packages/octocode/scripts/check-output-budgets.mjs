@@ -15,25 +15,25 @@ if (!existsSync(cli)) {
 
 const cases = [
   { name: 'root-help', args: ['--help'], maxBytes: 4500 },
-  { name: 'tools-json', args: ['tools', '--json'], maxBytes: 6500 },
-  { name: 'context-compact', args: ['context', '--compact'], maxBytes: 4100 },
-  { name: 'context-minimal', args: ['context', '--minimal'], maxBytes: 1800 },
+  { name: 'scheme-catalog', args: ['scheme', '--compact'], maxBytes: 7500 },
   {
     name: 'localSearch-compact-schema',
-    args: ['tools', 'localSearch', '--scheme', '--json', '--compact'],
-    maxBytes: 5000,
+    args: ['scheme', 'localSearch', '--view', 'query', '--compact'],
+    maxBytes: 14000,
   },
   {
     name: 'default-tool-json',
     args: [
-      'tools',
       'localSearch',
-      '--path',
-      sourceEntry,
-      '--search-text',
-      'runCLI',
-      '--max-files',
-      '1',
+      JSON.stringify({
+        path: sourceEntry,
+        searchText: 'runCLI',
+        regex: 'literal',
+        resultView: 'files',
+        maxFiles: 1,
+        reasoning: 'Exercise the direct localSearch CLI within the output budget.',
+      }),
+      '--compact',
     ],
     maxBytes: 5000,
     validJson: true,
@@ -77,24 +77,22 @@ for (const item of cases) {
 }
 
 const noArgs = runCli([]);
-const explicitHelp = runCli(['--help']);
 results.push({
-  name: 'default-equals-help',
+  name: 'default-shows-help',
   ok:
-    noArgs.status === 0 &&
-    explicitHelp.status === 0 &&
-    noArgs.stdout === explicitHelp.stdout,
+    noArgs.status === 2 &&
+    noArgs.stderr.includes('Usage: octocode'),
   status: noArgs.status,
-  bytes: Buffer.byteLength(noArgs.stdout || '', 'utf8'),
+  bytes: Buffer.byteLength(noArgs.stderr || '', 'utf8'),
   maxBytes: 4500,
 });
 
 const unknown = runCli(['definitely-not-a-command']);
 results.push({
   name: 'unknown-command-exit',
-  ok: unknown.status === 3,
+  ok: unknown.status === 2,
   status: unknown.status,
-  bytes: Buffer.byteLength(unknown.stdout || '', 'utf8'),
+  bytes: Buffer.byteLength(unknown.stderr || '', 'utf8'),
   maxBytes: 1000,
 });
 

@@ -170,7 +170,7 @@ yarn install && yarn prepublish       # lockfile + final guard + readme sync
 |---|---|
 | MCP | [`docs/OCTOCODE_MCP.md`](docs/OCTOCODE_MCP.md) |
 | Tools | [`docs/OCTOCODE_TOOLS.md`](docs/OCTOCODE_TOOLS.md) |
-| Config | [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) |
+| Config | [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) · [`docs/ADDING_CONFIG.md`](docs/ADDING_CONFIG.md) (contributor guide) |
 | Security | [`docs/SECURITY.md`](docs/SECURITY.md) |
 | CLI | [`packages/octocode/docs/OCTOCODE_CLI.md`](packages/octocode/docs/OCTOCODE_CLI.md) |
 | Engine / LSP | [`LSP_SERVER_LIFECYCLE.md`](packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md) · [`SUPPORTED_LANGUAGES_AND_FEATURES.md`](packages/octocode-native/docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md) |
