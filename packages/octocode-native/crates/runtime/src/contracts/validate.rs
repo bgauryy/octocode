@@ -1181,7 +1181,7 @@ mod tests {
                 "{field}"
             );
         }
-        for field in ["id", "resources", "questions"] {
+        for field in ["id", "reasoning", "resources", "questions"] {
             let mut invalid = query.clone();
             invalid.as_object_mut().expect("query object").remove(field);
             assert!(
@@ -1189,19 +1189,13 @@ mod tests {
                 "missing {field}"
             );
         }
-        // reasoning is optional: dropping it yields an accepted query.
-        let mut without_reasoning = query.clone();
-        without_reasoning
-            .as_object_mut()
-            .expect("query object")
-            .remove("reasoning");
-        let prepared_without_reasoning = prepare_and_validate(
-            "semanticAssess",
-            without_reasoning,
-            PrepareOptions::default(),
-        )
-        .expect("reasoning is optional for semanticAssess");
-        assert!(prepared_without_reasoning.get("reasoning").is_none());
+        let mut blank_reasoning = query.clone();
+        blank_reasoning["reasoning"] = json!("");
+        assert!(
+            prepare_and_validate("semanticAssess", blank_reasoning, PrepareOptions::default())
+                .is_err(),
+            "blank semantic reasoning"
+        );
     }
 
     #[test]

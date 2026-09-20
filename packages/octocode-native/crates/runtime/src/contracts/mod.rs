@@ -236,10 +236,7 @@ mod contract_owner_tests {
             json!({"path":"/tmp/source.rs"}),
             PrepareOptions::default(),
         );
-        assert!(
-            omitted.is_ok(),
-            "reasoning must be optional: {omitted:?}"
-        );
+        assert!(omitted.is_ok(), "reasoning must be optional: {omitted:?}");
         assert!(
             omitted.unwrap().get("reasoning").is_none(),
             "omitted reasoning must never be fabricated"
@@ -417,7 +414,7 @@ mod contract_owner_tests {
         use sha2::{Digest, Sha256};
         let digest = hex::encode(Sha256::digest(contract_json().as_bytes()));
         assert_eq!(
-            digest, "bc7589e1c79d3b3bc30bdb912f6f89380d701c0a8689e071c443448a092d99e5",
+            digest, "5a7dd0231d4d8d704115ea4cbfdacf3c70fca59e9628dc5715169f066d8da811",
             "generated contract body changed without regeneration from core"
         );
     }

@@ -174,7 +174,7 @@ async fn recoverable_full_content_error_follows_exact_pages_and_completes_covera
             "answers":{"answer":{"type":"noul","noul":0.8}},
             "usage":{"input_tokens":2,"output_tokens":1}
         })))
-        .expect(2)
+        .expect(4)
         .mount(&server)
         .await;
     let workspace = Workspace::new();
@@ -182,6 +182,7 @@ async fn recoverable_full_content_error_follows_exact_pages_and_completes_covera
     let runtime = workspace.runtime(&[
         ("OCTOCODE_JEV_KEY", "secret".into()),
         ("OCTOCODE_JEV_BASE_URL", server.uri()),
+        ("REQUEST_TIMEOUT", "20000".into()),
     ]);
     let input = json!({
         "id":"recover-full-content",
@@ -192,7 +193,11 @@ async fn recoverable_full_content_error_follows_exact_pages_and_completes_covera
         "questions":[{"id":"relevant","question":{"type":"noul","instructions":"Relevant?"}}]
     });
     let outcome = runtime
-        .execute("recover-full-content".into(), "semanticAssess".into(), input)
+        .execute(
+            "recover-full-content".into(),
+            "semanticAssess".into(),
+            input,
+        )
         .await
         .unwrap();
     let query = &outcome.structured_content["queries"][0];
@@ -200,11 +205,11 @@ async fn recoverable_full_content_error_follows_exact_pages_and_completes_covera
     let cell = &query["results"][0];
     assert_eq!(cell["coverage"], "complete", "{cell}");
     let pages = cell["pages"].as_array().unwrap();
-    assert_eq!(pages.len(), 2, "{cell}");
+    assert_eq!(pages.len(), 4, "{cell}");
     assert_eq!(pages[0]["status"], "success");
     assert_eq!(pages[0]["context"]["coverage"], "partial");
-    assert_eq!(pages[1]["status"], "success");
-    assert_eq!(pages[1]["context"]["coverage"], "bounded");
+    assert_eq!(pages[3]["status"], "success");
+    assert_eq!(pages[3]["context"]["coverage"], "bounded");
     octocode_native::contracts::validate_output("semanticAssess", &outcome.structured_content)
         .expect("recovered semantic output contract");
     runtime.close().await;

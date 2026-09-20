@@ -372,14 +372,14 @@ mod tests {
     fn nested_context_uses_the_canonical_query_contract() {
         for query in [
             json!({}),
-            json!({"path":"/tmp/f"}),
             json!({"queries":[{"path":"/tmp/f","reasoning":"Read"}]}),
             json!({"path":"/tmp/f","reasoning":"Read","responseCharOffset":0}),
             json!({"cursor":"opaque"}),
         ] {
-            assert!(prepare("localFetch", &query).is_err());
+            assert!(prepare("localFetch", &query).is_err(), "{query}");
         }
         assert!(prepare("localFetch", &json!({"path":"/tmp/f","reasoning":"Read"})).is_ok());
+        assert!(prepare("localFetch", &json!({"path":"/tmp/f"})).is_ok());
     }
     #[test]
     fn artifact_domain_cursors_are_valid_context_and_receipt_continuations() {
