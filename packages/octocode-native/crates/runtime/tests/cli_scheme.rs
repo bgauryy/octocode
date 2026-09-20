@@ -3,21 +3,21 @@ mod support;
 use support::Workspace;
 
 #[test]
-fn scheme_catalog_carries_core_jev_guidance_only_when_available() {
+fn scheme_catalog_carries_availability_scoped_core_instructions() {
     let workspace = Workspace::new();
-    let contract = octocode_native::contracts::parsed_contract().expect("embedded contract");
-    let guidance = contract["cliGuidance"]["jev"]
-        .as_str()
-        .filter(|text| !text.is_empty())
-        .expect("core-authored CLI guidance");
-    let runtime = workspace.runtime(&[("OCTOCODE_JEV_KEY", "fixture-key".into())]);
-    assert_eq!(
-        runtime.catalog().expect("native catalog")["cliGuidance"]["jev"],
-        guidance
-    );
-    drop(runtime);
-
     for enabled in [false, true] {
+        let env = if enabled {
+            vec![("OCTOCODE_JEV_KEY", "fixture-key".into())]
+        } else {
+            vec![]
+        };
+        let runtime = workspace.runtime(&env);
+        let expected = runtime.catalog().expect("native catalog")["mcpInstructions"]
+            .as_str()
+            .expect("core-authored instructions")
+            .to_owned();
+        drop(runtime);
+
         let mut command = workspace.cli();
         command.args(["scheme", "--compact"]);
         if enabled {
@@ -27,8 +27,10 @@ fn scheme_catalog_carries_core_jev_guidance_only_when_available() {
         assert!(output.status.success(), "{output:?}");
         let catalog: serde_json::Value =
             serde_json::from_slice(&output.stdout).expect("catalog JSON");
+        assert_eq!(catalog["instructions"], expected, "{catalog}");
+        assert!(catalog.get("guidance").is_none(), "{catalog}");
         assert_eq!(
-            catalog["guidance"]["jev"].as_str() == Some(guidance),
+            expected.contains("use jev"),
             enabled,
             "{catalog}"
         );

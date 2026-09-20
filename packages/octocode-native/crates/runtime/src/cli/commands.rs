@@ -100,7 +100,7 @@ pub(super) enum Command {
     Jev(ToolArgs),
 
     // ── System commands ──────────────────────────────────────────────────────
-    /// Print a tool's contract so an agent knows exactly how to call it; without a name, list every tool.
+    /// Print a tool contract; without a name, list tools, availability, and canonical agent instructions.
     Scheme {
         /// Tool name, e.g. `localSearch`. Omit to list all tools with availability.
         tool: Option<String>,

@@ -10,9 +10,8 @@
 // Pinned claims (keep this list small and machine-derivable; see RFC
 // post-audit-hardening-2026-09 R3 — shrink the set rather than loosen it):
 //   1. README exit-code table ↔ EXIT CODES block in cli/mod.rs long_about
-//   2. README continuation-hint format ↔ continuation_hint() in cli/mod.rs
-//   3. Root-README tool count ↔ KNOWN_TOOLS in cli/mod.rs
-//   4. docs/CONFIGURATION.md env-var names ↔ config sources (both ways for
+//   2. Root-README tool count ↔ the ToolId enum in tools/id.rs
+//   3. docs/CONFIGURATION.md env-var names ↔ config sources (both ways for
 //      resolver SOURCE_KEYS)
 
 const fs = require('node:fs');
@@ -71,19 +70,7 @@ if (!longAbout) {
   if (sourceCodes.size === 0) fail('exit codes', 'no codes parsed from long_about (parser drift)');
 }
 
-// 2. Continuation-hint format ----------------------------------------------
-// Only enforced while the stderr "Continue: octocode tools …" hint mechanism
-// exists; the raw-CLI refactor carries continuations in the JSON response
-// (`next.*`), which the exit-code pin above covers via long_about.
-const hintFormat = cliSource.match(/format!\("(Continue: octocode tools )\{tool\}/);
-if (hintFormat && !nativeReadme.includes(hintFormat[1])) {
-  fail(
-    'continuation hint',
-    `README never shows the live continuation prefix "${hintFormat[1]}" emitted by continuation_hint()`
-  );
-}
-
-// 3. Tool count -------------------------------------------------------------
+// 2. Tool count -------------------------------------------------------------
 // Canonical registry: the ToolId enum (tools/id.rs), stable across CLI
 // surface refactors.
 const toolIdSource = read(path.join(nativeRoot, 'crates/runtime/src/tools/id.rs'));
@@ -100,7 +87,7 @@ if (!toolEnum) {
   }
 }
 
-// 4. Env-var names ----------------------------------------------------------
+// 3. Env-var names ----------------------------------------------------------
 // Docs → code: every env var named in a CONFIGURATION.md table row must be
 // read somewhere in product source — the native runtime or a package's
 // TS/JS source (name typos, renames, and retired keys surface).

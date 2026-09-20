@@ -3,11 +3,9 @@ use hmac::{Hmac, KeyInit, Mac};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::fs::File;
-use std::io::Read;
 use std::path::Path;
 use std::sync::OnceLock;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const MAX_TOKEN_BYTES: usize = 64 * 1024;
 const TOKEN_LIFETIME: Duration = Duration::from_secs(24 * 60 * 60);
@@ -314,38 +312,6 @@ pub fn scope_digest(value: &Value) -> Result<String, CursorError> {
     Ok(hex::encode(Sha256::digest(bytes)))
 }
 
-fn source_digest(path: &Path) -> Result<String, CursorError> {
-    let mut file = File::open(path).map_err(|_| CursorError::SourceUnavailable)?;
-    let metadata = file
-        .metadata()
-        .map_err(|_| CursorError::SourceUnavailable)?;
-    if !metadata.is_file() {
-        return Err(CursorError::SourceUnavailable);
-    }
-    let deadline = Instant::now() + Duration::from_secs(60);
-    let mut hash = Sha256::new();
-    let mut buffer = [0_u8; 8192];
-    loop {
-        if Instant::now() >= deadline {
-            return Err(CursorError::Timeout);
-        }
-        let length = file
-            .read(&mut buffer)
-            .map_err(|_| CursorError::SourceUnavailable)?;
-        if length == 0 {
-            break;
-        }
-        hash.update(&buffer[..length]);
-    }
-    let after = file
-        .metadata()
-        .map_err(|_| CursorError::SourceUnavailable)?;
-    if metadata.len() != after.len() || metadata.modified().ok() != after.modified().ok() {
-        return Err(CursorError::ChangedSource);
-    }
-    Ok(hex::encode(hash.finalize()))
-}
-
 fn now() -> Result<u64, CursorError> {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -354,46 +320,6 @@ fn now() -> Result<u64, CursorError> {
 }
 
 impl ReadCursor {
-    /// Search execution revalidates this snapshot after reapplying path policy.
-    pub fn create_search(query: Value, scope: String) -> Result<String, CursorError> {
-        let snapshot = query["snapshot"]
-            .as_str()
-            .filter(|s| s.starts_with("lexical-live-v1:"))
-            .ok_or(CursorError::Invalid)?
-            .to_owned();
-        encode_to_token(&Self {
-            version: 1,
-            contract: crate::contracts::contract_fingerprint().into(),
-            scope,
-            expires_at: now()? + TOKEN_LIFETIME.as_secs(),
-            tool: "localSearch".into(),
-            query,
-            source_sha256: snapshot,
-        })
-    }
-
-    /// `path` must have passed the current path policy; tokens grant no authority.
-    pub fn create(
-        query: Value,
-        scope: String,
-        validated_path: &Path,
-        source_sha256: Option<&str>,
-    ) -> Result<String, CursorError> {
-        let current_digest = source_digest(validated_path)?;
-        if source_sha256.is_some_and(|expected| current_digest != expected) {
-            return Err(CursorError::ChangedSource);
-        }
-        encode_to_token(&Self {
-            version: 1,
-            contract: crate::contracts::contract_fingerprint().into(),
-            scope,
-            expires_at: now()? + TOKEN_LIFETIME.as_secs(),
-            tool: "localFetch".into(),
-            query,
-            source_sha256: current_digest,
-        })
-    }
-
     pub fn decode(token: &str, scope: &str) -> Result<Self, CursorError> {
         let bytes = decode_raw(token)?;
         let cursor: Self = deserialize_and_check(&bytes, scope)?;
@@ -409,14 +335,6 @@ impl ReadCursor {
             return Err(CursorError::Invalid);
         }
         Ok(cursor)
-    }
-
-    /// Call after reapplying current authorization to the cursor query path.
-    pub fn verify_source(&self, validated_path: &Path) -> Result<(), CursorError> {
-        if source_digest(validated_path)? != self.source_sha256 {
-            return Err(CursorError::ChangedSource);
-        }
-        Ok(())
     }
 }
 

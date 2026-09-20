@@ -1,90 +1,17 @@
 import type { ParsedArgs } from './types.js';
 
+// Only options the Node side itself reads need value-consumption here — the
+// `skill` command's value flags. Everything else is forwarded to the native
+// binary as raw argv, which owns its own parsing.
 const OPTIONS_WITH_VALUES = new Set([
-  'ide',
-  'method',
-  'hostname',
-  'git-protocol',
-  'path',
-  'github',
-  'branch',
   'add',
+  'mode',
+  'path',
   'platform',
   'project-dir',
-  'local',
-  'limit',
-  'depth',
-  'mode',
-  'search',
-  'queries',
-  'format',
-  'view',
-  'backup-path',
-  'query',
-  'file',
-  'pr',
-  'page',
-  'page-size',
-  'items-per-page',
-  'char-offset',
-  'char-length',
-  'line',
-  'context-lines',
-  'kind',
-  'name',
-  'min-depth',
-  'max-depth',
-  'match-length',
-  'max-files',
-  'match-page',
-  'owner',
-  'repo',
-  'size',
-  'start-line',
-  'end-line',
-  'max-matches',
-]);
-
-const BOOLEAN_OPTIONS = new Set([
-  'help',
-  'version',
-  'yaml',
-  'text',
-  'force',
-  'json',
-  'status',
-  'dry-run',
-  'full',
-  'scheme',
-  'brief',
-  'compact',
-  'pretty',
-  'minimal',
-  'no-color',
-  'raw',
-  'check',
-  'rollback',
-  'update',
-  'install',
-  'yes',
-  'all',
-  'empty',
-  'force-refresh',
-  'tree',
-  // skill subcommand flags.
-  'workspace',
-  'repo',
-  'keep',
-  'fix',
-  'no-env',
-  'global',
 ]);
 
 function shouldConsumeNextValue(_args: ParsedArgs, key: string): boolean {
-  if (BOOLEAN_OPTIONS.has(key)) {
-    return false;
-  }
-
   return OPTIONS_WITH_VALUES.has(key);
 }
 

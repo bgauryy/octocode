@@ -195,6 +195,9 @@ fn inspect(value: &Value, next: &mut Map<String, Value>, partial: &mut bool, ter
                     let Some(query) = candidate.get("query") else {
                         continue;
                     };
+                    if is_history_expansion(name, tool, query) {
+                        continue;
+                    }
                     if prepare(tool, query).is_err() {
                         continue;
                     }
@@ -228,6 +231,32 @@ fn inspect(value: &Value, next: &mut Map<String, Value>, partial: &mut bool, ter
         }
         _ => {}
     }
+}
+
+fn is_history_expansion(name: &str, tool: &str, query: &Value) -> bool {
+    // pr_next_menu offers unrequested content, not another page of captured evidence.
+    // Keep unfamiliar shapes (including any paging fields) so this filter cannot
+    // silently discard a continuation if the history contract evolves.
+    tool == "ghGetHistoryItem"
+        && query.get("operation").and_then(Value::as_str) == Some("pullRequest")
+        && matches!(
+            name,
+            "getBody"
+                | "getChangedFiles"
+                | "getSelectedPatches"
+                | "getAllPatches"
+                | "getComments"
+                | "getReviews"
+                | "getCommits"
+        )
+        && query.as_object().is_some_and(|query| {
+            query.keys().all(|key| {
+                matches!(
+                    key.as_str(),
+                    "operation" | "owner" | "repo" | "number" | "content" | "reasoning" | "debug"
+                )
+            })
+        })
 }
 
 #[cfg(test)]
@@ -283,5 +312,105 @@ mod tests {
             "astSearch",
             &json!({"terminalLimit":true,"content":"SECRET_BODY"}),
         )
+    }
+
+    fn history_expansions() -> Value {
+        let mut next = Map::new();
+        for (name, content) in [
+            ("getBody", json!({"body":true})),
+            ("getChangedFiles", json!({"changedFiles":true})),
+            (
+                "getSelectedPatches",
+                json!({"patches":{"mode":"selected","files":["a.rs"]}}),
+            ),
+            ("getAllPatches", json!({"patches":{"mode":"all"}})),
+            (
+                "getComments",
+                json!({"comments":{"discussion":true,"reviewInline":true}}),
+            ),
+            ("getReviews", json!({"reviews":true})),
+            ("getCommits", json!({"commits":{}})),
+        ] {
+            next.insert(
+                name.into(),
+                json!({"tool":"ghGetHistoryItem","confidence":"exact","query":{
+                    "operation":"pullRequest","owner":"example","repo":"repo","number":1,
+                    "content":content,"reasoning":"Inspect selected evidence","debug":false
+                }}),
+            );
+        }
+        Value::Object(next)
+    }
+
+    #[test]
+    fn complete_history_receipt_omits_unrequested_content_menu() {
+        let state = json!({"pullRequests":[{"changedFiles":[{"path":"a.rs","patch":"SOURCE_BODY"}],
+            "next":history_expansions(),"contentPagination":{"patches":{"hasMore":false}}}]});
+        let compact = receipt("ghGetHistoryItem", &state);
+        assert_eq!(compact["coverage"], "bounded");
+        assert_eq!(
+            compact["resultHash"],
+            hex::encode(Sha256::digest(state.to_string().as_bytes()))
+        );
+        assert!(compact.get("next").is_none());
+        assert!(compact.get("limitations").is_none());
+        assert!(!compact.to_string().contains("SOURCE_BODY"));
+    }
+
+    #[test]
+    fn partial_history_receipt_preserves_all_page_axes_without_expansion_menu() {
+        let mut state = json!({"pullRequests":[{"next":history_expansions(),
+            "contentPagination":{"patches":{"hasMore":true}}}],"next":{}});
+        for (name, field) in [
+            ("continueBody", "charOffset"),
+            ("continuePatch", "charOffset"),
+            ("continueCommentBody", "commentBodyOffset"),
+            ("continueReviewBody", "charOffset"),
+            ("nextChangedFilesPage", "filePage"),
+            ("nextFilePathsPage", "filePage"),
+            ("nextCommentsPage", "commentPage"),
+            ("nextReviewsPage", "reviewPage"),
+            ("nextCommitsPage", "commitPage"),
+        ] {
+            let mut action = history_expansions()["getBody"].clone();
+            action["query"][field] = json!(2);
+            assert!(prepare("ghGetHistoryItem", &action["query"]).is_ok());
+            state["next"][name] = action;
+        }
+        let compact = receipt("ghGetHistoryItem", &state);
+        assert_eq!(compact["coverage"], "partial");
+        assert_eq!(compact["next"], state["next"]);
+        assert!(
+            compact["limitations"][0]
+                .as_str()
+                .unwrap()
+                .contains("Only the returned tool page")
+        );
+    }
+
+    #[test]
+    fn history_filter_keeps_unfamiliar_paging_shapes_and_terminal_limits() {
+        let mut state = json!({"next":history_expansions(),"terminalLimit":true});
+        state["next"]["getBody"]["query"]["charOffset"] = json!(2);
+        let compact = receipt("ghGetHistoryItem", &state);
+        assert_eq!(compact["coverage"], "partial");
+        assert_eq!(compact["next"].as_object().unwrap().len(), 1);
+        assert_eq!(compact["next"]["getBody"], state["next"]["getBody"]);
+        assert!(
+            compact["limitations"][0]
+                .as_str()
+                .unwrap()
+                .contains("terminal limit")
+        );
+        state["next"] = history_expansions();
+        let compact = receipt("ghGetHistoryItem", &state);
+        assert!(compact.get("next").is_none());
+        assert_eq!(compact["coverage"], "partial");
+        assert!(
+            compact["limitations"][0]
+                .as_str()
+                .unwrap()
+                .contains("terminal limit")
+        );
     }
 }

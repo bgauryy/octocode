@@ -576,6 +576,12 @@ fn scheme_lists_the_compact_discovery_catalog() {
     );
     assert_eq!(value["commands"]["schema"], "scheme <name>");
     assert_eq!(value["commands"]["run"], "<name> '<json>'");
+    assert!(
+        value["instructions"]
+            .as_str()
+            .is_some_and(|instructions| instructions.contains("Workflows:")),
+        "catalog must expose the availability-scoped core instructions: {value}"
+    );
     let first = &value["tools"][0];
     assert!(first["name"].is_string());
     assert!(first["fields"].is_string());

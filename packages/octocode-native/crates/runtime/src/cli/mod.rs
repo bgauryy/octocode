@@ -21,7 +21,7 @@ use std::io::{self, Write};
 Every tool is called by its canonical name with a raw JSON query:\n\
   octocode <toolName> '<json>'      execute a tool\n\
   octocode scheme <toolName>        print the tool's contract\n\
-  octocode scheme                   list every tool with availability\n\n\
+  octocode scheme                   list every tool, availability, and agent instructions\n\n\
 EXIT CODES:\n\
   0    Success\n\
   1    Empty result / no matches\n\
@@ -188,33 +188,19 @@ fn compact_tool_catalog(
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    let mut value = json!({
+    let value = json!({
         "kind": "octocode.toolCatalog",
         "version": 1,
         "toolCount": tools.len(),
-        "output": "Compact discovery catalog. Inspect one tool before execution.",
+        "output": "Compact discovery catalog with availability-scoped agent instructions. Inspect one tool before execution.",
         "commands": {
             "schema": "scheme <name>",
             "querySchema": "scheme <name> --view query",
             "run": "<name> '<json>'"
         },
+        "instructions": catalog["mcpInstructions"],
         "tools": tools
     });
-    // Core-authored jev guidance surfaces here because `scheme` is the only
-    // discovery command.
-    if let Some(guidance) = catalog["cliGuidance"]["jev"]
-        .as_str()
-        .filter(|text| !text.is_empty())
-    {
-        let jev_enabled = catalog["tools"].as_array().is_some_and(|tools| {
-            tools
-                .iter()
-                .any(|tool| tool["name"] == "jev" && tool["available"] == true)
-        });
-        if jev_enabled {
-            value["guidance"] = json!({ "jev": guidance });
-        }
-    }
     value
 }
 
@@ -394,10 +380,10 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
             0
         }
         Command::Auth { command, json } => match command {
-            None | Some(AuthCommand::Status { json: false }) => {
-                system::auth_status(runtime, json).await
+            None => system::auth_status(runtime, json).await,
+            Some(AuthCommand::Status { json: sub_json }) => {
+                system::auth_status(runtime, json || sub_json).await
             }
-            Some(AuthCommand::Status { json: true }) => system::auth_status(runtime, true).await,
             Some(AuthCommand::Login {
                 hostname,
                 force,
