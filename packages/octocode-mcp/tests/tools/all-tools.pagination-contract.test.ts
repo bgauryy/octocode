@@ -40,7 +40,7 @@ const TOOL_PAGINATION_CONTRACT: Record<
   astRewrite: { controls: ['page', 'pageSize'] },
   localFetch: { controls: ['chunkType', 'offset', 'limit'] },
   lspSearch: { controls: ['page', 'pageSize'] },
-  jev: {
+  semanticAssess: {
     controls: [],
     exemption: 'bounded typed-judgment operation',
   },

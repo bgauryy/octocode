@@ -41,6 +41,32 @@ describe('runCLI native boundary', () => {
     expect(mocks.skillHandler).not.toHaveBeenCalled();
   });
 
+  it('keeps semanticAssess and its help/schema discovery on the native CLI', async () => {
+    const { runCLI } = await import('../../src/cli/index.js');
+    const invocation = [
+      'semanticAssess',
+      '{"resources":[],"questions":[]}',
+    ];
+    await runCLI(invocation);
+    expect(mocks.delegate).toHaveBeenLastCalledWith(
+      '/native/octocode',
+      invocation
+    );
+
+    await runCLI(['scheme', 'semanticAssess', '--compact']);
+    expect(mocks.delegate).toHaveBeenLastCalledWith('/native/octocode', [
+      'scheme',
+      'semanticAssess',
+      '--compact',
+    ]);
+
+    await runCLI(['semanticAssess', '--help']);
+    expect(mocks.delegate).toHaveBeenLastCalledWith('/native/octocode', [
+      'semanticAssess',
+      '--help',
+    ]);
+  });
+
   it('delegates top-level help, version, and unknown commands to native parsing', async () => {
     const { runCLI } = await import('../../src/cli/index.js');
     await runCLI(['--help']);

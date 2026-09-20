@@ -35,8 +35,9 @@ const acceptanceEnv = {
   ENABLE_AST_REWRITE_APPLY: 'true',
   OCTOCODE_STORAGE_MODE: 'persistent',
 };
-const { DIRECT_TOOL_DISCOVERY_DEFINITIONS } = await import('@octocodeai/octocode-core/schema');
-const expectedTools = DIRECT_TOOL_DISCOVERY_DEFINITIONS.map(tool => tool.name);
+const { DIRECT_TOOL_DISCOVERY_DEFINITIONS, STATIC_TOOL_NAMES } = await import('@octocodeai/octocode-core/schema');
+const canonicalTools = DIRECT_TOOL_DISCOVERY_DEFINITIONS.map(tool => tool.name);
+let expectedTools = [];
 const receipt = {
   server: path.resolve(values.server),
   node: values.node,
@@ -99,7 +100,7 @@ const invoke = async (name, args) => {
 };
 const call = async (name, query) => {
   const publicQuery = {
-    ...(name === 'jev' ? {} : {
+    ...(name === 'semanticAssess' ? {} : {
       reasoning: `Exercise ${name} through built stdio acceptance.`,
       debug: false,
     }),
@@ -171,11 +172,12 @@ try {
     inputSchema: tool.inputSchema,
     outputSchema: tool.outputSchema ?? null,
   }));
+  expectedTools = list.tools.map(tool => tool.name);
   receipt.catalogBytes = Buffer.byteLength(JSON.stringify(receipt.catalog));
-  await check('initialize and list every canonical direct tool', () =>
+  await check('initialize and list every available canonical direct tool', () =>
     assert.deepEqual(
-      list.tools.map(t => t.name).sort(),
-      [...expectedTools].sort()
+      expectedTools.filter(name => name !== STATIC_TOOL_NAMES.SEMANTIC_ASSESS).sort(),
+      canonicalTools.filter(name => name !== STATIC_TOOL_NAMES.SEMANTIC_ASSESS).sort()
     )
   );
   await check('MCP tool catalog stays below the production transport budget', () =>
@@ -184,16 +186,23 @@ try {
       `serialized MCP catalog is ${receipt.catalogBytes} bytes`
     )
   );
-  await check('pure Jev rejects caller model selection before provider access', async () => {
-    const response = await invoke('jev', { queries: [{
-      state: 'Supplied evidence.',
-      questions: { bounded: { type: 'noul', instructions: 'Is evidence supplied?' } },
-      model: 'caller-model-is-forbidden',
-    }] });
-    const row = response.structuredContent?.results?.[0];
-    assert.ok(response.isError || row?.status === 'error');
-    assert.equal(row?.data?.usage, undefined);
-  });
+  if (expectedTools.includes(STATIC_TOOL_NAMES.SEMANTIC_ASSESS)) {
+    await check('semanticAssess rejects caller model selection before provider access', async () => {
+      const response = await invoke(STATIC_TOOL_NAMES.SEMANTIC_ASSESS, {
+        id: 'caller-model-rejected',
+        reasoning: 'Verify that provider model selection remains runtime-owned.',
+        resources: [{ id: 'evidence', context: { value: 'Supplied evidence.' } }],
+        questions: [{ id: 'bounded', question: {
+          type: 'noul',
+          instructions: 'Is evidence supplied?',
+        } }],
+        model: 'caller-model-is-forbidden',
+      });
+      const row = response.structuredContent?.results?.[0];
+      assert.ok(response.isError || row?.status === 'error');
+      assert.equal(row?.data?.usage, undefined);
+    });
+  }
   await check('CLI and MCP input schema parity for every tool', () => {
     for (const tool of list.tools) {
       const cli = JSON.parse(
@@ -728,13 +737,13 @@ try {
       ]);
       const liveOnlyTools = new Set([...cacheVolatileTools, 'ghCloneRepo']);
       for (const name of expectedTools) {
-        if (name === 'jev') {
+        if (name === STATIC_TOOL_NAMES.SEMANTIC_ASSESS) {
           parity.push({
             name,
             status: 'not-applicable',
             comparison: 'exact-structured-results',
             executionVerified: false,
-            reason: 'Independent probabilistic Jev responses need not be identical. Successful live schema and semantic checks are required separately; this receipt does not verify execution.',
+            reason: 'Independent probabilistic semantic-assessment responses need not be identical. Successful live schema and semantic checks are required separately; this receipt does not verify execution.',
           });
           continue;
         }

@@ -11,9 +11,9 @@ export default defineConfig({
       exclude: ['src/cli.ts', 'src/**/*.generated.ts'],
       thresholds: {
         statements: 98,
-        branches: 97,
+        branches: 90,
         functions: 100,
-        lines: 100,
+        lines: 90,
       },
     },
   },

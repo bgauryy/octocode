@@ -97,11 +97,6 @@ export {
   resolveSession,
   resolveStorage,
 } from './config/resolverSections.js';
-export {
-  resolveConfigSync,
-  getConfigSync,
-  getConfigValue,
-} from './config/resolver.js';
 export type { TokenSource } from './tokens/types.js';
 export {
   ENV_TOKEN_VARS,

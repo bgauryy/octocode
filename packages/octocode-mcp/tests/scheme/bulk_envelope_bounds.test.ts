@@ -6,14 +6,11 @@ const ALL_BULK_SCHEMAS = DIRECT_TOOL_SPECIFICATIONS.map(
   tool => [tool.name, tool.inputSchema] as const
 );
 
-// jev screens/judges more candidates per call than ordinary read tools, so its
-// pair-envelope caps at MAX_JEV_QUERIES (10) rather than the shared bulk ceiling (5).
-const MAX_QUERIES_BY_TOOL: Record<string, number> = { jev: 10 };
 const DEFAULT_MAX_QUERIES = 5;
 
 describe('bulk envelope numeric bounds', () => {
   describe.each(ALL_BULK_SCHEMAS)('%s', (name, schema) => {
-    const maxQueries = MAX_QUERIES_BY_TOOL[name] ?? DEFAULT_MAX_QUERIES;
+    const maxQueries = DEFAULT_MAX_QUERIES;
     const baseQueries = [{ id: 'q1' }];
 
     it('parses with minimal queries (envelope accepted, per-query errors ok)', () => {
@@ -43,8 +40,8 @@ describe('bulk envelope numeric bounds', () => {
       expect(result.success).toBe(false);
       if (!result.success) {
         // Envelope-level size cap must be reported. Tools with a plain object
-        // envelope surface it on the `queries` path; union envelopes (jev's
-        // pair/matrix) surface an `invalid_union` at the root instead — both
+        // envelope surface it on the `queries` path; union envelopes may
+        // surface an `invalid_union` at the root instead — both
         // are valid rejections of an oversized batch.
         const rejectsOnQueries = result.error.issues.some(
           issue => issue.path.join('.') === 'queries'

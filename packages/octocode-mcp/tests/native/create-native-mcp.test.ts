@@ -2,7 +2,10 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/server';
-import { getNativeContractFingerprint } from '@octocodeai/octocode-core/schema';
+import {
+  getNativeContractFingerprint,
+  STATIC_TOOL_NAMES,
+} from '@octocodeai/octocode-core/schema';
 
 // startNativeMcp constructs a real StdioServerTransport (reads process.stdin and
 // writes process.stdout). Stub it so the transport lifecycle is exercised without
@@ -105,6 +108,72 @@ afterEach(() => {
 });
 
 describe('createNativeMcp registration + execution', () => {
+  it.each([
+    ['missing', undefined],
+    ['blank', '   '],
+  ])(
+    'omits semanticAssess from discovery when OCTOCODE_JEV_KEY is %s',
+    async (_label, credential) => {
+      const nativeAvailable = Boolean(credential?.trim());
+      const instance = createNativeMcp({
+        env: { OCTOCODE_JEV_KEY: credential },
+        binding: bindingFor(() => ({
+          fingerprint: getNativeContractFingerprint(),
+          tools: [
+            tool('localFetch', true),
+            tool(STATIC_TOOL_NAMES.SEMANTIC_ASSESS, nativeAvailable),
+          ],
+        })),
+      });
+
+      const client = new Client({ name: 'semantic-gate', version: '1' });
+      const [serverTransport, clientTransport] =
+        InMemoryTransport.createLinkedPair();
+      await Promise.all([
+        instance.server.connect(serverTransport),
+        client.connect(clientTransport),
+      ]);
+
+      const list = await client.listTools();
+      expect(list.tools.map(t => t.name)).toEqual(['localFetch']);
+
+      await client.close();
+      await instance.close();
+    }
+  );
+
+  it('exposes semanticAssess when OCTOCODE_JEV_KEY is nonblank', async () => {
+    const instance = createNativeMcp({
+      env: {
+        OCTOCODE_JEV_KEY: 'test-key',
+      },
+      binding: bindingFor(() => ({
+        fingerprint: getNativeContractFingerprint(),
+        tools: [
+          tool('localFetch', true),
+          tool(STATIC_TOOL_NAMES.SEMANTIC_ASSESS, true),
+        ],
+      })),
+    });
+
+    const client = new Client({ name: 'semantic-gate', version: '1' });
+    const [serverTransport, clientTransport] =
+      InMemoryTransport.createLinkedPair();
+    await Promise.all([
+      instance.server.connect(serverTransport),
+      client.connect(clientTransport),
+    ]);
+
+    const list = await client.listTools();
+    expect(list.tools.map(t => t.name)).toEqual([
+      'localFetch',
+      STATIC_TOOL_NAMES.SEMANTIC_ASSESS,
+    ]);
+
+    await client.close();
+    await instance.close();
+  });
+
   it('registers only available tools and routes calls to executeMcp', async () => {
     const instance = createNativeMcp({
       env: {},
@@ -274,7 +343,8 @@ describe('startNativeMcp', () => {
       // Remove only the shutdown listeners this test added so they cannot leak
       // (and their process.exit(0)) into the rest of the suite.
       for (const listener of process.listeners('SIGINT'))
-        if (!sigint.includes(listener)) process.removeListener('SIGINT', listener);
+        if (!sigint.includes(listener))
+          process.removeListener('SIGINT', listener);
       for (const listener of process.listeners('SIGTERM'))
         if (!sigterm.includes(listener))
           process.removeListener('SIGTERM', listener);
