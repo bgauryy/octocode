@@ -260,6 +260,22 @@ pub(super) fn continuation(receipt: &Value) -> Option<Value> {
     }))
 }
 
+/// Recover from a context-tool error only when the tool supplied an exact,
+/// validated continuation. Candidate continuations remain evidence hints and
+/// must not silently replace a failed request.
+pub(super) fn exact_continuation(receipt: &Value) -> Option<Value> {
+    let continuation = receipt
+        .get("next")
+        .and_then(Value::as_object)?
+        .values()
+        .find(|candidate| candidate.get("confidence").and_then(Value::as_str) == Some("exact"))?
+        .as_object()?;
+    Some(json!({
+        "tool": continuation.get("tool")?,
+        "query": continuation.get("query")?
+    }))
+}
+
 fn inspect(value: &Value, next: &mut Map<String, Value>, partial: &mut bool, terminal: &mut bool) {
     match value {
         Value::Object(object) => {
@@ -374,6 +390,25 @@ mod tests {
             &json!({"pagination":{"hasMore":true},"next":{"nextPage":{"tool":"artifactSearch","query":artifact}}}),
         );
         assert_eq!(receipt["next"]["nextPage"]["query"], artifact);
+    }
+
+    #[test]
+    fn failed_context_recovery_requires_an_exact_executable_continuation() {
+        let exact = json!({"next":{"continue":{"tool":"localFetch","confidence":"exact","query":{
+            "path":"/tmp/f","reasoning":"Recover","offset":0,"limit":100
+        }}}});
+        assert_eq!(
+            exact_continuation(&exact),
+            Some(json!({"tool":"localFetch","query":{
+                "path":"/tmp/f","reasoning":"Recover","offset":0,"limit":100
+            }}))
+        );
+
+        let candidate = json!({"next":{"continue":{"tool":"localFetch","confidence":"candidate","query":{
+            "path":"/tmp/f","reasoning":"Guess","offset":0,"limit":100
+        }}}});
+        assert!(exact_continuation(&candidate).is_none());
+        assert!(exact_continuation(&json!({"next":{}})).is_none());
     }
 
     #[test]

@@ -2113,12 +2113,21 @@
     }
   },
   {
-    "id": "reasoning.missing",
+    "id": "reasoning.optional",
     "tool": "localFetch",
     "input": {
       "path": "/fixture/a.ts"
     },
-    "accepted": false
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "goal": "Execute localFetch via fixture",
+          "debug": false,
+          "path": "/fixture/a.ts"
+        }
+      ]
+    }
   },
   {
     "id": "local-fetch.blank-meta",

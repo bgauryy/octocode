@@ -165,6 +165,52 @@ async fn oversized_first_page_is_bounded_partial_without_a_looping_continuation(
 }
 
 #[tokio::test]
+async fn recoverable_full_content_error_follows_exact_pages_and_completes_coverage() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/systemone"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "model":"resolved",
+            "answers":{"answer":{"type":"noul","noul":0.8}},
+            "usage":{"input_tokens":2,"output_tokens":1}
+        })))
+        .expect(2)
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let file = workspace.write("large.txt", "x".repeat(60_000));
+    let runtime = workspace.runtime(&[
+        ("OCTOCODE_JEV_KEY", "secret".into()),
+        ("OCTOCODE_JEV_BASE_URL", server.uri()),
+    ]);
+    let input = json!({
+        "id":"recover-full-content",
+        "reasoning":"Recover the exact pages of an oversized whole-file request.",
+        "resources":[{"id":"file","maxChars":80_000,"context":{"tool":"localFetch","query":{
+            "path":file,"reasoning":"Read the complete file.","fullContent":true
+        }}}],
+        "questions":[{"id":"relevant","question":{"type":"noul","instructions":"Relevant?"}}]
+    });
+    let outcome = runtime
+        .execute("recover-full-content".into(), "semanticAssess".into(), input)
+        .await
+        .unwrap();
+    let query = &outcome.structured_content["queries"][0];
+    assert!(query.get("next").is_none(), "{query}");
+    let cell = &query["results"][0];
+    assert_eq!(cell["coverage"], "complete", "{cell}");
+    let pages = cell["pages"].as_array().unwrap();
+    assert_eq!(pages.len(), 2, "{cell}");
+    assert_eq!(pages[0]["status"], "success");
+    assert_eq!(pages[0]["context"]["coverage"], "partial");
+    assert_eq!(pages[1]["status"], "success");
+    assert_eq!(pages[1]["context"]["coverage"], "bounded");
+    octocode_native::contracts::validate_output("semanticAssess", &outcome.structured_content)
+        .expect("recovered semantic output contract");
+    runtime.close().await;
+}
+
+#[tokio::test]
 async fn page_budget_continuation_round_trips_through_the_public_contract() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))

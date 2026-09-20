@@ -74,7 +74,17 @@ fn capture_resource(
         execution.check()?;
         let identity = source.to_string();
         if !seen.insert(identity) {
-            remaining = Some(source);
+            pages.push(CapturedPage::Failed {
+                error: JevProviderError {
+                    code: "jevContextContinuationLoop".into(),
+                    message: "Context continuation repeated without advancing.".into(),
+                    hints: vec![
+                        "Run the ordinary context tool and inspect its executable continuation."
+                            .into(),
+                    ],
+                },
+                context: fallback_context(&source),
+            });
             break;
         }
         match super::jev_context::resolve(&source, dispatcher, execution) {
@@ -105,6 +115,10 @@ fn capture_resource(
             }
             Err(failure) => {
                 let context = failure.receipt.unwrap_or_else(|| fallback_context(&source));
+                if let Some(next) = super::jev_context::exact_continuation(&context) {
+                    source = next;
+                    continue;
+                }
                 pages.push(CapturedPage::Failed {
                     error: failure.error,
                     context,
@@ -123,6 +137,23 @@ fn error_page(index: usize, context: Value, error: JevProviderError) -> Value {
         "status":"error",
         "error":{"code":error.code,"message":error.message,"hints":error.hints}
     })
+}
+
+fn cell_coverage(pages: &[Value], has_continuation: bool) -> &'static str {
+    let successes = pages
+        .iter()
+        .filter(|page| page["status"] == "success")
+        .count();
+    let terminal_page_is_partial = pages
+        .last()
+        .is_some_and(|page| page["context"]["coverage"] == "partial");
+    if successes == 0 {
+        "error"
+    } else if successes != pages.len() || has_continuation || terminal_page_is_partial {
+        "partial"
+    } else {
+        "complete"
+    }
 }
 
 async fn assess_page(
@@ -248,20 +279,7 @@ pub(super) fn execute(
                 continuation_resources.push(pending);
             }
             for (question, pages) in questions.iter().zip(cell_pages) {
-                let successes = pages
-                    .iter()
-                    .filter(|page| page["status"] == "success")
-                    .count();
-                let partial_context = pages
-                    .iter()
-                    .any(|page| page["context"]["coverage"] == "partial");
-                let coverage = if successes == 0 {
-                    "error"
-                } else if successes != pages.len() || has_continuation || partial_context {
-                    "partial"
-                } else {
-                    "complete"
-                };
+                let coverage = cell_coverage(&pages, has_continuation);
                 results.push(json!({
                     "resourceId":resource["id"],
                     "questionId":question["id"],
@@ -283,4 +301,39 @@ pub(super) fn execute(
         outputs.push(dispatch::value_result(output));
     }
     Ok(outputs)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn completed_page_chain_is_complete_even_when_intermediate_receipts_are_partial() {
+        let pages = vec![
+            json!({"status":"success","context":{"coverage":"partial"}}),
+            json!({"status":"success","context":{"coverage":"bounded"}}),
+        ];
+        assert_eq!(cell_coverage(&pages, false), "complete");
+    }
+
+    #[test]
+    fn uncovered_terminal_scope_and_pending_continuations_remain_partial() {
+        let terminal_partial = vec![json!({"status":"success","context":{"coverage":"partial"}})];
+        assert_eq!(cell_coverage(&terminal_partial, false), "partial");
+
+        let bounded = vec![json!({"status":"success","context":{"coverage":"bounded"}})];
+        assert_eq!(cell_coverage(&bounded, true), "partial");
+    }
+
+    #[test]
+    fn page_errors_are_not_promoted_to_complete_coverage() {
+        let mixed = vec![
+            json!({"status":"success","context":{"coverage":"bounded"}}),
+            json!({"status":"error","context":{"coverage":"partial"}}),
+        ];
+        assert_eq!(cell_coverage(&mixed, false), "partial");
+
+        let failed = vec![json!({"status":"error","context":{"coverage":"partial"}})];
+        assert_eq!(cell_coverage(&failed, false), "error");
+    }
 }

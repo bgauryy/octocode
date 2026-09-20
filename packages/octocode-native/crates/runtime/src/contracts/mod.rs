@@ -229,18 +229,32 @@ mod contract_owner_tests {
     }
 
     #[test]
-    fn public_queries_require_explicit_reasoning() {
-        for reasoning in [None, Some("   ")] {
-            let mut query = json!({"path":"/tmp/source.rs"});
-            if let Some(reasoning) = reasoning {
-                query["reasoning"] = json!(reasoning);
-            }
-            let result = prepare_and_validate("localFetch", query, PrepareOptions::default());
-            assert!(
-                result.is_err(),
-                "reasoning must be caller-supplied and nonblank: {result:?}"
-            );
-        }
+    fn public_queries_accept_optional_but_nonblank_reasoning() {
+        // Omitting reasoning is accepted: it is optional across every tool.
+        let omitted = prepare_and_validate(
+            "localFetch",
+            json!({"path":"/tmp/source.rs"}),
+            PrepareOptions::default(),
+        );
+        assert!(
+            omitted.is_ok(),
+            "reasoning must be optional: {omitted:?}"
+        );
+        assert!(
+            omitted.unwrap().get("reasoning").is_none(),
+            "omitted reasoning must never be fabricated"
+        );
+
+        // A supplied-but-blank reasoning is still rejected.
+        let blank = prepare_and_validate(
+            "localFetch",
+            json!({"path":"/tmp/source.rs","reasoning":"   "}),
+            PrepareOptions::default(),
+        );
+        assert!(
+            blank.is_err(),
+            "reasoning, when supplied, must be nonblank: {blank:?}"
+        );
     }
 
     #[test]
@@ -403,7 +417,7 @@ mod contract_owner_tests {
         use sha2::{Digest, Sha256};
         let digest = hex::encode(Sha256::digest(contract_json().as_bytes()));
         assert_eq!(
-            digest, "ee115dbb452235a3085dcd6aee71382edf7ad1bd42f83bc1f3ae06e395eabc97",
+            digest, "bc7589e1c79d3b3bc30bdb912f6f89380d701c0a8689e071c443448a092d99e5",
             "generated contract body changed without regeneration from core"
         );
     }
