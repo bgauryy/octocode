@@ -118,7 +118,7 @@ annotations, re-exports, and imports) — not just call sites.
 npx octocode localSearch '{"reasoning":"Locate textual references.","searchText":"buildNextPageContinuation","path":"/repo","resultView":"files"}'
 
 # CORRECT — returns calling function name, file, and call-site line:
-npx octocode lspSearch '{"reasoning":"Identify calling functions.","operation":"callers","uri":"file:///repo/scheme/pagination.ts","symbolName":"buildNextPageContinuation","lineHint":118}'
+npx octocode lspSearch '{"reasoning":"Identify calling functions.","operation":"callers","uri":"file:///<abs>/scheme/pagination.ts","symbolName":"buildNextPageContinuation","lineHint":118}'
 # Each result: item.name=<calling function>, item.uri=<file>, ranges[].line=<call site line>
 ```
 

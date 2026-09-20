@@ -2,8 +2,8 @@
 
 The legacy GitHub campaign documented below measures **repository research and code
 understanding**, always as **Octocode vs one baseline CLI** on the same questions. It does
-not measure patching or test execution. The separate
-[`compare/terra-v3/`](../../../compare/terra-v3/README.md) generation adds deterministic
+not measure patching or test execution. The separate package-level `compare/terra-v3/`
+generation adds deterministic
 local lexical, structural, semantic, indexed, and preview-only codemod lanes over exactly
 two byte-locked repositories; it never pools results with this legacy campaign.
 

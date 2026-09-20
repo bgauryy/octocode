@@ -19,6 +19,7 @@ Status: implemented and integration-verified in the working tree as of 2026-09-2
 - Live batch: two independent SemanticQuery objects retained their query IDs and produced separate nested results.
 - Live resource pagination: a 95,004-byte local document produced two explicit page-local answers, `coverage:"partial"`, and a schema-valid `next.assess` containing only `{tool,query}` context keys. Running the continuation preserved correlation and leaked no source body; the terminal page returned `coverage:"complete"` with no continuation.
 - Skills and docs: research, semantic assessment, RFC, Chrome, and scraping skills passed their self-tests and a five-skill review with zero errors or warnings. Documentation verification passed.
+- Benchmark/dev tooling: the Jev lab passed 8/8 tests while preserving raw provider payloads and requested/resolved model provenance. The benchmark package passed 19/19 TypeScript, 67/67 Python, and 97/97 advanced-research tests; its bundled skill passes the zero-error structural gate (remaining notices are advisory cleanup for historical reference length/navigation).
 
 ### Agent-readiness scorecard before this amendment
 

@@ -5,6 +5,11 @@ description: "Use when planning, running, grading, or reporting the by-hand Octo
 
 # Octocode benchmark
 
+tools: `npx octocode` / `octocode-mcp`
+related-skill: `octocode-eval-benchmark`
+output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
+routes: A reference, doc, or script earns a route when it changes the next action.
+
 Plain-markdown, run-by-hand CLI research comparison. Octocode is the **anchor**; each baseline
 is a **separate pairwise matchup** (`octocode` vs `rtk` | `headroom` | `gh`). Per question,
 per pass: two isolated runners answer, one blind judge grades them **X / Y** (randomized per
@@ -107,6 +112,7 @@ layout: `references/run-with-agents.md` → `run-preflight.md` + `run-phases.md`
 | understand the design | `references/BENCHMARK.md` |
 | run a matchup | `references/INSTRUCTIONS.md` then `references/run-with-agents.md`; verify `references/run-preflight.md` before `references/run-phases.md` |
 | brief a runner | `references/RUNNER.md` + `references/RUNNER_TOOL_CONTEXT.md`; choose its arm's `references/primer-octocode.md`, `references/primer-gh.md`, `references/primer-gh-rtk.md`, or `references/primer-gh-headroom.md` |
+| reproduce the historical Jev comparison only | `references/primer-octocode-jev.md`; do not use it as the current `semanticAssess` contract |
 | judge a question | `references/JUDGING.md` + `references/example-verdict.md` |
 | score + aggregate | `references/SCORING.md` then `references/aggregation-and-stats.md` |
 | write the report | `references/REPORT_TEMPLATE.md` |
