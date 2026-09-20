@@ -35,6 +35,8 @@ Availability is resolved natively. GitHub and artifact tools are enabled by defa
 
 `jev` accepts caller-supplied `state`, typed `questions`, and optional named `sources`; configuration selects the model. `runtime/jev_sources` loads bounded local/GitHub files through existing path, content-security and provider policies. With sources, provider state wraps caller values under `context` and file bodies under `sources`; the response adds provenance/hash receipts without bodies. The tool generates no questions and makes no workflow decisions. Shared transport enforces deadlines, cancellation, bounded responses, and no redirects.
 
+Source hydration scans at most 1 MiB per raw file before selecting at most 64 KiB per source and 256 KiB combined. Full-source redaction precedes range selection. Jev rejects response-pagination controls before source reads or inference; query replay cannot retrieve a page of a previous judgment. GitHub content-cache disk keys include the transport's credential/endpoint partition. Normal shutdown clears memory; explicit cache clearing purges disk.
+
 ## Ownership
 
 | Module | Owns | Must not own |
@@ -77,6 +79,7 @@ Generic text search, reads, minification, file recognition, GitHub/history opera
 ## Build modes
 
 - Binary builds use `--no-default-features` and contain the full CLI/runtime.
+- `build:runtime:dev` stages the host binaries into their platform package so the local CLI launcher executes the rebuilt runtime.
 - Addon builds enable `napi-addon` and expose the same runtime to MCP.
 - Each platform package contains the optimized native CLI, regex worker, runtime addon, and engine addon.
 - Root entrypoints are lazy and independent: `.`/`./runtime` load only the runtime addon, while `./engine` loads only the engine addon.

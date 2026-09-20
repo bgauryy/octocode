@@ -13,10 +13,11 @@ use std::{
 };
 
 const MAX_FILE_BYTES: usize = 64 * 1024;
+pub(super) const MAX_RAW_FILE_BYTES: usize = 1024 * 1024;
 const MAX_TOTAL_BYTES: usize = 256 * 1024;
 
 fn error(message: impl Into<String>) -> JevProviderError {
-    JevProviderError { code: "invalidJevSource".into(), message: message.into(), hints: vec!["Provide 1..8 accessible UTF-8 files, at most 64 KiB per file and 256 KiB combined, with optional paired line ranges.".into()] }
+    JevProviderError { code: "invalidJevSource".into(), message: message.into(), hints: vec!["Use 1..8 UTF-8 files, raw <=1 MiB each; select <=64 KiB each / 256 KiB total. Set both line bounds for excerpts.".into()] }
 }
 
 fn check(context: &ExecutionContext) -> Result<(), JevProviderError> {
@@ -112,8 +113,8 @@ fn select(
     source: &Value,
     security: &ContentSecurity,
 ) -> Result<String, JevProviderError> {
-    if bytes.len() > MAX_FILE_BYTES {
-        return Err(error("Source exceeds the 64 KiB raw-file limit."));
+    if bytes.len() > MAX_RAW_FILE_BYTES {
+        return Err(error("Source exceeds the 1 MiB raw-file scan limit."));
     }
     let raw = std::str::from_utf8(bytes).map_err(|_| error("Source must be UTF-8 text."))?;
     if raw.contains('\0') {
@@ -122,21 +123,32 @@ fn select(
     let (safe, _) = security
         .sanitize(raw, Path::new(source["path"].as_str().unwrap_or_default()))
         .map_err(|_| error("Source content is blocked by security policy."))?;
-    if let (Some(start), Some(end)) = (source["startLine"].as_u64(), source["endLine"].as_u64()) {
+    let selected = if let (Some(start), Some(end)) =
+        (source["startLine"].as_u64(), source["endLine"].as_u64())
+    {
         if safe.lines().count() != raw.lines().count() {
             return Err(error(
                 "Security redaction changed line mapping; request the whole file.",
             ));
         }
-        let lines: Vec<_> = safe.split_inclusive('\n').collect();
-        if end > lines.len() as u64 {
+        if end > safe.split_inclusive('\n').count() as u64 {
             return Err(error(
                 "Requested source range exceeds the file; ranges are not truncated.",
             ));
         }
-        return Ok(lines[(start - 1) as usize..end as usize].concat());
+        safe.split_inclusive('\n')
+            .skip((start - 1) as usize)
+            .take((end - start + 1) as usize)
+            .collect::<String>()
+    } else {
+        safe
+    };
+    if selected.len() > MAX_FILE_BYTES {
+        return Err(error(
+            "Selected source exceeds the 64 KiB limit; narrow the line range.",
+        ));
     }
-    Ok(safe)
+    Ok(selected)
 }
 
 pub(super) fn hydrate(
@@ -187,7 +199,7 @@ pub(super) fn hydrate(
                 return Err(error("Source must be a regular file."));
             }
             let mut bytes = Vec::new();
-            file.take(MAX_FILE_BYTES as u64 + 1)
+            file.take(MAX_RAW_FILE_BYTES as u64 + 1)
                 .read_to_end(&mut bytes)
                 .map_err(|_| error("Source read failed."))?;
             manifest["path"] = json!(path.canonical);
@@ -273,6 +285,78 @@ mod tests {
         assert_eq!(receipts["a"]["bytes"], 7);
         assert!(!receipts.to_string().contains("second"));
         assert!(receipts["a"].get("content").is_none());
+    }
+
+    #[test]
+    fn small_ranges_from_large_sources_are_scanned_and_bounded() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("large.rs");
+        let raw = format!("{}deciding evidence\n", "background\n".repeat(7000));
+        assert!(raw.len() > MAX_FILE_BYTES);
+        std::fs::write(&path, &raw).unwrap();
+        let request =
+            query(json!({"slice":{"type":"local","path":path,"startLine":7001,"endLine":7001}}));
+        let (hydrated, receipts) = hydrate(
+            &request,
+            &policy(dir.path()),
+            &security(),
+            &context(),
+            true,
+            |_| panic!("unexpected GitHub call"),
+        )
+        .unwrap();
+        assert_eq!(
+            hydrated["state"]["sources"]["slice"]["content"],
+            "deciding evidence\n"
+        );
+        assert_eq!(receipts.unwrap()["slice"]["bytes"], 18);
+
+        let remote = json!({"type":"github","owner":"a","repo":"b","path":"large.rs","ref":"main","startLine":7001,"endLine":7001});
+        let (hydrated, _) = hydrate(
+            &query(json!({"slice":remote})),
+            &policy(dir.path()),
+            &security(),
+            &context(),
+            true,
+            |_| Ok((raw.as_bytes().to_vec(), "a".repeat(40))),
+        )
+        .unwrap();
+        assert_eq!(
+            hydrated["state"]["sources"]["slice"]["content"],
+            "deciding evidence\n"
+        );
+
+        let oversized_selection = json!({"type":"local","path":path,"startLine":1,"endLine":7001});
+        assert!(select(raw.as_bytes(), &oversized_selection, &security()).is_err());
+        let too_large = vec![b'x'; 1024 * 1024 + 1];
+        assert!(
+            select(
+                &too_large,
+                &json!({"path":path,"startLine":1,"endLine":1}),
+                &security()
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn large_source_redaction_precedes_range_selection() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("large.rs");
+        let token = format!("ghp_{}", "Ab3dEf6hIj9lMn2pQr5tUv8xYz1bCd4fGh7j");
+        let raw = format!(
+            "{}const token = \"{token}\";\n",
+            "background\n".repeat(7000)
+        );
+        let selected = select(
+            raw.as_bytes(),
+            &json!({"path":path,"startLine":7001,"endLine":7001}),
+            &security(),
+        )
+        .unwrap();
+        assert!(!selected.contains(&token));
+        assert!(selected.contains("REDACTED"));
+        assert!(!selected.contains("background"));
     }
 
     #[test]

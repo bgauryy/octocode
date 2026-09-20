@@ -191,7 +191,9 @@ impl GitHubServices {
             hints: vec!["Check repository access, path, and the explicit ref.".into()],
         };
         let mut request_context = self.request_context(context, handle).map_err(failed)?;
-        request_context.max_body_bytes = 128 * 1024;
+        // Contents API JSON includes base64 plus metadata; decoded source size
+        // and selected evidence are checked separately by source hydration.
+        request_context.max_body_bytes = 2 * super::jev_sources::MAX_RAW_FILE_BYTES;
         let acquired = handle
             .block_on(self.provider.get_file_content(
                 &ContentRequest {

@@ -11,6 +11,46 @@ fn query() -> Value {
     }})
 }
 
+#[tokio::test]
+async fn response_paging_is_rejected_before_hydration_or_inference() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(500))
+        .expect(0)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(500))
+        .expect(0)
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[
+        ("OCTOCODE_JEV_KEY", "secret".into()),
+        ("OCTOCODE_JEV_BASE_URL", server.uri()),
+        ("GITHUB_API_URL", server.uri()),
+    ]);
+    let mut source_query = query();
+    source_query["sources"] =
+        json!({"remote":{"type":"github","owner":"a","repo":"b","path":"a.rs","ref":"main"}});
+    for (field, value) in [
+        ("responseCharLength", json!(2000)),
+        ("responseCharOffset", json!(0)),
+        ("responseSnapshot", json!("response-v1:old")),
+    ] {
+        for render_text in [true, false] {
+            let mut input = json!({"queries":[source_query],"renderText":render_text});
+            input[field] = value.clone();
+            let error = runtime
+                .execute(format!("paging-{field}-{render_text}"), "jev".into(), input)
+                .await
+                .unwrap_err();
+            assert_eq!(error.code, "unsupportedResponsePagination");
+        }
+    }
+    runtime.close().await;
+}
+
 #[test]
 fn catalog_has_one_jev_tool_gated_on_a_nonblank_key() {
     let workspace = Workspace::new();

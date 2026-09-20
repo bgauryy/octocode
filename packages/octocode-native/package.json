@@ -81,7 +81,7 @@
     "audit:rust": "cargo audit -D unmaintained -D unsound -D yanked",
     "build": "yarn build:runtime && yarn build:addons",
     "build:runtime": "cargo build -p octocode-native --release --bins --no-default-features",
-    "build:runtime:dev": "cargo build -p octocode-native --bins --no-default-features",
+    "build:runtime:dev": "cargo build -p octocode-native --bins --no-default-features && node scripts/copy-local-runtime-binaries.cjs debug",
     "build:addon": "cargo build -p octocode-native --release --lib --features napi-addon && node scripts/copy-local-runtime-addon.cjs release",
     "build:addon:dev": "cargo build -p octocode-native --lib --features napi-addon && node scripts/copy-local-runtime-addon.cjs debug",
     "build:engine": "napi build --manifest-path crates/engine/Cargo.toml --package-json-path package.json --output-dir . --platform --release --no-default-features --features portable-default,napi-addon --js .engine-generated.cjs --dts .engine-generated.d.ts && node scripts/postbuild-engine.cjs",

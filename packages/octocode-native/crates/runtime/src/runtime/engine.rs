@@ -199,7 +199,7 @@ impl ToolRuntime {
         self.begin_close();
         self.requests.close().await;
         self.lsp_pool.clear_all().await;
-        self.github_cache.clear();
+        self.github_cache.clear_memory();
     }
     pub fn inspect_config(&self) -> config::ConfigInspectorData {
         config::inspector_data(&self.input, &self.config)
@@ -500,6 +500,22 @@ impl ToolRuntime {
             }
             None => (tool, input, false),
         };
+        // Jev is nondeterministic and billed per evaluation. Query replay cannot
+        // serve a page of the original judgment, including authenticated cursors.
+        if tool == "jev"
+            && [
+                "responseCharOffset",
+                "responseCharLength",
+                "responseSnapshot",
+            ]
+            .iter()
+            .any(|field| input.get(field).is_some())
+        {
+            return Err(RuntimeError::new(
+                "unsupportedResponsePagination",
+                "Jev response pagination is unsupported: replay would repeat source reads and inference. Remove response paging options and use the complete result; batch independent questions over shared sources.",
+            ));
+        }
         // Parse response-paging options before contract validation.
         let options: ResponsePageOptions =
             serde_json::from_value(input.clone()).unwrap_or_default();

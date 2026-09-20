@@ -50,11 +50,15 @@ fn now_unix() -> u64 {
 }
 
 impl GitHubContentCache {
-    pub fn clear(&self) {
+    pub fn clear_memory(&self) {
         self.cache
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .invalidate_all();
+    }
+
+    pub fn clear(&self) {
+        self.clear_memory();
         if let Some(disk) = &self.disk {
             let _ = fs::remove_dir_all(disk);
             let _ = fs::create_dir_all(disk);
@@ -75,16 +79,26 @@ impl GitHubContentCache {
         }
     }
 
-    fn disk_file(&self, resource: &str) -> Option<PathBuf> {
+    fn disk_file(&self, key: &CacheKey) -> Option<PathBuf> {
         self.disk.as_ref().map(|dir| {
             let mut digest = Sha256::new();
-            digest.update(resource.as_bytes());
+            // Match memory isolation and leave legacy, unpartitioned files unread.
+            digest.update(b"github-content-cache-v2");
+            for value in [
+                &key.namespace,
+                &key.partition.endpoint,
+                &key.partition.credential_fingerprint,
+                &key.resource,
+            ] {
+                digest.update((value.len() as u64).to_le_bytes());
+                digest.update(value.as_bytes());
+            }
             dir.join(format!("{}.json", hex::encode(digest.finalize())))
         })
     }
 
-    fn read_disk(&self, resource: &str) -> Option<CachedContent> {
-        let path = self.disk_file(resource)?;
+    fn read_disk(&self, key: &CacheKey) -> Option<CachedContent> {
+        let path = self.disk_file(key)?;
         let bytes = fs::read(&path).ok()?;
         let entry: DiskEntry = serde_json::from_slice(&bytes).ok()?;
         // Honor config-revision invalidation and the TTL exactly like the memory
@@ -100,8 +114,8 @@ impl GitHubContentCache {
         Some(entry.value)
     }
 
-    fn write_disk(&self, resource: &str, value: &CachedContent) {
-        let Some(path) = self.disk_file(resource) else {
+    fn write_disk(&self, key: &CacheKey, value: &CachedContent) {
+        let Some(path) = self.disk_file(key) else {
             return;
         };
         let entry = DiskEntryRef {
@@ -162,14 +176,15 @@ impl ConditionalCache for GitHubContentCache {
         key: &'a str,
     ) -> Pin<Box<dyn Future<Output = Option<CachedContent>> + Send + 'a>> {
         Box::pin(async move {
+            let key = Self::key(partition, key);
             match self.cache.lock().unwrap_or_else(|p| p.into_inner()).get(
-                &Self::key(partition, key),
+                &key,
                 self.revision,
                 None,
                 Instant::now(),
             ) {
                 CacheLookup::Hit { value, .. } => Some((*value).clone()),
-                CacheLookup::Miss(_) => self.read_disk(key),
+                CacheLookup::Miss(_) => self.read_disk(&key),
             }
         })
     }
@@ -190,7 +205,7 @@ impl ConditionalCache for GitHubContentCache {
                 .saturating_add(key.resource.capacity())
                 .saturating_add(key.partition.credential_fingerprint.capacity())
                 .saturating_add(std::mem::size_of::<CachedContent>());
-            self.write_disk(&key.resource, &value);
+            self.write_disk(&key, &value);
             self.cache.lock().unwrap_or_else(|p| p.into_inner()).insert(
                 key,
                 value,
@@ -205,6 +220,84 @@ impl ConditionalCache for GitHubContentCache {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn disk_cache_isolates_endpoint_and_credential_partitions() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = || GitHubContentCache::new(CacheConfig::default(), 7, Some(dir.path().into()));
+        let first = ProviderPartition("endpoint-a/credential-a".into());
+        let other_credential = ProviderPartition("endpoint-a/credential-b".into());
+        let other_endpoint = ProviderPartition("endpoint-b/credential-a".into());
+        let content = CachedContent {
+            bytes: b"private source".to_vec(),
+            etag: Some("v1".into()),
+            resolved_ref: "sha".into(),
+        };
+        cache().put(&first, "file".into(), content.clone()).await;
+        assert_eq!(cache().get(&first, "file").await, Some(content));
+        assert_eq!(cache().get(&other_credential, "file").await, None);
+        assert_eq!(cache().get(&other_endpoint, "file").await, None);
+    }
+
+    #[tokio::test]
+    async fn expired_disk_entries_and_explicit_clear_do_not_survive() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = || GitHubContentCache::new(CacheConfig::default(), 7, Some(dir.path().into()));
+        let part = ProviderPartition("endpoint/credential".into());
+        let content = CachedContent {
+            bytes: b"source".to_vec(),
+            etag: Some("v1".into()),
+            resolved_ref: "sha".into(),
+        };
+        let original = cache();
+        original.put(&part, "file".into(), content.clone()).await;
+        let file = fs::read_dir(dir.path())
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let mut entry: serde_json::Value =
+            serde_json::from_slice(&fs::read(&file).unwrap()).unwrap();
+        entry["stored_at_unix"] = serde_json::json!(0);
+        fs::write(&file, serde_json::to_vec(&entry).unwrap()).unwrap();
+        assert_eq!(cache().get(&part, "file").await, None);
+        assert!(!file.exists());
+        original.put(&part, "file".into(), content).await;
+        original.clear();
+        assert_eq!(original.get(&part, "file").await, None);
+        assert_eq!(cache().get(&part, "file").await, None);
+    }
+
+    #[tokio::test]
+    async fn legacy_unpartitioned_disk_entries_are_not_reused() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = GitHubContentCache::new(CacheConfig::default(), 7, Some(dir.path().into()));
+        let legacy_path = dir
+            .path()
+            .join(format!("{}.json", hex::encode(Sha256::digest(b"file"))));
+        let content = CachedContent {
+            bytes: b"unpartitioned source".to_vec(),
+            etag: Some("v1".into()),
+            resolved_ref: "sha".into(),
+        };
+        fs::write(
+            legacy_path,
+            serde_json::to_vec(&DiskEntryRef {
+                revision: 7,
+                stored_at_unix: now_unix(),
+                value: &content,
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            cache
+                .get(&ProviderPartition("partition".into()), "file")
+                .await,
+            None
+        );
+    }
     #[tokio::test]
     async fn refuses_oversized_bodies_and_never_crosses_provider_partitions() {
         let cache = GitHubContentCache::new(
