@@ -62,7 +62,7 @@ const req = JSON.parse(readFileSync(input, 'utf8'));
 assert.equal(typeof req.reasoning, 'string');
 assert.equal(req.questions.length, 1);
 assert.equal(req.questions[0].id, 'relevance');
-const results = req.resources.map((resource, index) => {
+const results = process.env.TEST_JEV_EMPTY ? [] : req.resources.map((resource, index) => {
   const p = resource.context.query.path;
   let choice = 'relevant', confidence = 0.95;
   if (/page-002/.test(p)) { choice = 'unrelated'; confidence = 0.9; }
@@ -193,6 +193,26 @@ test('explicit files and symlinks cannot escape the session directory', () => {
   } finally {
     rmSync(outside, { force: true });
   }
+});
+
+test('stdout bounds resource errors while the saved report preserves every error', () => {
+  writeSession(Array.from({ length: 21 }, (_, index) => ({
+    pageId: `page-${String(index + 1).padStart(3, '0')}`,
+    url: `https://ex.test/error-${index + 1}`,
+    bytes: 1000,
+  })));
+  const res = run(
+    ['--session-dir', dir, '--goal', 'g', '--octocode', `${process.execPath} ${stubCli}`],
+    { TEST_JEV_EMPTY: '1' },
+  );
+  assert.equal(res.status, 1);
+  assert.equal(res.parsed.errorCount, 21);
+  assert.equal(res.parsed.errors.length, 20);
+  assert.equal(res.parsed.errorsTruncated, true);
+  const report = JSON.parse(readFileSync(res.parsed.report, 'utf8'));
+  assert.equal(report.errorCount, 21);
+  assert.equal(report.errors.length, 21);
+  assert.equal(report.errorsTruncated, false);
 });
 
 test('unavailable jev returns JEV_UNAVAILABLE with lexical fallback hint', () => {

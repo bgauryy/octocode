@@ -125,10 +125,9 @@ mod tests {
         let bad =
             validate_config(&json!({"local":{"allowedPaths":["relative","/a/../b"]},"extra":1}));
         assert!(!bad.valid);
-        assert!(
-            bad.warnings
-                .contains(&"Unknown configuration key: extra".into())
-        )
+        assert!(bad
+            .warnings
+            .contains(&"Unknown configuration key: extra".into()))
     }
     #[test]
     fn all_fields_and_source_quirk_resolve() {
@@ -203,6 +202,8 @@ mod tests {
             ),
             &BTreeMap::from([("OCTOCODE_ENABLE_STATS".into(), "true".into())]),
         );
+        assert!(cfg.is_ok());
+        let cfg = cfg.unwrap_or_default();
         assert!(!is_stats_enabled(&cfg));
         assert!(is_persistent_storage_enabled_for_extension(&cfg))
     }
@@ -358,6 +359,8 @@ mod tests {
                 ("OCTOCODE_ENABLE_CLONE".into(), "true".into()),
             ]),
         );
+        assert!(aliased.is_ok());
+        let aliased = aliased.unwrap_or_default();
         assert!(!aliased.local.enabled);
         assert!(aliased.local.enable_clone);
         let both = resolve_sections(
@@ -367,7 +370,11 @@ mod tests {
                 ("OCTOCODE_ENABLE_LOCAL".into(), "false".into()),
             ]),
         );
-        assert!(both.local.enabled, "canonical spelling wins over the alias");
+        assert!(both.is_ok());
+        assert!(
+            both.unwrap_or_default().local.enabled,
+            "canonical spelling wins over the alias"
+        );
         // Aliases count as env sources for source labeling.
         let env = BTreeMap::from([("OCTOCODE_ENABLE_CLONE".into(), "true".into())]);
         assert_eq!(resolve_config(&input(env, None)).source, ConfigSource::Env);

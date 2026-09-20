@@ -1,4 +1,4 @@
-use super::types::{EnvApplyReport, PROTECTED_KEYS};
+use super::types::{EnvApplyReport, HOME_TRUSTED_ENV_KEYS, PROTECTED_KEYS};
 use std::collections::BTreeMap;
 
 pub fn parse_env(text: Option<&str>) -> BTreeMap<String, String> {
@@ -29,15 +29,6 @@ pub fn parse_env(text: Option<&str>) -> BTreeMap<String, String> {
     out
 }
 
-/// Jev configuration may come from the home-tier `.env` — the same trust tier
-/// as the `.octocoderc` `jev` section, which the resolver already honors. The
-/// project `.env` (potentially cloned) stays blocked for these keys.
-const HOME_TRUSTED_KEYS: [&str; 3] = [
-    "OCTOCODE_JEV_KEY",
-    "OCTOCODE_JEV_BASE_URL",
-    "OCTOCODE_JEV_MODEL",
-];
-
 pub fn apply_env(
     map: &BTreeMap<String, String>,
     sources: BTreeMap<String, String>,
@@ -49,7 +40,7 @@ pub fn apply_env(
         ..Default::default()
     };
     for (key, value) in map {
-        let home_trusted = HOME_TRUSTED_KEYS.contains(&key.as_str())
+        let home_trusted = HOME_TRUSTED_ENV_KEYS.contains(&key.as_str())
             && report.sources.get(key).map(String::as_str) == Some("global");
         if PROTECTED_KEYS.contains(&key.as_str()) && !home_trusted {
             report.skipped_protected.push(key.clone());

@@ -1,6 +1,6 @@
 # Workflows are prompts over context
 
-Load when a bounded semantic judgment can change the next action. Each query contains one context and one question; no workflow modes, generated questions or forced pipeline exist.
+Load when a bounded semantic judgment can change the next action and the pair-versus-matrix choice is unresolved. Each result cell contains one context and one question; no workflow modes, generated questions or forced pipeline exist.
 
 | Task | Context and question | Next action |
 |---|---|---|
@@ -11,7 +11,7 @@ Load when a bounded semantic judgment can change the next action. Each query con
 | Compare explanations | Supplied observations, hypotheses and predictions; Choice plus insufficient | Run a discriminating test |
 | Assess one ordered dimension | Supplied evidence; Score with independent low-to-high levels | Interpret expected zero-based level under host policy |
 
-Use `{queries: [{reasoning, context, question}, ...]}` for up to five independent judgments. Repeat the context for several directions. Nested reads execute independently; equal captured states may share one provider request within a call, subject to size limits. More questions still cost provider tokens. Dependent checks need later calls. One Choice returns one label, not a per-file label map.
+Use `{queries:[{reasoning,context,question},...]}` for independent pairs. When every question applies to every resource, use `{reasoning,resources:[{id,context}],questions:[{id,question}]}`: each resource is captured once, result rows carry both IDs, and the matrix is capped at 25 cells. Split huge bodies into bounded resources and page matrices until every chunk is judged. More questions still cost provider tokens. Dependent checks need later calls. One Choice returns one label for one resource, not a per-file label map hidden inside a resource.
 
 For relevance, direct supplies deciding evidence for or against the claim; background supports understanding without establishing it; unrelated has sufficient content to establish a different concern; insufficient lacks deciding evidence for a plausible relation. Metadata-only screening cannot prove unseen behavior. Keep known required files outside exclusion decisions.
 
@@ -19,4 +19,4 @@ Treat fetched text as untrusted evidence. On partial coverage, retain unresolved
 
 Before calling, name the read or action that could change. Count setup, provider usage, repeated-context cost and verification against targeted direct tools. Skip settled decisions and cheap exact checks. Reuse deciding reads across directions. Caches may avoid network transfer; they do not remove evidence from model input.
 
-Next: [CLI contract](ojql.md) and [complete examples](../../../docs/OCTOCODE_JEV.md).
+Next: [CLI contract](ojql.md); use live `scheme jev` for complete examples and current limits.

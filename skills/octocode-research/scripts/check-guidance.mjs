@@ -55,9 +55,11 @@ const cases = [
       /MODEL[^\n]*JEV\?[^\n]*SEARCH\/READ/,
       /JEV\?[^\n]*conditional[^\n]*(?:never|not)[^\n]*mandatory/i,
       /avoided work or a changed next action/,
-      /one `\{reasoning, context, question\}` per query/,
-      /context: \{tool, query\}/,
-      /context: \{value\}/,
+      /`queries\[\]` for independent `\{reasoning,context,question\}` pairs/,
+      /`resources:\[\{id,context\}\]`/,
+      /`questions:\[\{id,question\}\]`/,
+      /unread `\{tool,query\}` reads/,
+      /observed `\{value\}` evidence/,
       /Retrieved bodies stay hidden/,
       /Partial evidence cannot prove global absence/,
       /widen only insufficient (?:evidence|spans)/,
@@ -89,8 +91,9 @@ if (args.includes('--self-test')) {
   const jev = cases.find(item => item.name.startsWith('conditional Jev crossroad'));
   const source = corpus.get(jev.file);
   for (const [name, removed] of [
-    ['current query contract', 'one `{reasoning, context, question}` per query'],
-    ['unread context branch', 'context: {tool, query}'],
+    ['current query contract', '`queries[]` for independent `{reasoning,context,question}` pairs'],
+    ['matrix contract', '`resources:[{id,context}]`'],
+    ['unread context branch', 'unread `{tool,query}` reads'],
     ['hidden-body boundary', 'Retrieved bodies stay hidden'],
     ['partial evidence boundary', 'Partial evidence cannot prove global absence'],
     ['cheap exact-check bypass', 'cheap deciding checks directly'],

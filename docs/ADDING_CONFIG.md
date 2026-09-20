@@ -1,549 +1,346 @@
-# Adding config to Octocode — developer guide
+# Adding configuration to Octocode
 
-This guide is for contributors who need to add a new setting or credential to Octocode. It traces the complete flow across both layers of the config stack so you make every touch point in one pass and never end up with a setting that is parsed in TypeScript but silently ignored in Rust (or vice versa).
+This guide explains how to add settings and credentials without creating TypeScript/Rust drift.
 
----
+## Architecture
 
-## Table of contents
+`packages/octocode-config/config-contract.json` is the only declaration of configuration field policy. It owns:
 
-- [Architecture in one diagram](#architecture-in-one-diagram)
-- [Two categories, three file roles](#two-categories-three-file-roles)
-- [Adding a regular behavioral setting](#adding-a-regular-behavioral-setting)
-  - [1 — TypeScript: `types.ts`](#1--typescript-typests)
-  - [2 — TypeScript: shared defaults and bounds](#2--typescript-shared-defaults-and-bounds)
-  - [3 — TypeScript: `resolverSections.ts`](#3--typescript-resolversectionsts)
-  - [4 — TypeScript: `validator.ts`](#4--typescript-validatorts)
-  - [5 — Rust: `types.rs`](#5--rust-typesrs)
-  - [6 — Rust: `resolver.rs` — `resolve_sections`](#6--rust-resolverrs--resolve_sections)
-  - [7 — Rust: `validation.rs`](#7--rust-validationrs)
-  - [8 — `CONFIGURATION.md` reference tables](#8--configurationmd-reference-tables)
-  - [9 — Update all related docs](#9--update-all-related-docs)
-- [Adding a credential / protected key](#adding-a-credential--protected-key)
-  - [Pattern A — env-only (GitHub-token style)](#pattern-a--env-only-github-token-style)
-  - [Pattern B — env preferred, `.octocoderc` fallback (Jev style)](#pattern-b--env-preferred-octocoderc-fallback-jev-style)
-- [Reading config in tools and implementation](#reading-config-in-tools-and-implementation)
-  - [TypeScript consumers](#typescript-consumers)
-  - [Rust consumers](#rust-consumers)
-- [End-to-end checklist](#end-to-end-checklist)
-- [Common mistakes](#common-mistakes)
+- file paths and section membership;
+- input and resolved types;
+- defaults and inherited defaults;
+- environment names and alias priority;
+- ranges, enum values, URL/path semantics, and unknown-key membership;
+- dotenv trust (`all`, `home`, or `never`);
+- credential exclusion from `ResolvedConfig`;
+- user-facing descriptions and generated reference data.
 
----
+The contract is validated by `config-contract.schema.json` and then consumed through two build paths:
 
-## Architecture in one diagram
+```text
+packages/octocode-config/config-contract.json
+                 │
+                 ├─ TypeScript generator
+                 │    ├─ src/config/contract.generated.ts
+                 │    │    types · defaults · field metadata · env policy
+                 │    └─ docs/generated/CONFIG_SETTINGS.md
+                 │
+                 └─ Rust build.rs
+                      └─ $OUT_DIR/config_contract.rs
+                           structs · defaults · field metadata · env policy
 
-```
-User writes                    Loaded by           Written into
-────────────────────────────── ─────────────────── ───────────────────────────────
-
-Shell / CI env vars  ─────────┐
-MCP client env block ─────────┤                    effective_env  (Rust BTreeMap)
-                              │  Rust acquire +    ──────────────────────────────
-~/.octocode/.env  ────────────┤  resolve_config    ResolvedConfig struct  (Rust)
-~/.octocode/.octocoderc ──────┘  │                 ──────────────────────────────
-                                 │  TS wrapper      getConfigSync()  (TypeScript)
-<project>/.octocode/.env ────────┘
-(trusted projects only)
+contract metadata → generic TypeScript resolver/validator
+contract metadata → generic Rust resolver/validator
 ```
 
-Priority (highest → lowest):
+The interpreters contain language mechanics—reading JavaScript objects or `serde_json::Value`, parsing environment strings, and constructing diagnostics. They contain no per-setting field lists.
 
-```
-1. process env (shell export / MCP env block)
-2. <project>/.octocode/.env     ← skills/agents only, never MCP server / CLI
-3. ~/.octocode/.env             ← skills/agents only, never MCP server / CLI
-4. ~/.octocode/.octocoderc      ← MCP server + CLI, JSONC
-5. built-in defaults
-```
+Do not edit generated files. Do not add a setting directly to `types.ts`, `defaults.ts`, `resolverSections.ts`, `validator.ts`, Rust config structs, `resolver.rs`, or `validation.rs`.
 
-The Rust runtime and the TypeScript wrapper are **parallel implementations of the same resolution rules**. Both must be updated together; the Rust layer is what actually runs; the TypeScript layer is used by the CLI and Pi extension to read config from JavaScript.
+`@octocodeai/config` owns this policy and keeps zero installed runtime dependencies. Ajv is a build/test dependency. The package must not depend on or re-export `@octocodeai/octocode-core`; core owns tool contracts, while config owns configuration and environment policy.
 
----
+## Precedence and trust tiers
 
-## Two categories, three file roles
+For ordinary settings, highest priority wins:
 
-| Category | Where to put it | Read by |
-|----------|----------------|---------|
-| Behavioral setting (timeout, output format, tool gate…) | env var **or** `~/.octocode/.octocoderc` | MCP server, CLI, Pi extension |
-| Third-party API key for skills (Tavily, Serper…) | `~/.octocode/.env` | Agent sessions and skills only |
-| Credential / protected key (GitHub token, Jev key) | env var only (or `.octocoderc` section for Jev-style) | See [Adding a credential](#adding-a-credential--protected-key) |
-
-Never put protected credentials in a project `.env`; project files are untrusted for protected keys. The global `.env` is intended for skill API keys. Pattern B uses a dedicated `.octocoderc` section and explicitly blocks project `.env` overrides.
-
----
-
-## Adding a regular behavioral setting
-
-Use this section when you are adding a toggle, a limit, a path, or any non-secret config option. The example throughout is a hypothetical `output.maxResults` setting backed by `OCTOCODE_MAX_RESULTS`.
-
-### 1 — TypeScript: `types.ts`
-
-File: `packages/octocode-config/src/config/types.ts`
-
-Add the optional field to the relevant `*ConfigOptions` interface and the required field to the matching `Required*Config` interface.
-
-```ts
-// In OctocodeConfig sub-interface
-export interface OutputConfigOptions {
-  format?: OutputFormat;
-  pagination?: OutputPaginationConfigOptions;
-  maxResults?: number;      // ← add here
-}
-
-// In the fully-resolved Required* interface
-export interface RequiredOutputConfig {
-  format: OutputFormat;
-  pagination: RequiredOutputPaginationConfig;
-  maxResults: number;       // ← add here (required, never undefined after resolution)
-}
+```text
+process environment / MCP client env block
+  → trusted project .octocode/.env
+  → home .octocode/.env
+  → home .octocoderc
+  → generated default
 ```
 
-If your setting lives in a new top-level section, add a new `XxxConfigOptions` interface **and** a new `RequiredXxxConfig` interface, then add both to `OctocodeConfig` and `ResolvedConfig`.
+Project and home `.env` files are propagated only by hosts that use that flow; the native CLI/MCP process normally receives settings through its process environment and `.octocoderc`.
 
----
+The contract's dotenv policy controls file propagation:
 
-### 2 — TypeScript: shared defaults and bounds
+| Policy | Meaning |
+|---|---|
+| omitted or `all` | May be loaded from a trusted project or home `.env`. |
+| `home` | May be loaded from the trusted home `.env`, never a project `.env`. |
+| `never` | Shell/CI/MCP environment only; never loaded from either `.env` file. |
 
-Add scalar defaults, cross-language allowed-value lists, and shared min/max
-pairs to `packages/octocode-config/shared-constants.json`. The generators
-expose the same named constants to both runtimes and derive TypeScript unions. Do not edit
-`sharedConstants.generated.ts` or generated Rust constants.
+## Add a normal setting
+
+For an existing section, adding a normal setting requires one authoritative edit in `config-contract.json` and regeneration.
+
+Example: `output.maxResults`, with `OCTOCODE_MAX_RESULTS`, range 1–500, and default 50:
 
 ```json
-"defaultValues": {
-  "outputMaxResults": 50
-},
-"validationBounds": {
-  "minOutputMaxResults": 1,
-  "maxOutputMaxResults": 500
+{
+  "sections": {
+    "output": {
+      "title": "Output",
+      "file": true,
+      "resolved": true,
+      "fields": {
+        "maxResults": {
+          "type": "number",
+          "minimum": 1,
+          "span": 499,
+          "defaultOffset": 49,
+          "description": "Maximum results emitted in one response.",
+          "env": {
+            "OCTOCODE_MAX_RESULTS": { "priority": 0 }
+          }
+        }
+      }
+    }
+  }
 }
 ```
+
+Numeric values use `minimum + span` for the maximum and `minimum + min(defaultOffset, span)` for the default. This representation makes inverted ranges impossible by construction. Enum defaults are the first value in `values`; runtime-surface defaults are the first surface.
+
+Then regenerate:
 
 ```bash
-yarn workspace @octocodeai/config generate:shared-constants
+yarn workspace @octocodeai/config generate:config-contract
 ```
 
-```ts
-export const DEFAULT_OUTPUT_CONFIG: RequiredOutputConfig = {
-  format: 'yaml',
-  pagination: { defaultCharLength: 20000 },
-  maxResults: DEFAULT_OUTPUT_MAX_RESULTS,
-};
-```
+That one declaration generates:
 
----
+- `OutputConfigOptions.maxResults?: number`;
+- `RequiredOutputConfig.maxResults: number`;
+- the resolved default;
+- environment precedence and integer parsing;
+- clamping and validation bounds;
+- unknown-key recognition;
+- Rust `OutputConfig.max_results`;
+- Rust resolution and validation metadata;
+- the settings-reference row and complete example.
 
-### 3 — TypeScript: `resolverSections.ts`
+Add a focused test proving behavior that is not already guaranteed by the generic interpreter—for example, a downstream feature gate that consumes the new value. Do not add language-parity tests that restate the field declaration manually.
 
-File: `packages/octocode-config/src/config/resolverSections.ts`
+### Supported field shapes
 
-First add the env var name to `configSourceEnvKeys` in
-`packages/octocode-config/shared-constants.json` and run
-`generate:shared-constants`. That one list generates both
-`CONFIG_SOURCE_ENV_KEYS` in TypeScript and Rust.
+| `type` | Resolved representation | Relevant properties |
+|---|---|---|
+| `boolean` | boolean / Rust `bool` | `default` |
+| `number` | number / Rust `f64` | `minimum`, `span`, `defaultOffset` |
+| `string` | string or optional string | `default` |
+| `url` | HTTP(S) URL string | `default` |
+| `path` | absolute/home path string | `default` |
+| `stringArray` | string array or nullable array | `default`, optional `itemFormat: "path"` |
+| `enum` | generated literal union / Rust string | `values`, optional `defaultFrom` |
+| `schemaVersion` | schema version | reserved for the root version field |
 
-Then wire env var → file config → default inside the matching `resolve*`
-function:
+A `null` input means “unset/use the next source.” A `null` generated default becomes an optional string or nullable array where appropriate.
 
-```ts
-export function resolveOutput(
-  fileConfig?: OctocodeConfig['output']
-): RequiredOutputConfig {
-  // … existing resolution …
+### Environment aliases and invalid input
 
-  const envMaxResults = parseIntEnv(process.env.OCTOCODE_MAX_RESULTS);
-  const configuredMaxResults =
-    envMaxResults ??
-    fileConfig?.maxResults ??
-    DEFAULT_OUTPUT_CONFIG.maxResults;
-  const clampedMaxResults = Math.max(
-    MIN_OUTPUT_MAX_RESULTS,
-    Math.min(MAX_OUTPUT_MAX_RESULTS, configuredMaxResults)
-  );
+Bindings are keyed by environment variable and sorted by `priority`; lower numbers win:
 
-  return {
-    format: /* … */,
-    pagination: { defaultCharLength: /* … */ },
-    maxResults: clampedMaxResults,   // ← add here
-  };
+```json
+"env": {
+  "ENABLE_LOCAL": { "priority": 0 },
+  "OCTOCODE_ENABLE_LOCAL": { "priority": 1 }
 }
 ```
 
-For a new top-level section, write a new `resolveXxx(fileConfig?)` function following the same pattern, add it to the exports at the top of `index.ts`, and call it in `resolverCache.ts` which delegates to these resolver functions.
+Optional binding properties:
 
----
+- `normalize: "trim"` trims a string;
+- `normalize: "lower"` trims and lowercases it;
+- `invalid: "skip"` ignores an invalid environment value and tries the next source;
+- `invalid: "default"` makes an invalid environment value select the generated default rather than file config.
 
-### 4 — TypeScript: `validator.ts`
+`skip` is the default. Use `default` only when invalid environment input is intentionally authoritative, as with output format.
 
-File: `packages/octocode-config/src/config/validator.ts`
+### Inherited defaults
 
-Two places to update:
+Use `defaultFrom` rather than copying another default:
 
-**a) Validation function** — add type/range checks inside the relevant `validate*` function:
+```json
+"extension.storage.mode": {
+  "type": "enum",
+  "values": ["persistent", "memory"],
+  "defaultFrom": "storage.mode"
+}
+```
 
-```ts
-function validateOutput(output: unknown, errors: string[]): void {
-  // … existing checks …
-  if (out.maxResults !== undefined) {
-    const err = validateNumberRange(
-      out.maxResults, 'output.maxResults',
-      MIN_OUTPUT_MAX_RESULTS, MAX_OUTPUT_MAX_RESULTS
-    );
-    if (err) errors.push(err);
+Both generators reject unresolved or cyclic inheritance. At runtime inheritance uses the already-resolved source field, so an environment or file override of `storage.mode` flows into extension storage.
+
+### Add a new section
+
+Declare the section and its fields in the same contract. `file` controls whether it is accepted in `.octocoderc`; `resolved` controls whether it appears in generated `ResolvedConfig` types.
+
+```json
+"cache": {
+  "title": "Cache",
+  "file": true,
+  "resolved": true,
+  "fields": { }
+}
+```
+
+Nested sections use dotted names such as `output.pagination`. Parent sections must also be declared, even when their `fields` object is empty.
+
+`typeName` preserves a public TypeScript name when automatic PascalCase is unsuitable. `rustTypeName` does the same for generated Rust structs. These are compatibility metadata, not field policy.
+
+## Add credentials and protected environment keys
+
+Credential values must never appear in `ResolvedConfig`, logs, inspection output, or generated diagnostics. They are read from `effective_env` in Rust or `process.env` in TypeScript consumers.
+
+### Pattern A: environment-only credential
+
+Declare an environment-only policy entry, not a config field:
+
+```json
+"environment": {
+  "MY_SERVICE_API_KEY": {
+    "dotenv": "never",
+    "description": "My Service API credential"
   }
 }
 ```
 
-**b) Unknown-key warning** — add the new field to the `warnUnknownObjectKeys` call for your section:
+`dotenv: "never"` adds the name to the generated protected-key sets in both languages. The value may come from a shell, CI secret, or MCP client `env` block, but not a home or project `.env`.
+
+Read it without copying it into a loggable structure:
+
+```rust
+let key = config.env_value("MY_SERVICE_API_KEY")
+    .filter(|value| !value.trim().is_empty());
+```
 
 ```ts
-warnUnknownObjectKeys(
-  cfg.output,
-  'output',
-  ['format', 'pagination', 'maxResults'],   // ← add here
-  warnings
-);
+const key = process.env.MY_SERVICE_API_KEY?.trim() || undefined;
 ```
 
-Missing either step means misspellings are silently ignored instead of surfacing as warnings.
+If the variable changes resolved configuration source labeling, add `configSource: true`. Authentication-only variables usually should not.
 
----
+### GitHub token priority
 
-### 5 — Rust: `types.rs`
+GitHub tokens are Pattern A entries with `tokenPriority`. Lower numbers win. The generator derives `ENV_TOKEN_VARS`, token-source types, and protected-key sets from these declarations:
 
-File: `packages/octocode-native/crates/runtime/src/config/types.rs`
-
-Add the field to the matching Rust struct. Match the camelCase renaming that serde uses, since the JSON round-trip uses the same key names as the TypeScript side.
-
-```rust
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct OutputConfig {
-    pub format: String,
-    pub pagination: PaginationConfig,
-    pub redact_emails: bool,
-    #[serde(rename = "maxResults", default)]
-    pub max_results: f64,   // ← add here
-}
+```json
+"OCTOCODE_TOKEN": { "dotenv": "never", "tokenPriority": 0 },
+"GH_TOKEN": { "dotenv": "never", "tokenPriority": 1 }
 ```
 
-For a new top-level section, define a new struct and add it as a field on `ResolvedConfig`.
+Do not add a token array elsewhere.
 
----
+### Pattern B: environment preferred, trusted `.octocoderc` fallback
 
-### 6 — Rust: `resolver.rs` — `resolve_sections`
+Jev uses this pattern. Declare fields in a section with `resolved: false`, mark each field `credential: true`, and give its environment binding `dotenv: "home"` or `never`:
 
-File: `packages/octocode-native/crates/runtime/src/config/resolver.rs`
-
-`CONFIG_SOURCE_ENV_KEYS` is generated by `build.rs` from the same
-`shared-constants.json` list used by TypeScript. Never add a local Rust mirror
-or change an array length manually.
-
-Wire the resolution inside `resolve_sections`, following the same env → file →
-default pattern as TypeScript:
-
-```rust
-output: OutputConfig {
-    format: { /* … */ },
-    pagination: PaginationConfig { /* … */ },
-    redact_emails: /* … */,
-    max_results: {
-        let raw = parse_int_env(env(e, "OCTOCODE_MAX_RESULTS"))
-            .map(|x| x as f64)
-            .or_else(|| num_field(output, "maxResults"))
-            .unwrap_or(DEFAULT_OUTPUT_MAX_RESULTS);
-        clamp(raw, MIN_OUTPUT_MAX_RESULTS, MAX_OUTPUT_MAX_RESULTS)
-    },
-},
-```
-
----
-
-### 7 — Rust: `validation.rs`
-
-File: `packages/octocode-native/crates/runtime/src/config/validation.rs`
-
-Mirror the TypeScript validator: add a range check and add the field to the known-keys set for the unknown-key warning.
-
-```rust
-// Inside validate_output():
-if let Some(v) = out.get("maxResults") {
-    validate_number_range(
-        v,
-        "output.maxResults",
-        MIN_OUTPUT_MAX_RESULTS,
-        MAX_OUTPUT_MAX_RESULTS,
-        errors,
-    );
-}
-
-// In the warnUnknownObjectKeys equivalent:
-let known_output = ["format", "pagination", "redactEmails", "maxResults"];
-```
-
----
-
-### 8 — `CONFIGURATION.md` reference tables
-
-File: `docs/CONFIGURATION.md`
-
-Add a row to the relevant table in [All settings reference](CONFIGURATION.md#all-settings-reference). Include the env var name, the `.octocoderc` key path, the default, and any range or note.
-
-```md
-| `OCTOCODE_MAX_RESULTS` | `output.maxResults` | `50` | 1 – 500 |
-```
-
-Also add the field to the annotated `.octocoderc` reference block so users can copy-paste a working example:
-
-```jsonc
-// ~/.octocode/.octocoderc
-{
-  "output": {
-    // Max results returned per page. Range: 1–500. Default: 50
-    "maxResults": 50
-  }
-}
-```
-
----
-
-### 9 — Update all related docs
-
-Documentation is spread across several files; each has its own scope. Touch every one that applies.
-
-| File | What to add or change |
-|------|-----------------------|
-| `docs/CONFIGURATION.md` → All settings reference table | Env var name, `.octocoderc` key path, default, range / notes |
-| `docs/CONFIGURATION.md` → annotated `.octocoderc` block | The new field with an inline comment describing its effect |
-| `docs/CONFIGURATION.md` → Troubleshooting table | A row if the setting has a non-obvious failure mode (e.g. a gate that silently disables a tool) |
-| `docs/CONFIGURATION.md` → See also | Only when adding a new top-level section or a new trust pattern |
-| `docs/ADDING_CONFIG.md` | Update this guide if the flow changed — new file, new pattern, new step, changed default mechanism |
-| `packages/octocode-config/README.md` | Update if the package's public API surface changed (new export, new type, new function) |
-| `packages/octocode-native/ARCHITECTURE.md` | Update if you changed config trust boundaries (new protected-key class, new tier) |
-
-For **credentials** also verify:
-- The new key appears in the `CONFIGURATION.md` "Protected keys" table with a clear reason (what attack the protection prevents).
-- No value ever appears in a log, `Debug` output, or `config get` response — confirm with a test.
-
----
-
-## Adding a credential / protected key
-
-Credentials need special handling. Never put a secret in `ResolvedConfig` (it can be dumped via `config get`) and never let it come from an untrusted project `.env`.
-
-### Pattern A — env-only (GitHub-token style)
-
-Use this pattern when the credential must **only** come from the process environment — never from any file.
-
-**Step 1 — TypeScript `PROTECTED_KEYS`**
-
-`packages/octocode-config/src/index.ts`
-
-```ts
-export const PROTECTED_KEYS: ReadonlySet<string> = new Set([
-  // … existing …
-  'MY_SERVICE_API_KEY',   // ← add here
-]);
-```
-
-**Step 2 — Rust `PROTECTED_KEYS`**
-
-`packages/octocode-native/crates/runtime/src/config/types.rs`
-
-```rust
-pub const PROTECTED_KEYS: [&str; 20] = [   // bump count
-    // … existing …
-    "MY_SERVICE_API_KEY",   // ← add here
-];
-```
-
-**Step 3 — Read in tools via `effective_env` / `env_value`**
-
-```rust
-// In a tool handler
-let key = config_output.env_value("MY_SERVICE_API_KEY")
-    .filter(|s| !s.trim().is_empty());
-```
-
-Do **not** put the key in `ResolvedConfig` or any loggable struct field.
-
-**Step 4 — Document it**
-
-Add a row in the "Protected keys" table in `CONFIGURATION.md` with the reason it is protected. Add a row in the "Third-party keys" section if it is meant to be set by users via their shell.
-
----
-
-### Pattern B — env preferred, `.octocoderc` fallback (Jev style)
-
-Use this pattern when you want to let users store a credential in `.octocoderc` as a convenience (same trust tier as `github.apiUrl`), while still blocking it from the project `.env`.
-
-The Jev key is the canonical example. Study `apply_jev_file_fallback` in `resolver.rs`.
-
-**Step 1 — Add a section to `OctocodeConfig` (TypeScript)**
-
-```ts
-// types.ts
-export interface MyServiceConfigOptions {
-  key?: string | null;
-  baseUrl?: string | null;
-}
-
-export interface OctocodeConfig {
-  // … existing …
-  myService?: MyServiceConfigOptions;
-}
-```
-
-The section is read from `.octocoderc` only — it must **not** appear in `ResolvedConfig` (to prevent `config get` from leaking the value).
-
-**Step 2 — Validate the new section (TypeScript)**
-
-`validator.ts` — add a `validateMyService` function and call it from `validateConfig`. Add the section name to the top-level known-keys set. Add `warnUnknownObjectKeys` for the new section's fields.
-
-**Step 3 — Apply the file fallback after env is resolved (Rust)**
-
-`resolver.rs` — add a function mirroring `apply_jev_file_fallback`:
-
-```rust
-fn apply_my_service_file_fallback(file: Option<&Value>, effective: &mut BTreeMap<String, String>) {
-    let section = object(file, "myService");
-    for (env_key, file_key) in [
-        ("MY_SERVICE_API_KEY", "key"),
-        ("MY_SERVICE_BASE_URL", "baseUrl"),
-    ] {
-        if effective.get(env_key).is_some_and(|v| !v.trim().is_empty()) {
-            continue;   // env wins
+```json
+"myService": {
+  "title": "My Service",
+  "file": true,
+  "resolved": false,
+  "fields": {
+    "key": {
+      "type": "string",
+      "default": null,
+      "credential": true,
+      "description": "My Service API key fallback.",
+      "env": {
+        "MY_SERVICE_API_KEY": {
+          "priority": 0,
+          "dotenv": "home",
+          "normalize": "trim"
         }
-        if let Some(v) = str_field(section, file_key).filter(|s| !s.trim().is_empty()) {
-            effective.insert(env_key.to_owned(), v);
-        }
+      }
     }
+  }
 }
 ```
 
-Call it in `resolve_config`, just like `apply_jev_file_fallback`:
+The generic Rust credential adapter applies environment-first file fallback into `effective_env`. The generated input type and generic validators recognize the `.octocoderc` section, but generated resolved types exclude it. `dotenv: "home"` permits the trusted home `.env` and blocks a cloned project's `.env`.
 
-```rust
-apply_jev_file_fallback(file.as_ref(), &mut effective);
-apply_my_service_file_fallback(file.as_ref(), &mut effective);  // ← add
-```
+Jev remains the reference: `jev.key`, `jev.model`, and `jev.baseUrl` never enter `ResolvedConfig`.
 
-**Step 4 — Add the keys to the canonical shared lists**
+Tests for Pattern B must prove:
 
-Add the env var names (`MY_SERVICE_API_KEY`, `MY_SERVICE_BASE_URL`) to both
-`protectedKeys` and `configSourceEnvKeys` in
-`packages/octocode-config/shared-constants.json`. The protected list prevents a
-malicious project `.env` from setting them; the source list keeps the config
-source label (`Env` vs `Mixed` vs `File`) correct.
+1. process environment wins over `.octocoderc`;
+2. `.octocoderc` fills an absent value;
+3. trusted home `.env` is accepted when policy is `home`;
+4. project `.env` is blocked;
+5. `Debug`, inspection JSON, and `get_config_value` do not contain the secret.
 
-**Step 5 — Regenerate TypeScript constants**
+## Read resolved configuration
 
-Run `yarn workspace @octocodeai/config generate:shared-constants`. Rust reads
-the same JSON during compilation, so there is no second array to edit.
-
-**Step 6 — Never put the value in `ResolvedConfig`**
-
-The credential lives in `effective_env` / `child_env` only. Tools read it via `config_output.env_value("MY_SERVICE_API_KEY")`. The CLI `config get myService.key` must return nothing — verify with a test.
-
-**Step 7 — Document under "Protected keys"**
-
-Explain the protection rule and the `.octocoderc` convenience fallback. See the Jev section in `CONFIGURATION.md` as the template.
-
----
-
-## Reading config in tools and implementation
-
-### TypeScript consumers
+### TypeScript
 
 ```ts
 import { getConfigSync, getConfigValue } from '@octocodeai/config';
 
-// Full resolved config
 const config = getConfigSync();
 const timeout = config.network.timeout;
-
-// Point lookup (returns undefined if path is invalid)
-const fmt = getConfigValue<'yaml' | 'json'>('output.format');
-
-// For credentials that live in effective_env only, read process.env directly
-// (they are propagated there by propagateOctocodeEnv before the process starts)
-const jevKey = process.env.OCTOCODE_JEV_KEY;
+const format = getConfigValue<'yaml' | 'json'>('output.format');
 ```
 
-The TypeScript resolver caches the result per process; there is no need to call `getConfigSync()` on every request.
+The section-specific `resolveGitHub`, `resolveOutput`, and similar exports remain compatibility adapters. They all delegate to the generic contract interpreter; do not put field logic in them.
 
-### Rust consumers
-
-Inside a tool handler or runtime component the config is already resolved and passed as `ConfigOutput`:
+### Rust
 
 ```rust
-// Behavioral settings — read from resolved struct
 let timeout_ms = config.resolved.network.timeout as u64;
-let fmt = &config.resolved.output.format;
-
-// Credentials — read from effective_env; never from resolved struct
+let format = &config.resolved.output.format;
 let jev_key = config.env_value("OCTOCODE_JEV_KEY");
-let my_key  = config.env_value("MY_SERVICE_API_KEY");
 ```
 
-`env_value` returns `Option<&str>`. Always filter for blank:
+Rust resolved structs are generated at build time. Native-only builds read and validate both `config-contract.schema.json` and `config-contract.json`; they do not depend on a prior TypeScript generation step or a working-directory-relative path.
 
-```rust
-let key = config.env_value("MY_SERVICE_API_KEY")
-    .filter(|s| !s.trim().is_empty());
+## Generated artifacts and checks
+
+Source files:
+
+- `packages/octocode-config/config-contract.json` — authoritative policy;
+- `packages/octocode-config/config-contract.schema.json` — contract meta-schema.
+
+Generated files:
+
+- `packages/octocode-config/src/config/contract.generated.ts`;
+- `docs/generated/CONFIG_SETTINGS.md`;
+- Rust `$OUT_DIR/config_contract.rs` (build output, never commit it).
+
+Commands:
+
+```bash
+yarn workspace @octocodeai/config generate:config-contract
+yarn workspace @octocodeai/config check:config-contract
+yarn workspace @octocodeai/config lint
+yarn workspace @octocodeai/config test
+yarn workspace @octocodeai/config build
+
+cargo check --manifest-path packages/octocode-native/crates/runtime/Cargo.toml
+cargo test --manifest-path packages/octocode-native/crates/runtime/Cargo.toml --lib config::
 ```
 
----
+After native/runtime changes, also rebuild the native package and the consuming CLI or MCP interface, then exercise the real CLI path.
 
-## End-to-end checklist
+## Contributor checklist
 
-### Regular behavioral setting
+### Normal setting
 
-- [ ] `packages/octocode-config/src/config/types.ts` — add to `*ConfigOptions` and `Required*Config`
-- [ ] `packages/octocode-config/shared-constants.json` — add scalar defaults, shared bounds, and config-source env names; run `generate:shared-constants`
-- [ ] `packages/octocode-config/src/config/defaults.ts` — compose the matching `DEFAULT_*_CONFIG` from generated constants
-- [ ] `packages/octocode-config/src/config/resolverSections.ts` — wire env var → file → default in the matching `resolve*` function
-- [ ] `packages/octocode-config/src/config/validator.ts` — validate type/range + add field to `warnUnknownObjectKeys` call
-- [ ] `packages/octocode-native/crates/runtime/src/config/types.rs` — add field to the matching Rust struct
-- [ ] `packages/octocode-native/crates/runtime/src/config/resolver.rs` — wire resolution in `resolve_sections`; source-key constants are generated
-- [ ] `packages/octocode-native/crates/runtime/src/config/validation.rs` — mirror the TypeScript validator
-- [ ] **Docs** — `docs/CONFIGURATION.md` reference table: env var, `.octocoderc` key path, default, range
-- [ ] **Docs** — `docs/CONFIGURATION.md` annotated `.octocoderc` block: add field with inline comment
-- [ ] **Docs** — `docs/CONFIGURATION.md` Troubleshooting table: add row if the setting has a non-obvious failure mode
-- [ ] **Docs** — `docs/ADDING_CONFIG.md`: update this guide if the flow or a step changed
-- [ ] **Docs** — `packages/octocode-config/README.md`: update if a new type or function is exported
-- [ ] Tests — add coverage in `packages/octocode-config/tests/` and the Rust `config/mod.rs` inline tests
+- [ ] Add the field once in `config-contract.json`.
+- [ ] Use a contract type and encode default, environment binding, constraint, description, and trust policy there.
+- [ ] Regenerate TypeScript and documentation.
+- [ ] Add a consumer test for the setting's effect.
+- [ ] Run config lint/tests/build and native config tests.
+- [ ] Exercise the real CLI/MCP path when runtime behavior changes.
 
-### Credential / protected key (Pattern A — env-only)
+### Credential
 
-- [ ] `packages/octocode-config/shared-constants.json` — add to `protectedKeys`; regenerate TypeScript (Rust is generated at build time)
-- [ ] Read via `config_output.env_value()` (Rust) or `process.env` (TypeScript); never store in `ResolvedConfig`
-- [ ] **Docs** — `docs/CONFIGURATION.md` "Protected keys" table: add key name and the reason it is protected (what attack the block prevents)
-- [ ] **Docs** — `docs/CONFIGURATION.md` reference table / user-facing section: how to set it (shell export, MCP `env` block)
-- [ ] **Docs** — `docs/ADDING_CONFIG.md`: update if the pattern changed
-
-### Credential / protected key (Pattern B — `.octocoderc` fallback, Jev style)
-
-- [ ] `packages/octocode-config/src/config/types.ts` — add `*ConfigOptions` section to `OctocodeConfig` only (not to `ResolvedConfig`)
-- [ ] `packages/octocode-config/src/config/validator.ts` — validate the new section + `warnUnknownObjectKeys`
-- [ ] `packages/octocode-native/crates/runtime/src/config/resolver.rs` — write `apply_xxx_file_fallback` + call it in `resolve_config`
-- [ ] `packages/octocode-config/shared-constants.json` — add env var names to `protectedKeys` and `configSourceEnvKeys`; regenerate TypeScript
-- [ ] Verify `get_config_value(resolved, "myService.key")` returns `None` (never leaks)
-- [ ] **Docs** — `docs/CONFIGURATION.md` reference table: env var + `.octocoderc` section key + notes on precedence
-- [ ] **Docs** — `docs/CONFIGURATION.md` annotated `.octocoderc` block: add the new section with a usage example
-- [ ] **Docs** — `docs/CONFIGURATION.md` "Protected keys" table: add key name and protection reason
-- [ ] **Docs** — `docs/ADDING_CONFIG.md`: update if the pattern or step count changed
-- [ ] Tests — cover file fallback, env wins over file, project `.env` is blocked, `Debug` output does not contain the secret value
-
----
+- [ ] Choose Pattern A (environment-only) or Pattern B (trusted file fallback).
+- [ ] Set `dotenv` deliberately; never rely on an undocumented trust assumption.
+- [ ] For Pattern B, set `credential: true` and keep the section `resolved: false`.
+- [ ] Verify no secret reaches `ResolvedConfig`, diagnostics, `Debug`, or inspection output.
+- [ ] Test process environment, home `.env`, project `.env`, and `.octocoderc` precedence as applicable.
 
 ## Common mistakes
 
-| Mistake | Symptom | Fix |
-|---------|---------|-----|
-| Updated TypeScript resolver but not Rust `resolve_sections` | Setting works in Pi extension but is silently ignored in MCP/CLI at runtime | Update both layers; the Rust runtime is what executes |
-| Added to `types.ts` but forgot `validator.ts` `warnUnknownObjectKeys` | Misspelled key in `.octocoderc` silently falls back to default | Add the field name to the relevant `warnUnknownObjectKeys` call |
-| Added an env var but omitted `configSourceEnvKeys` in `shared-constants.json` | Source labels remain wrong in both runtimes | Add it once to the canonical JSON and regenerate TypeScript |
-| Edited `sharedConstants.generated.ts` or generated Rust output | The next build discards the edit | Edit `shared-constants.json` and run the generator |
-| Put a credential in `ResolvedConfig` | `octocode config --json` or `get_config_value` can dump the secret | Keep credentials in `effective_env` only; read via `env_value()` |
-| Put a credential in `.env` or in `OctocodeConfig` without adding it to `protectedKeys` | A cloned project `.env` can override it | Add it once in `shared-constants.json`; both runtimes consume the generated list |
-| Forgot to add to TypeScript `index.ts` exports | Consumers outside the package cannot import the new type or function | Export from `src/index.ts` |
-| Hardcoded a scalar default or bound in either runtime | The TypeScript and Rust surfaces can drift | Put the value in `shared-constants.json`, regenerate TypeScript, and use the generated constant in both runtimes |
+| Mistake | Result |
+|---|---|
+| Editing a generated TypeScript or Rust file | The next generation/build discards the edit. |
+| Adding field-specific logic to one resolver | Reintroduces language drift and bypasses contract generation. |
+| Copying a default or range into docs | Documentation can drift; generated settings reference owns those facts. |
+| Putting a credential in a resolved section | Inspection or point lookup can expose it. |
+| Using `dotenv: "all"` for protected infrastructure | A trusted project's `.env` can override the value. |
+| Omitting an environment binding from the contract | Source labeling, protection, docs, and both resolvers cannot derive it. |
+| Adding config/core coupling | Inverts package ownership; config must remain independent of tool contracts. |
+| Testing only compilation | Misses actual CLI/MCP loading, redaction, and interface wiring. |

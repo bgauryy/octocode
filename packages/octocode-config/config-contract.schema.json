@@ -50,6 +50,7 @@
         "dotenv": { "$ref": "#/$defs/dotenvPolicy" },
         "tokenPriority": { "type": "integer", "minimum": 0 },
         "configSource": { "type": "boolean" },
+        "documentation": { "type": "boolean" },
         "description": { "type": "string" }
       }
     },
@@ -231,6 +232,7 @@
       "properties": {
         "title": { "type": "string", "minLength": 1 },
         "typeName": { "type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$" },
+        "rustTypeName": { "type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$" },
         "file": { "type": "boolean" },
         "resolved": { "type": "boolean" },
         "fields": {

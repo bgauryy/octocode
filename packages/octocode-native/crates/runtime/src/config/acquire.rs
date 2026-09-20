@@ -1,4 +1,4 @@
-use super::types::{CONFIG_FILE_NAME, ConfigInput, FileInput, RuntimeSurface};
+use super::types::{ConfigInput, FileInput, RuntimeSurface, CONFIG_FILE_NAME};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -8,7 +8,11 @@ pub fn octocode_home(env: &BTreeMap<String, String>, cwd: &Path, os_home: &Path)
         .filter(|s| !s.is_empty())
         .map(|s| {
             let p = PathBuf::from(s);
-            if p.is_absolute() { p } else { cwd.join(p) }
+            if p.is_absolute() {
+                p
+            } else {
+                cwd.join(p)
+            }
         })
         .unwrap_or_else(|| os_home.join(".octocode"))
 }

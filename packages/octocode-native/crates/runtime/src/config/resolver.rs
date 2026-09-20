@@ -4,205 +4,221 @@ use super::dotenv::{
 use super::loader::load_config;
 use super::types::*;
 use super::validation::validate_config;
-use serde_json::{Value, json};
+use serde_json::{json, Number, Value};
 use std::collections::BTreeMap;
-fn object<'a>(root: Option<&'a Value>, key: &str) -> Option<&'a serde_json::Map<String, Value>> {
-    root?.get(key)?.as_object()
+use std::path::Path;
+
+fn get_path<'a>(root: &'a Value, field_path: &str) -> Option<&'a Value> {
+    let mut current = root;
+    for part in field_path.split('.') {
+        current = current.as_object()?.get(part)?;
+    }
+    Some(current)
 }
-fn str_field(o: Option<&serde_json::Map<String, Value>>, k: &str) -> Option<String> {
-    o?.get(k)?.as_str().map(str::to_owned)
+
+fn set_path(root: &mut Value, field_path: &str, value: Value) -> Result<(), String> {
+    let parts = field_path.split('.').collect::<Vec<_>>();
+    let mut current = root;
+    for part in &parts[..parts.len().saturating_sub(1)] {
+        let parent = current
+            .as_object_mut()
+            .ok_or_else(|| format!("generated default parent for {field_path} is not an object"))?;
+        current = parent
+            .get_mut(*part)
+            .ok_or_else(|| format!("generated default is missing section {part}"))?;
+    }
+    let key = parts
+        .last()
+        .ok_or_else(|| "generated field path is empty".to_owned())?;
+    current
+        .as_object_mut()
+        .ok_or_else(|| format!("generated default parent for {field_path} is not an object"))?
+        .insert((*key).to_owned(), value);
+    Ok(())
 }
-fn bool_field(o: Option<&serde_json::Map<String, Value>>, k: &str) -> Option<bool> {
-    o?.get(k)?.as_bool()
+
+fn is_http_url(value: &str) -> bool {
+    matches!(url::Url::parse(value), Ok(url) if matches!(url.scheme(), "http" | "https"))
 }
-fn num_field(o: Option<&serde_json::Map<String, Value>>, k: &str) -> Option<f64> {
-    o?.get(k)?.as_f64()
+
+fn is_local_path(value: &str) -> bool {
+    let windows_absolute = value.as_bytes().get(1) == Some(&b':')
+        && value
+            .as_bytes()
+            .get(2)
+            .is_some_and(|separator| matches!(separator, b'/' | b'\\'));
+    let absolute_or_home = Path::new(value).is_absolute()
+        || value == "~"
+        || value.starts_with("~/")
+        || value.starts_with("~\\")
+        || windows_absolute;
+    absolute_or_home && !value.split(['/', '\\']).any(|part| part == "..")
 }
-fn arr_field(o: Option<&serde_json::Map<String, Value>>, k: &str) -> Option<Vec<String>> {
-    o?.get(k)?.as_array().map(|a| {
-        a.iter()
-            .filter_map(|v| v.as_str().map(str::to_owned))
-            .collect()
-    })
-}
-fn env<'a>(e: &'a BTreeMap<String, String>, k: &str) -> Option<&'a str> {
-    e.get(k).map(String::as_str)
-}
-fn clamp(n: f64, min: f64, max: f64) -> f64 {
-    n.max(min).min(max)
-}
-/// An env-supplied GitHub API URL must be https so the credential is never
-/// Validate the scheme of an env-provided `GITHUB_API_URL`, matching the
-/// config-file validator (`validation.rs`): only `http`/`https` are accepted.
-/// This closes the gap where the env path previously skipped scheme validation
-/// (e.g. `file://`/`ftp://` were accepted); a malformed or non-http(s) value is
-/// ignored and resolution falls back to the config file/default. `http` stays
-/// permitted for loopback/GHE dev parity — `GITHUB_API_URL` is in
-/// `PROTECTED_KEYS`, so an untrusted `.env` cannot set it in the first place.
-fn is_valid_api_url_scheme(s: &str) -> bool {
-    matches!(url::Url::parse(s), Ok(u) if matches!(u.scheme(), "http" | "https"))
-}
-pub fn resolve_sections(file: Option<&Value>, e: &BTreeMap<String, String>) -> ResolvedConfig {
-    let github = object(file, "github");
-    let local = object(file, "local");
-    let tools = object(file, "tools");
-    let network = object(file, "network");
-    let lsp = object(file, "lsp");
-    let output = object(file, "output");
-    let pagination = output.and_then(|o| o.get("pagination")?.as_object());
-    let storage = object(file, "storage");
-    let extension = object(file, "extension");
-    let ext_storage = extension.and_then(|o| o.get("storage")?.as_object());
-    let storage_mode = match env(e, "OCTOCODE_STORAGE_MODE").map(|s| s.trim().to_ascii_lowercase())
-    {
-        Some(x) if STORAGE_MODES.contains(&x.as_str()) => x,
-        _ => str_field(storage, "mode").unwrap_or_else(|| DEFAULT_STORAGE_MODE.to_owned()),
-    };
-    let extension_mode =
-        match env(e, "OCTOCODE_EXTENSION_STORAGE_MODE").map(|s| s.trim().to_ascii_lowercase()) {
-            Some(x) if STORAGE_MODES.contains(&x.as_str()) => x,
-            _ => str_field(ext_storage, "mode").unwrap_or_else(|| storage_mode.clone()),
-        };
-    ResolvedConfig {
-        version: file
-            .and_then(|v| v.get("version"))
-            .cloned()
-            .unwrap_or(json!(CONFIG_SCHEMA_VERSION)),
-        github: GitHubConfig {
-            api_url: env(e, "GITHUB_API_URL")
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .filter(|s| is_valid_api_url_scheme(s))
-                .map(str::to_owned)
-                .or_else(|| str_field(github, "apiUrl"))
-                .unwrap_or_else(|| DEFAULT_GITHUB_API_URL.to_owned()),
-            graphql_enabled: parse_boolean_env(env(e, "OCTOCODE_GITHUB_GRAPHQL"))
-                .or_else(|| bool_field(github, "graphqlEnabled"))
-                .unwrap_or(DEFAULT_GITHUB_GRAPHQL_ENABLED),
-        },
-        local: LocalConfig {
-            // `OCTOCODE_`-prefixed spellings are accepted as aliases; the
-            // unprefixed names stay canonical and win when both are set.
-            enabled: parse_boolean_env(env(e, "ENABLE_LOCAL"))
-                .or_else(|| parse_boolean_env(env(e, "OCTOCODE_ENABLE_LOCAL")))
-                .or_else(|| bool_field(local, "enabled"))
-                .unwrap_or(DEFAULT_LOCAL_ENABLED),
-            enable_clone: parse_boolean_env(env(e, "ENABLE_CLONE"))
-                .or_else(|| parse_boolean_env(env(e, "OCTOCODE_ENABLE_CLONE")))
-                .or_else(|| bool_field(local, "enableClone"))
-                .unwrap_or(DEFAULT_LOCAL_ENABLE_CLONE),
-            enable_ast_rewrite_apply: parse_boolean_env(env(e, "ENABLE_AST_REWRITE_APPLY"))
-                .or_else(|| bool_field(local, "enableAstRewriteApply"))
-                .unwrap_or(DEFAULT_LOCAL_ENABLE_AST_REWRITE_APPLY),
-            allowed_paths: parse_string_array_env(env(e, "ALLOWED_PATHS"))
-                .or_else(|| arr_field(local, "allowedPaths"))
-                .unwrap_or_default(),
-            workspace_root: env(e, "WORKSPACE_ROOT")
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(str::to_owned)
-                .or_else(|| str_field(local, "workspaceRoot")),
-        },
-        tools: ToolsConfig {
-            enabled: parse_string_array_env(env(e, "TOOLS_TO_RUN"))
-                .or_else(|| arr_field(tools, "enabled")),
-            disabled: parse_string_array_env(env(e, "DISABLE_TOOLS"))
-                .or_else(|| arr_field(tools, "disabled")),
-        },
-        network: NetworkConfig {
-            timeout: clamp(
-                parse_int_env(env(e, "REQUEST_TIMEOUT"))
-                    .map(|x| x as f64)
-                    .or_else(|| num_field(network, "timeout"))
-                    .unwrap_or(DEFAULT_NETWORK_TIMEOUT),
-                MIN_TIMEOUT,
-                MAX_TIMEOUT,
-            ),
-            max_retries: clamp(
-                parse_int_env(env(e, "MAX_RETRIES"))
-                    .map(|x| x as f64)
-                    .or_else(|| num_field(network, "maxRetries"))
-                    .unwrap_or(DEFAULT_NETWORK_MAX_RETRIES),
-                MIN_RETRIES,
-                MAX_RETRIES,
-            ),
-            allow_private_registry: parse_boolean_env(env(e, "OCTOCODE_ALLOW_PRIVATE_REGISTRY"))
-                .or_else(|| bool_field(network, "allowPrivateRegistry"))
-                .unwrap_or(DEFAULT_NETWORK_ALLOW_PRIVATE_REGISTRY),
-        },
-        lsp: LspConfig {
-            config_path: env(e, "OCTOCODE_LSP_CONFIG")
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(str::to_owned)
-                .or_else(|| str_field(lsp, "configPath")),
-        },
-        output: OutputConfig {
-            format: {
-                let x = env(e, "OCTOCODE_OUTPUT_FORMAT")
-                    .map(|s| s.trim().to_ascii_lowercase())
-                    .or_else(|| str_field(output, "format"))
-                    .unwrap_or_else(|| DEFAULT_OUTPUT_FORMAT.to_owned());
-                if OUTPUT_FORMATS.contains(&x.as_str()) {
-                    x
-                } else {
-                    DEFAULT_OUTPUT_FORMAT.to_owned()
-                }
-            },
-            pagination: PaginationConfig {
-                default_char_length: clamp(
-                    parse_int_env(env(e, "OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH"))
-                        .map(|x| x as f64)
-                        .or_else(|| num_field(pagination, "defaultCharLength"))
-                        .unwrap_or(DEFAULT_OUTPUT_DEFAULT_CHAR_LENGTH),
-                    MIN_OUTPUT_DEFAULT_CHAR_LENGTH,
-                    MAX_OUTPUT_DEFAULT_CHAR_LENGTH,
-                ),
-            },
-            redact_emails: parse_boolean_env(env(e, "OCTOCODE_REDACT_EMAILS"))
-                .or_else(|| bool_field(output, "redactEmails"))
-                .unwrap_or(DEFAULT_OUTPUT_REDACT_EMAILS),
-        },
-        session: SessionConfig {
-            enable_stats: parse_boolean_env(env(e, "OCTOCODE_ENABLE_STATS"))
-                .unwrap_or(DEFAULT_SESSION_ENABLE_STATS),
-        },
-        storage: StorageConfig { mode: storage_mode },
-        extension: ExtensionConfig {
-            storage: StorageConfig {
-                mode: extension_mode,
-            },
-        },
+
+fn normalize_string(value: &str, normalize: Option<ConfigNormalize>) -> String {
+    let trimmed = value.trim();
+    match normalize {
+        Some(ConfigNormalize::Lower) => trimmed.to_ascii_lowercase(),
+        Some(ConfigNormalize::Trim) | None => trimmed.to_owned(),
     }
 }
+
+fn parse_candidate(
+    field: &ConfigFieldSpec,
+    raw: &Value,
+    from_environment: bool,
+    normalize: Option<ConfigNormalize>,
+) -> Option<Value> {
+    match field.kind {
+        ConfigFieldKind::SchemaVersion => raw
+            .as_i64()
+            .or_else(|| raw.as_u64().and_then(|value| i64::try_from(value).ok()))
+            .map(Value::from),
+        ConfigFieldKind::Boolean => {
+            let value = if from_environment {
+                parse_boolean_env(raw.as_str())
+            } else {
+                raw.as_bool()
+            }?;
+            Some(Value::Bool(value))
+        }
+        ConfigFieldKind::Number => {
+            let value = if from_environment {
+                parse_int_env(raw.as_str()).map(|value| value as f64)
+            } else {
+                raw.as_f64()
+            }?;
+            let clamped = value.max(field.minimum?).min(field.maximum?);
+            Number::from_f64(clamped).map(Value::Number)
+        }
+        ConfigFieldKind::StringArray => {
+            let value = if from_environment {
+                parse_string_array_env(raw.as_str())
+                    .map(|values| Value::Array(values.into_iter().map(Value::String).collect()))
+            } else if raw.is_null()
+                || raw
+                    .as_array()
+                    .is_some_and(|values| values.iter().all(Value::is_string))
+            {
+                Some(raw.clone())
+            } else {
+                None
+            }?;
+            if field.item_path
+                && value.as_array().is_some_and(|values| {
+                    values
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .any(|item| !is_local_path(item))
+                })
+            {
+                return None;
+            }
+            Some(value)
+        }
+        ConfigFieldKind::Enum => {
+            let value = normalize_string(raw.as_str()?, normalize);
+            field
+                .values
+                .contains(&value.as_str())
+                .then(|| Value::String(value))
+        }
+        ConfigFieldKind::String | ConfigFieldKind::Url | ConfigFieldKind::Path => {
+            let value = if from_environment {
+                normalize_string(raw.as_str()?, normalize)
+            } else {
+                raw.as_str()?.to_owned()
+            };
+            if value.trim().is_empty()
+                || (field.kind == ConfigFieldKind::Url && !is_http_url(&value))
+                || (field.kind == ConfigFieldKind::Path && !is_local_path(&value))
+            {
+                return None;
+            }
+            Some(Value::String(value))
+        }
+    }
+}
+pub fn resolve_sections(
+    file: Option<&Value>,
+    environment: &BTreeMap<String, String>,
+) -> Result<ResolvedConfig, String> {
+    let mut resolved: Value = serde_json::from_str(DEFAULT_RESOLVED_CONFIG_JSON)
+        .map_err(|error| format!("generated config defaults are invalid: {error}"))?;
+
+    for field in CONFIG_FIELDS.iter().filter(|field| field.resolved) {
+        let default: Value = serde_json::from_str(field.default_json)
+            .map_err(|error| format!("generated default for {} is invalid: {error}", field.path))?;
+        let mut selected = None;
+        for binding in field.env {
+            let Some(raw) = environment.get(binding.name) else {
+                continue;
+            };
+            let raw = Value::String(raw.clone());
+            if let Some(value) = parse_candidate(field, &raw, true, binding.normalize) {
+                selected = Some(value);
+                break;
+            }
+            if binding.invalid == ConfigInvalidEnv::Default {
+                selected = Some(default.clone());
+                break;
+            }
+        }
+
+        if selected.is_none() && field.file {
+            if let Some(raw) = file.and_then(|config| get_path(config, field.path)) {
+                selected = parse_candidate(field, raw, false, None);
+            }
+        }
+
+        if selected.is_none() {
+            selected = if let Some(source) = field.default_from {
+                get_path(&resolved, source).cloned()
+            } else {
+                Some(default)
+            };
+        }
+        let value = selected.ok_or_else(|| {
+            format!(
+                "generated default dependency for {} could not be resolved",
+                field.path
+            )
+        })?;
+        set_path(&mut resolved, field.path, value)?;
+    }
+
+    serde_json::from_value(resolved)
+        .map_err(|error| format!("resolved config does not match generated types: {error}"))
+}
 pub fn resolve_env_token(e: &BTreeMap<String, String>) -> Option<PrivateTokenSelection> {
-    for k in ENV_TOKEN_VARS {
+    for k in ENV_TOKEN_VARS.iter().copied() {
         if let Some(v) = e.get(k).map(|s| s.trim()).filter(|s| !s.is_empty()) {
             return Some(PrivateTokenSelection::new(v.into(), format!("env:{k}")));
         }
     }
     None
 }
-/// `OCTOCODE_JEV_KEY`/`_BASE_URL`/`_MODEL` are `PROTECTED_KEYS`: an untrusted
-/// project `.env` can never set them. But the trusted `.octocoderc` `jev`
-/// section (same trust tier as `github.apiUrl`, read only from `octocode_home`,
-/// never a cloned project) may — mirroring the env-then-file fallback every
-/// other setting uses. Real env still wins; this only fills a gap. Written
-/// into `effective` (not `ResolvedConfig`) so the key can never round-trip
-/// through `get_config_value`/`config get` and leak in a printed dump.
-fn apply_jev_file_fallback(file: Option<&Value>, effective: &mut BTreeMap<String, String>) {
-    let jev = object(file, "jev");
-    for (env_key, file_key) in [
-        ("OCTOCODE_JEV_KEY", "key"),
-        ("OCTOCODE_JEV_BASE_URL", "baseUrl"),
-        ("OCTOCODE_JEV_MODEL", "model"),
-    ] {
-        let has_env_value = effective.get(env_key).is_some_and(|v| !v.trim().is_empty());
-        if has_env_value {
+/// Apply trusted file fallbacks for fields explicitly marked as credentials.
+/// They are written only to the effective child environment and never enter
+/// `ResolvedConfig`, so inspection and `config get` cannot print their values.
+fn apply_credential_file_fallbacks(file: Option<&Value>, effective: &mut BTreeMap<String, String>) {
+    let Some(file) = file else { return };
+    for field in CONFIG_FIELDS.iter().filter(|field| field.credential) {
+        let Some(binding) = field.env.first() else {
+            continue;
+        };
+        if effective
+            .get(binding.name)
+            .is_some_and(|value| !value.trim().is_empty())
+        {
             continue;
         }
-        if let Some(v) = str_field(jev, file_key).filter(|s| !s.trim().is_empty()) {
-            effective.insert(env_key.to_owned(), v);
+        if let Some(value) = get_path(file, field.path)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            effective.insert(binding.name.to_owned(), value.to_owned());
         }
     }
 }
@@ -268,8 +284,20 @@ pub fn resolve_config(input: &ConfigInput) -> ConfigOutput {
         "absent" if has_env => ConfigSource::Env,
         _ => ConfigSource::Defaults,
     };
-    apply_jev_file_fallback(file.as_ref(), &mut effective);
-    let resolved = resolve_sections(file.as_ref(), &effective);
+    apply_credential_file_fallbacks(file.as_ref(), &mut effective);
+    let resolved = match resolve_sections(file.as_ref(), &effective) {
+        Ok(config) => config,
+        Err(message) => {
+            diagnostics.push(ConfigDiagnostic {
+                severity: Severity::Error,
+                code: "generated_config_contract_error".into(),
+                field_path: None,
+                message,
+                source_path: Some(load.path.clone()),
+            });
+            ResolvedConfig::default()
+        }
+    };
     let token = resolve_env_token(&effective);
     let config_path = (state != "absent").then(|| load.path.clone());
     let child_env = ChildEnvPlan {
@@ -368,7 +396,7 @@ pub fn inspector_data(input: &ConfigInput, output: &ConfigOutput) -> ConfigInspe
 
 #[cfg(test)]
 mod tests {
-    use super::{is_valid_api_url_scheme, resolve_sections};
+    use super::{is_http_url, resolve_sections};
     use std::collections::BTreeMap;
 
     fn env(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
@@ -379,18 +407,22 @@ mod tests {
     }
 
     #[test]
-    fn is_valid_api_url_scheme_accepts_http_and_https_only() {
-        assert!(is_valid_api_url_scheme("https://ghe.internal/api/v3"));
-        assert!(is_valid_api_url_scheme("http://127.0.0.1:8080/api/v3"));
-        assert!(!is_valid_api_url_scheme("ftp://evil.example"));
-        assert!(!is_valid_api_url_scheme("file:///etc/passwd"));
-        assert!(!is_valid_api_url_scheme("not a url"));
+    fn is_http_url_accepts_http_and_https_only() {
+        assert!(is_http_url("https://ghe.internal/api/v3"));
+        assert!(is_http_url("http://127.0.0.1:8080/api/v3"));
+        assert!(!is_http_url("ftp://evil.example"));
+        assert!(!is_http_url("file:///etc/passwd"));
+        assert!(!is_http_url("not a url"));
     }
 
     #[test]
     fn non_http_env_api_url_falls_back_to_default() {
         let resolved = resolve_sections(None, &env(&[("GITHUB_API_URL", "ftp://evil.example")]));
-        assert_eq!(resolved.github.api_url, "https://api.github.com");
+        assert!(resolved.is_ok());
+        assert_eq!(
+            resolved.unwrap_or_default().github.api_url,
+            "https://api.github.com"
+        );
     }
 
     #[test]
@@ -399,6 +431,10 @@ mod tests {
             None,
             &env(&[("GITHUB_API_URL", "https://ghe.internal/api/v3")]),
         );
-        assert_eq!(resolved.github.api_url, "https://ghe.internal/api/v3");
+        assert!(resolved.is_ok());
+        assert_eq!(
+            resolved.unwrap_or_default().github.api_url,
+            "https://ghe.internal/api/v3"
+        );
     }
 }

@@ -30,17 +30,22 @@ npx @octocodeai/config --check OCTOCODE_HOME
 From the repository root:
 
 ```bash
-yarn workspace @octocodeai/config generate:shared-constants
+yarn workspace @octocodeai/config generate:config-contract
 yarn workspace @octocodeai/config build
 yarn workspace @octocodeai/config test
 yarn workspace @octocodeai/config lint
 ```
 
-Shared TypeScript/Rust values are edited only in `shared-constants.json`.
-The generator validates that file with Zod and emits the TypeScript literal
-exports; Rust consumes the same JSON from its build script.
+Configuration fields, defaults, environment bindings, trust policy, and
+validation constraints are edited only in `config-contract.json`. The
+TypeScript generator and native Rust build script independently validate that
+file against `config-contract.schema.json`, then generate language-native types
+and generic-interpreter metadata. The TypeScript generator also emits the user
+settings reference.
 
-See the repository [configuration reference](../../docs/CONFIGURATION.md) and
+See the repository [configuration reference](../../docs/CONFIGURATION.md),
+[generated settings reference](../../docs/generated/CONFIG_SETTINGS.md),
+[contributor guide](../../docs/ADDING_CONFIG.md), and
 [security model](../../docs/SECURITY.md).
 
 ## License

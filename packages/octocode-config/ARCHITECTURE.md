@@ -6,8 +6,8 @@
 
 ```text
 process environment
-      ├── global .env / .octocoderc
-      └── project .env / .octocoderc
+      ├── home .env / .octocoderc
+      └── trusted project .octocode/.env
                  │
                  ▼
       parse → trust policy → resolved config
@@ -17,19 +17,25 @@ process environment
                  └── injected standalone skill helper
 ```
 
-## Shared constants
+## Declarative contract
 
-Cross-language config constants have one value source:
-`shared-constants.json`. A build-only Zod schema validates its shape and policy
-invariants. The config generator emits literal TypeScript exports, while the
-native runtime's `build.rs` emits Rust constants from the same JSON. Generated
-files are never edited by hand.
+Cross-language field policy has one source: `config-contract.json`, validated
+against `config-contract.schema.json`. The TypeScript generator emits public
+input/resolved types, defaults, environment policy, generic-interpreter
+metadata, and user documentation. Native `build.rs` validates the same contract
+without Node, then emits Rust structs, defaults, environment policy, and the
+same interpreter metadata. Generated files are never edited by hand.
 
 ```text
-shared-constants.json
-      ├── Zod validation → sharedConstants.generated.ts → TypeScript config
-      └── Rust build.rs  → OUT_DIR/shared_constants.rs  → native config
+config-contract.json + config-contract.schema.json
+      ├── Ajv build validation → contract.generated.ts → generic TS config
+      ├── documentation generation → docs/generated/CONFIG_SETTINGS.md
+      └── Rust build validation → OUT_DIR/config_contract.rs → generic native config
 ```
+
+Resolver and validator source files own language mechanics only. They must not
+contain per-setting paths, defaults, environment names, bounds, enum sets, or
+known-key lists.
 
 ## Ownership
 
@@ -48,7 +54,7 @@ shared-constants.json
 - Project configuration cannot replace protected credentials or security controls.
 - Parsing is deterministic and does not execute shell syntax.
 - Consumers receive explicit environment objects where isolation matters.
-- The published package remains zero-runtime-dependency so it can be bundled into public packages and standalone skills without importing another policy owner. Zod is build-only and is absent from `dist`.
+- The published package remains zero-runtime-dependency so it can be bundled into public packages and standalone skills without importing another policy owner. Ajv is build/test-only and is absent from `dist`.
 
 ## Distribution
 

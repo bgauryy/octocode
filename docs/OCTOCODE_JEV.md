@@ -1,4 +1,4 @@
-# Jev: one judgment over supplied context
+# Jev: questions over bounded resources
 
 Use Jev to screen substantial unread results or resolve a bounded semantic question that can change the next action. The host chooses the question and the next step. Exact lookups, extraction, arithmetic and settled decisions need no Jev call.
 
@@ -12,7 +12,7 @@ node packages/octocode/out/octocode.js scheme localFetch --view query --compact
 node packages/octocode/out/octocode.js jev --input request.json --compact
 ```
 
-Every query has **short nonblank `reasoning`, one `context` and one `question`**. Reasoning states why the judgment changes the next action; it is trace metadata, excluded from provider evidence, question instructions and grouping identity. Use `{reasoning: "...", context: {value: ...}, question: ...}` for supplied evidence, or `{reasoning: "...", context: {tool: "localFetch", query: {...}}, question: ...}` to execute an unread Octocode request inside Jev. Ordinary `{queries: [...]}` batches contain up to five independent queries. Repeat the context explicitly for a different question; dependent questions belong in a later call.
+Prefer a matrix `{reasoning, resources:[{id,context}], questions:[{id,question}]}` when a question set applies to every resource. Matrix rows are resource-major, carry `resourceId` and `questionId`, and reuse one capture per resource. A matrix has at most 25 cells, 25 resources, and five questions. Use `{queries:[...]}` only for independent pairs whose cross-product would be wrong; every pair has **short nonblank `reasoning`, one `context` and one `question`**, and its row is correlated by ordered `index`. Reasoning is trace metadata, excluded from provider evidence, question instructions and grouping identity. Context is either `{value:...}` or an unexecuted ordinary `{tool,query}` read.
 
 ```json
 {
@@ -56,11 +56,27 @@ Every query has **short nonblank `reasoning`, one `context` and one `question`**
 }
 ```
 
+For shared questions across resources, avoid repeating context:
+
+```json
+{
+  "reasoning": "Classify every candidate before selecting direct reads.",
+  "resources": [
+    {"id": "local-queue", "context": {"tool": "localFetch", "query": {"path": "/workspace/project/src/queue.ts", "chunkType": "bytes", "offset": 0, "limit": 16000, "reasoning": "Capture one bounded candidate page."}}},
+    {"id": "github-worker", "context": {"tool": "ghGetFileContent", "query": {"owner": "example", "repo": "project", "path": "src/worker.ts", "charLength": 16000, "reasoning": "Capture one bounded remote candidate page."}}}
+  ],
+  "questions": [
+    {"id": "relevance", "question": {"type": "choice", "instructions": "Does this resource contribute deciding cancellation evidence?", "criteria": {"relevant": "Contributes evidence.", "unrelated": "Complete but unrelated.", "insufficient": "Missing or partial evidence prevents deciding."}}},
+    {"id": "risk", "question": {"type": "score", "instructions": "How much direct verification is needed?", "criteria": ["None", "Targeted read", "Must inspect"]}}
+  ]
+}
+```
+
 Replace illustrative paths with observed, authorized paths. Inspect the context tool's schema once and supply **one ordinary query**, including its required fields such as `reasoning`. The top-level reasoning and the nested tool reasoning describe their respective calls. Jev has no model, goal, debug, route, threshold or action fields. Runtime configuration supplies `OCTOCODE_JEV_MODEL`; access requires `OCTOCODE_JEV_KEY`.
 
 ## Discover, scout, then read selected proof
 
-A discovered path is a candidate, not a decision to read its whole body. Use `ghSearch` tree or code `match: "path"`, or `localSearch` `resultView: "files"`, to discover paths without bodies. When choosing among large candidates requires semantic reading, pass their unexecuted reads to Jev in one batch; do not fetch the bodies first to compose the context. One query asks one question; repeat a context to check another direction. Retain relevant or uncertain candidates, then fetch only the source needed to verify the answer. Small known deciding spans remain direct reads.
+A discovered path is a candidate, not a decision to read its whole body. Use `ghSearch` tree or code `match: "path"`, or `localSearch` file-only results, to discover paths without bodies. When the same questions apply to multiple large candidates, pass their unexecuted reads as matrix resources; do not fetch bodies first. Use flat pairs when contexts or questions do not form a true cross product. Retain relevant, partial, insufficient, or errored candidates, then fetch only the source needed to verify the answer. Small known deciding spans remain direct reads.
 
 These are ordinary native MCP calls through a client’s `callTool` method. This example discovers Axios core paths, then constructs two independent scouts from returned paths; it does not prescribe their answers:
 
@@ -72,13 +88,14 @@ await client.callTool({ name: "ghSearch", arguments: { queries: [{
 
 // Use paths observed in the discovery result; these are real public examples.
 const candidates = ["lib/core/Axios.js", "lib/core/dispatchRequest.js"];
-const queries = candidates.map(path => ({
-  reasoning: "Select evidence for request interceptor ordering before reading bodies.",
+const resources = candidates.map((path, index) => ({
+  id: `candidate-${index + 1}`,
   context: { tool: "ghGetFileContent", query: {
     owner: "axios", repo: "axios", path, fullContent: true,
     reasoning: "Screen this discovered candidate without a host body read."
-  } },
-  question: {
+  } }
+}));
+const questions = [{ id: "ordering", question: {
     type: "choice",
     instructions: "Does this file implement request interceptor ordering? Missing delegates are insufficient.",
     criteria: {
@@ -86,14 +103,17 @@ const queries = candidates.map(path => ({
       unrelated: "Complete content establishes a different concern.",
       insufficient: "Missing implementation prevents deciding."
     }
-  }
-}));
-await client.callTool({ name: "jev", arguments: { queries } });
+  } }];
+await client.callTool({ name: "jev", arguments: {
+  reasoning: "Select evidence for request interceptor ordering before reading bodies.",
+  resources,
+  questions
+} });
 ```
 
 Choose the next exact read from those answers and the task’s missing facts. For a retained candidate, call its context tool directly with a bounded deciding span; cite the source revision and lines returned by that proof read. A verdict is neither a citation nor evidence of absence outside the supplied scope. If discovery already identifies a small deciding span, read it directly instead of scouting it.
 
-For reasoning over facts already available, use `context: {value: {facts, hypotheses}}` and a Choice question selecting the next discriminating read or test, with an insufficient option. For independent conditions, repeat the same value in separate queries, one Noul or Choice question each. For an ordered assessment, use Score with explicit levels. These offload bounded judgments; they do not extract prose, remove input tokens already consumed, or justify a second call after the decision is settled. The current schema’s examples include a public-file scout and a supplied-facts hypothesis choice.
+For reasoning over facts already available, use `context: {value: {facts, hypotheses}}` and a Choice question selecting the next discriminating read or test, with an insufficient option. When multiple independent questions all apply to that value, use one matrix resource rather than repeating it. For an ordered assessment, use Score with explicit levels. These offload bounded judgments; they do not extract prose, remove input tokens already consumed, or justify a second call after the decision is settled.
 
 ## Context and answers
 
@@ -115,7 +135,7 @@ Independent questions can disagree semantically even when every numerical respon
 
 Three useful roles share one interface: **pre-read gate** screens an unread tool result, **design judge** compares explicit alternatives against supplied constraints and code facts, and **claim auditor** assesses evidence supporting a scoped claim. They are prompting patterns, not runtime modes or required sequential steps. Verdicts route effort; read evidence and deciding checks establish the conclusion. Claim-support judgments cannot replace a test or justify saying “fixed” when the relevant check did not run.
 
-Precheck only when a different answer can eliminate an expensive read or change the next action. One query can ask about one candidate or a bounded result set, but one Choice is not an extraction of a label for every file. Use separate queries for independent candidate/direction pairs. Retain uncertain candidates and read the union needed across directions once. A complete unrelated file is not insufficient merely because it lacks the target behavior; an omitted relevant implementation may be.
+Precheck only when a different answer can eliminate an expensive read or change the next action. One Choice yields one label for one resource; it does not label every row hidden inside that resource. Use a matrix for a real resource-question cross product and flat pairs otherwise. Retain uncertain candidates and read the union needed across directions once. A complete unrelated file is not insufficient merely because it lacks the target behavior; an omitted relevant implementation may be.
 
 Search matches and AST outlines can be excellent filters, but they do not establish behavior in unseen code. Verify deciding source spans or run a discriminating test before consequential assertions. If the host already has the necessary evidence, reuse it or decide directly; another Jev call cannot undo tokens already read.
 
@@ -127,13 +147,13 @@ A context tool's validated error stops before inference. Jev preserves its error
 
 For PR patches, `charLength` limits each file patch, not all patches combined. Bound the file count as well as the character window, follow each returned pagination axis, and verify that captured patches and final source refer to the same revision.
 
-Jev's own response does not support `responseCharLength`, `responseCharOffset` or `responseSnapshot`: replaying inference cannot return a page of the original judgment. Repeating a query performs another evaluation. The provider request has a 4 MiB serialized limit, and ordinary tool/input limits still apply.
+Jev's own response does not support `responseCharLength`, `responseCharOffset` or `responseSnapshot`: replaying inference cannot return a page of the original judgment. Repeating a query performs another evaluation. The provider request has a 4 MiB serialized limit, and ordinary tool/input limits still apply. Resource pagination belongs before inference: split enormous files, browser bodies, or HAR-derived artifacts into bounded contexts and submit successive matrices until every resource is judged. The scraping/Chrome triage bridge does this out of the box.
 
-Repeated context remains explicit. Every nested tool request executes independently through its normal policy; only identical sanitized captured states within the same call may share one provider request. Changed source, page or cache metadata prevents grouping. There is no judgment cache, cross-call grouping or automatic page loop. Existing retrieval caches may save reads or transferred bytes; provider grouping separately avoids repeating identical state in inference.
+Flat repeated context remains explicit and every flat nested request executes independently through its normal policy. Matrix questions reuse one captured resource. Identical sanitized states may share a provider request; changed source, page or cache metadata prevents grouping. There is no judgment cache, cross-call grouping, or automatic source-continuation loop. Existing retrieval caches may save reads or bytes; provider grouping separately avoids repeating identical state in inference.
 
 Independent provider groups run concurrently, up to five per batch, after the bounded context captures complete. Results retain original query order; failures remain isolated, and completed provider usage is recorded even when another group is cancelled. This is separate from shared-state grouping; hidden retrieval remains sequential.
 
-Grouping uses conservative serialized UTF-8 byte bounds: 24 KiB for each state-plus-question request envelope, and 48 KiB for the full grouped request. These are packing headroom, not a provider-token count or a guarantee for arbitrary configured models. Larger candidates retain singleton execution with the existing 4 MiB request bound. Provider context-limit errors remain explicit; no automatic split/retry adds inference.
+Grouping uses conservative serialized UTF-8 byte bounds: 24 KiB for each state-plus-question envelope and 48 KiB for each grouped request. The runtime splits provider groups automatically under that headroom. These are byte limits, not provider-token guarantees. A single oversized state retains the 4 MiB request bound; it is never silently truncated. Provider context-limit errors remain explicit, so callers should bound resources before submission.
 
 Grouped successful rows include `usageAttribution: {ownerIndex, sharedWith}`. The first successful row reports the shared request's token totals; other successful members report zero **allocated** tokens. `sharedWith` lists every original row index in that provider group, including malformed-answer rows. These figures are not per-question measured consumption. Sum usage once across rows; when every answer fails or provider usage is invalid, publicly reported usage is unavailable, not evidence of zero cost. Singletons keep their ordinary usage shape.
 

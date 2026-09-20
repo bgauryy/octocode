@@ -4,17 +4,74 @@ Status: first runtime fixes and script POCs verified on 2026-09-20; remaining wo
 
 ## Decision and boundaries
 
-Keep one pure `jev` tool: `{reasoning,context,question}`, one typed question per query, up to five independent queries per call, model selection internal. An unread `context:{tool,query}` uses the ordinary dispatcher, canonical validation, authorization, caches, content security and cancellation. Jev must not gain a separate file reader, GitHub client or policy bypass.
+Keep one pure `jev` tool. `queries[]` owns independent `{reasoning,context,question}` pairs; `{reasoning,resources:[{id,context}],questions:[{id,question}]}` owns a true resource-question cross product. Matrices are resource-major, capture each resource once, and are capped at 25 cells, 25 resources, and five questions. Model selection stays internal. An unread `context:{tool,query}` uses ordinary dispatch, validation, authorization, caches, content security, and cancellation. Jev must not gain a separate reader, GitHub client, or policy bypass.
 
 Public schemas and agent guidance belong in octocode-core. CLI/MCP expose those contracts; native runtime owns context orchestration, and `tools/jev/` owns provider adaptation. Skills remain optional shortcuts. Classifications route effort; source reads and tests establish claims. Generic evidence judgment does not imply arbitrary-size ingestion, free-form summarization, unseen identifier extraction or authority to take actions.
 
 ## Implementation and POC checkpoint
 
-**Shipped and verified:** W1 recovery receipts, A1 continuation ownership, A2 output-policy parity, W2 per-patch unit guidance, and W4/W5 independent-question/unread-query guidance. The input shape is unchanged. Failed retrieval retains the safe underlying error code and body-free recovery receipt, explicitly states that inference did not run, and has no answer or provider usage. Nested continuation rationale/debug survives; ordinary continuation behavior is preserved. Direct and hidden reads share sanitization, including configured GitHub email redaction.
+**Implemented in this working tree:** W1 recovery receipts, A1 continuation ownership, A2 output-policy parity, W2 per-patch guidance, W4 matrix questions/capture reuse, W5 unread-query guidance, and A3 bounded browser/scrape resources. The matrix is additive; flat pairs remain compatible. Failed retrieval retains its safe error code and body-free receipt, states that inference did not run, and has no answer or provider usage. Nested continuations and direct/hidden sanitization remain unchanged.
 
 The pre-cleanup integration checkpoint passed 205 core tests, lint/typecheck, 323 native library tests and 19 Jev integration tests; native binary/addon and CLI/MCP builds completed. [Rebuilt CLI/MCP smoke evidence](../.octocode/tmp/jev-integration-smoke/after-live.json) covers recovery, executable continuations and two real-provider successes. Controlled tests inspect outgoing sanitized state and zero inference on failed retrieval. This is the named verification scope, not every monorepo suite.
 
 Initial regeneration failed on dirty-core provenance and four outdated default-field expectations. The corrected tests preserve rejection of missing operation/URI anchors while accepting intentional defaults. Final regeneration used clean core provenance and passed; the guards were not weakened. Those results describe that checkpoint, not every later working-tree revision.
+
+## RFC delta: resource-question matrix
+
+### Decision
+
+Add one backward-compatible Jev envelope for a true cross product:
+
+```json
+{
+  "reasoning": "Why this matrix changes the next action.",
+  "resources": [{"id": "resource-1", "context": {"tool": "localFetch", "query": {}}}],
+  "questions": [{"id": "relevance", "question": {"type": "noul", "instructions": "Is it relevant?"}}]
+}
+```
+
+Every question is evaluated against every resource in resource-major order. Result rows expose `resourceId` and `questionId`. IDs are 1–64 ASCII letters, digits, dots, underscores, or hyphens and start alphanumeric. Resource and question IDs must be unique. The matrix admits at most 25 cells, 25 resources, and five questions. Direct input and `queries[]` remain the independent-pair mode; pair rows use their ordered `index` and cannot accept matrix correlation IDs.
+
+### Runtime flow
+
+1. Core owns descriptions, limits, input/output schemas, and matrix-preserving preparation.
+2. Native validates the original envelope, enforces refinements absent from JSON Schema, trims shared reasoning, and expands resource-major rows.
+3. Security validates every expanded row. Correlation IDs never enter provider state or question instructions.
+4. Flat pairs retain fresh nested reads. Matrix rows cache the exact `(resourceId, canonical context)` capture within the call, including a shared retrieval failure, so one resource is never fetched once per question.
+5. Identical captured states group for provider inference. Groups split automatically under the existing 24 KiB state-plus-question and 48 KiB combined headroom; independent groups remain concurrency-bounded.
+6. Output preserves ordered indexes, row isolation, receipts, usage attribution, and correlation IDs.
+
+### Large-resource pagination
+
+Jev does not silently follow a source tool continuation because that would change evidence scope, and it does not truncate one oversized state. Callers must represent large files, browser bodies, and HAR-derived artifacts as bounded resources. The scraping/Chrome bridge provides the out-of-the-box loop: it resolves every manifest part, splits UTF-8-safe byte chunks, submits successive matrices of 1–25 resources, and aggregates only after every chunk returns. Its `--limit` controls matrix page size and never drops candidates.
+
+Aggregation is conservative and exclusive: any relevant chunk routes the candidate to `read`; otherwise partial, insufficient, mention, error, or low-confidence unrelated routes to `consider`; `skip` requires every chunk to be covered and confidently unrelated. Thin browser shells bypass Jev and stay in `consider`. Canonical path containment rejects explicit paths and symlink targets outside the scrape session.
+
+### Rejected alternatives
+
+- A new Jev wrapper would duplicate validation, security, dispatch, receipts, and output semantics.
+- Repeating flat context for every question preserves compatibility but repeats mutable retrieval and cannot guarantee one captured resource.
+- Auto-following continuations hides evidence-scope changes and can convert bounded retrieval into an uncontrolled crawl.
+- Sending whole HAR/browser dumps makes provider limits and false negatives depend on arbitrary truncation.
+- Returning answer maps instead of rows weakens row isolation, usage attribution, and existing interface rendering.
+
+### Acceptance
+
+- Core: union schema, matrix refinements, descriptions, prompt budget, JSON Schema export, and correlated output validate.
+- Native: resource-major expansion, 25-cell rejection, duplicate-ID rejection, provider-payload non-leakage, one hidden capture across questions, fresh flat repeated captures, ordered IDs, and isolated failures pass.
+- Browser/scrape: multipart and >50 KiB fixtures produce all UTF-8-safe resource pages; no silent drop; path escape rejected; relevant partial rows are not duplicated across routes.
+- Interfaces: rebuilt CLI and MCP advertise the same matrix schema and execute one local, one GitHub, and one saved-browser smoke path.
+- Release: generated contracts must be regenerated from clean core provenance before publish. Dirty provenance is allowed only for local iteration and remains an explicit failing release gate.
+
+### Live dogfood record (2026-09-20)
+
+- The currently built local CLI still exposes the legacy `queries[]` schema; the checked-in generated contract contains the matrix. A native/CLI rebuild is therefore a required interface gate, not assumed success.
+- Live `octocode jev` evaluated two local skill resources with two questions each. Chrome guidance passed both boundaries. Scraping guidance initially returned `gap` for complete-chunk aggregation; after stating that no final route is emitted until every part/chunk has a result, the same question returned `yes` with 1.00 confidence.
+- Live Jev inspected two native implementation resources with two questions each. Matrix order/correlation and uniqueness/cell bounds returned `yes` at 1.00. Capture reuse and provider splitting returned `yes`; the large contract resource split into separate provider calls while the smaller batching resource shared usage, with no missing result row.
+- A nonexistent GitHub path stopped before inference and returned an executable tree continuation. A confirmed GitHub file then executed through `ghGetFileContent`; its deliberately narrow view returned `insufficient`, demonstrating conservative handling rather than an unsupported claim. Repeated legacy remote pairs produced different capture hashes, reinforcing the matrix decision to capture a resource once before applying several questions.
+- Generated-schema review passed the bounded-provider question but exposed weak colocation of the output correlation rule. The core envelope description now states directly that each result row returns its matching `resourceId` and `questionId`.
+- A final live semantic review of `.octocode/JEV.md` shared one captured state across three questions. Full cross-product semantics returned `yes` at 0.97 confidence, safe large-resource paging at 0.96, and simple correlated output/evidence boundaries at 1.00.
+- Browser/scrape triage passes 10 focused regressions. A six-resource UTF-8 fixture is processed through three automatic matrix pages without drops. Stdout bounds resource errors with `errorCount`/`errorsTruncated`; `triage.json` preserves every error and receipt.
 
 [POC v1](../.octocode/jev-poc-2026-09-20/REPORT.md) preserved a failed compound-question exact-label gate; uncertain candidates were retained. [Separately frozen v2](../.octocode/jev-poc-2026-09-20/v2/REPORT.md) passed six atomic classifications, retaining four relevant candidates and excluding two irrelevant windows from routed proof. Separate verifier reads count. Generated negatives could have been excluded by ordinary path filtering. These development probes do not establish blind adoption, actual host-token savings or the effect of core instructions built after the POCs. No new Octocode-only baseline ran.
 
@@ -26,15 +83,15 @@ Initial regeneration failed on dirty-core provenance and four outdated default-f
 |---|---|---|---|
 | W1 | P0 | Shipped: hidden-read recovery | Preserve failure/continuation regressions when receipts evolve. |
 | W2 | P0/P1 | Shipped: PR `charLength` is explicitly per file patch | Verify multiple patch/page axes and revision drift; any aggregate cap needs a separate ordinary-tool contract decision. |
-| W3 | P1/P2 | Deferred: capture reuse | Measure capture cost before prototyping stable within-call reuse. Public handles remain gated. |
-| W4 | P1 | Shipped: independent questions | One question per query; repeat context. Grouping does not promise capture reuse. |
+| W3 | P1/P2 | Implemented: matrix capture reuse | Each matrix resource is captured once; flat repeated pairs remain fresh. Keep integration tests for both behaviors. |
+| W4 | P1 | Implemented: resource-question matrix | Correlated resource-major rows; 25-cell admission cap; provider grouping splits under size headroom. |
 | W5 | P1 | Shipped: unread-query instructions | Keep real CLI/MCP discovery examples valid; `value` is supplied evidence, not path loading. |
 | W6 | P1 | Proposed: auditable scope receipts | Define bounded deterministic completion/count metadata without claiming global completeness. |
 | W7 | P1 | Partly shipped: scalar wrapping and canonical nested-query guidance | Nonempty instructions and Choice minimum-two admission require an explicit compatibility decision. |
 | W8 | P1/P2 | Shipped: independent-answer/conflict guidance | Reproduce the reported live disagreement; automated consistency requires a relation contract and evaluation. |
 | A1 | P0 | Shipped: nested continuation ownership | Preserve outer/nested trace separation and ordinary-tool behavior. |
 | A2 | P0 | Shipped: hidden/direct redaction parity | Keep output policy before provider transmission, hashing and reuse. |
-| A3 | P1/P2 | Deferred: large structured artifacts | Use bounded existing artifact adapters; improve the shared reader only against representative unmet needs. |
+| A3 | P1/P2 | Implemented for saved browser/scrape files | All parts use UTF-8-safe bounded resources; helper pages matrices, aggregates conservatively, and rejects paths escaping the session. |
 | A4 | P1 | Pending: failure/packing accounting | Audit known versus unknown usage on failures and cancellation; measure actionable grouping diagnostics. |
 | A5 | P1 | Unverified: stale discovery/error hints | Reproduce any remaining retired hints in current CLI help/errors, then repair the owning layer. |
 

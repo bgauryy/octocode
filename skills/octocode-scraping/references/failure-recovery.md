@@ -12,7 +12,7 @@ Load when a scrape fails, blocks, times out, or creates too much data. Why: reco
 | `423` anti-bot | One CDP or hosted browser attempt with lower rate/`--wait-for`; ask before stronger escalation. |
 | thin-200 / JS shell | Evidence in corpus; escalate to CDP actionability/diagnostics; not automatic hosted. |
 | Timeout | One URL, `--wait-for`, or smaller limits; retry once. |
-| Huge output | `--max-raw-bytes` / `--max-text-bytes` / `--no-raw`; search compact files first. |
+| Huge output | `--max-raw-bytes` / `--max-text-bytes` / `--no-raw`; search compact files first. For several unread saved bodies, `corpus-triage.mjs` bounds every part into UTF-8 resource chunks and pages Jev matrices automatically; never classify from only the first part. |
 | Auth required | Stop → `octocode-chrome-devtools`; ask before cookie/profile. |
 | CAPTCHA/MFA | Stop and ask; do not bypass. |
 

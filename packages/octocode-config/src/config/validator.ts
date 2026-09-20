@@ -62,13 +62,7 @@ function validateField(
   warnings: string[]
 ): void {
   if (value === undefined) return;
-  if (
-    value === null &&
-    field.defaultValue === null &&
-    ['string', 'url', 'path', 'stringArray'].includes(field.type)
-  ) {
-    return;
-  }
+  if (value === null && field.type !== 'schemaVersion') return;
 
   switch (field.type) {
     case 'schemaVersion':
@@ -190,7 +184,7 @@ export function validateConfig(config: unknown): ValidationResult {
 
   for (const section of sectionPaths()) {
     const value = getPath(config, section);
-    if (value !== undefined && !isRecord(value)) {
+    if (value !== undefined && value !== null && !isRecord(value)) {
       errors.push(`${section}: Must be an object`);
     }
   }

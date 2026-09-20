@@ -1345,11 +1345,11 @@ Workspace-symbol search:
 
 ## Pure Jev reference
 
-Use `octocode jev --input request.json --compact`; discover `octocode scheme jev --view query --compact` once. Each query has `{reasoning, context, question}`: one typed question and either an inline `{value}` or an unread read-tool request `{tool, query}`. Inspect the nested tool schema and supply one ordinary query with its required fields. Batch up to five independent queries, repeating context for each question.
+Use `octocode jev --input request.json --compact`; discover `octocode scheme jev --view query --compact` once. Prefer `{reasoning,resources:[{id,context}],questions:[{id,question}]}` for a shared question set; every question sees every resource, rows carry both IDs, and each resource is captured once. A matrix has at most 25 cells, 25 resources, and five questions. Use `queries[]` only for independent `{reasoning,context,question}` pairs whose cross-product would be wrong; those rows use ordered `index`. Context is inline `{value}` or an unread `{tool,query}` request.
 
 The runtime executes the context tool under its normal policies, sends its sanitized bounded result to Jev, and returns one typed answer plus model, usage and compact coverage metadata. Retrieved bodies stay out of the host response. Use Noul for yes/no probability, Choice for alternatives and Score for 2–10 ordered levels. Context, instructions and criterion descriptions accept structured JSON. Model configuration is internal.
 
-Read tools are supported; recursive Jev, astRewrite and ghCloneRepo are excluded. Partial results preserve continuation or terminal limitations without automatic paging. Missing coverage and tool errors cannot establish a negative. Retrieval caches may save bytes, not repeated inference tokens. See [the current contract and examples](OCTOCODE_JEV.md). Earlier state/questions/sources and separate scout/reasoning tools are retired.
+Read tools are supported; recursive Jev, astRewrite and ghCloneRepo are excluded. Partial results preserve continuation or terminal limitations without following source pages. Split huge file/browser/HAR bodies into bounded resources and page matrices until all chunks are judged. Missing coverage and tool errors cannot establish a negative. See [the current contract and examples](OCTOCODE_JEV.md). Earlier state/sources and separate scout/reasoning tools are retired.
 
 ---
 

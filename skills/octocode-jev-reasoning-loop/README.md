@@ -7,7 +7,7 @@ octocode scheme jev --view query --compact
 octocode jev --input request.json --compact
 ```
 
-Supply `{reasoning, context, question}`: one question over an unread read-tool request `{tool, query}` or supplied `{value}`. Batch up to five independent queries, repeating context explicitly. Runtime configuration supplies the model and credentials. Use a judgment only when it can change an unresolved next action; exact checks and settled decisions need no Jev call.
+Prefer `{reasoning, resources:[{id,context}], questions:[{id,question}]}` for a shared question set; every question sees every resource, result rows carry both IDs, and each resource is captured once. A matrix has at most 25 cells, 25 resources, and five questions. Use `queries[]` only for independent `{reasoning, context, question}` pairs whose cross-product would be wrong. Split huge browser/files into bounded resources and page successive matrices until every chunk is judged. Runtime configuration supplies the model and credentials. Use a judgment only when it can change an unresolved next action; exact checks and settled decisions need no Jev call.
 
 - [Setup and protocol](references/ojql.md)
 - [Prompt workflows](references/jev-workflows.md)

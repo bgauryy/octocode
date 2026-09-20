@@ -4,7 +4,58 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::path::PathBuf;
 
-include!(concat!(env!("OUT_DIR"), "/shared_constants.rs"));
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ConfigFieldKind {
+    Boolean,
+    Number,
+    String,
+    Url,
+    Path,
+    StringArray,
+    Enum,
+    SchemaVersion,
+}
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ConfigNormalize {
+    Trim,
+    Lower,
+}
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ConfigInvalidEnv {
+    Skip,
+    Default,
+}
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ConfigEnumStyle {
+    List,
+    QuotedOr,
+}
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ConfigEnvBinding {
+    pub name: &'static str,
+    pub normalize: Option<ConfigNormalize>,
+    pub invalid: ConfigInvalidEnv,
+}
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ConfigFieldSpec {
+    pub path: &'static str,
+    pub section: &'static str,
+    pub key: &'static str,
+    pub kind: ConfigFieldKind,
+    pub file: bool,
+    pub resolved: bool,
+    pub credential: bool,
+    pub env: &'static [ConfigEnvBinding],
+    pub default_json: &'static str,
+    pub default_from: Option<&'static str>,
+    pub minimum: Option<f64>,
+    pub maximum: Option<f64>,
+    pub values: &'static [&'static str],
+    pub enum_style: ConfigEnumStyle,
+    pub item_path: bool,
+}
+
+include!(concat!(env!("OUT_DIR"), "/config_contract.rs"));
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum FileInput {
@@ -33,90 +84,6 @@ pub struct ConfigInput {
     pub config_file: FileInput,
     pub runtime_surface: RuntimeSurface,
     pub revision: u64,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ResolvedConfig {
-    pub version: Value,
-    pub github: GitHubConfig,
-    pub local: LocalConfig,
-    pub tools: ToolsConfig,
-    pub network: NetworkConfig,
-    pub lsp: LspConfig,
-    pub output: OutputConfig,
-    pub session: SessionConfig,
-    pub storage: StorageConfig,
-    pub extension: ExtensionConfig,
-}
-fn default_true() -> bool {
-    true
-}
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct GitHubConfig {
-    #[serde(rename = "apiUrl")]
-    pub api_url: String,
-    #[serde(rename = "graphqlEnabled", default = "default_true")]
-    pub graphql_enabled: bool,
-}
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct LocalConfig {
-    pub enabled: bool,
-    #[serde(rename = "enableClone")]
-    pub enable_clone: bool,
-    #[serde(rename = "enableAstRewriteApply")]
-    pub enable_ast_rewrite_apply: bool,
-    #[serde(rename = "allowedPaths")]
-    pub allowed_paths: Vec<String>,
-    #[serde(rename = "workspaceRoot")]
-    pub workspace_root: Option<String>,
-}
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ToolsConfig {
-    pub enabled: Option<Vec<String>>,
-    pub disabled: Option<Vec<String>>,
-}
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct NetworkConfig {
-    pub timeout: f64,
-    #[serde(rename = "maxRetries")]
-    pub max_retries: f64,
-    /// Opt-in escape hatch for the artifactSearch SSRF guard. When false
-    /// (default) a caller-supplied `registry` on a loopback/link-local/private
-    /// host is refused; enterprises with internal registries set it to true.
-    #[serde(rename = "allowPrivateRegistry", default)]
-    pub allow_private_registry: bool,
-}
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct LspConfig {
-    #[serde(rename = "configPath")]
-    pub config_path: Option<String>,
-}
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct OutputConfig {
-    pub format: String,
-    pub pagination: PaginationConfig,
-    /// Opt-in: mask email addresses in GitHub tool outputs (commit authors
-    /// and similar). Off by default — gh outputs are otherwise unchanged.
-    #[serde(rename = "redactEmails", default)]
-    pub redact_emails: bool,
-}
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct PaginationConfig {
-    #[serde(rename = "defaultCharLength")]
-    pub default_char_length: f64,
-}
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct SessionConfig {
-    #[serde(rename = "enableStats")]
-    pub enable_stats: bool,
-}
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct StorageConfig {
-    pub mode: String,
-}
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ExtensionConfig {
-    pub storage: StorageConfig,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

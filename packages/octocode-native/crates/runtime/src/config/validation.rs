@@ -1,92 +1,192 @@
 use super::types::{
-    CONFIG_SCHEMA_VERSION, MAX_OUTPUT_DEFAULT_CHAR_LENGTH, MAX_RETRIES, MAX_TIMEOUT,
-    MIN_OUTPUT_DEFAULT_CHAR_LENGTH, MIN_RETRIES, MIN_TIMEOUT, OUTPUT_FORMATS, STORAGE_MODES,
-    ValidationResult,
+    ConfigEnumStyle, ConfigFieldKind, ConfigFieldSpec, ValidationResult, CONFIG_FIELDS,
+    CONFIG_SCHEMA_VERSION,
 };
-use serde_json::Value;
+use serde_json::{Map, Value};
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-fn object<'a>(
-    v: Option<&'a Value>,
-    name: &str,
-    errors: &mut Vec<String>,
-) -> Option<&'a serde_json::Map<String, Value>> {
-    match v {
-        None | Some(Value::Null) => None,
-        Some(Value::Object(o)) => Some(o),
-        Some(_) => {
-            errors.push(format!("{name}: Must be an object"));
-            None
-        }
+fn get_path<'a>(root: &'a Value, field_path: &str) -> Option<&'a Value> {
+    let mut current = root;
+    for part in field_path.split('.') {
+        current = current.as_object()?.get(part)?;
     }
-}
-fn number(v: Option<&Value>, field: &str, min: f64, max: f64, errors: &mut Vec<String>) {
-    if let Some(v) = v.filter(|v| !v.is_null()) {
-        match v.as_f64() {
-            None => errors.push(format!("{field}: Must be a number")),
-            Some(n) if n < min || n > max => {
-                errors.push(format!("{field}: Must be between {min:.0} and {max:.0}"))
-            }
-            _ => {}
-        }
-    }
-}
-fn boolean(v: Option<&Value>, field: &str, errors: &mut Vec<String>) {
-    if v.is_some_and(|v| !v.is_null() && !v.is_boolean()) {
-        errors.push(format!("{field}: Must be a boolean"))
-    }
-}
-fn string(v: Option<&Value>, field: &str, errors: &mut Vec<String>) {
-    if v.is_some_and(|v| !v.is_null() && !v.is_string()) {
-        errors.push(format!("{field}: Must be a string"))
-    }
-}
-fn array(v: Option<&Value>, field: &str, errors: &mut Vec<String>) -> bool {
-    match v {
-        None | Some(Value::Null) => true,
-        Some(Value::Array(a)) => {
-            for (i, v) in a.iter().enumerate() {
-                if !v.is_string() {
-                    errors.push(format!("{field}[{i}]: Must be a string"));
-                    return false;
-                }
-            }
-            true
-        }
-        Some(_) => {
-            errors.push(format!("{field}: Must be an array"));
-            false
-        }
-    }
-}
-fn warn_unknown(
-    o: Option<&serde_json::Map<String, Value>>,
-    prefix: &str,
-    known: &[&str],
-    warnings: &mut Vec<String>,
-) {
-    if let Some(o) = o {
-        for k in o.keys() {
-            if !known.contains(&k.as_str()) {
-                warnings.push(if prefix.is_empty() {
-                    format!("Unknown configuration key: {k}")
-                } else {
-                    format!("Unknown configuration key: {prefix}.{k}")
-                })
-            }
-        }
-    }
-}
-fn valid_path(s: &str) -> bool {
-    let abs = s.starts_with('~')
-        || Path::new(s).is_absolute()
-        || (s.len() > 2
-            && s.as_bytes()[1] == b':'
-            && (s.as_bytes()[2] == b'/' || s.as_bytes()[2] == b'\\'));
-    !s.trim().is_empty() && abs && !s.split(['/', '\\']).any(|x| x == "..")
+    Some(current)
 }
 
-#[allow(clippy::collapsible_if)]
+fn section_paths() -> Vec<String> {
+    let mut sections = BTreeSet::new();
+    for field in CONFIG_FIELDS.iter().filter(|field| field.file) {
+        let parts = field.section.split('.').collect::<Vec<_>>();
+        for index in 0..parts.len() {
+            let path = parts[..=index].join(".");
+            if !path.is_empty() {
+                sections.insert(path);
+            }
+        }
+    }
+    sections.into_iter().collect()
+}
+
+fn is_absolute_or_home_path(value: &str) -> bool {
+    let windows_absolute = value.as_bytes().get(1) == Some(&b':')
+        && value
+            .as_bytes()
+            .get(2)
+            .is_some_and(|separator| matches!(separator, b'/' | b'\\'));
+    value.starts_with('~') || Path::new(value).is_absolute() || windows_absolute
+}
+
+fn validate_path(field_path: &str, value: &str, errors: &mut Vec<String>) {
+    if value.trim().is_empty() {
+        errors.push(format!("{field_path}: empty or whitespace-only path"));
+    } else if value.split(['/', '\\']).any(|part| part == "..") {
+        errors.push(format!(
+            "{field_path}: path traversal (..) not allowed (got \"{value}\")"
+        ));
+    } else if !is_absolute_or_home_path(value) {
+        errors.push(format!(
+            "{field_path}: must be absolute path or start with ~ (got \"{value}\")"
+        ));
+    }
+}
+
+fn validate_url(field_path: &str, value: &str, errors: &mut Vec<String>) {
+    match url::Url::parse(value) {
+        Ok(url) if matches!(url.scheme(), "http" | "https") => {}
+        Ok(_) => errors.push(format!("{field_path}: Only http/https URLs allowed")),
+        Err(_) => errors.push(format!("{field_path}: Invalid URL format")),
+    }
+}
+
+fn validate_field(
+    field: &ConfigFieldSpec,
+    value: Option<&Value>,
+    errors: &mut Vec<String>,
+    warnings: &mut Vec<String>,
+) {
+    let Some(value) = value else { return };
+    if value.is_null() && field.kind != ConfigFieldKind::SchemaVersion {
+        return;
+    }
+    match field.kind {
+        ConfigFieldKind::SchemaVersion => {
+            let version = value
+                .as_i64()
+                .or_else(|| value.as_u64().and_then(|number| i64::try_from(number).ok()));
+            match version {
+                None => errors.push(format!("{}: Must be an integer", field.path)),
+                Some(version) if version > CONFIG_SCHEMA_VERSION => warnings.push(format!(
+                    "{}: Config version {version} is newer than supported version {CONFIG_SCHEMA_VERSION}",
+                    field.path
+                )),
+                Some(_) => {}
+            }
+        }
+        ConfigFieldKind::Boolean => {
+            if !value.is_boolean() {
+                errors.push(format!("{}: Must be a boolean", field.path));
+            }
+        }
+        ConfigFieldKind::Number => match value.as_f64() {
+            None => errors.push(format!("{}: Must be a number", field.path)),
+            Some(number)
+                if field.minimum.is_some_and(|minimum| number < minimum)
+                    || field.maximum.is_some_and(|maximum| number > maximum) =>
+            {
+                errors.push(format!(
+                    "{}: Must be between {:.0} and {:.0}",
+                    field.path,
+                    field.minimum.unwrap_or_default(),
+                    field.maximum.unwrap_or_default()
+                ));
+            }
+            Some(_) => {}
+        },
+        ConfigFieldKind::StringArray => {
+            let Some(values) = value.as_array() else {
+                errors.push(format!("{}: Must be an array", field.path));
+                return;
+            };
+            for (index, item) in values.iter().enumerate() {
+                let item_path = format!("{}[{index}]", field.path);
+                if let Some(item) = item.as_str() {
+                    if field.item_path {
+                        validate_path(&item_path, item, errors);
+                    }
+                } else {
+                    errors.push(format!("{item_path}: Must be a string"));
+                }
+            }
+        }
+        ConfigFieldKind::Enum => {
+            let Some(value) = value.as_str() else {
+                errors.push(format!("{}: Must be a string", field.path));
+                return;
+            };
+            if !field.values.contains(&value) {
+                let expected = match field.enum_style {
+                    ConfigEnumStyle::List => format!("one of: {}", field.values.join(", ")),
+                    ConfigEnumStyle::QuotedOr => field
+                        .values
+                        .iter()
+                        .map(|value| format!("\"{value}\""))
+                        .collect::<Vec<_>>()
+                        .join(" or "),
+                };
+                errors.push(format!("{}: Must be {expected}", field.path));
+            }
+        }
+        ConfigFieldKind::String | ConfigFieldKind::Url | ConfigFieldKind::Path => {
+            let Some(value) = value.as_str() else {
+                errors.push(format!("{}: Must be a string", field.path));
+                return;
+            };
+            match field.kind {
+                ConfigFieldKind::Url => validate_url(field.path, value, errors),
+                ConfigFieldKind::Path => validate_path(field.path, value, errors),
+                _ => {}
+            }
+        }
+    }
+}
+
+fn warn_unknown_keys(root: &Map<String, Value>, warnings: &mut Vec<String>) {
+    let sections = section_paths();
+    let mut known =
+        BTreeMap::<String, BTreeSet<&str>>::from([(String::new(), BTreeSet::from(["$schema"]))]);
+    for field in CONFIG_FIELDS.iter().filter(|field| field.file) {
+        known
+            .entry(field.section.to_owned())
+            .or_default()
+            .insert(field.key);
+    }
+    for section in &sections {
+        let (parent, key) = section
+            .rsplit_once('.')
+            .map_or(("", section.as_str()), |(parent, key)| (parent, key));
+        known.entry(parent.to_owned()).or_default().insert(key);
+    }
+    let root_value = Value::Object(root.clone());
+    for (section, keys) in known {
+        let value = if section.is_empty() {
+            Some(root)
+        } else {
+            get_path(&root_value, &section).and_then(Value::as_object)
+        };
+        let Some(value) = value else { continue };
+        for key in value.keys() {
+            if !keys.contains(key.as_str()) {
+                warnings.push(if section.is_empty() {
+                    format!("Unknown configuration key: {key}")
+                } else {
+                    format!("Unknown configuration key: {section}.{key}")
+                });
+            }
+        }
+    }
+}
+
 pub fn validate_config(config: &Value) -> ValidationResult {
     let Some(root) = config.as_object() else {
         return ValidationResult {
@@ -96,241 +196,36 @@ pub fn validate_config(config: &Value) -> ValidationResult {
             config: None,
         };
     };
-    let mut e = vec![];
-    let mut w = vec![];
-    if let Some(v) = root.get("version") {
-        if !v.is_i64() && !v.is_u64() {
-            e.push("version: Must be an integer".into())
-        } else if v.as_i64().unwrap_or(i64::MAX) > CONFIG_SCHEMA_VERSION {
-            w.push(format!("version: Config version {} is newer than supported version {CONFIG_SCHEMA_VERSION}",v))
-        }
-    }
-    let gh = object(root.get("github"), "github", &mut e);
-    if let Some(o) = gh {
-        if let Some(v) = o.get("apiUrl").filter(|v| !v.is_null()) {
-            if let Some(s) = v.as_str() {
-                match url::Url::parse(s) {
-                    Ok(u) if matches!(u.scheme(), "http" | "https") => {}
-                    Ok(_) => e.push("github.apiUrl: Only http/https URLs allowed".into()),
-                    Err(_) => e.push("github.apiUrl: Invalid URL format".into()),
-                }
-            } else {
-                e.push("github.apiUrl: Must be a string".into())
+    let mut errors = Vec::new();
+    let mut warnings = Vec::new();
+
+    for section in section_paths() {
+        if let Some(value) = get_path(config, &section) {
+            if !value.is_null() && !value.is_object() {
+                errors.push(format!("{section}: Must be an object"));
             }
         }
-        boolean(o.get("graphqlEnabled"), "github.graphqlEnabled", &mut e);
     }
-    warn_unknown(gh, "github", &["apiUrl", "graphqlEnabled"], &mut w);
-    let local = object(root.get("local"), "local", &mut e);
-    if let Some(o) = local {
-        boolean(o.get("enabled"), "local.enabled", &mut e);
-        boolean(o.get("enableClone"), "local.enableClone", &mut e);
-        boolean(
-            o.get("enableAstRewriteApply"),
-            "local.enableAstRewriteApply",
-            &mut e,
+    for field in CONFIG_FIELDS.iter().filter(|field| field.file) {
+        let parent = if field.section.is_empty() {
+            Some(root)
+        } else {
+            get_path(config, field.section).and_then(Value::as_object)
+        };
+        validate_field(
+            field,
+            parent.and_then(|parent| parent.get(field.key)),
+            &mut errors,
+            &mut warnings,
         );
-        if array(o.get("allowedPaths"), "local.allowedPaths", &mut e) {
-            if let Some(Value::Array(a)) = o.get("allowedPaths") {
-                for (i, v) in a.iter().enumerate() {
-                    if let Some(s) = v.as_str() {
-                        if !valid_path(s) {
-                            let msg = if s.trim().is_empty() {
-                                format!("local.allowedPaths[{i}]: empty or whitespace-only path")
-                            } else if s.split(['/', '\\']).any(|x| x == "..") {
-                                format!(
-                                    "local.allowedPaths[{i}]: path traversal (..) not allowed (got \"{s}\")"
-                                )
-                            } else {
-                                format!(
-                                    "local.allowedPaths[{i}]: must be absolute path or start with ~ (got \"{s}\")"
-                                )
-                            };
-                            e.push(msg)
-                        }
-                    }
-                }
-            }
-        }
-        string(o.get("workspaceRoot"), "local.workspaceRoot", &mut e);
-        if let Some(s) = o.get("workspaceRoot").and_then(Value::as_str) {
-            if !valid_path(s) {
-                let absolute = s.starts_with('~')
-                    || Path::new(s).is_absolute()
-                    || (s.len() > 2
-                        && s.as_bytes()[1] == b':'
-                        && matches!(s.as_bytes()[2], b'/' | b'\\'));
-                e.push(if s.trim().is_empty() {
-                    "local.workspaceRoot: empty or whitespace-only path".into()
-                } else if !absolute {
-                    format!(
-                        "local.workspaceRoot: must be absolute path or start with ~ (got \"{s}\")"
-                    )
-                } else if s.split(['/', '\\']).any(|x| x == "..") {
-                    format!("local.workspaceRoot: path traversal (..) not allowed (got \"{s}\")")
-                } else {
-                    format!(
-                        "local.workspaceRoot: must be absolute path or start with ~ (got \"{s}\")"
-                    )
-                })
-            }
-        }
     }
-    warn_unknown(
-        local,
-        "local",
-        &[
-            "enabled",
-            "enableClone",
-            "enableAstRewriteApply",
-            "allowedPaths",
-            "workspaceRoot",
-        ],
-        &mut w,
-    );
-    let tools = object(root.get("tools"), "tools", &mut e);
-    if let Some(o) = tools {
-        array(o.get("enabled"), "tools.enabled", &mut e);
-        array(o.get("disabled"), "tools.disabled", &mut e);
-    }
-    warn_unknown(tools, "tools", &["enabled", "disabled"], &mut w);
-    let net = object(root.get("network"), "network", &mut e);
-    if let Some(o) = net {
-        number(
-            o.get("timeout"),
-            "network.timeout",
-            MIN_TIMEOUT,
-            MAX_TIMEOUT,
-            &mut e,
-        );
-        number(
-            o.get("maxRetries"),
-            "network.maxRetries",
-            MIN_RETRIES,
-            MAX_RETRIES,
-            &mut e,
-        );
-        boolean(
-            o.get("allowPrivateRegistry"),
-            "network.allowPrivateRegistry",
-            &mut e,
-        )
-    }
-    warn_unknown(
-        net,
-        "network",
-        &["timeout", "maxRetries", "allowPrivateRegistry"],
-        &mut w,
-    );
-    let lsp = object(root.get("lsp"), "lsp", &mut e);
-    if let Some(o) = lsp {
-        string(o.get("configPath"), "lsp.configPath", &mut e)
-    }
-    warn_unknown(lsp, "lsp", &["configPath"], &mut w);
-    let output = object(root.get("output"), "output", &mut e);
-    let pag = output.and_then(|o| object(o.get("pagination"), "output.pagination", &mut e));
-    if let Some(o) = output {
-        if let Some(v) = o.get("format") {
-            match v {
-                Value::Null => {}
-                Value::String(value) if OUTPUT_FORMATS.contains(&value.as_str()) => {}
-                Value::String(_) => e.push(format!(
-                    "output.format: Must be one of: {}",
-                    OUTPUT_FORMATS.join(", ")
-                )),
-                _ => e.push("output.format: Must be a string".into()),
-            }
-        }
-    }
-    if let Some(o) = pag {
-        number(
-            o.get("defaultCharLength"),
-            "output.pagination.defaultCharLength",
-            MIN_OUTPUT_DEFAULT_CHAR_LENGTH,
-            MAX_OUTPUT_DEFAULT_CHAR_LENGTH,
-            &mut e,
-        )
-    }
-    let storage = object(root.get("storage"), "storage", &mut e);
-    validate_storage(storage, "storage", &mut e);
-    warn_unknown(storage, "storage", &["mode"], &mut w);
-    let ext = object(root.get("extension"), "extension", &mut e);
-    let ext_storage = ext.and_then(|o| object(o.get("storage"), "storage", &mut e));
-    if let Some(last) = e.last_mut() {
-        if last == "storage: Must be an object" {
-            *last = "extension.storage: Must be an object".into()
-        }
-    }
-    validate_storage(ext_storage, "extension.storage", &mut e);
-    warn_unknown(ext, "extension", &["storage"], &mut w);
-    warn_unknown(ext_storage, "extension.storage", &["mode"], &mut w);
-    warn_unknown(
-        output,
-        "output",
-        &["format", "pagination", "redactEmails"],
-        &mut w,
-    );
-    warn_unknown(pag, "output.pagination", &["defaultCharLength"], &mut w);
-    // `.octocoderc` is read only from `octocode_home` (never a cloned project),
-    // so — like `github.apiUrl` — the Jev credential/endpoint may live here as
-    // a fallback for the protected `OCTOCODE_JEV_*` env vars. Values themselves
-    // are never inspected below beyond a type check, so nothing here can echo
-    // the key back into a diagnostic message.
-    let jev = object(root.get("jev"), "jev", &mut e);
-    if let Some(o) = jev {
-        string(o.get("key"), "jev.key", &mut e);
-        string(o.get("baseUrl"), "jev.baseUrl", &mut e);
-        string(o.get("model"), "jev.model", &mut e);
-        if let Some(s) = o.get("baseUrl").and_then(Value::as_str) {
-            match url::Url::parse(s) {
-                Ok(u) if matches!(u.scheme(), "http" | "https") => {}
-                Ok(_) => e.push("jev.baseUrl: Only http/https URLs allowed".into()),
-                Err(_) => e.push("jev.baseUrl: Invalid URL format".into()),
-            }
-        }
-    }
-    warn_unknown(jev, "jev", &["key", "baseUrl", "model"], &mut w);
-    warn_unknown(
-        Some(root),
-        "",
-        &[
-            "$schema",
-            "version",
-            "github",
-            "local",
-            "tools",
-            "network",
-            "lsp",
-            "output",
-            "storage",
-            "extension",
-            "jev",
-        ],
-        &mut w,
-    );
-    let valid = e.is_empty();
+    warn_unknown_keys(root, &mut warnings);
+    let valid = errors.is_empty();
     ValidationResult {
         valid,
-        errors: e,
-        warnings: w,
+        errors,
+        warnings,
         config: valid.then(|| config.clone()),
-    }
-}
-#[allow(clippy::collapsible_if)]
-fn validate_storage(o: Option<&serde_json::Map<String, Value>>, prefix: &str, e: &mut Vec<String>) {
-    if let Some(v) = o.and_then(|o| o.get("mode")) {
-        if !v.is_null()
-            && !v
-                .as_str()
-                .is_some_and(|value| STORAGE_MODES.contains(&value))
-        {
-            let allowed = STORAGE_MODES
-                .iter()
-                .map(|value| format!("\"{value}\""))
-                .collect::<Vec<_>>()
-                .join(" or ");
-            e.push(format!("{prefix}.mode: Must be {allowed}"))
-        }
     }
 }
 
@@ -362,23 +257,19 @@ mod tests {
     fn output_format_invalid_string_errors() {
         let result = validate_config(&json!({"output": {"format": "xml"}}));
         assert!(!result.valid);
-        assert!(
-            result
-                .errors
-                .iter()
-                .any(|e| e == "output.format: Must be one of: yaml, json")
-        );
+        assert!(result
+            .errors
+            .iter()
+            .any(|error| error == "output.format: Must be one of: yaml, json"));
     }
 
     #[test]
     fn output_format_non_string_errors() {
         let result = validate_config(&json!({"output": {"format": 42}}));
         assert!(!result.valid);
-        assert!(
-            result
-                .errors
-                .iter()
-                .any(|e| e == "output.format: Must be a string")
-        );
+        assert!(result
+            .errors
+            .iter()
+            .any(|error| error == "output.format: Must be a string"));
     }
 }

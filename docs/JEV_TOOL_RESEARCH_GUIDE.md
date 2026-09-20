@@ -30,7 +30,7 @@ Token counts use `o200k_base`. They measure visible tool context, not total host
 
 ## Per-tool evidence
 
-The table counts **complete stated tool paths**, not only the smaller Jev reply. Shared evidence and deciding verification are counted once on the direct side and once after classification; independent Jev questions still repeat context. Remote rows cover two questions per tool. Local reused slices are attributed from an earlier five-query batch; they are not new independent timing trials. LSP's direct baseline is the known source file needed to verify the behavioral claim, not just the smaller symbol metadata.
+The table counts **complete stated tool paths**, not only the smaller Jev reply. Shared evidence and deciding verification are counted once on the direct side and once after classification. These historical independent-question measurements repeated context; the current matrix contract can reuse one capture when every question applies to every resource, but it does not retroactively change the results. Remote rows cover two questions per tool. Local reused slices are attributed from an earlier five-query batch; they are not new independent timing trials. LSP's direct baseline is the known source file needed to verify the behavioral claim, not just the smaller symbol metadata.
 
 | Tool | Evidence checked | Exact outcome | Direct → Jev + deciding verification, tokens | Case-level decision |
 |---|---|---|---|---|

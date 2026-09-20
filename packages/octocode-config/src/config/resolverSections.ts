@@ -92,11 +92,11 @@ function isHttpUrl(value: string): boolean {
 }
 
 function isLocalPath(value: string): boolean {
-  return (
+  const absolute =
     path.isAbsolute(value) ||
     /^~(?:[\\/]|$)/.test(value) ||
-    /^[A-Za-z]:[\\/]/.test(value)
-  );
+    /^[A-Za-z]:[\\/]/.test(value);
+  return absolute && !value.split(/[\\/]/).includes('..');
 }
 
 function normalizeString(value: string, normalize?: 'trim' | 'lower'): string {

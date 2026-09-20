@@ -18,7 +18,7 @@ node <skill>/scripts/cdp-checks/har-pager.mjs live-network.har --filter failures
 node <skill>/scripts/cdp-checks/har-redact.mjs live-network.har --strip-bodies
 ```
 
-Token budget: summary <2KB; page 10–50 HAR rows; search `.octocode/tmp/chrome-devtools/` before re-browser; `prune-artifacts.mjs` for retention.
+Token budget: summary <2KB; page 10–50 HAR rows; search `.octocode/tmp/chrome-devtools/` before re-browser; `prune-artifacts.mjs` for retention. For several unread response bodies, bridge them into one scrape session and use `jev-triage-local`: it turns all parts into bounded resources, pages matrices internally, and retains partial/insufficient/error chunks. Do not paste an enormous HAR or infer from its first chunk.
 
 ## Bridge
 Same scrape `sessionId` + one CDP port → `har-ingest-to-scrape` → `corpus-run-local --regex`. These bridges require the optional `octocode-scraping` skill beside this folder or an explicit `--scraping-skill-dir <dir>`. Thin pages: trust processed API bodies over clean markdown. Playbook: scraping skill `browser-scraping`.

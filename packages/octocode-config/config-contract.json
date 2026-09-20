@@ -20,7 +20,8 @@
     "GH_TOKEN": { "dotenv": "never", "tokenPriority": 1, "description": "GitHub CLI token" },
     "GITHUB_TOKEN": { "dotenv": "never", "tokenPriority": 2, "description": "GitHub Actions token" },
     "GITHUB_PERSONAL_ACCESS_TOKEN": { "dotenv": "never", "tokenPriority": 3, "description": "GitHub personal access token" },
-    "OCTOCODE_GITHUB_CLIENT_ID": { "configSource": true, "description": "GitHub OAuth client override" }
+    "OCTOCODE_GITHUB_CLIENT_ID": { "configSource": true, "description": "GitHub OAuth client override" },
+    "OCTOCODE_HOME": { "documentation": true, "description": "Overrides the Octocode configuration directory (default: <os-home>/.octocode)" }
   },
   "sections": {
     "": {
@@ -218,6 +219,7 @@
     },
     "output.pagination": {
       "title": "Output pagination",
+      "rustTypeName": "Pagination",
       "file": true,
       "resolved": true,
       "fields": {
@@ -262,6 +264,7 @@
     },
     "extension.storage": {
       "title": "Extension storage",
+      "rustTypeName": "Storage",
       "file": true,
       "resolved": true,
       "fields": {

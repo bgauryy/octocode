@@ -377,6 +377,7 @@ const publicRow = (row) => ({
   resources: row.resources,
   reason: row.reason,
 });
+const publicErrors = errors.slice(0, 20);
 const out = {
   ok: errors.length === 0 && (dryRun || judged.length > 0),
   sessionDir: sessionRoot,
@@ -392,7 +393,9 @@ const out = {
   ],
   skip: skipRows.map(publicRow),
   duplicates: duplicates.map((row) => ({ pageId: row.pageId, url: row.url, duplicateOf: row.duplicateOf })),
-  errors: errors.slice(0, 20),
+  errorCount: errors.length,
+  errors: publicErrors,
+  errorsTruncated: publicErrors.length < errors.length,
   jevUsage: dryRun ? null : { calls, providerInputTokens: providerIn, providerOutputTokens: providerOut },
   requests: reportDir,
   caveats: [
@@ -401,7 +404,7 @@ const out = {
   ],
 };
 const reportPath = join(reportDir, 'triage.json');
-await writeFile(reportPath, `${JSON.stringify({ ...out, judgedRows: judged }, null, 2)}\n`, { mode: 0o600 });
+await writeFile(reportPath, `${JSON.stringify({ ...out, errors, errorsTruncated: false, judgedRows: judged }, null, 2)}\n`, { mode: 0o600 });
 out.report = reportPath;
 console.log(JSON.stringify(out, null, 2));
 process.exit(out.ok ? 0 : 1);
