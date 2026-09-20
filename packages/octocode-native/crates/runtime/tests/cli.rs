@@ -163,6 +163,25 @@ fn skill_passthrough_sends_skill_argv_to_node_cli() {
 }
 
 #[test]
+fn skill_delegation_guard_breaks_native_recursion() {
+    // When the `octocode` on PATH is the native binary itself (not the npm
+    // launcher), the delegation guard must fail fast instead of respawning.
+    let workspace = Workspace::new();
+    let output = workspace
+        .cli()
+        .env("OCTOCODE_SKILL_DELEGATED", "1")
+        .args(["skill", "list"])
+        .output()
+        .expect("skill spawn");
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        stderr(&output).contains("native binary, not the npm CLI"),
+        "{}",
+        stderr(&output)
+    );
+}
+
+#[test]
 fn tools_rejects_non_canonical_fields() {
     let workspace = Workspace::new();
     let output = workspace
@@ -188,7 +207,7 @@ fn tools_rejects_non_canonical_fields() {
 }
 
 #[test]
-fn read_pages_and_next_reconstructs_source() {
+fn read_pages_and_continuation_reconstructs_source() {
     let workspace = Workspace::new();
     let content: String = (1..24).map(|n| format!("line {n}: research\n")).collect();
     let path = workspace.write("source.txt", &content);
@@ -207,19 +226,22 @@ fn read_pages_and_next_reconstructs_source() {
         .output()
         .expect("first read");
     assert_eq!(first.status.code(), Some(6), "{}", stderr(&first));
-    let token = stderr(&first)
-        .split("Continue: octocode next ")
+    // Cursor tokens are per-process, so the CLI advertises the prefilled
+    // continuation query as a directly re-runnable command.
+    let query = stderr(&first)
+        .split("Continue: octocode tools localFetch '")
         .nth(1)
-        .and_then(|rest| rest.split_whitespace().next())
-        .expect("continuation token");
+        .and_then(|rest| rest.split('\'').next())
+        .expect("continuation query");
     let mut joined = stdout(&first).to_owned();
     let second = workspace
         .cli()
-        .args(["next", token])
+        .args(["tools", "localFetch", query])
         .output()
-        .expect("next");
+        .expect("continuation read");
     joined.push_str(stdout(&second));
     assert!(content.starts_with(&joined), "joined prefix");
+    assert!(joined.len() > stdout(&first).len(), "second page advanced");
 
     let drained = workspace
         .cli()

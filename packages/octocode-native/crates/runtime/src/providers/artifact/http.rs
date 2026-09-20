@@ -284,10 +284,20 @@ impl RegistryClient<'_> {
                 ),
             )
             .with_status(response.status)),
+            // Remaining 4xx (except 408) are deterministic request errors:
+            // retrying cannot help, so name the status and blame the query.
+            status @ 400..=499 if status != 408 => Err(ArtifactError::new(
+                "invalid_query",
+                format!(
+                    "{} registry rejected the request (HTTP {status}). Check the package name or query.",
+                    artifact_type.as_str()
+                ),
+            )
+            .with_status(status)),
             status => Err(ArtifactError::new(
                 "provider_error",
                 format!(
-                    "{} registry request failed. Retry later.",
+                    "{} registry request failed (HTTP {status}). Retry later.",
                     artifact_type.as_str()
                 ),
             )
@@ -304,4 +314,78 @@ pub(crate) fn invalid_response(artifact_type: ArtifactType) -> ArtifactError {
             artifact_type.as_str()
         ),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct NoHttp;
+
+    impl ArtifactHttp for NoHttp {
+        fn get<'a>(
+            &'a self,
+            _request: ArtifactHttpRequest,
+            _budget: &'a RequestBudget,
+        ) -> ArtifactHttpFuture<'a> {
+            Box::pin(async { panic!("status mapping tests never issue requests") })
+        }
+    }
+
+    fn classify(status: u16) -> Result<Option<Vec<u8>>, ArtifactError> {
+        let budget = RequestBudget::with_timeout(Duration::from_secs(10), 10_000_000);
+        let client = RegistryClient {
+            http: &NoHttp,
+            budget: &budget,
+        };
+        client.status(
+            ArtifactType::Npm,
+            ArtifactHttpResponse {
+                status,
+                body: vec![],
+            },
+            true,
+        )
+    }
+
+    #[test]
+    fn deterministic_4xx_is_invalid_query_with_status() {
+        // npm answers exact lookups for malformed names (e.g. non-ASCII
+        // coordinates) with 405, not 404; it must not read as retryable.
+        for status in [400u16, 405, 422] {
+            let error = classify(status).expect_err("4xx is an error");
+            assert_eq!(error.code, "invalid_query");
+            assert_eq!(error.status, Some(status));
+            assert!(
+                error.message.contains(&format!("HTTP {status}")),
+                "{}",
+                error.message
+            );
+        }
+    }
+
+    #[test]
+    fn server_errors_and_408_stay_retryable_provider_error() {
+        for status in [408u16, 500, 502, 503] {
+            let error = classify(status).expect_err("5xx is an error");
+            assert_eq!(error.code, "provider_error");
+            assert_eq!(error.status, Some(status));
+            assert!(
+                error.message.contains(&format!("HTTP {status}"))
+                    && error.message.contains("Retry later"),
+                "{}",
+                error.message
+            );
+        }
+    }
+
+    #[test]
+    fn auth_rate_limit_and_not_found_keep_dedicated_mappings() {
+        assert_eq!(classify(404).expect("404 maps to empty"), None);
+        assert_eq!(classify(401).expect_err("401").code, "authentication");
+        assert_eq!(classify(403).expect_err("403").code, "authentication");
+        let limited = classify(429).expect_err("429");
+        assert_eq!(limited.code, "rate_limit");
+        assert_eq!(limited.status, Some(429));
+    }
 }

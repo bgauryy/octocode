@@ -371,6 +371,11 @@ pub fn execute_local_search(
         files.len(),
         next.is_none(),
     );
+    let skip_hint = skipped_target_hint(
+        root.is_file(),
+        stats.files_searched,
+        stats.cap_reason.as_deref(),
+    );
     Ok(LocalSearchResult {
         status,
         search_engine: "rg".into(),
@@ -395,10 +400,13 @@ pub fn execute_local_search(
             out_of_range: start >= total_files as usize && total_files > 0,
         }),
         hints: if empty {
-            vec![
-                "No matches. Try caseMode:\"insensitive\", a shorter term, or regex:\"rust\"."
-                    .into(),
-            ]
+            match skip_hint {
+                Some(hint) => vec![hint],
+                None => vec![
+                    "No matches. Try caseMode:\"insensitive\", a shorter term, or regex:\"rust\"."
+                        .into(),
+                ],
+            }
         } else {
             vec![]
         },
@@ -407,6 +415,23 @@ pub fn execute_local_search(
         warnings,
         source_snapshot: Some(result_identity),
         source_root: output_root.to_path_buf(),
+    })
+}
+
+/// A query that explicitly targets a single file which the engine then skips
+/// (e.g. over the per-file byte ceiling, surfaced as `capReason:"maxFileSize"`
+/// with `filesSearched:0`) is a silent false negative without an explanation:
+/// nothing was searched, so "no matches" would be misleading.
+fn skipped_target_hint(
+    single_file: bool,
+    files_searched: u32,
+    cap_reason: Option<&str>,
+) -> Option<String> {
+    let reason = cap_reason?;
+    (single_file && files_searched == 0).then(|| {
+        format!(
+            "The target file was skipped ({reason}): nothing was searched. Raise limits or read it with localFetch chunks."
+        )
     })
 }
 

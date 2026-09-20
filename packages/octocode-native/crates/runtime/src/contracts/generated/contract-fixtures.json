@@ -3,13 +3,51 @@
     "id": "jev.curated-1",
     "tool": "jev",
     "input": {
-      "state": {
-        "report": "Export fails; CSV is a workaround."
+      "context": {
+        "value": {
+          "report": "Export fails; CSV is a workaround."
+        }
       },
-      "questions": {
-        "workaround": {
-          "type": "noul",
-          "instructions": "Does the report describe a workaround?"
+      "question": {
+        "type": "noul",
+        "instructions": "Does the report describe a workaround?"
+      }
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "context": {
+            "value": {
+              "report": "Export fails; CSV is a workaround."
+            }
+          },
+          "question": {
+            "type": "noul",
+            "instructions": "Does the report describe a workaround?"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "jev.curated-2",
+    "tool": "jev",
+    "input": {
+      "context": {
+        "tool": "localFetch",
+        "query": {
+          "path": "/ABS/repo/src/store.ts",
+          "reasoning": "Inspect the save boundary without returning its body."
+        }
+      },
+      "question": {
+        "type": "choice",
+        "instructions": "Does this result establish whether cancellation prevents a write? Missing implementation is insufficient.",
+        "criteria": {
+          "direct": "Deciding evidence, including a counterexample.",
+          "insufficient": "Missing implementation or incomplete coverage prevents deciding.",
+          "unrelated": "No relevant implementation or boundary."
         }
       }
     },
@@ -17,13 +55,20 @@
     "normalized": {
       "queries": [
         {
-          "state": {
-            "report": "Export fails; CSV is a workaround."
+          "context": {
+            "tool": "localFetch",
+            "query": {
+              "path": "/ABS/repo/src/store.ts",
+              "reasoning": "Inspect the save boundary without returning its body."
+            }
           },
-          "questions": {
-            "workaround": {
-              "type": "noul",
-              "instructions": "Does the report describe a workaround?"
+          "question": {
+            "type": "choice",
+            "instructions": "Does this result establish whether cancellation prevents a write? Missing implementation is insufficient.",
+            "criteria": {
+              "direct": "Deciding evidence, including a counterexample.",
+              "insufficient": "Missing implementation or incomplete coverage prevents deciding.",
+              "unrelated": "No relevant implementation or boundary."
             }
           }
         }

@@ -8,14 +8,6 @@ pub(super) enum Command {
     Search(Box<search::SearchArgs>),
     #[command(external_subcommand)]
     Pattern(Vec<String>),
-    /// Fetch the next page of a paginated `read` result using the token printed to stderr.
-    Next {
-        /// Continuation token printed to stderr as `Continue: octocode next <TOKEN>`.
-        token: String,
-        /// Drain every subsequent page automatically.
-        #[arg(long)]
-        all: bool,
-    },
     /// Read a local file with optional pagination, line ranges, match filtering, and minification.
     Read {
         /// Why this query advances the current goal.

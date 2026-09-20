@@ -376,15 +376,35 @@ pub(crate) async fn rubygems(
         .json(ArtifactType::Rubygems, url, false, None)
         .await?
         .ok_or_else(|| super::util::invalid(ArtifactType::Rubygems))?;
-    let artifacts = rows(&response, ArtifactType::Rubygems)?
+    let fetched = rows(&response, ArtifactType::Rubygems)?;
+    // rubygems.org ignores per-page sizing (fixed ~30 rows per API page), so
+    // honor pageSize by windowing within the fetched page via the cursor
+    // offset and advancing to the next API page once it is drained.
+    let skip = state.offset.unwrap_or(0) as usize;
+    let size = query.page_size.unwrap_or(10) as usize;
+    let artifacts = fetched
         .iter()
+        .skip(skip)
+        .take(size)
         .map(|row| gem(object_for(row, ArtifactType::Rubygems)?))
         .collect::<Result<Vec<_>, _>>()?;
-    Ok(ArtifactProviderPage {
-        next_state: (!artifacts.is_empty()).then(|| ArtifactProviderState {
+    let consumed = skip + artifacts.len();
+    let next_state = if artifacts.is_empty() {
+        None
+    } else if consumed < fetched.len() {
+        Some(ArtifactProviderState {
+            page: Some(page),
+            offset: Some(consumed as u64),
+            ..Default::default()
+        })
+    } else {
+        Some(ArtifactProviderState {
             page: Some(page + 1),
             ..Default::default()
-        }),
+        })
+    };
+    Ok(ArtifactProviderPage {
+        next_state,
         artifacts,
         total: None,
         terminal_limit: None,

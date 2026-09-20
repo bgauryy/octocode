@@ -20,7 +20,7 @@ function run(script, args) {
 }
 function assert(value, message) { if (!value) throw new Error(message); }
 
-for (const script of ['har-ingest-to-scrape.mjs', 'corpus-run-local.mjs']) {
+for (const script of ['har-ingest-to-scrape.mjs', 'corpus-run-local.mjs', 'jev-triage-local.mjs']) {
   const help = run(script, ['--help']);
   assert(help.status === 0 && help.stdout.includes('--scraping-skill-dir'), `${script} standalone help failed`);
 }
@@ -41,13 +41,15 @@ assert(duplicate.status === 2 && duplicate.stderr.includes('INVALID_ARGUMENT'), 
 
 const scraping = join(root, 'optional-scraping');
 mkdirSync(join(scraping, 'scripts'), { recursive: true });
-for (const [name, expected] of [['har-ingest.mjs', 'finite.har'], ['corpus-run.mjs', 'artifacts']]) {
+for (const [name, expected] of [['har-ingest.mjs', 'finite.har'], ['corpus-run.mjs', 'artifacts'], ['corpus-triage.mjs', 'artifacts']]) {
   writeFileSync(join(scraping, 'scripts', name), `const ok=process.argv.some(x=>x.endsWith(${JSON.stringify(expected)})); console.log(JSON.stringify({ok,bridge:${JSON.stringify(name)}})); process.exit(ok?0:2);\n`);
 }
 const ingest = run('har-ingest-to-scrape.mjs', ['--scraping-skill-dir', scraping, har]);
 const corpus = run('corpus-run-local.mjs', ['--scraping-skill-dir', scraping, '--artifact-dir', artifacts, '--regex', 'offerId']);
+const triage = run('jev-triage-local.mjs', ['--scraping-skill-dir', scraping, '--session-dir', artifacts, '--goal', 'g', '--dry-run']);
 assert(ingest.status === 0 && ingest.stdout.includes('"ok":true'), 'HAR bridge did not forward finite fixture');
 assert(corpus.status === 0 && corpus.stdout.includes('"ok":true'), 'corpus bridge did not forward finite fixture');
+assert(triage.status === 0 && triage.stdout.includes('"ok":true'), 'triage bridge did not forward finite fixture');
 const realScraping = join(skill, '..', 'octocode-scraping');
 let realIntegration = 'unavailable';
 if (existsSync(join(realScraping, 'scripts', 'har-ingest.mjs'))) {
@@ -58,6 +60,12 @@ if (existsSync(join(realScraping, 'scripts', 'har-ingest.mjs'))) {
   const realCorpus = run('corpus-run-local.mjs', ['--scraping-skill-dir', realScraping, '--artifact-dir', artifacts, '--regex', 'offerId']);
   assert(realIngest.status === 0 && realIngest.stdout.includes('"ok": true'), 'real HAR integration failed');
   assert(realCorpus.status === 0 && realCorpus.stdout.includes('"ok": true'), 'real corpus integration failed');
+  const triageSession = join(root, 'triage-session');
+  mkdirSync(join(triageSession, 'text'), { recursive: true });
+  writeFileSync(join(triageSession, 'text', 'page-001.clean.part-001.md'), 'finite fixture body\n');
+  writeFileSync(join(triageSession, 'sources.jsonl'), `${JSON.stringify({ pageId: 'page-001', url: 'https://fixture.test/a', status: 200, cleanTextBytes: 5000, textParts: ['text/page-001.clean.part-001.md'] })}\n`);
+  const realTriage = run('jev-triage-local.mjs', ['--scraping-skill-dir', realScraping, '--session-dir', triageSession, '--goal', 'finite goal', '--dry-run']);
+  assert(realTriage.status === 0 && realTriage.stdout.includes('"ok": true'), 'real triage dry-run integration failed');
   realIntegration = 'passed';
 }
 console.log(JSON.stringify({ ok: true, suite: 'chrome-devtools-portability', fixtures: 2, dependencyCases: 2, realIntegration }));

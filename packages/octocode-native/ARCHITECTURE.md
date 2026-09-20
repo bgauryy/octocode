@@ -33,9 +33,11 @@ The runtime executes all twelve tools:
 
 Availability is resolved natively. GitHub and artifact tools are enabled by default; local tools honor local policy; cloning requires its feature gate and persistent storage. `jev` is available only when the resolved `OCTOCODE_JEV_KEY` is nonblank. Contract preparation accepts direct, array, and `{ "queries": [...] }` forms, validates the complete bulk envelope, and preserves ordered row indexes and isolated domain failures.
 
-`jev` accepts caller-supplied `state`, typed `questions`, and optional named `sources`; configuration selects the model. `runtime/jev_sources` loads bounded local/GitHub files through existing path, content-security and provider policies. With sources, provider state wraps caller values under `context` and file bodies under `sources`; the response adds provenance/hash receipts without bodies. The tool generates no questions and makes no workflow decisions. Shared transport enforces deadlines, cancellation, bounded responses, and no redirects.
+`jev` accepts `{context, question}`: one typed question and either an inline `{value}` or an unread read-tool request `{tool, query}`. Configuration selects the model. `runtime/domain_dispatch` is the shared execution path for ordinary tools and hidden context; `runtime/jev_context` validates the nested canonical query, enforces availability and security, sanitizes the ordinary result and checks its output contract before inference. It never re-enters public request admission. The old source-specific loader is removed.
 
-Source hydration scans at most 1 MiB per raw file before selecting at most 64 KiB per source and 256 KiB combined. Full-source redaction precedes range selection. Jev rejects response-pagination controls before source reads or inference; query replay cannot retrieve a page of a previous judgment. GitHub content-cache disk keys include the transport's credential/endpoint partition. Normal shutdown clears memory; explicit cache clearing purges disk.
+The provider receives the supplied inline value or the ordinary sanitized single-row result envelope. `tools/jev` adapts this to the provider's state/questions protocol with one fixed internal answer ID and projects one typed answer back. Tool context adds a result hash, bounded/partial coverage and safe continuations or limitations, without retrieved bodies. Partial results do not trigger automatic page reads. The tool generates no questions, thresholds or actions.
+
+Nested context supports the nine read tools; recursive Jev, astRewrite and ghCloneRepo are rejected. Ordinary tool budgets remain active and the serialized provider request is capped at 4 MiB. Jev rejects response-pagination controls before context execution/inference; query replay cannot retrieve a page of a previous judgment. Repeated contexts execute independently, using existing retrieval caches without a new judgment cache. GitHub content-cache disk keys retain credential/endpoint partitioning; normal shutdown clears memory and explicit cache clearing purges disk.
 
 ## Ownership
 
@@ -79,7 +81,7 @@ Generic text search, reads, minification, file recognition, GitHub/history opera
 ## Build modes
 
 - Binary builds use `--no-default-features` and contain the full CLI/runtime.
-- `build:runtime:dev` stages the host binaries into their platform package so the local CLI launcher executes the rebuilt runtime.
+- `build:runtime:dev` stages the host binaries into their platform package so the local CLI launcher executes the rebuilt runtime. Staging atomically replaces each executable inode to avoid stale macOS code-signature caching after an in-place overwrite.
 - Addon builds enable `napi-addon` and expose the same runtime to MCP.
 - Each platform package contains the optimized native CLI, regex worker, runtime addon, and engine addon.
 - Root entrypoints are lazy and independent: `.`/`./runtime` load only the runtime addon, while `./engine` loads only the engine addon.

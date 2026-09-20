@@ -105,6 +105,9 @@ pub(super) async fn empty_scope<R: CredentialResolver>(
         {
             object.insert("match".to_owned(), json!("file"));
         }
+        if object.get("operation").and_then(Value::as_str) == Some("repositories") {
+            object.entry("sort").or_insert_with(|| json!("best-match"));
+        }
     }
     value["next"][name] =
         json!({"tool":"ghSearch","query":next_query,"confidence":confidence,"why":why});

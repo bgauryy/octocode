@@ -541,6 +541,45 @@ async fn gh_get_history_item_commit_not_found_surfaces_error() {
     runtime.close().await;
 }
 
+/// Cloning a repository that does not exist must report the missing repo by
+/// name, not the internal-sounding clone.defaultBranchUnavailable failure
+/// that used to surface when default-branch resolution silently failed.
+#[tokio::test]
+async fn gh_clone_repo_missing_repository_reports_repo_not_found() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/ghost/nope"))
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({"message": "Not Found"})))
+        .mount(&server)
+        .await;
+
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[
+        ("GITHUB_API_URL", format!("{}/api/v3", server.uri())),
+        ("ENABLE_CLONE", "true".into()),
+    ]);
+    let outcome = call(&runtime, "ghCloneRepo", json!({"owner":"ghost","repo":"nope"}))
+        .await
+        .expect("clone error row");
+
+    assert_eq!(
+        row_status(&outcome),
+        "error",
+        "{}",
+        outcome.structured_content
+    );
+    let data = row_data(&outcome);
+    assert_eq!(data["errorCode"], "clone.repositoryNotFound", "{data}");
+    assert_eq!(
+        data["error"].as_str(),
+        Some("Repository not found: ghost/nope"),
+        "{data}"
+    );
+    let hint = data["hints"][0].as_str().expect("repo hint");
+    assert!(hint.contains("ghost/nope"), "{hint}");
+    runtime.close().await;
+}
+
 #[tokio::test]
 async fn artifact_search_lookup_goes_through_execute() {
     let server = MockServer::start().await;

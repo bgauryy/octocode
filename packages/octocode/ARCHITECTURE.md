@@ -4,7 +4,7 @@
 
 ## Runtime boundary
 
-`src/cli/index.ts` selects native-owned commands before loading the TypeScript management dispatcher. `src/cli/native-delegate.ts` resolves `@octocodeai/octocode-native/bin/octocode.cjs` and delegates with inherited stdio and environment.
+`src/cli/index.ts` is a three-branch launcher: `skill` runs in Node, a bare TTY `install` opens the client picker, and every other argv is forwarded verbatim — parsing, help, version, and validation included — to the native binary. `src/cli/native-delegate.ts` resolves `@octocodeai/octocode-native/bin/octocode.cjs` and delegates with inherited stdio and environment. There is no TypeScript command registry, help renderer, or option validation for native-owned commands.
 
 ```text
 npx octocode → Node launcher → native CLI → Rust ToolRuntime
@@ -19,7 +19,7 @@ TypeScript remains only for:
 - `skill`, backed by the shared skill installer;
 - the TTY picker for `install` without `--ide`, which discovers client ids from `native install --list --json` and delegates the selected id back to native.
 
-Flag-only management commands, `tools`, `context`, `lsp-server`, status, authentication, human search/read/AST/LSP commands, and MCP installation are delegated to the native CLI. The TypeScript command registry contains only `skill`; interactive installation is a transport adapter, not a second installer.
+Everything else — flag-only management commands, `tools`, `context`, `lsp-server`, status, authentication, human search/read/AST/LSP commands, and MCP installation — is delegated to the native CLI. Interactive installation is a transport adapter, not a second installer. The native `skill` command shells back to this launcher; `OCTOCODE_SKILL_DELEGATED` guards that hop so a native binary on PATH cannot recurse.
 
 ## Build and packaging
 

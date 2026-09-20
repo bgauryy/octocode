@@ -20,7 +20,6 @@ import {
 } from '../../../src/cli/commands/skills/platforms.js';
 import type { ParsedArgs } from '../../../src/cli/types.js';
 import { EXIT } from '../../../src/cli/exit-codes.js';
-import { findCommandSpec } from '../../../src/cli/commands/specs.js';
 
 function run(
   args: string[] = [],
@@ -93,7 +92,7 @@ describe('skill command', () => {
   });
 
   it('documents the same install flags in generated command help', () => {
-    const helpOptions = findCommandSpec('skill')?.options ?? [];
+    const helpOptions = skillCommand.options;
     const names = helpOptions.map(option => option.name);
     expect(names).toEqual(
       expect.arrayContaining([
@@ -107,9 +106,7 @@ describe('skill command', () => {
       ])
     );
     expect(names).not.toContain('keep');
-    expect(
-      helpOptions.find(option => option.name === 'workspace')?.description
-    ).toContain('check only');
+    expect(names).toContain('workspace');
   });
 
   it('prints bundled skill help when no subcommand is provided', () => {

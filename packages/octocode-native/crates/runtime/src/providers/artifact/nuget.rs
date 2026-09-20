@@ -244,11 +244,21 @@ fn item(row: &Map<String, Value>) -> Result<ArtifactItem, ArtifactError> {
     artifact.description = string(row.get("description"));
     artifact.homepage = safe_url(row.get("projectUrl"));
     artifact.license = string(row.get("licenseExpression"));
-    artifact.repository = row
-        .get("repository")
-        .and_then(Value::as_object)
-        .and_then(|value| safe_url(value.get("url")));
+    // NuGet serializes `repository` as either an object with `url` or a plain
+    // (often empty) string, and the registration API's inline catalogEntry
+    // usually omits it entirely even when the nuspec carries one. Fall back to
+    // projectUrl so exact lookups still surface an upstream link, mirroring the
+    // packagist/rubygems source-vs-homepage fallback chains.
+    artifact.repository =
+        repository_url(row.get("repository")).or_else(|| safe_url(row.get("projectUrl")));
     Ok(artifact)
+}
+
+fn repository_url(value: Option<&Value>) -> Option<String> {
+    match value? {
+        Value::Object(row) => safe_url(row.get("url")),
+        value => safe_url(Some(value)),
+    }
 }
 
 fn compare_versions(left: &str, right: &str) -> Result<Ordering, ArtifactError> {
@@ -327,42 +337,62 @@ mod tests {
         ArtifactHttp, ArtifactHttpFuture, ArtifactHttpRequest, ArtifactHttpResponse,
     };
     use serde_json::json;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
-    /// Returns pre-set JSON responses in insertion order.
-    struct SequenceMock {
-        responses: Vec<Vec<u8>>,
-        index: AtomicUsize,
-    }
+    /// Serves fixtures by URL-path fragment. Routing (rather than call order)
+    /// keeps tests independent of the process-global artifact JSON cache,
+    /// which is keyed by URL and can absorb the shared index.json fetch.
+    struct RouteMock(Vec<(&'static str, Vec<u8>)>);
 
-    impl SequenceMock {
-        fn json_seq(values: Vec<serde_json::Value>) -> Self {
-            Self {
-                responses: values
+    impl RouteMock {
+        fn json_routes(routes: Vec<(&'static str, serde_json::Value)>) -> Self {
+            Self(
+                routes
                     .into_iter()
-                    .map(|v| serde_json::to_vec(&v).expect("NuGet test data should be valid"))
+                    .map(|(fragment, value)| {
+                        (
+                            fragment,
+                            serde_json::to_vec(&value).expect("NuGet test data should be valid"),
+                        )
+                    })
                     .collect(),
-                index: AtomicUsize::new(0),
-            }
+            )
         }
     }
 
-    impl ArtifactHttp for SequenceMock {
+    impl ArtifactHttp for RouteMock {
         fn get<'a>(
             &'a self,
-            _req: ArtifactHttpRequest,
+            req: ArtifactHttpRequest,
             _budget: &'a RequestBudget,
         ) -> ArtifactHttpFuture<'a> {
-            let idx = self.index.fetch_add(1, Ordering::SeqCst);
+            let path = req.url.path().to_owned();
             let body = self
-                .responses
-                .get(idx)
-                .cloned()
-                .unwrap_or_else(|| b"not found".to_vec());
-            let status = if idx < self.responses.len() { 200 } else { 404 };
-            Box::pin(async move { Ok(ArtifactHttpResponse { status, body }) })
+                .0
+                .iter()
+                .find(|(fragment, _)| path.contains(fragment))
+                .map(|(_, body)| body.clone());
+            Box::pin(async move {
+                match body {
+                    Some(body) => Ok(ArtifactHttpResponse { status: 200, body }),
+                    None => Ok(ArtifactHttpResponse {
+                        status: 404,
+                        body: b"not found".to_vec(),
+                    }),
+                }
+            })
         }
+    }
+
+    fn service_index() -> serde_json::Value {
+        json!({
+            "resources": [
+                {
+                    "@type": "RegistrationsBaseUrl/3.6.0",
+                    "@id": "https://api.nuget.org/v3/registration5/"
+                }
+            ]
+        })
     }
 
     fn budget() -> RequestBudget {
@@ -371,17 +401,8 @@ mod tests {
 
     #[tokio::test]
     async fn nuget_parses_exact_inline_items() {
-        // Call 1: GET https://api.nuget.org/v3/index.json
-        let index = json!({
-            "resources": [
-                {
-                    "@type": "RegistrationsBaseUrl/3.6.0",
-                    "@id": "https://api.nuget.org/v3/registration5/"
-                }
-            ]
-        });
-        // Call 2: GET https://api.nuget.org/v3/registration5/newtonsoft.json/index.json
-        // Items are inline so no third HTTP call is needed.
+        // GET https://api.nuget.org/v3/registration5/newtonsoft.json/index.json
+        // Items are inline so no further HTTP call is needed.
         let registration = json!({
             "items": [
                 {
@@ -400,7 +421,10 @@ mod tests {
                 }
             ]
         });
-        let http = SequenceMock::json_seq(vec![index, registration]);
+        let http = RouteMock::json_routes(vec![
+            ("newtonsoft.json", registration),
+            ("/v3/index.json", service_index()),
+        ]);
         let b = budget();
         let client = RegistryClient {
             http: &http,
@@ -426,6 +450,78 @@ mod tests {
             "{}",
             item.registry_url
         );
+        // Live catalogEntry payloads omit `repository` (verified against
+        // registration5-gz-semver2 for Newtonsoft.Json); projectUrl is the
+        // fallback upstream link.
+        assert_eq!(
+            item.repository.as_deref(),
+            Some("https://www.newtonsoft.com/json")
+        );
+    }
+
+    #[tokio::test]
+    async fn nuget_prefers_repository_object_over_project_url() {
+        let registration = json!({
+            "items": [
+                {
+                    "upper": "4.4.0",
+                    "items": [
+                        {
+                            "catalogEntry": {
+                                "id": "Serilog",
+                                "version": "4.4.0",
+                                "projectUrl": "https://serilog.net/",
+                                "repository": {
+                                    "type": "git",
+                                    "url": "https://github.com/serilog/serilog"
+                                }
+                            }
+                        }
+                    ]
+                }
+            ]
+        });
+        let http = RouteMock::json_routes(vec![
+            ("serilog", registration),
+            ("/v3/index.json", service_index()),
+        ]);
+        let b = budget();
+        let client = RegistryClient {
+            http: &http,
+            budget: &b,
+        };
+        let q = ArtifactQuery {
+            artifact_type: ArtifactType::Nuget,
+            package_name: Some("Serilog".into()),
+            keywords: None,
+            page_size: None,
+            cursor: None,
+            registry: None,
+        };
+        let page = nuget(&q, &ArtifactProviderState::default(), &client)
+            .await
+            .expect("nuget exact");
+        let item = &page.artifacts[0];
+        assert_eq!(
+            item.repository.as_deref(),
+            Some("https://github.com/serilog/serilog")
+        );
+        assert_eq!(item.homepage.as_deref(), Some("https://serilog.net/"));
+    }
+
+    #[test]
+    fn repository_url_accepts_object_and_string_shapes() {
+        assert_eq!(
+            repository_url(Some(&json!({"url": "https://github.com/a/b"}))).as_deref(),
+            Some("https://github.com/a/b")
+        );
+        assert_eq!(
+            repository_url(Some(&json!("https://github.com/a/b"))).as_deref(),
+            Some("https://github.com/a/b")
+        );
+        // Empty-string repository (common in NuGet catalog data) yields None.
+        assert_eq!(repository_url(Some(&json!(""))), None);
+        assert_eq!(repository_url(None), None);
     }
 
     #[test]

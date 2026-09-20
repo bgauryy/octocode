@@ -656,9 +656,20 @@ pub async fn context(runtime: &ToolRuntime, json_out: bool, full: bool, minimal:
                 .map(|t| t.iter().filter(|v| v["available"] == true).count())
                 .unwrap_or(0);
             let total = tools_arr.map(|t| t.len()).unwrap_or(0);
+            let jev_guidance = tools_arr
+                .is_some_and(|tools| {
+                    tools
+                        .iter()
+                        .any(|tool| tool["name"] == "jev" && tool["available"] == true)
+                })
+                .then(|| catalog["cliGuidance"]["jev"].as_str())
+                .flatten();
             if minimal {
                 let protocol = catalog["protocol"].as_str().unwrap_or("mcp");
                 println!("{enabled}/{total} tools enabled  protocol:{protocol}");
+                if let Some(guidance) = jev_guidance {
+                    println!("{guidance}");
+                }
                 return 0;
             }
             if full && let Some(text) = catalog["mcpInstructions"].as_str() {
@@ -668,6 +679,9 @@ pub async fn context(runtime: &ToolRuntime, json_out: bool, full: bool, minimal:
             // Default: compact agent context block
             println!("Octocode Native CLI — Agent Context");
             println!("Compact context. Full MCP instructions: `context --full`.");
+            if let Some(guidance) = jev_guidance {
+                println!("{guidance}");
+            }
             println!();
             println!("Human commands (ergonomic wrappers):");
             println!("  search <text> [path]           lexical/regex search");
@@ -711,7 +725,7 @@ pub async fn context(runtime: &ToolRuntime, json_out: bool, full: bool, minimal:
             // Grouped tool list
             if let Some(tools) = tools_arr {
                 println!("Tools ({enabled} enabled / {total} cataloged):");
-                let families = ["GitHub", "Local Code", "Package", "Other"];
+                let families = ["GitHub", "Local Code", "Package", "Reasoning", "Other"];
                 for family in families {
                     let family_tools: Vec<_> = tools
                         .iter()
@@ -741,8 +755,21 @@ pub async fn context(runtime: &ToolRuntime, json_out: bool, full: bool, minimal:
 }
 
 pub fn skill(args: &[String]) -> u8 {
+    // Skill materialization lives in the npm CLI. If the `octocode` on PATH is
+    // this native binary instead of the npm launcher, spawning would recurse
+    // forever — the guard variable breaks that loop with a clear error.
+    if std::env::var_os("OCTOCODE_SKILL_DELEGATED").is_some() {
+        eprintln!(
+            "octocode skill: the `octocode` on PATH is the native binary, not the npm CLI."
+        );
+        eprintln!("Install the npm CLI (npm i -g octocode) or run: npx -y octocode skill …");
+        return 1;
+    }
     let mut command = std::process::Command::new("octocode");
-    command.arg("skill").args(args);
+    command
+        .arg("skill")
+        .args(args)
+        .env("OCTOCODE_SKILL_DELEGATED", "1");
     match command.status() {
         Ok(status) => status.code().unwrap_or(1) as u8,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {

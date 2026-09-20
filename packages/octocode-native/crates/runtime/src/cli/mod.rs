@@ -13,7 +13,23 @@ use serde_json::{Value, json};
 use std::io::{self, Write};
 
 #[derive(Parser)]
-#[command(name = "octocode", version, about = "Native Octocode research tools")]
+#[command(
+    name = "octocode",
+    version,
+    about = "Native Octocode research tools",
+    // Keep in sync with the "Exit codes" table in packages/octocode-native/README.md.
+    long_about = "Native Octocode research tools.\n\n\
+EXIT CODES:\n\
+  0    Success\n\
+  1    Empty result / no matches\n\
+  2    Invalid input (also clap argument errors)\n\
+  3    Not found\n\
+  4    Auth required\n\
+  5    Execution error\n\
+  6    Partial result - a re-runnable continuation command is printed to stderr\n\
+  7    Rate limited\n\
+  130  Interrupted (Ctrl-C)"
+)]
 pub struct Args {
     /// Emit {"success":false,"error":"..."} to stdout on errors instead of stderr text.
     #[arg(long, global = true)]
@@ -80,7 +96,7 @@ fn availability_env_var(name: &str) -> Option<&'static str> {
         "ghCloneRepo" => Some("OCTOCODE_ENABLE_CLONE|OCTOCODE_STORAGE_MODE"),
         "jev" => Some("OCTOCODE_JEV_KEY"),
         "localFetch" | "localSearch" | "astSearch" | "astRewrite" | "lspSearch" => {
-            Some("OCTOCODE_LOCAL")
+            Some("ENABLE_LOCAL")
         }
         _ => None,
     }
@@ -342,26 +358,6 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
             }
         }
         Command::Search(args) => execute_search(runtime, *args, json_errors).await,
-        Command::Next { token, all } => match runtime.resume_token(&token) {
-            Ok((tool, query, digest)) => {
-                execute(
-                    runtime,
-                    &tool,
-                    query,
-                    ExecuteOptions {
-                        all,
-                        expected_source: digest,
-                        json_errors,
-                        ..ExecuteOptions::default()
-                    },
-                )
-                .await
-            }
-            Err(error) => {
-                emit_error(&format!("{}: {}", error.code, error.message), json_errors);
-                2
-            }
-        },
         Command::Config { keys, check } => {
             let view = runtime.inspect_config();
             if let Some(key) = check {
@@ -754,6 +750,16 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
     }
 }
 
+/// `next.*` continuation calls are prefilled, self-contained queries. The
+/// HMAC cursor token is per-process and cannot resume in a fresh CLI
+/// invocation, so advertise the query itself as a command the caller can
+/// actually re-run.
+fn continuation_hint(call: &Value) -> String {
+    let tool = call["tool"].as_str().unwrap_or_default();
+    let query = serde_json::to_string(&call["query"]).unwrap_or_default();
+    format!("Continue: octocode tools {tool} '{query}'")
+}
+
 #[derive(Default)]
 pub(super) struct ExecuteOptions {
     structured: bool,
@@ -896,7 +902,8 @@ pub(super) async fn execute(
                                                 || std::time::Instant::now() >= deadline
                                             {
                                                 eprintln!(
-                                                    "Read limit reached. Continue: octocode next {token}"
+                                                    "Read limit reached. {}",
+                                                    continuation_hint(call)
                                                 );
                                                 return 6;
                                             }
@@ -918,23 +925,8 @@ pub(super) async fn execute(
                                                     return 6;
                                                 }
                                             }
-                                        } else if let (Some(next_tool), Some(next_query)) = (
-                                            call.get("tool").and_then(Value::as_str),
-                                            call.get("query"),
-                                        ) {
-                                            // `next.*` are prefilled, self-contained
-                                            // continuation queries (research manifest).
-                                            // The HMAC cursor token is per-process and
-                                            // cannot resume in a fresh CLI invocation,
-                                            // so advertise the query itself as a command
-                                            // the caller can actually re-run.
-                                            let query_json = serde_json::to_string(next_query)
-                                                .unwrap_or_default();
-                                            eprintln!(
-                                                "Continue: octocode tools {next_tool} '{query_json}'"
-                                            );
                                         } else {
-                                            eprintln!("Continue: octocode next {token}");
+                                            eprintln!("{}", continuation_hint(call));
                                         }
                                     }
                                     Err(error) => {

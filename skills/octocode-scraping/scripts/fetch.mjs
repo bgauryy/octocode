@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { propagateOctocodeEnv } from './octocode-config.mjs';
 import { parseConfig } from './lib/args.mjs';
 import { discoverSitemap, sleep } from './lib/client.mjs';
@@ -11,6 +14,24 @@ try {
 } catch (error) {
   console.error(JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error) }, null, 2));
   process.exit(2);
+}
+
+// Reusing a populated session without --append would restart pageIds at
+// page-001 and silently overwrite the prior crawl. Refuse; --append continues
+// numbering and keeps the prior roster.
+const priorSourcesPath = join(config.outBase, config.sessionId, 'sources.jsonl');
+let priorSources = [];
+if (existsSync(priorSourcesPath)) {
+  if (!config.append) {
+    console.error(JSON.stringify({
+      ok: false,
+      code: 'SESSION_EXISTS',
+      sessionDir: join(config.outBase, config.sessionId),
+      error: `--session ${config.sessionId} already holds ${priorSourcesPath}; pass --append to continue its numbering, or omit --session for a fresh session`,
+    }, null, 2));
+    process.exit(2);
+  }
+  priorSources = (await readFile(priorSourcesPath, 'utf8')).trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
 }
 
 // Propagate env so keys exist for explicit hosted / non-html modes.
@@ -26,7 +47,8 @@ if (config.provider === 'auto') {
   }
 }
 
-const provider = resolveProvider(config.provider);
+const providerWasAuto = !process.argv.slice(2).includes('--provider');
+let provider = resolveProvider(config.provider);
 // Sync deferred fields so corpus.mjs (manifest.json) records the real provider metadata.
 config.apiKeyEnv = provider.apiKeyEnv;
 config.requiresApiKey = provider.requiresApiKey;
@@ -46,6 +68,21 @@ const sources = [], pageMaps = [], linksAll = [], headingsAll = [], elementsAll 
 const seen = new Set();
 const queue = [config.targetUrl];
 
+// --append: keep the prior roster and continue pageId numbering after it.
+let basePageCount = 0;
+if (priorSources.length) {
+  sources.push(...priorSources);
+  for (const row of priorSources) if (row.url) seen.add(row.url);
+  basePageCount = priorSources.reduce((max, row) => {
+    const n = Number((String(row.pageId || '').match(/^page-(\d+)$/) || [])[1] || 0);
+    return Math.max(max, n);
+  }, 0);
+  try {
+    const priorMap = JSON.parse(await readFile(join(sessionDir, 'page-map.json'), 'utf8'));
+    if (Array.isArray(priorMap?.pages)) pageMaps.push(...priorMap.pages);
+  } catch { failures.push('append: prior page-map.json unreadable; roster kept from sources.jsonl only'); }
+}
+
 if (config.crawl && config.sitemap) {
   const { discovered, error } = await discoverSitemap(config);
   if (error) failures.push(error);
@@ -58,9 +95,19 @@ while (queue.length && pageIndex < config.maxPages) {
   if (seen.has(url)) continue;
   seen.add(url);
   pageIndex += 1;
-  const pageId = `page-${String(pageIndex).padStart(3, '0')}`;
-  const response = await provider.fetch({ url, pageId, config, apiKey });
-  const written = await writePage({ sessionDir, config, response, pageIndex });
+  const pageNumber = basePageCount + pageIndex;
+  const pageId = `page-${String(pageNumber).padStart(3, '0')}`;
+  let response = await provider.fetch({ url, pageId, config, apiKey });
+  // Auto-selected cdp only: a transport/client failure (status 0, no HTTP
+  // answer from the site) falls back to direct for this and remaining pages.
+  if (providerWasAuto && provider.name === 'cdp' && !response.status) {
+    failures.push(`cdp client failure on ${url}: ${String(response.fetchError || 'no HTTP response').slice(0, 200)} — falling back to direct`);
+    try { if (provider.cleanup) await provider.cleanup(config); } catch {}
+    provider = resolveProvider('direct');
+    config.provider = 'direct';
+    response = await provider.fetch({ url, pageId, config, apiKey: null });
+  }
+  const written = await writePage({ sessionDir, config, response, pageIndex: pageNumber });
   sources.push(written.sourceRow);
   pageMaps.push(written.pageMap);
   linksAll.push(...written.links);

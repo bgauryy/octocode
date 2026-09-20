@@ -302,4 +302,47 @@ mod tests {
             (SearchStatus::Success, false)
         );
     }
+
+    /// Explicitly targeting a single file that the engine skips (over the
+    /// per-file byte ceiling → capped:true, capReason:"maxFileSize",
+    /// filesSearched:0) must explain the skip instead of returning a silent
+    /// "no matches" false negative.
+    #[test]
+    fn skipped_single_file_target_explains_the_cap_instead_of_silent_empty() {
+        let root = tempfile::tempdir().expect("fixture directory");
+        let oversized = root.path().join("huge.txt");
+        // Sparse file over the engine's 20 MiB default ceiling: the skip is
+        // decided on metadata length, so no bytes need to be written.
+        let file = fs::File::create(&oversized).expect("fixture");
+        file.set_len(20 * 1024 * 1024 + 1).expect("sparse length");
+        drop(file);
+        let policy = PathPolicy::new(PathPolicyConfig {
+            workspace_root: Some(root.path().to_path_buf()),
+            ..Default::default()
+        })
+        .expect("policy");
+        let security = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+        let request = LocalSearchRequest {
+            path: oversized.to_string_lossy().into_owned(),
+            search_text: "needle".into(),
+            ..Default::default()
+        };
+
+        let result =
+            execute_local_search(&request, &policy, &security, &NeverCancel).expect("search");
+        let body = serde_json::to_value(&result).expect("serialize");
+
+        assert_eq!(body["stats"]["filesSearched"], 0, "{body}");
+        assert_eq!(body["stats"]["capped"], true, "{body}");
+        assert!(
+            body["stats"]["capReason"]
+                .as_str()
+                .is_some_and(|reason| reason.contains("maxFileSize")),
+            "{body}"
+        );
+        let hint = body["hints"][0].as_str().expect("skip hint");
+        assert!(hint.contains("skipped"), "{hint}");
+        assert!(hint.contains("maxFileSize"), "{hint}");
+        assert!(hint.contains("localFetch"), "{hint}");
+    }
 }

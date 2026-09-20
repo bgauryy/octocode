@@ -124,7 +124,7 @@ Keep continuation tokens scoped to their surface: operation-level `snapshot` val
 | `astRewrite` | Internal/local | Previews structural ast-grep rewrites and performs serialized, snapshot-bound, hash-guarded applies with journal recovery. Apply is separately opt-in; inspect the commit or recovery receipt. Cross-file changes are not simultaneously visible. |
 | `localFetch` | Internal/local | Reads a known allowed path with full, match, line-range, minified, or symbol-outline views and exact continuations. |
 | `lspSearch` | Internal/local with a language-server process | Resolves an anchored symbol and asks a real language server for definitions, references, calls, types, symbols, hierarchy, or diagnostics. It reports unavailable capabilities instead of returning a syntactic approximation as semantic proof. |
-| `jev` | External provider | Evaluates caller-supplied `state` and typed `questions`; model is configured internally. Optionally loads local/GitHub source contents internally. Returns configured model, answers, usage and source receipts; source selection and actions remain caller-owned. |
+| `jev` | External provider | Executes an unread read-tool request or accepts inline evidence, then returns one typed classification per query without retrieved bodies. |
 
 Remote GitHub tools require provider runtime and credentials. `artifactSearch` uses official registry APIs; `type:"npm"` honors the effective npm registry configuration. Local tools require `ENABLE_LOCAL`; clone/materialization additionally requires `ENABLE_CLONE` and persistent storage. LSP availability also depends on a compatible server for the file language. `jev` requires a nonblank resolved `OCTOCODE_JEV_KEY`; without one, MCP does not register this tool.
 
@@ -1345,11 +1345,11 @@ Workspace-symbol search:
 
 ## Pure Jev reference
 
-Use `octocode tools jev --input request.json --json --compact` for a pure evaluation. Inspect `octocode tools jev --scheme --scheme-view query --json --compact` first. The query view includes canonical tool instructions and primitive guidance; loading the Jev skill is optional. The agent supplies `state`, `questions`, and optional `sources` for internal local/GitHub file loading; model selection comes from runtime configuration. It accepts no narration, goal, debug or route fields.
+Use `octocode tools jev --input request.json --json --compact`; discover `octocode tools jev --scheme --scheme-view query --json --compact` once. Each query has `{context, question}`: one typed question and either an inline `{value}` or an unread read-tool request `{tool, query}`. Inspect the nested tool schema and supply one ordinary query with its required fields. Batch up to five independent queries, repeating context for each question.
 
-State and question instructions/description values accept text, objects, arrays or null. Use Noul for yes/no, Choice for supplied alternatives and Score for 2–10 ordered levels. Batch independent questions over shared evidence. The runtime can load named sources without showing their bodies to the agent. With sources, provider state is `{context: state, sources: {id: {source, content}}}`; results add metadata receipts. Keep source selection, thresholds and actions in the caller. Use only when a semantic judgment can change the next worthwhile action; exact lookups and settled claims need no model call. See the [short skill](../skills/octocode-jev-reasoning-loop/SKILL.md).
+The runtime executes the context tool under its normal policies, sends its sanitized bounded result to Jev, and returns one typed answer plus model, usage and compact coverage metadata. Retrieved bodies stay out of the host response. Use Noul for yes/no probability, Choice for alternatives and Score for 2–10 ordered levels. Context, instructions and criterion descriptions accept structured JSON. Model configuration is internal.
 
-The former `jevReasoning` and `jevScout` tools have been retired. Migrate by supplying evidence in `state` or optional named `sources`, and expressing the judgment in typed `questions`. Sources support local paths and GitHub owner/repo/path/ref, with optional paired line ranges. Source loading is explicit; no route policies or generated questions are hidden in the tool.
+Read tools are supported; recursive Jev, astRewrite and ghCloneRepo are excluded. Partial results preserve continuation or terminal limitations without automatic paging. Missing coverage and tool errors cannot establish a negative. Retrieval caches may save bytes, not repeated inference tokens. See [the current contract and examples](OCTOCODE_JEV.md). Earlier state/questions/sources and separate scout/reasoning tools are retired.
 
 ---
 

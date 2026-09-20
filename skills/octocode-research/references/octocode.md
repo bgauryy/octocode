@@ -9,10 +9,10 @@ Prefer exposed Octocode MCP tools with current public contracts. If unavailable,
 node packages/octocode/out/octocode.js context
 node packages/octocode/out/octocode.js tools --json --compact
 node packages/octocode/out/octocode.js tools localSearch --scheme --json --compact
-node packages/octocode/out/octocode.js tools localSearch --queries '{"path":"/ABS/repo/src","searchText":"needle","maxFiles":10}' --compact
+node packages/octocode/out/octocode.js tools localSearch --queries '{"reasoning":"<why>","path":"/ABS/repo/src","searchText":"needle","maxFiles":10}' --compact
 ```
 
-Run `context` once per session or tool-version change to discover enabled tools and the runtime grammar inventory. Treat that inventory as authoritative: a displayed language name, grammar ID, or alias selects its family; a dot-prefixed extension selects exactly; parser availability does not imply LSP availability. Never copy a static grammar list into a skill. Inspect an unfamiliar schema once, including relations and operation variants; reuse it until the tool/version changes. Use full schema JSON when compact fields do not resolve a condition. Explicit commands above work in Bash and zsh without splitting a command stored in a scalar.
+Run `context` once per session or tool-version change to discover enabled tools and runtime-wide instructions. Every tool query requires `reasoning`. The grammar inventory lives in the live tool schemas (the `langType` enum from `tools astSearch --scheme`): a language name, grammar ID, or alias selects its family; a dot-prefixed extension selects exactly; parser availability does not imply LSP availability. Never copy a static grammar list into a skill. Inspect an unfamiliar schema once, including relations and operation variants; reuse it until the tool/version changes. Use full schema JSON when compact fields do not resolve a condition. Explicit commands above work in Bash and zsh without splitting a command stored in a scalar.
 
 Pass arguments as an object. Direct MCP uses `{ "queries": [query] }`; CLI also accepts a single query or array. A host gateway may add its own outer envelope; follow its schema. Omit optional fields until the task needs them. On validation failure, correct the named field or selector using the live schema before retrying.
 

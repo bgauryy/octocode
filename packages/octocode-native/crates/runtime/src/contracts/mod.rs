@@ -22,6 +22,49 @@ pub fn parsed_contract() -> Result<&'static serde_json::Value, &'static str> {
         .map_err(String::as_str)
 }
 
+/// Replace contract-violating result rows with row-level
+/// `outputContractViolation` errors so one drifting emitter cannot discard a
+/// batch's healthy rows. Returns the patched envelope only when every issue
+/// maps to a result row and the patched envelope itself validates; envelope-
+/// level violations return `None` and the caller keeps the whole-call failure.
+pub fn isolate_row_violations(
+    tool_name: &str,
+    output: &serde_json::Value,
+    error: &ContractValidationError,
+) -> Option<serde_json::Value> {
+    let mut row_issues: std::collections::BTreeMap<usize, Vec<String>> =
+        std::collections::BTreeMap::new();
+    for issue in &error.issues {
+        let index = match (issue.path.first().map(String::as_str), issue.path.get(1)) {
+            (Some("results"), Some(second)) => second.parse::<usize>().ok()?,
+            _ => return None,
+        };
+        row_issues.entry(index).or_default().push(format!(
+            "{}: {}",
+            issue.path.get(2..).unwrap_or_default().join("."),
+            issue.message
+        ));
+    }
+    if row_issues.is_empty() {
+        return None;
+    }
+    let mut patched = output.clone();
+    let rows = patched.get_mut("results")?.as_array_mut()?;
+    for (index, issues) in &row_issues {
+        let row = rows.get_mut(*index)?;
+        row["status"] = serde_json::Value::String("error".into());
+        row["data"] = serde_json::json!({
+            "error": format!(
+                "Row output violated the {tool_name} contract and was withheld: {}",
+                issues.join("; ")
+            ),
+            "errorCode": "outputContractViolation",
+        });
+    }
+    validate_output(tool_name, &patched).ok()?;
+    Some(patched)
+}
+
 /// Prepare and validate a single tool query. Returns the validated query
 /// `Value` with schema defaults applied. Callers that need response-paging
 /// options (`responseCharLength`, `renderText`, etc.) should parse them from
@@ -112,10 +155,32 @@ pub const fn contract_provenance_json() -> &'static str {
 #[cfg(test)]
 mod contract_owner_tests {
     use super::{
-        PrepareOptions, contract_json, contract_provenance_json, prepare_and_validate,
-        prepare_many_and_validate, validate_output,
+        PrepareOptions, contract_json, contract_provenance_json, isolate_row_violations,
+        prepare_and_validate, prepare_many_and_validate, validate_output,
     };
     use serde_json::json;
+
+    #[test]
+    fn row_scoped_output_violations_degrade_to_row_errors() {
+        let output = json!({"results":[
+            {"index":0,"data":{"error":"upstream failed"}},
+            {"index":1,"data":{"bogusKey":true}}
+        ]});
+        let error = validate_output("localSearch", &output).expect_err("row 1 violates");
+        let patched = isolate_row_violations("localSearch", &output, &error).expect("isolated");
+        assert_eq!(patched["results"][0]["data"]["error"], "upstream failed");
+        assert!(patched["results"][0].get("status").is_none());
+        assert_eq!(patched["results"][1]["status"], "error");
+        assert_eq!(
+            patched["results"][1]["data"]["errorCode"],
+            "outputContractViolation"
+        );
+        assert!(validate_output("localSearch", &patched).is_ok());
+        // Envelope-level violations stay whole-call failures.
+        let envelope = json!({"results":"not-an-array"});
+        let error = validate_output("localSearch", &envelope).expect_err("envelope violates");
+        assert!(isolate_row_violations("localSearch", &envelope, &error).is_none());
+    }
 
     #[test]
     fn public_queries_require_explicit_reasoning() {
@@ -224,7 +289,7 @@ mod contract_owner_tests {
         use sha2::{Digest, Sha256};
         let digest = hex::encode(Sha256::digest(contract_json().as_bytes()));
         assert_eq!(
-            digest, "2e5419bced89b9a184f3823df8a959a92987b012a4ccf86602d7e117f48bca4a",
+            digest, "782b9c5a392f301fa21188099fd3904e4fdcc3d8c03cf016d05f297b2b9ed8a0",
             "generated contract body changed without regeneration from core"
         );
     }

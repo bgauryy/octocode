@@ -30,7 +30,7 @@ $OCTO tools <name> --scheme --json --compact    # schema before calling
 
 **Skills are first-class** — wired to the same tools; your default entry point for research, architecture, and eval flows.
 
-**Dogfood Jev where it changes the next action.** Follow [`skills/octocode-jev-reasoning-loop/SKILL.md`](skills/octocode-jev-reasoning-loop/SKILL.md): use the pure `jev` tool with caller-supplied `{state, questions}` for bounded relevance, conditions, claim support or alternatives. Use optional named `sources` to load unread local/GitHub file contents internally; otherwise supply observed evidence. The result contains source receipts, not file bodies. Batch independent questions over shared state. Candidate/question counts and upcoming assertions alone do not trigger calls. Use exact lookups/tests directly, reuse current evidence, and do not automatically chain scout → conditions → reasoning.
+**Dogfood Jev where it changes the next action.** Follow [`skills/octocode-jev-reasoning-loop/SKILL.md`](skills/octocode-jev-reasoning-loop/SKILL.md): use the pure `jev` tool with one `{context, question}` per query for bounded relevance, conditions, claim support or alternatives. Context is an unread read-tool request `{tool, query}` or observed `{value}`. Results contain one answer and compact coverage metadata, not retrieved bodies. Batch up to five independent queries, repeating context explicitly. Partial pages cannot establish global absence. Candidate/question counts and upcoming assertions alone do not trigger calls. Use exact lookups/tests directly, reuse current evidence, and do not automatically chain scout → conditions → reasoning.
 
 ### Reflect after every tool/skill use
 
@@ -175,6 +175,6 @@ yarn install && yarn prepublish       # lockfile + final guard + readme sync
 | CLI | [`packages/octocode/docs/OCTOCODE_CLI.md`](packages/octocode/docs/OCTOCODE_CLI.md) |
 | Engine / LSP | [`LSP_SERVER_LIFECYCLE.md`](packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md) · [`SUPPORTED_LANGUAGES_AND_FEATURES.md`](packages/octocode-native/docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md) |
 | Research | [`docs/OCTOCODE_RESEARCH_MANIFEST.md`](docs/OCTOCODE_RESEARCH_MANIFEST.md) · [`docs/ROUTING_EVIDENCE_POSITION_PAPER.md`](docs/ROUTING_EVIDENCE_POSITION_PAPER.md) |
-| Jev | [`.octocode/JEV.md`](.octocode/JEV.md) (agent protocol + economics) · [`docs/OCTOCODE_JEV.md`](docs/OCTOCODE_JEV.md) (OJQL RFC) · [`docs/JEV_BENCHMARK.md`](docs/JEV_BENCHMARK.md) |
+| Jev | [`.octocode/JEV.md`](.octocode/JEV.md) (agent protocol + economics) · [`docs/OCTOCODE_JEV.md`](docs/OCTOCODE_JEV.md) (contract + workflows) · [`docs/JEV_BENCHMARK.md`](docs/JEV_BENCHMARK.md) |
 | Benchmarks | [`BENCHMARK.md`](packages/octocode-benchmark/skills/octocode-benchmark/references/BENCHMARK.md) · [`SCORING.md`](packages/octocode-benchmark/skills/octocode-benchmark/references/SCORING.md) |
 | Skills (repo) | [`skills/`](skills/) → linked into [`.agents/skills/`](.agents/skills/) |

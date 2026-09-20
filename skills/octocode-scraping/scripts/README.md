@@ -9,6 +9,7 @@ Use this catalog to select an existing deterministic helper before writing a new
 | `scrapingant-*.mjs` | Deprecated shims → `fetch` / `provider-*` |
 | `fetch-and-brief.mjs` | Optional fetch + corpus brief |
 | `corpus-inspect` / `corpus-find` / `dom-find` / `resource-list` / `graph-navigate` | Query corpus before raw reads (static; live DOM → chrome-devtools) |
+| `corpus-triage.mjs` | Semantic pre-read gate: judge pages/files against a goal via `jev` (needs `OCTOCODE_JEV_KEY`); ranked `read`/`consider`/`skip`, bodies stay out of chat; `--files` accepts CDP bodies |
 | `har-ingest.mjs` | CDP ↔ scrape bridge; `--export-packet` / `--from-cdp-dir` (chrome aliases exist) |
 | `corpus-run.mjs` | Local `--regex` / `--script` (chrome alias `corpus-run-local`) |
 | `schema-helper.mjs` | Extraction field hints |
@@ -25,6 +26,8 @@ Run from the skill directory:
 
 ```sh
 node --test scripts/tests/corpus-find.test.mjs
+node --test scripts/tests/corpus-triage.test.mjs
+node --test scripts/tests/fetch-session.test.mjs
 node --test scripts/tests/cdp-client.test.mjs
 ```
 

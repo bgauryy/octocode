@@ -9,7 +9,6 @@ pub mod gh_search;
 pub mod gh_search_history;
 pub mod id;
 pub mod jev;
-pub mod jev_transport;
 pub mod local_fetch;
 pub mod local_search;
 pub mod lsp_search;

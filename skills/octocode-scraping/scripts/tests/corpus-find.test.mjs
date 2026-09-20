@@ -98,3 +98,32 @@ test('invalid bounds and malformed options fail explicitly before search', () =>
     assert.ok(json.error.message.length > 0);
   }
 });
+
+test('body-text scan finds pages whose metadata lacks the terms and damps boilerplate', () => {
+  mkdirSync(join(sessionDir, 'text'));
+  // page-9 exists only in sources.jsonl (plain-text payload, no graph entry);
+  // its body carries the rare term. Pages 0..6 share boilerplate nav text.
+  const rows = [];
+  for (let index = 0; index < 7; index += 1) {
+    const rel = `text/page-${index}.clean.part-001.md`;
+    writeFileSync(join(sessionDir, rel), 'needle nav sidebar boilerplate needle');
+    rows.push(JSON.stringify({ pageId: `page-${index}`, url: `https://example.test/${index}`, textParts: [rel] }));
+  }
+  const rareRel = 'text/page-9.clean.part-001.md';
+  writeFileSync(join(sessionDir, rareRel), 'plain text payload with needle and the rare zebra term');
+  rows.push(JSON.stringify({ pageId: 'page-9', url: 'https://example.test/llms.txt', textParts: [rareRel] }));
+  writeFileSync(join(sessionDir, 'sources.jsonl'), `${rows.join('\n')}\n`);
+
+  const zebra = readSuccess(spawnSync(process.execPath, [script, '--session-dir', sessionDir, '--query', 'zebra'], { encoding: 'utf8' }));
+  assert.equal(zebra.matches.length, 1, JSON.stringify(zebra.matches));
+  assert.equal(zebra.matches[0].pageId, 'page-9');
+  assert.deepEqual(zebra.suggestedFiles, [rareRel]);
+
+  // Rare term must outrank the boilerplate term shared by every page.
+  const mixed = readSuccess(spawnSync(process.execPath, [script, '--session-dir', sessionDir, '--query', 'zebra needle'], { encoding: 'utf8' }));
+  assert.equal(mixed.matches[0].pageId, 'page-9', JSON.stringify(mixed.matches.slice(0, 3)));
+
+  // suggestedFiles are deduplicated.
+  const needle = readSuccess(spawnSync(process.execPath, [script, '--session-dir', sessionDir, '--query', 'needle', '--limit', '20'], { encoding: 'utf8' }));
+  assert.equal(new Set(needle.suggestedFiles).size, needle.suggestedFiles.length);
+});

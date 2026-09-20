@@ -129,8 +129,8 @@ mod tests {
 
     #[test]
     fn pure_jev_preparation_preserves_exactly_the_supplied_values() {
-        let query = json!({"state": {"goal": "source data", "debug": true}, "questions": {
-            "q": {"type": "noul", "instructions": "Assess supplied state"}
+        let query = json!({"context": {"value": {"goal": "source data", "debug": true}}, "question": {
+            "type": "noul", "instructions": "Assess supplied state"
         }});
         for input in [
             query.clone(),

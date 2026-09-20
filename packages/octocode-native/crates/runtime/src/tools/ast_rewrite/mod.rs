@@ -228,8 +228,11 @@ impl RewriteError {
         self
     }
     fn value(self) -> Value {
+        // `status:"error"` marks the row for the engine's result shaping;
+        // without it `result_row` strips the `error` message from the output.
         let mut value = json!({
             "operation":"rewrite",
+            "status":"error",
             "errorCode":self.code,
             "error":self.message
         });
@@ -986,7 +989,14 @@ fn validate_expected_hashes(
             )
             .detail(json!({"path":path})));
         }
-        let validated = paths.validate_read(path).map_err(|_| {
+        // Preview reports boundary-relative paths; accept them back verbatim
+        // alongside absolute paths.
+        let absolute = if Path::new(path).is_absolute() {
+            PathBuf::from(path)
+        } else {
+            boundary.join(path)
+        };
+        let validated = paths.validate_read(&absolute).map_err(|_| {
             RewriteError::new(
                 "ast.rewrite.expected_hash_invalid",
                 "An expected hash path could not be resolved.",
@@ -1447,8 +1457,10 @@ mod tests {
         let mut apply = query(&root);
         apply["apply"] = json!(true);
         apply["snapshot"] = first["snapshot"].clone();
+        // Preview reports boundary-relative `path` values; apply must accept
+        // them back verbatim (absolutePath keys work too).
         apply["expectedHashes"] = json!({
-            first["files"][0]["absolutePath"].as_str().expect("path"):
+            first["files"][0]["path"].as_str().expect("path"):
                 first["files"][0]["beforeHash"].clone()
         });
         let applied = execute_ast_rewrite_with_options(

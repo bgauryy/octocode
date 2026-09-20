@@ -513,7 +513,7 @@ impl ToolRuntime {
         {
             return Err(RuntimeError::new(
                 "unsupportedResponsePagination",
-                "Jev response pagination is unsupported: replay would repeat source reads and inference. Remove response paging options and use the complete result; batch independent questions over shared sources.",
+                "Jev response pagination is unsupported: replay would repeat context execution and inference. Remove response paging options and use the complete result; batch independent context/question pairs.",
             ));
         }
         // Parse response-paging options before contract validation.
@@ -564,12 +564,25 @@ impl ToolRuntime {
         let config = self.config.clone();
         let home = self.inspect_config().home;
         let handle = tokio::runtime::Handle::current();
-        let allow_ast_rewrite_apply = self.config.resolved.local.enable_ast_rewrite_apply;
-        let allow_private_registry = self.config.resolved.network.allow_private_registry;
-        let lsp_pool = self.lsp_pool.clone();
-        let lsp_execution_config = crate::tools::lsp_search::LspExecutionConfig {
-            config_path: self.config.resolved.lsp.config_path.clone(),
-            trust_project_config: self.input.trusted_project,
+        let dispatcher = super::domain_dispatch::DomainDispatcher {
+            paths,
+            security: security.clone(),
+            regex,
+            github_services,
+            github_cache,
+            config: config.clone(),
+            home: home.clone(),
+            handle: handle.clone(),
+            lsp_pool: self.lsp_pool.clone(),
+            lsp_execution_config: crate::tools::lsp_search::LspExecutionConfig {
+                config_path: self.config.resolved.lsp.config_path.clone(),
+                trust_project_config: self.input.trusted_project,
+            },
+            available_tools: ToolId::ALL
+                .iter()
+                .filter(|id| self.is_available(id.as_str()))
+                .map(|id| id.as_str())
+                .collect(),
         };
         let jev_key = self
             .config
@@ -596,7 +609,7 @@ impl ToolRuntime {
         let stats_enabled = config::is_stats_enabled(&self.config.resolved);
         let output_tool = tool.clone();
         let cursor_scope = scope;
-        let outcome = self
+        let mut outcome = self
             .requests
             .execute_blocking_admitted(admission, move |context| {
                 let mut rows = Vec::with_capacity(queries.len());
@@ -604,23 +617,8 @@ impl ToolRuntime {
                 let mut failure = None;
                 for (index, query) in queries.iter().enumerate() {
                     context.check()?;
-                    let result = if matches!(ToolId::from_name(&tool), Some(t) if t.is_github()) {
+                    let result = if tool == "jev" {
                         let _enter = handle.enter();
-                        match github_services.get_or_init(|| {
-                            super::github::GitHubServices::new(
-                                config.clone(),
-                                home.clone(),
-                                github_cache.clone(),
-                            )
-                        }) {
-                            Ok(services) => services.execute_query(
-                                &tool, query, &context, &security, &regex, &handle, &paths,
-                            )?,
-                            Err(error) => super::github::provider_error(error.clone()),
-                        }
-                    } else if tool == "jev" {
-                        let _enter = handle.enter();
-                        context.check()?;
                         let Some(key) = jev_key.clone() else {
                             return Err(ExecutionError::WorkerFailed);
                         };
@@ -629,56 +627,23 @@ impl ToolRuntime {
                             deadline,
                             ..context.clone()
                         };
-                        let hydrated =
-                            crate::tools::jev::preflight(query, &jev_model).and_then(|()| {
-                                super::jev_sources::hydrate(
-                                    query,
-                                    &paths,
-                                    &security,
-                                    &evaluation_context,
-                                    config.resolved.local.enabled,
-                                    |source| {
-                                        let services = github_services.get_or_init(|| {
-                                            super::github::GitHubServices::new(
-                                                config.clone(),
-                                                home.clone(),
-                                                github_cache.clone(),
-                                            )
-                                        });
-                                        match services {
-                                            Ok(services) => services.read_jev_source(
-                                                source,
-                                                &evaluation_context,
-                                                &handle,
-                                            ),
-                                            Err(_) => {
-                                                Err(crate::tools::jev_transport::JevProviderError {
-                                                    code: "jevSourceUnavailable".into(),
-                                                    message:
-                                                        "GitHub source service is unavailable."
-                                                            .into(),
-                                                    hints: vec![
-                                                        "Check configured GitHub access.".into(),
-                                                    ],
-                                                })
-                                            }
-                                        }
-                                    },
-                                )
-                            });
-                        match hydrated {
+                        let resolved = crate::tools::jev::preflight(query).and_then(|()| {
+                            super::jev_context::resolve(query, &dispatcher, &evaluation_context)
+                        });
+                        match resolved {
                             Err(error) => super::dispatch::provider_failure(
                                 error.message,
                                 error.code,
                                 error.hints,
                             ),
-                            Ok((query, sources)) => handle.block_on(async {
+                            Ok((state, receipt)) => handle.block_on(async {
                                 match crate::tools::jev::execute(
-                                    &query,
+                                    &state,
+                                    &query["question"],
                                     key,
                                     &jev_base_url,
                                     &jev_model,
-                                    crate::tools::jev_transport::budget(
+                                    crate::tools::jev::transport::budget(
                                         deadline,
                                         context.cancellation.clone(),
                                     ),
@@ -687,8 +652,8 @@ impl ToolRuntime {
                                 .await
                                 {
                                     Ok(mut data) => {
-                                        if let Some(sources) = sources {
-                                            data["sources"] = sources;
+                                        if let Some(receipt) = receipt {
+                                            data["context"] = receipt;
                                         }
                                         super::session_stats::record_jev(
                                             &home,
@@ -705,71 +670,8 @@ impl ToolRuntime {
                                 }
                             }),
                         }
-                    } else if tool == "artifactSearch" {
-                        let _enter = handle.enter();
-                        context.check()?;
-                        handle.block_on(async {
-                            match crate::tools::artifact_search::execute(
-                                query,
-                                context.deadline,
-                                context.cancellation.clone(),
-                                allow_private_registry,
-                            )
-                            .await
-                            {
-                                Ok(data) => super::dispatch::value_result(data),
-                                Err(error) => super::dispatch::provider_failure(
-                                    error.message,
-                                    error.code,
-                                    error.hints,
-                                ),
-                            }
-                        })
-                    } else if tool == "lspSearch" {
-                        let _enter = handle.enter();
-                        context.check()?;
-                        handle.block_on(async {
-                            match crate::tools::lsp_search::execute(
-                                query.clone(),
-                                &context,
-                                &lsp_pool,
-                                &paths,
-                                &lsp_execution_config,
-                            )
-                            .await
-                            {
-                                Ok(data) => super::dispatch::value_result(data),
-                                Err(message) => super::dispatch::provider_failure(
-                                    message,
-                                    "lspUnavailable".into(),
-                                    vec!["Use localSearch or astSearch, then localFetch.".into()],
-                                ),
-                            }
-                        })
                     } else {
-                        let _enter = handle.enter();
-                        context.check()?;
-                        handle.block_on(async {
-                            let tool = tool.clone();
-                            let paths = paths.clone();
-                            let security = security.clone();
-                            let regex = regex.clone();
-                            let context = context.clone();
-                            let query = query.clone();
-                            tokio::task::spawn_blocking(move || {
-                                super::dispatch::execute_local(
-                                    &tool,
-                                    &query,
-                                    &paths,
-                                    &security,
-                                    &context,
-                                    &regex,
-                                    allow_ast_rewrite_apply,
-                                )
-                            })
-                            .await
-                            .map_err(|_| ExecutionError::WorkerFailed)?
-                        })?
+                        dispatcher.execute(&tool, query, &context)?
                     };
                     context.check()?;
                     if queries.len() == 1 {
@@ -814,6 +716,7 @@ impl ToolRuntime {
                 let rendered_text =
                     render.then(|| super::render::render_tool(&tool, &structured, &response_query));
                 context.check()?;
+                let jev_output = tool == "jev";
                 let prepared = ResponsePager::new(ResponsePagerConfig::default())
                     .prepare(
                         ResponseInput {
@@ -830,7 +733,11 @@ impl ToolRuntime {
                 // Stamp cursor tokens on the final envelope, which now includes
                 // responsePagination.next added by the pager.
                 let mut structured_content = prepared.structured_content;
-                inject_cursors(&mut structured_content, &cursor_scope);
+                // Jev receipts retain executable tool/query pairs. Their tool
+                // scopes differ from the outer Jev request's cursor scope.
+                if !jev_output {
+                    inject_cursors(&mut structured_content, &cursor_scope);
+                }
                 context.check()?;
                 Ok(ToolOutcome {
                     structured_content,
@@ -842,22 +749,35 @@ impl ToolRuntime {
             })
             .await
             .map_err(runtime_execution_error)?;
-        contracts::validate_output(&output_tool, &outcome.structured_content).map_err(|error| {
-            let details = error
-                .issues
-                .iter()
-                .map(|issue| format!("{}: {}", issue.path.join("."), issue.message))
-                .collect::<Vec<_>>()
-                .join("; ");
-            RuntimeError {
-                code: "outputContractViolation".into(),
-                message: format!(
-                    "{output_tool} produced a response that violates its canonical output contract: {details}"
-                ),
-                payload: None,
-                validation_issues: Some(error.issues),
+        if let Err(error) = contracts::validate_output(&output_tool, &outcome.structured_content) {
+            // Row-scoped violations degrade to row-level errors so one
+            // drifting emitter cannot discard the batch's healthy rows; the
+            // rendered text keeps its pre-patch form. Envelope-level
+            // violations still fail the whole call.
+            match contracts::isolate_row_violations(
+                &output_tool,
+                &outcome.structured_content,
+                &error,
+            ) {
+                Some(patched) => outcome.structured_content = patched,
+                None => {
+                    let details = error
+                        .issues
+                        .iter()
+                        .map(|issue| format!("{}: {}", issue.path.join("."), issue.message))
+                        .collect::<Vec<_>>()
+                        .join("; ");
+                    return Err(RuntimeError {
+                        code: "outputContractViolation".into(),
+                        message: format!(
+                            "{output_tool} produced a response that violates its canonical output contract: {details}"
+                        ),
+                        payload: None,
+                        validation_issues: Some(error.issues),
+                    });
+                }
             }
-        })?;
+        }
         Ok(outcome)
     }
 }

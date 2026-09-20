@@ -341,6 +341,31 @@ mod tests {
         assert!(validate_config(&json!({"jev": {"key": "x"}})).valid);
     }
     #[test]
+    fn jev_key_is_honored_from_the_home_env_file_but_not_the_project_env() {
+        let mut i = input(BTreeMap::new(), None);
+        i.global_env = FileInput::Read {
+            path: "/synthetic/home/.env".into(),
+            text: "OCTOCODE_JEV_KEY=jev-secret-from-home-env\nGH_TOKEN=still-protected".into(),
+        };
+        let out = resolve_config(&i);
+        assert_eq!(
+            out.env_value("OCTOCODE_JEV_KEY"),
+            Some("jev-secret-from-home-env")
+        );
+        // Other protected keys keep the uniform block even from the home file.
+        assert_eq!(out.env_value("GH_TOKEN"), None);
+        assert!(!format!("{out:?}").contains("jev-secret-from-home-env"));
+
+        // A (trusted) project `.env` may never supply jev configuration.
+        let mut p = input(BTreeMap::new(), None);
+        p.project_env = FileInput::Read {
+            path: "/synthetic/cwd/.octocode/.env".into(),
+            text: "OCTOCODE_JEV_KEY=jev-secret-from-project".into(),
+        };
+        p.trusted_project = true;
+        assert_eq!(resolve_config(&p).env_value("OCTOCODE_JEV_KEY"), None);
+    }
+    #[test]
     fn unreadable_config_is_invalid_with_a_stable_diagnostic() {
         let mut i = input(BTreeMap::new(), None);
         i.config_file = FileInput::Unreadable {

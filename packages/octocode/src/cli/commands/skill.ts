@@ -115,6 +115,10 @@ export const skillCommand: CLICommand = {
   ],
   handler: (args: ParsedArgs) => {
     const json = getBool(args.options, 'json');
+    if (getBool(args.options, 'help')) {
+      printBundledSkillHelp();
+      return;
+    }
     const command = subcommand(args);
 
     switch (command) {

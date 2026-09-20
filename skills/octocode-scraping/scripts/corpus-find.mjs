@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { resolve } from 'node:path';
+import { resolve, join } from 'node:path';
+import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { readJson as readJsonFile, readJsonl as readJsonlFile } from './lib/bridge.mjs';
 
@@ -57,13 +58,70 @@ function scoreLabel(label, url = '') {
 }
 const agent = await readJson('AGENT_INDEX.json', {});
 const graph = await readJson('graph/site-graph.json', { pages: [], edges: [] });
+
+// Body-text scan with document-frequency damping: nav/sidebar text repeats on
+// every page and must not dominate ranking, while a term that appears in only
+// a few page bodies is a strong signal even when titles/links miss it.
+const TEXT_SCAN_CAP = 65536;
+const sourceRows = await readJsonl('sources.jsonl');
+const pageTexts = new Map();
+for (const row of sourceRows) {
+  const rel = Array.isArray(row.textParts) ? row.textParts[0] : null;
+  if (!row.pageId || !rel) continue;
+  try {
+    const body = (await readFile(join(dir, rel), 'utf8')).slice(0, TEXT_SCAN_CAP).toLowerCase();
+    if (body.trim()) pageTexts.set(row.pageId, { rel, body, url: row.url });
+  } catch {}
+}
+const docFrequency = new Map(terms.map((t) => [t, 0]));
+for (const { body } of pageTexts.values()) {
+  for (const t of terms) if (body.includes(t)) docFrequency.set(t, docFrequency.get(t) + 1);
+}
+const totalTexts = Math.max(1, pageTexts.size);
+const termWeight = (t) => {
+  const df = docFrequency.get(t) || 0;
+  return df === 0 ? 0 : Math.log2(1 + totalTexts / df);
+};
+function countOccurrences(haystack, needle, cap = 32) {
+  let count = 0, at = 0;
+  while (count < cap) {
+    at = haystack.indexOf(needle, at);
+    if (at === -1) break;
+    count += 1;
+    at += needle.length;
+  }
+  return count;
+}
+// Occurrence-frequency weighting: a page that uses a term throughout its body
+// outranks a page whose only hit is a nav/sidebar mention.
+function textScore(pageId) {
+  const rec = pageTexts.get(pageId);
+  if (!rec) return 0;
+  let score = 0;
+  for (const t of terms) {
+    const hits = countOccurrences(rec.body, t);
+    if (hits > 0) score += termWeight(t) * (1 + Math.log2(hits));
+  }
+  return score;
+}
 const automationGraph = await readJson('graph/graph.json', { nodes: [], edges: [] });
 const workflows = await readJson('graph/workflows.json', { workflows: [] });
 const topLinks = await readJsonl('indexes/top-links.jsonl');
 const elements = await readJsonl('extracts/elements.jsonl');
 const resources = await readJsonl('extracts/resources.jsonl');
 const candidates = [];
-for (const p of graph.pages || []) candidates.push({ type: 'page', score: scoreText(`${p.title} ${p.url} ${JSON.stringify(p.headingOutline || [])}`), pageId: p.pageId, title: p.title, url: p.url, files: (agent.pages || []).find((x) => x.pageId === p.pageId)?.files });
+const graphPageIds = new Set();
+for (const p of graph.pages || []) {
+  graphPageIds.add(p.pageId);
+  candidates.push({ type: 'page', score: scoreText(`${p.title} ${p.url} ${JSON.stringify(p.headingOutline || [])}`) + textScore(p.pageId), textScore: textScore(p.pageId) || undefined, pageId: p.pageId, title: p.title, url: p.url, files: (agent.pages || []).find((x) => x.pageId === p.pageId)?.files });
+}
+// Pages absent from the graph (e.g. plain-text payloads stored as one heading)
+// are still findable through their body text.
+for (const [pageId, rec] of pageTexts) {
+  if (graphPageIds.has(pageId)) continue;
+  const score = textScore(pageId);
+  if (score > 0) candidates.push({ type: 'page', score, textScore: score, pageId, title: null, url: rec.url, files: { textParts: [rec.rel] } });
+}
 for (const l of topLinks) candidates.push({ type: 'link', score: scoreLabel(l.text, l.href) + scoreText(l.workflowType || '') + (l.score || 0) / 10, pageId: l.pageId, text: l.text, href: l.href, workflowType: l.workflowType || null });
 for (const n of automationGraph.nodes || []) candidates.push({ type: `graph:${n.kind}`, score: scoreLabel(n.text || n.title || n.kind, n.url) + scoreText((n.workflowTypes || []).join(' ')), pageId: n.pageId, nodeId: n.id, url: n.url, text: n.text || n.title || null, workflowTypes: n.workflowTypes || [], risk: n.risk || null, evidence: [n.source || { file: 'graph/graph.json' }] });
 for (const e of automationGraph.edges || []) candidates.push({ type: `edge:${e.kind}`, score: scoreLabel(e.label || e.kind, JSON.stringify(e.source || {})) + scoreText(e.workflowType || ''), edgeKind: e.kind, from: e.from, to: e.to, label: e.label || null, workflowType: e.workflowType || null, risk: e.risk || null, evidence: [e.source || { file: 'graph/graph.json' }] });
@@ -88,5 +146,5 @@ console.log(JSON.stringify({
       args: [fileURLToPath(import.meta.url), '--session-dir', dir, '--query', query, '--limit', String(limit), '--offset', String(offset + matches.length)],
     },
   } : null,
-  suggestedFiles: matches.slice(0, 5).map((m) => m.files?.textParts?.[0] || m.evidence?.[0]?.file || 'graph/site-graph.json'),
+  suggestedFiles: [...new Set(matches.map((m) => m.files?.textParts?.[0] || m.evidence?.[0]?.file || 'graph/site-graph.json'))].slice(0, 5),
 }, null, 2));

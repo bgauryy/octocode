@@ -1,10 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  loadCommand: vi.fn(),
   delegate: vi.fn(() => 0),
   resolve: vi.fn((): string | null => '/native/octocode'),
-  showHelp: vi.fn(),
+  skillHandler: vi.fn(),
 }));
 
 vi.mock('../../src/cli/native-delegate.js', () => ({
@@ -13,10 +12,9 @@ vi.mock('../../src/cli/native-delegate.js', () => ({
   resolveNativeBin: mocks.resolve,
   delegateToNative: mocks.delegate,
 }));
-vi.mock('../../src/cli/commands/index.js', () => ({
-  loadCommand: mocks.loadCommand,
+vi.mock('../../src/cli/commands/skill.js', () => ({
+  skillCommand: { name: 'skill', options: [], handler: mocks.skillHandler },
 }));
-vi.mock('../../src/cli/help.js', () => ({ showCommandHelp: mocks.showHelp }));
 vi.mock('../../src/cli/stale-build.js', () => ({
   maybeWarnAboutStaleBuild: vi.fn(),
 }));
@@ -40,14 +38,18 @@ describe('runCLI native boundary', () => {
     const argv = ['tools', 'localFetch', '--queries', '{"path":"/tmp/a"}'];
     await expect(runCLI(argv)).resolves.toBe(true);
     expect(mocks.delegate).toHaveBeenCalledWith('/native/octocode', argv);
-    expect(mocks.loadCommand).not.toHaveBeenCalled();
+    expect(mocks.skillHandler).not.toHaveBeenCalled();
   });
 
-  it('delegates top-level help and unknown commands to native parsing', async () => {
+  it('delegates top-level help, version, and unknown commands to native parsing', async () => {
     const { runCLI } = await import('../../src/cli/index.js');
     await runCLI(['--help']);
     expect(mocks.delegate).toHaveBeenLastCalledWith('/native/octocode', [
       '--help',
+    ]);
+    await runCLI(['--version']);
+    expect(mocks.delegate).toHaveBeenLastCalledWith('/native/octocode', [
+      '--version',
     ]);
     await runCLI(['unknown', '--flag']);
     expect(mocks.delegate).toHaveBeenLastCalledWith('/native/octocode', [
@@ -57,27 +59,24 @@ describe('runCLI native boundary', () => {
   });
 
   it('runs skill materialization in Node', async () => {
-    const handler = vi.fn();
-    mocks.loadCommand.mockResolvedValue({
-      name: 'skill',
-      options: [],
-      handler,
-    });
     const { runCLI } = await import('../../src/cli/index.js');
     await runCLI(['skill', 'list']);
-    expect(handler).toHaveBeenCalledWith(
+    expect(mocks.skillHandler).toHaveBeenCalledWith(
       expect.objectContaining({ command: 'skill', args: ['list'] })
     );
     expect(mocks.delegate).not.toHaveBeenCalled();
   });
 
-  it('renders Node-owned skill help from its local spec', async () => {
+  it('routes skill --help into the Node skill command', async () => {
     const { runCLI } = await import('../../src/cli/index.js');
     await runCLI(['skill', '--help']);
-    expect(mocks.showHelp).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'skill' })
+    expect(mocks.skillHandler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: 'skill',
+        options: expect.objectContaining({ help: true }),
+      })
     );
-    expect(mocks.loadCommand).not.toHaveBeenCalled();
+    expect(mocks.delegate).not.toHaveBeenCalled();
   });
 
   it('fails closed when the native runtime is unavailable', async () => {

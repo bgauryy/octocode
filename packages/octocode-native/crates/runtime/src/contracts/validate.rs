@@ -1156,9 +1156,9 @@ mod tests {
     use serde_json::{Value, json};
 
     #[test]
-    fn pure_jev_accepts_only_state_and_questions_without_metadata_defaults() {
-        let query = json!({"state": {"observation": true}, "questions": {
-            "q": {"type": "noul", "instructions": "Assess supplied state"}
+    fn pure_jev_accepts_only_context_and_question_without_metadata_defaults() {
+        let query = json!({"context": {"value": {"observation": true}}, "question": {
+            "type": "noul", "instructions": "Assess supplied state"
         }});
         let prepared = prepare_and_validate("jev", query.clone(), PrepareOptions::default())
             .expect("pure Jev query needs no workflow fields");
@@ -1174,7 +1174,7 @@ mod tests {
                 "{field}"
             );
         }
-        for field in ["state", "questions"] {
+        for field in ["context", "question"] {
             let mut invalid = query.clone();
             invalid.as_object_mut().expect("query object").remove(field);
             assert!(

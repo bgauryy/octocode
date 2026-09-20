@@ -73,7 +73,7 @@ mod tests {
     #[test]
     fn pure_jev_usage_is_separate_and_has_no_workflow_counters() {
         let dir = tempfile::tempdir().unwrap();
-        let payload = json!({"model": "jev-test", "answers": {}, "usage": {"input_tokens": 10, "output_tokens": 2}});
+        let payload = json!({"model": "jev-test", "answer": {"type":"noul","noul":0.8}, "usage": {"input_tokens": 10, "output_tokens": 2}});
         record_jev(dir.path(), false, &payload);
         assert!(!dir.path().join("stats.json").exists());
         record_jev(dir.path(), true, &payload);

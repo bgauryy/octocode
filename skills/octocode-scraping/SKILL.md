@@ -25,6 +25,7 @@ Ask before auth, hosted spend, crawl expansion, CAPTCHA/MFA, personal-data expor
 - When fetching/crawling/extracting, run `scripts/fetch.mjs --url <u> [--mode html] [--crawl --same-domain --max-pages <n>] [--no-raw]`; when a brief is also needed, run `scripts/fetch-and-brief.mjs --url <u>`.
 - Before routing/spend → `scripts/provider-check.mjs [--provider <p>]`; credit status → `scripts/provider-usage.mjs`. Both sanitize secrets.
 - Saved session → `scripts/corpus-inspect.mjs --session-dir <d> [--page <n>]`, then `scripts/corpus-find.mjs --session-dir <d> --query <t>`.
+- Before reading multiple candidate pages in full, run `scripts/corpus-triage.mjs --session-dir <d> --goal "<goal>"`: it classifies each unread page with the `jev` tool (bodies never enter chat) and returns a confidence-ranked `read` list plus `consider`/`skip`; read kept files in rank order and stop when the goal is settled. Thin extractions and URL duplicates are routed without jev calls. On `JEV_UNAVAILABLE` (no `OCTOCODE_JEV_KEY`), fall back to `corpus-find.mjs`. A `skip` is bounded to the judged file — verify deciding spans in kept files, and never cite a triage verdict as evidence.
 - When querying static DOM/assets/paths, run `scripts/dom-find.mjs`, `scripts/resource-list.mjs`, or `scripts/graph-navigate.mjs` with `--session-dir <d>`; live DOM stays in chrome-devtools.
 - Local field proof → `scripts/corpus-run.mjs --session-dir <d> --roots cdp,extracts --regex <re>` or `--script <file>`.
 - CDP bridge → `scripts/har-ingest.mjs --session-dir <d> --from-cdp-dir <run>`; reverse with `--export-packet`.
@@ -33,7 +34,7 @@ Ask before auth, hosted spend, crawl expansion, CAPTCHA/MFA, personal-data expor
 
 Every runnable script accepts `--help`. Before changing scripts or providers, read `scripts/README.md`; shared modules live in `scripts/lib/`, vendored env resolution in `scripts/octocode-config.mjs`, and JSON contracts in `scripts/schemas/`.
 
-After corpus-search changes, run `node --test scripts/tests/corpus-find.test.mjs`; after CDP client changes, run `node --test scripts/tests/cdp-client.test.mjs`. These finite local regressions need no browser or hosted provider; they do not replace a live browser check for CDP integration changes.
+After corpus-search changes, run `node --test scripts/tests/corpus-find.test.mjs`; after triage changes, run `node --test scripts/tests/corpus-triage.test.mjs`; after fetch/session changes, run `node --test scripts/tests/fetch-session.test.mjs`; after CDP client changes, run `node --test scripts/tests/cdp-client.test.mjs`. These finite local regressions need no browser or hosted provider; they do not replace a live browser check for CDP integration changes.
 
 ## References
 

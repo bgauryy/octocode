@@ -26,7 +26,8 @@ Ask before real-profile access, cookie transfer, CAPTCHA/MFA, purchases, sends, 
 
 - Static map/bulk extract → `octocode-scraping`; DOM/action → `page-snapshot` then `dom-operations-check`; live graph → `graph-actionability-check` and diagnostics if empty.
 - Page health → performance/network/storage measure checks, then `measure-query`; standalone HAR → `har-pager`; deep bodies only after measure/query through `live-har-monitor` or `network-body-har-fetch-check`.
-- Prove captured API data without Chrome → with optional `octocode-scraping` installed, run `scripts/har-ingest-to-scrape.mjs`, then `scripts/corpus-run-local.mjs`.
+- Before reading several captured bodies/snapshots in full (`cdp/body-*.txt`, HAR-derived files), run `scripts/jev-triage-local.mjs --session-dir <scrape session> --goal "<goal>" --files <f1,f2>`: jev classifies each unread file (bodies stay on disk) and returns ranked `read`/`consider`/`skip`. Needs `OCTOCODE_JEV_KEY` and the optional scraping skill; on `JEV_UNAVAILABLE` fall back to `corpus-run-local` regex filters. Never cite a triage verdict as evidence — read kept files for deciding spans.
+- Prove captured API data without Chrome → with optional `octocode-scraping` installed, run `scripts/har-ingest-to-scrape.mjs`, then `scripts/corpus-run-local.mjs` (or `scripts/jev-triage-local.mjs` to gate reads semantically).
 - For repo, package, or source-map code claims, use `octocode-research`.
 
 ## Scripts

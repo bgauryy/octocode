@@ -91,7 +91,7 @@ impl GitHubServices {
                 } else if tool == "ghSearch" {
                     search_error(error)
                 } else {
-                    history_error(error)
+                    history_error(error, tool == "ghSearchHistory")
                 });
             }
         };
@@ -177,37 +177,6 @@ impl GitHubServices {
         request_context.deadline = context.deadline.min(Instant::now() + self.timeout);
         request_context.cancellation = context.cancellation.clone();
         Ok(request_context)
-    }
-
-    pub(super) fn read_jev_source(
-        &self,
-        source: &Value,
-        context: &ExecutionContext,
-        handle: &tokio::runtime::Handle,
-    ) -> Result<(Vec<u8>, String), crate::tools::jev_transport::JevProviderError> {
-        let failed = |error: ProviderError| crate::tools::jev_transport::JevProviderError {
-            code: "jevSourceUnavailable".into(),
-            message: format!("GitHub source retrieval failed ({:?}).", error.kind),
-            hints: vec!["Check repository access, path, and the explicit ref.".into()],
-        };
-        let mut request_context = self.request_context(context, handle).map_err(failed)?;
-        // Contents API JSON includes base64 plus metadata; decoded source size
-        // and selected evidence are checked separately by source hydration.
-        request_context.max_body_bytes = 2 * super::jev_sources::MAX_RAW_FILE_BYTES;
-        let acquired = handle
-            .block_on(self.provider.get_file_content(
-                &ContentRequest {
-                    owner: source["owner"].as_str().unwrap_or_default().into(),
-                    repo: source["repo"].as_str().unwrap_or_default().into(),
-                    path: source["path"].as_str().unwrap_or_default().into(),
-                    reference: source["ref"].as_str().map(str::to_owned),
-                    force_refresh: false,
-                    session_id: None,
-                },
-                &request_context,
-            ))
-            .map_err(failed)?;
-        Ok((acquired.bytes.to_vec(), acquired.resolved_ref))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -299,7 +268,7 @@ impl GitHubServices {
                 source_digest: None,
                 failure: None,
             },
-            Err(error) => history_error(error),
+            Err(error) => history_error(error, false),
         })
     }
 
@@ -362,7 +331,7 @@ impl GitHubServices {
                 source_digest: None,
                 failure: None,
             },
-            Err(error) => history_error(error),
+            Err(error) => history_error(error, true),
         })
     }
 
@@ -377,16 +346,43 @@ impl GitHubServices {
         let query: gh_clone_repo::GhCloneRepoQuery =
             serde_json::from_value(query.clone()).map_err(|_| ExecutionError::WorkerFailed)?;
         let metadata = if query.branch.is_none() {
-            self.provider
+            match self
+                .provider
                 .transport
                 .repository_metadata(&query.owner, &query.repo, request_context)
                 .await
-                .ok()
+            {
+                Ok(value) => Some(value),
+                // A missing repository must be reported as such; proceeding
+                // without metadata would surface the internal-sounding
+                // clone.defaultBranchUnavailable failure instead.
+                Err(error) if error.kind == ProviderErrorKind::NotFound => {
+                    let owner = &query.owner;
+                    let repo = &query.repo;
+                    return Ok(DomainResult {
+                        diagnostics: Default::default(),
+                        data: json!({
+                            "error": format!("Repository not found: {owner}/{repo}"),
+                            "errorCode": "clone.repositoryNotFound",
+                            "hints": [format!(
+                                "Verify the owner/repo spelling and that {owner}/{repo} exists and is accessible with your credentials."
+                            )],
+                        }),
+                        status: Some("error"),
+                        source_digest: None,
+                        cache: false,
+                        failure: Some(FailureKind::NotFound),
+                    });
+                }
+                Err(_) => None,
+            }
         } else {
             None
         };
         let default_branch = metadata.as_ref().map(|value| value.default_branch.as_str());
-        let config = CloneConfig::persistent(self.home.join("tmp").join("clone"));
+        // CloneConfig treats cache_home as the octocode home and derives
+        // tmp/clone, tmp/clone-locks, tmp/clone-tmp, and tmp/git-home itself.
+        let config = CloneConfig::persistent(self.home.clone());
         let git = SystemGit::default();
         let clone_context = CloneContext {
             config: &config,
@@ -495,6 +491,34 @@ impl GitHubServices {
 }
 
 fn file_error(error: ProviderError, query: &Value) -> DomainResult {
+    let owner = query["owner"].as_str().unwrap_or_default();
+    let repo = query["repo"].as_str().unwrap_or_default();
+    // GitHub reports an unknown ref as "No commit found for SHA: <ref>" (422 on
+    // the commits endpoint used for ref resolution) or "No commit found for
+    // the ref <ref>" (404 on the contents endpoint). Both mean the requested
+    // branch/tag/SHA does not exist — not a malformed query — so name the ref
+    // instead of the generic validation message.
+    if let Some(reference) = query["branch"].as_str().filter(|value| !value.is_empty())
+        && error.message.starts_with("No commit found")
+    {
+        let data = json!({
+            "owner": owner,
+            "repo": repo,
+            "path": query["path"],
+            "error": format!("Branch, tag, or SHA not found for {owner}/{repo}: \"{reference}\""),
+            "hints": [format!(
+                "Verify the ref \"{reference}\" exists (branch, tag, or full commit SHA), or omit branch to use the default branch."
+            )],
+        });
+        return DomainResult {
+            diagnostics: Default::default(),
+            data,
+            status: Some("error"),
+            source_digest: None,
+            cache: false,
+            failure: Some(FailureKind::NotFound),
+        };
+    }
     let message = match error.kind {
         ProviderErrorKind::Authentication => "GitHub authentication required".into(),
         ProviderErrorKind::Permission => "Access forbidden - insufficient permissions".into(),
@@ -510,8 +534,6 @@ fn file_error(error: ProviderError, query: &Value) -> DomainResult {
         }
         _ => error.message.to_string(),
     };
-    let owner = query["owner"].as_str().unwrap_or_default();
-    let repo = query["repo"].as_str().unwrap_or_default();
     let mut data = json!({"owner":owner,"repo":repo,"path":query["path"],"error":message});
     if error.kind == ProviderErrorKind::Authentication {
         data["hints"] = json!(["octocode login, or set GITHUB_TOKEN / GH_TOKEN"]);
@@ -618,7 +640,12 @@ fn search_error(error: ProviderError) -> DomainResult {
     }
 }
 
-fn history_error(error: ProviderError) -> DomainResult {
+/// `search` distinguishes the search-endpoint tool (ghSearchHistory) from the
+/// direct-fetch tool (ghGetHistoryItem): only search failures should carry the
+/// "Check search syntax" scopesSuggestion, and a direct fetch of a bogus
+/// commit SHA (GitHub 422 "No commit found for SHA: …") is a not-found
+/// condition, not a query-syntax problem.
+fn history_error(error: ProviderError, search: bool) -> DomainResult {
     let failure = failure_kind(error.kind);
     let (message, suggestion) = match error.kind {
         ProviderErrorKind::Authentication => (
@@ -634,9 +661,21 @@ fn history_error(error: ProviderError) -> DomainResult {
             error.message.as_ref(),
             Some("Set GITHUB_TOKEN for higher rate limits (5000/hour vs 60/hour)"),
         ),
-        ProviderErrorKind::Validation if error.status == Some(422) => (
+        ProviderErrorKind::Validation if error.status == Some(422) && search => (
             "Invalid search query or request parameters",
             Some("Check search syntax and parameter values"),
+        ),
+        ProviderErrorKind::Validation
+            if error.status == Some(422) && error.message.starts_with("No commit found") =>
+        {
+            (
+                "Commit not found - verify the ref/SHA exists in this repository",
+                None,
+            )
+        }
+        ProviderErrorKind::Validation if error.status == Some(422) => (
+            "Invalid request parameters",
+            Some("Check parameter values"),
         ),
         ProviderErrorKind::Server if matches!(error.status, Some(502..=504)) => (
             "GitHub API temporarily unavailable",
@@ -735,7 +774,7 @@ mod tests {
             retryable: false,
         };
 
-        let result = history_error(error);
+        let result = history_error(error, true);
         let data = &result.data;
 
         assert_eq!(result.status, Some("error"));
@@ -754,5 +793,117 @@ mod tests {
         assert_eq!(data["type"], json!("http"));
         assert!(data["scopesSuggestion"].is_string());
         assert_eq!(data["rateLimitRemaining"], json!(11));
+    }
+
+    /// A ghGetFileContent request with an explicit ref that GitHub rejects
+    /// ("No commit found for the ref …", canned 404 here) must name the
+    /// missing branch/tag/SHA and hint at checking the ref instead of the
+    /// generic "Invalid search query or request parameters" message.
+    #[test]
+    fn file_error_names_the_missing_ref_for_explicit_branches() {
+        let error = ProviderError {
+            kind: ProviderErrorKind::NotFound,
+            message: "No commit found for the ref no-such-branch".into(),
+            status: Some(404),
+            request_id: None,
+            documentation_url: None,
+            rate_limit: None,
+            retryable: false,
+        };
+        let query = json!({
+            "owner": "a",
+            "repo": "b",
+            "path": "src/lib.rs",
+            "branch": "no-such-branch"
+        });
+
+        let result = file_error(error, &query);
+        let data = &result.data;
+
+        assert_eq!(result.status, Some("error"));
+        assert_eq!(result.failure, Some(FailureKind::NotFound));
+        assert_eq!(
+            data["error"].as_str(),
+            Some("Branch, tag, or SHA not found for a/b: \"no-such-branch\"")
+        );
+        let hint = data["hints"][0].as_str().expect("ref hint");
+        assert!(hint.contains("no-such-branch"), "{hint}");
+
+        // The commits-endpoint flavor (422 Validation) maps the same way.
+        let error = ProviderError {
+            kind: ProviderErrorKind::Validation,
+            message: "No commit found for SHA: no-such-branch".into(),
+            status: Some(422),
+            request_id: None,
+            documentation_url: None,
+            rate_limit: None,
+            retryable: false,
+        };
+        let result = file_error(error, &query);
+        assert_eq!(
+            result.data["error"].as_str(),
+            Some("Branch, tag, or SHA not found for a/b: \"no-such-branch\"")
+        );
+
+        // Without an explicit ref the existing not-found shaping is unchanged.
+        let error = ProviderError {
+            kind: ProviderErrorKind::NotFound,
+            message: "Not Found".into(),
+            status: Some(404),
+            request_id: None,
+            documentation_url: None,
+            rate_limit: None,
+            retryable: false,
+        };
+        let result = file_error(error, &json!({"owner":"a","repo":"b","path":"src/lib.rs"}));
+        assert_eq!(
+            result.data["error"].as_str(),
+            Some("Repository, resource, or path not found")
+        );
+    }
+
+    /// ghGetHistoryItem is not a search endpoint: a bogus commit SHA (GitHub
+    /// 422 "No commit found for SHA: …") must produce a commit-not-found
+    /// message without the "Check search syntax" scopesSuggestion.
+    #[test]
+    fn history_item_bogus_sha_is_commit_not_found_without_search_suggestion() {
+        let error = ProviderError {
+            kind: ProviderErrorKind::Validation,
+            message: "No commit found for SHA: deadbeef1234567890".into(),
+            status: Some(422),
+            request_id: None,
+            documentation_url: None,
+            rate_limit: None,
+            retryable: false,
+        };
+
+        let result = history_error(error, false);
+        let data = &result.data;
+
+        assert_eq!(result.status, Some("error"));
+        assert_eq!(
+            data["error"].as_str(),
+            Some("Commit not found - verify the ref/SHA exists in this repository")
+        );
+        assert!(
+            data.get("scopesSuggestion").is_none(),
+            "non-search operations must not suggest checking search syntax: {data}"
+        );
+
+        // The search-history tool keeps the search-syntax suggestion.
+        let error = ProviderError {
+            kind: ProviderErrorKind::Validation,
+            message: "Validation Failed".into(),
+            status: Some(422),
+            request_id: None,
+            documentation_url: None,
+            rate_limit: None,
+            retryable: false,
+        };
+        let result = history_error(error, true);
+        assert_eq!(
+            result.data["scopesSuggestion"].as_str(),
+            Some("Check search syntax and parameter values")
+        );
     }
 }

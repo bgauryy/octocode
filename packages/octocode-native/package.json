@@ -77,7 +77,9 @@
     "access": "public"
   },
   "scripts": {
-    "audit": "yarn audit:rust",
+    "contracts:regen": "node scripts/regen-contracts.cjs",
+  "contracts:check": "node scripts/check-core-contract-sync.cjs",
+  "audit": "yarn audit:rust",
     "audit:rust": "cargo audit -D unmaintained -D unsound -D yanked",
     "build": "yarn build:runtime && yarn build:addons",
     "build:runtime": "cargo build -p octocode-native --release --bins --no-default-features",
@@ -120,7 +122,7 @@
     "version:check": "node scripts/check-version-consistency.cjs",
     "version:sync": "node scripts/sync-versions.cjs",
     "pack:check": "node scripts/check-pack-size.cjs",
-    "verify": "yarn fmt:rust:check && yarn lint && yarn typecheck && yarn test && yarn deps:rust && yarn loader:check && yarn verify:napi-abi && yarn version:check",
+    "verify": "yarn fmt:rust:check && yarn lint && yarn typecheck && yarn test && yarn deps:rust && yarn loader:check && yarn verify:napi-abi && yarn version:check && yarn contracts:check",
     "prepublishOnly": "yarn version:sync && node ../octocode/scripts/check-no-workspace-protocol.mjs"
   }
 }

@@ -619,6 +619,12 @@ fn hoist_shared_fields(rows: &mut [Value]) -> Option<Map<String, Value>> {
         "parent",
         "named",
         "exported",
+        // Per-entry match-row accounting must stay on each entry: hoisting it
+        // whenever the values happen to coincide (typical on page 1) makes the
+        // row shape depend on the data, so identical queries drift between
+        // pages and between CLI and MCP consumers.
+        "totalMatchRows",
+        "returnedMatchRows",
     ];
     let leaves: Vec<&Map<String, Value>> = rows
         .iter()
@@ -811,6 +817,38 @@ mod tests {
             .map(String::as_str)
             .collect::<Vec<_>>();
         assert_eq!(keys, ["type", "lsp", "pagination", "path"]);
+    }
+
+    /// localSearch per-file entries must always carry their own
+    /// totalMatchRows/returnedMatchRows: hoisting them into `shared` when the
+    /// values coincide (typical on page 1) made the row shape data-dependent,
+    /// so CLI page-1 output drifted from MCP and from page-2 output.
+    #[test]
+    fn match_row_accounting_is_never_hoisted_into_shared() {
+        let output = envelope(vec![result_row(
+            "localSearch",
+            0,
+            &json!({}),
+            json!({"files":[
+                {"path":"/repo/a.txt","matches":[{"line":1,"column":0,"value":"x"}],"totalMatchRows":1,"returnedMatchRows":1},
+                {"path":"/repo/b.txt","matches":[{"line":1,"column":0,"value":"x"}],"totalMatchRows":1,"returnedMatchRows":1}
+            ]}),
+            None,
+        )]);
+        for file in output["results"][0]["data"]["files"]
+            .as_array()
+            .expect("files")
+        {
+            assert_eq!(file["totalMatchRows"], 1, "{output}");
+            assert_eq!(file["returnedMatchRows"], 1, "{output}");
+        }
+        assert!(
+            output
+                .get("shared")
+                .and_then(|shared| shared.get("totalMatchRows"))
+                .is_none(),
+            "{output}"
+        );
     }
 
     #[test]

@@ -132,11 +132,11 @@ yarn workspace @octocodeai/octocode-native platforms:check
 ## Quick examples
 
 ```sh
-# local file read (paginated; exit 6 + token on multi-page files)
+# local file read (paginated; exit 6 + a re-runnable continuation command on multi-page files)
 octocode read src/cli/mod.rs --lines 1:50
 
-# continue a paginated read
-octocode next TOKEN_FROM_PRIOR_OUTPUT
+# continue a paginated read: re-run the exact command printed to stderr, e.g.
+# Continue: octocode tools localFetch '{"path":"src/cli/mod.rs","chunkType":"lines","offset":50,...}'
 
 # search for a literal string
 octocode search "ToolRuntime" src/
@@ -296,7 +296,7 @@ all LSP commands, `repos`, `code`, `gh-tree`, `clone`, `package`, and `history`.
 | `3` | Not found |
 | `4` | Auth required |
 | `5` | Execution error |
-| `6` | Partial result — continuation token printed to stderr (`octocode next <token>`) |
+| `6` | Partial result — a re-runnable continuation command is printed to stderr (`Continue: octocode tools <tool> '<query>'`) |
 | `7` | Rate limited |
 | `130` | Interrupted (Ctrl-C) |
 

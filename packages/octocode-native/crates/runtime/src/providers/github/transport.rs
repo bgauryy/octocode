@@ -2,7 +2,7 @@ use bytes::{Bytes, BytesMut};
 use futures_util::StreamExt;
 use reqwest::{
     Client, StatusCode,
-    header::{ACCEPT, AUTHORIZATION, HeaderMap, RETRY_AFTER, USER_AGENT},
+    header::{ACCEPT, AUTHORIZATION, HeaderMap, LOCATION, RETRY_AFTER, USER_AGENT},
 };
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
@@ -264,7 +264,7 @@ impl<R: CredentialResolver> GitHubTransport<R> {
     }
     pub async fn execute(
         &self,
-        spec: RequestSpec,
+        mut spec: RequestSpec,
         context: &RequestContext,
     ) -> Result<ResponsePage, ProviderError> {
         if !self.endpoint.permits(&spec.url) {
@@ -275,6 +275,7 @@ impl<R: CredentialResolver> GitHubTransport<R> {
         }
         let credential = self.credential(context).await?;
         let resource = GitHubResource::classify(&spec.url);
+        let mut redirects: u8 = 0;
         for attempt in 0..self.retry.max_attempts {
             let _permit = self
                 .budget
@@ -313,6 +314,24 @@ impl<R: CredentialResolver> GitHubTransport<R> {
                     let status = response.status();
                     let headers = response.headers().clone();
                     if status.is_redirection() && status != StatusCode::NOT_MODIFIED {
+                        // GitHub answers 301 for renamed repositories; follow
+                        // bounded same-origin GET redirects so renamed repos
+                        // stay reachable. `permits` gates the new location, so
+                        // the Authorization header never leaves the configured
+                        // API origin.
+                        let location = headers
+                            .get(LOCATION)
+                            .and_then(|value| value.to_str().ok())
+                            .and_then(|value| spec.url.join(value).ok());
+                        if let Some(location) = location
+                            && matches!(spec.method, HttpMethod::Get)
+                            && redirects < 3
+                            && self.endpoint.permits(&location)
+                        {
+                            redirects += 1;
+                            spec.url = location;
+                            continue;
+                        }
                         return Err(ProviderError {
                             kind: ProviderErrorKind::RedirectDenied,
                             message: "GitHub API redirect was not followed".into(),
