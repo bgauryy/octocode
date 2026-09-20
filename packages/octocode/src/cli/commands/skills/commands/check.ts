@@ -20,6 +20,7 @@ export interface CheckOptions {
   platform: string | null;
   workspace: boolean;
   fix: boolean;
+  dryRun: boolean;
   noEnv: boolean;
   json: boolean;
 }
@@ -30,16 +31,27 @@ function fail(message: string, json: boolean): void {
   process.exitCode = 1;
 }
 
-function fixSkill(result: SkillCheckResult, platforms: Platform[]): void {
+function fixSkill(
+  result: SkillCheckResult,
+  platforms: Platform[],
+  dryRun: boolean
+): void {
   const skill = getSkill(result.skillName);
   if (!skill) return;
+  if (dryRun) {
+    console.log(
+      `  ${dim('dry-run:')} would re-install ${result.skillName} (${overallStatus(result)})`
+    );
+    return;
+  }
   installSkill({
     sourcePath: skill.dir,
     skillName: skill.folder,
     platforms,
     workspace:
       result.workspace.status === 'missing' ||
-      result.workspace.status === 'broken',
+      result.workspace.status === 'broken' ||
+      result.workspace.content === 'stale',
     customPath: null,
     mode: 'symlink',
     force: true,
@@ -65,9 +77,11 @@ export function runCheck(opts: CheckOptions): void {
   let results = checkSkills(skillNames, platforms);
   if (opts.fix && !opts.json) {
     for (const result of results) {
-      if (overallStatus(result) !== 'ok') fixSkill(result, platforms);
+      if (overallStatus(result) !== 'ok') {
+        fixSkill(result, platforms, opts.dryRun);
+      }
     }
-    results = checkSkills(skillNames, platforms);
+    if (!opts.dryRun) results = checkSkills(skillNames, platforms);
   }
 
   const envStatuses = opts.noEnv ? [] : getSkillsEnvStatus(skillNames);
@@ -76,7 +90,7 @@ export function runCheck(opts: CheckOptions): void {
     statuses.filter(value => value === status).length;
   const envCount = (readiness: string) =>
     envStatuses.filter(value => value.readiness === readiness).length;
-  const installOk = count('broken') === 0;
+  const installOk = count('broken') === 0 && count('stale') === 0;
   const envOk = opts.noEnv || envCount('needs-config') === 0;
   const success = installOk && envOk;
 
@@ -91,18 +105,23 @@ export function runCheck(opts: CheckOptions): void {
         ...(result.home.linkTarget
           ? { linkTarget: result.home.linkTarget }
           : {}),
+        ...(result.home.content ? { content: result.home.content } : {}),
       },
       platforms: result.platforms.map(location => ({
         label: location.label,
         path: location.path,
         status: location.status,
         ...(location.linkTarget ? { linkTarget: location.linkTarget } : {}),
+        ...(location.content ? { content: location.content } : {}),
       })),
       workspace: {
         path: result.workspace.path,
         status: result.workspace.status,
         ...(result.workspace.linkTarget
           ? { linkTarget: result.workspace.linkTarget }
+          : {}),
+        ...(result.workspace.content
+          ? { content: result.workspace.content }
           : {}),
       },
       env: {
@@ -128,6 +147,7 @@ export function runCheck(opts: CheckOptions): void {
     install: {
       ok: count('ok'),
       broken: count('broken'),
+      stale: count('stale'),
       notInstalled: count('not-installed'),
       total: results.length,
     },
@@ -157,7 +177,7 @@ export function runCheck(opts: CheckOptions): void {
       console.log(`  ${icon} ${skill.name}: ${skill.installStatus}${dim(env)}`);
     }
     console.log(
-      `  ${summary.install.ok}/${summary.install.total} installed; ${summary.install.broken} broken; ${summary.env.needsConfig} need env\n`
+      `  ${summary.install.ok}/${summary.install.total} installed; ${summary.install.broken} broken; ${summary.install.stale} stale; ${summary.env.needsConfig} need env\n`
     );
   }
   if (!success) process.exitCode = 1;

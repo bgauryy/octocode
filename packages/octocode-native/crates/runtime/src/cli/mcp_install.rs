@@ -39,15 +39,6 @@ fn client_format(ide: &str) -> ConfigFormat {
     }
 }
 
-/// Every client whose config is JSON (used by sync analysis and detection).
-pub(crate) fn json_clients() -> Vec<&'static str> {
-    ALL_IDES
-        .iter()
-        .copied()
-        .filter(|ide| client_format(ide) == ConfigFormat::Json)
-        .collect()
-}
-
 /// Format-independent description of the octocode MCP server entry.
 struct ServerSpec {
     command: String,

@@ -1345,7 +1345,7 @@ Workspace-symbol search:
 
 ## Pure Jev reference
 
-Use `octocode tools jev --input request.json --json --compact`; discover `octocode tools jev --scheme --scheme-view query --json --compact` once. Each query has `{context, question}`: one typed question and either an inline `{value}` or an unread read-tool request `{tool, query}`. Inspect the nested tool schema and supply one ordinary query with its required fields. Batch up to five independent queries, repeating context for each question.
+Use `octocode tools jev --input request.json --json --compact`; discover `octocode tools jev --scheme --scheme-view query --json --compact` once. Each query has `{reasoning, context, question}`: one typed question and either an inline `{value}` or an unread read-tool request `{tool, query}`. Inspect the nested tool schema and supply one ordinary query with its required fields. Batch up to five independent queries, repeating context for each question.
 
 The runtime executes the context tool under its normal policies, sends its sanitized bounded result to Jev, and returns one typed answer plus model, usage and compact coverage metadata. Retrieved bodies stay out of the host response. Use Noul for yes/no probability, Choice for alternatives and Score for 2–10 ordered levels. Context, instructions and criterion descriptions accept structured JSON. Model configuration is internal.
 

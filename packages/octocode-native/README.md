@@ -12,17 +12,19 @@ consumers load the runtime from `.` or `./runtime` and primitives from
 $ octocode --version
 octocode 20.0.0
 
-$ octocode search "ToolRuntime" src/
-src/runtime/engine.rs:54:11:pub struct ToolRuntime {
+$ octocode scheme
+{"kind":"octocode.toolCatalog","tools":[…]}          # every tool + availability
 
-$ octocode search "ToolRuntime" src/ --json
+$ octocode scheme localSearch
+{"name":"localSearch","querySchema":{…}}             # the tool's contract
+
+$ octocode localSearch '{"searchText":"ToolRuntime","path":"src/","resultView":"matchOnly","reasoning":"Locate the runtime entry."}'
 {"results":[{"data":{"searchEngine":"rg","files":[…]}}]}
-
-$ octocode files . --names '*.rs' --pretty
-{
-  "results": [ { "data": { "path": "src", "files": [ … ] } } ]
-}
 ```
+
+Every tool is a first-class command under its canonical name — the same name
+and the same JSON query contract as the MCP server. There are no per-tool flag
+wrappers and no aliases.
 
 ## Install
 
@@ -296,7 +298,7 @@ all LSP commands, `repos`, `code`, `gh-tree`, `clone`, `package`, and `history`.
 | `3` | Not found |
 | `4` | Auth required |
 | `5` | Execution error |
-| `6` | Partial result — a re-runnable continuation command is printed to stderr (`Continue: octocode tools <tool> '<query>'`) |
+| `6` | Partial result — the response carries a re-runnable `next.*` continuation |
 | `7` | Rate limited |
 | `130` | Interrupted (Ctrl-C) |
 

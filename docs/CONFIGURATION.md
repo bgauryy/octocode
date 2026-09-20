@@ -476,13 +476,14 @@ Set the GitHub token in an environment variable only. Octocode never reads it fr
 |---------|------------------|---------|
 | `GITHUB_API_URL` | `github.apiUrl` | `https://api.github.com` |
 | `OCTOCODE_GITHUB_CLIENT_ID` | — | Built-in for `github.com`; required for GitHub Enterprise device login or refresh |
+| `OCTOCODE_GITHUB_GRAPHQL` | `github.graphqlEnabled` | `true` — set `false` to force REST-only GitHub access |
 
 #### Local tools
 
 | Env var | `.octocoderc` key | Default | Notes |
 |---------|------------------|---------|-------|
-| `ENABLE_LOCAL` | `local.enabled` | `true` | `false` turns local tools off on every surface |
-| `ENABLE_CLONE` | `local.enableClone` | `false` | Opt-in: set `true` to enable `ghCloneRepo` and directory materialization. Requires `storage.mode="persistent"` (the default). |
+| `ENABLE_LOCAL` | `local.enabled` | `true` | `false` turns local tools off on every surface. Canonical name; `OCTOCODE_ENABLE_LOCAL` is accepted as an alias (the canonical spelling wins when both are set). |
+| `ENABLE_CLONE` | `local.enableClone` | `false` | Opt-in: set `true` to enable `ghCloneRepo` and directory materialization. Requires `storage.mode="persistent"` (the default). Canonical name; `OCTOCODE_ENABLE_CLONE` is accepted as an alias. |
 | `ENABLE_AST_REWRITE_APPLY` | `local.enableAstRewriteApply` | `false` | Opt-in mutation gate. `astRewrite` preview remains available; apply also requires every preview `beforeHash`. |
 | `WORKSPACE_ROOT` | `local.workspaceRoot` | `process.cwd()` | Must be absolute. Base for resolving relative paths — not itself an allowed root; add it to `allowedPaths` to access a location outside home. |
 | `ALLOWED_PATHS` | `local.allowedPaths` | `[]` (home only) | Extra roots added on top of the always-allowed home directory. Env: comma-separated; rc: JSON array. |
@@ -545,6 +546,7 @@ only when `OCTOCODE_TRUST_PROJECT_LSP_CONFIG=true`.
 | Env var | `.octocoderc` key | Default | Notes |
 |---------|------------------|---------|-------|
 | `OCTOCODE_STORAGE_MODE` | `storage.mode` | `persistent` | Use `memory` to prevent persistent runtime cache, materialization, session, stats, and Pi SQLite writes. Existing files and credentials remain untouched. |
+| `OCTOCODE_EXTENSION_STORAGE_MODE` | `extension.storage.mode` | inherits `storage.mode` | Overrides the storage mode for the Pi extension only. |
 
 ---
 
@@ -568,23 +570,26 @@ only when `OCTOCODE_TRUST_PROJECT_LSP_CONFIG=true`.
 | `OCTOCODE_MAX_CACHE_SIZE` | `2147483648` (2 GB) | Total byte cap for the clone cache on disk |
 | `OCTOCODE_MAX_CLONES` | `50` | Maximum number of repositories the clone cache keeps |
 
+#### Output redaction
+
+| Env var | `.octocoderc` key | Default | Notes |
+|---------|------------------|---------|-------|
+| `OCTOCODE_REDACT_EMAILS` | `output.redactEmails` | `false` | Opt-in: mask email addresses (e.g. commit authors) in GitHub tool outputs. The native CLI also accepts `--redact-emails`. |
+
 #### Response cache
 
-Eligible GitHub and package operations use a shared memory L1 plus the file-backed `tmp/response/` L2. Each entry defines its own fresh and stale deadlines; the settings below control storage rather than response TTL.
-
-| Env var | Default | Notes |
-|---------|---------|-------|
-| `OCTOCODE_DISK_CACHE` | `true` | Set to `false` or `0` to disable response-cache disk reads and writes. |
-| `OCTOCODE_DISK_CACHE_MAX_ENTRY_SIZE` | `5242880` (5 MiB) | Maximum serialized size of one response entry. |
-| `OCTOCODE_DISK_CACHE_MAX_ENTRIES` | `5000` | Maximum live response entries retained by maintenance. |
-| `OCTOCODE_DISK_CACHE_MAX_SIZE` | `268435456` (256 MiB) | Maximum total bytes retained under `tmp/response/`. |
+Eligible GitHub content reads use a shared in-memory tier plus a small
+ETag-revalidated disk tier under the octocode home. Entry counts and sizes are
+bounded internally and are not configurable via environment variables. Use
+`octocode cache clear` to drop the GitHub content cache, and `octocode cache
+status` to see the cache home and the most recent clone-cache evictions.
 
 #### Timeouts
 
-| Env var | Default | Notes |
-|---------|---------|-------|
-| `OCTOCODE_TOOL_TIMEOUT_MS` | `60000` (60 s) | Hard wall-clock timeout for a single tool call |
-| `OCTOCODE_BULK_QUERY_TIMEOUT_MS` | `60000` (60 s) | Timeout for a bulk / multi-query tool operation |
+Tool-call timeouts are fixed per surface (CLI allows a longer window to cover
+LSP cold starts) and are not configurable via environment variables. Network
+request timeout and retries are configured with `REQUEST_TIMEOUT` /
+`MAX_RETRIES` above.
 
 ---
 

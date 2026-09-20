@@ -1,4 +1,5 @@
 use super::{CloneContext, CloneError, check_control, hash};
+use crate::cache::evictions::log_eviction;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io;
@@ -237,11 +238,14 @@ pub(super) fn stage_dir(home: &Path, clone_dir: &Path) -> Result<PathBuf, CloneE
         hash(&clone_dir.to_string_lossy(), 16),
         std::process::id()
     ));
+    if path.exists() {
+        log_eviction(home, "stage-preclean", &path, directory_size(&path));
+    }
     remove_dir(&path);
     Ok(path)
 }
 
-pub(super) fn promote(stage: &Path, destination: &Path) -> Result<(), CloneError> {
+pub(super) fn promote(home: &Path, stage: &Path, destination: &Path) -> Result<(), CloneError> {
     let parent = destination
         .parent()
         .ok_or_else(|| CloneError::new("clone.cache.invalid", "Clone destination has no parent"))?;
@@ -250,6 +254,12 @@ pub(super) fn promote(stage: &Path, destination: &Path) -> Result<(), CloneError
     remove_dir(&previous);
     let had_previous = destination.exists();
     if had_previous {
+        log_eviction(
+            home,
+            "replaced-by-fresh-clone",
+            destination,
+            directory_size(destination),
+        );
         fs::rename(destination, &previous).map_err(cache_io)?;
     }
     if let Err(error) = fs::rename(stage, destination) {
@@ -286,7 +296,9 @@ pub(super) fn cleanup_stale_artifacts(home: &Path) {
                 .and_then(|value| SystemTime::now().duration_since(value).ok())
                 .is_some_and(|age| age > STALE_ARTIFACT_AGE);
             if old {
-                remove_dir(&entry.path());
+                let path = entry.path();
+                log_eviction(home, "stale-artifact", &path, directory_size(&path));
+                remove_dir(&path);
             }
         }
     }
@@ -311,6 +323,7 @@ pub(super) fn evict(
             };
             let meta = valid_clone(&branch, ttl);
             if meta.is_none() {
+                log_eviction(home, "expired-or-invalid", &branch, directory_size(&branch));
                 remove_dir(&branch);
             }
             meta
@@ -337,6 +350,7 @@ pub(super) fn evict(
             continue;
         };
         if fs::remove_dir_all(&path).is_ok() {
+            log_eviction(home, "size-limit", &path, size);
             bytes = bytes.saturating_sub(size);
             count = count.saturating_sub(1);
         }

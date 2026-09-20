@@ -607,6 +607,7 @@ impl ToolRuntime {
         let jev_timeout = Duration::from_millis(self.config.resolved.network.timeout as u64);
         let jev_retries = self.config.resolved.network.max_retries as u32;
         let stats_enabled = config::is_stats_enabled(&self.config.resolved);
+        let redact_emails = self.config.resolved.output.redact_emails;
         let output_tool = tool.clone();
         let cursor_scope = scope;
         let mut outcome = self
@@ -615,63 +616,42 @@ impl ToolRuntime {
                 let mut rows = Vec::with_capacity(queries.len());
                 let mut source_digest = None;
                 let mut failure = None;
+                let mut jev_rows = if tool == "jev" {
+                    let _enter = handle.enter();
+                    let Some(key) = jev_key.as_ref() else {
+                        return Err(ExecutionError::WorkerFailed);
+                    };
+                    let evaluation_context = ExecutionContext {
+                        deadline: context.deadline.min(Instant::now() + jev_timeout),
+                        ..context.clone()
+                    };
+                    let evaluated = super::jev_batch::execute(
+                        &queries,
+                        &dispatcher,
+                        &evaluation_context,
+                        super::jev_batch::ProviderConfig {
+                            key,
+                            base_url: &jev_base_url,
+                            model: &jev_model,
+                            retries: jev_retries,
+                        },
+                        |usage| {
+                            super::session_stats::record_jev(
+                                &home,
+                                stats_enabled,
+                                &json!({"usage":usage}),
+                            );
+                        },
+                    )?;
+                    Some(evaluated.into_iter())
+                } else {
+                    None
+                };
                 for (index, query) in queries.iter().enumerate() {
                     context.check()?;
-                    let result = if tool == "jev" {
-                        let _enter = handle.enter();
-                        let Some(key) = jev_key.clone() else {
-                            return Err(ExecutionError::WorkerFailed);
-                        };
-                        let deadline = context.deadline.min(Instant::now() + jev_timeout);
-                        let evaluation_context = ExecutionContext {
-                            deadline,
-                            ..context.clone()
-                        };
-                        let resolved = crate::tools::jev::preflight(query).and_then(|()| {
-                            super::jev_context::resolve(query, &dispatcher, &evaluation_context)
-                        });
-                        match resolved {
-                            Err(error) => super::dispatch::provider_failure(
-                                error.message,
-                                error.code,
-                                error.hints,
-                            ),
-                            Ok((state, receipt)) => handle.block_on(async {
-                                match crate::tools::jev::execute(
-                                    &state,
-                                    &query["question"],
-                                    key,
-                                    &jev_base_url,
-                                    &jev_model,
-                                    crate::tools::jev::transport::budget(
-                                        deadline,
-                                        context.cancellation.clone(),
-                                    ),
-                                    jev_retries,
-                                )
-                                .await
-                                {
-                                    Ok(mut data) => {
-                                        if let Some(receipt) = receipt {
-                                            data["context"] = receipt;
-                                        }
-                                        super::session_stats::record_jev(
-                                            &home,
-                                            stats_enabled,
-                                            &data,
-                                        );
-                                        super::dispatch::value_result(data)
-                                    }
-                                    Err(error) => super::dispatch::provider_failure(
-                                        error.message,
-                                        error.code,
-                                        error.hints,
-                                    ),
-                                }
-                            }),
-                        }
-                    } else {
-                        dispatcher.execute(&tool, query, &context)?
+                    let result = match jev_rows.as_mut() {
+                        Some(rows) => rows.next().ok_or(ExecutionError::WorkerFailed)?,
+                        None => dispatcher.execute(&tool, query, &context)?,
                     };
                     context.check()?;
                     if queries.len() == 1 {
@@ -707,6 +687,9 @@ impl ToolRuntime {
                     response::attach_query_base(&mut structured, &tool, query);
                 }
                 response::sanitize_fields(&mut structured, &security, &context)?;
+                if redact_emails && tool.starts_with("gh") {
+                    response::redact_email_fields(&mut structured, &security, &context)?;
+                }
                 context.check()?;
                 let render = options.render_text.unwrap_or(mcp)
                     || failure.is_some()

@@ -1,206 +1,41 @@
-//! The `Command` enum: maps every CLI sub-command to its argument struct.
-use super::{human, search};
-use clap::Subcommand;
+//! The `Command` enum: one sub-command per native tool plus system commands.
+//!
+//! The CLI surface is intentionally minimal — every tool is invoked by its
+//! canonical name with a raw JSON query, and `scheme` is the single discovery
+//! command. No per-tool flag wrappers, no aliases.
+use clap::{Args, Subcommand};
+
+/// Shared arguments for every tool sub-command: a raw JSON query (inline or
+/// from a file) executed against the tool's contract.
+#[derive(Args, Debug)]
+pub(super) struct ToolArgs {
+    /// Raw JSON query object, e.g. '{"queries":[…]}'. See `octocode scheme <tool>`.
+    pub query: Option<String>,
+    /// Read the JSON query from a file instead of inline shell-quoted JSON.
+    #[arg(long, value_name = "FILE", conflicts_with = "query")]
+    pub input: Option<std::path::PathBuf>,
+    /// Emit compact single-line JSON instead of indented JSON.
+    #[arg(long)]
+    pub compact: bool,
+}
+
+impl ToolArgs {
+    /// Resolve the JSON query text from `--input FILE` or the positional
+    /// argument. `Ok(None)` means no query was supplied.
+    pub fn query_text(&self) -> Result<Option<String>, String> {
+        if let Some(path) = &self.input {
+            return std::fs::read_to_string(path)
+                .map(Some)
+                .map_err(|error| format!("Cannot read --input {}: {error}", path.display()));
+        }
+        Ok(self.query.clone())
+    }
+}
 
 #[derive(Subcommand)]
-pub(super) enum Command {
-    /// Search for text or a regex pattern across local files.
-    Search(Box<search::SearchArgs>),
-    #[command(external_subcommand)]
-    Pattern(Vec<String>),
-    /// Read a local file with optional pagination, line ranges, match filtering, and minification.
-    Read {
-        /// Why this query advances the current goal.
-        #[arg(long)]
-        reasoning: String,
-        /// Include structured execution evidence, diagnostics, and probe metadata.
-        #[arg(long)]
-        debug: bool,
-        /// Path to the local file to read.
-        path: String,
-        /// Exact line range, e.g. `10:50` (1-based, inclusive).
-        #[arg(long)]
-        lines: Option<String>,
-        /// Read the whole file in one response (up to 50 000 bytes).
-        #[arg(long)]
-        full: bool,
-        /// Drain every page automatically until the whole file is returned.
-        #[arg(long)]
-        all: bool,
-        /// Show only lines matching this text or pattern.
-        #[arg(long)]
-        r#match: Option<String>,
-        /// Treat --match as a regular expression.
-        #[arg(long)]
-        regex: bool,
-        /// Case-insensitive --match.
-        #[arg(short = 'i', long)]
-        ignore_case: bool,
-        /// Lines of context around each --match hit.
-        #[arg(short = 'C', long)]
-        context: Option<usize>,
-        /// Page size (lines or bytes depending on --chunk).
-        #[arg(long)]
-        limit: Option<usize>,
-        /// Start offset (lines or bytes from the beginning of the file).
-        #[arg(long)]
-        offset: Option<usize>,
-        /// Pagination unit: `lines` (default) or `bytes`.
-        #[arg(long, value_parser = ["lines", "bytes"])]
-        chunk: Option<String>,
-        /// Content transformation: `none` exact, `standard` trim comments, `symbols` signatures only.
-        #[arg(long, value_parser = ["none", "standard", "symbols"])]
-        minify: Option<String>,
-    },
-    /// Read a file from a GitHub repository without cloning it locally.
-    /// Reference format: `owner/repo/path`, `owner/repo/path@branch`, or a full GitHub URL.
-    Fetch {
-        /// Why this query advances the current goal.
-        #[arg(long)]
-        reasoning: String,
-        /// Include structured execution evidence, diagnostics, and probe metadata.
-        #[arg(long)]
-        debug: bool,
-        /// GitHub reference: `owner/repo`, `owner/repo/path`, or `owner/repo/path@branch`.
-        r#ref: String,
-        /// Branch, tag, or commit SHA — overrides an @branch suffix in the reference.
-        #[arg(long)]
-        branch: Option<String>,
-        /// Exact line range, e.g. `10:50` (1-based, inclusive).
-        #[arg(long)]
-        lines: Option<String>,
-        /// Read the whole file in one response (up to 50 000 bytes).
-        #[arg(long)]
-        full: bool,
-        /// Show only lines matching this text or pattern.
-        #[arg(long)]
-        r#match: Option<String>,
-        /// Treat --match as a regular expression.
-        #[arg(long)]
-        regex: bool,
-        /// Lines of context around each --match hit.
-        #[arg(short = 'C', long)]
-        context: Option<usize>,
-        /// Content transformation: `none` exact, `standard` trim comments, `symbols` signatures only.
-        #[arg(long, value_parser = ["none", "standard", "symbols"])]
-        minify: Option<String>,
-        /// Emit indented JSON instead of raw file content.
-        #[arg(long, conflicts_with = "all")]
-        pretty: bool,
-        /// Drain every remote file-content page to raw stdout.
-        #[arg(long)]
-        all: bool,
-    },
-    /// Show active configuration keys and values (secrets are always redacted).
-    Config {
-        /// List configuration key names only, without values.
-        #[arg(long, conflicts_with = "check")]
-        keys: bool,
-        /// Test whether a specific configuration key is set.
-        #[arg(long)]
-        check: Option<String>,
-    },
-    /// Call a tool by name with a JSON query, or inspect its schema with --scheme.
-    Tools {
-        /// Tool to call, e.g. `localSearch`, `astSearch`, `ghSearch`, `lspSearch`.
-        tool: Option<String>,
-        /// Raw JSON query object (positional; omit with --scheme to print the schema).
-        queries: Option<String>,
-        /// Raw JSON query object. Alias for the positional JSON form, matching the Node CLI.
-        #[arg(long = "queries", value_name = "JSON", conflicts_with = "queries")]
-        queries_flag: Option<String>,
-        /// Read the JSON query from a file to avoid shell-quoting large packets.
-        #[arg(long = "input", value_name = "FILE", conflicts_with_all = ["queries", "queries_flag"])]
-        input: Option<std::path::PathBuf>,
-        /// Print the complete contract for the given tool instead of executing it.
-        #[arg(long)]
-        scheme: bool,
-        /// Schema view: full contract (default), or the self-contained query schema.
-        #[arg(long, value_enum, requires_all = ["scheme", "tool"])]
-        scheme_view: Option<super::schema::SchemeView>,
-        /// Select one union branch by a const field, e.g. route=source_questions.
-        /// Requires --scheme --scheme-view query and a tool name.
-        #[arg(long, value_name = "FIELD=VALUE", requires_all = ["scheme", "scheme_view", "tool"])]
-        scheme_select: Option<String>,
-        /// Emit structured JSON output.
-        #[arg(long)]
-        json: bool,
-        /// Compact single-line JSON (implies --json).
-        #[arg(long)]
-        compact: bool,
-    },
-    /// Find files by name or glob within a directory.
-    Files(human::FilesArgs),
-    /// Show a directory tree, or the parsed syntax tree for a single source file (--syntax).
-    Tree(human::TreeArgs),
-    /// List declarations — functions, classes, types — in a file or directory.
-    Symbols(human::SymbolsArgs),
-    /// Search code by structure using ast-grep patterns (e.g. `fn $NAME($$$) { $$$ }`).
-    Ast(human::AstArgs),
-    /// Analyse the file import graph: dead code, cycles, dependencies, dependents, or reachability.
-    Graph(human::GraphArgs),
-    /// Find-and-replace code by structure using ast-grep patterns; previews changes before writing.
-    Rewrite(human::RewriteArgs),
-    /// Jump to the definition of a symbol at a given file and line.
-    Def(human::LspArgs),
-    /// Find all references to a symbol across the workspace.
-    Refs(human::LspArgs),
-    /// Show hover documentation for a symbol at a given file and line.
-    Hover(human::LspArgs),
-    /// Find all callers of a function (incoming call hierarchy).
-    Callers(human::LspArgs),
-    /// Find all callees of a function (outgoing call hierarchy).
-    Callees(human::LspArgs),
-    /// Jump to the type definition of a symbol.
-    #[command(name = "type-def")]
-    TypeDef(human::LspArgs),
-    /// Find all implementations of a trait, interface, or abstract type.
-    Implementation(human::LspArgs),
-    /// Find supertypes of a type in the type hierarchy.
-    Supertypes(human::LspArgs),
-    /// Find subtypes of a type in the type hierarchy.
-    Subtypes(human::LspArgs),
-    /// Show LSP diagnostics (errors, warnings, hints) for a source file.
-    Diagnostics(human::LspArgs),
-    /// Search GitHub repositories by keyword.
-    Repos(human::ReposArgs),
-    /// Search GitHub code by keyword, owner, repo, path, or language.
-    Code(human::CodeArgs),
-    /// Browse a GitHub repository tree.
-    #[command(name = "gh-tree")]
-    GhTree(human::GhTreeArgs),
-    /// Clone a GitHub repository into the local Octocode cache for offline access.
-    Clone(human::CloneArgs),
-    /// Look up or discover packages across npm, PyPI, crates.io, Maven, and 4 other registries.
-    Package(human::PackageArgs),
-    /// Search or read GitHub pull requests, issues, and commits (use `prs`/`issues`/`commits` to search, `pr`/`issue`/`commit` for a single item).
-    History(human::HistoryArgs),
-    /// Show which tools are enabled and the MCP server instructions for this workspace.
-    Context {
-        /// Include the full tool context with all available parameters.
-        #[arg(long)]
-        full: bool,
-        /// Emit a compact one-line summary (enabled tool count + protocol).
-        #[arg(long)]
-        minimal: bool,
-        /// Emit JSON output.
-        #[arg(long)]
-        json: bool,
-    },
-    /// Show runtime status: home directory, storage, authentication, and available tools.
+pub(super) enum AuthCommand {
+    /// Show GitHub authentication status (token presence and source; no secrets printed).
     Status {
-        /// GitHub API hostname (override for GitHub Enterprise).
-        #[arg(long)]
-        hostname: Option<String>,
-        /// Emit JSON output.
-        #[arg(long)]
-        json: bool,
-        /// Include MCP config sync analysis across detected clients.
-        #[arg(long)]
-        sync: bool,
-    },
-    /// Show GitHub authentication status (token presence and scopes; no secrets printed).
-    Auth {
         /// Emit JSON output.
         #[arg(long)]
         json: bool,
@@ -222,11 +57,79 @@ pub(super) enum Command {
     },
     /// Remove stored GitHub credentials from the native keychain.
     Logout,
-    /// Show the cache home directory (`status`) or delete all cached GitHub responses (`clear`).
-    Cache {
-        /// `status` — print the cache home directory path; `clear` — delete all cached responses.
-        #[arg(value_parser = ["status", "clear"])]
-        action: String,
+}
+
+#[derive(Subcommand)]
+pub(super) enum Command {
+    // ── Tools: one command per tool, named exactly like the tool ─────────────
+    /// Search text or a regex pattern across local files.
+    #[command(name = "localSearch")]
+    LocalSearch(ToolArgs),
+    /// Read a local file with pagination, line ranges, match filtering, and minification.
+    #[command(name = "localFetch")]
+    LocalFetch(ToolArgs),
+    /// Structural code search with ast-grep patterns; also file/symbol/tree/graph discovery.
+    #[command(name = "astSearch")]
+    AstSearch(ToolArgs),
+    /// Structural find-and-replace using ast-grep patterns; previews before writing.
+    #[command(name = "astRewrite")]
+    AstRewrite(ToolArgs),
+    /// Semantic navigation via LSP: definitions, references, hover, call/type hierarchy, diagnostics.
+    #[command(name = "lspSearch")]
+    LspSearch(ToolArgs),
+    /// Search GitHub repositories and code.
+    #[command(name = "ghSearch")]
+    GhSearch(ToolArgs),
+    /// Read a file from a GitHub repository without cloning it.
+    #[command(name = "ghGetFileContent")]
+    GhGetFileContent(ToolArgs),
+    /// Search GitHub pull requests, issues, and commits.
+    #[command(name = "ghSearchHistory")]
+    GhSearchHistory(ToolArgs),
+    /// Read a single GitHub pull request, issue, commit, or comparison.
+    #[command(name = "ghGetHistoryItem")]
+    GhGetHistoryItem(ToolArgs),
+    /// Clone a GitHub repository into the local Octocode cache for offline analysis.
+    #[command(name = "ghCloneRepo")]
+    GhCloneRepo(ToolArgs),
+    /// Look up or discover packages across npm, PyPI, crates.io, Maven, and 4 other registries.
+    #[command(name = "artifactSearch")]
+    ArtifactSearch(ToolArgs),
+    /// Judgment engine: gate, compare, or audit candidates by evidence.
+    #[command(name = "jev")]
+    Jev(ToolArgs),
+
+    // ── System commands ──────────────────────────────────────────────────────
+    /// Print a tool's contract so an agent knows exactly how to call it; without a name, list every tool.
+    Scheme {
+        /// Tool name, e.g. `localSearch`. Omit to list all tools with availability.
+        tool: Option<String>,
+        /// Schema view: the full contract (default) or the self-contained query schema.
+        #[arg(long, value_enum, requires = "tool")]
+        view: Option<super::schema::SchemeView>,
+        /// Select one union branch by a const field, e.g. `operation=code`. Requires `--view query`.
+        #[arg(long, value_name = "FIELD=VALUE", requires = "tool")]
+        select: Option<String>,
+        /// Emit compact single-line JSON instead of indented JSON.
+        #[arg(long)]
+        compact: bool,
+    },
+    /// Show configuration files and set key names. Values are never printed.
+    Config {
+        /// Test whether a specific configuration key is set (prints set/unset, never the value).
+        #[arg(long, value_name = "KEY")]
+        check: Option<String>,
+        /// Emit JSON output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// GitHub authentication: `status` (default), `login`, or `logout`.
+    Auth {
+        #[command(subcommand)]
+        command: Option<AuthCommand>,
+        /// Emit JSON output (status only).
+        #[arg(long)]
+        json: bool,
     },
     /// Run an Octocode skill — `list`, `install`, `run <name>`, or any other skill command.
     Skill {
@@ -270,7 +173,17 @@ pub(super) enum Command {
         #[arg(long)]
         rollback: Option<String>,
     },
+
+    // ── Hidden maintenance commands (not part of the agent surface) ──────────
+    /// Show the cache home directory (`status`) or delete all cached GitHub responses (`clear`).
+    #[command(hide = true)]
+    Cache {
+        /// `status` — print the cache home directory path; `clear` — delete all cached responses.
+        #[arg(value_parser = ["status", "clear"])]
+        action: String,
+    },
     /// Manage auto-downloadable language servers (`list`, `install`, `uninstall`, `clean`).
+    #[command(name = "lsp-server", hide = true)]
     LspServer {
         /// Subcommand: `list`, `install <name...>`, `uninstall <name...>`, `clean`, `status [file]`, or `which [file]`.
         #[arg(value_parser = ["list", "install", "uninstall", "remove", "clean", "status", "which"])]

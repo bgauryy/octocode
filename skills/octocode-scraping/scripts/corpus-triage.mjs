@@ -170,6 +170,7 @@ for (let i = 0; i < candidates.length; i += BATCH_MAX) {
   const batch = candidates.slice(i, i + BATCH_MAX);
   const request = {
     queries: batch.map((c) => ({
+      reasoning: 'Decide whether this scraped candidate needs a direct read for the research goal.',
       context: {
         tool: 'localFetch',
         query: {

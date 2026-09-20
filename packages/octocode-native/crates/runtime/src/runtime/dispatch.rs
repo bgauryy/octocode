@@ -145,11 +145,20 @@ pub(super) fn value_result(data: Value) -> DomainResult {
     domain_value(data, status)
 }
 
-pub(super) fn provider_failure(message: String, code: String, hints: Vec<String>) -> DomainResult {
-    domain_error(
-        json!({"error":message,"errorCode":code,"hints":hints}),
-        None,
-    )
+pub(super) fn provider_failure(
+    message: String,
+    code: String,
+    hints: Vec<String>,
+    http_status: Option<u16>,
+) -> DomainResult {
+    let mut data = json!({"error":message,"errorCode":code,"hints":hints});
+    // Structured callers need the upstream HTTP status to distinguish e.g. a
+    // registry 404 from a 429 without parsing prose (R8; optional — absence
+    // is valid).
+    if let Some(status) = http_status {
+        data["httpStatus"] = json!(status);
+    }
+    domain_error(data, None)
 }
 
 fn domain_value(data: Value, status: Option<&'static str>) -> DomainResult {
@@ -174,5 +183,24 @@ fn domain_error(mut data: Value, next: Option<Box<Value>>) -> DomainResult {
         status: Some("error"),
         source_digest: None,
         failure: Some(FailureKind::Execution),
+    }
+}
+
+#[cfg(test)]
+mod provider_failure_tests {
+    use super::*;
+
+    #[test]
+    fn http_status_is_carried_when_present_and_absent_when_not() {
+        let with = provider_failure(
+            "upstream said no".into(),
+            "provider_error".into(),
+            vec![],
+            Some(429),
+        );
+        assert_eq!(with.data["httpStatus"], serde_json::json!(429));
+        assert_eq!(with.data["errorCode"], "provider_error");
+        let without = provider_failure("client-side".into(), "invalid_query".into(), vec![], None);
+        assert!(without.data.get("httpStatus").is_none(), "absence is valid");
     }
 }

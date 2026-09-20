@@ -227,12 +227,18 @@ pub fn execute_clone(
             context.config.cache_ttl,
         );
         cache::write_meta(&stage, &meta)?;
-        cache::promote(&stage, &clone_dir)?;
+        cache::promote(&context.config.cache_home, &stage, &clone_dir)?;
         Ok(commit_sha)
     })();
     let commit_sha = match checkout {
         Ok(value) => value,
         Err(error) => {
+            crate::cache::evictions::log_eviction(
+                &context.config.cache_home,
+                "failed-checkout-stage",
+                &stage,
+                0,
+            );
             cache::remove_dir(&stage);
             return Err(error);
         }

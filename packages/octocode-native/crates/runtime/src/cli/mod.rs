@@ -1,12 +1,10 @@
 mod commands;
-mod human;
 mod lsp_provision;
 mod mcp_install;
-mod mcp_sync;
 mod schema;
-mod search;
+mod system;
 use clap::Parser;
-use commands::Command;
+use commands::{AuthCommand, Command, ToolArgs};
 use octocode_native::config::RuntimeSurface;
 use octocode_native::runtime::{HostOptions, ToolRuntime};
 use serde_json::{Value, json};
@@ -19,6 +17,10 @@ use std::io::{self, Write};
     about = "Native Octocode research tools",
     // Keep in sync with the "Exit codes" table in packages/octocode-native/README.md.
     long_about = "Native Octocode research tools.\n\n\
+Every tool is called by its canonical name with a raw JSON query:\n\
+  octocode <toolName> '<json>'      execute a tool\n\
+  octocode scheme <toolName>        print the tool's contract\n\
+  octocode scheme                   list every tool with availability\n\n\
 EXIT CODES:\n\
   0    Success\n\
   1    Empty result / no matches\n\
@@ -26,7 +28,7 @@ EXIT CODES:\n\
   3    Not found\n\
   4    Auth required\n\
   5    Execution error\n\
-  6    Partial result - a re-runnable continuation command is printed to stderr\n\
+  6    Partial result - the response carries a re-runnable next.* continuation\n\
   7    Rate limited\n\
   130  Interrupted (Ctrl-C)"
 )]
@@ -34,6 +36,9 @@ pub struct Args {
     /// Emit {"success":false,"error":"..."} to stdout on errors instead of stderr text.
     #[arg(long, global = true)]
     json_errors: bool,
+    /// Mask email addresses in GitHub tool outputs (same as OCTOCODE_REDACT_EMAILS=true).
+    #[arg(long, global = true)]
+    redact_emails: bool,
     #[command(subcommand)]
     command: Command,
 }
@@ -43,6 +48,18 @@ fn emit_error(msg: &str, json_errors: bool) {
         println!("{}", json!({"success": false, "error": msg}));
     } else {
         eprintln!("{msg}");
+    }
+}
+
+/// Group tool names into catalog families.
+fn tool_family(name: &str) -> &'static str {
+    match name {
+        "ghSearch" | "ghGetFileContent" | "ghSearchHistory" | "ghGetHistoryItem"
+        | "ghCloneRepo" => "GitHub",
+        "localSearch" | "localFetch" | "astSearch" | "astRewrite" | "lspSearch" => "Local Code",
+        "artifactSearch" => "Package",
+        "jev" => "Reasoning",
+        _ => "Other",
     }
 }
 
@@ -93,7 +110,9 @@ fn compact_fields(tool: &Value) -> String {
 
 fn availability_env_var(name: &str) -> Option<&'static str> {
     match name {
-        "ghCloneRepo" => Some("OCTOCODE_ENABLE_CLONE|OCTOCODE_STORAGE_MODE"),
+        // Canonical names; `OCTOCODE_ENABLE_CLONE`/`OCTOCODE_ENABLE_LOCAL`
+        // are accepted aliases (config/resolver.rs).
+        "ghCloneRepo" => Some("ENABLE_CLONE|OCTOCODE_STORAGE_MODE"),
         "jev" => Some("OCTOCODE_JEV_KEY"),
         "localFetch" | "localSearch" | "astSearch" | "astRewrite" | "lspSearch" => {
             Some("ENABLE_LOCAL")
@@ -102,7 +121,33 @@ fn availability_env_var(name: &str) -> Option<&'static str> {
     }
 }
 
-fn compact_tool_catalog(catalog: &Value) -> Value {
+/// Text for a disabled tool whose gating env key was present in a `.env`
+/// file but not applied — the state change would otherwise be invisible.
+fn dropped_key_hint(
+    env_vars: &str,
+    dotenv: &octocode_native::config::EnvApplyReport,
+) -> Option<String> {
+    for key in env_vars.split('|') {
+        for alias in [key.to_owned(), format!("OCTOCODE_{key}")] {
+            if dotenv.skipped_protected.contains(&alias) {
+                return Some(format!(
+                    "{alias} was found in a .env file but dropped (protected); set it in the process environment or config file"
+                ));
+            }
+            if dotenv.skipped_existing.contains(&alias) {
+                return Some(format!(
+                    "{alias} in a .env file is shadowed by the process environment"
+                ));
+            }
+        }
+    }
+    None
+}
+
+fn compact_tool_catalog(
+    catalog: &Value,
+    dotenv: &octocode_native::config::EnvApplyReport,
+) -> Value {
     let tools = catalog
         .get("tools")
         .and_then(Value::as_array)
@@ -123,6 +168,9 @@ fn compact_tool_catalog(catalog: &Value) -> Value {
                     if !enabled {
                         if let Some(env_var) = availability_env_var(name) {
                             availability["envVar"] = Value::String(env_var.to_owned());
+                            if let Some(hint) = dropped_key_hint(env_var, dotenv) {
+                                availability["hint"] = Value::String(hint);
+                            }
                         } else {
                             availability["configuration"] =
                                 Value::String("tools.enabled/tools.disabled".to_owned());
@@ -130,7 +178,7 @@ fn compact_tool_catalog(catalog: &Value) -> Value {
                     }
                     json!({
                         "name": name,
-                        "category": human::tool_family(name),
+                        "category": tool_family(name),
                         "description": compact_description(description, 96),
                         "fields": compact_fields(tool),
                         "availability": availability
@@ -139,72 +187,43 @@ fn compact_tool_catalog(catalog: &Value) -> Value {
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    json!({
+    let mut value = json!({
         "kind": "octocode.toolCatalog",
         "version": 1,
         "toolCount": tools.len(),
         "output": "Compact discovery catalog. Inspect one tool before execution.",
         "commands": {
-            "fullCatalog": "tools --scheme --json --compact",
-            "schema": "tools <name> --scheme --json --compact",
-            "run": "tools <name> --queries '<json>'"
+            "schema": "scheme <name>",
+            "querySchema": "scheme <name> --view query",
+            "run": "<name> '<json>'"
         },
         "tools": tools
-    })
-}
-
-fn parse_github_reference(
-    reference: &str,
-    explicit_branch: Option<String>,
-) -> Result<(String, String, String, Option<String>), &'static str> {
-    let (reference, suffix_branch) = match reference.rsplit_once('@') {
-        Some((path, branch)) if !branch.is_empty() => (path, Some(branch.to_owned())),
-        _ => (reference, None),
-    };
-    let mut branch = explicit_branch.or(suffix_branch);
-    let parts = if reference.starts_with("https://") || reference.starts_with("http://") {
-        let url = url::Url::parse(reference).map_err(|_| "fetch: invalid GitHub URL")?;
-        if !matches!(url.host_str(), Some("github.com") | Some("www.github.com")) {
-            return Err("fetch: URL host must be github.com");
+    });
+    // Core-authored jev guidance surfaces here because `scheme` is the only
+    // discovery command.
+    if let Some(guidance) = catalog["cliGuidance"]["jev"]
+        .as_str()
+        .filter(|text| !text.is_empty())
+    {
+        let jev_enabled = catalog["tools"].as_array().is_some_and(|tools| {
+            tools
+                .iter()
+                .any(|tool| tool["name"] == "jev" && tool["available"] == true)
+        });
+        if jev_enabled {
+            value["guidance"] = json!({ "jev": guidance });
         }
-        url.path_segments()
-            .map(|segments| {
-                segments
-                    .filter(|segment| !segment.is_empty())
-                    .map(str::to_owned)
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default()
-    } else {
-        reference
-            .trim_start_matches('/')
-            .split('/')
-            .filter(|segment| !segment.is_empty())
-            .map(str::to_owned)
-            .collect::<Vec<_>>()
-    };
-    if parts.len() < 2 {
-        return Err("fetch: expected owner/repo[/path][@branch]");
     }
-    let owner = parts[0].clone();
-    let repo = parts[1].trim_end_matches(".git").to_owned();
-    if owner.is_empty() || repo.is_empty() {
-        return Err("fetch: expected owner/repo[/path][@branch]");
-    }
-    let path = if parts.get(2).is_some_and(|part| part == "blob") && parts.len() >= 5 {
-        branch.get_or_insert_with(|| parts[3].clone());
-        parts[4..].join("/")
-    } else if parts.get(2).is_some_and(|part| part == "raw") && parts.len() >= 5 {
-        branch.get_or_insert_with(|| parts[3].clone());
-        parts[4..].join("/")
-    } else {
-        parts[2..].join("/")
-    };
-    Ok((owner, repo, path, branch))
+    value
 }
 
 pub async fn run(args: Args) -> u8 {
     let json_errors = args.json_errors;
+    if args.redact_emails {
+        // Single-threaded startup; the config resolver reads the process env,
+        // so the flag is just the env spelling set before runtime creation.
+        unsafe { std::env::set_var("OCTOCODE_REDACT_EMAILS", "true") };
+    }
     let runtime = match ToolRuntime::from_host(HostOptions {
         surface: RuntimeSurface::Cli,
         // Use 120 s instead of the default 60 s so LSP cold-start initialisation
@@ -225,140 +244,72 @@ pub async fn run(args: Args) -> u8 {
 
 async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) -> u8 {
     match command {
-        Command::Pattern(args) => {
-            // Direct tool-name dispatch: `octocode localSearch '{...}'`
-            // Allows bypassing human wrappers for raw tool JSON queries.
-            const KNOWN_TOOLS: &[&str] = &[
-                "localSearch",
-                "localFetch",
-                "astSearch",
-                "astRewrite",
-                "lspSearch",
-                "ghSearch",
-                "ghGetFileContent",
-                "ghSearchHistory",
-                "ghGetHistoryItem",
-                "ghCloneRepo",
-                "artifactSearch",
-                "jev",
-            ];
-            if let Some(tool_name) = args.first().map(|s| s.as_str())
-                && KNOWN_TOOLS.contains(&tool_name)
-            {
-                let tool = tool_name.to_owned();
-                let rest = &args[1..];
-                let compact = rest.iter().any(|s| s == "--compact");
-                let pretty = rest.iter().any(|s| s == "--pretty");
-                let scheme = rest
-                    .iter()
-                    .any(|argument| matches!(argument.as_str(), "--scheme" | "--schema"));
-                let scheme_view = match schema::direct_scheme_view(rest, scheme) {
-                    Ok(view) => view,
-                    Err(error) => {
-                        emit_error(&error, json_errors);
-                        return 2;
-                    }
-                };
-                let scheme_select = match schema::direct_scheme_select(rest, scheme, scheme_view) {
-                    Ok(selection) => selection,
-                    Err(error) => {
-                        emit_error(&error, json_errors);
-                        return 2;
-                    }
-                };
-                if scheme {
-                    return match runtime.catalog() {
-                        Ok(catalog) => {
-                            let value = catalog["tools"]
-                                .as_array()
-                                .and_then(|ts| ts.iter().find(|t| t["name"] == tool))
-                                .cloned()
-                                .unwrap_or(Value::Null);
-                            if value.is_null() {
-                                eprintln!("Unknown tool: {tool}");
-                                2
-                            } else {
-                                match schema::project_selected(
-                                    value,
-                                    scheme_view,
-                                    scheme_select.as_deref(),
-                                ) {
-                                    Ok(value) => write_json(&value, !pretty),
-                                    Err(error) => {
-                                        emit_error(&error, json_errors);
-                                        2
-                                    }
-                                }
-                            }
-                        }
-                        Err(error) => {
-                            eprintln!("{}", error.message);
-                            5
-                        }
-                    };
-                }
-                // --input <file> reads the query from disk, sparing agents the
-                // shell-quoted inline JSON that measurably inflates their
-                // context (A/B 2026-09-19: 33k extra agent tokens over nine
-                // hand-authored packets).
-                let file_input = rest
-                    .iter()
-                    .position(|s| s == "--input")
-                    .and_then(|at| rest.get(at + 1))
-                    .map(|path| std::fs::read_to_string(path).map_err(|e| (path.clone(), e)));
-                let owned_json: Option<String> = match file_input {
-                    Some(Ok(contents)) => Some(contents),
-                    Some(Err((path, error))) => {
-                        emit_error(&format!("Cannot read --input {path}: {error}"), json_errors);
-                        return 2;
-                    }
-                    None => None,
-                };
-                let json_arg = owned_json.as_ref().or_else(|| {
-                    rest.iter()
-                        .find(|s| s.starts_with('{') || s.starts_with('['))
-                });
-                return match json_arg {
-                    Some(json_str) => match serde_json::from_str::<Value>(json_str) {
-                        Ok(input) => {
-                            execute(
-                                runtime,
-                                &tool,
-                                input,
-                                ExecuteOptions {
-                                    structured: true,
-                                    compact,
-                                    json_errors,
-                                    ..ExecuteOptions::default()
-                                },
-                            )
-                            .await
-                        }
-                        Err(parse_error) => {
-                            emit_error(&format!("Invalid JSON query: {parse_error}"), json_errors);
-                            2
-                        }
-                    },
-                    None => {
-                        eprintln!("Usage: octocode {tool} '<json>'");
-                        eprintln!("       octocode {tool} --scheme");
-                        2
-                    }
-                };
-            }
-            // Fall through to search pattern alias
-            match search::SearchArgs::try_parse_from(
-                std::iter::once("octocode".to_owned()).chain(args),
-            ) {
-                Ok(args) => execute_search(runtime, args, json_errors).await,
+        Command::LocalSearch(args) => run_tool(runtime, "localSearch", args, json_errors).await,
+        Command::LocalFetch(args) => run_tool(runtime, "localFetch", args, json_errors).await,
+        Command::AstSearch(args) => run_tool(runtime, "astSearch", args, json_errors).await,
+        Command::AstRewrite(args) => run_tool(runtime, "astRewrite", args, json_errors).await,
+        Command::LspSearch(args) => run_tool(runtime, "lspSearch", args, json_errors).await,
+        Command::GhSearch(args) => run_tool(runtime, "ghSearch", args, json_errors).await,
+        Command::GhGetFileContent(args) => {
+            run_tool(runtime, "ghGetFileContent", args, json_errors).await
+        }
+        Command::GhSearchHistory(args) => {
+            run_tool(runtime, "ghSearchHistory", args, json_errors).await
+        }
+        Command::GhGetHistoryItem(args) => {
+            run_tool(runtime, "ghGetHistoryItem", args, json_errors).await
+        }
+        Command::GhCloneRepo(args) => run_tool(runtime, "ghCloneRepo", args, json_errors).await,
+        Command::ArtifactSearch(args) => {
+            run_tool(runtime, "artifactSearch", args, json_errors).await
+        }
+        Command::Jev(args) => run_tool(runtime, "jev", args, json_errors).await,
+        Command::Scheme {
+            tool,
+            view,
+            select,
+            compact,
+        } => {
+            let catalog = match runtime.catalog() {
+                Ok(catalog) => catalog,
                 Err(error) => {
-                    let _ = error.print();
+                    emit_error(&error.message, json_errors);
+                    return 5;
+                }
+            };
+            let Some(name) = tool else {
+                return write_json(
+                    &compact_tool_catalog(&catalog, &runtime.config().dotenv),
+                    compact,
+                );
+            };
+            let value = catalog["tools"]
+                .as_array()
+                .and_then(|tools| tools.iter().find(|tool| tool["name"] == *name))
+                .cloned();
+            let Some(value) = value else {
+                let known = catalog["tools"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|tool| tool["name"].as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                emit_error(
+                    &format!("Unknown tool: {name}. Known tools: {known}"),
+                    json_errors,
+                );
+                return 2;
+            };
+            match schema::project_selected(value, view.unwrap_or_default(), select.as_deref()) {
+                Ok(value) => write_json(&value, compact),
+                Err(error) => {
+                    emit_error(&error, json_errors);
                     2
                 }
             }
         }
-        Command::Search(args) => execute_search(runtime, *args, json_errors).await,
-        Command::Config { keys, check } => {
+        Command::Config { check, json } => {
             let view = runtime.inspect_config();
             if let Some(key) = check {
                 let set = runtime
@@ -368,352 +319,93 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
                 println!("{key}: {}", if set { "set" } else { "unset" });
                 return if set { 0 } else { 1 };
             }
-            if keys {
-                for key in view.loaded_keys {
-                    println!("{key}");
-                }
-            } else {
-                println!(
-                    "home: {}\nstorage: {}\nglobal keys: {}\nproject keys: {}",
-                    view.home.display(),
-                    view.storage_mode,
-                    view.global_key_count,
-                    view.project_key_count
+            let config_file = view
+                .config_path
+                .clone()
+                .unwrap_or_else(|| view.home.join(".octocoderc"));
+            let config_file_exists = view.config_path.is_some();
+            if json {
+                return write_json(
+                    &json!({
+                        "home": view.home,
+                        "storage": view.storage_mode,
+                        "configFile": {
+                            "path": config_file,
+                            "exists": config_file_exists,
+                            "keys": view.config_keys,
+                        },
+                        "envFiles": {
+                            "global": view.global_env_path,
+                            "project": view.project_env_path,
+                        },
+                        "envKeys": view.loaded_keys,
+                        "skippedProtected": view.skipped_protected,
+                        "skippedExisting": view.skipped_existing,
+                        "note": "Key names only; values are never printed.",
+                    }),
+                    true,
                 );
-                for diagnostic in &view.diagnostics {
-                    eprintln!("{}: {}", diagnostic.code, diagnostic.message);
+            }
+            println!("home:    {}", view.home.display());
+            println!("storage: {}", view.storage_mode);
+            println!(
+                "config file: {}{}",
+                config_file.display(),
+                if config_file_exists {
+                    ""
+                } else {
+                    " (not found)"
                 }
+            );
+            println!("env files:");
+            println!("  global:  {}", view.global_env_path.display());
+            println!("  project: {}", view.project_env_path.display());
+            if !view.config_keys.is_empty() {
+                println!("config keys ({}):", view.config_keys.len());
+                for key in &view.config_keys {
+                    println!("  {key}");
+                }
+            }
+            if !view.loaded_keys.is_empty() {
+                println!("env keys ({}):", view.loaded_keys.len());
+                for key in &view.loaded_keys {
+                    println!("  {key}");
+                }
+            }
+            println!("(key names only; values are never printed)");
+            for skip in &view.skipped_protected {
+                println!(
+                    "skipped (protected): {} — found in {} but not applied; set it in the process environment or config file",
+                    skip.key,
+                    skip.source_path.display()
+                );
+            }
+            for skip in &view.skipped_existing {
+                println!(
+                    "skipped (existing): {} — found in {} but the process environment already sets it",
+                    skip.key,
+                    skip.source_path.display()
+                );
+            }
+            for diagnostic in &view.diagnostics {
+                eprintln!("{}: {}", diagnostic.code, diagnostic.message);
             }
             0
         }
-        Command::Tools {
-            tool,
-            queries,
-            queries_flag,
-            input,
-            scheme,
-            scheme_view,
-            scheme_select,
-            json,
-            compact,
-        } => {
-            let file_query = match input {
-                Some(path) => match std::fs::read_to_string(&path) {
-                    Ok(contents) => Some(contents),
-                    Err(error) => {
-                        emit_error(
-                            &format!("Cannot read --input {}: {error}", path.display()),
-                            json_errors,
-                        );
-                        return 2;
-                    }
-                },
-                None => None,
-            };
-            let query = file_query
-                .as_deref()
-                .or(queries_flag.as_deref())
-                .or(queries.as_deref());
-            match (tool.as_deref(), scheme, query) {
-                // `tools` or `tools --json` — human-readable catalog
-                (None, false, None) => match runtime.catalog() {
-                    Ok(catalog) => {
-                        if json || compact {
-                            return write_json(&compact_tool_catalog(&catalog), compact);
-                        }
-                        let tools_arr = catalog["tools"]
-                            .as_array()
-                            .map(|v| v.as_slice())
-                            .unwrap_or(&[]);
-                        let enabled = tools_arr.iter().filter(|t| t["available"] == true).count();
-                        println!("Tools ({enabled}/{} enabled):", tools_arr.len());
-                        println!();
-                        println!("  Tip: use tool names directly — `octocode <toolName> '<json>'`");
-                        println!("       or inspect schema — `octocode <toolName> --scheme`");
-                        println!();
-                        let families = ["GitHub", "Local Code", "Package", "Reasoning", "Other"];
-                        for family in families {
-                            let family_tools: Vec<_> = tools_arr
-                                .iter()
-                                .filter(|t| {
-                                    human::tool_family(t["name"].as_str().unwrap_or("")) == family
-                                })
-                                .collect();
-                            if family_tools.is_empty() {
-                                continue;
-                            }
-                            println!("  {family}:");
-                            for t in family_tools {
-                                let name = t["name"].as_str().unwrap_or_default();
-                                let avail = t["available"].as_bool().unwrap_or(false);
-                                let desc = t["description"].as_str().unwrap_or("");
-                                let short = if desc.len() > 72 { &desc[..72] } else { desc };
-                                let flag = if avail { " " } else { "!" };
-                                println!("  [{flag}] {name:<30} {short}");
-                            }
-                        }
-                        0
-                    }
-                    Err(error) => {
-                        eprintln!("{}", error.message);
-                        5
-                    }
-                },
-                // `tools <name> --scheme` or `tools --scheme` with optional name
-                (name, true, _) => match runtime.catalog() {
-                    Ok(catalog) => {
-                        let value = if let Some(n) = name {
-                            catalog["tools"]
-                                .as_array()
-                                .and_then(|ts| ts.iter().find(|t| t["name"] == n))
-                                .cloned()
-                                .unwrap_or(Value::Null)
-                        } else {
-                            catalog
-                        };
-                        if value.is_null() {
-                            eprintln!("Unknown tool: {}", name.unwrap_or("(none)"));
-                            2
-                        } else {
-                            match schema::project_selected(
-                                value,
-                                scheme_view.unwrap_or_default(),
-                                scheme_select.as_deref(),
-                            ) {
-                                Ok(value) => write_json(&value, compact),
-                                Err(error) => {
-                                    emit_error(&error, json_errors);
-                                    2
-                                }
-                            }
-                        }
-                    }
-                    Err(error) => {
-                        eprintln!("{}", error.message);
-                        5
-                    }
-                },
-                // `tools <name> '<json>'` — execute tool
-                (Some(name), false, Some(json_str)) => {
-                    let input = match serde_json::from_str::<Value>(json_str) {
-                        Ok(v) => v,
-                        Err(error) => {
-                            emit_error(&format!("Invalid JSON query: {error}"), json_errors);
-                            return 2;
-                        }
-                    };
-                    execute(
-                        runtime,
-                        name,
-                        input,
-                        ExecuteOptions {
-                            structured: json || compact,
-                            compact,
-                            json_errors,
-                            ..ExecuteOptions::default()
-                        },
-                    )
-                    .await
-                }
-                // `tools <name>` without json or scheme — show usage hint
-                (Some(name), false, None) => {
-                    eprintln!("Usage: octocode tools {name} '<json>'");
-                    eprintln!("       octocode tools {name} --scheme");
-                    eprintln!("  Or use the tool name directly:");
-                    eprintln!("       octocode {name} '<json>'");
-                    eprintln!("       octocode {name} --scheme");
-                    2
-                }
-                // queries without tool name
-                (None, false, Some(_)) => {
-                    eprintln!("Usage: octocode tools <toolName> '<json>'");
-                    2
-                }
+        Command::Auth { command, json } => match command {
+            None | Some(AuthCommand::Status { json: false }) => {
+                system::auth_status(runtime, json).await
             }
-        }
-        Command::Read {
-            reasoning,
-            debug,
-            path,
-            lines,
-            full,
-            all,
-            r#match,
-            regex,
-            ignore_case,
-            context,
-            limit,
-            offset,
-            chunk,
-            minify,
-        } => {
-            let mut query = json!({"path":path,"reasoning":reasoning,"debug":debug});
-            if let Some(lines) = lines {
-                let Some((start, end)) = lines
-                    .split_once(':')
-                    .and_then(|(a, b)| Some((a.parse::<usize>().ok()?, b.parse::<usize>().ok()?)))
-                else {
-                    emit_error("--lines requires START:END", json_errors);
-                    return 2;
-                };
-                query["startLine"] = json!(start);
-                query["endLine"] = json!(end);
-            }
-            if full {
-                query["fullContent"] = json!(true);
-            }
-            if let Some(pattern) = r#match {
-                query["matchString"] = json!(pattern);
-            }
-            if regex {
-                query["matchStringIsRegex"] = json!(true);
-            }
-            if ignore_case {
-                query["matchStringCaseSensitive"] = json!(false);
-            }
-            if let Some(value) = context {
-                query["contextLines"] = json!(value);
-            }
-            if let Some(value) = limit {
-                query["limit"] = json!(value);
-            }
-            if let Some(value) = offset {
-                query["offset"] = json!(value);
-            }
-            if let Some(value) = chunk {
-                query["chunkType"] = json!(value);
-            }
-            if let Some(value) = minify {
-                query["minify"] = json!(value);
-            }
-            execute(
-                runtime,
-                "localFetch",
-                query,
-                ExecuteOptions {
-                    all,
-                    json_errors,
-                    ..ExecuteOptions::default()
-                },
-            )
-            .await
-        }
-        Command::Fetch {
-            reasoning,
-            debug,
-            r#ref,
-            branch,
-            lines,
-            full,
-            r#match,
-            regex,
-            context,
-            minify,
-            pretty,
-            all,
-        } => {
-            let (owner, repo_name, file_path, branch_final) =
-                match parse_github_reference(&r#ref, branch) {
-                    Ok(parsed) => parsed,
-                    Err(message) => {
-                        emit_error(message, json_errors);
-                        return 2;
-                    }
-                };
-            let mut query = json!({
-                "reasoning": reasoning,
-                "debug": debug,
-                "owner": owner,
-                "repo": repo_name,
-                "path": file_path,
-            });
-            if let Some(b) = branch_final {
-                query["branch"] = json!(b);
-            }
-            if let Some(lines) = lines {
-                let Some((start, end)) = lines
-                    .split_once(':')
-                    .and_then(|(a, b)| Some((a.parse::<usize>().ok()?, b.parse::<usize>().ok()?)))
-                else {
-                    emit_error("--lines requires START:END", json_errors);
-                    return 2;
-                };
-                query["startLine"] = json!(start);
-                query["endLine"] = json!(end);
-            }
-            if full {
-                query["fullContent"] = json!(true);
-            }
-            if let Some(pattern) = r#match {
-                query["matchString"] = json!(pattern);
-            }
-            if regex {
-                query["matchStringIsRegex"] = json!(true);
-            }
-            if let Some(value) = context {
-                query["contextLines"] = json!(value);
-            }
-            if let Some(value) = minify {
-                query["minify"] = json!(value);
-            }
-            // pretty=false → raw content to stdout (mirrors `read`)
-            // pretty=true  → structured indented JSON
-            execute(
-                runtime,
-                "ghGetFileContent",
-                query,
-                ExecuteOptions {
-                    structured: pretty,
-                    compact: pretty,
-                    all,
-                    json_errors,
-                    ..ExecuteOptions::default()
-                },
-            )
-            .await
-        }
-        Command::Files(args) => human::files(runtime, args).await,
-        Command::Tree(args) => human::tree(runtime, args).await,
-        Command::Symbols(args) => human::symbols(runtime, args).await,
-        Command::Ast(args) => human::ast(runtime, args).await,
-        Command::Graph(args) => human::graph(runtime, args).await,
-        Command::Rewrite(args) => human::rewrite(runtime, args).await,
-        Command::Def(args) => human::lsp(runtime, "definition", args).await,
-        Command::Refs(args) => human::lsp(runtime, "references", args).await,
-        Command::Hover(args) => human::hover(runtime, args).await,
-        Command::Callers(args) => human::callers(runtime, args).await,
-        Command::Callees(args) => human::callees(runtime, args).await,
-        Command::TypeDef(args) => human::type_def(runtime, args).await,
-        Command::Implementation(args) => human::implementation(runtime, args).await,
-        Command::Supertypes(args) => human::supertypes(runtime, args).await,
-        Command::Subtypes(args) => human::subtypes(runtime, args).await,
-        Command::Diagnostics(args) => human::lsp(runtime, "diagnostic", args).await,
-        Command::Repos(args) => human::repos(runtime, args).await,
-        Command::Code(args) => human::code_search(runtime, args).await,
-        Command::GhTree(args) => human::gh_tree(runtime, args).await,
-        Command::Clone(args) => human::clone_repo(runtime, args).await,
-        Command::Package(args) => human::package(runtime, args).await,
-        Command::History(args) => human::history(runtime, args).await,
-        Command::Context {
-            full,
-            minimal,
-            json,
-        } => human::context(runtime, json, full, minimal).await,
-        Command::Status {
-            hostname,
-            json,
-            sync,
-        } => human::status(runtime, hostname.as_deref(), json, sync).await,
-        Command::Auth { json } => human::auth_status(runtime, json).await,
-        Command::Login {
-            hostname,
-            force,
-            refresh,
-            json,
-        } => human::login(runtime, hostname.as_deref(), force, refresh, json).await,
-        Command::Logout => human::logout(runtime),
-        Command::Cache { action } => human::cache(runtime, &action),
-        Command::Skill { args } => human::skill(&args),
+            Some(AuthCommand::Status { json: true }) => system::auth_status(runtime, true).await,
+            Some(AuthCommand::Login {
+                hostname,
+                force,
+                refresh,
+                json,
+            }) => system::login(runtime, hostname.as_deref(), force, refresh, json).await,
+            Some(AuthCommand::Logout) => system::logout(runtime),
+        },
+        Command::Skill { args } => system::skill(&args),
         Command::Install {
             ide,
             force,
@@ -739,6 +431,7 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
             backup,
             rollback,
         }),
+        Command::Cache { action } => system::cache(runtime, &action),
         Command::LspServer {
             action,
             names,
@@ -750,285 +443,109 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
     }
 }
 
-/// `next.*` continuation calls are prefilled, self-contained queries. The
-/// HMAC cursor token is per-process and cannot resume in a fresh CLI
-/// invocation, so advertise the query itself as a command the caller can
-/// actually re-run.
-fn continuation_hint(call: &Value) -> String {
-    let tool = call["tool"].as_str().unwrap_or_default();
-    let query = serde_json::to_string(&call["query"]).unwrap_or_default();
-    format!("Continue: octocode tools {tool} '{query}'")
+async fn run_tool(runtime: &ToolRuntime, tool: &str, args: ToolArgs, json_errors: bool) -> u8 {
+    let query_text = match args.query_text() {
+        Ok(text) => text,
+        Err(error) => {
+            emit_error(&error, json_errors);
+            return 2;
+        }
+    };
+    let Some(query_text) = query_text else {
+        eprintln!("Usage: octocode {tool} '<json>'");
+        eprintln!("       octocode {tool} --input <file>");
+        eprintln!("Schema: octocode scheme {tool}");
+        return 2;
+    };
+    let input = match serde_json::from_str::<Value>(&query_text) {
+        Ok(input) => input,
+        Err(parse_error) => {
+            emit_error(&format!("Invalid JSON query: {parse_error}"), json_errors);
+            return 2;
+        }
+    };
+    execute(runtime, tool, input, args.compact).await
 }
 
-#[derive(Default)]
-pub(super) struct ExecuteOptions {
-    structured: bool,
-    compact: bool,
-    all: bool,
-    expected_source: Option<String>,
-    json_errors: bool,
-}
-
-pub(super) async fn execute(
-    runtime: &ToolRuntime,
-    tool: &str,
-    mut input: Value,
-    options: ExecuteOptions,
-) -> u8 {
-    let ExecuteOptions {
-        structured,
-        compact,
-        all,
-        mut expected_source,
-        json_errors,
-    } = options;
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
-    let mut seen = std::collections::HashSet::new();
-    let mut pages = 0;
-    loop {
-        pages += 1;
-        let mut next_query = None;
-        let execution = runtime.execute("cli-1".into(), tool.into(), input);
-        tokio::pin!(execution);
-        let result = tokio::select! {
-            result = &mut execution => result,
-            signal = tokio::signal::ctrl_c() => {
-                if signal.is_ok() { runtime.requests.cancel("cli-1"); let _ = execution.await; return 130; }
-                execution.await
-            }
-        };
-        match result {
-            Ok(outcome) => {
-                if expected_source
-                    .as_ref()
-                    .is_some_and(|expected| outcome.source_digest.as_ref() != Some(expected))
-                {
-                    eprintln!("staleCursor: Source changed during continuation; restart the read.");
-                    return 6;
-                }
-                let value = outcome.structured_content;
-                let mut exit =
-                    match outcome.failure {
-                        Some(octocode_native::runtime::FailureKind::NotFound) => 3,
-                        // The frozen raw-tool CLI classifies the legacy 401 message
-                        // as a tool failure. Human commands use the typed auth code.
-                        Some(octocode_native::runtime::FailureKind::Authentication) => {
-                            if structured { 5 } else { 4 }
-                        }
-                        Some(octocode_native::runtime::FailureKind::Permission) => 4,
-                        Some(octocode_native::runtime::FailureKind::RateLimited) => 7,
-                        Some(octocode_native::runtime::FailureKind::Execution) => 5,
-                        None => 0,
-                    };
-                if structured && !outcome.all_failed {
-                    // Parity with human mode: a bulk result where some rows
-                    // succeeded is not a total failure, but a partial source read
-                    // or an available continuation is still exit 6 (same gate as
-                    // the human `next.*`/incomplete-read path) rather than forcing
-                    // 0. A nested/informational partial with no continuation and no
-                    // source content (e.g. a reasoning tool's coverage `truncated`)
-                    // stays 0.
-                    let has_continuation =
-                        value["results"]
-                            .as_array()
-                            .into_iter()
-                            .flatten()
-                            .any(|row| {
-                                row.pointer("/data/next").is_some()
-                                    || (octocode_native::runtime::response::is_partial(
-                                        &row["data"],
-                                    ) && row["data"]["content"]
-                                        .as_str()
-                                        .is_some_and(|text| !text.is_empty()))
-                            });
-                    exit = if has_continuation { 6 } else { 0 };
-                }
-                if structured {
-                    let code = write_json(&value, compact);
-                    if code != 0 {
-                        return code;
-                    }
-                }
-                for row in value["results"].as_array().into_iter().flatten() {
-                    if row["status"] == "error" && !structured && !json_errors {
-                        let recoverable = matches!(
-                            row["data"]["errorCode"].as_str(),
-                            Some("fileTooLarge" | "fullContentLimit")
-                        ) && row.pointer("/data/next/continue").is_some();
-                        if !(all && recoverable) {
-                            eprintln!("{}", read_error(&row["data"], outcome.failure));
-                        }
-                    }
-                    if !structured {
-                        if let Some(content) = row["data"]["content"].as_str()
-                            && let Err(error) = io::stdout().lock().write_all(content.as_bytes())
-                        {
-                            return if error.kind() == io::ErrorKind::BrokenPipe {
-                                0
-                            } else {
-                                5
-                            };
-                        }
-                        if tool == "localSearch" {
-                            if let Err(error) = search::write_row(row, &value) {
-                                return if error.kind() == io::ErrorKind::BrokenPipe {
-                                    0
-                                } else {
-                                    5
-                                };
-                            }
-                        } else if row["data"]["content"].as_str().is_none() {
-                            let _ = write_json(&row["data"], true);
-                        }
-                        if octocode_native::runtime::response::is_partial(&row["data"]) {
-                            if let Some(call) = row
-                                .pointer("/data/next/continue")
-                                .or_else(|| row.pointer("/data/next/nextMatchPage"))
-                                .or_else(|| row.pointer("/data/next/nextPage"))
-                            {
-                                let digest = outcome.source_digest.as_deref();
-                                if digest.is_none()
+/// Execute one tool call and print its structured JSON result to stdout.
+///
+/// Exit codes mirror the response: 0 success, 6 when the response carries a
+/// re-runnable `next.*` continuation or a partial source read, and the typed
+/// failure codes otherwise.
+pub(super) async fn execute(runtime: &ToolRuntime, tool: &str, input: Value, compact: bool) -> u8 {
+    let execution = runtime.execute("cli-1".into(), tool.into(), input);
+    tokio::pin!(execution);
+    let result = tokio::select! {
+        result = &mut execution => result,
+        signal = tokio::signal::ctrl_c() => {
+            if signal.is_ok() { runtime.requests.cancel("cli-1"); let _ = execution.await; return 130; }
+            execution.await
+        }
+    };
+    match result {
+        Ok(outcome) => {
+            let value = outcome.structured_content;
+            let mut exit = match outcome.failure {
+                Some(octocode_native::runtime::FailureKind::NotFound) => 3,
+                // The raw-tool CLI classifies the legacy 401 message as a tool
+                // failure for parity with the frozen Node CLI contract.
+                Some(octocode_native::runtime::FailureKind::Authentication) => 5,
+                Some(octocode_native::runtime::FailureKind::Permission) => 4,
+                Some(octocode_native::runtime::FailureKind::RateLimited) => 7,
+                Some(octocode_native::runtime::FailureKind::Execution) => 5,
+                None => 0,
+            };
+            if !outcome.all_failed {
+                // A bulk result where some rows succeeded is not a total
+                // failure, but a partial source read or an available
+                // continuation is still exit 6. A nested/informational partial
+                // with no continuation and no source content (e.g. a reasoning
+                // tool's coverage `truncated`) stays 0.
+                let has_continuation =
+                    value["results"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .any(|row| {
+                            row.pointer("/data/next").is_some()
+                                || (octocode_native::runtime::response::is_partial(&row["data"])
                                     && row["data"]["content"]
                                         .as_str()
-                                        .is_some_and(|text| !text.is_empty())
-                                {
-                                    eprintln!("Incomplete read; source snapshot unavailable.");
-                                    return 6;
-                                }
-                                match runtime.continuation_token(call, digest) {
-                                    Ok(token) => {
-                                        if all {
-                                            if pages >= 10_000
-                                                || std::time::Instant::now() >= deadline
-                                            {
-                                                eprintln!(
-                                                    "Read limit reached. {}",
-                                                    continuation_hint(call)
-                                                );
-                                                return 6;
-                                            }
-                                            match runtime.resume_token(&token) {
-                                                Ok((_, query, digest)) => {
-                                                    expected_source = digest;
-                                                    let key = serde_json::to_string(&query)
-                                                        .unwrap_or_default();
-                                                    if !seen.insert(key) {
-                                                        eprintln!(
-                                                            "Continuation repeated; stopping incomplete read."
-                                                        );
-                                                        return 6;
-                                                    }
-                                                    next_query = Some(query);
-                                                }
-                                                Err(error) => {
-                                                    eprintln!("{}: {}", error.code, error.message);
-                                                    return 6;
-                                                }
-                                            }
-                                        } else {
-                                            eprintln!("{}", continuation_hint(call));
-                                        }
-                                    }
-                                    Err(error) => {
-                                        eprintln!(
-                                            "Incomplete read; {}: {}",
-                                            error.code, error.message
-                                        )
-                                    }
-                                }
-                                if exit == 0 {
-                                    exit = 6;
-                                }
-                            } else if row["data"]["content"]
-                                .as_str()
-                                .is_some_and(|text| !text.is_empty())
-                            {
-                                // A truncated source read with no continuation is a
-                                // genuine incomplete read.
-                                eprintln!("Incomplete read; select a smaller source-line range.");
-                                if exit == 0 {
-                                    exit = 6;
-                                }
-                            }
-                            // else: a nested/informational partial with no
-                            // continuation and no top-level source content (e.g. a
-                            // reasoning tool's per-candidate coverage `truncated`) is
-                            // NOT an incomplete source read; do not print the read
-                            // message or force exit 6.
-                        }
-                    }
-                }
-                if tool == "localSearch"
-                    && exit == 0
-                    && !structured
-                    && value["results"]
-                        .as_array()
-                        .is_some_and(|rows| rows.iter().all(|row| row["status"] == "empty"))
-                {
-                    exit = 1;
-                }
-                if let Some(query) = next_query {
-                    input = query;
-                    continue;
-                }
-                return exit;
-            }
-            Err(error) => {
-                if structured {
-                    if let Some(payload) = error.payload {
-                        write_json(&payload, compact);
-                    } else {
-                        // Emit a structured JSON error to stdout so callers can parse it.
-                        // Previously this went to stderr only, causing silent empty output
-                        // (e.g. lspSearch timeout on cold start when stderr is discarded).
-                        let hint = if error.code == "timeout" {
-                            Some(
-                                "Retry -- the first call initialises the language server (~60 s cold start).",
-                            )
-                        } else {
-                            None
-                        };
-                        let mut v = json!({
-                            "error": error.message,
-                            "errorCode": error.code,
+                                        .is_some_and(|text| !text.is_empty()))
                         });
-                        if let Some(h) = hint {
-                            v["hints"] = json!([h]);
-                        }
-                        write_json(&v, compact);
-                    }
-                } else if json_errors {
-                    emit_error(&format!("{}: {}", error.code, error.message), true);
-                } else {
-                    eprintln!("{}: {}", error.code, error.message);
-                    print_error_details(&error);
-                    if error.code == "timeout" {
-                        eprintln!(
-                            "Hint: retry -- the first call initialises the language server (~60 s cold start)."
-                        );
-                    }
-                }
-                return if error.code == "invalidInput" { 2 } else { 5 };
+                exit = if has_continuation { 6 } else { 0 };
             }
+            let code = write_json(&value, compact);
+            if code != 0 {
+                return code;
+            }
+            exit
         }
-    }
-}
-
-/// Surface the per-issue diagnostics carried in an invalidInput payload
-/// (`format_input_error` output) on stderr; previously the CLI printed only
-/// the one-line summary and discarded every path/message/hint detail.
-fn print_error_details(error: &octocode_native::runtime::RuntimeError) {
-    let Some(payload) = error.payload.as_deref() else {
-        return;
-    };
-    for detail in payload
-        .get("details")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-    {
-        eprintln!("  - {detail}");
+        Err(error) => {
+            if let Some(payload) = error.payload {
+                write_json(&payload, compact);
+            } else {
+                // Emit a structured JSON error to stdout so callers can parse it.
+                // Previously this went to stderr only, causing silent empty output
+                // (e.g. lspSearch timeout on cold start when stderr is discarded).
+                let hint = if error.code == "timeout" {
+                    Some(
+                        "Retry -- the first call initialises the language server (~60 s cold start).",
+                    )
+                } else {
+                    None
+                };
+                let mut value = json!({
+                    "error": error.message,
+                    "errorCode": error.code,
+                });
+                if let Some(hint) = hint {
+                    value["hints"] = json!([hint]);
+                }
+                write_json(&value, compact);
+            }
+            if error.code == "invalidInput" { 2 } else { 5 }
+        }
     }
 }
 
@@ -1045,143 +562,5 @@ pub(super) fn write_json(value: &Value, compact: bool) -> u8 {
             Err(_) => 5,
         },
         Err(_) => 5,
-    }
-}
-
-fn read_error(data: &Value, failure: Option<octocode_native::runtime::FailureKind>) -> String {
-    match data["errorCode"].as_str() {
-        Some("fileTooLarge" | "fullContentLimit") => "Read exceeds the single-page limit.".into(),
-        Some("contentSecurityLimit") => {
-            "Selected content is too large to scan safely. Read a smaller line range.".into()
-        }
-        Some("binaryFileUnsupported") => format!(
-            "Binary file cannot be read as text: {}",
-            data["path"].as_str().unwrap_or_default()
-        ),
-        Some("fileAccessFailed")
-            if failure == Some(octocode_native::runtime::FailureKind::NotFound) =>
-        {
-            format!(
-                "File not found: {}",
-                data["path"]
-                    .as_str()
-                    .or_else(|| data["resolvedPath"].as_str())
-                    .unwrap_or_default()
-            )
-        }
-        _ => data["error"]
-            .as_str()
-            .unwrap_or("Tool execution failed")
-            .into(),
-    }
-}
-
-async fn execute_search(runtime: &ToolRuntime, args: search::SearchArgs, json_errors: bool) -> u8 {
-    let queries = match args.queries() {
-        Ok(queries) => queries,
-        Err(error) => {
-            eprintln!("{error}");
-            return 2;
-        }
-    };
-    if args.quiet {
-        // Quiet mode: check each path independently; succeed on first match.
-        let mut any_failure = false;
-        for query in queries {
-            match runtime
-                .execute("cli-quiet".into(), "localSearch".into(), query)
-                .await
-            {
-                Ok(result) => {
-                    if result.structured_content["results"]
-                        .as_array()
-                        .is_some_and(|rows| {
-                            rows.iter().any(|r| {
-                                r["data"]["files"]
-                                    .as_array()
-                                    .is_some_and(|files| !files.is_empty())
-                            })
-                        })
-                    {
-                        return 0;
-                    }
-                    if result.failure.is_some() {
-                        any_failure = true;
-                    }
-                }
-                Err(error) => {
-                    eprintln!("{}: {}", error.code, error.message);
-                    print_error_details(&error);
-                    return if error.code == "invalidInput" { 2 } else { 5 };
-                }
-            }
-        }
-        return if any_failure { 5 } else { 1 };
-    }
-    if queries.len() > 1 {
-        // Multiple paths: each source owns its snapshot and continuation chain.
-        let mut code = 1;
-        for query in queries {
-            let current = execute(
-                runtime,
-                "localSearch",
-                query,
-                ExecuteOptions {
-                    structured: args.json || args.compact,
-                    compact: args.compact,
-                    all: args.all,
-                    json_errors,
-                    ..ExecuteOptions::default()
-                },
-            )
-            .await;
-            if current > 1 {
-                return current;
-            }
-            if current == 0 {
-                code = 0;
-            }
-        }
-        return code;
-    }
-    execute(
-        runtime,
-        "localSearch",
-        queries.into_iter().next().unwrap_or_default(),
-        ExecuteOptions {
-            structured: args.json || args.compact,
-            compact: args.compact,
-            all: args.all,
-            json_errors,
-            ..ExecuteOptions::default()
-        },
-    )
-    .await
-}
-
-#[cfg(test)]
-mod tests {
-    use super::parse_github_reference;
-
-    #[test]
-    fn parses_copied_github_blob_urls() {
-        let (owner, repo, path, branch) = parse_github_reference(
-            "https://github.com/rust-lang/rust/blob/main/README.md#L1",
-            None,
-        )
-        .expect("GitHub URL");
-        assert_eq!(owner, "rust-lang");
-        assert_eq!(repo, "rust");
-        assert_eq!(path, "README.md");
-        assert_eq!(branch.as_deref(), Some("main"));
-    }
-
-    #[test]
-    fn explicit_branch_overrides_reference_branch() {
-        let (_, _, path, branch) =
-            parse_github_reference("rust-lang/rust/README.md@main", Some("stable".into()))
-                .expect("short reference");
-        assert_eq!(path, "README.md");
-        assert_eq!(branch.as_deref(), Some("stable"));
     }
 }

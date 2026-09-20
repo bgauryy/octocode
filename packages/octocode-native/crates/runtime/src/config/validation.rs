@@ -245,7 +245,12 @@ pub fn validate_config(config: &Value) -> ValidationResult {
     validate_storage(ext_storage, "extension.storage", &mut e);
     warn_unknown(ext, "extension", &["storage"], &mut w);
     warn_unknown(ext_storage, "extension.storage", &["mode"], &mut w);
-    warn_unknown(output, "output", &["format", "pagination"], &mut w);
+    warn_unknown(
+        output,
+        "output",
+        &["format", "pagination", "redactEmails"],
+        &mut w,
+    );
     warn_unknown(pag, "output.pagination", &["defaultCharLength"], &mut w);
     // `.octocoderc` is read only from `octocode_home` (never a cloned project),
     // so — like `github.apiUrl` — the Jev credential/endpoint may live here as

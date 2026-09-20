@@ -64,12 +64,18 @@ impl DomainDispatcher {
                         context.deadline,
                         context.cancellation.clone(),
                         self.config.resolved.network.allow_private_registry,
+                        Some(&self.home),
                     )
                     .await
                     {
                         Ok(data) => dispatch::value_result(data),
                         Err(error) => {
-                            dispatch::provider_failure(error.message, error.code, error.hints)
+                            dispatch::provider_failure(
+                                error.message,
+                                error.code,
+                                error.hints,
+                                error.status,
+                            )
                         }
                     },
                 )
@@ -92,6 +98,7 @@ impl DomainDispatcher {
                             message,
                             "lspUnavailable".into(),
                             vec!["Use localSearch or astSearch, then localFetch.".into()],
+                            None,
                         ),
                     },
                 )

@@ -162,6 +162,10 @@ pub struct LspConfig {
 pub struct OutputConfig {
     pub format: String,
     pub pagination: PaginationConfig,
+    /// Opt-in: mask email addresses in GitHub tool outputs (commit authors
+    /// and similar). Off by default — gh outputs are otherwise unchanged.
+    #[serde(rename = "redactEmails", default)]
+    pub redact_emails: bool,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PaginationConfig {
@@ -296,12 +300,22 @@ impl fmt::Debug for ConfigOutput {
     }
 }
 
+/// A dotenv key that was found in a `.env` file but not applied, with the
+/// file it came from. Key name only — never the value.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct EnvSkip {
+    pub key: String,
+    pub source_path: PathBuf,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ConfigInspectorData {
     pub home: PathBuf,
     pub global_env_path: PathBuf,
     pub project_env_path: PathBuf,
     pub loaded_keys: Vec<String>,
+    pub skipped_protected: Vec<EnvSkip>,
+    pub skipped_existing: Vec<EnvSkip>,
     pub global_key_count: usize,
     pub project_key_count: usize,
     pub storage_mode: String,

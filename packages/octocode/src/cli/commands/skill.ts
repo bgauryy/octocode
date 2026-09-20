@@ -53,7 +53,8 @@ ${bold('Remove options')}
 ${bold('Check options')}
   --platform <p>          Check specific platforms only
   --workspace             Also check <cwd>/.agents/skills
-  --fix                   Re-install missing/broken locations automatically
+  --fix                   Re-install missing/broken/stale locations automatically
+  --dry-run               With --fix: preview fixes without writing
   --no-env                Skip env param checks
 
 ${bold('Global flags')}
@@ -147,6 +148,7 @@ export const skillCommand: CLICommand = {
           platform: platformOption(args),
           workspace: getBool(args.options, 'workspace'),
           fix: getBool(args.options, 'fix'),
+          dryRun: getBool(args.options, 'dry-run'),
           noEnv: getBool(args.options, 'no-env'),
           json,
         });

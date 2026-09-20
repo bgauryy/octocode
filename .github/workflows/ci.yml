@@ -62,3 +62,50 @@ jobs:
           name: coverage-reports
           path: packages/*/coverage/
           retention-days: 7
+
+  # Launcher end-to-end: the BUILT npm launcher against a REAL native debug
+  # binary — the exact path `npx octocode` takes. The suite self-skips when
+  # either artifact is missing, so this job builds both and then proves the
+  # skip condition cannot hold before running it.
+  # Windows variant deferred until a runner is provisioned (RFC
+  # post-audit-hardening-2026-09, S12).
+  launcher-e2e:
+    name: Launcher e2e (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/octocode-native
+
+      - name: Build native debug binary
+        run: yarn workspace @octocodeai/octocode-native build:runtime:dev
+
+      - name: Build launcher
+        run: yarn workspace octocode build
+
+      - name: Assert e2e preconditions (suite must not skip)
+        run: |
+          test -f packages/octocode/out/octocode.js
+          test -x packages/octocode-native/npm/linux-x64-gnu/octocode
+
+      - name: Run launcher e2e
+        run: yarn workspace octocode exec vitest run tests/e2e/launcher.e2e.test.ts

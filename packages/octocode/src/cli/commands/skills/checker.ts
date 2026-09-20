@@ -12,12 +12,14 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { contentFreshness, type Freshness } from './freshness.js';
 import { getSkillsHome } from './home.js';
 import {
   ALL_PLATFORMS,
   getPlatformSkillsDir,
   type Platform,
 } from './platforms.js';
+import { getSkill } from './registry.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -29,6 +31,11 @@ export interface CheckedLocation {
   status: LocationStatus;
   /** Resolved symlink target (symlinks only) */
   linkTarget?: string;
+  /**
+   * Content comparison against the bundled skill source (present locations
+   * of bundled skills only; omitted when it cannot be determined).
+   */
+  content?: Freshness;
 }
 
 export interface SkillCheckResult {
@@ -100,12 +107,27 @@ export function checkSkill(
     platformChecks.push(probe(platform, p));
   }
 
-  return {
+  const result: SkillCheckResult = {
     skillName,
     home: probe('home', homePath),
     platforms: platformChecks,
     workspace: probe('workspace', wsPath),
   };
+  annotateFreshness(result);
+  return result;
+}
+
+/** Compare each present location of a bundled skill against its source. */
+function annotateFreshness(result: SkillCheckResult): void {
+  const bundled = getSkill(result.skillName);
+  if (!bundled) return;
+  for (const location of [result.home, ...result.platforms, result.workspace]) {
+    if (location.status !== 'installed' && location.status !== 'linked') {
+      continue;
+    }
+    const freshness = contentFreshness(bundled.dir, location.path);
+    if (freshness) location.content = freshness;
+  }
 }
 
 /** Check a list of skills. */
@@ -139,11 +161,19 @@ export function hasBroken(r: SkillCheckResult): boolean {
   );
 }
 
-/** Overall health: ok | partial | not-installed */
+/** Any present location's content differs from the bundled source. */
+export function hasStale(r: SkillCheckResult): boolean {
+  return [r.home, ...r.platforms, r.workspace].some(
+    location => location.content === 'stale'
+  );
+}
+
+/** Overall health: ok | broken | stale | not-installed */
 export function overallStatus(
   r: SkillCheckResult
-): 'ok' | 'broken' | 'not-installed' {
+): 'ok' | 'broken' | 'stale' | 'not-installed' {
   if (hasBroken(r)) return 'broken';
-  if (isInstalledAtHome(r)) return 'ok';
-  return 'not-installed';
+  if (!isInstalledAtHome(r)) return 'not-installed';
+  if (hasStale(r)) return 'stale';
+  return 'ok';
 }

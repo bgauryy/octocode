@@ -16,31 +16,96 @@ fn exit_code(output: &Output) -> Option<i32> {
 }
 
 #[test]
-fn help_uses_the_octocode_command_name() {
+fn help_lists_only_the_minimal_command_surface() {
     let workspace = Workspace::new();
     let output = workspace.cli().arg("--help").output().expect("help");
     assert!(output.status.success());
     let text = stdout(&output);
     assert!(text.contains("Usage: octocode"), "{text}");
     assert!(text.contains("Native Octocode research tools"), "{text}");
+    // Every tool is a first-class command under its canonical name.
+    for tool in [
+        "localSearch",
+        "localFetch",
+        "astSearch",
+        "astRewrite",
+        "lspSearch",
+        "ghSearch",
+        "ghGetFileContent",
+        "ghSearchHistory",
+        "ghGetHistoryItem",
+        "ghCloneRepo",
+        "artifactSearch",
+        "jev",
+        "scheme",
+        "config",
+        "auth",
+        "skill",
+        "install",
+    ] {
+        assert!(text.contains(&format!("\n  {tool}")), "missing {tool}: {text}");
+    }
+    // Retired wrappers and hidden maintenance commands stay out of the surface.
+    for removed in [
+        "\n  search",
+        "\n  read",
+        "\n  fetch",
+        "\n  tools",
+        "\n  files",
+        "\n  tree",
+        "\n  symbols",
+        "\n  def",
+        "\n  refs",
+        "\n  history",
+        "\n  package",
+        "\n  clone",
+        "\n  repos",
+        "\n  code",
+        "\n  context",
+        "\n  status",
+        "\n  login",
+        "\n  logout",
+        "\n  cache",
+        "\n  lsp-server",
+    ] {
+        assert!(!text.contains(removed), "alias leaked into help: {removed}");
+    }
 }
 
 #[test]
-fn clone_without_owner_repo_prints_usage() {
+fn removed_alias_commands_are_rejected() {
     let workspace = Workspace::new();
-    let output = workspace.cli().arg("clone").output().expect("clone");
-    assert_eq!(output.status.code(), Some(2));
-    assert!(
-        stderr(&output).contains("Usage: octocode clone"),
-        "{:?}",
-        output
-    );
+    for alias in [
+        "search", "read", "fetch", "tools", "files", "tree", "symbols", "ast", "graph",
+        "rewrite", "def", "refs", "hover", "callers", "callees", "type-def", "implementation",
+        "supertypes", "subtypes", "diagnostics", "repos", "code", "gh-tree", "clone", "package",
+        "history", "context", "status", "login", "logout",
+    ] {
+        let output = workspace.cli().arg(alias).output().expect("alias");
+        assert_eq!(exit_code(&output), Some(2), "{alias} must be rejected");
+    }
 }
 
 #[test]
-fn login_and_skill_fail_closed() {
+fn hidden_maintenance_commands_still_work() {
     let workspace = Workspace::new();
-    let login = workspace.cli().arg("login").output().expect("login");
+    let output = workspace
+        .cli()
+        .args(["cache", "status"])
+        .output()
+        .expect("cache status");
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(stdout(&output).contains("cache home:"), "{}", stdout(&output));
+}
+
+#[test]
+fn auth_login_and_skill_fail_closed() {
+    let workspace = Workspace::new();
+    let login = workspace
+        .cli()
+        .args(["auth", "login"])
+        .output()
+        .expect("auth login");
     assert_eq!(login.status.code(), Some(1));
     let skill = workspace
         .cli()
@@ -56,19 +121,72 @@ fn login_and_skill_fail_closed() {
 }
 
 #[test]
-fn status_honors_enterprise_hostname_and_personal_access_token_alias() {
+fn auth_status_honors_personal_access_token_alias() {
+    let workspace = Workspace::new();
+    for argv in [vec!["auth", "--json"], vec!["auth", "status", "--json"]] {
+        let output = workspace
+            .cli()
+            .env("GITHUB_PERSONAL_ACCESS_TOKEN", "fixture-pat")
+            .args(&argv)
+            .output()
+            .expect("auth status");
+        assert!(output.status.success(), "{}", stderr(&output));
+        let value: serde_json::Value = serde_json::from_str(stdout(&output)).expect("auth json");
+        assert_eq!(value["authenticated"], true, "{argv:?}");
+        assert_eq!(value["tokenSource"], "env", "{argv:?}");
+    }
+}
+
+#[test]
+fn config_shows_files_and_keys_but_never_values() {
     let workspace = Workspace::new();
     let output = workspace
         .cli()
-        .env("GITHUB_PERSONAL_ACCESS_TOKEN", "fixture-pat")
-        .args(["status", "--hostname", "ghe.example.com", "--json"])
+        .args(["config", "--json"])
         .output()
-        .expect("status");
+        .expect("config json");
     assert!(output.status.success(), "{}", stderr(&output));
-    let value: serde_json::Value = serde_json::from_str(stdout(&output)).expect("status json");
-    assert_eq!(value["auth"]["hostname"], "ghe.example.com");
-    assert_eq!(value["auth"]["authenticated"], true);
-    assert_eq!(value["auth"]["tokenSource"], "env");
+    let value: serde_json::Value = serde_json::from_str(stdout(&output)).expect("config JSON");
+    assert!(value["configFile"]["path"].is_string());
+    assert!(value["configFile"]["exists"].is_boolean());
+    assert!(value["envFiles"]["global"].is_string());
+    assert!(value["envFiles"]["project"].is_string());
+    assert!(value["envKeys"].is_array());
+
+    let human = workspace.cli().arg("config").output().expect("config");
+    assert!(human.status.success(), "{}", stderr(&human));
+    let text = stdout(&human);
+    assert!(text.contains("config file:"), "{text}");
+    assert!(text.contains("env files:"), "{text}");
+    assert!(
+        text.contains("values are never printed"),
+        "missing no-values note: {text}"
+    );
+}
+
+#[test]
+fn config_check_reports_set_state_without_the_value() {
+    let workspace = Workspace::new();
+    let set = workspace
+        .cli()
+        .env("GITHUB_TOKEN", "fixture-secret")
+        .args(["config", "--check", "GITHUB_TOKEN"])
+        .output()
+        .expect("config check");
+    assert!(set.status.success(), "{}", stderr(&set));
+    assert!(stdout(&set).contains("GITHUB_TOKEN: set"), "{}", stdout(&set));
+    assert!(
+        !stdout(&set).contains("fixture-secret"),
+        "value leaked: {}",
+        stdout(&set)
+    );
+    let unset = workspace
+        .cli()
+        .args(["config", "--check", "OCTOCODE_NOT_A_KEY"])
+        .output()
+        .expect("config check unset");
+    assert_eq!(exit_code(&unset), Some(1));
+    assert!(stdout(&unset).contains("unset"), "{}", stdout(&unset));
 }
 
 #[test]
@@ -182,19 +300,17 @@ fn skill_delegation_guard_breaks_native_recursion() {
 }
 
 #[test]
-fn tools_rejects_non_canonical_fields() {
+fn tool_rejects_non_canonical_fields() {
     let workspace = Workspace::new();
     let output = workspace
         .cli()
         .args([
-            "tools",
             "astSearch",
             r#"{"operation":"syntax","path":"."}"#,
-            "--json",
             "--compact",
         ])
         .output()
-        .expect("tools");
+        .expect("astSearch");
     assert_eq!(output.status.code(), Some(2));
     let combined = format!("{}{}", stdout(&output), stderr(&output));
     // tool rejects invalid operation value — error contains field name or rejection key
@@ -207,340 +323,50 @@ fn tools_rejects_non_canonical_fields() {
 }
 
 #[test]
-fn read_pages_and_continuation_reconstructs_source() {
+fn localfetch_pages_expose_a_rerunnable_continuation() {
     let workspace = Workspace::new();
     let content: String = (1..24).map(|n| format!("line {n}: research\n")).collect();
     let path = workspace.write("source.txt", &content);
+    let query = serde_json::json!({
+        "path": path,
+        "chunkType": "lines",
+        "limit": 3,
+        "reasoning": "Verify paginated native reads."
+    })
+    .to_string();
     let first = workspace
         .cli()
-        .args([
-            "read",
-            path.to_str().expect("utf8"),
-            "--chunk",
-            "lines",
-            "--limit",
-            "3",
-            "--reasoning",
-            "Verify paginated native reads.",
-        ])
+        .args(["localFetch", &query, "--compact"])
         .output()
         .expect("first read");
     assert_eq!(first.status.code(), Some(6), "{}", stderr(&first));
-    // Cursor tokens are per-process, so the CLI advertises the prefilled
-    // continuation query as a directly re-runnable command.
-    let query = stderr(&first)
-        .split("Continue: octocode tools localFetch '")
-        .nth(1)
-        .and_then(|rest| rest.split('\'').next())
-        .expect("continuation query");
-    let mut joined = stdout(&first).to_owned();
+    let value: serde_json::Value = serde_json::from_str(stdout(&first)).expect("page JSON");
+    let first_content = value["results"][0]["data"]["content"]
+        .as_str()
+        .expect("first page content")
+        .to_owned();
+    assert!(content.starts_with(&first_content), "first page prefix");
+    // Cursor tokens are per-process, so the response advertises the prefilled
+    // continuation query as a directly re-runnable call.
+    let call = &value["results"][0]["data"]["next"]["continue"];
+    assert_eq!(call["tool"], "localFetch", "{value}");
+    let continuation = serde_json::to_string(&call["query"]).expect("continuation query");
     let second = workspace
         .cli()
-        .args(["tools", "localFetch", query])
+        .args(["localFetch", &continuation, "--compact"])
         .output()
         .expect("continuation read");
-    joined.push_str(stdout(&second));
+    let value: serde_json::Value = serde_json::from_str(stdout(&second)).expect("page two JSON");
+    let second_content = value["results"][0]["data"]["content"]
+        .as_str()
+        .expect("second page content");
+    let joined = format!("{first_content}{second_content}");
     assert!(content.starts_with(&joined), "joined prefix");
-    assert!(joined.len() > stdout(&first).len(), "second page advanced");
-
-    let drained = workspace
-        .cli()
-        .args([
-            "read",
-            path.to_str().expect("utf8"),
-            "--chunk",
-            "lines",
-            "--limit",
-            "3",
-            "--all",
-            "--reasoning",
-            "Verify complete native reads.",
-        ])
-        .output()
-        .expect("drain");
-    assert!(drained.status.success(), "{}", stderr(&drained));
-    assert_eq!(stdout(&drained), content);
-}
-
-// ── parse-time validation (step 3) ───────────────────────────────────────────
-
-#[test]
-fn graph_invalid_analysis_exits_two() {
-    let workspace = Workspace::new();
-    let output = workspace
-        .cli()
-        .args(["graph", ".", "badanalysis"])
-        .output()
-        .expect("graph invalid analysis");
-    assert_eq!(exit_code(&output), Some(2), "{}", stderr(&output));
-    let combined = format!("{}{}", stdout(&output), stderr(&output));
-    assert!(
-        combined.contains("possible values") || combined.contains("deadCode"),
-        "missing choices hint: {combined}"
-    );
+    assert!(joined.len() > first_content.len(), "second page advanced");
 }
 
 #[test]
-fn history_invalid_operation_exits_two() {
-    let workspace = Workspace::new();
-    let output = workspace
-        .cli()
-        .args(["history", "badop", "--repo", "owner/repo"])
-        .output()
-        .expect("history invalid op");
-    assert_eq!(exit_code(&output), Some(2), "{}", stderr(&output));
-    let combined = format!("{}{}", stdout(&output), stderr(&output));
-    assert!(
-        combined.contains("possible values") || combined.contains("prs"),
-        "missing choices hint: {combined}"
-    );
-}
-
-#[test]
-fn search_missing_required_args_exits_two() {
-    let workspace = Workspace::new();
-    let output = workspace
-        .cli()
-        .arg("search")
-        .output()
-        .expect("search no args");
-    assert_eq!(exit_code(&output), Some(2), "{}", stderr(&output));
-    assert!(
-        stderr(&output).contains("Usage: octocode search"),
-        "{}",
-        stderr(&output)
-    );
-}
-
-// ── fetch command (step: remote symmetry) ───────────────────────────────────
-
-#[test]
-fn fetch_help_shows_ref_and_branch_flags() {
-    let workspace = Workspace::new();
-    let output = workspace
-        .cli()
-        .args(["fetch", "--help"])
-        .output()
-        .expect("fetch --help");
-    assert!(output.status.success(), "{}", stderr(&output));
-    let text = stdout(&output);
-    assert!(
-        text.contains("REF") || text.contains("ref"),
-        "missing ref positional: {text}"
-    );
-    assert!(text.contains("--branch"), "missing --branch flag: {text}");
-    assert!(text.contains("--lines"), "missing --lines flag: {text}");
-    assert!(text.contains("--pretty"), "missing --pretty flag: {text}");
-}
-
-#[test]
-fn fetch_missing_ref_exits_two() {
-    let workspace = Workspace::new();
-    let output = workspace
-        .cli()
-        .arg("fetch")
-        .output()
-        .expect("fetch no args");
-    assert_eq!(exit_code(&output), Some(2), "{:?}", output);
-    let combined = format!("{}{}", stdout(&output), stderr(&output));
-    assert!(
-        combined.contains("Usage: octocode fetch") || combined.contains("REF"),
-        "missing usage hint: {combined}"
-    );
-}
-
-#[test]
-fn fetch_bad_lines_format_exits_two() {
-    let workspace = Workspace::new();
-    let output = workspace
-        .cli()
-        .args(["fetch", "owner/repo/README.md", "--lines", "badformat"])
-        .output()
-        .expect("fetch bad lines");
-    // Exits 2 (invalid input) or 5 (tool error from network) depending on whether
-    // --lines is validated before the network call. We accept either.
-    let code = exit_code(&output).unwrap_or(0);
-    assert!(code != 0, "expected non-zero exit for bad --lines");
-}
-
-// ── help-text content (steps 4 & 7) ──────────────────────────────────────────
-
-#[test]
-fn files_help_shows_path_and_names_descriptions() {
-    let workspace = Workspace::new();
-    let output = workspace
-        .cli()
-        .args(["files", "--help"])
-        .output()
-        .expect("files --help");
-    assert!(output.status.success(), "{}", stderr(&output));
-    let text = stdout(&output);
-    assert!(
-        text.contains("Local file or directory root"),
-        "missing path description: {text}"
-    );
-    assert!(
-        text.contains("names") || text.contains("glob"),
-        "missing names hint: {text}"
-    );
-}
-
-#[test]
-fn graph_help_shows_valid_analysis_values() {
-    let workspace = Workspace::new();
-    let output = workspace
-        .cli()
-        .args(["graph", "--help"])
-        .output()
-        .expect("graph --help");
-    assert!(output.status.success(), "{}", stderr(&output));
-    let text = stdout(&output);
-    assert!(text.contains("deadCode"), "missing deadCode: {text}");
-    assert!(text.contains("cycles"), "missing cycles: {text}");
-    assert!(
-        text.contains("reachability"),
-        "missing reachability: {text}"
-    );
-}
-
-#[test]
-fn pretty_flag_appears_in_subcommand_help() {
-    let workspace = Workspace::new();
-    let output = workspace
-        .cli()
-        .args(["tree", "--help"])
-        .output()
-        .expect("tree --help");
-    assert!(output.status.success(), "{}", stderr(&output));
-    let text = stdout(&output);
-    assert!(
-        text.contains("--pretty"),
-        "--pretty flag not in help: {text}"
-    );
-}
-
-// ── New command coverage ─────────────────────────────────────────────────────
-
-#[test]
-fn ast_without_lang_on_dir_exits_two_with_hint() {
-    let workspace = Workspace::new();
-    let output = workspace
-        .cli()
-        .args([
-            "ast",
-            ".",
-            "fn $NAME",
-            "--reasoning",
-            "Exercise language validation.",
-        ])
-        .output()
-        .expect("ast");
-    assert_eq!(exit_code(&output), Some(2));
-    let text = format!("{}{}", stdout(&output), stderr(&output));
-    assert!(
-        text.contains("--lang"),
-        "expected --lang hint in error: {text}"
-    );
-}
-
-#[test]
-fn ast_help_shows_lang_flag() {
-    let workspace = Workspace::new();
-    let output = workspace
-        .cli()
-        .args(["ast", "--help"])
-        .output()
-        .expect("ast --help");
-    assert!(output.status.success(), "{}", stderr(&output));
-    let text = stdout(&output);
-    assert!(
-        text.contains("--lang"),
-        "missing --lang in ast help: {text}"
-    );
-}
-
-#[test]
-fn rewrite_missing_lang_emits_hint() {
-    let workspace = Workspace::new();
-    let output = workspace
-        .cli()
-        .args([
-            "rewrite",
-            ".",
-            "fn $N",
-            "--to",
-            "fn ${N}_v2",
-            "--reasoning",
-            "Exercise rewrite language validation.",
-        ])
-        .output()
-        .expect("rewrite");
-    assert_eq!(exit_code(&output), Some(2));
-    let text = format!("{}{}", stdout(&output), stderr(&output));
-    assert!(
-        text.contains("--lang"),
-        "expected --lang hint in rewrite error: {text}"
-    );
-}
-
-#[test]
-fn history_pr_without_number_exits_two() {
-    let workspace = Workspace::new();
-    let output = workspace
-        .cli()
-        .args([
-            "history",
-            "pr",
-            "--repo",
-            "owner/repo",
-            "--reasoning",
-            "Exercise pull-request identity validation.",
-        ])
-        .output()
-        .expect("history pr");
-    assert_eq!(exit_code(&output), Some(2));
-    let text = format!("{}{}", stdout(&output), stderr(&output));
-    assert!(text.contains("--number"), "expected --number hint: {text}");
-}
-
-#[test]
-fn history_commit_without_ref_exits_two() {
-    let workspace = Workspace::new();
-    let output = workspace
-        .cli()
-        .args([
-            "history",
-            "commit",
-            "--repo",
-            "owner/repo",
-            "--reasoning",
-            "Exercise commit identity validation.",
-        ])
-        .output()
-        .expect("history commit");
-    assert_eq!(exit_code(&output), Some(2));
-    let text = format!("{}{}", stdout(&output), stderr(&output));
-    assert!(text.contains("--ref"), "expected --ref hint: {text}");
-}
-
-#[test]
-fn direct_tool_dispatch_bad_json_exits_two() {
-    let workspace = Workspace::new();
-    let output = workspace
-        .cli()
-        .args(["localSearch", "not-valid-json"])
-        .output()
-        .expect("localSearch bad json");
-    assert_eq!(exit_code(&output), Some(2));
-    let text = format!("{}{}", stdout(&output), stderr(&output));
-    assert!(
-        text.contains("Invalid JSON") || text.contains("Usage:"),
-        "expected json error: {text}"
-    );
-}
-
-#[test]
-fn direct_tool_dispatch_no_args_exits_two_with_usage() {
+fn tool_without_query_exits_two_with_scheme_hint() {
     let workspace = Workspace::new();
     let output = workspace
         .cli()
@@ -550,171 +376,61 @@ fn direct_tool_dispatch_no_args_exits_two_with_usage() {
     assert_eq!(exit_code(&output), Some(2));
     let text = format!("{}{}", stdout(&output), stderr(&output));
     assert!(
-        text.contains("Usage:") || text.contains("--scheme"),
-        "expected usage hint: {text}"
+        text.contains("Usage:") && text.contains("scheme astSearch"),
+        "expected usage + scheme hint: {text}"
     );
 }
 
 #[test]
-fn tools_with_name_only_shows_usage_hint() {
+fn tool_with_bad_json_exits_two() {
     let workspace = Workspace::new();
     let output = workspace
         .cli()
-        .args(["tools", "localSearch"])
+        .args(["localSearch", "not-valid-json"])
         .output()
-        .expect("tools localSearch");
+        .expect("localSearch bad json");
     assert_eq!(exit_code(&output), Some(2));
     let text = format!("{}{}", stdout(&output), stderr(&output));
-    assert!(
-        text.contains("localSearch"),
-        "expected tool name in hint: {text}"
-    );
+    assert!(text.contains("Invalid JSON"), "expected json error: {text}");
 }
 
 #[test]
-fn callers_help_is_reachable() {
+fn tool_reads_query_from_input_file() {
     let workspace = Workspace::new();
-    let output = workspace
-        .cli()
-        .args(["callers", "--help"])
-        .output()
-        .expect("callers --help");
-    assert!(output.status.success(), "{}", stderr(&output));
-    assert!(stdout(&output).contains("callers") || stdout(&output).contains("caller"));
-}
-
-#[test]
-fn callees_help_is_reachable() {
-    let workspace = Workspace::new();
-    let output = workspace
-        .cli()
-        .args(["callees", "--help"])
-        .output()
-        .expect("callees --help");
-    assert!(output.status.success(), "{}", stderr(&output));
-}
-
-#[test]
-fn hover_help_is_reachable() {
-    let workspace = Workspace::new();
-    let output = workspace
-        .cli()
-        .args(["hover", "--help"])
-        .output()
-        .expect("hover --help");
-    assert!(output.status.success(), "{}", stderr(&output));
-}
-
-#[test]
-fn type_def_help_is_reachable() {
-    let workspace = Workspace::new();
-    let output = workspace
-        .cli()
-        .args(["type-def", "--help"])
-        .output()
-        .expect("type-def --help");
-    assert!(output.status.success(), "{}", stderr(&output));
-}
-
-#[test]
-fn implementation_help_is_reachable() {
-    let workspace = Workspace::new();
-    let output = workspace
-        .cli()
-        .args(["implementation", "--help"])
-        .output()
-        .expect("implementation --help");
-    assert!(output.status.success(), "{}", stderr(&output));
-}
-
-#[test]
-fn code_help_shows_lang_and_path_flags() {
-    let workspace = Workspace::new();
-    let output = workspace
-        .cli()
-        .args(["code", "--help"])
-        .output()
-        .expect("code --help");
-    assert!(output.status.success(), "{}", stderr(&output));
-    let text = stdout(&output);
-    assert!(text.contains("--lang"), "missing --lang: {text}");
-    assert!(
-        text.contains("--owner") || text.contains("owner"),
-        "missing --owner: {text}"
-    );
-}
-
-#[test]
-fn gh_tree_without_owner_repo_exits_two() {
-    let workspace = Workspace::new();
-    let output = workspace
-        .cli()
-        .args(["gh-tree", "notaslashedrepo"])
-        .output()
-        .expect("gh-tree bad repo");
-    assert_eq!(exit_code(&output), Some(2));
-    let text = format!("{}{}", stdout(&output), stderr(&output));
-    assert!(
-        text.contains("Usage:") || text.contains("OWNER/REPO"),
-        "expected usage: {text}"
-    );
-}
-
-#[test]
-fn schema_alias_prints_the_complete_tool_contract() {
-    let workspace = Workspace::new();
-    let output = workspace
-        .cli()
-        .args(["tools", "localSearch", "--scheme", "--compact"])
-        .output()
-        .expect("schema alias");
-    assert!(output.status.success(), "{}", stderr(&output));
-    let value: serde_json::Value = serde_json::from_str(stdout(&output)).expect("contract JSON");
-    assert_eq!(value["name"], "localSearch");
-    assert!(value["inputSchema"].is_object());
-    assert!(value["outputSchema"].is_object());
-}
-
-#[test]
-fn history_compare_requires_both_refs() {
-    let workspace = Workspace::new();
+    let source = workspace.write("input-source.rs", "fn from_file() {}\n");
+    let query = serde_json::json!({
+        "path": source,
+        "reasoning": "Verify --input file queries."
+    })
+    .to_string();
+    let query_file = workspace.write("query.json", &query);
     let output = workspace
         .cli()
         .args([
-            "history",
-            "compare",
-            "--repo",
-            "owner/repo",
-            "--base",
-            "main",
+            "localFetch",
+            "--input",
+            query_file.to_str().expect("utf8"),
+            "--compact",
         ])
         .output()
-        .expect("history compare");
-    assert_eq!(exit_code(&output), Some(2));
-    assert!(stderr(&output).contains("--head"), "{}", stderr(&output));
-}
-
-#[test]
-fn tools_catalog_lists_enabled_count() {
-    let workspace = Workspace::new();
-    let output = workspace.cli().args(["tools"]).output().expect("tools");
-    // tools exits 0 for catalog listing
+        .expect("localFetch --input");
     assert!(output.status.success(), "{}", stderr(&output));
-    let text = stdout(&output);
+    let value: serde_json::Value = serde_json::from_str(stdout(&output)).expect("tool JSON");
     assert!(
-        text.contains("enabled") || text.contains("Tools"),
-        "expected tool listing: {text}"
+        value["results"][0]["data"]["content"]
+            .as_str()
+            .is_some_and(|content| content.contains("from_file"))
     );
 }
 
 #[test]
-fn tools_json_emits_compact_discovery_catalog() {
+fn scheme_lists_the_compact_discovery_catalog() {
     let workspace = Workspace::new();
     let output = workspace
         .cli()
-        .args(["tools", "--json"])
+        .args(["scheme", "--compact"])
         .output()
-        .expect("tools json");
+        .expect("scheme");
     assert!(output.status.success(), "{}", stderr(&output));
     assert!(
         output.stdout.len() < 20_000,
@@ -727,10 +443,8 @@ fn tools_json_emits_compact_discovery_catalog() {
         value["toolCount"],
         value["tools"].as_array().expect("tools array").len()
     );
-    assert_eq!(
-        value["commands"]["schema"],
-        "tools <name> --scheme --json --compact"
-    );
+    assert_eq!(value["commands"]["schema"], "scheme <name>");
+    assert_eq!(value["commands"]["run"], "<name> '<json>'");
     let first = &value["tools"][0];
     assert!(first["name"].is_string());
     assert!(first["fields"].is_string());
@@ -744,7 +458,7 @@ fn tools_json_emits_compact_discovery_catalog() {
     if clone_tool["availability"]["enabled"] == false {
         assert_eq!(
             clone_tool["availability"]["envVar"],
-            "OCTOCODE_ENABLE_CLONE|OCTOCODE_STORAGE_MODE"
+            "ENABLE_CLONE|OCTOCODE_STORAGE_MODE"
         );
     }
     assert!(first.get("inputSchema").is_none());
@@ -752,7 +466,62 @@ fn tools_json_emits_compact_discovery_catalog() {
 }
 
 #[test]
-fn tools_accepts_bulk_queries_like_the_node_cli() {
+fn scheme_prints_the_complete_tool_contract() {
+    let workspace = Workspace::new();
+    let output = workspace
+        .cli()
+        .args(["scheme", "localSearch", "--compact"])
+        .output()
+        .expect("scheme localSearch");
+    assert!(output.status.success(), "{}", stderr(&output));
+    let value: serde_json::Value = serde_json::from_str(stdout(&output)).expect("contract JSON");
+    assert_eq!(value["name"], "localSearch");
+    assert!(value["inputSchema"].is_object());
+    assert!(value["outputSchema"].is_object());
+}
+
+#[test]
+fn scheme_unknown_tool_exits_two_and_lists_known_names() {
+    let workspace = Workspace::new();
+    let output = workspace
+        .cli()
+        .args(["scheme", "notATool"])
+        .output()
+        .expect("scheme unknown");
+    assert_eq!(exit_code(&output), Some(2));
+    let text = stderr(&output);
+    assert!(text.contains("Unknown tool: notATool"), "{text}");
+    assert!(text.contains("localSearch"), "known names missing: {text}");
+}
+
+#[test]
+fn scheme_query_view_selects_a_single_union_branch() {
+    let workspace = Workspace::new();
+    let output = workspace
+        .cli()
+        .args([
+            "scheme",
+            "ghSearch",
+            "--view",
+            "query",
+            "--select",
+            "operation=code",
+            "--compact",
+        ])
+        .output()
+        .expect("scheme select");
+    assert!(output.status.success(), "{}", stderr(&output));
+    let value: serde_json::Value = serde_json::from_str(stdout(&output)).expect("schema JSON");
+    assert_eq!(value["name"], "ghSearch");
+    assert_eq!(
+        value["querySchema"]["oneOf"].as_array().map(Vec::len),
+        Some(1)
+    );
+    assert!(value.get("outputSchema").is_none());
+}
+
+#[test]
+fn tool_accepts_bulk_queries() {
     let workspace = Workspace::new();
     let first = workspace.write("query-one.rs", "fn query_one() {}\n");
     let second = workspace.write("query-two.rs", "fn query_two() {}\n");
@@ -773,9 +542,9 @@ fn tools_accepts_bulk_queries_like_the_node_cli() {
     .to_string();
     let output = workspace
         .cli()
-        .args(["tools", "localFetch", "--queries", &query, "--compact"])
+        .args(["localFetch", &query, "--compact"])
         .output()
-        .expect("tools --queries");
+        .expect("bulk queries");
     assert!(output.status.success(), "{}", stderr(&output));
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).expect("tool JSON");
     let rows = value["results"].as_array().expect("bulk rows");
@@ -795,74 +564,73 @@ fn tools_accepts_bulk_queries_like_the_node_cli() {
 }
 
 #[test]
-fn search_emits_one_selected_output_mode() {
+fn localsearch_emits_structured_results() {
     let workspace = Workspace::new();
     let path = workspace.write("search.rs", "fn needle() {}\n");
-    let path = path.to_str().expect("utf8");
-
-    let human = workspace
+    let query = serde_json::json!({
+        "searchText": "needle",
+        "path": path,
+        "resultView": "matchOnly",
+        "reasoning": "Verify structured lexical output."
+    })
+    .to_string();
+    let output = workspace
         .cli()
-        .args([
-            "search",
-            "needle",
-            path,
-            "--fixed-strings",
-            "--reasoning",
-            "Verify human lexical output.",
-        ])
+        .args(["localSearch", &query, "--compact"])
         .output()
-        .expect("human search");
-    assert!(human.status.success(), "{}", stderr(&human));
-    assert!(
-        stdout(&human).contains("search.rs:1:"),
-        "{}",
-        stdout(&human)
-    );
-    assert!(
-        !stdout(&human).contains("\"searchEngine\""),
-        "human output must not append JSON: {}",
-        stdout(&human)
-    );
-
-    let json = workspace
-        .cli()
-        .args([
-            "search",
-            "needle",
-            path,
-            "--fixed-strings",
-            "--json",
-            "--reasoning",
-            "Verify structured lexical output.",
-        ])
-        .output()
-        .expect("json search");
-    assert!(json.status.success(), "{}", stderr(&json));
-    let value: serde_json::Value = serde_json::from_str(stdout(&json)).expect("one JSON document");
+        .expect("localSearch");
+    assert!(output.status.success(), "{}", stderr(&output));
+    let value: serde_json::Value = serde_json::from_str(stdout(&output)).expect("one JSON document");
     assert_eq!(value["results"][0]["data"]["searchEngine"], "rg");
 }
 
 #[test]
-fn rewrite_apply_previews_then_applies_with_hash_guards() {
+fn astrewrite_previews_then_applies_with_hash_guards() {
     let workspace = Workspace::new();
     let path = workspace.write("rewrite.rs", "pub const VALUE: u32 = 2;\n");
+    let mut query = serde_json::json!({
+        "path": path,
+        "langType": "rust",
+        "ruleKind": "pattern",
+        "pattern": "pub const $NAME: u32 = $VALUE;",
+        "rewrite": "pub const $NAME: u64 = $VALUE;",
+        "reasoning": "Verify guarded native rewrite application."
+    });
+    let preview = workspace
+        .cli()
+        .args(["astRewrite", &query.to_string(), "--compact"])
+        .output()
+        .expect("astRewrite preview");
+    assert!(
+        preview.status.success(),
+        "{}{}",
+        stdout(&preview),
+        stderr(&preview)
+    );
+    let value: serde_json::Value = serde_json::from_str(stdout(&preview)).expect("preview JSON");
+    let data = &value["results"][0]["data"];
+    assert_eq!(data["mode"], "preview", "{data}");
+    // Apply requires expectedHashes copied from the preview (path → beforeHash).
+    let hashes: serde_json::Map<String, serde_json::Value> = data["files"]
+        .as_array()
+        .expect("preview files")
+        .iter()
+        .map(|file| {
+            (
+                file["path"].as_str().expect("file path").to_owned(),
+                file["beforeHash"].clone(),
+            )
+        })
+        .collect();
+    query["apply"] = serde_json::json!(true);
+    query["expectedHashes"] = serde_json::Value::Object(hashes);
+    query["snapshot"] = data["snapshot"].clone();
     let output = workspace
         .cli()
         .env("ENABLE_AST_REWRITE_APPLY", "true")
-        .args([
-            "rewrite",
-            path.to_str().expect("utf8"),
-            "pub const $NAME: u32 = $VALUE;",
-            "--to",
-            "pub const $NAME: u64 = $VALUE;",
-            "--lang",
-            "rust",
-            "--apply",
-            "--reasoning",
-            "Verify guarded native rewrite application.",
-        ])
+        .args(["astRewrite", &query.to_string(), "--compact"])
         .output()
-        .expect("rewrite apply");
+        .expect("astRewrite apply");
     assert!(
         output.status.success(),
         "{}{}",
@@ -879,20 +647,19 @@ fn rewrite_apply_previews_then_applies_with_hash_guards() {
 fn json_errors_do_not_leak_duplicate_stderr() {
     let workspace = Workspace::new();
     let missing = workspace.workspace.join("missing.rs");
+    let query = serde_json::json!({
+        "path": missing,
+        "reasoning": "Verify native read errors."
+    })
+    .to_string();
     let output = workspace
         .cli()
-        .args([
-            "--json-errors",
-            "read",
-            missing.to_str().expect("utf8"),
-            "--reasoning",
-            "Verify native read errors.",
-        ])
+        .args(["--json-errors", "localFetch", &query, "--compact"])
         .output()
         .expect("missing read");
     assert_eq!(exit_code(&output), Some(3));
     let value: serde_json::Value = serde_json::from_str(stdout(&output)).expect("JSON error");
-    assert_eq!(value["errorCode"], "fileAccessFailed");
+    assert_eq!(value["results"][0]["data"]["errorCode"], "fileAccessFailed");
     assert!(
         stderr(&output).is_empty(),
         "duplicate stderr: {}",

@@ -181,7 +181,7 @@ pub fn validate_response(request: &Value, response: &Value) -> Result<(), JevErr
                     .map(|(index, level)| (index.to_string(), level.clone()))
                     .collect();
                 validate_distribution(answer, &criteria, &format!("answers.{id}"))?;
-                answer
+                let score = answer
                     .get("score")
                     .and_then(Value::as_f64)
                     .filter(|score| {
@@ -192,7 +192,24 @@ pub fn validate_response(request: &Value, response: &Value) -> Result<(), JevErr
                     .ok_or_else(|| {
                         JevError::response(format!("answers.{id}.score is outside the rubric"))
                     })?;
-                // Rounded provider values need not satisfy an exact arithmetic identity.
+                let expected = (0..levels.len()).try_fold(0.0, |sum, index| {
+                    probability(
+                        &answer["probabilities"][index.to_string()],
+                        &format!("answers.{id}.probabilities.{index}"),
+                    )
+                    .map(|value| sum + index as f64 * value)
+                })?;
+                // Compatibility allowance for the two-decimal values in provider examples:
+                // each rounded probability contributes at most index * 0.005 error,
+                // plus 0.005 for the rounded score. This rejects contradictions without
+                // imposing exact equality or replacing the provider's score.
+                let index_sum = levels.len() * levels.len().saturating_sub(1) / 2;
+                let tolerance = 0.005 * (1 + index_sum) as f64 + 1e-9;
+                if (score - expected).abs() > tolerance {
+                    return Err(JevError::response(format!(
+                        "answers.{id}.score disagrees with its probabilities"
+                    )));
+                }
                 if answer.get("legend").and_then(Value::as_object) != Some(&criteria) {
                     return Err(JevError::response(format!(
                         "answers.{id}.legend differs from requested criteria"
@@ -229,6 +246,41 @@ mod tests {
     #[test]
     fn validates_all_primitives_without_interpreting_ambiguous_judgments() {
         validate_response(&request(), &response()).unwrap();
+    }
+
+    #[test]
+    fn score_agrees_with_distribution_allowing_two_decimal_rounding() {
+        for (levels, probabilities, score, valid) in [
+            (3, vec![0.21, 0.66, 0.13], 0.92, true),
+            (3, vec![0.21, 0.66, 0.13], 0.93, true),
+            (3, vec![0.21, 0.66, 0.13], 0.96, false),
+            (3, vec![1.0, 0.0, 0.0], 2.0, false),
+            (2, vec![0.25, 0.75], 0.76, true),
+            (2, vec![0.25, 0.75], 0.77, false),
+            (10, vec![0.10; 10], 4.725, true),
+            (10, vec![0.10; 10], 4.74, false),
+        ] {
+            let criteria: Vec<_> = (0..levels).map(|i| json!(format!("Level {i}"))).collect();
+            let legend: serde_json::Map<String, Value> = criteria
+                .iter()
+                .enumerate()
+                .map(|(i, v)| (i.to_string(), v.clone()))
+                .collect();
+            let probabilities: serde_json::Map<String, Value> = probabilities
+                .iter()
+                .enumerate()
+                .map(|(i, p)| (i.to_string(), json!(p)))
+                .collect();
+            let request = json!({"questions":{"q":{"type":"score","criteria":criteria}}});
+            let response = json!({"model":"m","usage":{"input_tokens":1,"output_tokens":1},
+                "answers":{"q":{"type":"score","score":score,"legend":legend,
+                    "confidence":0.4,"probabilities":probabilities}}});
+            assert_eq!(
+                validate_response(&request, &response).is_ok(),
+                valid,
+                "levels={levels}, score={score}"
+            );
+        }
     }
 
     #[test]

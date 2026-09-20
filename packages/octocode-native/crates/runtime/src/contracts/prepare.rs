@@ -129,7 +129,7 @@ mod tests {
 
     #[test]
     fn pure_jev_preparation_preserves_exactly_the_supplied_values() {
-        let query = json!({"context": {"value": {"goal": "source data", "debug": true}}, "question": {
+        let query = json!({"reasoning":"Decide the next evidence read.","context": {"value": {"goal": "source data", "debug": true}}, "question": {
             "type": "noul", "instructions": "Assess supplied state"
         }});
         for input in [

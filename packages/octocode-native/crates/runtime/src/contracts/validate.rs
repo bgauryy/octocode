@@ -1156,8 +1156,8 @@ mod tests {
     use serde_json::{Value, json};
 
     #[test]
-    fn pure_jev_accepts_only_context_and_question_without_metadata_defaults() {
-        let query = json!({"context": {"value": {"observation": true}}, "question": {
+    fn pure_jev_requires_reasoning_without_other_metadata_defaults() {
+        let query = json!({"reasoning":"Decide the next evidence read.","context": {"value": {"observation": true}}, "question": {
             "type": "noul", "instructions": "Assess supplied state"
         }});
         let prepared = prepare_and_validate("jev", query.clone(), PrepareOptions::default())
@@ -1166,7 +1166,13 @@ mod tests {
         let validated =
             validate("jev", json!({"queries": [query.clone()]})).expect("pure Jev envelope");
         assert_eq!(validated["queries"][0], query);
-        for field in ["model", "reasoning", "goal", "debug", "route", "sources"] {
+        let mut padded = query.clone();
+        padded["reasoning"] = json!("  Decide the next evidence read.  ");
+        assert_eq!(
+            prepare_and_validate("jev", padded, PrepareOptions::default()).unwrap(),
+            query
+        );
+        for field in ["model", "goal", "debug", "route", "sources"] {
             let mut invalid = query.clone();
             invalid[field] = json!("not part of the pure protocol");
             assert!(
@@ -1174,7 +1180,7 @@ mod tests {
                 "{field}"
             );
         }
-        for field in ["context", "question"] {
+        for field in ["reasoning", "context", "question"] {
             let mut invalid = query.clone();
             invalid.as_object_mut().expect("query object").remove(field);
             assert!(

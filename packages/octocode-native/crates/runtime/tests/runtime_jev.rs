@@ -10,10 +10,10 @@ fn question() -> Value {
     json!({"type":"noul","instructions":"Assess only the supplied state"})
 }
 fn query() -> Value {
-    json!({"context":{"value":{"observations":["A cancellation guard precedes the write."]}},"question":question()})
+    json!({"reasoning":"Decide the next evidence read.","context":{"value":{"observations":["A cancellation guard precedes the write."]}},"question":question()})
 }
 fn hidden(tool: &str, query: Value) -> Value {
-    json!({"context":{"tool":tool,"query":query},"question":question()})
+    json!({"reasoning":"Decide the next evidence read.","context":{"tool":tool,"query":query},"question":question()})
 }
 fn response() -> Value {
     json!({"model":"jev-test","answers":{"answer":{"type":"noul","noul":0.81}},"usage":{"input_tokens":100,"output_tokens":4}})
@@ -126,8 +126,8 @@ async fn old_aliases_multiple_questions_and_effectful_context_fail_before_transp
     let runtime = workspace.runtime(&settings(&server));
     for (i, input) in [
         json!({"state":null,"questions":{"q":question()}}),
-        json!({"context":{"value":null},"questions":{"q":question()}}),
-        json!({"context":{"value":null},"question":[question(),question()]}),
+        json!({"reasoning":"Decide the next evidence read.","context":{"value":null},"questions":{"q":question()}}),
+        json!({"reasoning":"Decide the next evidence read.","context":{"value":null},"question":[question(),question()]}),
         hidden("jev", query()),
         hidden("astRewrite", json!({})),
         hidden("ghCloneRepo", json!({})),
@@ -144,7 +144,6 @@ async fn old_aliases_multiple_questions_and_effectful_context_fail_before_transp
     }
     for field in [
         "model",
-        "reasoning",
         "goal",
         "debug",
         "route",
@@ -157,6 +156,55 @@ async fn old_aliases_multiple_questions_and_effectful_context_fail_before_transp
         assert!(
             runtime
                 .execute(format!("field-{field}"), "jev".into(), value)
+                .await
+                .is_err()
+        );
+    }
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn missing_or_blank_reasoning_rejects_before_context_and_provider() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(500))
+        .expect(0)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(500))
+        .expect(0)
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let mut config = settings(&server);
+    config.push(("GITHUB_API_URL", format!("{}/api/v3", server.uri())));
+    let runtime = workspace.runtime(&config);
+    for (index, reasoning) in [
+        None,
+        Some(Value::Null),
+        Some(json!(7)),
+        Some(json!("")),
+        Some(json!(" \t\n")),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut value = hidden(
+            "ghGetFileContent",
+            json!({"owner":"a","repo":"b","path":"a.rs","branch":"main","reasoning":"Read"}),
+        );
+        match reasoning {
+            Some(reasoning) => {
+                value["reasoning"] = reasoning;
+            }
+            None => {
+                value.as_object_mut().unwrap().remove("reasoning");
+            }
+        }
+        assert!(
+            runtime
+                .execute(format!("invalid-reasoning-{index}"), "jev".into(), value)
                 .await
                 .is_err()
         );
@@ -263,7 +311,7 @@ async fn oversized_context_rejects_before_reader_or_provider() {
         .execute(
             "oversized-value".into(),
             "jev".into(),
-            json!({"context":{"value":large},"question":question()}),
+            json!({"reasoning":"Decide the next evidence read.","context":{"value":large},"question":question()}),
         )
         .await
         .unwrap();
@@ -299,7 +347,7 @@ async fn ordinary_tool_state_is_sanitized_and_hidden_receipt_preserves_rubric_id
         .execute(
             "hidden".into(),
             "jev".into(),
-            json!({"context":{"tool":"localFetch","query":inner},"question":question}),
+            json!({"reasoning":"Decide the next evidence read.","context":{"tool":"localFetch","query":inner},"question":question}),
         )
         .await
         .unwrap();
@@ -363,39 +411,321 @@ async fn partial_context_returns_executable_continuation_without_automatic_pagin
 }
 
 #[tokio::test]
-async fn batch_rows_repeat_context_and_execute_independently_in_order() {
+async fn shared_state_batches_reduce_posts_and_attribute_usage_once() {
     let server = MockServer::start().await;
-    Mock::given(method("POST")).respond_with(|request:&Request| {
-        let request:Value=serde_json::from_slice(&request.body).unwrap();
-        let probability=if request["state"]=="first" {0.2}else{0.8};
-        ResponseTemplate::new(200).set_body_json(json!({"model":"jev-test","answers":{"answer":{"type":"noul","noul":probability}},"usage":{"input_tokens":1,"output_tokens":1}}))
-    }).expect(3).mount(&server).await;
+    Mock::given(method("POST"))
+        .respond_with(|request: &Request| {
+            let request: Value = serde_json::from_slice(&request.body).unwrap();
+            let answers: serde_json::Map<String, Value> = request["questions"]
+                .as_object()
+                .unwrap()
+                .keys()
+                .map(|id| (id.clone(), json!({"type":"noul","noul":0.8})))
+                .collect();
+            ResponseTemplate::new(200).set_body_json(json!({"model":"jev-test","answers":answers,
+            "usage":{"input_tokens":100,"output_tokens":3}}))
+        })
+        .expect(4)
+        .mount(&server)
+        .await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&settings(&server));
-    let rows: Vec<Value> = ["first", "second", "second"]
-        .into_iter()
-        .map(|value| json!({"context":{"value":value},"question":question()}))
-        .collect();
+    for (name, states, expected_posts) in [
+        (
+            "same",
+            vec![
+                json!({"a":1,"b":2}),
+                json!({"b":2,"a":1}),
+                json!({"a":1,"b":2}),
+            ],
+            1,
+        ),
+        (
+            "distinct",
+            vec![json!("first"), json!("second"), json!("third")],
+            3,
+        ),
+    ] {
+        let before = server.received_requests().await.unwrap().len();
+        let queries: Vec<_> = states
+            .into_iter()
+            .enumerate()
+            .map(|(index, state)| json!({"reasoning":format!("TRACE_ONLY_RATIONALE_{index}"),"context":{"value":state},"question":question()}))
+            .collect();
+        let out = runtime
+            .execute(name.into(), "jev".into(), json!({"queries":queries}))
+            .await
+            .unwrap();
+        let rows = out.structured_content["results"].as_array().unwrap();
+        assert_eq!(rows.len(), 3);
+        assert_eq!(
+            server.received_requests().await.unwrap().len() - before,
+            expected_posts
+        );
+        let tokens: u64 = rows
+            .iter()
+            .map(|row| row["data"]["usage"]["input_tokens"].as_u64().unwrap())
+            .sum();
+        assert_eq!(tokens, 100 * expected_posts as u64);
+        for (index, row) in rows.iter().enumerate() {
+            assert_eq!(row["index"], index);
+            assert_eq!(row["data"]["answer"]["noul"], 0.8);
+            if name == "same" {
+                assert_eq!(
+                    row["data"]["usageAttribution"],
+                    json!({"ownerIndex":0,"sharedWith":[0,1,2]})
+                );
+            } else {
+                assert!(row["data"].get("usageAttribution").is_none());
+            }
+        }
+    }
+    for request in server.received_requests().await.unwrap() {
+        let body: Value = serde_json::from_slice(&request.body).unwrap();
+        assert!(body.get("reasoning").is_none());
+        assert!(!body.to_string().contains("TRACE_ONLY_RATIONALE"));
+    }
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn shared_state_isolates_context_and_answer_failures_in_original_order() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(|request: &Request| {
+            let request: Value = serde_json::from_slice(&request.body).unwrap();
+            assert_eq!(request["questions"].as_object().unwrap().len(), 2);
+            assert!(request["questions"].get("answer_1").is_none());
+            ResponseTemplate::new(200).set_body_json(json!({"model":"jev-test",
+            "answers":{"answer_0":{"type":"noul","noul":2},"answer_2":{"type":"noul","noul":0.7}},
+            "usage":{"input_tokens":19,"output_tokens":4}}))
+        })
+        .expect(1)
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&settings(&server));
+    let missing = hidden(
+        "localFetch",
+        json!({"path":workspace.workspace.join("missing.rs"),"reasoning":"Read"}),
+    );
     let out = runtime
-        .execute("batch".into(), "jev".into(), json!({"queries":rows}))
+        .execute(
+            "mixed".into(),
+            "jev".into(),
+            json!({"queries":[query(),missing,query()]}),
+        )
         .await
         .unwrap();
     let rows = out.structured_content["results"].as_array().unwrap();
-    assert_eq!(rows.len(), 3);
-    for (i, probability) in [0.2, 0.8, 0.8].into_iter().enumerate() {
-        assert_eq!(rows[i]["index"], i);
-        assert_eq!(rows[i]["data"]["answer"]["noul"], probability);
-    }
-    let requests = server.received_requests().await.unwrap();
-    let states: Vec<Value> = requests
-        .iter()
-        .map(|r| serde_json::from_slice::<Value>(&r.body).unwrap()["state"].clone())
-        .collect();
+    assert_eq!(rows[0]["status"], "error");
+    assert_eq!(rows[0]["data"]["errorCode"], "invalidJevResponse");
+    assert_eq!(rows[1]["status"], "error");
+    assert_eq!(rows[2]["data"]["answer"]["noul"], 0.7);
     assert_eq!(
-        states,
-        vec![json!("first"), json!("second"), json!("second")]
+        rows[2]["data"]["usage"],
+        json!({"input_tokens":19,"output_tokens":4})
+    );
+    assert_eq!(
+        rows[2]["data"]["usageAttribution"],
+        json!({"ownerIndex":2,"sharedWith":[0,2]})
     );
     runtime.close().await;
+}
+
+#[tokio::test]
+async fn batching_headroom_keeps_oversize_groups_as_singletons() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(|request: &Request| {
+            let request: Value = serde_json::from_slice(&request.body).unwrap();
+            assert_eq!(request["questions"].as_object().unwrap().len(), 1);
+            assert!(request["questions"].get("answer").is_some());
+            ResponseTemplate::new(200).set_body_json(response())
+        })
+        .expect(2)
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&settings(&server));
+    let query = json!({"reasoning":"Decide the next evidence read.","context":{"value":{"chunks":vec!["x".repeat(8000);4]}},"question":question()});
+    let out = runtime
+        .execute(
+            "headroom".into(),
+            "jev".into(),
+            json!({"queries":[query,query]}),
+        )
+        .await
+        .unwrap();
+    for row in out.structured_content["results"].as_array().unwrap() {
+        assert!(
+            row.get("status").is_none() || row["status"] != "error",
+            "{row}"
+        );
+        assert!(row["data"].get("usageAttribution").is_none());
+        assert_eq!(row["data"]["usage"]["input_tokens"], 100);
+    }
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn repeated_tool_contexts_capture_fresh_results_before_grouping() {
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    let server = MockServer::start().await;
+    let reads = Arc::new(AtomicUsize::new(0));
+    let counter = reads.clone();
+    let revisions = AtomicUsize::new(1);
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/commits/main"))
+        .respond_with(move |_: &Request| {
+            let revision = revisions.fetch_add(1, Ordering::SeqCst);
+            ResponseTemplate::new(200).set_body_json(json!({"sha":format!("{revision:040x}")}))
+        })
+        .expect(3)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/contents/source.rs"))
+        .respond_with(move |_: &Request| {
+            let revision = counter.fetch_add(1, Ordering::SeqCst);
+            ResponseTemplate::new(200).set_body_json(json!({"type":"file","encoding":"base64",
+                "content":STANDARD.encode(format!("captured revision {revision}\n"))}))
+        })
+        .expect(3)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/commits"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+        .expect(3)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .respond_with(|request: &Request| {
+            let request: Value = serde_json::from_slice(&request.body).unwrap();
+            assert_eq!(request["questions"].as_object().unwrap().len(), 1);
+            ResponseTemplate::new(200).set_body_json(response())
+        })
+        .expect(3)
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let mut config = settings(&server);
+    config.push(("GITHUB_API_URL", format!("{}/api/v3", server.uri())));
+    let runtime = workspace.runtime(&config);
+    let query = hidden(
+        "ghGetFileContent",
+        json!({"owner":"a","repo":"b","path":"source.rs","branch":"main","reasoning":"Capture current evidence"}),
+    );
+    let out = runtime
+        .execute(
+            "fresh".into(),
+            "jev".into(),
+            json!({"queries":[query,query,query]}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        reads.load(Ordering::SeqCst),
+        3,
+        "{}",
+        out.structured_content
+    );
+    let rows = out.structured_content["results"].as_array().unwrap();
+    assert!(rows.iter().all(|row| row["data"]["answer"]["noul"] == 0.81));
+    assert_ne!(
+        rows[0]["data"]["context"]["resultHash"],
+        rows[1]["data"]["context"]["resultHash"]
+    );
+    assert_ne!(
+        rows[1]["data"]["context"]["resultHash"],
+        rows[2]["data"]["context"]["resultHash"]
+    );
+    let requests = server.received_requests().await.unwrap();
+    let routes: Vec<_> = requests
+        .iter()
+        .map(|request| (request.method.as_str(), request.url.path()))
+        .collect();
+    let mut expected = Vec::new();
+    for _ in 0..3 {
+        expected.extend([
+            ("GET", "/api/v3/repos/a/b/commits/main"),
+            ("GET", "/api/v3/repos/a/b/contents/source.rs"),
+            ("GET", "/api/v3/repos/a/b/commits"),
+        ]);
+    }
+    expected.extend([("POST", "/v1/systemone"); 3]);
+    assert_eq!(routes, expected);
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn cancellation_preserves_usage_from_completed_provider_groups() {
+    use std::{
+        sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        },
+        time::Duration,
+    };
+    let server = MockServer::start().await;
+    let workspace = Workspace::new();
+    let mut config = settings(&server);
+    config.push(("OCTOCODE_ENABLE_STATS", "true".into()));
+    config.push(("OCTOCODE_STORAGE_MODE", "persistent".into()));
+    let runtime = Arc::new(workspace.runtime(&config));
+    let cancelling_runtime = runtime.clone();
+    let requests = AtomicUsize::new(0);
+    Mock::given(method("POST"))
+        .respond_with(move |request: &Request| {
+            let request: Value = serde_json::from_slice(&request.body).unwrap();
+            let ordinal = requests.fetch_add(1, Ordering::SeqCst);
+            if ordinal == 1 {
+                assert_eq!(request["state"], "pending");
+                assert_eq!(request["questions"].as_object().unwrap().len(), 1);
+                assert!(cancelling_runtime.requests.cancel("cancel-after-group"));
+                return ResponseTemplate::new(200)
+                    .set_body_json(response())
+                    .set_delay(Duration::from_secs(30));
+            }
+            assert_eq!(ordinal, 0);
+            assert_eq!(request["questions"].as_object().unwrap().len(), 2);
+            let answers: serde_json::Map<String, Value> = request["questions"]
+                .as_object()
+                .unwrap()
+                .keys()
+                .map(|id| (id.clone(), json!({"type":"noul","noul":0.8})))
+                .collect();
+            ResponseTemplate::new(200).set_body_json(json!({"model":"jev-test","answers":answers,
+                "usage":{"input_tokens":37,"output_tokens":5}}))
+        })
+        .expect(2)
+        .mount(&server)
+        .await;
+    let queries: Vec<_> = ["complete", "complete", "pending"]
+        .into_iter()
+        .map(|state| json!({"reasoning":"Decide the next evidence read.","context":{"value":state},"question":question()}))
+        .collect();
+    let outcome = runtime
+        .execute(
+            "cancel-after-group".into(),
+            "jev".into(),
+            json!({"queries":queries}),
+        )
+        .await;
+    assert_eq!(outcome.unwrap_err().code, "cancelled");
+    runtime.close().await;
+    let stats: Value =
+        serde_json::from_str(&std::fs::read_to_string(workspace.home.join("stats.json")).unwrap())
+            .unwrap();
+    assert_eq!(
+        stats["stats"]["jev"],
+        json!({"calls":1,"input_tokens":37,"output_tokens":5})
+    );
 }
 
 #[tokio::test]

@@ -1,12 +1,13 @@
 //! Request lifetime and bounded scheduling shared by both native interfaces.
 
-mod cursor;
+pub(crate) mod cursor;
 mod dispatch;
 mod domain_dispatch;
 mod engine;
 pub mod error;
 mod github;
 mod github_cache;
+mod jev_batch;
 mod jev_context;
 mod lifecycle;
 mod maintenance;

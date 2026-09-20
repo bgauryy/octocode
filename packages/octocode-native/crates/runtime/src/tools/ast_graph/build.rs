@@ -713,6 +713,81 @@ fn resolve(
     }
     candidates.into_iter().find(|x| known.contains(x))
 }
+/// The directory holding the importer's child modules: `foo/` for
+/// `foo/mod.rs` (and crate roots), `foo/bar/` for `foo/bar.rs`.
+fn rust_module_child_dir(importer: &str) -> String {
+    let name = importer.rsplit_once('/').map_or(importer, |x| x.1);
+    if matches!(name, "mod.rs" | "lib.rs" | "main.rs") {
+        dirname(importer).to_owned()
+    } else {
+        importer.strip_suffix(".rs").unwrap_or(importer).to_owned()
+    }
+}
+
+/// The importer's crate-root directory: the nearest ancestor holding a
+/// `lib.rs`/`main.rs` in the scanned set, else the nearest ancestor named
+/// `src` (a multi-crate workspace has many `src/` roots — anchoring to the
+/// importer's own is what makes `crate::` resolvable outside a single-crate
+/// scan), else the scan-relative `src`.
+fn rust_crate_root(importer: &str, known: &BTreeSet<String>) -> String {
+    let mut dir = dirname(importer);
+    loop {
+        if known.contains(&join(dir, "lib.rs")) || known.contains(&join(dir, "main.rs")) {
+            return dir.to_owned();
+        }
+        let parent = dirname(dir);
+        if parent == dir || dir == "." {
+            break;
+        }
+        dir = parent;
+    }
+    let mut dir = dirname(importer);
+    loop {
+        if dir == "src" || dir.ends_with("/src") {
+            return dir.to_owned();
+        }
+        let parent = dirname(dir);
+        if parent == dir || dir == "." {
+            break;
+        }
+        dir = parent;
+    }
+    "src".into()
+}
+
+/// Map module-path segments under `base` to a file: trailing segments may be
+/// items (types, functions) or globs rather than modules, so take the
+/// longest prefix that names a real file; with no resolvable segment the
+/// path denotes the base module itself (`use super::*;`).
+fn resolve_rust_module_prefix(
+    base: &str,
+    segments: &[&str],
+    known: &BTreeSet<String>,
+) -> Option<String> {
+    let module_len = segments
+        .iter()
+        .take_while(|segment| !segment.is_empty() && !segment.contains(['{', '*']))
+        .count();
+    (1..=module_len)
+        .rev()
+        .find_map(|len| {
+            let stem = join(base, &segments[..len].join("/"));
+            [format!("{stem}.rs"), join(&stem, "mod.rs")]
+                .into_iter()
+                .find(|path| known.contains(path))
+        })
+        .or_else(|| {
+            [
+                format!("{base}.rs"),
+                join(base, "mod.rs"),
+                join(base, "lib.rs"),
+                join(base, "main.rs"),
+            ]
+            .into_iter()
+            .find(|path| known.contains(path))
+        })
+}
+
 fn resolve_rust(
     spec: &str,
     importer: &str,
@@ -720,63 +795,62 @@ fn resolve_rust(
     cargo_crates: &BTreeMap<String, String>,
 ) -> Option<String> {
     let trimmed = spec.trim_end_matches(';');
-    let mut parts = trimmed.split("::");
-    let first = parts.next().unwrap_or("");
+    let segments = trimmed.split("::").collect::<Vec<_>>();
+    let first = *segments.first().unwrap_or(&"");
     if !matches!(first, "crate" | "self" | "super" | "")
         && let Some(src) = cargo_crates.get(first)
     {
-        let rest = parts.collect::<Vec<_>>().join("/");
+        let rest = &segments[1..];
         let base = dirname(src);
-        let stem = if rest.is_empty() {
-            src.clone()
-        } else {
-            join(base, &rest)
-        };
-        return [stem.clone(), format!("{stem}.rs"), join(&stem, "mod.rs")]
-            .into_iter()
-            .find(|path| known.contains(path));
+        if rest.is_empty() {
+            return known.contains(src).then(|| src.clone());
+        }
+        return resolve_rust_module_prefix(base, rest, known)
+            .or_else(|| known.contains(src).then(|| src.clone()));
     }
-    let clean = spec
-        .trim_start_matches("crate::")
-        .trim_start_matches("self::")
-        .replace("::", "/");
-    let base = if spec.starts_with("self::") {
-        dirname(importer).to_owned()
-    } else {
-        "src".into()
-    };
-    let stem = join(&base, &clean);
-    [format!("{stem}.rs"), join(&stem, "mod.rs")]
-        .into_iter()
-        .find(|x| known.contains(x))
-        .or_else(|| {
+    match first {
+        "crate" => {
+            let base = rust_crate_root(importer, known);
+            resolve_rust_module_prefix(&base, &segments[1..], known)
+        }
+        "self" => {
+            let base = rust_module_child_dir(importer);
+            resolve_rust_module_prefix(&base, &segments[1..], known)
+        }
+        "super" => {
+            // Each `super` climbs one module level from the importer's own
+            // module directory.
+            let mut base = rust_module_child_dir(importer);
+            let mut index = 0;
+            while segments.get(index) == Some(&"super") {
+                base = dirname(&base).to_owned();
+                index += 1;
+            }
+            let resolved = resolve_rust_module_prefix(&base, &segments[index..], known);
+            resolved
+        }
+        // Leading `::` names an external crate absolutely (2015-style);
+        // nothing to link inside this scan unless cargo metadata knows it.
+        "" => segments
+            .get(1)
+            .and_then(|name| cargo_crates.get(*name))
+            .filter(|src| known.contains(*src))
+            .cloned(),
+        _ => {
             // Uniform-path fallback: a bare `use foo::…` can name a module the
             // importer itself declares (`mod foo;`), whose file lives in the
             // importer's child-module directory. Only look there — matching
             // the last path segment anywhere in the tree fabricates edges
             // between unrelated same-named modules.
-            let first = trimmed.split("::").next().unwrap_or("");
-            if matches!(first, "crate" | "self" | "super" | "") {
-                return None;
-            }
-            let child_dir = if importer.ends_with("/mod.rs")
-                || importer.ends_with("/lib.rs")
-                || importer.ends_with("/main.rs")
-            {
-                dirname(importer).to_owned()
-            } else {
-                importer.strip_suffix(".rs").unwrap_or(importer).to_owned()
-            };
-            let segments = trimmed.split("::").collect::<Vec<_>>();
-            // Trailing segments may be items rather than modules; take the
-            // longest module-path prefix that maps to a real file.
+            let child_dir = rust_module_child_dir(importer);
             (1..=segments.len()).rev().find_map(|len| {
                 let stem = join(&child_dir, &segments[..len].join("/"));
                 [format!("{stem}.rs"), join(&stem, "mod.rs")]
                     .into_iter()
                     .find(|path| known.contains(path))
             })
-        })
+        }
+    }
 }
 fn resolve_python(
     spec: &str,
@@ -1057,6 +1131,94 @@ fn export_target(package: &serde_json::Value) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn rust_internal_paths_resolve_across_workspace_crates() {
+        let known = [
+            "crates/runtime/src/lib.rs",
+            "crates/runtime/src/config/mod.rs",
+            "crates/runtime/src/config/types.rs",
+            "crates/runtime/src/tools/mod.rs",
+            "crates/runtime/src/tools/local_fetch.rs",
+            "crates/engine/src/lib.rs",
+            "crates/engine/src/lsp.rs",
+        ]
+        .iter()
+        .map(|path| (*path).to_owned())
+        .collect::<std::collections::BTreeSet<_>>();
+        let crates = std::collections::BTreeMap::new();
+        // `crate::` anchors to the importer's own crate root, not a global
+        // `src/` — the multi-crate workspace case.
+        assert_eq!(
+            super::resolve_rust(
+                "crate::config::types::ResolvedConfig;",
+                "crates/runtime/src/tools/local_fetch.rs",
+                &known,
+                &crates
+            ),
+            Some("crates/runtime/src/config/types.rs".to_owned())
+        );
+        // Trailing item segments fall back to the longest module prefix.
+        assert_eq!(
+            super::resolve_rust(
+                "crate::config::PROTECTED_KEYS;",
+                "crates/runtime/src/tools/local_fetch.rs",
+                &known,
+                &crates
+            ),
+            Some("crates/runtime/src/config/mod.rs".to_owned())
+        );
+        // `super::` climbs one module level per segment; an item-only tail
+        // resolves to the parent module file.
+        assert_eq!(
+            super::resolve_rust(
+                "super::PROTECTED_KEYS;",
+                "crates/runtime/src/config/types.rs",
+                &known,
+                &crates
+            ),
+            Some("crates/runtime/src/config/mod.rs".to_owned())
+        );
+        assert_eq!(
+            super::resolve_rust(
+                "super::super::tools::local_fetch::Row;",
+                "crates/runtime/src/config/types.rs",
+                &known,
+                &crates
+            ),
+            Some("crates/runtime/src/tools/local_fetch.rs".to_owned())
+        );
+        // `use super::*;` denotes the parent module file itself.
+        assert_eq!(
+            super::resolve_rust(
+                "super::*;",
+                "crates/runtime/src/config/types.rs",
+                &known,
+                &crates
+            ),
+            Some("crates/runtime/src/config/mod.rs".to_owned())
+        );
+        // Grouped imports resolve to the deepest real module prefix.
+        assert_eq!(
+            super::resolve_rust(
+                "crate::config::{types, validation};",
+                "crates/runtime/src/tools/local_fetch.rs",
+                &known,
+                &crates
+            ),
+            Some("crates/runtime/src/config/mod.rs".to_owned())
+        );
+        // Importers in a different crate anchor to their own root.
+        assert_eq!(
+            super::resolve_rust(
+                "crate::lsp::Pool;",
+                "crates/engine/src/lsp.rs",
+                &known,
+                &crates
+            ),
+            Some("crates/engine/src/lsp.rs".to_owned())
+        );
+    }
+
     #[test]
     fn rust_uniform_path_fallback_only_links_the_importers_child_modules() {
         let known = ["src/a.rs", "src/thing.rs", "src/b.rs", "src/b/child.rs"]

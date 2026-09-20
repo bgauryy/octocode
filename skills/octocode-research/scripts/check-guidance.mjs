@@ -51,7 +51,21 @@ const cases = [
     required: [/authorization[^\n]*(?:persists|carry|already)/i, /checkpoint[^\n]*(?:budget|time)|budget[^\n]*checkpoint/i],
     forbidden: [/Ask before public\/broad contracts/, /third unrelated search space/] },
   { name: 'conditional Jev crossroad is executable and evidence-bound', file: 'SKILL.md',
-    required: [/MODEL[^\n]*JEV\?[^\n]*SEARCH\/READ/, /JEV\?[^\n]*conditional[^\n]*(?:never|not)[^\n]*mandatory/i, /avoided work or a changed next action/, /local files and pinned upstream checkouts/, /discover paths before reading bodies/i, /explicit.*state, questions/, /widen only insufficient (?:evidence|spans)/, /octocode tools jev/, /cheap deciding checks directly/, /never automatically chain/, /probabilities, not missing facts/],
+    required: [
+      /MODEL[^\n]*JEV\?[^\n]*SEARCH\/READ/,
+      /JEV\?[^\n]*conditional[^\n]*(?:never|not)[^\n]*mandatory/i,
+      /avoided work or a changed next action/,
+      /one `\{reasoning, context, question\}` per query/,
+      /context: \{tool, query\}/,
+      /context: \{value\}/,
+      /Retrieved bodies stay hidden/,
+      /Partial evidence cannot prove global absence/,
+      /widen only insufficient (?:evidence|spans)/,
+      /octocode tools jev/,
+      /cheap deciding checks directly/,
+      /never automatically chain/,
+      /typed judgments, not missing facts/,
+    ],
     forbidden: [/4\+ unread candidates/, /2\+ pending yes\/no/, /context --compact/] },
   { name: 'primary sources and untrusted content', file: 'references/workflow-external.md',
     required: [/primary[^\n]*(?:documentation|docs)/i, /untrusted[^\n]*(?:instructions|data)/i] },
@@ -71,6 +85,21 @@ const checks = cases.map(item => ({ name: item.name, file: item.file, pass: acce
 const selfChecks = args.includes('--self-test')
   ? cases.map(item => ({ name: `${item.name}: missing guidance rejected`, pass: !accepts(item, '') }))
   : [];
+if (args.includes('--self-test')) {
+  const jev = cases.find(item => item.name.startsWith('conditional Jev crossroad'));
+  const source = corpus.get(jev.file);
+  for (const [name, removed] of [
+    ['current query contract', 'one `{reasoning, context, question}` per query'],
+    ['unread context branch', 'context: {tool, query}'],
+    ['hidden-body boundary', 'Retrieved bodies stay hidden'],
+    ['partial evidence boundary', 'Partial evidence cannot prove global absence'],
+    ['cheap exact-check bypass', 'cheap deciding checks directly'],
+    ['typed judgment limitation', 'typed judgments, not missing facts'],
+  ]) {
+    const changed = source.replace(removed, '');
+    selfChecks.push({ name: `Jev: missing ${name} rejected`, pass: changed !== source && !accepts(jev, changed) });
+  }
+}
 const all = [...checks, ...selfChecks];
 const failed = all.filter(check => !check.pass);
 const report = { pass: failed.length === 0, passed: all.length - failed.length, total: all.length, checks: all };

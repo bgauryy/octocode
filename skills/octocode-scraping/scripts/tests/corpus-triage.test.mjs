@@ -51,6 +51,7 @@ if (args[0] === 'tools' && args.includes('--scheme')) { console.log('{"name":"je
 const input = args[args.indexOf('--input') + 1];
 const req = JSON.parse(readFileSync(input, 'utf8'));
 const results = req.queries.map((q, index) => {
+  if (typeof q.reasoning !== 'string' || !q.reasoning.trim()) throw new Error('Missing nonblank Jev reasoning');
   const p = q.context.query.path;
   let choice = 'relevant', confidence = 0.95;
   if (/page-002/.test(p)) { choice = 'unrelated'; confidence = 0.9; }
@@ -85,6 +86,8 @@ test('dry-run composes valid jev batches; dedups URLs; routes thin pages without
   const req = JSON.parse(readFileSync(reqPath, 'utf8'));
   assert.ok(req.queries.length >= 1 && req.queries.length <= 5);
   for (const q of req.queries) {
+    assert.equal(typeof q.reasoning, 'string');
+    assert.match(q.reasoning, /whether.*read/i);
     assert.equal(q.context.tool, 'localFetch');
     assert.ok(q.context.query.path);
     assert.ok(q.context.query.reasoning);

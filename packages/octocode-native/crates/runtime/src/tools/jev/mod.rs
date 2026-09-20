@@ -1,4 +1,5 @@
 //! One typed judgment over an explicit value or bounded ordinary tool result.
+pub(crate) mod batch;
 pub(crate) mod transport;
 
 use self::transport::{JevProviderError, check_budget, endpoint, post};
@@ -47,8 +48,17 @@ pub(crate) fn preflight(query: &Value) -> Result<(), JevProviderError> {
     let query = query
         .as_object()
         .ok_or_else(|| request_error("Query must be an object."))?;
-    if query.len() != 2 || !query.contains_key("context") || !query.contains_key("question") {
-        return Err(request_error("Supply only context and one typed question."));
+    if query.len() != 3
+        || !query.contains_key("context")
+        || !query.contains_key("question")
+        || !query
+            .get("reasoning")
+            .and_then(Value::as_str)
+            .is_some_and(|value| !value.trim().is_empty())
+    {
+        return Err(request_error(
+            "Supply nonblank reasoning, context and one typed question.",
+        ));
     }
     validate_question(&query["question"])?;
     let context = query["context"]
@@ -153,7 +163,20 @@ pub async fn execute(
             hints: vec!["Inspect provider compatibility before using the answer.".into()],
         }
     })?;
-    let answer = &response["answers"]["answer"];
+    project(
+        question,
+        &response["answers"]["answer"],
+        model,
+        &response["usage"],
+    )
+}
+
+fn project(
+    question: &Value,
+    answer: &Value,
+    model: &str,
+    usage: &Value,
+) -> Result<Value, JevProviderError> {
     let answer = match question["type"].as_str() {
         Some("noul") => json!({"type":"noul","noul":answer["noul"]}),
         Some("choice") => {
@@ -172,8 +195,8 @@ pub async fn execute(
         }
         _ => return Err(request_error("Invalid question type.")),
     };
-    Ok(json!({"model":request["model"],"answer":answer,"usage":{
-        "input_tokens":response["usage"]["input_tokens"],"output_tokens":response["usage"]["output_tokens"]
+    Ok(json!({"model":model,"answer":answer,"usage":{
+        "input_tokens":usage["input_tokens"],"output_tokens":usage["output_tokens"]
     }}))
 }
 
@@ -196,6 +219,22 @@ mod tests {
         )
     }
     #[test]
+    fn reasoning_is_required_metadata_and_never_provider_evidence() {
+        let mut query = json!({"reasoning":"  Decide whether to inspect the retry branch.  ","context":{"value":{"observation":true}},"question":question()});
+        preflight(&query).expect("reasoning metadata accepted");
+        assert_eq!(
+            prepare(&query["context"]["value"], &query["question"], "m").unwrap(),
+            json!({"model":"m","state":{"observation":true},"questions":{"answer":question()}})
+        );
+        for invalid in [Value::Null, json!(7), json!(""), json!(" \t\n")] {
+            query["reasoning"] = invalid;
+            assert!(preflight(&query).is_err());
+        }
+        query.as_object_mut().unwrap().remove("reasoning");
+        assert!(preflight(&query).is_err());
+    }
+
+    #[test]
     fn one_question_and_explicit_context_replace_all_legacy_shapes() {
         for value in [
             Value::Null,
@@ -203,7 +242,7 @@ mod tests {
             json!({"value":"one"}),
             json!("literal"),
         ] {
-            assert!(preflight(&json!({"context":{"value":value},"question":question()})).is_ok());
+            assert!(preflight(&json!({"reasoning":"Decide the next evidence read.","context":{"value":value},"question":question()})).is_ok());
         }
         for tool in [
             "localFetch",
@@ -217,26 +256,25 @@ mod tests {
             "artifactSearch",
         ] {
             assert!(
-                preflight(&json!({"context":{"tool":tool,"query":{}},"question":question()}))
+                preflight(&json!({"reasoning":"Decide the next evidence read.","context":{"tool":tool,"query":{}},"question":question()}))
                     .is_ok()
             );
         }
         for tool in ["jev", "astRewrite", "ghCloneRepo", "unknown"] {
             assert!(
-                preflight(&json!({"context":{"tool":tool,"query":{}},"question":question()}))
+                preflight(&json!({"reasoning":"Decide the next evidence read.","context":{"tool":tool,"query":{}},"question":question()}))
                     .is_err()
             );
         }
         for invalid in [
             json!({"state":null,"questions":{"q":question()}}),
-            json!({"context":{"value":true},"question":question()}),
-            json!({"context":{"value":null,"tool":"localFetch","query":{}},"question":question()}),
-            json!({"context":{"value":null},"questions":{"q":question()}}),
+            json!({"reasoning":"Decide the next evidence read.","context":{"value":true},"question":question()}),
+            json!({"reasoning":"Decide the next evidence read.","context":{"value":null,"tool":"localFetch","query":{}},"question":question()}),
+            json!({"reasoning":"Decide the next evidence read.","context":{"value":null},"questions":{"q":question()}}),
         ] {
             assert!(preflight(&invalid).is_err());
         }
-        let oversized =
-            json!({"context":{"value":"x".repeat(MAX_REQUEST_BYTES)},"question":question()});
+        let oversized = json!({"reasoning":"Decide the next evidence read.","context":{"value":"x".repeat(MAX_REQUEST_BYTES)},"question":question()});
         assert!(preflight(&oversized).is_err());
     }
     #[test]

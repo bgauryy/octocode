@@ -3,6 +3,7 @@
     "id": "jev.curated-1",
     "tool": "jev",
     "input": {
+      "reasoning": "Decide whether to investigate a workaround path.",
       "context": {
         "value": {
           "report": "Export fails; CSV is a workaround."
@@ -17,6 +18,7 @@
     "normalized": {
       "queries": [
         {
+          "reasoning": "Decide whether to investigate a workaround path.",
           "context": {
             "value": {
               "report": "Export fails; CSV is a workaround."
@@ -34,6 +36,7 @@
     "id": "jev.curated-2",
     "tool": "jev",
     "input": {
+      "reasoning": "Decide whether the save boundary needs a direct evidence read.",
       "context": {
         "tool": "localFetch",
         "query": {
@@ -55,6 +58,7 @@
     "normalized": {
       "queries": [
         {
+          "reasoning": "Decide whether the save boundary needs a direct evidence read.",
           "context": {
             "tool": "localFetch",
             "query": {

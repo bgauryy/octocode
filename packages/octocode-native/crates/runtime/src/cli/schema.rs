@@ -198,67 +198,6 @@ fn prune_unreachable_defs(schema: &mut Value) {
     }
 }
 
-pub(super) fn direct_scheme_select(
-    args: &[String],
-    scheme: bool,
-    view: SchemeView,
-) -> Result<Option<String>, String> {
-    let mut args = args.iter();
-    let mut selection = None;
-    while let Some(arg) = args.next() {
-        let value = if arg == "--scheme-select" {
-            Some(
-                args.next()
-                    .ok_or("--scheme-select requires FIELD=VALUE")?
-                    .as_str(),
-            )
-        } else {
-            arg.strip_prefix("--scheme-select=")
-        };
-        if let Some(value) = value {
-            if selection.is_some() {
-                return Err("--scheme-select may only be supplied once".into());
-            }
-            parse_selection(value)?;
-            selection = Some(value.into());
-        }
-    }
-    if selection.is_some() && (!scheme || view != SchemeView::Query) {
-        return Err("--scheme-select requires --scheme --scheme-view query and a tool name".into());
-    }
-    Ok(selection)
-}
-
-pub(super) fn direct_scheme_view(args: &[String], scheme: bool) -> Result<SchemeView, String> {
-    let mut values = args.iter();
-    let mut view = None;
-    while let Some(arg) = values.next() {
-        let value = if arg == "--scheme-view" {
-            Some(
-                values
-                    .next()
-                    .ok_or("--scheme-view requires full or query")?
-                    .as_str(),
-            )
-        } else {
-            arg.strip_prefix("--scheme-view=")
-        };
-        if let Some(value) = value {
-            if view.is_some() {
-                return Err("--scheme-view may only be supplied once".into());
-            }
-            view =
-                Some(SchemeView::from_str(value, false).map_err(|_| {
-                    format!("Invalid --scheme-view {value:?}: expected full or query")
-                })?);
-        }
-    }
-    if view.is_some() && !scheme {
-        return Err("--scheme-view requires --scheme and a tool name".into());
-    }
-    Ok(view.unwrap_or_default())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -266,76 +205,39 @@ mod tests {
     use clap::Parser;
 
     #[test]
-    fn scheme_select_named_and_direct_parsing() {
+    fn scheme_select_parsing() {
         let args = Args::try_parse_from([
             "octocode",
-            "tools",
+            "scheme",
             "ghSearch",
-            "--scheme",
-            "--scheme-view",
+            "--view",
             "query",
-            "--scheme-select",
+            "--select",
             "operation=code",
         ])
         .unwrap();
         assert!(
-            matches!(args.command, Command::Tools { scheme_select: Some(selection), .. } if selection == "operation=code")
+            matches!(args.command, Command::Scheme { select: Some(selection), .. } if selection == "operation=code")
         );
+        // --select and --view require a tool name.
         for args in [
-            vec![
-                "octocode",
-                "tools",
-                "ghSearch",
-                "--scheme-select",
-                "operation=x",
-            ],
-            vec![
-                "octocode",
-                "tools",
-                "--scheme",
-                "--scheme-view",
-                "query",
-                "--scheme-select",
-                "operation=x",
-            ],
-            vec![
-                "octocode",
-                "tools",
-                "ghSearch",
-                "--scheme",
-                "--scheme-select",
-                "operation=x",
-            ],
+            vec!["octocode", "scheme", "--select", "operation=x"],
+            vec!["octocode", "scheme", "--view", "query"],
         ] {
             assert!(Args::try_parse_from(args).is_err());
         }
-        for args in [
-            vec!["--scheme-select", "operation=x"],
-            vec!["--scheme-select=operation=x"],
-        ] {
-            let args = args.into_iter().map(String::from).collect::<Vec<_>>();
-            assert_eq!(
-                direct_scheme_select(&args, true, SchemeView::Query).unwrap(),
-                Some("operation=x".into())
-            );
-            assert!(direct_scheme_select(&args, false, SchemeView::Query).is_err());
-            assert!(direct_scheme_select(&args, true, SchemeView::Full).is_err());
-        }
-        for args in [
-            vec!["--scheme-select"],
-            vec!["--scheme-select=no-equals"],
-            vec!["--scheme-select=x="],
-            vec!["--scheme-select=x=y", "--scheme-select=x=z"],
-        ] {
-            assert!(
-                direct_scheme_select(
-                    &args.into_iter().map(String::from).collect::<Vec<_>>(),
-                    true,
-                    SchemeView::Query
-                )
-                .is_err()
-            );
-        }
+        // --select without --view query parses but fails projection at runtime.
+        let args =
+            Args::try_parse_from(["octocode", "scheme", "ghSearch", "--select", "operation=x"])
+                .unwrap();
+        assert!(matches!(
+            args.command,
+            Command::Scheme {
+                view: None,
+                select: Some(_),
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -420,75 +322,30 @@ mod tests {
     }
 
     #[test]
-    fn scheme_view_named_tool_parsing() {
+    fn scheme_view_parsing() {
         for (flag, expected) in [("full", SchemeView::Full), ("query", SchemeView::Query)] {
-            let args = Args::try_parse_from([
-                "octocode",
-                "tools",
-                "ghSearch",
-                "--scheme",
-                "--scheme-view",
-                flag,
-            ])
-            .unwrap();
+            let args =
+                Args::try_parse_from(["octocode", "scheme", "ghSearch", "--view", flag]).unwrap();
             assert!(
-                matches!(args.command, Command::Tools { scheme_view: Some(view), .. } if view == expected)
+                matches!(args.command, Command::Scheme { view: Some(view), .. } if view == expected)
             );
         }
         for args in [
-            vec!["octocode", "tools", "ghSearch", "--scheme-view", "query"],
-            vec!["octocode", "tools", "--scheme", "--scheme-view", "query"],
-            vec![
-                "octocode",
-                "tools",
-                "ghSearch",
-                "--scheme",
-                "--scheme-view",
-                "bad",
-            ],
-            vec!["octocode", "tools", "ghSearch", "--scheme", "--scheme-view"],
-            vec!["octocode", "--scheme-view", "query"],
+            vec!["octocode", "scheme", "ghSearch", "--view", "bad"],
+            vec!["octocode", "scheme", "ghSearch", "--view"],
+            vec!["octocode", "--view", "query"],
         ] {
             assert!(Args::try_parse_from(args).is_err());
         }
-        let args = Args::try_parse_from(["octocode", "tools", "--scheme"]).unwrap();
+        let args = Args::try_parse_from(["octocode", "scheme"]).unwrap();
         assert!(matches!(
             args.command,
-            Command::Tools {
-                scheme_view: None,
+            Command::Scheme {
+                tool: None,
+                view: None,
                 ..
             }
         ));
-    }
-
-    #[test]
-    fn scheme_view_direct_alias_parsing() {
-        for flag in ["--scheme", "--schema"] {
-            let args =
-                Args::try_parse_from(["octocode", "ghSearch", flag, "--scheme-view", "query"])
-                    .unwrap();
-            let Command::Pattern(args) = args.command else {
-                panic!("direct alias")
-            };
-            assert_eq!(
-                direct_scheme_view(&args[1..], true).unwrap(),
-                SchemeView::Query
-            );
-        }
-        let strings = |args: &[&str]| args.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        assert_eq!(
-            direct_scheme_view(&strings(&["--scheme-view=full"]), true).unwrap(),
-            SchemeView::Full
-        );
-        assert_eq!(direct_scheme_view(&[], false).unwrap(), SchemeView::Full);
-        for args in [
-            vec!["--scheme-view"],
-            vec!["--scheme-view=bad"],
-            vec!["--scheme-view", "query", "--scheme-view", "full"],
-        ] {
-            assert!(direct_scheme_view(&strings(&args), true).is_err());
-        }
-        assert!(direct_scheme_view(&strings(&["--scheme-view=query"]), false).is_err());
     }
 
     fn assert_local_refs_resolve(value: &Value, schema: &Value) {

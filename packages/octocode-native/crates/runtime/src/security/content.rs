@@ -81,9 +81,30 @@ pub struct ContentSecurity {
     registry: Arc<SecurityRegistry>,
 }
 
+/// Conservative email shape for opt-in masking of gh outputs. Local-part
+/// and domain are both masked; the match is intentionally simple (no
+/// quoted local-parts) — commit metadata uses plain addresses.
+fn email_pattern() -> &'static regex::Regex {
+    static PATTERN: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    PATTERN.get_or_init(|| {
+        #[allow(clippy::expect_used)]
+        regex::Regex::new(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+")
+            .expect("static email pattern compiles")
+    })
+}
+
 impl ContentSecurity {
     pub fn new(registry: Arc<SecurityRegistry>) -> Self {
         Self { registry }
+    }
+
+    /// Opt-in (R11): mask every email address in `text`. Callers gate this
+    /// on `output.redactEmails` / `OCTOCODE_REDACT_EMAILS`; default output
+    /// is unchanged.
+    pub fn redact_emails(&self, text: &str) -> String {
+        email_pattern()
+            .replace_all(text, "[REDACTED-EMAIL]")
+            .into_owned()
     }
 
     pub fn sanitize_text(&self, content: &str, file_path: Option<&Path>) -> SanitizationResult {

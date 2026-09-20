@@ -315,6 +315,64 @@ mod tests {
         assert_eq!(view.config_keys, vec!["local", "storage"])
     }
     #[test]
+    fn inspector_reports_skipped_env_keys_with_source_file() {
+        let mut i = input(
+            BTreeMap::from([("EXISTING".into(), "from-process".into())]),
+            None,
+        );
+        i.global_env = FileInput::Read {
+            path: "/synthetic/home/.env".into(),
+            text: "GH_TOKEN=private-token-value".into(),
+        };
+        i.project_env = FileInput::Read {
+            path: "/synthetic/cwd/.octocode/.env".into(),
+            text: "EXISTING=private-project-value".into(),
+        };
+        i.trusted_project = true;
+        let out = resolve_config(&i);
+        let view = inspector_data(&i, &out);
+        assert_eq!(
+            view.skipped_protected,
+            vec![EnvSkip {
+                key: "GH_TOKEN".into(),
+                source_path: "/synthetic/home/.env".into()
+            }]
+        );
+        assert_eq!(
+            view.skipped_existing,
+            vec![EnvSkip {
+                key: "EXISTING".into(),
+                source_path: "/synthetic/cwd/.octocode/.env".into()
+            }]
+        );
+        // Key names only — never values.
+        let printed = serde_json::to_string(&view).expect("test fixture operation should succeed");
+        assert!(!printed.contains("private-"));
+    }
+    #[test]
+    fn octocode_prefixed_enable_aliases_resolve_and_canonical_wins() {
+        let aliased = resolve_sections(
+            None,
+            &BTreeMap::from([
+                ("OCTOCODE_ENABLE_LOCAL".into(), "false".into()),
+                ("OCTOCODE_ENABLE_CLONE".into(), "true".into()),
+            ]),
+        );
+        assert!(!aliased.local.enabled);
+        assert!(aliased.local.enable_clone);
+        let both = resolve_sections(
+            None,
+            &BTreeMap::from([
+                ("ENABLE_LOCAL".into(), "true".into()),
+                ("OCTOCODE_ENABLE_LOCAL".into(), "false".into()),
+            ]),
+        );
+        assert!(both.local.enabled, "canonical spelling wins over the alias");
+        // Aliases count as env sources for source labeling.
+        let env = BTreeMap::from([("OCTOCODE_ENABLE_CLONE".into(), "true".into())]);
+        assert_eq!(resolve_config(&input(env, None)).source, ConfigSource::Env);
+    }
+    #[test]
     fn jev_key_falls_back_to_config_file_without_leaking() {
         let file = "{\"jev\":{\"key\":\"jev-secret-from-file\",\"baseUrl\":\"https://jev.example.com\",\"model\":\"custom-model\"}}";
         let out = resolve_config(&input(BTreeMap::new(), Some(file)));

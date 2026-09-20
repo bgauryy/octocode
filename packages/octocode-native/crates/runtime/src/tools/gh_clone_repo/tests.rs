@@ -421,7 +421,7 @@ fn corruption_expiry_stale_lock_and_failed_publication_preserve_cache() {
     fs::create_dir_all(&destination).expect("old destination");
     fs::write(destination.join("old"), "preserved").expect("old content");
     let missing_stage = root.0.join("missing-stage");
-    assert!(cache::promote(&missing_stage, &destination).is_err());
+    assert!(cache::promote(&cache_home, &missing_stage, &destination).is_err());
     assert_eq!(
         fs::read_to_string(destination.join("old")).expect("restored"),
         "preserved"
@@ -468,6 +468,21 @@ fn cache_limits_live_lock_and_failed_sparse_refresh_are_bounded() {
     .expect("tag clone");
     assert!(!main_path.exists(), "oldest clone should be evicted");
     assert!(Path::new(&tag.location.local_path).is_dir());
+
+    // The eviction must be attributable: one JSONL line in the trail.
+    let (evictions, log_bytes) = crate::cache::evictions::recent_evictions(&cache_home, 10);
+    let size_limit = evictions
+        .iter()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find(|value| value["reason"] == "size-limit")
+        .expect("size-limit eviction recorded in evictions.jsonl");
+    assert_eq!(size_limit["path"], main.location.local_path.as_str());
+    assert!(size_limit["bytes"].as_u64().is_some());
+    assert_eq!(
+        size_limit["pid"].as_u64(),
+        Some(u64::from(std::process::id()))
+    );
+    assert!(log_bytes > 0);
 
     let live_lock = cache::lock_dir(&cache_home, Path::new(&tag.location.local_path));
     fs::create_dir_all(&live_lock).expect("live lock");

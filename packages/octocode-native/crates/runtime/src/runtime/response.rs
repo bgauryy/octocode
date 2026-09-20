@@ -321,6 +321,20 @@ pub(super) fn sanitize_fields(
     })
 }
 
+/// Opt-in email masking for gh outputs (`output.redactEmails`): applied
+/// after secret sanitization so commit-author addresses and similar PII do
+/// not leave the runtime when the user asked for redaction.
+pub(super) fn redact_email_fields(
+    value: &mut Value,
+    security: &crate::security::ContentSecurity,
+    context: &super::ExecutionContext,
+) -> Result<(), super::ExecutionError> {
+    context.check()?;
+    crate::security::sanitize_json(value, &mut |text| {
+        Ok::<_, super::ExecutionError>(security.redact_emails(text))
+    })
+}
+
 fn preserve_continuation_metadata(value: &mut Value, original_query: &Value) {
     match value {
         Value::Array(values) => {
@@ -986,6 +1000,42 @@ mod tests {
         assert_eq!(
             value.pointer("/next/continue/query/offset"),
             Some(&json!(2))
+        );
+    }
+
+    #[test]
+    fn email_redaction_is_opt_in_and_masks_commit_authors() {
+        let commit_row = || {
+            json!({
+                "commits": [{
+                    "sha": "abc123",
+                    "author": {"name": "Dev One", "email": "dev.one+git@example.co.uk"},
+                    "message": "fix: reported by user@example.com"
+                }]
+            })
+        };
+        let context = sanitize_context();
+        let security = crate::security::ContentSecurity::new(std::sync::Arc::new(
+            crate::security::SecurityRegistry::default(),
+        ));
+        // Default path (no opt-in): emails pass through unchanged.
+        let mut untouched = commit_row();
+        sanitize_fields(&mut untouched, &security, &context).expect("sanitize");
+        assert_eq!(untouched, commit_row(), "default output must be unchanged");
+        // Opt-in path: every email leaf is masked, structure preserved.
+        let mut redacted = commit_row();
+        redact_email_fields(&mut redacted, &security, &context).expect("redact");
+        assert_eq!(
+            redacted.pointer("/commits/0/author/email"),
+            Some(&json!("[REDACTED-EMAIL]"))
+        );
+        assert_eq!(
+            redacted.pointer("/commits/0/message"),
+            Some(&json!("fix: reported by [REDACTED-EMAIL]"))
+        );
+        assert_eq!(
+            redacted.pointer("/commits/0/author/name"),
+            Some(&json!("Dev One"))
         );
     }
 

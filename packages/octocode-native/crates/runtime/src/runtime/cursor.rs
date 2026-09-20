@@ -63,6 +63,101 @@ fn verify_payload(bytes: &[u8], tag_hex: &str) -> bool {
     mac.verify_slice(&tag).is_ok()
 }
 
+// ── Opaque scoped state tokens (artifact pagination) ──────────────────────
+//
+// Artifact cursors travel INSIDE the continuation query, and the CLI prints
+// that query as a command to re-run in a fresh process. They are therefore
+// signed with a persistent per-user key (`<octocode home>/cursor.key`, 0600)
+// rather than the per-process key, so a printed continuation replays across
+// invocations while a caller-constructed cursor is still rejected.
+
+/// Prefix marking a signed opaque-state token (legacy states are raw JSON).
+pub const SIGNED_STATE_PREFIX: &str = "s1.";
+
+fn load_or_create_key(home: &Path) -> Option<[u8; 32]> {
+    let path = home.join("cursor.key");
+    if let Ok(bytes) = std::fs::read(&path)
+        && bytes.len() == 32
+    {
+        let mut key = [0_u8; 32];
+        key.copy_from_slice(&bytes);
+        return Some(key);
+    }
+    let mut key = [0_u8; 32];
+    getrandom::fill(&mut key).ok()?;
+    let _ = std::fs::create_dir_all(home);
+    write_key_private(&path, &key).ok()?;
+    Some(key)
+}
+
+#[cfg(unix)]
+fn write_key_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .mode(0o600)
+        .open(path)?;
+    file.write_all(bytes)
+}
+
+#[cfg(not(unix))]
+fn write_key_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    std::fs::write(path, bytes)
+}
+
+/// Per-user signing key, resolved once per process. Falls back to the
+/// per-process key when the home is unavailable or unwritable — signing
+/// still works, tokens then just verify only within this process.
+pub fn user_signing_key(home: Option<&Path>) -> &'static [u8; 32] {
+    static KEY: OnceLock<[u8; 32]> = OnceLock::new();
+    KEY.get_or_init(|| {
+        home.and_then(load_or_create_key)
+            .unwrap_or(*cursor_signing_key())
+    })
+}
+
+/// Sign opaque provider state bound to `scope`:
+/// `s1.<base64url(payload)>.<hmac-sha256 hex>`.
+pub fn sign_state(key: &[u8; 32], scope: &str, payload: &[u8]) -> Result<String, CursorError> {
+    if payload.len() > MAX_TOKEN_BYTES {
+        return Err(CursorError::Invalid);
+    }
+    let mut mac = HmacSha256::new_from_slice(key).map_err(|_| CursorError::Invalid)?;
+    mac.update(scope.as_bytes());
+    mac.update(&[0]);
+    mac.update(payload);
+    let tag = hex::encode(mac.finalize().into_bytes());
+    Ok(format!(
+        "{SIGNED_STATE_PREFIX}{}.{tag}",
+        URL_SAFE_NO_PAD.encode(payload)
+    ))
+}
+
+/// Constant-time verification of a signed opaque-state token bound to
+/// `scope`; returns the payload bytes.
+pub fn verify_state(key: &[u8; 32], scope: &str, token: &str) -> Result<Vec<u8>, CursorError> {
+    if token.len() > MAX_TOKEN_BYTES * 2 {
+        return Err(CursorError::Invalid);
+    }
+    let rest = token
+        .strip_prefix(SIGNED_STATE_PREFIX)
+        .ok_or(CursorError::Invalid)?;
+    let (encoded, tag_hex) = rest.split_once('.').ok_or(CursorError::Invalid)?;
+    let payload = URL_SAFE_NO_PAD
+        .decode(encoded)
+        .map_err(|_| CursorError::Invalid)?;
+    let tag = hex::decode(tag_hex).map_err(|_| CursorError::Invalid)?;
+    let mut mac = HmacSha256::new_from_slice(key).map_err(|_| CursorError::Invalid)?;
+    mac.update(scope.as_bytes());
+    mac.update(&[0]);
+    mac.update(&payload);
+    mac.verify_slice(&tag).map_err(|_| CursorError::Invalid)?;
+    Ok(payload)
+}
+
 // ── Shared encode / decode primitives ─────────────────────────────────────
 
 /// Serialize `cursor` to a base64url payload with an authenticated HMAC suffix.
@@ -340,6 +435,27 @@ mod tests {
             UniversalCursor::decode(&token, "other-scope"),
             Err(CursorError::ChangedScope)
         ));
+    }
+
+    #[test]
+    fn user_key_persists_across_loads_and_survives_reload() {
+        let home = std::env::temp_dir().join(format!(
+            "octocode-cursor-key-{}-{:?}",
+            std::process::id(),
+            std::time::Instant::now()
+        ));
+        std::fs::create_dir_all(&home).expect("test fixture operation should succeed");
+        let first = load_or_create_key(&home).expect("create key");
+        let second = load_or_create_key(&home).expect("reload key");
+        assert_eq!(first, second, "reload must return the persisted key");
+        assert!(home.join("cursor.key").is_file());
+        let token = sign_state(&first, "scope", b"{\"page\":2}").expect("sign");
+        assert_eq!(
+            verify_state(&second, "scope", &token).expect("verify"),
+            b"{\"page\":2}"
+        );
+        assert!(verify_state(&second, "other", &token).is_err());
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]

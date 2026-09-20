@@ -92,7 +92,7 @@ describe('skill command', () => {
   });
 
   it('documents the same install flags in generated command help', () => {
-    const helpOptions = skillCommand.options;
+    const helpOptions = skillCommand.options ?? [];
     const names = helpOptions.map(option => option.name);
     expect(names).toEqual(
       expect.arrayContaining([

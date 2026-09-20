@@ -6,12 +6,14 @@ use super::types::*;
 use super::validation::validate_config;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
-const SOURCE_KEYS: [&str; 21] = [
+const SOURCE_KEYS: [&str; 24] = [
     "GITHUB_API_URL",
     "OCTOCODE_GITHUB_CLIENT_ID",
     "OCTOCODE_GITHUB_GRAPHQL",
     "ENABLE_LOCAL",
     "ENABLE_CLONE",
+    "OCTOCODE_ENABLE_LOCAL",
+    "OCTOCODE_ENABLE_CLONE",
     "ENABLE_AST_REWRITE_APPLY",
     "ALLOWED_PATHS",
     "WORKSPACE_ROOT",
@@ -22,6 +24,7 @@ const SOURCE_KEYS: [&str; 21] = [
     "OCTOCODE_LSP_CONFIG",
     "OCTOCODE_OUTPUT_FORMAT",
     "OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH",
+    "OCTOCODE_REDACT_EMAILS",
     "OCTOCODE_ENABLE_STATS",
     "OCTOCODE_STORAGE_MODE",
     "OCTOCODE_EXTENSION_STORAGE_MODE",
@@ -104,10 +107,14 @@ pub fn resolve_sections(file: Option<&Value>, e: &BTreeMap<String, String>) -> R
                 .unwrap_or(true),
         },
         local: LocalConfig {
+            // `OCTOCODE_`-prefixed spellings are accepted as aliases; the
+            // unprefixed names stay canonical and win when both are set.
             enabled: parse_boolean_env(env(e, "ENABLE_LOCAL"))
+                .or_else(|| parse_boolean_env(env(e, "OCTOCODE_ENABLE_LOCAL")))
                 .or_else(|| bool_field(local, "enabled"))
                 .unwrap_or(true),
             enable_clone: parse_boolean_env(env(e, "ENABLE_CLONE"))
+                .or_else(|| parse_boolean_env(env(e, "OCTOCODE_ENABLE_CLONE")))
                 .or_else(|| bool_field(local, "enableClone"))
                 .unwrap_or(false),
             enable_ast_rewrite_apply: parse_boolean_env(env(e, "ENABLE_AST_REWRITE_APPLY"))
@@ -178,6 +185,9 @@ pub fn resolve_sections(file: Option<&Value>, e: &BTreeMap<String, String>) -> R
                     50000.,
                 ),
             },
+            redact_emails: parse_boolean_env(env(e, "OCTOCODE_REDACT_EMAILS"))
+                .or_else(|| bool_field(output, "redactEmails"))
+                .unwrap_or(false),
         },
         session: SessionConfig {
             enable_stats: parse_boolean_env(env(e, "OCTOCODE_ENABLE_STATS")).unwrap_or(false),
@@ -334,11 +344,30 @@ pub fn inspector_data(input: &ConfigInput, output: &ConfigOutput) -> ConfigInspe
         .map(|o| o.keys().cloned().collect())
         .unwrap_or_default();
     config_keys.sort();
+    let skip_source = |key: &String| EnvSkip {
+        key: key.clone(),
+        source_path: match output.dotenv.sources.get(key).map(String::as_str) {
+            Some("project") => input.project_env.path().clone(),
+            _ => input.global_env.path().clone(),
+        },
+    };
     ConfigInspectorData {
         home,
         global_env_path: input.global_env.path().clone(),
         project_env_path: input.project_env.path().clone(),
         loaded_keys: output.dotenv.keys.clone(),
+        skipped_protected: output
+            .dotenv
+            .skipped_protected
+            .iter()
+            .map(skip_source)
+            .collect(),
+        skipped_existing: output
+            .dotenv
+            .skipped_existing
+            .iter()
+            .map(skip_source)
+            .collect(),
         global_key_count: output
             .dotenv
             .sources

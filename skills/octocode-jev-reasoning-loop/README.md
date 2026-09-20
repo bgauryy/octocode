@@ -7,7 +7,7 @@ octocode tools jev --scheme --scheme-view query --json --compact
 octocode tools jev --input request.json --json --compact
 ```
 
-Supply `{context, question}`: one question over an unread read-tool request `{tool, query}` or supplied `{value}`. Batch up to five independent queries, repeating context explicitly. Runtime configuration supplies the model and credentials. Use a judgment only when it can change an unresolved next action; exact checks and settled decisions need no Jev call.
+Supply `{reasoning, context, question}`: one question over an unread read-tool request `{tool, query}` or supplied `{value}`. Batch up to five independent queries, repeating context explicitly. Runtime configuration supplies the model and credentials. Use a judgment only when it can change an unresolved next action; exact checks and settled decisions need no Jev call.
 
 - [Setup and protocol](references/ojql.md)
 - [Prompt workflows](references/jev-workflows.md)
