@@ -14,7 +14,7 @@ JSON manifest
   request preparation + receipts
           │
           ▼
-  repeated direct HTTPS requests
+  per-resource matrix or combined direct HTTPS requests
           │
           ▼
   unchanged provider JSON + adjacent measurements
@@ -27,6 +27,8 @@ Invariants:
 - Only HTTPS API roots are accepted; HTTP is limited to loopback tests.
 - Local paths are used for loading but are not included in provider state.
 - Resource-size failures are explicit; content is never silently truncated.
+- Matrix mode sends each resource once per pass with all questions together;
+  combined mode is explicit.
 - Noul, Choice, Score, model, usage, and any future provider response fields
   remain unchanged under `samples[].response`.
 - This package must not duplicate Octocode runtime policy or become a release

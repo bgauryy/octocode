@@ -1,5 +1,6 @@
 {
   "model": "jev-latest",
+  "resourceMode": "matrix",
   "resources": [
     {
       "id": "implementation_plan",
@@ -17,7 +18,7 @@
   "questions": {
     "contract_alignment": {
       "type": "choice",
-      "instructions": "How well do these resources agree on the intended semantic-assessment request contract?",
+      "instructions": "How well does this resource align with the intended semantic-assessment request contract?",
       "criteria": {
         "aligned": "The request shapes and semantics agree.",
         "partial_drift": "The intent agrees but one or more public shapes or limits differ.",
@@ -26,7 +27,7 @@
     },
     "implementation_readiness": {
       "type": "score",
-      "instructions": "How ready is this combined specification for implementation?",
+      "instructions": "How useful is this resource for implementing the semantic-assessment contract?",
       "criteria": [
         "Key behavior and boundaries are missing.",
         "The direction is useful but important contract choices remain open.",
@@ -35,7 +36,7 @@
     },
     "preserves_native_answers": {
       "type": "noul",
-      "instructions": "Does the plan require preserving native Noul, Choice, and Score answer fields without semantic rewriting?",
+      "instructions": "Does this resource require preserving native Noul, Choice, and Score answer fields without semantic rewriting?",
       "criteria": {
         "true": "It explicitly preserves provider answer types, distributions, confidence, score, legend, and usage as supplied.",
         "false": "It renames, thresholds, averages, or otherwise replaces provider answer semantics."

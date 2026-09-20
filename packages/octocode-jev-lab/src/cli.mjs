@@ -3,7 +3,7 @@ import { propagateOctocodeEnv } from '@octocodeai/config';
 import { prepareExperiment, readExperiment, runExperiment } from './lib.mjs';
 
 function usage() {
-  return `Usage: yarn workspace @octocodeai/jev-lab probe --input FILE [options]
+  return `Usage: yarn jev:probe --input FILE [options]
 
 Options:
   --input, -i FILE       JSON experiment manifest, or - for stdin

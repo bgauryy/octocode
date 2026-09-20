@@ -13,6 +13,7 @@ import { parseBooleanEnv } from './config/resolverSections.js';
 import {
   HOME_TRUSTED_ENV_KEYS,
   PROTECTED_KEY_NAMES,
+  DEFAULT_STORAGE_MODE,
 } from './config/contract.generated.js';
 
 // ─── Re-export getOctocodeHome (defined in home.ts to break circular deps) ───
@@ -114,7 +115,6 @@ export {
 // ─── Env loading (uses loadConfigSync from config/loader.ts below) ────────────
 
 import { loadConfigSync } from './config/loader.js';
-import { getConfigSync } from './config/resolver.js';
 
 /** Keys a project/global .env must never override — infrastructure + all auth tokens. */
 export const PROTECTED_KEYS: ReadonlySet<string> = new Set(PROTECTED_KEY_NAMES);
@@ -277,22 +277,47 @@ export function isStatsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return parseBooleanEnv(env['OCTOCODE_ENABLE_STATS']) ?? false;
 }
 
-/** True when Octocode may persist caches and runtime state on this machine. */
-export function isPersistentStorageEnabled(): boolean {
-  return getConfigSync().storage.mode === 'persistent';
+/**
+ * Read storage.mode directly from env then raw .octocoderc — no validator,
+ * no resolver pipeline. Only the two valid enum values are accepted.
+ * Precedence: OCTOCODE_STORAGE_MODE env > storage.mode in .octocoderc > default.
+ */
+export function isPersistentStorageEnabled(
+  env: NodeJS.ProcessEnv = process.env
+): boolean {
+  const v = env['OCTOCODE_STORAGE_MODE']?.trim().toLowerCase();
+  if (v === 'persistent' || v === 'memory') return v === 'persistent';
+  const rc = loadOctocoderc() as { storage?: { mode?: unknown } };
+  const m = rc.storage?.mode;
+  if (m === 'persistent' || m === 'memory') return m === 'persistent';
+  return DEFAULT_STORAGE_MODE === 'persistent';
 }
 
 /**
  * True when the Pi extension may persist Awareness state, SQLite extension
  * state, and session continuity on this machine.
  *
- * Reads `extension.storage.mode` from .octocoderc first (falling back to
- * the global `storage.mode`), then the `OCTOCODE_EXTENSION_STORAGE_MODE`
- * env var. This allows the researcher/CLI to run with `storage.mode=memory`
- * while the Pi extension uses `extension.storage.mode=persistent`.
+ * Precedence: OCTOCODE_EXTENSION_STORAGE_MODE env > OCTOCODE_STORAGE_MODE env
+ * > extension.storage.mode in .octocoderc > storage.mode in .octocoderc > default.
+ * This allows the CLI to run with storage.mode=memory while the Pi extension
+ * uses extension.storage.mode=persistent.
  */
 export function isPersistentStorageEnabledForExtension(): boolean {
-  return getConfigSync().extension.storage.mode === 'persistent';
+  const env = process.env;
+  const extVar = env['OCTOCODE_EXTENSION_STORAGE_MODE']?.trim().toLowerCase();
+  if (extVar === 'persistent' || extVar === 'memory') return extVar === 'persistent';
+  const storageVar = env['OCTOCODE_STORAGE_MODE']?.trim().toLowerCase();
+  if (storageVar === 'persistent' || storageVar === 'memory') return storageVar === 'persistent';
+  // Read rc once for both extension and storage fallback.
+  const rc = loadOctocoderc() as {
+    storage?: { mode?: unknown };
+    extension?: { storage?: { mode?: unknown } };
+  };
+  const extMode = rc.extension?.storage?.mode;
+  if (extMode === 'persistent' || extMode === 'memory') return extMode === 'persistent';
+  const storageMode = rc.storage?.mode;
+  if (storageMode === 'persistent' || storageMode === 'memory') return storageMode === 'persistent';
+  return DEFAULT_STORAGE_MODE === 'persistent';
 }
 
 /**

@@ -35,7 +35,7 @@ The cutover is intentionally hard: do not register a public `jev` alias, compati
 | Display title | Semantic Assessment | Human-readable title; not a second identifier. |
 | Public schema/types | `SemanticAssess*` | No exported `Jev*` contract aliases after the cutover. |
 | Native public module | `semantic_assess` | Owns validation handoff, capture orchestration, batching, and output shaping. |
-| Provider adapter | Jev-specific internal module | Retains Jev request/response vocabulary and `OCTOCODE_JEV_KEY`; never leaks into public tool descriptions or schemas. |
+| Provider adapter | Jev-specific internal module | Retains endpoint, model, credential, retry, and transport concerns. Native Noul/Choice/Score primitives remain public because changing them alters answer semantics. |
 | Active skill | `octocode-semantic-assess` | Replaces `octocode-jev-reasoning-loop`; no forwarding skill. |
 | Active docs | Semantic-assessment names | Rename current guides and links; preserve historical artifact paths. |
 
@@ -45,11 +45,21 @@ The cutover is intentionally hard: do not register a public `jev` alias, compati
 - Require unique `queryId`, `resourceId`, and `questionId` values. A result cell carries all three; a resource page retains the same triple plus its zero-based `pageIndex`.
 - Define `queries[]` as a batch of complete semantic queries. Reject legacy pair elements, mixed envelopes, duplicate IDs, empty arrays, unknown fields, and any batch whose logical-cell total exceeds the global cap.
 - Keep every question atomic. Several questions over the same resources belong in one semantic query; dependent questions require later calls because provider answers cannot change the active matrix.
-- Require nonblank string `reasoning` and question `instructions`. Require explicit true/false criteria for `binary`, 2–10 declared alternatives for `choice`, and 2–10 ordered levels for `score`. Reject null instructions, one-option choices, numeric-only score labels, and undeclared answer labels.
+- Require nonblank string `reasoning`. Question `instructions` accept a nonempty string, object, or array; recommend a string first and structure only when labels or supporting data improve the boundary. Noul criteria are optional; when supplied they define both `true` and `false`. Choice requires 2–255 declared alternatives. Score requires 2–10 independently described ordered levels. Criterion descriptions retain the provider's JSON entry shapes, including `null` when a Choice label is self-explanatory. Reject blank/null instructions, one-option choices, numeric-only Score labels, and undeclared answer labels.
 - Allow `context.value` only for a string, nonempty object, or nonempty array. Wrap scalar facts, such as `{observed:false}` or `{count:3}`; do not silently transform them.
-- Rename provider-specific public primitives when they leak model vocabulary. In particular, map the public binary question/answer to generic `binary` plus a probability field; translate to/from provider-specific Noul only inside the Jev adapter. Keep `choice` and `score` generic.
+- Keep the native primitive names and answer shapes: `noul`, `choice`, and `score`. `semanticAssess` is the generic tool identity; renaming Noul or replacing its answer creates semantic drift at the adapter boundary.
 - Keep provider/model diagnostics optional and clearly non-contractual. Do not expose the configured Jev model as the tool identity.
-- Use one output shape for direct and batch inputs: `queries:[{queryId,results:[...]}]`. Each logical cell has `{resourceId,questionId,coverage,pages:[...]}`; each page has `{pageIndex,answer|error,context,usage?}`. Never echo provider or source bodies.
+- Use one output shape for direct and batch inputs: `queries:[{queryId,results:[...]}]`. Each logical cell has `{resourceId,questionId,coverage,pages:[...]}`; each successful page has `{pageIndex,answer,context,usage?}` where `answer` is the unmodified native primitive answer object. Never threshold, relabel, average, round, flatten, or synthesize answer fields. Never echo source bodies.
+
+### Native primitive contract
+
+| Primitive | Short tool-description text | Response-description text |
+|---|---|---|
+| [Noul](https://docs.typesafe.ai/primitives/noul) | One yes/no proposition. Returns `P(yes)` from 0 to 1; a value near 0.5 is uncertainty, not medium intensity. | `{type:"noul",noul}` where `noul` is the complete yes/no probability distribution represented as `P(yes)`; there is no separate confidence field. |
+| [Choice](https://docs.typesafe.ai/primitives/choice) | One selection from declared, unordered alternatives. Include an `other`/`none` option when the set may be incomplete. | `{type:"choice",choice,probabilities,confidence}`; `choice` is the highest-probability label, probabilities sum to 1, and confidence describes distribution concentration—not correctness. |
+| [Score](https://docs.typesafe.ai/primitives/score) | One ordered dimension with 2–10 independently described levels from low to high. | `{type:"score",score,probabilities,legend,confidence}`; `score` is the probability-weighted zero-based level and may be fractional. Read the distribution and confidence with it. |
+
+[Structured instructions and criteria](https://docs.typesafe.ai/primitives/advanced) use the provider's JSON entry vocabulary for instructions, Choice option descriptions, Score level descriptions, and Noul `true`/`false` criteria. Structure clarifies labels and carries supporting data; it does not create a fourth primitive or permit compound questions.
 
 ### Agent behavior and context contract
 
@@ -103,7 +113,7 @@ The target single-query call below does not become live until S4. It produces fo
     },
     {
       "id": "security",
-      "question": {"type": "binary", "instructions": "Could this resource affect authorization, redaction, or secret handling?"}
+      "question": {"type": "noul", "instructions": "Could this resource affect authorization, redaction, or secret handling?"}
     }
   ]
 }
@@ -132,7 +142,7 @@ type SemanticResource = {
 |---|---|
 | `SemanticQuery` | One decision domain with one reason the result changes the next action. |
 | `resources[]` | Evidence operands. A resource is a supplied value or an executable background read descriptor, never an already-read body disguised as a path. |
-| `questions[]` | Atomic typed conditions. `binary` tests one proposition, `choice` selects among declared conditions, and `score` evaluates one ordered dimension. |
+| `questions[]` | Atomic typed conditions. `noul` tests one proposition as `P(yes)`, `choice` selects among declared unordered conditions, and `score` evaluates one ordered dimension. |
 | Cross-product | For each resource in order, evaluate every question in order. A batch never crosses resources or questions between semantic queries. |
 | `queries[]` | Independent semantic tables that share transport only. Each table keeps its own reasoning, resources, questions, failures, usage, and continuation. |
 | Result cell | The stable `(queryId,resourceId,questionId)` condition result, with one or more ordered page judgments and explicit coverage. |
@@ -160,9 +170,14 @@ type SemanticPageResult = {
   usage?: UsageAttribution;
 } & ({ status: "success"; answer: TypedAnswer } |
      { status: "error"; error: SafeError });
+
+type TypedAnswer =
+  | { type: "noul"; noul: number }
+  | { type: "choice"; choice: string; probabilities: Record<string, number>; confidence: number }
+  | { type: "score"; score: number; probabilities: Record<string, number>; legend: Record<string, EntryType>; confidence: number };
 ```
 
-Order query results by input query, cells by resource then question, and pages by `pageIndex`. Omit unknown usage rather than reporting zero. Shared provider calls assign usage once and identify the owner. Errors stay isolated at the smallest valid level.
+Order query results by input query, cells by resource then question, and pages by `pageIndex`. Validate native answer invariants but preserve every provider answer field and value. Provider model and usage are adjacent call metadata, never folded into or inferred from the answer. Omit unknown usage rather than reporting zero. Shared provider calls assign usage once and identify the owner. Errors stay isolated at the smallest valid level.
 
 #### Context lifecycle
 
@@ -206,9 +221,9 @@ The contract audit must compare `semanticAssess` against every ordinary tool all
 
 Use the following wording as the implementation baseline, then change it only when held-out tool-selection evaluation supports the change.
 
-**Short description:** “Evaluate typed questions over background-fetched resources without returning their bodies.”
+**Short description:** “Evaluate Noul, Choice, or Score questions over background-fetched resources without returning their bodies.”
 
-**Tool description:** “Use when bounded semantic judgments over unread resources can change the next read, test, or decision. Do not use for exact checks, known deciding spans, or evidence that must be read regardless. Input one `SemanticQuery`, or batch complete semantic queries in `queries[]`. Within each semantic query, every atomic question applies to every resource; add questions for more aspects, and add semantic queries only when their resource/question sets or policies differ. The runtime acquires and sanitizes resources in the background, pages large logical resources with the same questions, and returns body-free results correlated by query, resource, question, and page. Read retained source for proof. Continue incomplete results with the returned `next.assess` unchanged.”
+**Tool description:** “Use when bounded semantic judgments over unread resources can change the next read, test, or decision. Do not use for exact checks, known deciding spans, or evidence that must be read regardless. Input one `SemanticQuery`, or batch complete semantic queries in `queries[]`. Within each semantic query, every atomic question applies to every resource; add questions for more aspects, and add semantic queries only when their resource/question sets or policies differ. Noul returns `P(yes)` for one proposition; Choice returns a selected label, full option distribution, and confidence; Score returns a probability-weighted position over ordered levels, its distribution, legend, and confidence. The runtime acquires and sanitizes resources in the background, pages large logical resources with the same questions, and returns body-free results correlated by query, resource, question, and page. Native answer fields are preserved. Read retained source for proof. Continue incomplete results with the returned `next.assess` unchanged.”
 
 The shared MCP/CLI instruction owns this workflow:
 
@@ -225,13 +240,13 @@ The active skill uses the flow `DISCOVER IDS → BUILD SEMANTIC QUERY → BACKGR
 
 | Step | Change | Depends on | Pass condition |
 |---|---|---|---|
-| S1 | Define `SemanticQuery`, direct-or-batch input, stable triple correlation, nested page results, limits, `continuationKind`, descriptions, instructions, examples, relations, and diagnostics in octocode-core. Delete the independent-pair schema. | None | Core lint, typecheck, tests, build, JSON Schema audit, contract-set audit, prompt budget, invalid legacy-pair, duplicate-ID, and total-cell cases pass. |
+| S1 | Define `SemanticQuery`, direct-or-batch input, stable triple correlation, nested page results, limits, `continuationKind`, native primitive descriptions, lossless answer unions, instructions, examples, relations, and diagnostics in octocode-core. Delete the independent-pair schema. | None | Core lint, typecheck, tests, build, JSON Schema audit, contract-set audit, prompt budget, official Noul/Choice/Score fixture parity, invalid legacy-pair, duplicate-ID, and total-cell cases pass. |
 | S2 | Rename native public modules/constants; keep Jev terminology only in the private provider adapter. Implement semantic-query expansion, background capture, frozen source identity, token-aware provider paging, batch isolation, and cross-process `next.assess`; remove all flat-pair and public `jev` branches. | S1 | Native tests prove direct/batch parity, resource-major cells, capture once per logical resource, identical questions across pages, stale-source failure, body-free output, partial sibling return, cancellation, and stable IDs. |
 | S3 | Regenerate native contracts from the actual core revision and provenance. | S1–S2 | Fingerprint, embedded body hash, source revision, and dirty flag are truthful; release mode rejects dirty provenance. |
 | S4 | Rebuild CLI and MCP from the regenerated contract. Rename commands, catalog rows, help, examples, error paths, and telemetry labels. | S3 | `scheme semanticAssess` and real calls work identically through CLI/MCP; `scheme jev` is unknown and no alias appears in discovery. |
 | S5 | Update Pi contracts/prompts/rendering and every skill, Chrome/scraping helper, script, error code, fixture, and test. Helpers create hashed resources but delegate semantic acquisition/paging to the public contract. | S4 | No active caller invokes `jev`; agents use one semantic query or a batch of full semantic queries; every cell/page completes or returns an executable continuation. |
 | S6 | Rename active docs and cross-links, repair root/package agent instructions to match live CLI syntax, and label historical artifacts rather than rewriting them. | S4–S5 | Documentation, link, skill, instruction, and style validators pass with one current name, one current usage contract, and executable discovery examples. |
-| S7 | Run the frozen agent-behavior evaluation plus live local-file, GitHub-file, missing-path recovery, supplied-value, direct semantic query, batched semantic queries, 80,000-character paging, saved-browser, CLI, MCP, and Pi smoke paths. | S4–S6 | Agents select the right shape, every required query/cell/page is correlated/body-free/policy-equivalent, slow siblings do not suppress completed results, held-out safety/quality gates pass, and no stale public name appears. |
+| S7 | Run the frozen agent-behavior evaluation plus direct-provider lab, live local-file, GitHub-file, missing-path recovery, supplied-value, direct semantic query, batched semantic queries, 80,000-character paging, saved-browser, CLI, MCP, and Pi smoke paths. | S4–S6 | Agents select the right shape; direct-provider and adapter answer fields match exactly; every required query/cell/page is correlated/body-free/policy-equivalent; slow siblings do not suppress completed results; held-out safety/quality gates pass; and no stale public name appears. |
 | S8 | Run release checks and inspect the published artifact contents. | S7 | Clean provenance, platform checks, package contents, catalog fingerprints, and release documentation all pass. |
 
 ### Files, APIs, and contracts
@@ -245,6 +260,7 @@ The active skill uses the flow `DISCOVER IDS → BUILD SEMANTIC QUERY → BACKGR
 | Pi | Gateway contracts, catalog prompts, rendering hints, harness docs, tests. | No `jev` activation or prose outside historical fixtures. |
 | Skills | Rename skill folder/name, triggers, README, references, validators, installed manifests, and internal links; teach single-versus-batch semantics, background acquisition, atomic aspects, and page recovery without duplicating field definitions. | No forwarding skill, legacy pair example, or duplicated schema; live discovery remains the source of truth. |
 | Chrome/scraping | Triage invocation, request filenames where public, functions, errors, usage fields, docs, fixtures. Helpers own safe artifact extraction, hashes, and resource construction; `semanticAssess` owns acquisition and semantic paging. | Every artifact enters the public query/page flow; no private semantic paging protocol, `JEV_UNAVAILABLE`, or `runJev` remains in active code. |
+| Jev lab | Keep `@octocodeai/jev-lab` private and direct-to-provider for repeatable multi-resource primitive, latency, and token experiments. | It never becomes a public tool, runtime-policy clone, release dependency, or alternative semantic contract. |
 | Docs | Rename active Jev guides, headings, commands, examples, ownership links, architecture references, and release notes. | Historical POCs remain immutable and explicitly labeled; active guidance uses only `semanticAssess`. |
 | Generated/release | Regenerated Rust/JSON contracts, provenance, fingerprints, package output, platform bundles. | No hand edits; published catalog contains exactly one semantic-assessment tool. |
 
@@ -254,9 +270,10 @@ The active skill uses the flow `DISCOVER IDS → BUILD SEMANTIC QUERY → BACKGR
 |---|---|---|
 | One public tool | All live catalogs expose exactly `semanticAssess`; `jev` is absent. | Any duplicate/alias or interface disagreement blocks release. |
 | Executable discovery guidance | Every active agent instruction and skill example executes against the staged CLI/MCP catalog exactly as written. | Any retired command, unknown flag, or stale schema path blocks release. |
-| Model-independent contract | Public names, schemas, descriptions, examples, and skills contain no provider-specific Jev terminology except provider setup documentation. | Any provider term in the public contract blocks release. |
+| Model-independent tool identity | Public tool/module/schema names contain no Jev model or service branding. The stable Noul/Choice/Score primitive names and exact answer fields remain public and documented. | A provider transport/model term in tool identity, or any rewritten primitive answer, blocks release. |
 | Semantic-query correctness | Every question evaluates every resource in its semantic query; cells are resource-major and carry query, resource, and question IDs. | Missing/duplicate cells, repeated acquisition, cross-query leakage, or IDs in provider evidence blocks release. |
 | Direct and batch modes | Direct input is one `SemanticQuery`; `queries[]` contains only complete semantic queries and isolates their failures. Output uses one shape for both. | Any accepted flat pair, mixed envelope, lost query ID, or slow sibling that suppresses completed results blocks release. |
+| Native primitive fidelity | Noul, Choice, and Score request shapes match the official provider primitives. Successful output preserves every documented answer field/value; outer correlation, coverage, receipts, and usage remain adjacent metadata. | Renaming Noul, dropping distributions/legend/confidence, recalculating Score, thresholding Noul, flattening answers, or synthesizing prose blocks release. |
 | Agent routing | Held-out agents skip exact/mandatory reads, add questions for shared-resource aspects, batch only distinct semantic queries, and keep dependent questions sequential. | Any systematic wrong-shape selection, forced-call behavior, duplicated resources, or unread-body defeat blocks release. |
 | Context discipline | Unread resources stay outside host context until selected for proof; already-visible evidence uses `value`; compaction preserves identifiers, limitations, and continuations. | Any needless reread, lost recovery handle, or summary-only proof blocks release. |
 | Resource paging | One logical resource supports 80,000 characters; runtime pages below 20,000 estimated provider-input tokens, repeats the identical question, freezes source identity, and returns ordered body-free page results or cross-process `next.assess`. | A four-characters-per-token assumption, mixed source versions, silent page/error drop, in-memory-only continuation, replayed completed page, or global negative from partial coverage blocks release. |
@@ -293,9 +310,19 @@ Track task success, tool-selection accuracy, invalid calls, false exclusions, ci
 
 On 2026-09-20, the staged `jev` CLI processed this plan through three sequential background `localFetch` byte pages: offsets 0, 20,000, and 40,000 with a 20,000-byte limit and the same Choice question. The first two receipts were partial and returned exact `continue` queries; the final receipt reported bounded coverage. Host output contained only typed answers, provider usage, result hashes, coverage, and continuations—not source bodies. The page answers were `partial`, `partial`, and `no`, which confirms that page judgments do not form a safe global answer without complete coverage and an explicit reducer.
 
-A second run assessed the first 80,000 UTF-8 bytes of `packages/octocode-native/crates/runtime/src/contracts/generated/tool-contract.json` as four isolated 20,000-byte pages with the same binary question. Every page completed and returned the next exact offset. Provider input was 6,642, 8,049, 8,057, and 8,094 tokens: 30,842 total for 80,000 mostly ASCII/minified-JSON bytes. This directly rejects the assumption that 80,000 characters reliably equal 20,000 tokens; token density depends on content and serialization.
+A second run assessed the first 80,000 UTF-8 bytes of `packages/octocode-native/crates/runtime/src/contracts/generated/tool-contract.json` as four isolated 20,000-byte pages with the same Noul question. Every page completed and returned the next exact offset. Provider input was 6,642, 8,049, 8,057, and 8,094 tokens: 30,842 total for 80,000 mostly ASCII/minified-JSON bytes. This directly rejects the assumption that 80,000 characters reliably equal 20,000 tokens; token density depends on content and serialization.
 
 The equivalent four-row legacy batch emitted no result within 60 seconds; the test cancelled it with exit code 130. The isolated page calls completed in about 18 seconds when launched in parallel. This does not diagnose the provider/runtime boundary, but it establishes a release case for batch deadlines, partial sibling results, progress diagnostics, and bounded concurrency. The staged CLI still exposes legacy flat `queries[]`, so these runs verify background acquisition, body-free receipts, and manual continuation—not the target `SemanticQuery` direct/batch contract or automatic paging.
+
+### Direct API lab evidence
+
+`@octocodeai/jev-lab` is a private, zero-policy development probe for provider experiments. A manifest accepts either provider-ready `state` or several bounded local `resources`, plus the native TypeSafe `questions` map. It resolves credentials through the shared trusted Octocode config loader, sends local content without local paths, records hashes and sizes, supports repeated/concurrent samples, and keeps each parsed provider envelope unchanged under `samples[].response`. It deliberately does not emulate `semanticAssess` acquisition, paging, security, or output shaping.
+
+On 2026-09-21, `yarn jev:probe --input packages/octocode-jev-lab/examples/multi-file.json --compact` sent this plan, `.octocode/JEV.md`, and the Jev reasoning skill together: 71,404 serialized request bytes, 15,625 provider input tokens, 82 output tokens, HTTP 200, and 1,399.89 ms elapsed. One request asked a Choice, Score, and Noul. The native response retained every documented field: Choice label/distribution/confidence, Score value/distribution/legend/confidence, Noul probability, model, and usage.
+
+The result was `partial_drift` (Choice probability 0.70), implementation readiness 1.71/2 (0.72 on ready), and only 0.19 Noul probability that the plan preserved native answers. The negative Noul was actionable: the plan still renamed Noul to `binary` and did not define the lossless answer union. The contract above now keeps native primitive names and fields. This is a live semantic review, not a source oracle; exact contract tests remain the release gate.
+
+After that correction, the lab's default matrix mode sent each of the three resources once with all three questions, concurrently: nine logical cells, three provider calls, 79,078 serialized request bytes, 17,877 input tokens, 240 output tokens, 801.88–1,331.31 ms per call, and no failures. The updated plan returned `aligned` at 0.65 probability, readiness 1.94/2, and Noul 0.99 for native-answer preservation. The older `.octocode/JEV.md` and reasoning skill returned lower preservation Nouls (0.41 and 0.11), so S5 must update their active guidance; those judgments do not weaken the corrected plan contract.
 
 ### Rollout and rollback
 
@@ -404,7 +431,7 @@ PR patch windows and file pages are separate axes. The review recorded 87,419 pa
 
 ### Admission and semantic agreement — W7/W8
 
-The hard cutover resolves the admission decision: reject null/blank instructions, require the declared criteria in the target schema, and require at least two Choice alternatives. Use nonblank strings for instructions and criterion descriptions; keep structured evidence in `context.value`. Accept strings, nonempty objects, or nonempty arrays for supplied state. Wrap scalars explicitly, for example `context:{value:{observed:false}}`; do not silently transform caller values. Validate background queries through their canonical ordinary-tool schema rather than embedding every read-tool schema in `semanticAssess`.
+The hard cutover resolves the admission decision: reject null/blank instructions, require at least two Choice alternatives and 2–10 independently described Score levels, and validate optional Noul criteria as a complete `true`/`false` pair. Accept nonempty strings, objects, or arrays for instructions and the provider-supported JSON entry shapes for criterion descriptions; recommend string form first. Accept strings, nonempty objects, or nonempty arrays for supplied state. Wrap scalars explicitly, for example `context:{value:{observed:false}}`; do not silently transform caller values. Validate background queries through their canonical ordinary-tool schema rather than embedding every read-tool schema in `semanticAssess`.
 
 Publish the break in the migration note, regenerate contracts, and make invalid examples assert rule IDs plus indexed `queries`, `resources`, and `questions` paths. Do not add keyword bans or provider-specific validation.
 

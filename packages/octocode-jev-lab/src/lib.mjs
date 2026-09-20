@@ -7,6 +7,8 @@ const DEFAULT_BASE_URL = 'https://api.typesafe.ai';
 const DEFAULT_MODEL = 'jev-latest';
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
 const MAX_RESOURCE_CHARS = 80_000;
+const MAX_RESOURCES = 25;
+const MAX_QUESTIONS = 5;
 
 function fail(message) {
   throw new Error(message);
@@ -36,6 +38,9 @@ function validateQuestions(questions) {
   }
   const entries = Object.entries(questions);
   if (entries.length === 0) fail('questions must not be empty.');
+  if (entries.length > MAX_QUESTIONS) {
+    fail(`questions supports at most ${MAX_QUESTIONS} entries.`);
+  }
   for (const [id, question] of entries) {
     if (!id.trim()) fail('question ids must be non-blank.');
     if (!question || typeof question !== 'object' || Array.isArray(question)) {
@@ -74,9 +79,10 @@ async function materializeResource(resource, index, baseDirectory) {
   if (serialized === undefined) {
     fail(`resource ${JSON.stringify(id)} value must be valid JSON.`);
   }
-  if (serialized.length > MAX_RESOURCE_CHARS) {
+  const chars = [...serialized].length;
+  if (chars > MAX_RESOURCE_CHARS) {
     fail(
-      `resource ${JSON.stringify(id)} is ${serialized.length} characters; ` +
+      `resource ${JSON.stringify(id)} is ${chars} characters; ` +
         `split it into pages of at most ${MAX_RESOURCE_CHARS} characters`,
     );
   }
@@ -85,7 +91,7 @@ async function materializeResource(resource, index, baseDirectory) {
     receipt: {
       id,
       ...source,
-      chars: serialized.length,
+      chars,
       bytes: Buffer.byteLength(serialized),
       sha256: sha256(serialized),
     },
@@ -104,10 +110,13 @@ export async function prepareExperiment(spec, inputPath, env = process.env) {
   }
 
   const baseDirectory = dirname(resolve(inputPath));
-  let state = spec.state;
+  const state = spec.state;
   let resources = [];
   if (hasResources) {
     if (spec.resources.length === 0) fail('resources must not be empty.');
+    if (spec.resources.length > MAX_RESOURCES) {
+      fail(`resources supports at most ${MAX_RESOURCES} entries.`);
+    }
     const ids = new Set();
     resources = await Promise.all(
       spec.resources.map(async (resource, index) => {
@@ -119,20 +128,49 @@ export async function prepareExperiment(spec, inputPath, env = process.env) {
         return result;
       }),
     );
-    state = { resources: resources.map(({ provider }) => provider) };
   }
 
   const model = spec.model ?? env.OCTOCODE_JEV_MODEL ?? DEFAULT_MODEL;
   if (typeof model !== 'string' || !model.trim()) fail('model must be non-blank.');
-  const body = { model: model.trim(), state, questions: spec.questions };
+  const resourceMode = hasResources ? (spec.resourceMode ?? 'matrix') : 'direct';
+  if (hasResources && !['matrix', 'combined'].includes(resourceMode)) {
+    fail('resourceMode must be matrix or combined.');
+  }
+  const requests = hasResources
+    ? resourceMode === 'matrix'
+      ? resources.map(({ provider }) => ({
+          resourceId: provider.id,
+          body: {
+            model: model.trim(),
+            state: { resource: provider },
+            questions: spec.questions,
+          },
+        }))
+      : [
+          {
+            body: {
+              model: model.trim(),
+              state: { resources: resources.map(({ provider }) => provider) },
+              questions: spec.questions,
+            },
+          },
+        ]
+    : [{ body: { model: model.trim(), state, questions: spec.questions } }];
   return {
-    body,
+    requests,
     receipt: {
-      model: body.model,
-      questionCount: Object.keys(body.questions).length,
+      model: model.trim(),
+      mode: resourceMode,
+      questionCount: Object.keys(spec.questions).length,
       resourceCount: resources.length,
+      logicalCells:
+        (resources.length || 1) * Object.keys(spec.questions).length,
+      providerCallsPerPass: requests.length,
       resources: resources.map(({ receipt }) => receipt),
-      requestBytes: Buffer.byteLength(JSON.stringify(body)),
+      requestBytesPerPass: requests.reduce(
+        (sum, request) => sum + Buffer.byteLength(JSON.stringify(request.body)),
+        0,
+      ),
     },
   };
 }
@@ -216,16 +254,21 @@ export function summarize(samples) {
 
 export async function runExperiment(prepared, options = {}) {
   const repeat = positiveInteger(options.repeat, 'repeat', 1);
-  const concurrency = Math.min(
-    positiveInteger(options.concurrency, 'concurrency', 1),
-    repeat,
+  const tasks = prepared.requests.flatMap(request =>
+    Array.from({ length: repeat }, (_, iteration) => ({ ...request, iteration })),
   );
-  const samples = new Array(repeat);
+  const concurrency = Math.min(positiveInteger(options.concurrency, 'concurrency', 1), tasks.length);
+  const samples = new Array(tasks.length);
   let nextIndex = 0;
   async function worker() {
-    while (nextIndex < repeat) {
+    while (nextIndex < tasks.length) {
       const index = nextIndex++;
-      samples[index] = await sendJev(prepared.body, options);
+      const task = tasks[index];
+      samples[index] = {
+        ...(task.resourceId ? { resourceId: task.resourceId } : {}),
+        iteration: task.iteration,
+        ...(await sendJev(task.body, options)),
+      };
     }
   }
   await Promise.all(Array.from({ length: concurrency }, () => worker()));
@@ -234,6 +277,7 @@ export async function runExperiment(prepared, options = {}) {
       ...prepared.receipt,
       repeat,
       concurrency,
+      providerCalls: tasks.length,
     },
     summary: summarize(samples),
     samples,

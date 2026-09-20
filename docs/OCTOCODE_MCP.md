@@ -44,16 +44,16 @@ Set tokens through environment variables or run `npx octocode auth login`. Don't
 The MCP entrypoint runs these steps in order:
 
 ```text
-initialize
-  -> configureSecurity
-  -> initializeProviders
-  -> loadToolContent
-  -> initializeSession
-  -> register tools
-  -> stdio connect
+loadNativeBinding
+  -> new NativeRuntime({ surface: 'mcp' })
+  -> ABI version check
+  -> catalog()                    (tool availability from native)
+  -> contract fingerprint check   (core ↔ native schema parity)
+  -> registerTool loop            (Standard Schema from octocode-core)
+  -> StdioServerTransport connect
 ```
 
-At startup, Octocode reads configuration from environment variables and `<octocode-home>/.octocoderc`, initializes local security and provider clients, loads repository-owned tool metadata and agent-facing instructions, opens the session store, and registers the final enabled tool set. Octocode looks the GitHub token up live on every request, so changing an environment token can affect the next API call even though the startup status log keeps its original token-source snapshot.
+At startup, the Node adapter loads the platform-specific Rust N-API addon (`@octocodeai/octocode-native`), instantiates the native runtime, and validates that its ABI version and contract fingerprint match the registered schema package (`@octocodeai/octocode-core`). A mismatch on either check is a startup failure — the server never enters a mismatched state. Configuration, security policy, providers, credentials, caches, and session state are owned entirely by the native runtime; the Node adapter owns only protocol framing and process lifecycle. Octocode reads the GitHub token live on every request, so changing an environment token affects the next API call without a server restart.
 
 ## Tool catalog
 

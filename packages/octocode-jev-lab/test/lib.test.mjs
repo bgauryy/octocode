@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { after, test } from 'node:test';
 import { prepareExperiment, resolveEndpoint, sendJev, summarize } from '../src/lib.mjs';
 
-test('prepares several files as one structured state without sending local paths', async () => {
+test('prepares several files as resource-major matrix requests without local paths', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'jev-lab-'));
   await writeFile(join(directory, 'one.txt'), 'first');
   await writeFile(join(directory, 'two.txt'), 'second');
@@ -21,15 +21,49 @@ test('prepares several files as one structured state without sending local paths
     join(directory, 'request.json'),
     {},
   );
-  assert.deepEqual(prepared.body.state, {
-    resources: [
-      { id: 'one', content: 'first' },
-      { id: 'two', content: 'second' },
+  assert.deepEqual(
+    prepared.requests.map(request => request.body.state),
+    [
+      { resource: { id: 'one', content: 'first' } },
+      { resource: { id: 'two', content: 'second' } },
     ],
-  });
-  assert.equal(JSON.stringify(prepared.body).includes(directory), false);
+  );
+  assert.equal(JSON.stringify(prepared.requests).includes(directory), false);
+  assert.equal(prepared.receipt.mode, 'matrix');
   assert.equal(prepared.receipt.resourceCount, 2);
   assert.equal(prepared.receipt.questionCount, 1);
+  assert.equal(prepared.receipt.logicalCells, 2);
+});
+
+test('combines resources only when explicitly requested', async () => {
+  const prepared = await prepareExperiment(
+    {
+      resourceMode: 'combined',
+      resources: [
+        { id: 'one', value: 'first' },
+        { id: 'two', value: 'second' },
+      ],
+      questions: { useful: { type: 'noul', instructions: 'Is this useful?' } },
+    },
+    '/tmp/request.json',
+    {},
+  );
+  assert.deepEqual(prepared.requests, [
+    {
+      body: {
+        model: 'jev-latest',
+        state: {
+          resources: [
+            { id: 'one', content: 'first' },
+            { id: 'two', content: 'second' },
+          ],
+        },
+        questions: { useful: { type: 'noul', instructions: 'Is this useful?' } },
+      },
+    },
+  ]);
+  assert.equal(prepared.receipt.mode, 'combined');
+  assert.equal(prepared.receipt.providerCallsPerPass, 1);
 });
 
 test('preserves a raw state value', async () => {
@@ -43,8 +77,8 @@ test('preserves a raw state value', async () => {
     '/tmp/request.json',
     {},
   );
-  assert.equal(prepared.body.state, state);
-  assert.equal(prepared.body.model, 'jev-test');
+  assert.equal(prepared.requests[0].body.state, state);
+  assert.equal(prepared.requests[0].body.model, 'jev-test');
 });
 
 test('keeps the provider JSON unchanged in the sample response', async () => {
