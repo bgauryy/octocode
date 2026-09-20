@@ -29,11 +29,7 @@ fn scheme_catalog_carries_availability_scoped_core_instructions() {
             serde_json::from_slice(&output.stdout).expect("catalog JSON");
         assert_eq!(catalog["instructions"], expected, "{catalog}");
         assert!(catalog.get("guidance").is_none(), "{catalog}");
-        assert_eq!(
-            expected.contains("use jev"),
-            enabled,
-            "{catalog}"
-        );
+        assert_eq!(expected.contains("jev"), enabled, "{catalog}");
         let jev = catalog["tools"]
             .as_array()
             .expect("tools array")

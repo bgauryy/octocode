@@ -62,7 +62,11 @@ function providerUsage(result, expectedRows) {
   if (Array.isArray(rows)) for (const row of rows) {
     const index = row.index;
     const data = row.data;
-    if (row.status !== 'success' || !Number.isInteger(index) || index < 0 || index >= expectedRows || covered.has(index)) continue;
+    // Native compact responses omit the default success status. Error rows never
+    // establish usage, even if an unexpected payload happens to include counts.
+    if (row.status !== undefined && row.status !== 'success' || !object(data) ||
+        own(row, 'error') || own(data, 'error') || own(data, 'errorCode') ||
+        !Number.isInteger(index) || index < 0 || index >= expectedRows || covered.has(index)) continue;
     const usage = data?.usage;
     if (![usage?.input_tokens, usage?.output_tokens].every(value => Number.isSafeInteger(value) && value >= 0)) continue;
     const attribution = data.usageAttribution;

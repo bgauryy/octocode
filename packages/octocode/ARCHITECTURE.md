@@ -19,7 +19,7 @@ TypeScript remains only for:
 - `skill`, backed by the shared skill installer;
 - the TTY picker for `install` without `--ide`, which discovers client ids from `native install --list --json` and delegates the selected id back to native.
 
-Everything else — flag-only management commands, `tools`, `context`, `lsp-server`, status, authentication, human search/read/AST/LSP commands, and MCP installation — is delegated to the native CLI. Interactive installation is a transport adapter, not a second installer. The native `skill` command shells back to this launcher; `OCTOCODE_SKILL_DELEGATED` guards that hop so a native binary on PATH cannot recurse.
+Everything else — `scheme`, `config`, `auth`, `lsp-server`, tool invocations (`<toolName> '<json>'`), and `install` — is delegated to the native CLI. Interactive installation is a transport adapter, not a second installer. The native `skill` command shells back to this launcher; `OCTOCODE_SKILL_DELEGATED` guards that hop so a native binary on PATH cannot recurse.
 
 ## Build and packaging
 

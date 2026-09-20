@@ -76,32 +76,6 @@ pub struct ConfigInput {
     pub revision: u64,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct RawConfig {
-    #[serde(rename = "$schema", default)]
-    pub schema: Option<String>,
-    #[serde(default)]
-    pub version: Option<Value>,
-    #[serde(default)]
-    pub github: Option<Value>,
-    #[serde(default)]
-    pub local: Option<Value>,
-    #[serde(default)]
-    pub tools: Option<Value>,
-    #[serde(default)]
-    pub network: Option<Value>,
-    #[serde(default)]
-    pub lsp: Option<Value>,
-    #[serde(default)]
-    pub output: Option<Value>,
-    #[serde(default)]
-    pub storage: Option<Value>,
-    #[serde(default)]
-    pub extension: Option<Value>,
-    #[serde(flatten)]
-    pub unknown: BTreeMap<String, Value>,
-}
-
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ResolvedConfig {
     pub version: Value,

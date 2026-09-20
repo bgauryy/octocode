@@ -197,41 +197,6 @@ impl ContentSecurity {
         Ok(self.sanitize_text(&String::from_utf8_lossy(bytes), file_path))
     }
 
-    pub fn mask_sensitive_data(&self, text: &str) -> String {
-        let native = octocode_engine::portable::mask_sensitive_data(text.to_owned());
-        let mut spans = Vec::new();
-        for pattern in self
-            .registry
-            .secret_patterns()
-            .iter()
-            .filter(|pattern| pattern.file_context.is_none())
-        {
-            spans.extend(
-                pattern
-                    .regex
-                    .find_iter(&native)
-                    .map(|found| (found.start(), found.end())),
-            );
-        }
-        spans.sort_unstable();
-        let mut output = String::new();
-        let mut cursor = 0;
-        for (start, end) in spans {
-            if start < cursor {
-                continue;
-            }
-            output.push_str(&native[cursor..start]);
-            // Fully mask the matched span so no portion of the secret survives;
-            // the previous even-index scheme leaked ~50% of the span.
-            for _ in native[start..end].chars() {
-                output.push('*');
-            }
-            cursor = end;
-        }
-        output.push_str(&native[cursor..]);
-        output
-    }
-
     pub fn validate_input_parameters(&self, params: &Value) -> ValidationResult {
         let Some(object) = params.as_object() else {
             return ValidationResult {

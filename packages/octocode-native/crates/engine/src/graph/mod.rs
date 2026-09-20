@@ -87,12 +87,6 @@ pub(crate) fn scan_graph_facts_filtered(
     })
 }
 
-pub(crate) fn scan_graph_facts_typed(
-    options: GraphFactsScanOptions,
-) -> Result<GraphFactsTypedScanResult, String> {
-    scan_graph_facts_typed_filtered(options, &|_| Ok(true))
-}
-
 pub(crate) fn scan_graph_facts_typed_filtered(
     options: GraphFactsScanOptions,
     allow_path: &(dyn Fn(&Path) -> Result<bool, String> + Sync),
@@ -386,10 +380,13 @@ mod tests {
         )
         .expect("write fixture");
 
-        let result = scan_graph_facts_typed(GraphFactsScanOptions {
-            path: path_string(&root),
-            ..Default::default()
-        })
+        let result = scan_graph_facts_typed_filtered(
+            GraphFactsScanOptions {
+                path: path_string(&root),
+                ..Default::default()
+            },
+            &|_| Ok(true),
+        )
         .expect("typed scan");
         let entry = result.entries.first().expect("entry");
         assert_eq!(entry.facts.file, "lib.rs");

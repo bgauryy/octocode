@@ -47,7 +47,6 @@ futures-util = "0.3"
 secrecy = "0.10"
 keyring-core = "1"
 hex = "0.4"
-zeroize = "1"
 octocode-engine = { path = "../engine", default-features = false, features = ["portable-default", "embedded-ast-grep-rewrite"] }
 tokio = { version = "1", features = ["fs", "rt-multi-thread", "macros", "sync", "time", "signal"] }
 tokio-util = { version = "0.7", features = ["rt"] }

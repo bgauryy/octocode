@@ -3,30 +3,50 @@
     "id": "jev.curated-1",
     "tool": "jev",
     "input": {
-      "reasoning": "Decide whether to investigate a workaround path.",
+      "reasoning": "Choose which candidate implements interceptor ordering.",
       "context": {
-        "value": {
-          "report": "Export fails; CSV is a workaround."
+        "tool": "ghGetFileContent",
+        "query": {
+          "owner": "axios",
+          "repo": "axios",
+          "path": "lib/core/Axios.js",
+          "reasoning": "Screen this discovered candidate without a host body read.",
+          "fullContent": true
         }
       },
       "question": {
-        "type": "noul",
-        "instructions": "Does the report describe a workaround?"
+        "type": "choice",
+        "instructions": "Does this file implement request interceptor ordering? Judge supplied implementation; missing delegates are insufficient.",
+        "criteria": {
+          "direct": "Implements the ordering or a counterexample.",
+          "unrelated": "Complete content establishes a different concern.",
+          "insufficient": "Missing implementation prevents deciding."
+        }
       }
     },
     "accepted": true,
     "normalized": {
       "queries": [
         {
-          "reasoning": "Decide whether to investigate a workaround path.",
+          "reasoning": "Choose which candidate implements interceptor ordering.",
           "context": {
-            "value": {
-              "report": "Export fails; CSV is a workaround."
+            "tool": "ghGetFileContent",
+            "query": {
+              "owner": "axios",
+              "repo": "axios",
+              "path": "lib/core/Axios.js",
+              "reasoning": "Screen this discovered candidate without a host body read.",
+              "fullContent": true
             }
           },
           "question": {
-            "type": "noul",
-            "instructions": "Does the report describe a workaround?"
+            "type": "choice",
+            "instructions": "Does this file implement request interceptor ordering? Judge supplied implementation; missing delegates are insufficient.",
+            "criteria": {
+              "direct": "Implements the ordering or a counterexample.",
+              "unrelated": "Complete content establishes a different concern.",
+              "insufficient": "Missing implementation prevents deciding."
+            }
           }
         }
       ]
@@ -36,21 +56,26 @@
     "id": "jev.curated-2",
     "tool": "jev",
     "input": {
-      "reasoning": "Decide whether the save boundary needs a direct evidence read.",
+      "reasoning": "Choose the next investigation without fetching the same facts again.",
       "context": {
-        "tool": "localFetch",
-        "query": {
-          "path": "/ABS/repo/src/store.ts",
-          "reasoning": "Inspect the save boundary without returning its body."
+        "value": {
+          "observations": [
+            "The delay occurs before adapter entry.",
+            "Only requests with an asynchronous interceptor show the delay."
+          ],
+          "hypotheses": {
+            "interceptor": "The interceptor chain delays dispatch.",
+            "adapter": "Adapter setup delays dispatch."
+          }
         }
       },
       "question": {
         "type": "choice",
-        "instructions": "Does this result establish whether cancellation prevents a write? Missing implementation is insufficient.",
+        "instructions": "Which hypothesis should the next read or test discriminate first? These observations do not establish a cause.",
         "criteria": {
-          "direct": "Deciding evidence, including a counterexample.",
-          "insufficient": "Missing implementation or incomplete coverage prevents deciding.",
-          "unrelated": "No relevant implementation or boundary."
+          "interceptor": "Inspect interceptor scheduling first.",
+          "adapter": "Inspect adapter setup first.",
+          "insufficient": "Obtain a timing trace that separates the two boundaries."
         }
       }
     },
@@ -58,21 +83,26 @@
     "normalized": {
       "queries": [
         {
-          "reasoning": "Decide whether the save boundary needs a direct evidence read.",
+          "reasoning": "Choose the next investigation without fetching the same facts again.",
           "context": {
-            "tool": "localFetch",
-            "query": {
-              "path": "/ABS/repo/src/store.ts",
-              "reasoning": "Inspect the save boundary without returning its body."
+            "value": {
+              "observations": [
+                "The delay occurs before adapter entry.",
+                "Only requests with an asynchronous interceptor show the delay."
+              ],
+              "hypotheses": {
+                "interceptor": "The interceptor chain delays dispatch.",
+                "adapter": "Adapter setup delays dispatch."
+              }
             }
           },
           "question": {
             "type": "choice",
-            "instructions": "Does this result establish whether cancellation prevents a write? Missing implementation is insufficient.",
+            "instructions": "Which hypothesis should the next read or test discriminate first? These observations do not establish a cause.",
             "criteria": {
-              "direct": "Deciding evidence, including a counterexample.",
-              "insufficient": "Missing implementation or incomplete coverage prevents deciding.",
-              "unrelated": "No relevant implementation or boundary."
+              "interceptor": "Inspect interceptor scheduling first.",
+              "adapter": "Inspect adapter setup first.",
+              "insufficient": "Obtain a timing trace that separates the two boundaries."
             }
           }
         }

@@ -62,40 +62,28 @@ pub(super) enum AuthCommand {
 #[derive(Subcommand)]
 pub(super) enum Command {
     // ── Tools: one command per tool, named exactly like the tool ─────────────
-    /// Search text or a regex pattern across local files.
     #[command(name = "localSearch")]
     LocalSearch(ToolArgs),
-    /// Read a local file with pagination, line ranges, match filtering, and minification.
     #[command(name = "localFetch")]
     LocalFetch(ToolArgs),
-    /// Structural code search with ast-grep patterns; also file/symbol/tree/graph discovery.
     #[command(name = "astSearch")]
     AstSearch(ToolArgs),
-    /// Structural find-and-replace using ast-grep patterns; previews before writing.
     #[command(name = "astRewrite")]
     AstRewrite(ToolArgs),
-    /// Semantic navigation via LSP: definitions, references, hover, call/type hierarchy, diagnostics.
     #[command(name = "lspSearch")]
     LspSearch(ToolArgs),
-    /// Search GitHub repositories and code.
     #[command(name = "ghSearch")]
     GhSearch(ToolArgs),
-    /// Read a file from a GitHub repository without cloning it.
     #[command(name = "ghGetFileContent")]
     GhGetFileContent(ToolArgs),
-    /// Search GitHub pull requests, issues, and commits.
     #[command(name = "ghSearchHistory")]
     GhSearchHistory(ToolArgs),
-    /// Read a single GitHub pull request, issue, commit, or comparison.
     #[command(name = "ghGetHistoryItem")]
     GhGetHistoryItem(ToolArgs),
-    /// Clone a GitHub repository into the local Octocode cache for offline analysis.
     #[command(name = "ghCloneRepo")]
     GhCloneRepo(ToolArgs),
-    /// Look up or discover packages across npm, PyPI, crates.io, Maven, and 4 other registries.
     #[command(name = "artifactSearch")]
     ArtifactSearch(ToolArgs),
-    /// Judgment engine: gate, compare, or audit candidates by evidence.
     #[command(name = "jev")]
     Jev(ToolArgs),
 

@@ -15,6 +15,7 @@ use std::io::{self, Write};
 #[command(
     name = "octocode",
     version,
+    mut_subcommands = canonical_tool_help,
     about = "Native Octocode research tools",
     // Keep in sync with the "Exit codes" table in packages/octocode-native/README.md.
     long_about = "Native Octocode research tools.\n\n\
@@ -44,6 +45,19 @@ pub struct Args {
     command: Command,
 }
 
+/// Core owns tool guidance; system command help remains interface-owned.
+fn canonical_tool_help(command: clap::Command) -> clap::Command {
+    let description = octocode_native::contracts::parsed_contract()
+        .ok()
+        .and_then(|contract| contract["tools"].as_array())
+        .and_then(|tools| tools.iter().find(|tool| tool["name"] == command.get_name()))
+        .and_then(|tool| tool["shortDescription"].as_str());
+    match description {
+        Some(description) => command.about(description),
+        None => command,
+    }
+}
+
 fn emit_error(msg: &str, json_errors: bool) {
     if json_errors {
         println!("{}", json!({"success": false, "error": msg}));
@@ -61,16 +75,6 @@ fn tool_family(name: &str) -> &'static str {
         "artifactSearch" => "Package",
         "jev" => "Reasoning",
         _ => "Other",
-    }
-}
-
-fn compact_description(description: &str, max_chars: usize) -> String {
-    let mut chars = description.chars();
-    let prefix: String = chars.by_ref().take(max_chars).collect();
-    if chars.next().is_some() {
-        format!("{}…", prefix.trim_end_matches([' ', '.', ',']))
-    } else {
-        prefix
     }
 }
 
@@ -157,8 +161,8 @@ fn compact_tool_catalog(
                 .iter()
                 .map(|tool| {
                     let name = tool.get("name").and_then(Value::as_str).unwrap_or_default();
-                    let description = tool
-                        .get("description")
+                    let short_description = tool
+                        .get("shortDescription")
                         .and_then(Value::as_str)
                         .unwrap_or_default();
                     let enabled = tool
@@ -180,7 +184,7 @@ fn compact_tool_catalog(
                     json!({
                         "name": name,
                         "category": tool_family(name),
-                        "description": compact_description(description, 96),
+                        "description": short_description,
                         "fields": compact_fields(tool),
                         "availability": availability
                     })
@@ -188,7 +192,7 @@ fn compact_tool_catalog(
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    let value = json!({
+    json!({
         "kind": "octocode.toolCatalog",
         "version": 1,
         "toolCount": tools.len(),
@@ -200,8 +204,7 @@ fn compact_tool_catalog(
         },
         "instructions": catalog["mcpInstructions"],
         "tools": tools
-    });
-    value
+    })
 }
 
 pub async fn run(args: Args) -> u8 {
@@ -270,6 +273,7 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
                     compact,
                 );
             };
+            let instructions = catalog["mcpInstructions"].clone();
             let value = catalog["tools"]
                 .as_array()
                 .and_then(|tools| tools.iter().find(|tool| tool["name"] == *name))
@@ -289,7 +293,10 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
                 return 2;
             };
             match schema::project_selected(value, view.unwrap_or_default(), select.as_deref()) {
-                Ok(value) => write_json(&value, compact),
+                Ok(mut value) => {
+                    value["instructions"] = instructions;
+                    write_json(&value, compact)
+                }
                 Err(error) => {
                     emit_error(&error, json_errors);
                     2

@@ -62,9 +62,4 @@ pub struct JsFuzzyPosition {
     pub order_hint: Option<u32>,
 }
 
-pub type LanguageServerConfig = JsLanguageServerConfig;
-pub type ExactPosition = JsExactPosition;
 pub type Range = JsRange;
-pub type CodeSnippet = JsCodeSnippet;
-pub type ResolvedSymbol = JsResolvedSymbol;
-pub type FuzzyPosition = JsFuzzyPosition;

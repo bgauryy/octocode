@@ -5,6 +5,7 @@ use super::{
     domain_dispatch::DomainDispatcher,
 };
 use crate::tools::jev::{self, transport::JevProviderError};
+use futures_util::{StreamExt, stream};
 use secrecy::SecretString;
 use serde_json::{Value, json};
 
@@ -71,73 +72,83 @@ pub(super) fn execute(
         }
     }
     let budget = jev::transport::budget(context.deadline, context.cancellation.clone());
-    for group in groups {
-        context.check()?;
-        let first = &group[0];
-        if group.len() == 1 {
-            let result = dispatcher.handle.block_on(jev::execute(
-                &first.state,
-                first.question,
-                config.key.clone(),
-                config.base_url,
-                config.model,
-                budget.clone(),
-                config.retries,
-            ));
-            rows[first.index] = Some(match result {
-                Ok(mut data) => {
-                    record_usage(&data["usage"]);
-                    if let Some(receipt) = &first.receipt {
-                        data["context"] = receipt.clone();
+    // Capture remains serial; only independent provider groups overlap. All
+    // futures share the admitted deadline/cancellation and are drained before
+    // returning, so each completed response records its usage immediately.
+    let pending = groups.into_iter().map(|group| {
+        let budget = &budget;
+        let config = &config;
+        async move {
+            let first = &group[0];
+            let result = if group.len() == 1 {
+                jev::execute(
+                    &first.state,
+                    first.question,
+                    config.key.clone(),
+                    config.base_url,
+                    config.model,
+                    budget.clone(),
+                    config.retries,
+                )
+                .await
+                .map(|data| jev::batch::GroupResponse {
+                    usage: data["usage"].clone(),
+                    answers: vec![Ok(data)],
+                })
+            } else {
+                let questions: Vec<_> = group.iter().map(|row| (row.index, row.question)).collect();
+                jev::batch::execute(
+                    &first.state,
+                    &questions,
+                    config.key,
+                    config.base_url,
+                    config.model,
+                    budget,
+                    config.retries,
+                )
+                .await
+            };
+            (group, result)
+        }
+    });
+    dispatcher.handle.block_on(async {
+        let mut completions = stream::iter(pending).buffer_unordered(5);
+        while let Some((group, result)) = completions.next().await {
+            match result {
+                Err(error) => {
+                    for row in group {
+                        rows[row.index] = Some(failed(error.clone()));
                     }
-                    dispatch::value_result(data)
                 }
-                Err(error) => failed(error),
-            });
-            continue;
-        }
-        let questions: Vec<_> = group.iter().map(|row| (row.index, row.question)).collect();
-        let result = dispatcher.handle.block_on(jev::batch::execute(
-            &first.state,
-            &questions,
-            config.key,
-            config.base_url,
-            config.model,
-            &budget,
-            config.retries,
-        ));
-        match result {
-            Err(error) => {
-                for row in group {
-                    rows[row.index] = Some(failed(error.clone()));
-                }
-            }
-            Ok(result) => {
-                record_usage(&result.usage);
-                let owner = group
-                    .iter()
-                    .zip(&result.answers)
-                    .find_map(|(row, answer)| answer.is_ok().then_some(row.index));
-                let shared: Vec<_> = group.iter().map(|row| row.index).collect();
-                for (row, answer) in group.into_iter().zip(result.answers) {
-                    rows[row.index] = Some(match answer {
-                        Err(error) => failed(error),
-                        Ok(mut data) => {
-                            if owner != Some(row.index) {
-                                data["usage"] = json!({"input_tokens":0,"output_tokens":0});
+                Ok(result) => {
+                    record_usage(&result.usage);
+                    let owner = group
+                        .iter()
+                        .zip(&result.answers)
+                        .find_map(|(row, answer)| answer.is_ok().then_some(row.index));
+                    let shared: Vec<_> = group.iter().map(|row| row.index).collect();
+                    for (row, answer) in group.into_iter().zip(result.answers) {
+                        rows[row.index] = Some(match answer {
+                            Err(error) => failed(error),
+                            Ok(mut data) => {
+                                if shared.len() > 1 {
+                                    if owner != Some(row.index) {
+                                        data["usage"] = json!({"input_tokens":0,"output_tokens":0});
+                                    }
+                                    data["usageAttribution"] =
+                                        json!({"ownerIndex":owner,"sharedWith":shared});
+                                }
+                                if let Some(receipt) = row.receipt {
+                                    data["context"] = receipt;
+                                }
+                                dispatch::value_result(data)
                             }
-                            data["usageAttribution"] =
-                                json!({"ownerIndex":owner,"sharedWith":shared});
-                            if let Some(receipt) = row.receipt {
-                                data["context"] = receipt;
-                            }
-                            dispatch::value_result(data)
-                        }
-                    });
+                        });
+                    }
                 }
             }
         }
-    }
+    });
     rows.into_iter()
         .collect::<Option<Vec<_>>>()
         .ok_or(ExecutionError::WorkerFailed)

@@ -76,6 +76,42 @@ fn help_lists_only_the_minimal_command_surface() {
 }
 
 #[test]
+fn tool_help_uses_canonical_core_short_descriptions() {
+    let workspace = Workspace::new();
+    let contract = octocode_native::contracts::parsed_contract().expect("embedded contract");
+    let root = workspace.cli().arg("--help").output().expect("root help");
+    assert!(root.status.success());
+    let root_text = stdout(&root)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    for tool in contract["tools"].as_array().expect("contract tools") {
+        let name = tool["name"].as_str().expect("tool name");
+        let description = tool["shortDescription"]
+            .as_str()
+            .expect("core short description");
+        assert!(!description.is_empty());
+        assert!(
+            root_text.contains(description),
+            "missing canonical {name} description in root help"
+        );
+        for flag in ["-h", "--help"] {
+            let output = workspace
+                .cli()
+                .args([name, flag])
+                .output()
+                .expect("tool help");
+            assert!(output.status.success(), "{name}: {}", stderr(&output));
+            let text = stdout(&output)
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
+            assert!(text.contains(description), "{name} {flag}: {text}");
+        }
+    }
+}
+
+#[test]
 fn removed_alias_commands_are_rejected() {
     let workspace = Workspace::new();
     for alias in [
@@ -584,6 +620,20 @@ fn scheme_lists_the_compact_discovery_catalog() {
     );
     let first = &value["tools"][0];
     assert!(first["name"].is_string());
+    let contract = octocode_native::contracts::parsed_contract().expect("embedded contract");
+    let expected_short = contract["tools"]
+        .as_array()
+        .expect("contract tools")
+        .iter()
+        .find(|tool| tool["name"] == first["name"])
+        .and_then(|tool| tool["shortDescription"].as_str())
+        .expect("core shortDescription");
+    assert_eq!(first["description"], expected_short);
+    assert!(
+        first["description"]
+            .as_str()
+            .is_some_and(|text| text.len() <= 96)
+    );
     assert!(first["fields"].is_string());
     assert!(first["availability"]["enabled"].is_boolean());
     let clone_tool = value["tools"]
@@ -613,6 +663,15 @@ fn scheme_prints_the_complete_tool_contract() {
     assert!(output.status.success(), "{}", stderr(&output));
     let value: serde_json::Value = serde_json::from_str(stdout(&output)).expect("contract JSON");
     assert_eq!(value["name"], "localSearch");
+    assert_eq!(
+        value["shortDescription"],
+        "Find literal or regex matches in local files."
+    );
+    assert!(
+        value["instructions"]
+            .as_str()
+            .is_some_and(|instructions| instructions.contains("Workflows:"))
+    );
     assert!(value["inputSchema"].is_object());
     assert!(value["outputSchema"].is_object());
 }
@@ -650,6 +709,11 @@ fn scheme_query_view_selects_a_single_union_branch() {
     assert!(output.status.success(), "{}", stderr(&output));
     let value: serde_json::Value = serde_json::from_str(stdout(&output)).expect("schema JSON");
     assert_eq!(value["name"], "ghSearch");
+    assert!(
+        value["instructions"]
+            .as_str()
+            .is_some_and(|instructions| instructions.contains("Workflows:"))
+    );
     assert_eq!(
         value["querySchema"]["oneOf"].as_array().map(Vec::len),
         Some(1)

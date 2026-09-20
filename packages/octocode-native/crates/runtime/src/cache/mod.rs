@@ -185,21 +185,6 @@ impl<V> BoundedCache<V> {
         }
     }
 
-    pub fn invalidate_partition(&mut self, partition: &CachePartition) -> usize {
-        let keys = self
-            .entries
-            .keys()
-            .filter(|key| &key.partition == partition)
-            .cloned()
-            .collect::<Vec<_>>();
-        let count = keys.len();
-        for key in keys {
-            self.remove(&key, true);
-        }
-        self.stats.invalidations += count as u64;
-        count
-    }
-
     pub fn invalidate_all(&mut self) {
         let count = self.entries.len();
         self.entries.clear();
@@ -316,15 +301,14 @@ mod tests {
     }
 
     #[test]
-    fn partitions_by_endpoint_and_credential_and_invalidates_one_partition() {
+    fn partitions_by_endpoint_and_credential() {
         let mut cache = BoundedCache::new(CacheConfig::default());
         let now = Instant::now();
         cache.insert(key("a", "first"), 1, 1, 1, now);
         cache.insert(key("a", "second"), 2, 1, 1, now);
-        assert_eq!(cache.invalidate_partition(&key("a", "first").partition), 1);
         assert!(matches!(
             cache.get(&key("a", "first"), 1, None, now),
-            CacheLookup::Miss(CacheMiss::Absent)
+            CacheLookup::Hit { .. }
         ));
         assert!(matches!(
             cache.get(&key("a", "second"), 1, None, now),

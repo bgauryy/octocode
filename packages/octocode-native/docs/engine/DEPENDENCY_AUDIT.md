@@ -1,6 +1,6 @@
 # Native Rust dependency audit
 
-This audit covers every direct dependency declared by the runtime and engine crates after the first-class language cutover. `cargo +nightly udeps --workspace --all-targets --all-features` completed with `All deps seem to have been used.` on 2026-09-19. A passing unused-dependency scan does not establish design necessity by itself, so the tables also name the owned job.
+This audit covers every direct dependency declared by the runtime and engine crates after the first-class language cutover. Last usage sweep: 2026-09-20 (grep-verified per-dependency; the 2026-09-19 `cargo +nightly udeps` pass missed a since-removed unused `zeroize`). A passing unused-dependency scan does not establish design necessity by itself, so the tables also name the owned job.
 
 ## Engine crate
 
@@ -36,13 +36,12 @@ Removed direct dependencies: `ast-grep-language`, `grep`, `lightningcss`, `cross
 |---|---|---|
 | `serde`, `serde_json`, `serde_yaml_ng`, `toml` | Contracts, configuration, provider payloads, and rendered output | Keep |
 | `regex`, `regress` | Linear native patterns and isolated ECMAScript-compatible regex execution | Keep |
-| `icu_collator` | Stable locale-aware result ordering | Keep |
 | `url` | Provider endpoint and URI validation | Keep |
 | `clap` | Native CLI parsing and help | Keep |
 | `base64`, `sha2`, `hex` | Provider encoding, hashes, snapshots, and integrity receipts | Keep |
 | `flate2`, `zip` | Managed LSP archive extraction | Keep |
 | `reqwest`, `bytes`, `futures-util` | Bounded HTTP providers and streaming responses | Keep |
-| `secrecy`, `zeroize`, `keyring-core` | Credential secrecy and platform-store abstraction | Keep |
+| `secrecy`, `keyring-core` | Credential secrecy and platform-store abstraction (`secrecy` supplies zeroization transitively) | Keep |
 | `octocode-engine` | Internal search, syntax, security, graph, minification, and LSP algorithms | Keep with explicit feature set; runtime policy remains separate |
 | `tokio`, `tokio-util` | Runtime lifecycle, cancellation, signals, and asynchronous tools | Keep |
 | `napi`, `napi-derive` | Runtime addon ABI | Keep, optional under `napi-addon` |

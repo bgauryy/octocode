@@ -448,9 +448,6 @@ impl StaticCredentialResolver {
             token: Some(ResolvedCredential::new(token, source)),
         }
     }
-    pub fn from_resolved(token: Option<ResolvedCredential>) -> Self {
-        Self { token }
-    }
 }
 
 impl CredentialResolver for StaticCredentialResolver {

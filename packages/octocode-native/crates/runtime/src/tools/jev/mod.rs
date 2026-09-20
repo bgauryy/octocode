@@ -13,7 +13,7 @@ fn request_error(message: &str) -> JevProviderError {
     JevProviderError {
         code: "invalidJevRequest".into(),
         message: message.into(),
-        hints: vec!["Inspect octocode tools jev --scheme.".into()],
+        hints: vec!["Inspect the current Jev query schema.".into()],
     }
 }
 

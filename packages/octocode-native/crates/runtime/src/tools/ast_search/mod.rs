@@ -198,11 +198,11 @@ pub fn execute_ast(
     }
 }
 
-pub use files::{AstFilesQuery, execute_files};
-pub use matches::{AstMatchQuery, execute_match};
-pub use symbols::{AstSymbolsQuery, execute_symbols};
-pub use syntax::{AstSyntaxQuery, execute_syntax};
-pub use tree::{AstTreeQuery, execute_tree};
+pub use files::execute_files;
+pub use matches::execute_match;
+pub use symbols::execute_symbols;
+pub use syntax::execute_syntax;
+pub use tree::execute_tree;
 
 #[cfg(test)]
 mod tests {

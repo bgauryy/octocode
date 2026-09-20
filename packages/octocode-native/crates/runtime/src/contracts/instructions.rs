@@ -55,7 +55,7 @@ mod tests {
                 .contains("No Octocode tools are enabled")
         );
         let read = mcp_instructions(contract, |name| name == "localFetch").expect("read set");
-        assert!(read.contains("Exact reader views return original source"));
+        assert!(read.contains("Exact views return original source"));
         assert!(!read.contains("ghSearch"));
     }
     #[test]

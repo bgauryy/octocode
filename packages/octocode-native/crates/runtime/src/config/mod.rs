@@ -5,7 +5,7 @@ mod loader;
 mod resolver;
 mod types;
 mod validation;
-pub use acquire::{acquire_config_input, octocode_home, read_file};
+pub use acquire::{acquire_config_input, octocode_home};
 pub use dotenv::{
     apply_env, merged_env, parse_boolean_env, parse_env, parse_int_env, parse_string_array_env,
 };

@@ -19,13 +19,6 @@ pub struct ValidatedPath {
     pub display: String,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum PathType {
-    File,
-    Directory,
-    Symlink,
-}
-
 #[derive(Clone, Debug)]
 pub struct PathPolicy {
     roots: Vec<PathBuf>,
@@ -123,19 +116,6 @@ impl PathPolicy {
 
     pub fn exists(&self, input: impl AsRef<Path>) -> bool {
         self.validate(input).is_ok()
-    }
-
-    pub fn get_type(&self, input: impl AsRef<Path>) -> Option<PathType> {
-        let lexical = self.expand_and_resolve(input.as_ref());
-        self.validate(&lexical).ok()?;
-        let metadata = std::fs::symlink_metadata(lexical).ok()?;
-        Some(if metadata.file_type().is_symlink() {
-            PathType::Symlink
-        } else if metadata.is_dir() {
-            PathType::Directory
-        } else {
-            PathType::File
-        })
     }
 
     pub fn allowed_roots(&self) -> Vec<PathBuf> {

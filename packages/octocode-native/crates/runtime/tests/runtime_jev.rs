@@ -664,11 +664,84 @@ async fn repeated_tool_contexts_capture_fresh_results_before_grouping() {
 }
 
 #[tokio::test]
-async fn cancellation_preserves_usage_from_completed_provider_groups() {
+async fn independent_provider_groups_overlap_and_preserve_ordered_failures() {
     use std::{
         sync::{
             Arc,
             atomic::{AtomicUsize, Ordering},
+        },
+        time::Duration,
+    };
+    let server = MockServer::start().await;
+    let started = Arc::new(AtomicUsize::new(0));
+    let observed = started.clone();
+    Mock::given(method("POST"))
+        .respond_with(move |request: &Request| {
+            let request: Value = serde_json::from_slice(&request.body).unwrap();
+            let index = request["state"]["candidate"].as_u64().unwrap();
+            assert_eq!(request["questions"].as_object().unwrap().len(), 1);
+            observed.fetch_add(1, Ordering::SeqCst);
+            // Later rows finish first; one malformed answer must stay isolated.
+            let probability = if index == 2 { 2.0 } else { (index + 1) as f64 / 10.0 };
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"model":"jev-test","answers":{"answer":{"type":"noul","noul":probability}},
+                    "usage":{"input_tokens":index + 10,"output_tokens":1}}))
+                .set_delay(Duration::from_millis(5000 - index * 200))
+        })
+        .expect(5)
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&settings(&server));
+    let queries: Vec<_> = (0..5).map(|index|
+        json!({"reasoning":"Assess this candidate.","context":{"value":{"candidate":index}},"question":question()})
+    ).collect();
+    let execution = runtime.execute(
+        "concurrent-groups".into(),
+        "jev".into(),
+        json!({"queries":queries}),
+    );
+    tokio::pin!(execution);
+    // This tests admission overlap, not a provider latency or throughput claim.
+    let all_started = async {
+        // Admission includes synchronous contract/security preparation. Start the
+        // overlap clock at the first HTTP request, not before that preparation.
+        while started.load(Ordering::SeqCst) == 0 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while started.load(Ordering::SeqCst) != 5 {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+    };
+    tokio::select! {
+        result = &mut execution => panic!("execution finished before all groups started; error: {:?}", result.err()),
+        result = all_started => result.expect("all five independent requests must start before the first delayed response"),
+    }
+    let output = execution.await.unwrap();
+    let rows = output.structured_content["results"].as_array().unwrap();
+    assert_eq!(rows.len(), 5);
+    for (index, row) in rows.iter().enumerate() {
+        assert_eq!(row["index"], index);
+        if index == 2 {
+            assert_eq!(row["status"], "error", "{row}");
+        } else {
+            assert_eq!(row["data"]["answer"]["noul"], (index + 1) as f64 / 10.0);
+            assert_eq!(row["data"]["usage"]["input_tokens"], index + 10);
+            assert!(row["data"].get("usageAttribution").is_none());
+        }
+    }
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn cancellation_preserves_usage_from_completed_provider_groups() {
+    use std::{
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
         },
         time::Duration,
     };
@@ -678,27 +751,30 @@ async fn cancellation_preserves_usage_from_completed_provider_groups() {
     config.push(("OCTOCODE_ENABLE_STATS", "true".into()));
     config.push(("OCTOCODE_STORAGE_MODE", "persistent".into()));
     let runtime = Arc::new(workspace.runtime(&config));
-    let cancelling_runtime = runtime.clone();
-    let requests = AtomicUsize::new(0);
+    let pending_started = Arc::new(AtomicBool::new(false));
+    let observed = pending_started.clone();
     Mock::given(method("POST"))
         .respond_with(move |request: &Request| {
             let request: Value = serde_json::from_slice(&request.body).unwrap();
-            let ordinal = requests.fetch_add(1, Ordering::SeqCst);
-            if ordinal == 1 {
-                assert_eq!(request["state"], "pending");
+            if request["state"] == "pending" {
                 assert_eq!(request["questions"].as_object().unwrap().len(), 1);
-                assert!(cancelling_runtime.requests.cancel("cancel-after-group"));
+                observed.store(true, Ordering::SeqCst);
                 return ResponseTemplate::new(200)
                     .set_body_json(response())
                     .set_delay(Duration::from_secs(30));
             }
-            assert_eq!(ordinal, 0);
+            assert_eq!(request["state"], "complete");
             assert_eq!(request["questions"].as_object().unwrap().len(), 2);
             let answers: serde_json::Map<String, Value> = request["questions"]
                 .as_object()
                 .unwrap()
                 .keys()
-                .map(|id| (id.clone(), json!({"type":"noul","noul":0.8})))
+                .map(|id| {
+                    (
+                        id.clone(),
+                        json!({"type":"noul","noul":if id == "answer_0" {2.0} else {0.8}}),
+                    )
+                })
                 .collect();
             ResponseTemplate::new(200).set_body_json(json!({"model":"jev-test","answers":answers,
                 "usage":{"input_tokens":37,"output_tokens":5}}))
@@ -710,13 +786,42 @@ async fn cancellation_preserves_usage_from_completed_provider_groups() {
         .into_iter()
         .map(|state| json!({"reasoning":"Decide the next evidence read.","context":{"value":state},"question":question()}))
         .collect();
-    let outcome = runtime
-        .execute(
-            "cancel-after-group".into(),
-            "jev".into(),
-            json!({"queries":queries}),
-        )
-        .await;
+    let execution = runtime.execute(
+        "cancel-after-group".into(),
+        "jev".into(),
+        json!({"queries":queries}),
+    );
+    tokio::pin!(execution);
+    let completed_usage = async {
+        // Exclude synchronous admission setup from the accounting deadline.
+        while !pending_started.load(Ordering::SeqCst) {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let stats = std::fs::read_to_string(workspace.home.join("stats.json"))
+                    .ok()
+                    .and_then(|text| serde_json::from_str::<Value>(&text).ok());
+                if pending_started.load(Ordering::SeqCst)
+                    && stats
+                        .as_ref()
+                        .is_some_and(|stats| stats["stats"]["jev"]["input_tokens"] == 37)
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+    };
+    tokio::select! {
+        result = &mut execution => panic!("execution finished before cancellation; error: {:?}", result.err()),
+        result = completed_usage => result.expect("completed group usage must be recorded while another request is pending"),
+    }
+    assert!(runtime.requests.cancel("cancel-after-group"));
+    let outcome = tokio::time::timeout(Duration::from_secs(3), execution)
+        .await
+        .expect("cancellation must stop the pending provider request");
     assert_eq!(outcome.unwrap_err().code, "cancelled");
     runtime.close().await;
     let stats: Value =

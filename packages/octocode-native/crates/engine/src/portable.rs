@@ -75,15 +75,6 @@ pub fn scan_graph_facts_filtered(
     })
 }
 
-pub fn scan_typed_graph_facts(
-    options: GraphFactsScanOptions,
-) -> Result<crate::graph::GraphFactsTypedScanResult> {
-    guard_panic("graph-facts scan", || {
-        crate::graph::scan_graph_facts_typed(options)
-            .map_err(|message| Error::new(Status::InvalidArg, message))
-    })
-}
-
 pub fn scan_typed_graph_facts_filtered(
     options: GraphFactsScanOptions,
     allow_path: &(dyn Fn(&std::path::Path) -> std::result::Result<bool, String> + Sync),

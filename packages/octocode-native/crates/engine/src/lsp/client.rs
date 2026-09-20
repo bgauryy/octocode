@@ -316,10 +316,6 @@ struct NativeLspClientInner {
     memory_cap_guard: StdMutex<Option<spawn_limits::MemoryCapGuard>>,
 }
 
-/// Portable name for the stateful JSON-RPC transport. The historical native
-/// name remains the N-API class name when the addon feature is enabled.
-pub type LspClient = NativeLspClient;
-
 #[cfg_attr(feature = "napi-addon", napi)]
 impl NativeLspClient {
     #[cfg_attr(feature = "napi-addon", napi(constructor))]

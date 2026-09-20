@@ -13,10 +13,10 @@ $ octocode --version
 octocode 20.0.0
 
 $ octocode scheme
-{"kind":"octocode.toolCatalog","tools":[…]}          # every tool + availability
+{"kind":"octocode.toolCatalog","instructions":"…","tools":[…]}  # availability + canonical agent workflow
 
 $ octocode scheme localSearch
-{"name":"localSearch","querySchema":{…}}             # the tool's contract
+{"name":"localSearch","instructions":"…","querySchema":{…}}     # workflow + complete tool contract
 
 $ octocode localSearch '{"searchText":"ToolRuntime","path":"src/","resultView":"matchOnly","reasoning":"Locate the runtime entry."}'
 {"results":[{"data":{"searchEngine":"rg","files":[…]}}]}
@@ -24,7 +24,11 @@ $ octocode localSearch '{"searchText":"ToolRuntime","path":"src/","resultView":"
 
 Every tool is a first-class command under its canonical name — the same name
 and the same JSON query contract as the MCP server. There are no per-tool flag
-wrappers and no aliases.
+wrappers and no aliases. Every `scheme` catalog or tool projection includes the
+same availability-scoped canonical agent instructions used by the MCP server.
+The compact catalog renders each core-owned `shortDescription` as
+`tools[].description`; a tool-specific scheme retains both the short and full
+descriptions.
 
 ## Install
 
@@ -134,10 +138,10 @@ yarn workspace @octocodeai/octocode-native platforms:check
 ## Quick examples
 
 ```sh
-# discover the tools, then one tool's contract
+# discover availability + canonical workflow, then one tool's contract
 octocode scheme
 octocode scheme localFetch
-octocode scheme ghSearch --view query --select operation=code   # one union branch only
+octocode scheme ghSearch --view query --select operation=code   # workflow + one union branch
 
 # local file read (paginated; exit 6 + a re-runnable next.* continuation in the JSON)
 octocode localFetch '{"path":"src/cli/mod.rs","startLine":1,"endLine":50,"reasoning":"Read the dispatch entry."}'

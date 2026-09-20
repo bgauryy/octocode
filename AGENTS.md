@@ -12,13 +12,13 @@ When working in this repo, reach for the local CLI, MCP, or a skill **first** �
 
 ```bash
 OCTO='node packages/octocode/out/octocode.js'
-$OCTO tools --json                              # live catalog
-$OCTO tools <name> --scheme --json --compact    # schema before calling
+$OCTO scheme                                    # live catalog
+$OCTO scheme <name> --compact                   # schema before calling
 ```
 
 | Need | Use |
 |---|---|
-| Search code / files / symbols / LSP | Local CLI (`$OCTO tools …`) **or** Octocode MCP |
+| Search code / files / symbols / LSP | Local CLI (`$OCTO <toolName> '<json>'`) **or** Octocode MCP |
 | GitHub code, PRs, history | same tools — `ghSearch`, `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem`, `ghCloneRepo` |
 | Package discovery | `artifactSearch` |
 | Research / trace / change impact | `octocode-research` skill |
@@ -75,7 +75,7 @@ Note friction, gaps, or wrong defaults and log them (comment/issue) instead of s
 | Package | npm name | Role |
 |---|---|---|
 | [`octocode-mcp`](packages/octocode-mcp) | `octocode-mcp` | Thin MCP stdio server: lifecycle → security → tool registration → sanitized output. No logic. |
-| [`octocode`](packages/octocode) | `octocode` | CLI: `tools <name>`, `skill`, `context`, `lsp-server`, install/auth/MCP-marketplace. Use `node packages/octocode/out/octocode.js` in-repo. |
+| [`octocode`](packages/octocode) | `octocode` | CLI: `scheme <name>`, `skill`, `config`, `auth`, `lsp-server`, `install`. Use `node packages/octocode/out/octocode.js` in-repo. |
 | [`octocode-vscode`](packages/octocode-vscode) | `octocode-mcp-vscode` | VS Code extension: GitHub OAuth, MCP install into Cursor/Windsurf/etc., token sync. |
 | [`octocode-pi-extension`](packages/octocode-pi-extension) | `@octocodeai/pi-extension` | Pi integration: native tools, bundled CLI/MCP wiring, Awareness assets, prompts, harness hooks. Contracts under `src/contracts/`. |
 
@@ -96,7 +96,7 @@ Note friction, gaps, or wrong defaults and log them (comment/issue) instead of s
 
 ## Tools
 
-Full reference: [`docs/OCTOCODE_TOOLS.md`](docs/OCTOCODE_TOOLS.md) · live: `$OCTO tools --json`
+Full reference: [`docs/OCTOCODE_TOOLS.md`](docs/OCTOCODE_TOOLS.md) · live: `$OCTO scheme`
 
 | Family | Tools | Role |
 |---|---|---|
@@ -111,7 +111,7 @@ Full reference: [`docs/OCTOCODE_TOOLS.md`](docs/OCTOCODE_TOOLS.md) · live: `$OC
 - `astSearch` topology edges are **candidates** — confirm with `lspSearch` references/callers before any delete claim
 - Pagination: never drop results silently; always provide a schema-valid executable `next.*` continuation or an explicit terminal-limit diagnostic
 
-**Field gotchas:** `localSearch` takes `path` (absolute) + `searchText` — no `operation`, no `directory`, no `maxResults`, no `limit` (use `maxFiles`, `pageSize`, or `maxMatchesPerFile`). Check live schema first: `$OCTO tools <name> --scheme --json --compact`.
+**Field gotchas:** `localSearch` takes `path` (absolute) + `searchText` — no `operation`, no `directory`, no `maxResults`, no `limit` (use `maxFiles`, `pageSize`, or `maxMatchesPerFile`). Check live schema first: `$OCTO scheme <name> --compact`.
 
 ---
 
@@ -129,7 +129,7 @@ yarn build:native:all · yarn platforms:check
 ```bash
 yarn workspace @octocodeai/octocode-native build:dev
 yarn workspace octocode build:dev        # or: yarn workspace octocode-mcp build:dev
-$OCTO context --json && $OCTO tools --json
+$OCTO config --json && $OCTO scheme
 ```
 
 `build:dev` skips clean + lint and builds both addons in debug mode. Verify by exit code — don't inspect `target/debug/` paths. Coverage floors are per-package ratchets in `vitest.config.*` — never lower them, raise when coverage improves. Rust tests: `yarn workspace @octocodeai/octocode-native test:rust`.

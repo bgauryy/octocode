@@ -45,7 +45,9 @@ try {
   assert.match(tooMany.content[0].text, /benchmarkBudgetExceeded/);
   const stillSecond = await call(client, 'ghGetFileContent', {});
   assert.equal(stillSecond.structuredContent.calls, 2, 'rejections must never reach downstream');
-  await call(client, 'jev', { queries: [inline('same'), inline('same'), inline('same')] });
+  const sharedResult = await call(client, 'jev', { queries: [inline('same'), inline('same'), inline('same')] });
+  assert.ok(sharedResult.structuredContent.results.every(row => !Object.hasOwn(row, 'status')),
+    'fixture must exercise actual compact success rows without a status field');
   const shared = log().filter(row => row.event === 'call').at(-1).providerUsage;
   assert.equal(shared.inputTokens, 12);
   assert.equal(shared.outputTokens, 3);
@@ -61,6 +63,8 @@ try {
   assert.deepEqual(failed.unknownRows, [0]);
   await call(client, 'jev', { queries: [{ context: { tool: 'ghSearch', query: { query: 'nested' } } }] });
   const nested = log().filter(row => row.event === 'call').at(-1);
+  assert.equal(nested.providerUsage.inputTokens, 12, 'singleton usage also survives success-status elision');
+  assert.equal(nested.providerUsage.outputTokens, 3);
   assert.deepEqual(nested.cost, { ordinary: 1, jev: 1, nestedTools: ['ghSearch'] });
   assert.deepEqual(nested.countersAfter, { ordinary: 3, jev: 8 });
   const tooManyJev = await call(client, 'jev', { queries: Array.from({ length: 13 }, () => inline('same')) });

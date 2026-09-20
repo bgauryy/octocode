@@ -28,8 +28,6 @@ pub mod types;
 #[cfg(feature = "napi-addon")]
 pub mod bindings;
 
-pub const ENGINE_CORE_API_VERSION: u32 = 1;
-
 // ── N-API public surface ──────────────────────────────────────────────────────
 // Explicit re-exports keep the addon ABI stable and make each symbol
 // discoverable from the crate root.

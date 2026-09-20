@@ -53,6 +53,43 @@ Every query has **short nonblank `reasoning`, one `context` and one `question`**
 
 Replace illustrative paths with observed, authorized paths. Inspect the context tool's schema once and supply **one ordinary query**, including its required fields such as `reasoning`. The top-level reasoning and the nested tool reasoning describe their respective calls. Jev has no model, goal, debug, route, threshold or action fields. Runtime configuration supplies `OCTOCODE_JEV_MODEL`; access requires `OCTOCODE_JEV_KEY`.
 
+## Discover, scout, then read selected proof
+
+A discovered path is a candidate, not a decision to read its whole body. Use `ghSearch` tree or code `match: "path"`, or `localSearch` `resultView: "files"`, to discover paths without bodies. When choosing among large candidates requires semantic reading, pass their unexecuted reads to Jev in one batch; do not fetch the bodies first to compose the context. One query judges one candidate. Retain relevant or uncertain candidates, then fetch only the source needed to verify the answer. Small known deciding spans remain direct reads.
+
+These are ordinary native MCP calls through a client’s `callTool` method. This example discovers Axios core paths, then constructs two independent scouts from returned paths; it does not prescribe their answers:
+
+```js
+await client.callTool({ name: "ghSearch", arguments: { queries: [{
+  operation: "tree", owner: "axios", repo: "axios", path: "lib/core",
+  maxDepth: 1, reasoning: "Discover interceptor-related candidates without bodies."
+}] } });
+
+// Use paths observed in the discovery result; these are real public examples.
+const candidates = ["lib/core/Axios.js", "lib/core/dispatchRequest.js"];
+const queries = candidates.map(path => ({
+  reasoning: "Select evidence for request interceptor ordering before reading bodies.",
+  context: { tool: "ghGetFileContent", query: {
+    owner: "axios", repo: "axios", path, fullContent: true,
+    reasoning: "Screen this discovered candidate without a host body read."
+  } },
+  question: {
+    type: "choice",
+    instructions: "Does this file implement request interceptor ordering? Missing delegates are insufficient.",
+    criteria: {
+      direct: "Implements the ordering or a counterexample.",
+      unrelated: "Complete content establishes a different concern.",
+      insufficient: "Missing implementation prevents deciding."
+    }
+  }
+}));
+await client.callTool({ name: "jev", arguments: { queries } });
+```
+
+Choose the next exact read from those answers and the task’s missing facts. For a retained candidate, call its context tool directly with a bounded deciding span; cite the source revision and lines returned by that proof read. A verdict is neither a citation nor evidence of absence outside the supplied scope. If discovery already identifies a small deciding span, read it directly instead of scouting it.
+
+For reasoning over facts already available, use `context: {value: {facts, hypotheses}}` and a Choice question selecting the next discriminating read or test, with an insufficient option. For independent conditions, repeat the same value in separate queries, one Noul or Choice question each. For an ordered assessment, use Score with explicit levels. These offload bounded judgments; they do not extract prose, remove input tokens already consumed, or justify a second call after the decision is settled. The current schema’s examples include a public-file scout and a supplied-facts hypothesis choice.
+
 ## Context and answers
 
 Supported context tools are `localSearch`, `localFetch`, `astSearch`, `lspSearch`, `ghSearch`, `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem` and `artifactSearch`. These cover search results, files, structure, semantic lookup, history and package discovery. They use their normal schemas, configuration, availability, security checks, cancellation and caches. Recursive `jev`, mutation tool `astRewrite`, and filesystem-writing `ghCloneRepo` are excluded. This is not an arbitrary external MCP tool executor.
@@ -82,6 +119,8 @@ Context tools keep their ordinary bounded retrieval behavior. Jev evaluates the 
 Jev's own response does not support `responseCharLength`, `responseCharOffset` or `responseSnapshot`: replaying inference cannot return a page of the original judgment. Repeating a query performs another evaluation. The provider request has a 4 MiB serialized limit, and ordinary tool/input limits still apply.
 
 Repeated context remains explicit. Every nested tool request executes independently through its normal policy; only identical sanitized captured states within the same call may share one provider request. Changed source, page or cache metadata prevents grouping. There is no judgment cache, cross-call grouping or automatic page loop. Existing retrieval caches may save reads or transferred bytes; provider grouping separately avoids repeating identical state in inference.
+
+Independent provider groups run concurrently, up to five per batch, after the bounded context captures complete. Results retain original query order; failures remain isolated, and completed provider usage is recorded even when another group is cancelled. This is separate from shared-state grouping; hidden retrieval remains sequential.
 
 Grouping uses conservative serialized UTF-8 byte bounds: 24 KiB for each state-plus-question request envelope, and 48 KiB for the full grouped request. These are packing headroom, not a provider-token count or a guarantee for arbitrary configured models. Larger candidates retain singleton execution with the existing 4 MiB request bound. Provider context-limit errors remain explicit; no automatic split/retry adds inference.
 

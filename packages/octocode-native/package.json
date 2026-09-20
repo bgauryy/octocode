@@ -100,7 +100,7 @@
     "build:windows-x64": "cargo build -p octocode-native --release --bins --no-default-features --target x86_64-pc-windows-msvc && cargo build -p octocode-native --release --lib --features napi-addon --target x86_64-pc-windows-msvc && napi build --manifest-path crates/engine/Cargo.toml --package-json-path package.json --output-dir . --platform --release --cross-compile --target x86_64-pc-windows-msvc --no-default-features --features portable-default,napi-addon --js .engine-generated.cjs --dts .engine-generated.d.ts && node scripts/postbuild-engine.cjs win32-x64-msvc && node scripts/copy-binaries.cjs win32-x64-msvc",
     "clean:binaries": "find npm -type f \\( -name 'octocode' -o -name 'octocode.exe' -o -name 'octocode-regex-worker' -o -name 'octocode-regex-worker.exe' -o -name '*.node' \\) -delete && rm -f octocode-native.*.node octocode-engine.*.node",
     "deps:rust": "cargo tree --duplicates",
-    "test": "node bin/platform.test.cjs && vitest run && cargo test -p octocode-native --no-default-features && cargo test -p octocode-engine --all-features",
+    "test": "node tests/platform.test.cjs && vitest run && cargo test -p octocode-native --no-default-features && cargo test -p octocode-engine --all-features",
     "test:node": "vitest run",
     "test:rust": "cargo test -p octocode-native --no-default-features && cargo test -p octocode-engine --all-features",
     "test:rust:next": "cargo nextest run -p octocode-native --no-default-features && cargo nextest run -p octocode-engine --all-features",

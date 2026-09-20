@@ -19,10 +19,6 @@ impl Error {
             reason: reason.into(),
         }
     }
-
-    pub fn from_reason(reason: impl Into<String>) -> Self {
-        Self::new(Status::GenericFailure, reason)
-    }
 }
 
 impl Display for Error {
