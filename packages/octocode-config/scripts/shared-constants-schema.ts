@@ -19,17 +19,23 @@ const uniqueArray = (field: string) =>
     }
   });
 
-const runtimeSurfaceSchema = z
-  .array(z.string().regex(/^[a-z][a-z0-9]*$/))
-  .min(1)
-  .superRefine((values, context) => {
-    if (new Set(values).size !== values.length) {
-      context.addIssue({
-        code: 'custom',
-        message: 'runtimeSurfaces must not contain duplicates',
-      });
-    }
-  });
+const lowercaseIdentifierArray = (field: string) =>
+  z
+    .array(z.string().regex(/^[a-z][a-z0-9]*$/))
+    .min(1)
+    .superRefine((values, context) => {
+      if (new Set(values).size !== values.length) {
+        context.addIssue({
+          code: 'custom',
+          message: `${field} must not contain duplicates`,
+        });
+      }
+    });
+
+const defaultValuesSchema = z.record(
+  z.string().regex(/^[a-z][A-Za-z0-9]*$/),
+  z.union([z.string(), z.number().int(), z.boolean()])
+);
 
 const validationBoundsSchema = z
   .record(
@@ -74,8 +80,11 @@ export const sharedConstantsSchema = z
     _comment: z.string().optional(),
     configSchemaVersion: z.number().int().positive(),
     configFileName: z.string().min(1),
-    runtimeSurfaces: runtimeSurfaceSchema,
+    runtimeSurfaces: lowercaseIdentifierArray('runtimeSurfaces'),
     runtimeSurfaceDefault: z.string(),
+    outputFormats: lowercaseIdentifierArray('outputFormats'),
+    storageModes: lowercaseIdentifierArray('storageModes'),
+    defaultValues: defaultValuesSchema,
     envTokenVars: uniqueArray('envTokenVars'),
     protectedKeys: uniqueArray('protectedKeys'),
     configSourceEnvKeys: uniqueArray('configSourceEnvKeys'),
@@ -87,6 +96,30 @@ export const sharedConstantsSchema = z
         code: 'custom',
         message: 'runtimeSurfaceDefault must be a member of runtimeSurfaces',
         path: ['runtimeSurfaceDefault'],
+      });
+    }
+
+    const outputFormat = constants.defaultValues['outputFormat'];
+    if (
+      typeof outputFormat !== 'string' ||
+      !constants.outputFormats.includes(outputFormat)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'defaultValues.outputFormat must be a member of outputFormats',
+        path: ['defaultValues', 'outputFormat'],
+      });
+    }
+
+    const storageMode = constants.defaultValues['storageMode'];
+    if (
+      typeof storageMode !== 'string' ||
+      !constants.storageModes.includes(storageMode)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'defaultValues.storageMode must be a member of storageModes',
+        path: ['defaultValues', 'storageMode'],
       });
     }
 

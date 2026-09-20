@@ -90,6 +90,13 @@ pub fn prepare_many_and_validate(
     input: serde_json::Value,
     options: PrepareOptions<'_>,
 ) -> Result<Vec<serde_json::Value>, ContractValidationError> {
+    if tool_name == "jev"
+        && input.as_object().is_some_and(|object| {
+            object.contains_key("resources") || object.contains_key("questions")
+        })
+    {
+        return prepare_jev_matrix(input);
+    }
     let is_bulk = input.is_array()
         || input
             .as_object()
@@ -120,6 +127,103 @@ pub fn prepare_many_and_validate(
         .and_then(serde_json::Value::as_array)
         .cloned()
         .unwrap_or_default())
+}
+
+fn prepare_jev_matrix(
+    mut envelope: serde_json::Value,
+) -> Result<Vec<serde_json::Value>, ContractValidationError> {
+    validate("jev", envelope.clone())?;
+    let object = envelope
+        .as_object_mut()
+        .expect("validated Jev matrix is an object");
+    let reasoning = object
+        .get("reasoning")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            jev_matrix_error(
+                "matrix.reasoning",
+                vec!["reasoning".to_owned()],
+                "Must be nonblank.",
+            )
+        })?
+        .to_owned();
+    let resources = object
+        .get("resources")
+        .and_then(serde_json::Value::as_array)
+        .expect("validated Jev matrix resources are an array");
+    let questions = object
+        .get("questions")
+        .and_then(serde_json::Value::as_array)
+        .expect("validated Jev matrix questions are an array");
+
+    validate_unique_matrix_ids(resources, "resources")?;
+    validate_unique_matrix_ids(questions, "questions")?;
+    const MAX_JEV_MATRIX_CELLS: usize = 25;
+    let cell_count = resources.len().saturating_mul(questions.len());
+    if cell_count > MAX_JEV_MATRIX_CELLS {
+        return Err(jev_matrix_error(
+            "matrix.cell-limit",
+            Vec::new(),
+            format!(
+                "resources × questions produces {cell_count} cells; maximum is {MAX_JEV_MATRIX_CELLS}."
+            ),
+        ));
+    }
+
+    let mut expanded = Vec::with_capacity(cell_count);
+    for resource in resources {
+        for question in questions {
+            expanded.push(serde_json::json!({
+                "reasoning": reasoning,
+                "context": resource["context"].clone(),
+                "question": question["question"].clone(),
+                "resourceId": resource["id"].clone(),
+                "questionId": question["id"].clone(),
+            }));
+        }
+    }
+    for query in &expanded {
+        validate_query("jev", query.clone())?;
+    }
+    Ok(expanded)
+}
+
+fn validate_unique_matrix_ids(
+    rows: &[serde_json::Value],
+    field: &str,
+) -> Result<(), ContractValidationError> {
+    let mut seen = std::collections::HashSet::new();
+    for (index, row) in rows.iter().enumerate() {
+        let id = row["id"]
+            .as_str()
+            .expect("validated Jev matrix id is a string");
+        if !seen.insert(id) {
+            return Err(jev_matrix_error(
+                "matrix.unique-ids",
+                vec![field.to_owned(), index.to_string(), "id".to_owned()],
+                format!("Duplicate {field} id: {id}"),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn jev_matrix_error(
+    rule_id: &str,
+    path: Vec<String>,
+    message: impl Into<String>,
+) -> ContractValidationError {
+    ContractValidationError {
+        issues: vec![ValidationIssue {
+            rule_id: rule_id.to_owned(),
+            path,
+            message: message.into(),
+            schema: None,
+            received: None,
+        }],
+    }
 }
 
 fn prepare_validation_error(error: ContractInputError) -> ContractValidationError {
@@ -216,6 +320,76 @@ mod contract_owner_tests {
     }
 
     #[test]
+    fn jev_matrix_expands_resource_major_with_correlation_ids() {
+        let question = json!({"type":"noul","instructions":"Is it relevant?"});
+        let queries = prepare_many_and_validate(
+            "jev",
+            json!({
+                "reasoning":"  Classify every resource.  ",
+                "resources":[
+                    {"id":"r1","context":{"value":{"text":"one"}}},
+                    {"id":"r2","context":{"value":{"text":"two"}}}
+                ],
+                "questions":[
+                    {"id":"q1","question":question},
+                    {"id":"q2","question":{"type":"score","instructions":"Rate risk","criteria":["low","high"]}}
+                ]
+            }),
+            PrepareOptions::default(),
+        )
+        .expect("valid Jev matrix");
+        assert_eq!(queries.len(), 4);
+        assert_eq!(queries[0]["resourceId"], "r1");
+        assert_eq!(queries[0]["questionId"], "q1");
+        assert_eq!(queries[1]["resourceId"], "r1");
+        assert_eq!(queries[1]["questionId"], "q2");
+        assert_eq!(queries[2]["resourceId"], "r2");
+        assert_eq!(queries[2]["questionId"], "q1");
+        assert_eq!(queries[3]["resourceId"], "r2");
+        assert_eq!(queries[3]["questionId"], "q2");
+        assert_eq!(queries[0]["reasoning"], "Classify every resource.");
+    }
+
+    #[test]
+    fn jev_matrix_rejects_duplicate_ids_and_more_than_twenty_five_cells() {
+        let question = json!({"type":"noul","instructions":"Is it relevant?"});
+        let duplicate = prepare_many_and_validate(
+            "jev",
+            json!({
+                "reasoning":"Classify resources.",
+                "resources":[
+                    {"id":"same","context":{"value":"one"}},
+                    {"id":"same","context":{"value":"two"}}
+                ],
+                "questions":[{"id":"q1","question":question}]
+            }),
+            PrepareOptions::default(),
+        )
+        .expect_err("duplicate IDs must fail");
+        assert_eq!(duplicate.issues[0].path, ["resources", "1", "id"]);
+
+        let resources: Vec<_> = (0..6)
+            .map(|index| {
+                json!({"id":format!("r{index}"),"context":{"value":{"index":index}}})
+            })
+            .collect();
+        let questions: Vec<_> = (0..5)
+            .map(|index| json!({"id":format!("q{index}"),"question":question.clone()}))
+            .collect();
+        let oversized = prepare_many_and_validate(
+            "jev",
+            json!({
+                "reasoning":"Classify resources.",
+                "resources":resources,
+                "questions":questions
+            }),
+            PrepareOptions::default(),
+        )
+        .expect_err("matrix cell limit must fail");
+        assert_eq!(oversized.issues[0].rule_id, "matrix.cell-limit");
+    }
+
+    #[test]
     fn syntax_operation_is_rejected_without_core_alias() {
         assert!(
             prepare_and_validate(
@@ -289,7 +463,7 @@ mod contract_owner_tests {
         use sha2::{Digest, Sha256};
         let digest = hex::encode(Sha256::digest(contract_json().as_bytes()));
         assert_eq!(
-            digest, "8bcca0b3de3afab410b6f603c95354f5a225f40292a198985020101ec40570b0",
+            digest, "a7168522e873aedbede6c3a580ca10f3779d7bf432c70e8dc9afdbe5a4e579cc",
             "generated contract body changed without regeneration from core"
         );
     }

@@ -1,0 +1,338 @@
+{
+  "$schema": "./config-contract.schema.json",
+  "config": {
+    "fileName": ".octocoderc",
+    "schemaVersion": 1,
+    "runtimeSurfaces": ["mcp", "cli"]
+  },
+  "environment": {
+    "PATH": { "dotenv": "never", "description": "Executable search path" },
+    "HOME": { "dotenv": "never", "description": "Operating-system home" },
+    "SHELL": { "dotenv": "never", "description": "Login shell" },
+    "USER": { "dotenv": "never", "description": "Operating-system user" },
+    "LOGNAME": { "dotenv": "never", "description": "Operating-system login" },
+    "PWD": { "dotenv": "never", "description": "Process working directory" },
+    "TMPDIR": { "dotenv": "never", "description": "Temporary directory" },
+    "NODE_OPTIONS": { "dotenv": "never", "description": "Node process options" },
+    "PYTHON": { "dotenv": "never", "description": "Python executable override" },
+    "GH_HOST": { "dotenv": "never", "description": "GitHub CLI host" },
+    "OCTOCODE_TOKEN": { "dotenv": "never", "tokenPriority": 0, "description": "Octocode token override" },
+    "GH_TOKEN": { "dotenv": "never", "tokenPriority": 1, "description": "GitHub CLI token" },
+    "GITHUB_TOKEN": { "dotenv": "never", "tokenPriority": 2, "description": "GitHub Actions token" },
+    "GITHUB_PERSONAL_ACCESS_TOKEN": { "dotenv": "never", "tokenPriority": 3, "description": "GitHub personal access token" },
+    "OCTOCODE_GITHUB_CLIENT_ID": { "configSource": true, "description": "GitHub OAuth client override" }
+  },
+  "sections": {
+    "": {
+      "title": "Configuration",
+      "file": true,
+      "resolved": true,
+      "fields": {
+        "version": {
+          "type": "schemaVersion",
+          "description": "Configuration schema version."
+        }
+      }
+    },
+    "github": {
+      "title": "GitHub API",
+      "typeName": "GitHub",
+      "file": true,
+      "resolved": true,
+      "fields": {
+        "apiUrl": {
+          "type": "url",
+          "default": "https://api.github.com",
+          "description": "GitHub REST API root. GitHub Enterprise commonly uses /api/v3.",
+          "env": {
+            "GITHUB_API_URL": { "priority": 0, "dotenv": "never", "normalize": "trim", "invalid": "skip" }
+          }
+        },
+        "graphqlEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use GitHub GraphQL where supported; false forces REST-only access.",
+          "env": {
+            "OCTOCODE_GITHUB_GRAPHQL": { "priority": 0 }
+          }
+        }
+      }
+    },
+    "local": {
+      "title": "Local tools",
+      "file": true,
+      "resolved": true,
+      "fields": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable local filesystem tools on every runtime surface.",
+          "env": {
+            "ENABLE_LOCAL": { "priority": 0 },
+            "OCTOCODE_ENABLE_LOCAL": { "priority": 1 }
+          },
+          "notes": "ENABLE_LOCAL is canonical; OCTOCODE_ENABLE_LOCAL is an alias."
+        },
+        "enableClone": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable ghCloneRepo and directory materialization.",
+          "env": {
+            "ENABLE_CLONE": { "priority": 0 },
+            "OCTOCODE_ENABLE_CLONE": { "priority": 1 }
+          },
+          "notes": "Opt-in and requires persistent storage. ENABLE_CLONE is canonical."
+        },
+        "enableAstRewriteApply": {
+          "type": "boolean",
+          "default": false,
+          "description": "Permit hash-guarded astRewrite apply; preview remains available.",
+          "env": {
+            "ENABLE_AST_REWRITE_APPLY": { "priority": 0 }
+          }
+        },
+        "allowedPaths": {
+          "type": "stringArray",
+          "default": [],
+          "itemFormat": "path",
+          "description": "Extra absolute or home-relative roots added to the allowed home directory.",
+          "env": {
+            "ALLOWED_PATHS": { "priority": 0 }
+          },
+          "notes": "The environment value is a comma-separated list."
+        },
+        "workspaceRoot": {
+          "type": "path",
+          "default": null,
+          "displayDefault": "process.cwd()",
+          "description": "Optional absolute or home-relative workspace root.",
+          "env": {
+            "WORKSPACE_ROOT": { "priority": 0, "normalize": "trim" }
+          }
+        }
+      }
+    },
+    "tools": {
+      "title": "Tool availability",
+      "file": true,
+      "resolved": true,
+      "fields": {
+        "enabled": {
+          "type": "stringArray",
+          "default": null,
+          "description": "Strict tool allowlist replacing the default tool set.",
+          "env": {
+            "TOOLS_TO_RUN": { "priority": 0 }
+          }
+        },
+        "disabled": {
+          "type": "stringArray",
+          "default": null,
+          "description": "Tools removed from the default tool set.",
+          "env": {
+            "DISABLE_TOOLS": { "priority": 0 }
+          }
+        }
+      }
+    },
+    "network": {
+      "title": "Network",
+      "file": true,
+      "resolved": true,
+      "fields": {
+        "timeout": {
+          "type": "number",
+          "constantName": "NETWORK_TIMEOUT",
+          "boundsName": "TIMEOUT",
+          "minimum": 5000,
+          "span": 295000,
+          "defaultOffset": 25000,
+          "description": "Request timeout in milliseconds.",
+          "env": {
+            "REQUEST_TIMEOUT": { "priority": 0 }
+          }
+        },
+        "maxRetries": {
+          "type": "number",
+          "constantName": "NETWORK_MAX_RETRIES",
+          "boundsName": "RETRIES",
+          "minimum": 0,
+          "span": 10,
+          "defaultOffset": 3,
+          "description": "Maximum retries after a failed request.",
+          "env": {
+            "MAX_RETRIES": { "priority": 0 }
+          }
+        },
+        "allowPrivateRegistry": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow private, loopback, or link-local artifact registries.",
+          "env": {
+            "OCTOCODE_ALLOW_PRIVATE_REGISTRY": { "priority": 0, "dotenv": "never" }
+          },
+          "notes": "Security-sensitive SSRF escape hatch; opt in only for trusted enterprise registries."
+        }
+      }
+    },
+    "lsp": {
+      "title": "LSP",
+      "file": true,
+      "resolved": true,
+      "fields": {
+        "configPath": {
+          "type": "string",
+          "default": null,
+          "description": "Optional path to a custom lsp-servers.json.",
+          "env": {
+            "OCTOCODE_LSP_CONFIG": { "priority": 0, "normalize": "trim" }
+          }
+        }
+      }
+    },
+    "output": {
+      "title": "Output",
+      "file": true,
+      "resolved": true,
+      "fields": {
+        "format": {
+          "type": "enum",
+          "typeName": "OutputFormat",
+          "constantName": "OUTPUT_FORMAT",
+          "valuesConstant": "OUTPUT_FORMATS",
+          "values": ["yaml", "json"],
+          "description": "Rendered response format.",
+          "env": {
+            "OCTOCODE_OUTPUT_FORMAT": { "priority": 0, "normalize": "lower", "invalid": "default" }
+          }
+        },
+        "redactEmails": {
+          "type": "boolean",
+          "default": false,
+          "description": "Mask email addresses such as GitHub commit authors.",
+          "env": {
+            "OCTOCODE_REDACT_EMAILS": { "priority": 0 }
+          }
+        }
+      }
+    },
+    "output.pagination": {
+      "title": "Output pagination",
+      "file": true,
+      "resolved": true,
+      "fields": {
+        "defaultCharLength": {
+          "type": "number",
+          "constantName": "OUTPUT_DEFAULT_CHAR_LENGTH",
+          "boundsName": "OUTPUT_DEFAULT_CHAR_LENGTH",
+          "minimum": 1000,
+          "span": 49000,
+          "defaultOffset": 19000,
+          "description": "Automatic pagination character budget.",
+          "env": {
+            "OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH": { "priority": 0 }
+          }
+        }
+      }
+    },
+    "storage": {
+      "title": "Runtime storage",
+      "file": true,
+      "resolved": true,
+      "fields": {
+        "mode": {
+          "type": "enum",
+          "typeName": "StorageMode",
+          "constantName": "STORAGE_MODE",
+          "valuesConstant": "STORAGE_MODES",
+          "enumStyle": "quotedOr",
+          "values": ["persistent", "memory"],
+          "description": "Whether caches and runtime state may persist on disk.",
+          "env": {
+            "OCTOCODE_STORAGE_MODE": { "priority": 0, "normalize": "lower", "invalid": "skip" }
+          }
+        }
+      }
+    },
+    "extension": {
+      "title": "Extension overrides",
+      "file": true,
+      "resolved": true,
+      "fields": {}
+    },
+    "extension.storage": {
+      "title": "Extension storage",
+      "file": true,
+      "resolved": true,
+      "fields": {
+        "mode": {
+          "type": "enum",
+          "typeName": "StorageMode",
+          "enumStyle": "quotedOr",
+          "values": ["persistent", "memory"],
+          "defaultFrom": "storage.mode",
+          "displayDefault": "inherits storage.mode",
+          "description": "Pi extension storage mode override.",
+          "env": {
+            "OCTOCODE_EXTENSION_STORAGE_MODE": { "priority": 0, "normalize": "lower", "invalid": "skip" }
+          }
+        }
+      }
+    },
+    "jev": {
+      "title": "Jev reasoning",
+      "file": true,
+      "resolved": false,
+      "fields": {
+        "key": {
+          "type": "string",
+          "default": null,
+          "credential": true,
+          "description": "TypeSafe Jev API key fallback.",
+          "env": {
+            "OCTOCODE_JEV_KEY": { "priority": 0, "dotenv": "home", "normalize": "trim" }
+          },
+          "displayDefault": "unset",
+          "notes": "Never appears in ResolvedConfig; shell environment wins over the trusted home config file."
+        },
+        "model": {
+          "type": "string",
+          "default": null,
+          "credential": true,
+          "description": "Optional Jev model override.",
+          "env": {
+            "OCTOCODE_JEV_MODEL": { "priority": 0, "dotenv": "home", "normalize": "trim" }
+          },
+          "displayDefault": "jev-latest"
+        },
+        "baseUrl": {
+          "type": "url",
+          "default": null,
+          "credential": true,
+          "description": "Optional trusted Jev API root.",
+          "env": {
+            "OCTOCODE_JEV_BASE_URL": { "priority": 0, "dotenv": "home", "normalize": "trim" }
+          },
+          "displayDefault": "https://api.typesafe.ai",
+          "notes": "Requires HTTP or HTTPS at config validation; provider policy may require HTTPS except loopback."
+        }
+      }
+    },
+    "session": {
+      "title": "Stats persistence",
+      "file": false,
+      "resolved": true,
+      "fields": {
+        "enableStats": {
+          "type": "boolean",
+          "default": false,
+          "description": "Write stats.json on flush; stats remain in memory either way.",
+          "env": {
+            "OCTOCODE_ENABLE_STATS": { "priority": 0 }
+          },
+          "notes": "Environment-only setting."
+        }
+      }
+    }
+  }
+}

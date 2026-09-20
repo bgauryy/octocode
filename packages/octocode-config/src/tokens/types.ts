@@ -1,4 +1,4 @@
-import type { EnvTokenVar } from '../config/sharedConstants.generated.js';
+import type { EnvTokenVar } from '../config/contract.generated.js';
 
 /**
  * All possible sources from which a GitHub token can originate.

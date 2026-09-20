@@ -585,6 +585,13 @@ impl ToolRuntime {
                     failure = failure.or(result.failure);
                     let mut row =
                         response::result_row(&tool, index, query, result.data, result.status);
+                    if tool == "jev" {
+                        for field in ["resourceId", "questionId"] {
+                            if let Some(value) = query.get(field) {
+                                row[field] = value.clone();
+                            }
+                        }
+                    }
                     response::attach_diagnostics(&mut row, result.diagnostics);
                     if result.cache {
                         row["cache"] = json!(1);

@@ -1,92 +1,56 @@
-import type {
-  RequiredExtensionConfig,
-  RequiredGitHubConfig,
-  RequiredLocalConfig,
-  RequiredToolsConfig,
-  RequiredNetworkConfig,
-  RequiredLspConfig,
-  RequiredOutputConfig,
-  RequiredSessionConfig,
-  RequiredStorageConfig,
-  ResolvedConfig,
-} from './types.js';
-
-export {
+import {
+  DEFAULT_CONFIG_VALUE,
+  DEFAULT_GITHUB_API_URL,
+  DEFAULT_GITHUB_GRAPHQL_ENABLED,
+  DEFAULT_LOCAL_ENABLED,
+  DEFAULT_LOCAL_ENABLE_AST_REWRITE_APPLY,
+  DEFAULT_LOCAL_ENABLE_CLONE,
+  DEFAULT_NETWORK_ALLOW_PRIVATE_REGISTRY,
+  DEFAULT_NETWORK_MAX_RETRIES,
+  DEFAULT_NETWORK_TIMEOUT,
+  DEFAULT_OUTPUT_DEFAULT_CHAR_LENGTH,
+  DEFAULT_OUTPUT_FORMAT,
+  DEFAULT_OUTPUT_REDACT_EMAILS,
+  DEFAULT_SESSION_ENABLE_STATS,
+  DEFAULT_STORAGE_MODE,
   MAX_OUTPUT_DEFAULT_CHAR_LENGTH,
   MAX_RETRIES,
   MAX_TIMEOUT,
   MIN_OUTPUT_DEFAULT_CHAR_LENGTH,
   MIN_RETRIES,
   MIN_TIMEOUT,
-} from './sharedConstants.generated.js';
+} from './contract.generated.js';
 
-export const DEFAULT_GITHUB_CONFIG: RequiredGitHubConfig = {
-  apiUrl: 'https://api.github.com',
-  graphqlEnabled: true,
+export {
+  DEFAULT_GITHUB_API_URL,
+  DEFAULT_GITHUB_GRAPHQL_ENABLED,
+  DEFAULT_LOCAL_ENABLED,
+  DEFAULT_LOCAL_ENABLE_AST_REWRITE_APPLY,
+  DEFAULT_LOCAL_ENABLE_CLONE,
+  DEFAULT_NETWORK_ALLOW_PRIVATE_REGISTRY,
+  DEFAULT_NETWORK_MAX_RETRIES,
+  DEFAULT_NETWORK_TIMEOUT,
+  DEFAULT_OUTPUT_DEFAULT_CHAR_LENGTH,
+  DEFAULT_OUTPUT_FORMAT,
+  DEFAULT_OUTPUT_REDACT_EMAILS,
+  DEFAULT_SESSION_ENABLE_STATS,
+  DEFAULT_STORAGE_MODE,
+  MAX_OUTPUT_DEFAULT_CHAR_LENGTH,
+  MAX_RETRIES,
+  MAX_TIMEOUT,
+  MIN_OUTPUT_DEFAULT_CHAR_LENGTH,
+  MIN_RETRIES,
+  MIN_TIMEOUT,
 };
 
-export const DEFAULT_LOCAL_CONFIG: RequiredLocalConfig = {
-  // Local tools are enabled by default on every runtime surface. An explicit
-  // ENABLE_LOCAL / local.enabled value can still disable them.
-  enabled: true,
-  // Clone is opt-in: set ENABLE_CLONE=true or local.enableClone: true in .octocoderc.
-  // Requires storage.mode="persistent" (the default) to function.
-  enableClone: false,
-  // Structural rewrite mutation is separately opt-in; previews remain read-only.
-  enableAstRewriteApply: false,
-  allowedPaths: [],
-  workspaceRoot: undefined,
-};
+export const DEFAULT_GITHUB_CONFIG = Object.freeze(DEFAULT_CONFIG_VALUE.github);
+export const DEFAULT_LOCAL_CONFIG = Object.freeze(DEFAULT_CONFIG_VALUE.local);
+export const DEFAULT_TOOLS_CONFIG = Object.freeze(DEFAULT_CONFIG_VALUE.tools);
+export const DEFAULT_NETWORK_CONFIG = Object.freeze(DEFAULT_CONFIG_VALUE.network);
+export const DEFAULT_LSP_CONFIG = Object.freeze(DEFAULT_CONFIG_VALUE.lsp);
+export const DEFAULT_OUTPUT_CONFIG = Object.freeze(DEFAULT_CONFIG_VALUE.output);
+export const DEFAULT_SESSION_CONFIG = Object.freeze(DEFAULT_CONFIG_VALUE.session);
+export const DEFAULT_STORAGE_CONFIG = Object.freeze(DEFAULT_CONFIG_VALUE.storage);
+export const DEFAULT_EXTENSION_CONFIG = Object.freeze(DEFAULT_CONFIG_VALUE.extension);
 
-export const DEFAULT_TOOLS_CONFIG: RequiredToolsConfig = {
-  enabled: null,
-  disabled: null,
-};
-
-export const DEFAULT_NETWORK_CONFIG: RequiredNetworkConfig = {
-  timeout: 30000,
-  maxRetries: 3,
-  // Opt-in: disabled by default so private/loopback registries are blocked.
-  allowPrivateRegistry: false,
-};
-
-export const DEFAULT_LSP_CONFIG: RequiredLspConfig = {
-  configPath: undefined,
-};
-
-export const DEFAULT_OUTPUT_CONFIG: RequiredOutputConfig = {
-  format: 'yaml',
-  pagination: {
-    defaultCharLength: 20000,
-  },
-  // Opt-in: off by default to avoid unintended data masking.
-  redactEmails: false,
-};
-
-export const DEFAULT_SESSION_CONFIG: RequiredSessionConfig = {
-  /** Stats persistence is opt-in: set OCTOCODE_ENABLE_STATS=1 to enable. */
-  enableStats: false,
-};
-
-export const DEFAULT_STORAGE_CONFIG: RequiredStorageConfig = {
-  mode: 'persistent',
-};
-
-/** Extension defaults inherit the global storage default (persistent). */
-export const DEFAULT_EXTENSION_CONFIG: RequiredExtensionConfig = {
-  storage: DEFAULT_STORAGE_CONFIG,
-};
-
-export const DEFAULT_CONFIG: Omit<ResolvedConfig, 'source' | 'configPath'> = {
-  version: 1,
-  github: DEFAULT_GITHUB_CONFIG,
-  local: DEFAULT_LOCAL_CONFIG,
-  tools: DEFAULT_TOOLS_CONFIG,
-  network: DEFAULT_NETWORK_CONFIG,
-  lsp: DEFAULT_LSP_CONFIG,
-  output: DEFAULT_OUTPUT_CONFIG,
-  session: DEFAULT_SESSION_CONFIG,
-  storage: DEFAULT_STORAGE_CONFIG,
-  extension: DEFAULT_EXTENSION_CONFIG,
-};
-
+export const DEFAULT_CONFIG = Object.freeze(DEFAULT_CONFIG_VALUE);

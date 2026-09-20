@@ -15,6 +15,9 @@ struct SharedConstants {
     config_file_name: String,
     runtime_surfaces: Vec<String>,
     runtime_surface_default: String,
+    output_formats: Vec<String>,
+    storage_modes: Vec<String>,
+    default_values: BTreeMap<String, serde_json::Value>,
     env_token_vars: Vec<String>,
     protected_keys: Vec<String>,
     config_source_env_keys: Vec<String>,
@@ -52,6 +55,39 @@ fn to_screaming_snake(value: &str) -> String {
         output.push(character.to_ascii_uppercase());
     }
     output
+}
+
+fn write_default_constant(
+    output: &mut String,
+    name: &str,
+    value: &serde_json::Value,
+) -> Result<(), Box<dyn Error>> {
+    let constant_name = format!("DEFAULT_{}", to_screaming_snake(name));
+    match value {
+        serde_json::Value::Bool(value) => {
+            writeln!(output, "pub const {constant_name}: bool = {value};")?;
+        }
+        serde_json::Value::Number(value) => {
+            let value = value.as_i64().ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("default {name} must be an integer"),
+                )
+            })?;
+            writeln!(output, "pub const {constant_name}: f64 = {value}.0;")?;
+        }
+        serde_json::Value::String(value) => {
+            writeln!(output, "pub const {constant_name}: &str = {value:?};")?;
+        }
+        _ => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("default {name} must be a string, integer, or boolean"),
+            )
+            .into());
+        }
+    }
+    Ok(())
 }
 
 fn rust_enum_variant(value: &str) -> Result<String, Box<dyn Error>> {
@@ -112,6 +148,13 @@ fn render(constants: &SharedConstants) -> Result<String, Box<dyn Error>> {
     }
     writeln!(output, "}}\n")?;
 
+    for (name, value) in &constants.default_values {
+        write_default_constant(&mut output, name, value)?;
+    }
+    writeln!(output)?;
+
+    write_string_array(&mut output, "OUTPUT_FORMATS", &constants.output_formats)?;
+    write_string_array(&mut output, "STORAGE_MODES", &constants.storage_modes)?;
     write_string_array(&mut output, "ENV_TOKEN_VARS", &constants.env_token_vars)?;
     write_string_array(&mut output, "PROTECTED_KEYS", &constants.protected_keys)?;
     write_string_array(

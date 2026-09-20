@@ -15,14 +15,18 @@ let stubCli;
 function writeSession(rows) {
   mkdirSync(join(dir, 'text'), { recursive: true });
   const lines = rows.map((r) => {
-    const part = `text/${r.pageId}.clean.part-001.md`;
-    writeFileSync(join(dir, part), r.body ?? 'x'.repeat(r.bytes ?? 1000));
+    const bodies = r.parts ?? [r.body ?? 'x'.repeat(r.bytes ?? 1000)];
+    const parts = bodies.map((body, index) => {
+      const part = `text/${r.pageId}.clean.part-${String(index + 1).padStart(3, '0')}.md`;
+      writeFileSync(join(dir, part), body);
+      return part;
+    });
     return JSON.stringify({
       pageId: r.pageId,
       url: r.url,
       status: 200,
-      cleanTextBytes: r.bytes ?? (r.body ?? '').length ?? 1000,
-      textParts: [part],
+      cleanTextBytes: r.bytes ?? bodies.reduce((sum, body) => sum + Buffer.byteLength(body), 0),
+      textParts: parts,
     });
   });
   writeFileSync(join(dir, 'sources.jsonl'), `${lines.join('\n')}\n`);
@@ -41,8 +45,7 @@ function run(args, env = {}) {
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'triage-test-'));
-  // Stub octocode CLI: enforces `scheme jev --view query --compact` and `jev --input <f> --compact`
-  // with verdicts keyed off each query's file basename.
+  // Stub Octocode CLI: enforces the matrix request shape and correlates rows.
   stubCli = join(dir, 'stub-cli.mjs');
   writeFileSync(stubCli, `
 import assert from 'node:assert/strict';
@@ -56,15 +59,17 @@ if (args[0] === 'scheme') {
 const input = args[2];
 assert.deepEqual(args, ['jev', '--input', input, '--compact']);
 const req = JSON.parse(readFileSync(input, 'utf8'));
-const results = req.queries.map((q, index) => {
-  if (typeof q.reasoning !== 'string' || !q.reasoning.trim()) throw new Error('Missing nonblank Jev reasoning');
-  const p = q.context.query.path;
+assert.equal(typeof req.reasoning, 'string');
+assert.equal(req.questions.length, 1);
+assert.equal(req.questions[0].id, 'relevance');
+const results = req.resources.map((resource, index) => {
+  const p = resource.context.query.path;
   let choice = 'relevant', confidence = 0.95;
   if (/page-002/.test(p)) { choice = 'unrelated'; confidence = 0.9; }
   if (/page-003/.test(p)) { choice = 'unrelated'; confidence = 0.3; }
   if (/page-004/.test(p)) { choice = 'mention'; confidence = 0.7; }
   const context = { tool: 'localFetch', resultHash: 'a'.repeat(64), coverage: process.env.TEST_JEV_COVERAGE || 'bounded', ...(process.env.TEST_JEV_COVERAGE === 'partial' ? { limitations: ['Only a bounded fragment was available.'] } : {}) };
-  return { index, data: { model: 'stub', answer: { type: 'choice', choice, confidence, probabilities: { [choice]: confidence } }, context, usage: { input_tokens: 100, output_tokens: 5 } } };
+  return { index, resourceId: resource.id, questionId: 'relevance', data: { model: 'stub', answer: { type: 'choice', choice, confidence, probabilities: { [choice]: confidence } }, context, usage: { input_tokens: 100, output_tokens: 5 } } };
 });
 console.log(JSON.stringify({ results }));
 `);
@@ -91,17 +96,21 @@ test('dry-run composes valid jev batches; dedups URLs; routes thin pages without
   const reqPath = join(dir, 'reports', 'triage', 'request-01.json');
   assert.ok(existsSync(reqPath));
   const req = JSON.parse(readFileSync(reqPath, 'utf8'));
-  assert.ok(req.queries.length >= 1 && req.queries.length <= 5);
-  for (const q of req.queries) {
-    assert.equal(typeof q.reasoning, 'string');
-    assert.match(q.reasoning, /whether.*read/i);
-    assert.equal(q.context.tool, 'localFetch');
-    assert.ok(q.context.query.path);
-    assert.ok(q.context.query.reasoning);
-    assert.equal(q.context.query.fullContent, true);
-    assert.equal(q.question.type, 'choice');
-    assert.ok(q.question.criteria.relevant.what);
-    assert.ok(q.question.criteria.mention.not_for);
+  assert.ok(req.resources.length >= 1 && req.resources.length <= 25);
+  assert.equal(req.questions.length, 1);
+  assert.equal(req.questions[0].id, 'relevance');
+  assert.equal(req.questions[0].question.type, 'choice');
+  assert.ok(req.questions[0].question.criteria.relevant.what);
+  assert.ok(req.questions[0].question.criteria.mention.not_for);
+  for (const resource of req.resources) {
+    assert.match(resource.id, /^r\d+$/);
+    assert.equal(resource.context.tool, 'localFetch');
+    assert.ok(resource.context.query.path);
+    assert.ok(resource.context.query.reasoning);
+    assert.equal(resource.context.query.chunkType, 'bytes');
+    assert.equal(resource.context.query.offset, 0);
+    assert.ok(resource.context.query.limit <= 20_000);
+    assert.equal(resource.context.query.fullContent, undefined);
   }
 });
 
@@ -131,10 +140,59 @@ test('provider partial coverage retains a confident unrelated candidate despite 
   assert.deepEqual(res.parsed.consider.map((row) => row.pageId), ['page-002']);
   assert.equal(res.parsed.consider[0].partialCoverage, true);
   const report = JSON.parse(readFileSync(res.parsed.report, 'utf8'));
-  assert.deepEqual(report.judgedRows[0].receipt, {
+  assert.deepEqual(report.judgedRows[0].receipts[0], {
     coverage: 'partial',
     limitations: ['Only a bounded fragment was available.'],
   });
+});
+
+test('all parts and large UTF-8 files are paged through bounded matrix resources without drops', () => {
+  writeSession([{
+    pageId: 'page-002',
+    url: 'https://ex.test/large',
+    parts: [`é${'a'.repeat(44_999)}`, `界${'b'.repeat(44_999)}`],
+  }]);
+  const res = run([
+    '--session-dir', dir,
+    '--goal', 'g',
+    '--limit', '2',
+    '--octocode', `${process.execPath} ${stubCli}`,
+  ]);
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.parsed.resources, 6);
+  assert.equal(res.parsed.resourcePages, 3);
+  assert.equal(res.parsed.jevUsage.calls, 3);
+  assert.deepEqual(res.parsed.skip.map((row) => row.pageId), ['page-002']);
+  assert.equal(res.parsed.skip[0].resources, 6);
+  for (let page = 1; page <= 3; page += 1) {
+    const req = JSON.parse(readFileSync(join(dir, 'reports', 'triage', `request-0${page}.json`), 'utf8'));
+    assert.equal(req.resources.length, 2);
+  }
+});
+
+test('relevant partial resources route only to read, never also to consider', () => {
+  writeSession([{ pageId: 'page-001', url: 'https://ex.test/relevant', bytes: 5000 }]);
+  const res = run(
+    ['--session-dir', dir, '--goal', 'g', '--octocode', `${process.execPath} ${stubCli}`],
+    { TEST_JEV_COVERAGE: 'partial' },
+  );
+  assert.equal(res.status, 0, res.stderr);
+  assert.deepEqual(res.parsed.read.map((row) => row.pageId), ['page-001']);
+  assert.deepEqual(res.parsed.consider, []);
+  assert.equal(res.parsed.read[0].partialCoverage, true);
+});
+
+test('explicit files and symlinks cannot escape the session directory', () => {
+  writeSession([{ pageId: 'page-001', url: 'https://ex.test/a', bytes: 2000 }]);
+  const outside = join(tmpdir(), `triage-outside-${process.pid}.txt`);
+  writeFileSync(outside, 'outside');
+  try {
+    const res = run(['--session-dir', dir, '--goal', 'g', '--files', outside, '--dry-run']);
+    assert.equal(res.status, 2);
+    assert.equal(res.parsed.code, 'INVALID_RESOURCE_PATH');
+  } finally {
+    rmSync(outside, { force: true });
+  }
 });
 
 test('unavailable jev returns JEV_UNAVAILABLE with lexical fallback hint', () => {

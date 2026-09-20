@@ -12,6 +12,12 @@ Start with a Surface Plan: local, GitHub, packages, PR/history, web, and reasons
 | Investigate | structure → symptom/symbol search → exact boundary reads → graph for file topology + LSP/AST for identity/shape → history/tests; keep two hypotheses |
 | Plan | current contract/invariants → graph/LSP affected scope → boundary checks → local pattern → options/safest next step |
 
+## Jev Checkpoint
+
+Place the optional Jev checkpoint after cheap visible discovery has produced known candidates and before reading a substantial body that may be skipped. Invoke it only when a different answer can eliminate meaningful work; name that read or branch first. Keep exact metadata, known deciding spans, counts, symbol identity, required proof, and completeness-sensitive absence checks on the direct path.
+
+Retain candidates whose result is relevant, background, insufficient, partial, or otherwise uncertain, then inspect the deciding source or run the deciding test. A confident exclusion applies only to the returned scope. When several independent judgments use the same supplied evidence, batch them and repeat the context; shared inference may reduce provider input, but verification remains separate.
+
 For package comparisons, gather decision-relevant version, maintenance, license, and integration evidence when available. Popularity and activity alone do not establish suitability. Apply the authorization rule in `SKILL.md`.
 
 ## Surface Recipes

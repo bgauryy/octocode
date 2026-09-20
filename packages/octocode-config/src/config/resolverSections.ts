@@ -1,258 +1,267 @@
+import path from 'node:path';
+import {
+  CONFIG_FIELDS,
+  CONFIG_SOURCE_ENV_KEYS,
+  DEFAULT_CONFIG_VALUE,
+  type ConfigFieldSpec,
+  type ConfigSourceEnvKey,
+  type ResolvedConfigData,
+} from './contract.generated.js';
 import type {
   OctocodeConfig,
   RequiredExtensionConfig,
   RequiredGitHubConfig,
   RequiredLocalConfig,
-  RequiredToolsConfig,
-  RequiredNetworkConfig,
   RequiredLspConfig,
+  RequiredNetworkConfig,
   RequiredOutputConfig,
   RequiredSessionConfig,
   RequiredStorageConfig,
+  RequiredToolsConfig,
 } from './types.js';
-import {
-  DEFAULT_EXTENSION_CONFIG,
-  DEFAULT_GITHUB_CONFIG,
-  DEFAULT_LOCAL_CONFIG,
-  DEFAULT_TOOLS_CONFIG,
-  DEFAULT_NETWORK_CONFIG,
-  DEFAULT_LSP_CONFIG,
-  DEFAULT_OUTPUT_CONFIG,
-  DEFAULT_SESSION_CONFIG,
-  DEFAULT_STORAGE_CONFIG,
-  MIN_TIMEOUT,
-  MAX_TIMEOUT,
-  MIN_RETRIES,
-  MAX_RETRIES,
-  MIN_OUTPUT_DEFAULT_CHAR_LENGTH,
-  MAX_OUTPUT_DEFAULT_CHAR_LENGTH,
-} from './defaults.js';
-import {
-  CONFIG_SOURCE_ENV_KEYS,
-  type ConfigSourceEnvKey,
-} from './sharedConstants.generated.js';
 
 export { CONFIG_SOURCE_ENV_KEYS, type ConfigSourceEnvKey };
 
-export function parseBooleanEnv(
-  value: string | undefined
-): boolean | undefined {
-  if (value === undefined || value === null) return undefined;
-  const trimmed = value.trim().toLowerCase();
-  if (trimmed === '') return undefined;
-  if (trimmed === 'true' || trimmed === '1') return true;
-  if (trimmed === 'false' || trimmed === '0') return false;
-  return undefined;
+export function parseBooleanEnv(value: string | undefined): boolean | undefined {
+  if (value === undefined) return undefined;
+  switch (value.trim().toLowerCase()) {
+    case 'true':
+    case '1':
+      return true;
+    case 'false':
+    case '0':
+      return false;
+    default:
+      return undefined;
+  }
 }
 
 export function parseIntEnv(value: string | undefined): number | undefined {
-  if (value === undefined || value === null) return undefined;
-  const trimmed = value.trim();
-  if (trimmed === '') return undefined;
-  const parsed = parseInt(trimmed, 10);
-  if (isNaN(parsed)) return undefined;
-  return parsed;
+  if (value === undefined || value.trim() === '') return undefined;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isNaN(parsed) ? undefined : parsed;
 }
 
-export function parseStringArrayEnv(
-  value: string | undefined
-): string[] | undefined {
-  if (value === undefined || value === null) return undefined;
-  const trimmed = value.trim();
-  if (trimmed === '') return undefined;
-  return trimmed
+export function parseStringArrayEnv(value: string | undefined): string[] | undefined {
+  if (value === undefined || value.trim() === '') return undefined;
+  return value
     .split(',')
-    .map(s => s.trim())
-    .filter(s => s.length > 0);
+    .map(item => item.trim())
+    .filter(Boolean);
+}
+
+function getPath(root: unknown, fieldPath: string): unknown {
+  let current = root;
+  for (const part of fieldPath.split('.')) {
+    if (typeof current !== 'object' || current === null || Array.isArray(current)) {
+      return undefined;
+    }
+    current = (current as Record<string, unknown>)[part];
+  }
+  return current;
+}
+
+function setPath(root: Record<string, unknown>, fieldPath: string, value: unknown): void {
+  const parts = fieldPath.split('.');
+  let current = root;
+  for (const part of parts.slice(0, -1)) {
+    const existing = current[part];
+    if (typeof existing === 'object' && existing !== null && !Array.isArray(existing)) {
+      current = existing as Record<string, unknown>;
+    } else {
+      /* v8 ignore start -- generated defaults contain every resolved section */
+      const child: Record<string, unknown> = {};
+      current[part] = child;
+      current = child;
+      /* v8 ignore stop */
+    }
+  }
+  current[parts.at(-1)!] = value;
+}
+
+function clampNumber(field: ConfigFieldSpec, value: number): number {
+  return Math.min(field.maximum!, Math.max(field.minimum!, value));
+}
+
+function isHttpUrl(value: string): boolean {
+  try {
+    return ['http:', 'https:'].includes(new URL(value).protocol);
+  } catch {
+    return false;
+  }
+}
+
+function isLocalPath(value: string): boolean {
+  return (
+    path.isAbsolute(value) ||
+    /^~(?:[\\/]|$)/.test(value) ||
+    /^[A-Za-z]:[\\/]/.test(value)
+  );
+}
+
+function normalizeString(value: string, normalize?: 'trim' | 'lower'): string {
+  const trimmed = value.trim();
+  return normalize === 'lower' ? trimmed.toLowerCase() : trimmed;
+}
+
+function parseValue(
+  field: ConfigFieldSpec,
+  raw: unknown,
+  fromEnvironment: boolean,
+  normalize?: 'trim' | 'lower'
+): { valid: boolean; value?: unknown } {
+  switch (field.type) {
+    case 'schemaVersion':
+      return typeof raw === 'number' && Number.isInteger(raw)
+        ? { valid: true, value: raw }
+        : { valid: false };
+    case 'boolean': {
+      const value = fromEnvironment
+        ? parseBooleanEnv(typeof raw === 'string' ? raw : undefined)
+        : typeof raw === 'boolean'
+          ? raw
+          : undefined;
+      return value === undefined ? { valid: false } : { valid: true, value };
+    }
+    case 'number': {
+      const value = fromEnvironment
+        ? parseIntEnv(typeof raw === 'string' ? raw : undefined)
+        : typeof raw === 'number' && Number.isFinite(raw)
+          ? Math.trunc(raw)
+          : undefined;
+      return value === undefined
+        ? { valid: false }
+        : { valid: true, value: clampNumber(field, value) };
+    }
+    case 'stringArray': {
+      const value = fromEnvironment
+        ? parseStringArrayEnv(typeof raw === 'string' ? raw : undefined)
+        : raw === null || (Array.isArray(raw) && raw.every(item => typeof item === 'string'))
+          ? raw
+          : undefined;
+      if (value === undefined) return { valid: false };
+      if (field.itemFormat === 'path' && Array.isArray(value) && !value.every(isLocalPath)) {
+        return { valid: false };
+      }
+      return { valid: true, value };
+    }
+    case 'enum': {
+      if (typeof raw !== 'string') return { valid: false };
+      const value = normalizeString(raw, normalize);
+      return field.values?.includes(value)
+        ? { valid: true, value }
+        : { valid: false };
+    }
+    case 'url':
+    case 'path':
+    case 'string': {
+      if (typeof raw !== 'string') return { valid: false };
+      const value = fromEnvironment ? normalizeString(raw, normalize) : raw;
+      if (value.trim() === '') return { valid: false };
+      if (field.type === 'url' && !isHttpUrl(value)) return { valid: false };
+      if (field.type === 'path' && !isLocalPath(value)) return { valid: false };
+      return { valid: true, value };
+    }
+  }
+}
+
+export function resolveConfigFields(
+  fileConfig: OctocodeConfig = {},
+  env: Record<string, string | undefined> = process.env
+): ResolvedConfigData {
+  const resolved = structuredClone(DEFAULT_CONFIG_VALUE) as unknown as Record<
+    string,
+    unknown
+  >;
+
+  for (const field of CONFIG_FIELDS) {
+    if (!field.resolved) continue;
+    let selected = false;
+
+    for (const binding of field.env) {
+      const raw = env[binding.name];
+      if (raw === undefined) continue;
+      const parsed = parseValue(field, raw, true, binding.normalize);
+      if (parsed.valid) {
+        setPath(resolved, field.path, parsed.value);
+        selected = true;
+        break;
+      }
+      if (binding.invalid === 'default') {
+        setPath(resolved, field.path, field.defaultValue);
+        selected = true;
+        break;
+      }
+    }
+
+    if (!selected && field.file) {
+      const raw = getPath(fileConfig, field.path);
+      if (raw !== undefined && raw !== null) {
+        const parsed = parseValue(field, raw, false);
+        if (parsed.valid) {
+          setPath(resolved, field.path, parsed.value);
+          selected = true;
+        }
+      } else if (raw === null && field.type === 'stringArray') {
+        setPath(resolved, field.path, null);
+        selected = true;
+      }
+    }
+
+    if (!selected && field.defaultFrom) {
+      setPath(resolved, field.path, structuredClone(getPath(resolved, field.defaultFrom)));
+    }
+  }
+
+  return resolved as unknown as ResolvedConfigData;
 }
 
 export function resolveGitHub(
   fileConfig?: OctocodeConfig['github']
 ): RequiredGitHubConfig {
-  const envApiUrl = process.env.GITHUB_API_URL?.trim();
-
-  const envGraphql = parseBooleanEnv(process.env.OCTOCODE_GITHUB_GRAPHQL);
-  return {
-    apiUrl: envApiUrl || fileConfig?.apiUrl || DEFAULT_GITHUB_CONFIG.apiUrl,
-    graphqlEnabled:
-      envGraphql ??
-      fileConfig?.graphqlEnabled ??
-      DEFAULT_GITHUB_CONFIG.graphqlEnabled,
-  };
+  return resolveConfigFields({ github: fileConfig }).github;
 }
 
 export function resolveLocal(
   fileConfig?: OctocodeConfig['local']
 ): RequiredLocalConfig {
-  const envEnableLocal = parseBooleanEnv(process.env.ENABLE_LOCAL);
-  const envEnableClone = parseBooleanEnv(process.env.ENABLE_CLONE);
-  const envEnableAstRewriteApply = parseBooleanEnv(
-    process.env.ENABLE_AST_REWRITE_APPLY
-  );
-  const envAllowedPaths = parseStringArrayEnv(process.env.ALLOWED_PATHS);
-  const envWorkspaceRoot = process.env.WORKSPACE_ROOT?.trim() || undefined;
-
-  return {
-    // Local tools default to enabled on every surface. An explicit
-    // ENABLE_LOCAL (env) or .octocoderc value wins, so `false` disables them.
-    enabled:
-      envEnableLocal ?? fileConfig?.enabled ?? DEFAULT_LOCAL_CONFIG.enabled,
-    // Clone is opt-in (off by default). An explicit ENABLE_CLONE (env) or
-    // .octocoderc value wins; set to `true` to enable ghCloneRepo.
-    enableClone:
-      envEnableClone ??
-      fileConfig?.enableClone ??
-      DEFAULT_LOCAL_CONFIG.enableClone,
-    enableAstRewriteApply:
-      envEnableAstRewriteApply ??
-      fileConfig?.enableAstRewriteApply ??
-      DEFAULT_LOCAL_CONFIG.enableAstRewriteApply,
-    allowedPaths:
-      envAllowedPaths ??
-      fileConfig?.allowedPaths ??
-      DEFAULT_LOCAL_CONFIG.allowedPaths,
-    workspaceRoot:
-      envWorkspaceRoot ??
-      fileConfig?.workspaceRoot ??
-      DEFAULT_LOCAL_CONFIG.workspaceRoot,
-  };
+  return resolveConfigFields({ local: fileConfig }).local;
 }
 
 export function resolveTools(
   fileConfig?: OctocodeConfig['tools']
 ): RequiredToolsConfig {
-  const envToolsToRun = parseStringArrayEnv(process.env.TOOLS_TO_RUN);
-  const envDisableTools = parseStringArrayEnv(process.env.DISABLE_TOOLS);
-
-  return {
-    enabled:
-      envToolsToRun ?? fileConfig?.enabled ?? DEFAULT_TOOLS_CONFIG.enabled,
-    disabled:
-      envDisableTools ?? fileConfig?.disabled ?? DEFAULT_TOOLS_CONFIG.disabled,
-  };
+  return resolveConfigFields({ tools: fileConfig }).tools;
 }
 
 export function resolveNetwork(
   fileConfig?: OctocodeConfig['network']
 ): RequiredNetworkConfig {
-  const envTimeout = parseIntEnv(process.env.REQUEST_TIMEOUT);
-  const envMaxRetries = parseIntEnv(process.env.MAX_RETRIES);
-  const envAllowPrivateRegistry = parseBooleanEnv(
-    process.env.OCTOCODE_ALLOW_PRIVATE_REGISTRY
-  );
-
-  let timeout =
-    envTimeout ?? fileConfig?.timeout ?? DEFAULT_NETWORK_CONFIG.timeout;
-  timeout = Math.max(MIN_TIMEOUT, Math.min(MAX_TIMEOUT, timeout));
-
-  let maxRetries =
-    envMaxRetries ??
-    fileConfig?.maxRetries ??
-    DEFAULT_NETWORK_CONFIG.maxRetries;
-  maxRetries = Math.max(MIN_RETRIES, Math.min(MAX_RETRIES, maxRetries));
-
-  const allowPrivateRegistry =
-    envAllowPrivateRegistry ??
-    fileConfig?.allowPrivateRegistry ??
-    DEFAULT_NETWORK_CONFIG.allowPrivateRegistry;
-
-  return { timeout, maxRetries, allowPrivateRegistry };
+  return resolveConfigFields({ network: fileConfig }).network;
 }
 
-export function resolveLsp(
-  fileConfig?: OctocodeConfig['lsp']
-): RequiredLspConfig {
-  const envConfigPath = process.env.OCTOCODE_LSP_CONFIG?.trim() || undefined;
-
-  return {
-    configPath:
-      envConfigPath ?? fileConfig?.configPath ?? DEFAULT_LSP_CONFIG.configPath,
-  };
+export function resolveLsp(fileConfig?: OctocodeConfig['lsp']): RequiredLspConfig {
+  return resolveConfigFields({ lsp: fileConfig }).lsp;
 }
 
-/**
- * Resolve session / stats-persistence config from env only.
- * OCTOCODE_ENABLE_STATS=1|true turns on stats.json writes; default is off.
- */
+export function resolveOutput(
+  fileConfig?: OctocodeConfig['output']
+): RequiredOutputConfig {
+  return resolveConfigFields({ output: fileConfig }).output;
+}
+
 export function resolveSession(): RequiredSessionConfig {
-  const envEnableStats = parseBooleanEnv(process.env.OCTOCODE_ENABLE_STATS);
-  return {
-    enableStats: envEnableStats ?? DEFAULT_SESSION_CONFIG.enableStats,
-  };
+  return resolveConfigFields().session;
 }
 
 export function resolveStorage(
   fileConfig?: OctocodeConfig['storage']
 ): RequiredStorageConfig {
-  const envMode = process.env.OCTOCODE_STORAGE_MODE?.trim().toLowerCase();
-  const fileMode = fileConfig?.mode ?? DEFAULT_STORAGE_CONFIG.mode;
-  if (envMode === 'memory' || envMode === 'persistent') {
-    return { mode: envMode };
-  }
-  return { mode: fileMode };
+  return resolveConfigFields({ storage: fileConfig }).storage;
 }
 
-/**
- * Resolve storage specifically for the Pi extension runtime.
- *
- * Priority (highest → lowest):
- * 1. `OCTOCODE_EXTENSION_STORAGE_MODE` env var
- * 2. `extension.storage.mode` in .octocoderc
- * 3. Global `storage.mode` (via resolveStorage)
- *
- * This lets the researcher/CLI keep `storage.mode=memory` while the Pi
- * extension uses `extension.storage.mode=persistent` for Awareness.
- */
 export function resolveExtensionStorage(
   fileConfig?: Pick<OctocodeConfig, 'storage' | 'extension'>
 ): RequiredExtensionConfig {
-  const envMode = process.env.OCTOCODE_EXTENSION_STORAGE_MODE?.trim().toLowerCase();
-  if (envMode === 'memory' || envMode === 'persistent') {
-    return { storage: { mode: envMode } };
-  }
-  const extensionFileMode = fileConfig?.extension?.storage?.mode;
-  if (extensionFileMode === 'memory' || extensionFileMode === 'persistent') {
-    return { storage: { mode: extensionFileMode } };
-  }
-  // Fall back to the global storage resolution.
-  return { storage: resolveStorage(fileConfig?.storage) };
-}
-
-export { DEFAULT_EXTENSION_CONFIG };
-
-const VALID_OUTPUT_FORMATS = new Set(['yaml', 'json']);
-
-export function resolveOutput(
-  fileConfig?: OctocodeConfig['output']
-): RequiredOutputConfig {
-  const envFormat = process.env.OCTOCODE_OUTPUT_FORMAT?.trim().toLowerCase();
-  const envDefaultCharLength = parseIntEnv(
-    process.env.OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH
-  );
-  const resolved =
-    envFormat || fileConfig?.format || DEFAULT_OUTPUT_CONFIG.format;
-  const configuredDefaultCharLength =
-    envDefaultCharLength ??
-    fileConfig?.pagination?.defaultCharLength ??
-    DEFAULT_OUTPUT_CONFIG.pagination.defaultCharLength;
-  const clampedDefaultCharLength = Math.max(
-    MIN_OUTPUT_DEFAULT_CHAR_LENGTH,
-    Math.min(MAX_OUTPUT_DEFAULT_CHAR_LENGTH, configuredDefaultCharLength)
-  );
-
-  const envRedactEmails = parseBooleanEnv(process.env.OCTOCODE_REDACT_EMAILS);
-  const redactEmails =
-    envRedactEmails ??
-    fileConfig?.redactEmails ??
-    DEFAULT_OUTPUT_CONFIG.redactEmails;
-
-  return {
-    format: VALID_OUTPUT_FORMATS.has(resolved)
-      ? (resolved as 'yaml' | 'json')
-      : DEFAULT_OUTPUT_CONFIG.format,
-    pagination: {
-      defaultCharLength: clampedDefaultCharLength,
-    },
-    redactEmails,
-  };
+  return resolveConfigFields(fileConfig).extension;
 }

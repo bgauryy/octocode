@@ -48,7 +48,10 @@ pub(crate) fn preflight(query: &Value) -> Result<(), JevProviderError> {
     let query = query
         .as_object()
         .ok_or_else(|| request_error("Query must be an object."))?;
-    if query.len() != 3
+    let resource_id = query.get("resourceId");
+    let question_id = query.get("questionId");
+    let correlated = resource_id.is_some() && question_id.is_some();
+    if query.len() != if correlated { 5 } else { 3 }
         || !query.contains_key("context")
         || !query.contains_key("question")
         || !query
@@ -57,7 +60,14 @@ pub(crate) fn preflight(query: &Value) -> Result<(), JevProviderError> {
             .is_some_and(|value| !value.trim().is_empty())
     {
         return Err(request_error(
-            "Supply nonblank reasoning, context and one typed question.",
+            "Supply nonblank reasoning, context and one typed question; correlation IDs must be supplied together.",
+        ));
+    }
+    if correlated
+        && (!resource_id.is_some_and(valid_matrix_id) || !question_id.is_some_and(valid_matrix_id))
+    {
+        return Err(request_error(
+            "resourceId and questionId must each use 1–64 ASCII letters, digits, dots, underscores, or hyphens and start with a letter or digit.",
         ));
     }
     validate_question(&query["question"])?;
@@ -79,6 +89,18 @@ pub(crate) fn preflight(query: &Value) -> Result<(), JevProviderError> {
         ));
     }
     Ok(())
+}
+
+fn valid_matrix_id(value: &Value) -> bool {
+    let Some(value) = value.as_str() else {
+        return false;
+    };
+    let bytes = value.as_bytes();
+    (1..=64).contains(&bytes.len())
+        && bytes[0].is_ascii_alphanumeric()
+        && bytes
+            .iter()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
 }
 
 fn validate_question(question: &Value) -> Result<(), JevProviderError> {
@@ -232,6 +254,32 @@ mod tests {
         }
         query.as_object_mut().unwrap().remove("reasoning");
         assert!(preflight(&query).is_err());
+    }
+
+    #[test]
+    fn correlation_ids_are_validated_but_never_sent_to_the_provider() {
+        let query = json!({
+            "reasoning":"Classify this matrix cell.",
+            "context":{"value":{"observation":true}},
+            "question":question(),
+            "resourceId":"resource-1",
+            "questionId":"relevance.v1"
+        });
+        preflight(&query).expect("valid correlation IDs");
+        assert_eq!(
+            prepare(&query["context"]["value"], &query["question"], "m").unwrap(),
+            json!({"model":"m","state":{"observation":true},"questions":{"answer":question()}})
+        );
+        let mut null_id = query.clone();
+        null_id["questionId"] = Value::Null;
+        let mut invalid_id = query.clone();
+        invalid_id["resourceId"] = json!("bad id");
+        for invalid in [null_id, invalid_id] {
+            assert!(preflight(&invalid).is_err());
+        }
+        let mut missing = query;
+        missing.as_object_mut().unwrap().remove("questionId");
+        assert!(preflight(&missing).is_err());
     }
 
     #[test]

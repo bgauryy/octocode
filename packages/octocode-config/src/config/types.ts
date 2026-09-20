@@ -1,223 +1,57 @@
+import type {
+  OctocodeConfig,
+  ResolvedConfigData,
+} from './contract.generated.js';
+
+export type {
+  ExtensionConfigOptions,
+  ExtensionStorageConfigOptions,
+  GitHubConfigOptions,
+  JevConfigOptions,
+  LocalConfigOptions,
+  LspConfigOptions,
+  NetworkConfigOptions,
+  OctocodeConfig,
+  OutputConfigOptions,
+  OutputFormat,
+  OutputPaginationConfigOptions,
+  RequiredExtensionConfig,
+  RequiredExtensionStorageConfig,
+  RequiredGitHubConfig,
+  RequiredLocalConfig,
+  RequiredLspConfig,
+  RequiredNetworkConfig,
+  RequiredOutputConfig,
+  RequiredOutputPaginationConfig,
+  RequiredSessionConfig,
+  RequiredStorageConfig,
+  RequiredToolsConfig,
+  StorageConfigOptions,
+  StorageMode,
+  ToolsConfigOptions,
+} from './contract.generated.js';
 export {
   CONFIG_FILE_NAME,
   CONFIG_SCHEMA_VERSION,
-} from './sharedConstants.generated.js';
+} from './contract.generated.js';
 
-export interface GitHubConfigOptions {
-  apiUrl?: string;
-  graphqlEnabled?: boolean;
-}
-
-export interface LocalConfigOptions {
-  enabled?: boolean;
-
-  enableClone?: boolean;
-
-  /** Opt in to hash-guarded astRewrite file mutation; preview remains available. */
-  enableAstRewriteApply?: boolean;
-
-  allowedPaths?: string[];
-
-  workspaceRoot?: string;
-}
-
-export interface ToolsConfigOptions {
-  enabled?: string[] | null;
-  disabled?: string[] | null;
-}
-
-export interface NetworkConfigOptions {
-  timeout?: number;
-
-  maxRetries?: number;
-
-  /** Opt-in SSRF escape hatch for private/loopback/link-local npm registries. Default: false. */
-  allowPrivateRegistry?: boolean;
-}
-
-export interface LspConfigOptions {
+export interface ResolvedConfig extends ResolvedConfigData {
+  source: 'defaults' | 'file' | 'env' | 'mixed' | 'invalid';
   configPath?: string;
-}
-
-export interface OutputPaginationConfigOptions {
-  defaultCharLength?: number;
-}
-
-export type MinifyMode = 'none' | 'standard' | 'symbols';
-
-export interface OutputConfigOptions {
-  format?: 'yaml' | 'json';
-
-  pagination?: OutputPaginationConfigOptions;
-
-  /** Opt-in: mask email addresses (e.g. commit authors) in GitHub tool outputs. Default: false. */
-  redactEmails?: boolean;
-}
-
-export type StorageMode = 'persistent' | 'memory';
-
-export interface StorageConfigOptions {
-  /** `memory` disables persistent caches, materialization, session files, and SQLite-backed extension state. */
-  mode?: StorageMode;
-}
-
-/**
- * Extension-specific overrides. Keys here take precedence over the global equivalents
- * for the Pi extension runtime only; the Octocode CLI and MCP server continue to use
- * the top-level settings.
- */
-export interface ExtensionConfigOptions {
-  /**
-   * Override `storage.mode` for the Pi extension (Awareness, SQLite state) without
-   * changing the global CLI / MCP setting.
-   *
-   * Example: keep `storage.mode=memory` for the researcher and set
-   * `extension.storage.mode=persistent` to enable Awareness in Pi.
-   */
-  storage?: StorageConfigOptions;
-}
-
-/**
- * Jev reasoning credential section — read from `.octocoderc` as a fallback
- * for the protected `OCTOCODE_JEV_*` env vars. Values are injected into the
- * effective env; they never appear in `ResolvedConfig` and cannot be read
- * back via `config get`. Env var always wins when both are set.
- */
-export interface JevConfigOptions {
-  key?: string | null;
-  baseUrl?: string | null;
-  model?: string | null;
-}
-
-export interface OctocodeConfig {
-  $schema?: string;
-
-  version?: number;
-
-  github?: GitHubConfigOptions;
-
-  local?: LocalConfigOptions;
-
-  tools?: ToolsConfigOptions;
-
-  network?: NetworkConfigOptions;
-
-  lsp?: LspConfigOptions;
-
-  output?: OutputConfigOptions;
-
-  storage?: StorageConfigOptions;
-
-  /** Per-consumer overrides for the Pi extension runtime. */
-  extension?: ExtensionConfigOptions;
-
-  /**
-   * Jev credential fallback — injected into effective env; never in ResolvedConfig.
-   * Env vars (`OCTOCODE_JEV_KEY`, `OCTOCODE_JEV_BASE_URL`, `OCTOCODE_JEV_MODEL`) always win.
-   */
-  jev?: JevConfigOptions;
-}
-
-export interface RequiredGitHubConfig {
-  apiUrl: string;
-  graphqlEnabled: boolean;
-}
-
-export interface RequiredLocalConfig {
-  enabled: boolean;
-  enableClone: boolean;
-  enableAstRewriteApply: boolean;
-  allowedPaths: string[];
-  workspaceRoot: string | undefined;
-}
-
-export interface RequiredToolsConfig {
-  enabled: string[] | null;
-  disabled: string[] | null;
-}
-
-export interface RequiredNetworkConfig {
-  timeout: number;
-  maxRetries: number;
-  allowPrivateRegistry: boolean;
-}
-
-export interface RequiredLspConfig {
-  configPath: string | undefined;
-}
-
-export interface RequiredOutputPaginationConfig {
-  defaultCharLength: number;
-}
-
-export interface RequiredOutputConfig {
-  format: 'yaml' | 'json';
-  pagination: RequiredOutputPaginationConfig;
-  redactEmails: boolean;
-}
-
-export interface RequiredStorageConfig {
-  mode: StorageMode;
-}
-
-export interface RequiredExtensionConfig {
-  /** Resolved storage settings for the Pi extension (may differ from global storage). */
-  storage: RequiredStorageConfig;
-}
-
-export interface ResolvedConfig {
-  version: number;
-
-  github: RequiredGitHubConfig;
-
-  local: RequiredLocalConfig;
-
-  tools: RequiredToolsConfig;
-
-  network: RequiredNetworkConfig;
-
-  lsp: RequiredLspConfig;
-
-  output: RequiredOutputConfig;
-
-  session: RequiredSessionConfig;
-
-  storage: RequiredStorageConfig;
-
-  /** Resolved Pi-extension-specific overrides. */
-  extension: RequiredExtensionConfig;
-
-  source: 'file' | 'defaults' | 'mixed' | 'env' | 'invalid';
-
-  configPath?: string;
-}
-
-/**
- * Session / stats persistence options (env-var only — no .octocoderc equivalent).
- * Resolved entirely from OCTOCODE_ENABLE_STATS; default is off to avoid
- * unnecessary SSD writes on long-running agent sessions.
- */
-export interface RequiredSessionConfig {
-  /** Write stats.json on every flush. Stats are always tracked in memory. */
-  enableStats: boolean;
 }
 
 export interface ValidationResult {
   valid: boolean;
-
   errors: string[];
-
   warnings: string[];
-
-  config?: OctocodeConfig;
 }
 
 export interface LoadConfigResult {
-  success: boolean;
-
   config?: OctocodeConfig;
-
-  error?: string;
-
   path: string;
+  success: boolean;
+  error?: string;
+  validation?: ValidationResult;
 }
+
+export type MinifyMode = 'none' | 'lines' | 'ast' | 'summary' | 'auto';

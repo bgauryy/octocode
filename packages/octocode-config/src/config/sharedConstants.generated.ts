@@ -9,6 +9,29 @@ export const SHARED_CONSTANTS = {
     "mcp"
   ],
   "runtimeSurfaceDefault": "mcp",
+  "outputFormats": [
+    "yaml",
+    "json"
+  ],
+  "storageModes": [
+    "persistent",
+    "memory"
+  ],
+  "defaultValues": {
+    "githubApiUrl": "https://api.github.com",
+    "githubGraphqlEnabled": true,
+    "localEnabled": true,
+    "localEnableClone": false,
+    "localEnableAstRewriteApply": false,
+    "networkTimeout": 30000,
+    "networkMaxRetries": 3,
+    "networkAllowPrivateRegistry": false,
+    "outputFormat": "yaml",
+    "outputDefaultCharLength": 20000,
+    "outputRedactEmails": false,
+    "sessionEnableStats": false,
+    "storageMode": "persistent"
+  },
   "envTokenVars": [
     "OCTOCODE_TOKEN",
     "GH_TOKEN",
@@ -78,6 +101,24 @@ export const CONFIG_FILE_NAME = SHARED_CONSTANTS.configFileName;
 export const RUNTIME_SURFACES = SHARED_CONSTANTS.runtimeSurfaces;
 export type RuntimeSurface = (typeof RUNTIME_SURFACES)[number];
 export const DEFAULT_RUNTIME_SURFACE: RuntimeSurface = SHARED_CONSTANTS.runtimeSurfaceDefault;
+export const OUTPUT_FORMATS = SHARED_CONSTANTS.outputFormats;
+export type OutputFormat = (typeof OUTPUT_FORMATS)[number];
+export const STORAGE_MODES = SHARED_CONSTANTS.storageModes;
+export type StorageMode = (typeof STORAGE_MODES)[number];
+export const DEFAULT_VALUES = SHARED_CONSTANTS.defaultValues;
+export const DEFAULT_GITHUB_API_URL = DEFAULT_VALUES.githubApiUrl;
+export const DEFAULT_GITHUB_GRAPHQL_ENABLED = DEFAULT_VALUES.githubGraphqlEnabled;
+export const DEFAULT_LOCAL_ENABLED = DEFAULT_VALUES.localEnabled;
+export const DEFAULT_LOCAL_ENABLE_CLONE = DEFAULT_VALUES.localEnableClone;
+export const DEFAULT_LOCAL_ENABLE_AST_REWRITE_APPLY = DEFAULT_VALUES.localEnableAstRewriteApply;
+export const DEFAULT_NETWORK_TIMEOUT = DEFAULT_VALUES.networkTimeout;
+export const DEFAULT_NETWORK_MAX_RETRIES = DEFAULT_VALUES.networkMaxRetries;
+export const DEFAULT_NETWORK_ALLOW_PRIVATE_REGISTRY = DEFAULT_VALUES.networkAllowPrivateRegistry;
+export const DEFAULT_OUTPUT_FORMAT = DEFAULT_VALUES.outputFormat;
+export const DEFAULT_OUTPUT_DEFAULT_CHAR_LENGTH = DEFAULT_VALUES.outputDefaultCharLength;
+export const DEFAULT_OUTPUT_REDACT_EMAILS = DEFAULT_VALUES.outputRedactEmails;
+export const DEFAULT_SESSION_ENABLE_STATS = DEFAULT_VALUES.sessionEnableStats;
+export const DEFAULT_STORAGE_MODE = DEFAULT_VALUES.storageMode;
 export const ENV_TOKEN_VARS = SHARED_CONSTANTS.envTokenVars;
 export type EnvTokenVar = (typeof ENV_TOKEN_VARS)[number];
 export const PROTECTED_KEY_NAMES = SHARED_CONSTANTS.protectedKeys;

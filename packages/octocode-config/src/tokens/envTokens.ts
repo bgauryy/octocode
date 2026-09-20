@@ -9,7 +9,7 @@ import type { TokenSource } from './types.js';
 import {
   ENV_TOKEN_VARS,
   type EnvTokenVar,
-} from '../config/sharedConstants.generated.js';
+} from '../config/contract.generated.js';
 
 export { ENV_TOKEN_VARS, type EnvTokenVar };
 

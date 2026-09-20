@@ -1,0 +1,244 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://octocode.ai/schemas/config-contract.schema.json",
+  "title": "Octocode declarative config contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "config", "environment", "sections"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "config": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fileName", "schemaVersion", "runtimeSurfaces"],
+      "properties": {
+        "fileName": { "type": "string", "minLength": 1 },
+        "schemaVersion": { "type": "integer", "minimum": 1 },
+        "runtimeSurfaces": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9]*$" }
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/envName" },
+      "additionalProperties": { "$ref": "#/$defs/environmentOnly" }
+    },
+    "sections": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "pattern": "^(|[a-z][A-Za-z0-9]*(\\.[a-z][A-Za-z0-9]*)*)$" },
+      "additionalProperties": { "$ref": "#/$defs/section" }
+    }
+  },
+  "$defs": {
+    "envName": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]*$"
+    },
+    "dotenvPolicy": {
+      "type": "string",
+      "enum": ["all", "home", "never"]
+    },
+    "environmentOnly": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dotenv": { "$ref": "#/$defs/dotenvPolicy" },
+        "tokenPriority": { "type": "integer", "minimum": 0 },
+        "configSource": { "type": "boolean" },
+        "description": { "type": "string" }
+      }
+    },
+    "envBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["priority"],
+      "properties": {
+        "priority": { "type": "integer", "minimum": 0 },
+        "dotenv": { "$ref": "#/$defs/dotenvPolicy" },
+        "normalize": { "type": "string", "enum": ["trim", "lower"] },
+        "invalid": { "type": "string", "enum": ["skip", "default"] }
+      }
+    },
+    "envBindings": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "#/$defs/envName" },
+      "additionalProperties": { "$ref": "#/$defs/envBinding" }
+    },
+    "commonField": {
+      "type": "object",
+      "required": ["type", "description"],
+      "properties": {
+        "type": { "type": "string" },
+        "description": { "type": "string", "minLength": 1 },
+        "notes": { "type": "string" },
+        "env": { "$ref": "#/$defs/envBindings" },
+        "defaultFrom": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]*(\\.[a-z][A-Za-z0-9]*)+$" },
+        "credential": { "type": "boolean" },
+        "displayDefault": { "type": "string" },
+        "itemFormat": { "type": "string", "enum": ["path"] },
+        "typeName": { "type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$" },
+        "constantName": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+        "boundsName": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+        "valuesConstant": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+        "enumStyle": { "type": "string", "enum": ["list", "quotedOr"] }
+      }
+    },
+    "booleanField": {
+      "allOf": [
+        { "$ref": "#/$defs/commonField" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "description", "default"],
+          "properties": {
+            "type": { "const": "boolean" },
+            "description": true,
+            "notes": true,
+            "env": true,
+            "default": { "type": "boolean" },
+            "displayDefault": true,
+            "constantName": true
+          }
+        }
+      ]
+    },
+    "numberField": {
+      "allOf": [
+        { "$ref": "#/$defs/commonField" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "description", "minimum", "span", "defaultOffset"],
+          "properties": {
+            "type": { "const": "number" },
+            "description": true,
+            "notes": true,
+            "env": true,
+            "minimum": { "type": "integer" },
+            "span": { "type": "integer", "minimum": 0 },
+            "defaultOffset": { "type": "integer", "minimum": 0 },
+            "displayDefault": true,
+            "constantName": true,
+            "boundsName": true
+          }
+        }
+      ]
+    },
+    "stringField": {
+      "allOf": [
+        { "$ref": "#/$defs/commonField" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "description", "default"],
+          "properties": {
+            "type": { "enum": ["string", "url", "path"] },
+            "description": true,
+            "notes": true,
+            "env": true,
+            "default": { "type": ["string", "null"] },
+            "credential": true,
+            "displayDefault": true,
+            "constantName": true
+          }
+        }
+      ]
+    },
+    "stringArrayField": {
+      "allOf": [
+        { "$ref": "#/$defs/commonField" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "description", "default"],
+          "properties": {
+            "type": { "const": "stringArray" },
+            "description": true,
+            "notes": true,
+            "env": true,
+            "default": {
+              "oneOf": [
+                { "type": "null" },
+                { "type": "array", "items": { "type": "string" } }
+              ]
+            },
+            "displayDefault": true,
+            "itemFormat": true,
+            "constantName": true
+          }
+        }
+      ]
+    },
+    "enumField": {
+      "allOf": [
+        { "$ref": "#/$defs/commonField" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "description", "values"],
+          "properties": {
+            "type": { "const": "enum" },
+            "description": true,
+            "notes": true,
+            "env": true,
+            "values": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "type": "string", "minLength": 1 }
+            },
+            "defaultFrom": true,
+            "displayDefault": true,
+            "typeName": true,
+            "constantName": true,
+            "valuesConstant": true,
+            "enumStyle": true
+          }
+        }
+      ]
+    },
+    "schemaVersionField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "description"],
+      "properties": {
+        "type": { "const": "schemaVersion" },
+        "description": { "type": "string", "minLength": 1 },
+        "notes": { "type": "string" },
+        "displayDefault": { "type": "string" }
+      }
+    },
+    "field": {
+      "oneOf": [
+        { "$ref": "#/$defs/booleanField" },
+        { "$ref": "#/$defs/numberField" },
+        { "$ref": "#/$defs/stringField" },
+        { "$ref": "#/$defs/stringArrayField" },
+        { "$ref": "#/$defs/enumField" },
+        { "$ref": "#/$defs/schemaVersionField" }
+      ]
+    },
+    "section": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "file", "resolved", "fields"],
+      "properties": {
+        "title": { "type": "string", "minLength": 1 },
+        "typeName": { "type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$" },
+        "file": { "type": "boolean" },
+        "resolved": { "type": "boolean" },
+        "fields": {
+          "type": "object",
+          "propertyNames": { "pattern": "^[a-z$][A-Za-z0-9]*$" },
+          "additionalProperties": { "$ref": "#/$defs/field" }
+        }
+      }
+    }
+  }
+}

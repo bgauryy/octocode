@@ -1,18 +1,9 @@
 import type { OctocodeConfig, ResolvedConfig } from './types.js';
-import { DEFAULT_CONFIG } from './defaults.js';
 import { loadConfigSync } from './loader.js';
 import { validateConfig } from './validator.js';
 import {
   CONFIG_SOURCE_ENV_KEYS,
-  resolveExtensionStorage,
-  resolveGitHub,
-  resolveLocal,
-  resolveTools,
-  resolveNetwork,
-  resolveLsp,
-  resolveOutput,
-  resolveSession,
-  resolveStorage,
+  resolveConfigFields,
 } from './resolverSections.js';
 
 type FileState = 'absent' | 'valid' | 'invalid';
@@ -55,16 +46,7 @@ function buildResolvedConfig(
   const source = sourceFor(fileState);
 
   return {
-    version: fileConfig?.version ?? DEFAULT_CONFIG.version,
-    github: resolveGitHub(fileConfig?.github),
-    local: resolveLocal(fileConfig?.local),
-    tools: resolveTools(fileConfig?.tools),
-    network: resolveNetwork(fileConfig?.network),
-    lsp: resolveLsp(fileConfig?.lsp),
-    output: resolveOutput(fileConfig?.output),
-    session: resolveSession(),
-    storage: resolveStorage(fileConfig?.storage),
-    extension: resolveExtensionStorage(fileConfig),
+    ...resolveConfigFields(fileConfig),
     source,
     configPath: fileState !== 'absent' ? options.configPath : undefined,
   };

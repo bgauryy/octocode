@@ -8,6 +8,7 @@ use crate::tools::jev::{self, transport::JevProviderError};
 use futures_util::{StreamExt, stream};
 use secrecy::SecretString;
 use serde_json::{Value, json};
+use std::collections::HashMap;
 
 pub(super) struct ProviderConfig<'a> {
     pub key: &'a SecretString,
@@ -22,6 +23,39 @@ struct Captured<'a> {
     identity: String,
     receipt: Option<Value>,
     question: &'a Value,
+}
+
+#[derive(Clone)]
+enum CaptureOutcome {
+    Ready {
+        state: Value,
+        receipt: Option<Value>,
+    },
+    Failed {
+        error: JevProviderError,
+        receipt: Option<Value>,
+    },
+}
+
+fn capture(
+    query: &Value,
+    dispatcher: &DomainDispatcher,
+    context: &ExecutionContext,
+) -> CaptureOutcome {
+    match super::jev_context::resolve(query, dispatcher, context) {
+        Ok((state, receipt)) => CaptureOutcome::Ready { state, receipt },
+        Err(failure) => CaptureOutcome::Failed {
+            error: failure.error,
+            receipt: failure.receipt,
+        },
+    }
+}
+
+fn matrix_capture_key(query: &Value) -> Option<(String, String)> {
+    let resource_id = query.get("resourceId")?.as_str()?.to_owned();
+    let mut context = query.get("context")?.clone();
+    context.sort_all_objects();
+    Some((resource_id, context.to_string()))
 }
 
 fn failed(error: JevProviderError, receipt: Option<Value>) -> DomainResult {
@@ -41,17 +75,24 @@ pub(super) fn execute(
 ) -> Result<Vec<DomainResult>, ExecutionError> {
     let mut rows: Vec<Option<DomainResult>> = (0..queries.len()).map(|_| None).collect();
     let mut captured = Vec::new();
+    let mut matrix_captures: HashMap<(String, String), CaptureOutcome> = HashMap::new();
     for (index, query) in queries.iter().enumerate() {
         context.check()?;
-        let resolved = match jev::preflight(query) {
-            Ok(()) => super::jev_context::resolve(query, dispatcher, context),
-            Err(error) => Err(super::jev_context::ContextFailure {
+        let outcome = match jev::preflight(query) {
+            Err(error) => CaptureOutcome::Failed {
                 error,
                 receipt: None,
-            }),
+            },
+            Ok(()) => match matrix_capture_key(query) {
+                Some(key) => matrix_captures
+                    .entry(key)
+                    .or_insert_with(|| capture(query, dispatcher, context))
+                    .clone(),
+                None => capture(query, dispatcher, context),
+            },
         };
-        match resolved {
-            Ok((state, receipt)) => {
+        match outcome {
+            CaptureOutcome::Ready { state, receipt } => {
                 let mut canonical = state.clone();
                 canonical.sort_all_objects();
                 captured.push(Captured {
@@ -62,7 +103,9 @@ pub(super) fn execute(
                     question: &query["question"],
                 });
             }
-            Err(failure) => rows[index] = Some(failed(failure.error, failure.receipt)),
+            CaptureOutcome::Failed { error, receipt } => {
+                rows[index] = Some(failed(error, receipt));
+            }
         }
     }
     let mut groups: Vec<Vec<Captured<'_>>> = Vec::new();

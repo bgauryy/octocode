@@ -20,12 +20,20 @@ function render(constants: ReturnType<typeof sharedConstantsSchema.parse>): stri
     configFileName: constants.configFileName,
     runtimeSurfaces: constants.runtimeSurfaces,
     runtimeSurfaceDefault: constants.runtimeSurfaceDefault,
+    outputFormats: constants.outputFormats,
+    storageModes: constants.storageModes,
+    defaultValues: constants.defaultValues,
     envTokenVars: constants.envTokenVars,
     protectedKeys: constants.protectedKeys,
     configSourceEnvKeys: constants.configSourceEnvKeys,
     validationBounds: constants.validationBounds,
   };
 
+  const defaultExports = Object.keys(values.defaultValues)
+    .map(
+      key => `export const DEFAULT_${toScreamingSnake(key)} = DEFAULT_VALUES.${key};`
+    )
+    .join('\n');
   const boundExports = Object.keys(values.validationBounds)
     .map(
       key =>
@@ -43,6 +51,12 @@ export const CONFIG_FILE_NAME = SHARED_CONSTANTS.configFileName;
 export const RUNTIME_SURFACES = SHARED_CONSTANTS.runtimeSurfaces;
 export type RuntimeSurface = (typeof RUNTIME_SURFACES)[number];
 export const DEFAULT_RUNTIME_SURFACE: RuntimeSurface = SHARED_CONSTANTS.runtimeSurfaceDefault;
+export const OUTPUT_FORMATS = SHARED_CONSTANTS.outputFormats;
+export type OutputFormat = (typeof OUTPUT_FORMATS)[number];
+export const STORAGE_MODES = SHARED_CONSTANTS.storageModes;
+export type StorageMode = (typeof STORAGE_MODES)[number];
+export const DEFAULT_VALUES = SHARED_CONSTANTS.defaultValues;
+${defaultExports}
 export const ENV_TOKEN_VARS = SHARED_CONSTANTS.envTokenVars;
 export type EnvTokenVar = (typeof ENV_TOKEN_VARS)[number];
 export const PROTECTED_KEY_NAMES = SHARED_CONSTANTS.protectedKeys;

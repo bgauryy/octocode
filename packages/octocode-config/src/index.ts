@@ -10,7 +10,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseBooleanEnv } from './config/resolverSections.js';
-import { PROTECTED_KEY_NAMES } from './config/sharedConstants.generated.js';
+import {
+  HOME_TRUSTED_ENV_KEYS,
+  PROTECTED_KEY_NAMES,
+} from './config/contract.generated.js';
 
 // ─── Re-export getOctocodeHome (defined in home.ts to break circular deps) ───
 export { getOctocodeHome } from './home.js';
@@ -29,6 +32,7 @@ export type {
   NetworkConfigOptions,
   LspConfigOptions,
   OutputConfigOptions,
+  OutputFormat,
   OutputPaginationConfigOptions,
   StorageConfigOptions,
   StorageMode,
@@ -195,6 +199,7 @@ export function loadOctocodeEnv({
 
 export interface ApplyOctocodeEnvOptions {
   env?: Record<string, string | undefined>;
+  sources?: Record<string, 'global' | 'project'>;
 }
 
 export interface ApplyOctocodeEnvResult {
@@ -209,14 +214,17 @@ export interface ApplyOctocodeEnvResult {
  */
 export function applyOctocodeEnv(
   map: Record<string, string> | null | undefined,
-  { env = process.env }: ApplyOctocodeEnvOptions = {}
+  { env = process.env, sources = {} }: ApplyOctocodeEnvOptions = {}
 ): ApplyOctocodeEnvResult {
   const applied: string[] = [];
   const skippedProtected: string[] = [];
   const skippedExisting: string[] = [];
 
   for (const [key, value] of Object.entries(map ?? {})) {
-    if (PROTECTED_KEYS.has(key)) {
+    const trustedHomeKey =
+      sources[key] === 'global' &&
+      HOME_TRUSTED_ENV_KEYS.some(name => name === key);
+    if (PROTECTED_KEYS.has(key) && !trustedHomeKey) {
       skippedProtected.push(key);
       continue;
     }
@@ -251,7 +259,7 @@ export function propagateOctocodeEnv({
   env = process.env,
 }: PropagateOctocodeEnvOptions = {}): PropagateOctocodeEnvResult {
   const { map, sources } = loadOctocodeEnv({ home, cwd, trusted });
-  const result = applyOctocodeEnv(map, { env });
+  const result = applyOctocodeEnv(map, { env, sources });
   return { ...result, sources, keys: Object.keys(map) };
 }
 

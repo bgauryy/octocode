@@ -642,13 +642,23 @@ mod tests {
     }
 
     #[test]
-    fn assembly_requires_a_trusted_custom_language_server() {
+    fn assembly_server_requires_an_explicit_override_or_config() {
         for extension in ["asm", "assembly", "s", "S"] {
             assert!(
                 default_server_for_file(format!("fixture.{extension}"), "/workspace".to_owned())
                     .is_none(),
-                ".{extension} must not pretend clangd provides Assembly semantics"
+                ".{extension} must not auto-launch a server"
             );
+        }
+
+        let _override = EnvGuard::set("OCTOCODE_ASM_SERVER_PATH", "/opt/asm-lsp");
+        for extension in ["asm", "assembly", "s", "S"] {
+            let config =
+                default_server_for_file(format!("fixture.{extension}"), "/workspace".to_owned())
+                    .expect("explicit Assembly server override");
+            assert_eq!(config.command, "/opt/asm-lsp");
+            assert_eq!(config.args.as_deref(), Some(&[][..]));
+            assert_eq!(config.language_id.as_deref(), Some("asm"));
         }
     }
 

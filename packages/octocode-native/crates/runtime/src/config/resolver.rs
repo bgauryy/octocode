@@ -55,19 +55,19 @@ pub fn resolve_sections(file: Option<&Value>, e: &BTreeMap<String, String>) -> R
     let ext_storage = extension.and_then(|o| o.get("storage")?.as_object());
     let storage_mode = match env(e, "OCTOCODE_STORAGE_MODE").map(|s| s.trim().to_ascii_lowercase())
     {
-        Some(x) if x == "memory" || x == "persistent" => x,
-        _ => str_field(storage, "mode").unwrap_or_else(|| "persistent".into()),
+        Some(x) if STORAGE_MODES.contains(&x.as_str()) => x,
+        _ => str_field(storage, "mode").unwrap_or_else(|| DEFAULT_STORAGE_MODE.to_owned()),
     };
     let extension_mode =
         match env(e, "OCTOCODE_EXTENSION_STORAGE_MODE").map(|s| s.trim().to_ascii_lowercase()) {
-            Some(x) if x == "memory" || x == "persistent" => x,
+            Some(x) if STORAGE_MODES.contains(&x.as_str()) => x,
             _ => str_field(ext_storage, "mode").unwrap_or_else(|| storage_mode.clone()),
         };
     ResolvedConfig {
         version: file
             .and_then(|v| v.get("version"))
             .cloned()
-            .unwrap_or(json!(1)),
+            .unwrap_or(json!(CONFIG_SCHEMA_VERSION)),
         github: GitHubConfig {
             api_url: env(e, "GITHUB_API_URL")
                 .map(str::trim)
@@ -75,10 +75,10 @@ pub fn resolve_sections(file: Option<&Value>, e: &BTreeMap<String, String>) -> R
                 .filter(|s| is_valid_api_url_scheme(s))
                 .map(str::to_owned)
                 .or_else(|| str_field(github, "apiUrl"))
-                .unwrap_or_else(|| "https://api.github.com".into()),
+                .unwrap_or_else(|| DEFAULT_GITHUB_API_URL.to_owned()),
             graphql_enabled: parse_boolean_env(env(e, "OCTOCODE_GITHUB_GRAPHQL"))
                 .or_else(|| bool_field(github, "graphqlEnabled"))
-                .unwrap_or(true),
+                .unwrap_or(DEFAULT_GITHUB_GRAPHQL_ENABLED),
         },
         local: LocalConfig {
             // `OCTOCODE_`-prefixed spellings are accepted as aliases; the
@@ -86,14 +86,14 @@ pub fn resolve_sections(file: Option<&Value>, e: &BTreeMap<String, String>) -> R
             enabled: parse_boolean_env(env(e, "ENABLE_LOCAL"))
                 .or_else(|| parse_boolean_env(env(e, "OCTOCODE_ENABLE_LOCAL")))
                 .or_else(|| bool_field(local, "enabled"))
-                .unwrap_or(true),
+                .unwrap_or(DEFAULT_LOCAL_ENABLED),
             enable_clone: parse_boolean_env(env(e, "ENABLE_CLONE"))
                 .or_else(|| parse_boolean_env(env(e, "OCTOCODE_ENABLE_CLONE")))
                 .or_else(|| bool_field(local, "enableClone"))
-                .unwrap_or(false),
+                .unwrap_or(DEFAULT_LOCAL_ENABLE_CLONE),
             enable_ast_rewrite_apply: parse_boolean_env(env(e, "ENABLE_AST_REWRITE_APPLY"))
                 .or_else(|| bool_field(local, "enableAstRewriteApply"))
-                .unwrap_or(false),
+                .unwrap_or(DEFAULT_LOCAL_ENABLE_AST_REWRITE_APPLY),
             allowed_paths: parse_string_array_env(env(e, "ALLOWED_PATHS"))
                 .or_else(|| arr_field(local, "allowedPaths"))
                 .unwrap_or_default(),
@@ -114,21 +114,21 @@ pub fn resolve_sections(file: Option<&Value>, e: &BTreeMap<String, String>) -> R
                 parse_int_env(env(e, "REQUEST_TIMEOUT"))
                     .map(|x| x as f64)
                     .or_else(|| num_field(network, "timeout"))
-                    .unwrap_or(30000.),
-                5000.,
-                300000.,
+                    .unwrap_or(DEFAULT_NETWORK_TIMEOUT),
+                MIN_TIMEOUT,
+                MAX_TIMEOUT,
             ),
             max_retries: clamp(
                 parse_int_env(env(e, "MAX_RETRIES"))
                     .map(|x| x as f64)
                     .or_else(|| num_field(network, "maxRetries"))
-                    .unwrap_or(3.),
-                0.,
-                10.,
+                    .unwrap_or(DEFAULT_NETWORK_MAX_RETRIES),
+                MIN_RETRIES,
+                MAX_RETRIES,
             ),
             allow_private_registry: parse_boolean_env(env(e, "OCTOCODE_ALLOW_PRIVATE_REGISTRY"))
                 .or_else(|| bool_field(network, "allowPrivateRegistry"))
-                .unwrap_or(false),
+                .unwrap_or(DEFAULT_NETWORK_ALLOW_PRIVATE_REGISTRY),
         },
         lsp: LspConfig {
             config_path: env(e, "OCTOCODE_LSP_CONFIG")
@@ -142,11 +142,11 @@ pub fn resolve_sections(file: Option<&Value>, e: &BTreeMap<String, String>) -> R
                 let x = env(e, "OCTOCODE_OUTPUT_FORMAT")
                     .map(|s| s.trim().to_ascii_lowercase())
                     .or_else(|| str_field(output, "format"))
-                    .unwrap_or_else(|| "yaml".into());
-                if x == "json" || x == "yaml" {
+                    .unwrap_or_else(|| DEFAULT_OUTPUT_FORMAT.to_owned());
+                if OUTPUT_FORMATS.contains(&x.as_str()) {
                     x
                 } else {
-                    "yaml".into()
+                    DEFAULT_OUTPUT_FORMAT.to_owned()
                 }
             },
             pagination: PaginationConfig {
@@ -154,17 +154,18 @@ pub fn resolve_sections(file: Option<&Value>, e: &BTreeMap<String, String>) -> R
                     parse_int_env(env(e, "OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH"))
                         .map(|x| x as f64)
                         .or_else(|| num_field(pagination, "defaultCharLength"))
-                        .unwrap_or(20000.),
-                    1000.,
-                    50000.,
+                        .unwrap_or(DEFAULT_OUTPUT_DEFAULT_CHAR_LENGTH),
+                    MIN_OUTPUT_DEFAULT_CHAR_LENGTH,
+                    MAX_OUTPUT_DEFAULT_CHAR_LENGTH,
                 ),
             },
             redact_emails: parse_boolean_env(env(e, "OCTOCODE_REDACT_EMAILS"))
                 .or_else(|| bool_field(output, "redactEmails"))
-                .unwrap_or(false),
+                .unwrap_or(DEFAULT_OUTPUT_REDACT_EMAILS),
         },
         session: SessionConfig {
-            enable_stats: parse_boolean_env(env(e, "OCTOCODE_ENABLE_STATS")).unwrap_or(false),
+            enable_stats: parse_boolean_env(env(e, "OCTOCODE_ENABLE_STATS"))
+                .unwrap_or(DEFAULT_SESSION_ENABLE_STATS),
         },
         storage: StorageConfig { mode: storage_mode },
         extension: ExtensionConfig {

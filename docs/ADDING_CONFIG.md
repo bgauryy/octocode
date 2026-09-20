@@ -10,7 +10,7 @@ This guide is for contributors who need to add a new setting or credential to Oc
 - [Two categories, three file roles](#two-categories-three-file-roles)
 - [Adding a regular behavioral setting](#adding-a-regular-behavioral-setting)
   - [1 — TypeScript: `types.ts`](#1--typescript-typests)
-  - [2 — TypeScript: defaults and shared bounds](#2--typescript-defaults-and-shared-bounds)
+  - [2 — TypeScript: shared defaults and bounds](#2--typescript-shared-defaults-and-bounds)
   - [3 — TypeScript: `resolverSections.ts`](#3--typescript-resolversectionsts)
   - [4 — TypeScript: `validator.ts`](#4--typescript-validatorts)
   - [5 — Rust: `types.rs`](#5--rust-typesrs)
@@ -67,7 +67,7 @@ The Rust runtime and the TypeScript wrapper are **parallel implementations of th
 | Third-party API key for skills (Tavily, Serper…) | `~/.octocode/.env` | Agent sessions and skills only |
 | Credential / protected key (GitHub token, Jev key) | env var only (or `.octocoderc` section for Jev-style) | See [Adding a credential](#adding-a-credential--protected-key) |
 
-Never put credentials in `.env` unless you follow Pattern B exactly (which uses a special `.octocoderc` section and explicitly blocks the project `.env`).
+Never put protected credentials in a project `.env`; project files are untrusted for protected keys. The global `.env` is intended for skill API keys. Pattern B uses a dedicated `.octocoderc` section and explicitly blocks project `.env` overrides.
 
 ---
 
@@ -84,14 +84,14 @@ Add the optional field to the relevant `*ConfigOptions` interface and the requir
 ```ts
 // In OctocodeConfig sub-interface
 export interface OutputConfigOptions {
-  format?: 'yaml' | 'json';
+  format?: OutputFormat;
   pagination?: OutputPaginationConfigOptions;
   maxResults?: number;      // ← add here
 }
 
 // In the fully-resolved Required* interface
 export interface RequiredOutputConfig {
-  format: 'yaml' | 'json';
+  format: OutputFormat;
   pagination: RequiredOutputPaginationConfig;
   maxResults: number;       // ← add here (required, never undefined after resolution)
 }
@@ -101,19 +101,20 @@ If your setting lives in a new top-level section, add a new `XxxConfigOptions` i
 
 ---
 
-### 2 — TypeScript: defaults and shared bounds
+### 2 — TypeScript: shared defaults and bounds
 
-Add the default value to the matching `DEFAULT_*` constant in
-`packages/octocode-config/src/config/defaults.ts`.
-
-If the value is range-clamped in both TypeScript and Rust, add its min/max pair
-to `packages/octocode-config/shared-constants.json`, then regenerate the typed
-TypeScript exports. Do not edit `sharedConstants.generated.ts` or Rust constants.
+Add scalar defaults, cross-language allowed-value lists, and shared min/max
+pairs to `packages/octocode-config/shared-constants.json`. The generators
+expose the same named constants to both runtimes and derive TypeScript unions. Do not edit
+`sharedConstants.generated.ts` or generated Rust constants.
 
 ```json
+"defaultValues": {
+  "outputMaxResults": 50
+},
 "validationBounds": {
-  "minMaxResults": 1,
-  "maxMaxResults": 500
+  "minOutputMaxResults": 1,
+  "maxOutputMaxResults": 500
 }
 ```
 
@@ -125,7 +126,7 @@ yarn workspace @octocodeai/config generate:shared-constants
 export const DEFAULT_OUTPUT_CONFIG: RequiredOutputConfig = {
   format: 'yaml',
   pagination: { defaultCharLength: 20000 },
-  maxResults: 50,
+  maxResults: DEFAULT_OUTPUT_MAX_RESULTS,
 };
 ```
 
@@ -155,8 +156,8 @@ export function resolveOutput(
     fileConfig?.maxResults ??
     DEFAULT_OUTPUT_CONFIG.maxResults;
   const clampedMaxResults = Math.max(
-    MAX_RESULTS_MIN,
-    Math.min(MAX_RESULTS_MAX, configuredMaxResults)
+    MIN_OUTPUT_MAX_RESULTS,
+    Math.min(MAX_OUTPUT_MAX_RESULTS, configuredMaxResults)
   );
 
   return {
@@ -185,7 +186,7 @@ function validateOutput(output: unknown, errors: string[]): void {
   if (out.maxResults !== undefined) {
     const err = validateNumberRange(
       out.maxResults, 'output.maxResults',
-      MAX_RESULTS_MIN, MAX_RESULTS_MAX
+      MIN_OUTPUT_MAX_RESULTS, MAX_OUTPUT_MAX_RESULTS
     );
     if (err) errors.push(err);
   }
@@ -248,8 +249,8 @@ output: OutputConfig {
         let raw = parse_int_env(env(e, "OCTOCODE_MAX_RESULTS"))
             .map(|x| x as f64)
             .or_else(|| num_field(output, "maxResults"))
-            .unwrap_or(50.);
-        clamp(raw, 1., 500.)
+            .unwrap_or(DEFAULT_OUTPUT_MAX_RESULTS);
+        clamp(raw, MIN_OUTPUT_MAX_RESULTS, MAX_OUTPUT_MAX_RESULTS)
     },
 },
 ```
@@ -265,7 +266,13 @@ Mirror the TypeScript validator: add a range check and add the field to the know
 ```rust
 // Inside validate_output():
 if let Some(v) = out.get("maxResults") {
-    validate_number_range(v, "output.maxResults", 1.0, 500.0, errors);
+    validate_number_range(
+        v,
+        "output.maxResults",
+        MIN_OUTPUT_MAX_RESULTS,
+        MAX_OUTPUT_MAX_RESULTS,
+        errors,
+    );
 }
 
 // In the warnUnknownObjectKeys equivalent:
@@ -491,8 +498,8 @@ let key = config.env_value("MY_SERVICE_API_KEY")
 ### Regular behavioral setting
 
 - [ ] `packages/octocode-config/src/config/types.ts` — add to `*ConfigOptions` and `Required*Config`
-- [ ] `packages/octocode-config/src/config/defaults.ts` — add to the matching `DEFAULT_*` constant
-- [ ] `packages/octocode-config/shared-constants.json` — add shared bounds and config-source env names; run `generate:shared-constants`
+- [ ] `packages/octocode-config/shared-constants.json` — add scalar defaults, shared bounds, and config-source env names; run `generate:shared-constants`
+- [ ] `packages/octocode-config/src/config/defaults.ts` — compose the matching `DEFAULT_*_CONFIG` from generated constants
 - [ ] `packages/octocode-config/src/config/resolverSections.ts` — wire env var → file → default in the matching `resolve*` function
 - [ ] `packages/octocode-config/src/config/validator.ts` — validate type/range + add field to `warnUnknownObjectKeys` call
 - [ ] `packages/octocode-native/crates/runtime/src/config/types.rs` — add field to the matching Rust struct
@@ -539,4 +546,4 @@ let key = config.env_value("MY_SERVICE_API_KEY")
 | Put a credential in `ResolvedConfig` | `octocode config --json` or `get_config_value` can dump the secret | Keep credentials in `effective_env` only; read via `env_value()` |
 | Put a credential in `.env` or in `OctocodeConfig` without adding it to `protectedKeys` | A cloned project `.env` can override it | Add it once in `shared-constants.json`; both runtimes consume the generated list |
 | Forgot to add to TypeScript `index.ts` exports | Consumers outside the package cannot import the new type or function | Export from `src/index.ts` |
-| Set a default only in TypeScript, not in Rust | Default differs between surfaces; `config get` returns a different value than the MCP server uses | Set the default in both `defaults.ts` and the matching Rust `unwrap_or` call in `resolve_sections` |
+| Hardcoded a scalar default or bound in either runtime | The TypeScript and Rust surfaces can drift | Put the value in `shared-constants.json`, regenerate TypeScript, and use the generated constant in both runtimes |

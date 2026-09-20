@@ -1,6 +1,7 @@
 use super::types::{
     CONFIG_SCHEMA_VERSION, MAX_OUTPUT_DEFAULT_CHAR_LENGTH, MAX_RETRIES, MAX_TIMEOUT,
-    MIN_OUTPUT_DEFAULT_CHAR_LENGTH, MIN_RETRIES, MIN_TIMEOUT, ValidationResult,
+    MIN_OUTPUT_DEFAULT_CHAR_LENGTH, MIN_RETRIES, MIN_TIMEOUT, OUTPUT_FORMATS, STORAGE_MODES,
+    ValidationResult,
 };
 use serde_json::Value;
 use std::path::Path;
@@ -232,8 +233,11 @@ pub fn validate_config(config: &Value) -> ValidationResult {
         if let Some(v) = o.get("format") {
             match v {
                 Value::Null => {}
-                Value::String(s) if s == "yaml" || s == "json" => {}
-                Value::String(_) => e.push("output.format: Must be one of: yaml, json".into()),
+                Value::String(value) if OUTPUT_FORMATS.contains(&value.as_str()) => {}
+                Value::String(_) => e.push(format!(
+                    "output.format: Must be one of: {}",
+                    OUTPUT_FORMATS.join(", ")
+                )),
                 _ => e.push("output.format: Must be a string".into()),
             }
         }
@@ -315,10 +319,17 @@ pub fn validate_config(config: &Value) -> ValidationResult {
 #[allow(clippy::collapsible_if)]
 fn validate_storage(o: Option<&serde_json::Map<String, Value>>, prefix: &str, e: &mut Vec<String>) {
     if let Some(v) = o.and_then(|o| o.get("mode")) {
-        if !v.is_null() && !matches!(v.as_str(), Some("persistent" | "memory")) {
-            e.push(format!(
-                "{prefix}.mode: Must be \"persistent\" or \"memory\""
-            ))
+        if !v.is_null()
+            && !v
+                .as_str()
+                .is_some_and(|value| STORAGE_MODES.contains(&value))
+        {
+            let allowed = STORAGE_MODES
+                .iter()
+                .map(|value| format!("\"{value}\""))
+                .collect::<Vec<_>>()
+                .join(" or ");
+            e.push(format!("{prefix}.mode: Must be {allowed}"))
         }
     }
 }

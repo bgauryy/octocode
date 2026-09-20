@@ -719,6 +719,108 @@ async fn repeated_tool_contexts_capture_fresh_results_before_grouping() {
 }
 
 #[tokio::test]
+async fn matrix_captures_each_hidden_resource_once_and_correlates_every_answer() {
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    let server = MockServer::start().await;
+    let reads = Arc::new(AtomicUsize::new(0));
+    let observed_reads = reads.clone();
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/commits/main"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"sha":"1".repeat(40)})))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/contents/source.rs"))
+        .respond_with(move |_: &Request| {
+            observed_reads.fetch_add(1, Ordering::SeqCst);
+            ResponseTemplate::new(200).set_body_json(json!({
+                "type":"file",
+                "encoding":"base64",
+                "content":STANDARD.encode("one captured body\n")
+            }))
+        })
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/commits"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .respond_with(|request: &Request| {
+            let request: Value = serde_json::from_slice(&request.body).unwrap();
+            assert_eq!(request["questions"].as_object().unwrap().len(), 2);
+            assert!(!request.to_string().contains("resourceId"));
+            assert!(!request.to_string().contains("questionId"));
+            ResponseTemplate::new(200).set_body_json(json!({
+                "model":"jev-test",
+                "answers":{
+                    "answer_0":{"type":"noul","noul":0.8},
+                    "answer_1":{"type":"noul","noul":0.6}
+                },
+                "usage":{"input_tokens":90,"output_tokens":5}
+            }))
+        })
+        .expect(1)
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let mut config = settings(&server);
+    config.push(("GITHUB_API_URL", format!("{}/api/v3", server.uri())));
+    let runtime = workspace.runtime(&config);
+    let context = json!({
+        "tool":"ghGetFileContent",
+        "query":{
+            "owner":"a",
+            "repo":"b",
+            "path":"source.rs",
+            "branch":"main",
+            "reasoning":"Capture current evidence"
+        }
+    });
+    let out = runtime
+        .execute(
+            "matrix".into(),
+            "jev".into(),
+            json!({
+                "reasoning":"Apply every question to this resource.",
+                "resources":[{"id":"remote-source","context":context}],
+                "questions":[
+                    {"id":"relevance","question":question()},
+                    {"id":"risk","question":{"type":"noul","instructions":"Does this need direct review?"}}
+                ]
+            }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(reads.load(Ordering::SeqCst), 1, "{}", out.structured_content);
+    let rows = out.structured_content["results"].as_array().unwrap();
+    assert_eq!(rows.len(), 2);
+    for (index, row) in rows.iter().enumerate() {
+        assert_eq!(row["index"], index);
+        assert_eq!(row["resourceId"], "remote-source");
+    }
+    assert_eq!(rows[0]["questionId"], "relevance");
+    assert_eq!(rows[1]["questionId"], "risk");
+    assert_eq!(
+        rows[0]["data"]["context"]["resultHash"],
+        rows[1]["data"]["context"]["resultHash"]
+    );
+    assert_eq!(
+        rows[0]["data"]["usageAttribution"],
+        json!({"ownerIndex":0,"sharedWith":[0,1]})
+    );
+    runtime.close().await;
+}
+
+#[tokio::test]
 async fn independent_provider_groups_overlap_and_preserve_ordered_failures() {
     use std::{
         sync::{

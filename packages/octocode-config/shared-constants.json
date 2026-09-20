@@ -5,6 +5,24 @@
   "configFileName": ".octocoderc",
   "runtimeSurfaces": ["cli", "mcp"],
   "runtimeSurfaceDefault": "mcp",
+  "outputFormats": ["yaml", "json"],
+  "storageModes": ["persistent", "memory"],
+
+  "defaultValues": {
+    "githubApiUrl": "https://api.github.com",
+    "githubGraphqlEnabled": true,
+    "localEnabled": true,
+    "localEnableClone": false,
+    "localEnableAstRewriteApply": false,
+    "networkTimeout": 30000,
+    "networkMaxRetries": 3,
+    "networkAllowPrivateRegistry": false,
+    "outputFormat": "yaml",
+    "outputDefaultCharLength": 20000,
+    "outputRedactEmails": false,
+    "sessionEnableStats": false,
+    "storageMode": "persistent"
+  },
 
   "envTokenVars": [
     "OCTOCODE_TOKEN",
