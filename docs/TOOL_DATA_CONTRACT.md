@@ -83,7 +83,7 @@ Copy the returned target and query. Follow every independent partial surface rel
 | `results[].data.next.<name>` | Normally one tool query. | Call the named tool with `{ "queries": [next.query] }`. Check the returned shape rather than guessing from the next-call name. |
 | `responsePagination.next` | A complete outer request, including its own `queries`. | Pass `next.query` as the tool arguments. Do not wrap that envelope inside another `queries` array. |
 
-The CLI accepts the returned query or envelope through `tools <next.tool> --queries '<next.query JSON>' --compact`. A numeric cursor alone is not a complete continuation. Preserve the returned operation, scope, revision, filters, bounds, and unrelated pagination axes.
+The CLI accepts the returned query or envelope through `<next.tool> '<next.query JSON>' --compact`. A numeric cursor alone is not a complete continuation. Preserve the returned operation, scope, revision, filters, bounds, and unrelated pagination axes.
 
 | Pagination layer | Typical controls | Identity and stopping rule |
 |---|---|---|

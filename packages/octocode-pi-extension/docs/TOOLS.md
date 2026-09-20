@@ -11,7 +11,7 @@ bounded routing index, not tool input schemas. Use `MCPTool action:"describe"` t
 selected exact schema and, when the host admits dynamic names, a namespaced Pi tool; then call
 the returned tool directly. The generic gateway call remains available for fixed allowlists and
 batching but is blocked until describe. CLI-only
-hosts use `npx octocode tools <name> --scheme` instead.
+hosts use `npx octocode scheme <name>` instead.
 
 The extension supplies its guarded same-name `bash`. For direct extension installs, it
 removes Pi `read`/`edit`/`write`/`grep`/`find`/`ls` on load and session start. `file`
@@ -87,7 +87,7 @@ The `awareness` tool exposes canonical operations across Context, Work, Message,
 
 ## Routing Guide
 
-`gh*`, `local*`, `astSearch`, `lspSearch`, and `artifactSearch` below are inner tools of the built-in `octocode` MCP server. In Pi, discover/describe/call them through `MCPTool`; they are not direct Pi tools. Use the bundled `npx octocode tools` route only outside the native MCP facade.
+`gh*`, `local*`, `astSearch`, `lspSearch`, and `artifactSearch` below are inner tools of the built-in `octocode` MCP server. In Pi, discover/describe/call them through `MCPTool`; they are not direct Pi tools. Use the bundled `npx octocode <toolName>` CLI route only outside the native MCP facade.
 
 | Task                                                    | Tool                                                           |
 | ------------------------------------------------------- | -------------------------------------------------------------- |
@@ -169,7 +169,7 @@ An optional query label is never propagated into mutation evidence. Mixed batche
 
 ## GitHub Tools
 
-All use the live `queries` schema reported by `npx octocode tools <name> --scheme`. Do not reuse remembered fields across catalog versions.
+All use the live `queries` schema reported by `npx octocode scheme <name>`. Do not reuse remembered fields across catalog versions.
 
 The live catalog owns research tool names, operations, fields, and availability. Use `ghSearch` for discovery and `ghGetFileContent` for source reads; use `ghSearchHistory` and `ghGetHistoryItem` for history discovery and exact items. `ghCloneRepo` is available only when the reported storage and clone policy permits it. Inspect the schema rather than translating retired tool names or copying fields between operations.
 

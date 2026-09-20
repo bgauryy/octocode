@@ -7,6 +7,16 @@ const DISABLED = ['shell_tool', 'apps', 'plugins', 'browser_use', 'browser_use_e
 const toml = value => Array.isArray(value) ? `[${value.map(toml).join(',')}]`
   : value && typeof value === 'object' ? `{${Object.entries(value).map(([key, val]) => `${JSON.stringify(key)}=${toml(val)}`).join(',')}}` : JSON.stringify(value);
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const resourceListKey = tool => ({ list_mcp_resources: 'resources', list_mcp_resource_templates: 'resourceTemplates' })[tool];
+function emptyResourceDiscovery(item) {
+  const key = resourceListKey(item.tool);
+  const result = item.result;
+  if (!key || item.error || result?.isError || !Array.isArray(result?.content) || result.content.length !== 1) return false;
+  try {
+    const value = JSON.parse(result.content[0].text);
+    return Object.keys(value).length === 1 && Array.isArray(value[key]) && value[key].length === 0;
+  } catch { return false; }
+}
 
 // A standard one-call approval, correlated with a live host-generated MCP item.
 // Unknown server elicitations, authentication forms and persistent grants are never accepted.
@@ -84,8 +94,10 @@ export async function runAppServer({ cwd, env, model, effort = 'medium', prompt,
       const item = params.item;
       if (!item) return;
       itemTypes.add(item.type);
+      const resourceDiscovery = item.type === 'mcpToolCall' && item.server === 'codex' && resourceListKey(item.tool);
       if (['commandExecution', 'fileChange', 'webSearch', 'collabAgentToolCall'].includes(item.type) ||
-          item.type === 'mcpToolCall' && (item.server !== 'octocode' || !ALLOWED.includes(item.tool))) prohibitedToolEvents++;
+          item.type === 'mcpToolCall' && !resourceDiscovery && (item.server !== 'octocode' || !ALLOWED.includes(item.tool)) ||
+          resourceDiscovery && message.method === 'item/completed' && !emptyResourceDiscovery(item)) prohibitedToolEvents++;
       if (item.type === 'mcpToolCall') {
         if (message.method === 'item/started') pendingTools.set(item.id, item); else pendingTools.delete(item.id);
       }
@@ -110,7 +122,7 @@ export async function runAppServer({ cwd, env, model, effort = 'medium', prompt,
     send({ jsonrpc: '2.0', method: 'initialized' });
     const effective = await request('config/read', { includeLayers: false });
     const otherServers = Object.fromEntries(Object.entries(effective.config.mcp_servers ?? {})
-      .filter(([name]) => name !== 'octocode').map(([name, server]) => [name, { ...server, enabled: false }]));
+      .filter(([name]) => name !== 'octocode').map(([name]) => [name, { enabled: false }]));
     config.mcp_servers = { ...otherServers, octocode: config.mcp_servers.octocode };
     const startedThread = await request('thread/start', { cwd, ephemeral: true, model,
       modelProvider: modelProvider ?? 'openai', approvalPolicy: 'on-request', approvalsReviewer: 'user', sandbox: 'read-only',
@@ -120,7 +132,12 @@ export async function runAppServer({ cwd, env, model, effort = 'medium', prompt,
       approvalsReviewer: startedThread.approvalsReviewer, sandbox: startedThread.sandbox, instructionSources: startedThread.instructionSources });
     if (actualModel !== model || actualModelProvider !== (modelProvider ?? 'openai') || startedThread.approvalPolicy !== 'on-request' || startedThread.approvalsReviewer !== 'user' ||
         startedThread.sandbox?.type !== 'readOnly' || startedThread.instructionSources?.length) throw new Error('Unexpected effective thread configuration');
-    await request('mcpServerStatus/list', { threadId });
+    const catalog = await request('mcpServerStatus/list', { threadId });
+    const octocode = catalog.data?.find(server => server.name === 'octocode');
+    const names = Object.keys(octocode?.tools ?? {});
+    if (catalog.nextCursor || octocode?.runtimeStatus !== 'connected' || octocode.toolsError ||
+        names.length !== ALLOWED.length || ALLOWED.some(name => !names.includes(name)) ||
+        catalog.data.some(server => server.name !== 'octocode' && server.runtimeStatus === 'connected')) throw new Error('Unexpected effective MCP catalog');
     await request('turn/start', { threadId, input: [{ type: 'text', text: prompt }], model, effort, outputSchema });
     await finished;
     if (!timedOut) await new Promise(resolve => setTimeout(resolve, 100));

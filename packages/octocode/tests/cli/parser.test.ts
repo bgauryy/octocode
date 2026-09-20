@@ -193,11 +193,11 @@ describe('CLI Parser', () => {
       expect(result.options).toEqual({ 'not-real': true });
     });
 
-    it('should consume values for unknown long flags after the tools command', () => {
-      const result = parseArgs(['tools', '--extra', 'payload']);
-      expect(result.command).toBe('tools');
-      expect(result.args).toEqual([]);
-      expect(result.options).toEqual({ extra: 'payload' });
+    it('should keep unknown long-flag values positional under any command', () => {
+      const result = parseArgs(['localSearch', '--extra', 'payload']);
+      expect(result.command).toBe('localSearch');
+      expect(result.args).toEqual(['payload']);
+      expect(result.options).toEqual({ extra: true });
     });
 
     it('should skip a standalone "--" separator (npm/yarn style) and keep parsing', () => {

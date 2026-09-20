@@ -5,7 +5,8 @@ Load when Awareness needs code, repository, package, history, or skill evidence.
 Use `octocode-research` when available. Otherwise use the current MCP tools or CLI directly. In the monorepo, use the built CLI; elsewhere use `npx -y octocode`. Inspect an unfamiliar tool schema once and reuse it until the contract changes:
 
 ```bash
-npx -y octocode tools localSearch astSearch localFetch lspSearch --scheme
+npx -y octocode scheme                      # catalog + availability
+npx -y octocode scheme localSearch          # one tool's contract
 ```
 
 | Question | Tool |

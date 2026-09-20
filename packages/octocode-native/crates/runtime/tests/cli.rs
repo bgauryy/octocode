@@ -140,15 +140,24 @@ fn auth_login_and_skill_fail_closed() {
         .output()
         .expect("auth login");
     assert_eq!(login.status.code(), Some(1));
-    let skill = workspace
+    // Native subcommands (list/install/remove/check/info) succeed without the
+    // Node CLI; only non-native subcommands delegate and must fail closed
+    // when no `octocode` npm launcher is on PATH.
+    let native = workspace
         .cli()
         .args(["skill", "list"])
+        .output()
+        .expect("skill list");
+    assert!(native.status.success(), "{}", stderr(&native));
+    let skill = workspace
+        .cli()
+        .args(["skill", "run", "demo"])
         .output()
         .expect("skill");
     assert_eq!(skill.status.code(), Some(1));
     let text = format!("{}{}", stdout(&skill), stderr(&skill));
     assert!(
-        text.contains("npx -y octocode skill") || text.contains("octocode skill list"),
+        text.contains("npx -y octocode skill") || text.contains("octocode skill run"),
         "{text}"
     );
 }
@@ -285,6 +294,91 @@ fn install_writes_npx_latest_and_never_octo_mcp() {
 }
 
 #[test]
+fn skill_lifecycle_runs_natively_without_the_node_cli() {
+    // R6: list/install/remove/check/info work with the npm CLI absent. The
+    // workspace PATH has no `octocode`, and the delegation guard is armed so
+    // any accidental delegation fails loudly.
+    let workspace = Workspace::new();
+    let source = workspace.home.join("src").join("demo-skill");
+    std::fs::create_dir_all(source.join("references")).expect("skill dirs");
+    std::fs::write(
+        source.join("SKILL.md"),
+        "---\nname: demo-skill\ndescription: \"Native demo\"\n---\n# Demo\n",
+    )
+    .expect("skill md");
+    std::fs::write(source.join("references").join("g.md"), "guide\n").expect("skill ref");
+
+    let install = workspace
+        .cli()
+        .env("OCTOCODE_SKILL_DELEGATED", "1")
+        .args([
+            "skill",
+            "install",
+            "--add",
+            source.to_str().expect("utf8 path"),
+            "--platform",
+            "claude",
+            "--json",
+        ])
+        .output()
+        .expect("skill install");
+    assert!(install.status.success(), "{}", stderr(&install));
+    let installed: serde_json::Value =
+        serde_json::from_str(stdout(&install)).expect("install json");
+    assert_eq!(installed["ok"], true, "{installed}");
+    assert_eq!(installed["skills"][0]["canonicalStatus"], "installed");
+    assert_eq!(
+        installed["skills"][0]["destinations"][0]["status"],
+        "linked"
+    );
+
+    let list = workspace
+        .cli()
+        .env("OCTOCODE_SKILL_DELEGATED", "1")
+        .args(["skill", "list", "--json"])
+        .output()
+        .expect("skill list");
+    assert!(list.status.success(), "{}", stderr(&list));
+    let listed: serde_json::Value = serde_json::from_str(stdout(&list)).expect("list json");
+    assert_eq!(listed["count"], 1, "{listed}");
+    assert_eq!(listed["skills"][0]["name"], "demo-skill");
+
+    let check = workspace
+        .cli()
+        .env("OCTOCODE_SKILL_DELEGATED", "1")
+        .args(["skill", "check", "--json"])
+        .output()
+        .expect("skill check");
+    assert!(check.status.success(), "{}", stderr(&check));
+    let checked: serde_json::Value = serde_json::from_str(stdout(&check)).expect("check json");
+    assert_eq!(checked["ok"], true, "{checked}");
+    assert_eq!(checked["skills"][0]["status"], "ok");
+
+    let info = workspace
+        .cli()
+        .env("OCTOCODE_SKILL_DELEGATED", "1")
+        .args(["skill", "info", "demo-skill"])
+        .output()
+        .expect("skill info");
+    assert!(info.status.success(), "{}", stderr(&info));
+    assert!(stdout(&info).contains("Native demo"), "{}", stdout(&info));
+
+    let remove = workspace
+        .cli()
+        .env("OCTOCODE_SKILL_DELEGATED", "1")
+        .args(["skill", "remove", "demo-skill", "--purge", "--json"])
+        .output()
+        .expect("skill remove");
+    assert!(remove.status.success(), "{}", stderr(&remove));
+    let removed: serde_json::Value = serde_json::from_str(stdout(&remove)).expect("remove json");
+    assert_eq!(removed["ok"], true, "{removed}");
+    assert!(
+        !workspace.home.join("skills").join("demo-skill").exists(),
+        "canonical copy must be purged"
+    );
+}
+
+#[test]
 fn skill_passthrough_sends_skill_argv_to_node_cli() {
     let workspace = Workspace::new();
     let bin = workspace.home.join("bin");
@@ -307,13 +401,13 @@ fn skill_passthrough_sends_skill_argv_to_node_cli() {
     let output = workspace
         .cli()
         .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
-        .args(["skill", "list", "--json"])
+        .args(["skill", "run", "demo", "--json"])
         .output()
         .expect("skill spawn");
     assert!(output.status.success(), "{}", stderr(&output));
     let recorded = std::fs::read_to_string(&log).expect("argv log");
     assert!(recorded.contains("skill"), "{recorded}");
-    assert!(recorded.contains("list"), "{recorded}");
+    assert!(recorded.contains("run"), "{recorded}");
     assert!(recorded.contains("--json"), "{recorded}");
 }
 
@@ -325,7 +419,7 @@ fn skill_delegation_guard_breaks_native_recursion() {
     let output = workspace
         .cli()
         .env("OCTOCODE_SKILL_DELEGATED", "1")
-        .args(["skill", "list"])
+        .args(["skill", "run", "demo"])
         .output()
         .expect("skill spawn");
     assert_eq!(output.status.code(), Some(1));

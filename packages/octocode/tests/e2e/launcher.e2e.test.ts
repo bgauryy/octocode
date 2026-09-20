@@ -61,13 +61,7 @@ describe.skipIf(!ready)('launcher → native binary e2e', () => {
       searchText: 'delegateToNative',
       maxFiles: 5,
     });
-    const result = runLauncher([
-      'tools',
-      'localSearch',
-      '--queries',
-      query,
-      '--compact',
-    ]);
+    const result = runLauncher(['localSearch', query, '--compact']);
     expect(result.status).toBe(0);
     const payload = JSON.parse(result.stdout) as {
       results: Array<{ index: number }>;
@@ -76,13 +70,7 @@ describe.skipIf(!ready)('launcher → native binary e2e', () => {
   });
 
   it('propagates native validation failures as exit 2', () => {
-    const result = runLauncher([
-      'tools',
-      'localSearch',
-      '--queries',
-      '{"path":"/tmp"}',
-      '--compact',
-    ]);
+    const result = runLauncher(['localSearch', '{"path":"/tmp"}', '--compact']);
     expect(result.status).toBe(2);
   });
 

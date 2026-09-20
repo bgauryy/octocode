@@ -2,6 +2,7 @@ mod commands;
 mod lsp_provision;
 mod mcp_install;
 mod schema;
+mod skill;
 mod system;
 use clap::Parser;
 use commands::{AuthCommand, Command, ToolArgs};
@@ -405,7 +406,7 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
             }) => system::login(runtime, hostname.as_deref(), force, refresh, json).await,
             Some(AuthCommand::Logout) => system::logout(runtime),
         },
-        Command::Skill { args } => system::skill(&args),
+        Command::Skill { args } => skill::skill(runtime, &args),
         Command::Install {
             ide,
             force,

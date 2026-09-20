@@ -42,7 +42,7 @@ fn parse_selection(selection: &str) -> Result<(&str, Value), String> {
     let (field, value) = selection
         .split_once('=')
         .filter(|(field, value)| !field.trim().is_empty() && !value.trim().is_empty())
-        .ok_or("--scheme-select expects FIELD=VALUE, e.g. route=source_questions")?;
+        .ok_or("--select expects FIELD=VALUE, e.g. operation=code")?;
     Ok((
         field,
         serde_json::from_str(value).unwrap_or_else(|_| Value::String(value.into())),
@@ -58,7 +58,7 @@ pub(super) fn project_selected(
         return Ok(project(tool, view));
     };
     if view != SchemeView::Query || !tool["name"].is_string() {
-        return Err("--scheme-select requires --scheme --scheme-view query and a tool name".into());
+        return Err("--select requires --view query and a tool name".into());
     }
     let (field, value) = parse_selection(selection)?;
     let mut projected = project(tool, view);
@@ -82,7 +82,7 @@ pub(super) fn project_selected(
         .collect::<Vec<_>>();
     if candidates.len() != 1 {
         return Err(format!(
-            "--scheme-select {selection:?} matched {} top-level oneOf/anyOf branches; choose a const field/value identifying exactly one branch in --scheme-view query.",
+            "--select {selection:?} matched {} top-level oneOf/anyOf branches; choose a const field/value identifying exactly one branch in --view query.",
             candidates.len()
         ));
     }

@@ -8,6 +8,8 @@ Use Q1–Q30 from compare/github-questions unchanged, one fresh Terra-medium ses
 
 The runner uses Codex app-server and its normal one-call approval interface. It approves only host-generated requests correlated with a pending call to the scoped Octocode server and one of the six authorized tools. Unknown elicitation forms and persistent grants are declined. No approval reviewer model participates. Retain approval receipts and actual thread model settings. Earlier failed exec preflights remain separate setup costs; they are not question attempts or baseline runs.
 
+The MCP catalog is checked to contain exactly those six tools. This Codex version may still advertise generic built-in capabilities despite disabled feature flags; actual command, patch, browser and collaboration calls invalidate a run. Empty built-in resource discovery is permitted as setup, but returned external resources invalidate isolation. Do not claim prohibited built-in names were absent from the model's catalog.
+
 ## Budget and execution
 One pass,30 candidate runs, maximum300seconds per run,40 ordinary queries including nested Jev retrieval,20 Jev questions. Run at most two independent questions concurrently; elapsed times are descriptive, not controlled latency comparisons. One separate infrastructure preflight is allowed before freezing the case-run schedule. No per-question retries or prompt tuning after case results. Preserve failures and costs. If instrumentation fails, stop and version the campaign before further cases. Model is requested as gpt-5.6-terra, effort medium; no independent model-bearing provider receipt is assumed.
 

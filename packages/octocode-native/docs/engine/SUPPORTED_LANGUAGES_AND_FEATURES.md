@@ -134,11 +134,11 @@ node -e "const n=require('@octocodeai/octocode-native/engine'); \
 console.log(n.getSupportedStructuralExtensions().sort()); \
 console.log(n.getSupportedSignatureExtensions().sort())"
 
-node packages/octocode/out/octocode.js tools astSearch \
-    --queries '{"operation":"match","path":"/ABS/REPO","pattern":"$$$","langType":"typescript"}'
+node packages/octocode/out/octocode.js astSearch \
+    '{"operation":"match","path":"/ABS/REPO","pattern":"$$$","langType":"typescript","reasoning":"Probe grammar support."}'
 
-node packages/octocode/out/octocode.js tools lspSearch \
-    --queries '{"uri":"/ABS/REPO/src/file.ts","operation":"documentSymbols"}'
+node packages/octocode/out/octocode.js lspSearch \
+    '{"uri":"/ABS/REPO/src/file.ts","operation":"documentSymbols","reasoning":"Probe LSP support."}'
 ```
 
 Run the package tests with these commands:

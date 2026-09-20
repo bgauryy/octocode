@@ -308,6 +308,11 @@ fn path_exists(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok()
 }
 
+/// Public content comparison for freshness checks (`skill check`).
+pub fn trees_match(left: &Path, right: &Path) -> bool {
+    same_tree(left, right)
+}
+
 fn same_tree(left: &Path, right: &Path) -> bool {
     if !path_exists(left) || !path_exists(right) {
         return false;

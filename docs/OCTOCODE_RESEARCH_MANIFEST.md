@@ -27,7 +27,7 @@ exposes fields, operation variants, and conditional relations. Read the full
 schema when a nested selector is abbreviated: for example, selected PR patches
 support both file selection and added/deleted line ranges.
 
-Raw execution uses `tools TOOL_NAME --queries 'JSON' --compact`; replace `TOOL_NAME` with a catalog name and `JSON` with one query object or a batch of up to five same-tool queries. Batch only independent work. Sequence calls when a later query needs an identity, path, source line, snapshot, cursor, or continuation returned by an earlier query.
+Raw execution uses `TOOL_NAME 'JSON' --compact`; replace `TOOL_NAME` with a catalog name and `JSON` with one query object or a batch of up to five same-tool queries. Batch only independent work. Sequence calls when a later query needs an identity, path, source line, snapshot, cursor, or continuation returned by an earlier query.
 
 Every query may include optional `goal` (what the query should accomplish) and `reasoning` (why it advances the goal). Keep both short and decision-relevant; they are context, not ranking controls or proof. Result `index` identifies the matching zero-based input position, and one row can fail while siblings succeed. Runtime `hints` suggest recovery or a next evidence surface but do not count as result data.
 

@@ -9,7 +9,17 @@ pub struct ResponsePageOptions {
     pub response_char_offset: Option<usize>,
     pub response_char_length: Option<usize>,
     pub response_snapshot: Option<String>,
+    /// Opt-in (R9): `"structured"` windows the serialized structuredContent
+    /// envelope instead of the rendered text. Default (`None`/`"text"`)
+    /// behavior is unchanged.
+    pub response_scope: Option<String>,
     pub render_text: Option<bool>,
+}
+
+impl ResponsePageOptions {
+    pub fn structured_scope(&self) -> bool {
+        self.response_scope.as_deref() == Some("structured") && self.response_char_length.is_some()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -108,6 +118,49 @@ impl ResponsePager {
             .as_object()
             .cloned()
             .ok_or(ResponseError::StructuredContentMustBeObject)?;
+        // Opt-in structured windowing: page the serialized envelope itself so
+        // MCP clients can stream a large structuredContent. The window text
+        // carries no page header — concatenating `responseWindow` pages in
+        // order reconstructs the exact envelope JSON.
+        if input.options.structured_scope() {
+            let full = Value::Object(structured).to_string();
+            if full.len() > self.config.max_rendered_bytes {
+                return Err(ResponseError::RenderedTextTooLarge);
+            }
+            let page = paginate_units(&full, &input.options, false);
+            if cancelled.load(Ordering::Acquire) {
+                return Err(ResponseError::Cancelled);
+            }
+            let mut windowed = Map::new();
+            windowed.insert("results".into(), Value::Array(Vec::new()));
+            // A restart page carries a diagnostic message, not envelope
+            // bytes — keep it out of the concatenable window.
+            let restarting = page
+                .pagination
+                .as_ref()
+                .is_some_and(|p| p.restart == Some(true));
+            windowed.insert(
+                "responseWindow".into(),
+                json!(if restarting { "" } else { page.text.as_str() }),
+            );
+            if let Some(mut pagination) = page.pagination {
+                pagination.scope = "structuredContent".into();
+                pagination.next =
+                    build_continuation(&input.tool, &input.query, &input.options, &pagination);
+                windowed.insert(
+                    "responsePagination".into(),
+                    serde_json::to_value(&pagination).expect("serializable pagination"),
+                );
+            }
+            return Ok(PreparedResponse {
+                content: vec![TextContent {
+                    r#type: "text".into(),
+                    text: page.text,
+                }],
+                structured_content: Value::Object(windowed),
+                is_error: input.is_error,
+            });
+        }
         let Some(text) = input.rendered_text else {
             return Ok(PreparedResponse {
                 content: Vec::new(),
@@ -147,6 +200,10 @@ struct Page {
 }
 
 fn paginate_text(text: &str, options: &ResponsePageOptions) -> Page {
+    paginate_units(text, options, true)
+}
+
+fn paginate_units(text: &str, options: &ResponsePageOptions, with_header: bool) -> Page {
     let Some(requested_length) = options.response_char_length else {
         return Page {
             text: text.into(),
@@ -197,7 +254,9 @@ fn paginate_text(text: &str, options: &ResponsePageOptions) -> Page {
     let current = page_number(&units, offset, length);
     let pages = total_pages(&units, length);
     let body = String::from_utf16(&units[offset..end]).expect("page never splits UTF-16 pairs");
-    let header = if has_more {
+    let header = if !with_header {
+        String::new()
+    } else if has_more {
         format!("# Response page {current}/{pages}. Next: responseCharOffset={end}\n")
     } else {
         format!("# Response page {current}/{pages}.\n")
@@ -245,6 +304,9 @@ fn build_continuation(
     continuation.insert("queries".into(), Value::Array(queries));
     if let Some(length) = request.response_char_length {
         continuation.insert("responseCharLength".into(), json!(length));
+    }
+    if let Some(scope) = &request.response_scope {
+        continuation.insert("responseScope".into(), json!(scope));
     }
     continuation.insert("responseCharOffset".into(), json!(next_offset));
     if page.restart != Some(true) {
@@ -348,6 +410,7 @@ mod tests {
                         response_char_length: Some(length),
                         response_char_offset: Some(offset),
                         response_snapshot: snapshot.clone(),
+                        response_scope: None,
                         render_text: None,
                     },
                 );
@@ -373,6 +436,7 @@ mod tests {
                 response_char_length: Some(1),
                 response_char_offset: Some(2),
                 response_snapshot: Some(snapshot),
+                response_scope: None,
                 render_text: None,
             },
         );
@@ -383,10 +447,128 @@ mod tests {
                 response_char_length: Some(2),
                 response_char_offset: Some(2),
                 response_snapshot: Some("response-v1:stale".into()),
+                response_scope: None,
                 render_text: None,
             },
         );
         assert_eq!(changed.pagination.expect("page").changed, Some(true));
+    }
+
+    fn structured_options(
+        length: usize,
+        offset: usize,
+        snapshot: Option<String>,
+    ) -> ResponsePageOptions {
+        ResponsePageOptions {
+            response_char_length: Some(length),
+            response_char_offset: Some(offset),
+            response_snapshot: snapshot,
+            response_scope: Some("structured".into()),
+            render_text: None,
+        }
+    }
+
+    #[test]
+    fn structured_scope_windows_the_envelope_and_pages_reassemble_exactly() {
+        let pager = ResponsePager::new(ResponsePagerConfig::default());
+        let envelope = json!({"results":[
+            {"index":0,"data":{"content":"alpha beta gamma delta epsilon"},"status":"empty"},
+            {"index":1,"data":{"content":"zeta eta theta iota kappa lambda"}}
+        ]});
+        let full = envelope.to_string();
+        let mut offset = 0;
+        let mut snapshot = None;
+        let mut joined = String::new();
+        loop {
+            let prepared = pager
+                .prepare(
+                    ResponseInput {
+                        tool: "localFetch".into(),
+                        query: json!({"path":"a","reasoning":"r","debug":false}),
+                        structured: envelope.clone(),
+                        rendered_text: None,
+                        is_error: false,
+                        options: structured_options(40, offset, snapshot.clone()),
+                    },
+                    &AtomicBool::new(false),
+                )
+                .expect("page");
+            let out = prepared.structured_content;
+            // The windowed envelope stays schema-valid: results present.
+            assert_eq!(out["results"], json!([]));
+            let window = out["responseWindow"].as_str().expect("window");
+            let pagination = &out["responsePagination"];
+            assert_eq!(pagination["scope"], "structuredContent");
+            // Window text carries no page header; content mirrors it.
+            assert_eq!(prepared.content[0].text, window);
+            joined.push_str(window);
+            snapshot = Some(
+                pagination["snapshot"]
+                    .as_str()
+                    .expect("snapshot")
+                    .to_owned(),
+            );
+            if pagination["hasMore"] != json!(true) {
+                break;
+            }
+            // The continuation is executable and keeps the opt-in scope.
+            let next = &pagination["next"]["query"];
+            assert_eq!(next["responseScope"], "structured");
+            offset = pagination["nextCharOffset"].as_u64().expect("offset") as usize;
+        }
+        assert_eq!(
+            joined, full,
+            "concatenated windows must equal the envelope JSON"
+        );
+        assert_eq!(
+            serde_json::from_str::<Value>(&joined).expect("json"),
+            envelope
+        );
+    }
+
+    #[test]
+    fn structured_scope_restart_keeps_the_window_empty() {
+        let pager = ResponsePager::new(ResponsePagerConfig::default());
+        let prepared = pager
+            .prepare(
+                ResponseInput {
+                    tool: "localFetch".into(),
+                    query: json!({"path":"a","reasoning":"r"}),
+                    structured: json!({"results":[{"index":0,"data":{"content":"body"}}]}),
+                    rendered_text: None,
+                    is_error: false,
+                    options: structured_options(10, 5, Some("response-v1:stale".into())),
+                },
+                &AtomicBool::new(false),
+            )
+            .expect("restart page");
+        let out = prepared.structured_content;
+        assert_eq!(out["responsePagination"]["restart"], json!(true));
+        assert_eq!(
+            out["responseWindow"], "",
+            "restart pages carry no envelope bytes"
+        );
+    }
+
+    #[test]
+    fn default_scope_is_unchanged_by_the_new_field() {
+        let pager = ResponsePager::new(ResponsePagerConfig::default());
+        let envelope = json!({"results":[{"index":0,"data":{"content":"body"}}]});
+        let prepared = pager
+            .prepare(
+                ResponseInput {
+                    tool: "localFetch".into(),
+                    query: json!({"path":"a","reasoning":"r"}),
+                    structured: envelope.clone(),
+                    rendered_text: None,
+                    is_error: false,
+                    options: ResponsePageOptions::default(),
+                },
+                &AtomicBool::new(false),
+            )
+            .expect("default");
+        assert_eq!(prepared.structured_content, envelope);
+        assert!(prepared.structured_content.get("responseWindow").is_none());
     }
 
     #[test]
@@ -433,6 +615,7 @@ mod tests {
                 response_char_length: Some(8),
                 response_char_offset: Some(8),
                 response_snapshot: Some("response-v1:stale".into()),
+                response_scope: None,
                 render_text: None,
             },
         ] {
@@ -514,6 +697,7 @@ mod tests {
                 response_char_length: Some(5),
                 response_char_offset: Some(500),
                 response_snapshot: Some("response-v1:stale".into()),
+                response_scope: None,
                 render_text: None,
             },
         );

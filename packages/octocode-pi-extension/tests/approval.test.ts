@@ -54,7 +54,7 @@ test('does not gate read-only git or ordinary commands', () => {
 });
 
 test('exempts Octocode dogfood npx CLIs from install gating', () => {
-  assert.equal(classifySensitiveCommand('npx octocode tools --json'), null);
+  assert.equal(classifySensitiveCommand('npx octocode scheme --compact'), null);
   assert.equal(classifySensitiveCommand('npx -y octocode-mcp@latest'), null);
     assert.equal(classifySensitiveCommand('npx -p @octocodeai/octocode-awareness octocode-awareness status'), null);
 });
@@ -244,7 +244,7 @@ test('compound command: Octocode dogfood segment does not exempt a separate inst
   assert.equal(classifySensitiveCommand('npx octocode || npm install bad')?.actionClass, 'install',
     '|| separated install segment is not exempt');
   // A single clean Octocode command must remain exempt.
-  assert.equal(classifySensitiveCommand('npx octocode tools --json'), null, 'lone Octocode CLI stays exempt');
+  assert.equal(classifySensitiveCommand('npx octocode scheme --compact'), null, 'lone Octocode CLI stays exempt');
   assert.equal(classifySensitiveCommand('npx -y octocode-mcp@latest'), null, 'lone octocode-mcp npx stays exempt');
 });
 

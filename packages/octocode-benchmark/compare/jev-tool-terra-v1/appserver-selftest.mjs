@@ -36,6 +36,9 @@ const provider = createServer(async (req, res) => {
 await new Promise(resolve => provider.listen(0, '127.0.0.1', resolve));
 try {
   const runDir = join(dir, 'run'); mkdirSync(runDir);
+  // config/read expands omitted optional transport fields to null. The runner must
+  // disable this inherited server without copying those fields into thread config.
+  writeFileSync(join(dir, 'config.toml'), '[mcp_servers.fixture_unrelated]\ncommand = "/usr/bin/false"\nrequired = true\n');
   const configPath = join(dir, 'proxy.json');
   writeFileSync(configPath, JSON.stringify({ version: 1, arm: 'candidate', entrypoint: join(here, 'fixtures/fake-mcp.mjs'), runDir, cwd: dir, requestTimeoutMs: 5000 }));
   const result = await runAppServer({ cwd: dir, env: { PATH: process.env.PATH, HOME: dir, CODEX_HOME: dir,
@@ -61,6 +64,8 @@ try {
   assert.equal(result.usage[0].input_tokens, 40);
   const calls = readFileSync(join(runDir, 'calls.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
   assert.equal(calls.filter(row => row.event === 'call' && row.admitted).length, 1);
+  const events = readFileSync(join(runDir, 'events.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
+  assert.ok(events.find(row => row.configRead)?.serverNames.includes('fixture_unrelated'));
   assert.equal(approvalFor({ serverName: 'evil', threadId: 't', mode: 'form' }, new Map(), 't'), null);
   const pending = new Map([['item', { server: 'octocode', tool: 'ghSearch', arguments: { query: 'x' } }]]);
   const approval = { serverName: 'octocode', threadId: 't', mode: 'form', message: 'Allow the octocode MCP server to run tool "ghSearch"?',
