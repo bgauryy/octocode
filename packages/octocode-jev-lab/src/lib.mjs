@@ -159,7 +159,7 @@ export async function prepareExperiment(spec, inputPath, env = process.env) {
   return {
     requests,
     receipt: {
-      model: model.trim(),
+      requestedModel: model.trim(),
       mode: resourceMode,
       questionCount: Object.keys(spec.questions).length,
       resourceCount: resources.length,
@@ -234,7 +234,25 @@ export async function sendJev(body, options = {}) {
 export function summarize(samples) {
   const successful = samples.filter(sample => sample.ok);
   const durations = successful.map(sample => sample.elapsedMs).sort((a, b) => a - b);
-  const usage = successful.map(sample => sample.response?.usage ?? {});
+  const usage = successful.map(sample => sample.response?.usage);
+  const completeUsage = usage.filter(
+    row =>
+      row &&
+      Number.isFinite(row.input_tokens) &&
+      Number.isFinite(row.output_tokens),
+  );
+  const tokenTotal = field =>
+    successful.length > 0 &&
+    usage.every(row => row && Number.isFinite(row[field]))
+      ? usage.reduce((sum, row) => sum + row[field], 0)
+      : null;
+  const resolvedModels = [
+    ...new Set(
+      successful
+        .map(sample => sample.response?.model)
+        .filter(model => typeof model === 'string' && model.trim()),
+    ),
+  ];
   return {
     samples: samples.length,
     successes: successful.length,
@@ -246,9 +264,12 @@ export function summarize(samples) {
       max: durations.at(-1) ?? null,
     },
     usage: {
-      inputTokens: usage.reduce((sum, row) => sum + (row.input_tokens ?? 0), 0),
-      outputTokens: usage.reduce((sum, row) => sum + (row.output_tokens ?? 0), 0),
+      inputTokens: tokenTotal('input_tokens'),
+      outputTokens: tokenTotal('output_tokens'),
+      reportedSamples: completeUsage.length,
+      missingSamples: successful.length - completeUsage.length,
     },
+    resolvedModels,
   };
 }
 

@@ -258,7 +258,7 @@ impl ToolRuntime {
         // GitHub read tools are always enabled; cloning has an extra gate below.
         let github = matches!(id, Some(t) if t.is_github() && t != ToolId::GhCloneRepo);
         let local_tools = local && matches!(id, Some(t) if t.is_local());
-        let jev = matches!(id, Some(t) if t.is_jev())
+        let jev = matches!(id, Some(t) if t.is_semantic_assess())
             && self
                 .config
                 .env_value("OCTOCODE_JEV_KEY")
@@ -380,6 +380,19 @@ impl ToolRuntime {
         mcp: bool,
     ) -> Result<ToolOutcome, RuntimeError> {
         if !self.is_available(&tool) {
+            if !mcp
+                && tool == "semanticAssess"
+                && self
+                    .config
+                    .env_value("OCTOCODE_JEV_KEY")
+                    .map(str::trim)
+                    .is_none_or(str::is_empty)
+            {
+                return Err(RuntimeError::new(
+                    "missingConfiguration",
+                    "semanticAssess requires OCTOCODE_JEV_KEY. Create a TypeSafe API key at https://docs.typesafe.ai/introduction and set OCTOCODE_JEV_KEY before retrying.",
+                ));
+            }
             return Err(RuntimeError::new(
                 "toolUnavailable",
                 format!("Tool {tool} is not available in this native runtime"),
@@ -422,9 +435,9 @@ impl ToolRuntime {
             }
             None => (tool, input, false),
         };
-        // Jev is nondeterministic and billed per evaluation. Query replay cannot
+        // Semantic assessment is nondeterministic and billed per evaluation. Query replay cannot
         // serve a page of the original judgment, including authenticated cursors.
-        if tool == "jev"
+        if tool == "semanticAssess"
             && [
                 "responseCharOffset",
                 "responseCharLength",
@@ -435,7 +448,7 @@ impl ToolRuntime {
         {
             return Err(RuntimeError::new(
                 "unsupportedResponsePagination",
-                "Jev response pagination is unsupported: replay would repeat context execution and inference. Remove response paging options and use the complete result; batch independent context/question pairs.",
+                "semanticAssess response pagination is unsupported: replay would repeat context execution and inference. Use the page-level results and next.assess continuation instead.",
             ));
         }
         // Parse response-paging options before contract validation.
@@ -539,7 +552,7 @@ impl ToolRuntime {
                 let mut source_digest = None;
                 let mut source_digests = Vec::with_capacity(queries.len());
                 let mut failure = None;
-                let mut jev_rows = if tool == "jev" {
+                let mut jev_rows = if tool == "semanticAssess" {
                     let _enter = handle.enter();
                     let Some(key) = jev_key.as_ref() else {
                         return Err(ExecutionError::WorkerFailed);
@@ -583,15 +596,12 @@ impl ToolRuntime {
                     }
                     source_digests.push(row_source_digest);
                     failure = failure.or(result.failure);
+                    if tool == "semanticAssess" {
+                        rows.push(result.data);
+                        continue;
+                    }
                     let mut row =
                         response::result_row(&tool, index, query, result.data, result.status);
-                    if tool == "jev" {
-                        for field in ["resourceId", "questionId"] {
-                            if let Some(value) = query.get(field) {
-                                row[field] = value.clone();
-                            }
-                        }
-                    }
                     response::attach_diagnostics(&mut row, result.diagnostics);
                     if result.cache {
                         row["cache"] = json!(1);
@@ -604,8 +614,8 @@ impl ToolRuntime {
                 });
                 // Jev receipts and caller-authored rubric values are opaque JSON:
                 // path compaction would mutate their identity and meaning.
-                let mut structured = if tool == "jev" {
-                    json!({"results": rows})
+                let mut structured = if tool == "semanticAssess" {
+                    json!({"queries": rows})
                 } else {
                     response::envelope(rows)
                 };
@@ -634,7 +644,7 @@ impl ToolRuntime {
                 let rendered_text =
                     render.then(|| super::render::render_tool(&tool, &structured, &response_query));
                 context.check()?;
-                let jev_output = tool == "jev";
+                let jev_output = tool == "semanticAssess";
                 let prepared = ResponsePager::new(ResponsePagerConfig::default())
                     .prepare(
                         ResponseInput {

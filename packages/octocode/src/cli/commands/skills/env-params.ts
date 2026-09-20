@@ -106,7 +106,7 @@ export const SKILL_ENV_PARAMS: Record<string, EnvParam[]> = {
     ...GITHUB_TOKEN_PARAMS,
     {
       key: 'OCTOCODE_JEV_KEY',
-      description: 'Jev — optional two-agent RFC review',
+      description: 'Semantic assessment — optional two-agent RFC review',
       required: 'optional',
       link: 'https://console.typesafe.ai/keys',
     },

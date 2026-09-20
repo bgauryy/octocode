@@ -184,6 +184,16 @@ pub fn process_fetched_content(
     let source_bytes = raw.len();
     let total_lines = line_count(&raw);
     let mut warnings = vec![];
+    // SEC-1: redact whole private-key blocks across the full file BEFORE any
+    // window/extraction, so a bounded read of an interior body line cannot leak a
+    // key whose BEGIN/END markers fall outside the selected window (the anchored
+    // built-in patterns only match a complete block in a single view).
+    let (raw, key_blocks_redacted) = security.redact_key_blocks(&raw);
+    if key_blocks_redacted {
+        warnings.push(
+            "Redacted private-key block(s) found in the source before selecting the window.".into(),
+        );
+    }
     let mode = q.minify.unwrap_or_default();
     let match_blocks = q.match_string.is_some() && mode != MinifyMode::None;
     let applied = if match_blocks { MinifyMode::None } else { mode };
@@ -545,6 +555,69 @@ mod source_size_tests {
 
         assert_eq!(result.status, "success");
         assert_eq!(result.error_code, None);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // SEC-1: a bounded read of an interior body line of a private key must not
+    // leak the key, even when the file is NOT key-named and the selected window
+    // contains no BEGIN/END marker (so the anchored full-block patterns cannot
+    // fire). The `Safe` scan is a passthrough, proving the full-file block guard
+    // — not the window sanitizer — closes the leak.
+    #[test]
+    fn interior_private_key_window_does_not_leak_in_non_key_named_file() {
+        let dir = temp_dir();
+        let path = dir.join("notes.txt"); // deliberately NOT a *.pem/id_rsa path
+        let body = "MIIEpQIBAAKCAQEAsplitKeyBodyLineOneAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+        let body2 = "c3BsaXRLZXlCb2R5TGluZVR3b0JBQkFCQUJBQkFCQUJBQkFCQUJBQkFCQUJBQkFC";
+        let file = format!(
+            "fn main() {{}}\nlet config = load();\n-----BEGIN RSA PRIVATE KEY-----\n{body}\n{body2}\n-----END RSA PRIVATE KEY-----\nlet done = true;\n"
+        );
+        fs::write(&path, &file).expect("write file");
+
+        // Select only the interior body lines (4..=5) — no BEGIN/END in view.
+        let req = LocalFetchRequest {
+            path: path.to_string_lossy().into_owned(),
+            start_line: Some(4),
+            end_line: Some(5),
+            ..Default::default()
+        };
+        let result = execute_local_fetch(&req, &Paths(dir.clone()), &Safe, &NeverCancel);
+
+        let content = result.content.clone().unwrap_or_default();
+        assert!(
+            !content.contains(body) && !content.contains(body2),
+            "private key body leaked from an interior window: {content}"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // SEC-1 over-redaction guard: an ordinary long base64 line (config blob,
+    // hash, minified asset) with NO private-key markers anywhere in the file
+    // must pass through byte-identical — the guard keys off BEGIN/END markers,
+    // never bare base64.
+    #[test]
+    fn innocent_base64_window_is_returned_byte_identical() {
+        let dir = temp_dir();
+        let path = dir.join("data.txt");
+        let blob = "aGVsbG8gd29ybGQgdGhpcyBpcyBqdXN0IGEgbG9uZyBiYXNlNjQgYmxvYg==";
+        let file = format!("header\n{blob}\nfooter\n");
+        fs::write(&path, &file).expect("write file");
+
+        let req = LocalFetchRequest {
+            path: path.to_string_lossy().into_owned(),
+            start_line: Some(2),
+            end_line: Some(2),
+            ..Default::default()
+        };
+        let result = execute_local_fetch(&req, &Paths(dir.clone()), &Safe, &NeverCancel);
+
+        let content = result.content.clone().unwrap_or_default();
+        assert!(
+            content.contains(blob),
+            "innocent base64 was wrongly redacted: {content}"
+        );
 
         let _ = fs::remove_dir_all(&dir);
     }

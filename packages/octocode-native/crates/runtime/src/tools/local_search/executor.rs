@@ -13,6 +13,22 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
+/// Upper bound (bytes) on a file re-read for the SEC-1 private-key block scan.
+/// Matches the secret scanner's own content cap; larger files fall back to the
+/// per-match window sanitizer rather than pay an unbounded read.
+const MAX_KEY_SCAN_BYTES: u64 = 10 * 1024 * 1024;
+
+/// OUT-1: soft budget (in value chars) for a single localSearch response body.
+/// Distributed across the matches shown on a page so a pathological giant line
+/// or a raised `matchContentLength`/`maxMatchesPerFile` cannot emit a multi-MB
+/// body. It bounds displayed value size only — every match row and its line
+/// anchor are preserved, so no continuation cursor is required.
+const RESPONSE_VALUE_CHAR_BUDGET: usize = 1_000_000;
+
+/// Floor on the per-match display cap the budget may impose, so a page with many
+/// matches still shows a useful slice of each rather than a few characters.
+const MIN_MATCH_VALUE_CHARS: usize = 40;
+
 pub fn execute_local_search(
     query: &LocalSearchRequest,
     paths: &PathPolicy,
@@ -213,11 +229,44 @@ pub fn execute_local_search(
         if let Ok(relative) = std::path::Path::new(&file.path).strip_prefix(output_root) {
             file.path = relative.to_string_lossy().into_owned();
         }
+        let source_path = output_root.join(&file.path);
+        // SEC-1: a match on an interior base64 body line of a private key would
+        // leak the key even though the match view holds no BEGIN/END marker (the
+        // anchored built-in patterns need a complete block). Only when a snippet
+        // actually looks like key material do we scan the full file for private-
+        // key block ranges, then redact matches whose window intersects a block.
+        // Innocent base64 triggers a scan that finds no block and redacts nothing.
+        let key_ranges = if file
+            .matches
+            .iter()
+            .any(|m| crate::security::snippet_may_hold_key_material(&m.value))
+        {
+            std::fs::metadata(&source_path)
+                .ok()
+                .filter(|meta| meta.len() <= MAX_KEY_SCAN_BYTES)
+                .and_then(|_| std::fs::read(&source_path).ok())
+                .map(|bytes| {
+                    crate::security::private_key_block_line_ranges(&String::from_utf8_lossy(&bytes))
+                })
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
         for matched in &mut file.matches {
             cancel.check().map_err(cancelled)?;
-            matched.value = security
-                .sanitize_text(&matched.value, Some(&output_root.join(&file.path)))
-                .content;
+            if !key_ranges.is_empty()
+                && crate::security::match_window_intersects_key_block(
+                    matched.line,
+                    &matched.value,
+                    &key_ranges,
+                )
+            {
+                matched.value = crate::security::key_fragment_placeholder();
+            } else {
+                matched.value = security
+                    .sanitize_text(&matched.value, Some(&source_path))
+                    .content;
+            }
         }
     }
     match requested_sort {
@@ -290,6 +339,29 @@ pub fn execute_local_search(
     // match-only path emits exact spans, so apply the public display bound here.
     let match_only_limit = (view == ResultView::MatchOnly)
         .then_some(query.match_content_length.unwrap_or(500) as usize);
+    // OUT-1: distribute the response value-char budget across the matches shown
+    // on this page. `display_cap` is the tighter of the matchOnly display bound
+    // and the budget-derived per-match cap; a giant match is clipped (flagged
+    // `truncated`) rather than dropped, so the existing page/match cursors and
+    // the returned line anchor + localFetch cover full retrieval unchanged.
+    let shown_total: usize = parsed
+        .files
+        .iter()
+        .skip(start)
+        .take(page_size as usize)
+        .map(|f| {
+            let ms = (match_page - 1).saturating_mul(matches_per) as usize;
+            f.matches.len().saturating_sub(ms).min(matches_per as usize)
+        })
+        .sum();
+    let budget_cap = (shown_total > 0)
+        .then(|| (RESPONSE_VALUE_CHAR_BUDGET / shown_total).max(MIN_MATCH_VALUE_CHARS));
+    let display_cap = match (match_only_limit, budget_cap) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (Some(a), None) => Some(a),
+        (None, b) => b,
+    };
+    let budget_binds = budget_cap.is_some() && display_cap == budget_cap;
     let files = parsed
         .files
         .into_iter()
@@ -303,7 +375,7 @@ pub fn execute_local_search(
                 .iter()
                 .skip(ms)
                 .take(matches_per as usize)
-                .map(|m| project_match(m, match_only_limit))
+                .map(|m| project_match(m, display_cap))
                 .collect::<Vec<_>>();
             SearchFile {
                 path: f.path,
@@ -343,11 +415,16 @@ pub fn execute_local_search(
     // Surface it explicitly so callers know the results are a timeout-truncated
     // partial, not an exhaustive search.
     let mut warnings = vec![];
-    if files.iter().any(|file| {
+    let any_truncated = files.iter().any(|file| {
         file.matches
             .as_ref()
             .is_some_and(|matches| matches.iter().any(|matched| matched.truncated))
-    }) {
+    });
+    if budget_binds && any_truncated {
+        warnings.push(
+            "Match values were shortened to keep the total response within its size budget. Every match row and its line anchor is preserved; narrow the search (maxMatchesPerFile, matchContentLength, include/exclude) or use localFetch at each anchor for full source.".into(),
+        );
+    } else if any_truncated {
         warnings.push(
             "Some match values were truncated to matchContentLength; originalChars and returnedChars describe each shortened value. Counts and row pagination are unchanged. Use localFetch at the returned path/line anchors for full source.".into(),
         );

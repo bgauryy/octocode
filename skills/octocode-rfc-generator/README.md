@@ -15,7 +15,7 @@ Use `octocode-brainstorming` first while the worth-building question remains ope
 - Compares viable alternatives and the status quo when relevant.
 - Separates goals, non-goals, prerequisites, implementation, KPIs, and sources by ownership.
 - Checks completeness and closes decision-blocking questions with evidence.
-- Optionally uses two agents to challenge open questions, with Jev judging the supplied arguments and the host verifying the result.
+- Optionally uses two agents to challenge open questions, with `semanticAssess` obtaining a Jev provider judgment over the supplied arguments and the host verifying the result.
 - Defines acceptance first, then orders implementation and verification by dependency.
 - Defines measurable acceptance, rollout, rollback, and audit reasoning.
 
@@ -33,11 +33,11 @@ Use `RFC.md` for a consequential decision and standalone `PLAN.md` for execution
 npx -y octocode skill install octocode-rfc-generator
 ```
 
-## Optional Jev review
+## Optional semantic assessment
 
-Jev support is built into this skill. Two agents first provide independent arguments and one rebuttal each. Jev runs only if their positions still differ, evidence/direct checks cannot settle the issue, and different judgments change the next action. It prioritizes bounded risk; it is not presumed to improve accuracy. The host retains responsibility for evidence and the RFC decision.
+The `semanticAssess` route is built into this skill. Two agents first provide independent arguments and one rebuttal each. The tool calls the Jev provider only if their positions still differ, evidence/direct checks cannot settle the issue, and different judgments change the next action. It prioritizes bounded risk; it is not presumed to improve accuracy. The host retains responsibility for evidence and the RFC decision.
 
-This step needs host subagents and `OCTOCODE_JEV_KEY` in the Octocode process or MCP environment. Without them, use the ordinary evidence-based RFC workflow. Cheap checks and settled plans do not need a debate. See [the review protocol](references/jev-review.md) for limits and result handling.
+This step needs host subagents and `OCTOCODE_JEV_KEY` in the Octocode process or MCP environment. The MCP tool is registered only when that key is configured; a direct CLI call without it must report the missing key. Without either capability, use the ordinary evidence-based RFC workflow. Cheap checks and settled plans do not need a debate. See [the review protocol](references/jev-review.md) for limits and result handling.
 
 ## Maintainer verification
 

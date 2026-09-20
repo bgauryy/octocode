@@ -50,12 +50,12 @@ const cases = [
   { name: 'authorization persists and budgets do not abandon work', file: 'SKILL.md',
     required: [/authorization[^\n]*(?:persists|carry|already)/i, /checkpoint[^\n]*(?:budget|time)|budget[^\n]*checkpoint/i],
     forbidden: [/Ask before public\/broad contracts/, /third unrelated search space/] },
-  { name: 'conditional Jev crossroad is executable and evidence-bound', file: 'SKILL.md',
+  { name: 'conditional semantic crossroad is executable and evidence-bound', file: 'SKILL.md',
     required: [
-      /MODEL[^\n]*JEV\?[^\n]*SEARCH\/READ/,
-      /JEV\?[^\n]*conditional[^\n]*(?:never|not)[^\n]*mandatory/i,
+      /MODEL[^\n]*SEMANTIC\?[^\n]*SEARCH\/READ/,
+      /SEMANTIC\?[^\n]*conditional[^\n]*(?:never|not)[^\n]*mandatory/i,
       /avoided work or a changed next action/,
-      /`queries\[\]` for independent `\{reasoning,context,question\}` pairs/,
+      /root `queries\[\]` for independent semantic queries/,
       /`resources:\[\{id,context\}\]`/,
       /`questions:\[\{id,question\}\]`/,
       /unread `\{tool,query\}` reads/,
@@ -63,7 +63,7 @@ const cases = [
       /Retrieved bodies stay hidden/,
       /Partial evidence cannot prove global absence/,
       /widen only insufficient (?:evidence|spans)/,
-      /octocode jev/,
+      /octocode semanticAssess/,
       /cheap deciding checks directly/,
       /never automatically chain/,
       /typed judgments, not missing facts/,
@@ -88,10 +88,10 @@ const selfChecks = args.includes('--self-test')
   ? cases.map(item => ({ name: `${item.name}: missing guidance rejected`, pass: !accepts(item, '') }))
   : [];
 if (args.includes('--self-test')) {
-  const jev = cases.find(item => item.name.startsWith('conditional Jev crossroad'));
-  const source = corpus.get(jev.file);
+  const semantic = cases.find(item => item.name.startsWith('conditional semantic crossroad'));
+  const source = corpus.get(semantic.file);
   for (const [name, removed] of [
-    ['current query contract', '`queries[]` for independent `{reasoning,context,question}` pairs'],
+    ['current query contract', 'root `queries[]` for independent semantic queries'],
     ['matrix contract', '`resources:[{id,context}]`'],
     ['unread context branch', 'unread `{tool,query}` reads'],
     ['hidden-body boundary', 'Retrieved bodies stay hidden'],
@@ -100,7 +100,7 @@ if (args.includes('--self-test')) {
     ['typed judgment limitation', 'typed judgments, not missing facts'],
   ]) {
     const changed = source.replace(removed, '');
-    selfChecks.push({ name: `Jev: missing ${name} rejected`, pass: changed !== source && !accepts(jev, changed) });
+    selfChecks.push({ name: `semanticAssess: missing ${name} rejected`, pass: changed !== source && !accepts(semantic, changed) });
   }
 }
 const all = [...checks, ...selfChecks];

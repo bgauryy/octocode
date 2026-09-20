@@ -67,5 +67,8 @@ Questions use TypeSafe's native primitives:
   `confidence`.
 
 The output keeps every provider payload unchanged in `samples[].response`.
-Local receipts, latency, HTTP status, and aggregate token counts are adjacent
-metadata; they never replace or reinterpret Noul, Choice, or Score fields.
+Adjacent metadata records `request.requestedModel` and the distinct provider
+models observed in `summary.resolvedModels`. Aggregate token counts are emitted
+only when every successful response reports that field; otherwise the total is
+`null` and the reported/missing sample counts remain explicit. These measurements
+never replace or reinterpret Noul, Choice, Score, or future provider fields.

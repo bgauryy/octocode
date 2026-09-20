@@ -43,10 +43,7 @@ describe('runCLI native boundary', () => {
 
   it('keeps semanticAssess and its help/schema discovery on the native CLI', async () => {
     const { runCLI } = await import('../../src/cli/index.js');
-    const invocation = [
-      'semanticAssess',
-      '{"resources":[],"questions":[]}',
-    ];
+    const invocation = ['semanticAssess', '{"resources":[],"questions":[]}'];
     await runCLI(invocation);
     expect(mocks.delegate).toHaveBeenLastCalledWith(
       '/native/octocode',

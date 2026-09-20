@@ -89,14 +89,13 @@ fn prepare(tool: &str, query: &Value) -> Result<Value, JevProviderError> {
 // through every caller for no runtime benefit on this cold error path.
 #[allow(clippy::result_large_err)]
 pub(super) fn resolve(
-    query: &Value,
+    source: &Value,
     dispatcher: &DomainDispatcher,
     context: &ExecutionContext,
 ) -> Result<(Value, Option<Value>), ContextFailure> {
     checked(context).map_err(ContextFailure::from)?;
-    let source = &query["context"];
     if let Some(value) = source.get("value") {
-        return Ok((value.clone(), None));
+        return Ok((value.clone(), Some(value_receipt(value))));
     }
     let tool = source["tool"]
         .as_str()
@@ -197,7 +196,7 @@ fn receipt_with_evaluation(tool: &str, state: &Value, evaluation_completed: bool
     let mut terminal = false;
     let mut partial = response::is_partial(state);
     inspect(state, &mut next, &mut partial, &mut terminal);
-    let mut receipt = json!({"tool":tool,"resultHash":hex::encode(Sha256::digest(state.to_string().as_bytes())),"coverage":if partial {"partial"}else{"bounded"}});
+    let mut receipt = json!({"source":"tool","tool":tool,"resultHash":hex::encode(Sha256::digest(state.to_string().as_bytes())),"coverage":if partial {"partial"}else{"bounded"}});
     if !next.is_empty() {
         receipt["next"] = Value::Object(next);
     }
@@ -237,6 +236,28 @@ fn receipt_with_evaluation(tool: &str, state: &Value, evaluation_completed: bool
         };
     }
     receipt
+}
+
+fn value_receipt(state: &Value) -> Value {
+    json!({
+        "source":"value",
+        "resultHash":hex::encode(Sha256::digest(state.to_string().as_bytes())),
+        "coverage":"bounded"
+    })
+}
+
+/// Select the first canonical same-resource continuation from a body-free
+/// receipt. Map iteration is stable, so repeated runs choose the same axis.
+pub(super) fn continuation(receipt: &Value) -> Option<Value> {
+    let continuation = receipt
+        .get("next")
+        .and_then(Value::as_object)
+        .and_then(|next| next.values().next())
+        .and_then(Value::as_object)?;
+    Some(json!({
+        "tool": continuation.get("tool")?,
+        "query": continuation.get("query")?
+    }))
 }
 
 fn inspect(value: &Value, next: &mut Map<String, Value>, partial: &mut bool, terminal: &mut bool) {

@@ -23,6 +23,15 @@ pub fn mcp_input_error(tool: &str, input: &Value, error: &RuntimeError) -> Optio
 }
 
 pub fn mcp_envelope_error(tool: &str, input: &Value) -> Option<Value> {
+    if tool == "semanticAssess"
+        && input.as_object().is_some_and(|object| {
+            object.contains_key("id")
+                && object.contains_key("resources")
+                && object.contains_key("questions")
+        })
+    {
+        return None;
+    }
     envelope_detail(input).map(|detail| result(tool, &detail))
 }
 

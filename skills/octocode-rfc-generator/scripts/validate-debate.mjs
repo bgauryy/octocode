@@ -7,31 +7,37 @@ import { pathToFileURL } from 'node:url';
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const text = value => typeof value === 'string' && value.trim().length > 0;
 const evidenceId = /^E[1-9]\d*$/;
-const entry = value => value === null || typeof value === 'string' || object(value) || Array.isArray(value);
+const stableId = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const entry = value => text(value) || (object(value) && Object.keys(value).length > 0) ||
+  (Array.isArray(value) && value.length > 0);
 const only = (value, keys) => object(value) && Object.keys(value).every(key => keys.includes(key));
 const typedQuestion = question => {
   if (!only(question, ['type', 'instructions', 'criteria']) ||
       !Object.hasOwn(question, 'instructions') || !entry(question.instructions)) return false;
   const criteria = question.criteria;
-  if (question.type === 'noul') return criteria === undefined || criteria === null ||
+  if (question.type === 'noul') return criteria === undefined ||
     (only(criteria, ['true', 'false']) && Object.hasOwn(criteria, 'true') &&
-      Object.hasOwn(criteria, 'false') && entry(criteria.true) && entry(criteria.false));
-  if (question.type === 'choice') return object(criteria) && Object.keys(criteria).length >= 1 &&
-    Object.keys(criteria).length <= 255 && Object.entries(criteria).every(([key, value]) => text(key) && entry(value));
+      Object.hasOwn(criteria, 'false') && (criteria.true === null || entry(criteria.true)) &&
+      (criteria.false === null || entry(criteria.false)));
+  if (question.type === 'choice') return object(criteria) && Object.keys(criteria).length >= 2 &&
+    Object.keys(criteria).length <= 255 && Object.entries(criteria).every(([key, value]) => text(key) &&
+      (value === null || entry(value)));
   return question.type === 'score' && Array.isArray(criteria) && criteria.length >= 2 &&
     criteria.length <= 10 && criteria.every(entry);
 };
+const typedQuestions = questions => Array.isArray(questions) && questions.length >= 1 && questions.length <= 5 &&
+  questions.every(item => only(item, ['id', 'question']) && stableId.test(item.id ?? '') && typedQuestion(item.question)) &&
+  new Set(questions.map(item => item.id)).size === questions.length;
 
 // Structural provenance only: never establishes evidence truth or RFC readiness.
 export function validateDebate(request, packet) {
   const errors = [];
   const review = packet?.review;
   if (!object(review) || !text(review.id) || !text(review.rfcRevision) ||
-      !object(review.questions) || Object.keys(review.questions).length === 0 ||
-      !Object.entries(review.questions).every(([id, question]) => /^Q[1-9]\d*$/.test(id) && typedQuestion(question)) ||
+      !typedQuestions(review.questions) ||
       !Array.isArray(review.criteria) || review.criteria.length === 0 || !review.criteria.every(text) ||
       !object(review.subject) || !['proposal', 'claim'].includes(review.subject.kind) || !text(review.subject.text)) {
-    return { valid: false, errors: ['Worker packet needs review {id, rfcRevision, typed questions, criteria, subject:{kind:proposal|claim, text}}.'] };
+    return { valid: false, errors: ['Worker packet needs review {id, rfcRevision, questions:[{id, question:{type,instructions,criteria?}}], criteria, subject:{kind:proposal|claim, text}}.'] };
   }
   const admission = packet?.admission;
   if (!object(admission) || admission.workersDisagree !== true ||
@@ -42,9 +48,9 @@ export function validateDebate(request, packet) {
       !object(admission.workerPositions) || !text(admission.workerPositions.A) ||
       !text(admission.workerPositions.B) ||
       admission.willChangeAction !== true || admission.directCheck?.available !== false ||
-      admission.evidenceFresh !== true || admission.jevCallsAtCrossroad !== 0 ||
+      admission.evidenceFresh !== true || admission.semanticAssessCallsAtCrossroad !== 0 ||
       admission.workerPositions.A.trim() === admission.workerPositions.B.trim()) {
-    return { valid: false, errors: ['Worker packet needs an unresolved admission gate: workersDisagree:true, distinct A/B positions, remaining disagreement, why evidence/direct checks cannot settle it, current action, distinct support/reject actions, willChangeAction:true, directCheck.available:false, evidenceFresh:true, and jevCallsAtCrossroad:0.'] };
+    return { valid: false, errors: ['Worker packet needs an unresolved admission gate: workersDisagree:true, distinct A/B positions, remaining disagreement, why evidence/direct checks cannot settle it, current action, distinct support/reject actions, willChangeAction:true, directCheck.available:false, evidenceFresh:true, and semanticAssessCallsAtCrossroad:0.'] };
   }
   const original = packet?.evidence;
   if (!object(original) || Object.keys(original).length === 0) {
@@ -59,16 +65,31 @@ export function validateDebate(request, packet) {
   }
   const queries = only(request, ['queries']) && Array.isArray(request.queries)
     ? request.queries : [request];
-  if (queries.length === 0) {
-    return { valid: false, errors: [...errors, 'Request must contain a Jev query.'] };
+  if (queries.length === 0 || queries.length > 5) {
+    return { valid: false, errors: [...errors, 'Request must contain one to five semantic assessment queries.'] };
   }
   queries.forEach((query, index) => {
     const prefix = `Query ${index + 1}`;
-    if (!only(query, ['state', 'questions']) || !object(query.state) || !object(query.questions)) {
-      errors.push(`${prefix}: RFC review query must contain only state and questions; optional Jev sources require inspection before the worker snapshot.`);
+    if (!only(query, ['id', 'reasoning', 'resources', 'questions']) ||
+        (Object.hasOwn(query, 'id') && !stableId.test(query.id ?? '')) ||
+        (Object.hasOwn(query, 'reasoning') && !text(query.reasoning)) ||
+        !Array.isArray(query.resources) || query.resources.length !== 1 || !typedQuestions(query.questions) ||
+        query.resources.length * query.questions.length > 25) {
+      errors.push(`${prefix}: RFC review requires one source-free SemanticQuery with optional id/reasoning, one resources[] entry, typed questions[], and at most 25 resource-question cells.`);
       return;
     }
-    const context = query.state;
+    const resource = query.resources[0];
+    if (!only(resource, ['id', 'context', 'maxChars']) || !stableId.test(resource?.id ?? '') ||
+        (Object.hasOwn(resource, 'maxChars') && (!Number.isInteger(resource.maxChars) || resource.maxChars < 1 || resource.maxChars > 80000)) ||
+        !only(resource?.context, ['value']) || !entry(resource.context.value)) {
+      errors.push(`${prefix}: RFC review resource must be {id, context:{value}} with optional maxChars; unread tool resources must be inspected before the worker snapshot.`);
+      return;
+    }
+    const context = resource.context.value;
+    if (!object(context)) {
+      errors.push(`${prefix}: RFC review context.value must be the frozen debate object.`);
+      return;
+    }
     if (!isDeepStrictEqual(context.review, review)) {
       errors.push(`${prefix}: review differs from the frozen worker contract.`);
     }
@@ -80,12 +101,12 @@ export function validateDebate(request, packet) {
     }
     for (const duplicate of ['questionIds', 'rfcRevision', 'criteria', 'questions', 'proposal', 'claim']) {
       if (Object.hasOwn(context, duplicate)) {
-        errors.push(`${prefix}: keep ${duplicate} inside review only; conflicting duplicate state is not supported.`);
+        errors.push(`${prefix}: keep ${duplicate} inside review only; conflicting duplicate resource state is not supported.`);
       }
     }
     const evidence = context?.evidence;
     if (!Array.isArray(evidence)) {
-      errors.push(`${prefix}: state.evidence must be an array.`);
+      errors.push(`${prefix}: resource evidence must be an array.`);
       return;
     }
     const seen = new Set();
@@ -131,7 +152,7 @@ export function validateDebate(request, packet) {
 function selfTest() {
   const review = {
     id: 'review-1', rfcRevision: 'fixture-revision',
-    questions: { Q1: { type: 'choice', instructions: 'Does state.evidence support advancing state.review.subject.text under state.review.criteria? Consider both state.arguments and state.missingEvidence.', criteria: { support: 'Safeguards satisfy the supplied criteria.', reject: 'Safeguards fail the supplied criteria.', insufficient: 'The evidence cannot resolve the question.', conflicting: 'Relevant evidence supports incompatible conclusions.' } } },
+    questions: [{ id: 'Q1', question: { type: 'choice', instructions: 'Does the resource evidence support advancing resource review subject under its criteria? Consider both arguments and missing evidence.', criteria: { support: 'Safeguards satisfy the supplied criteria.', reject: 'Safeguards fail the supplied criteria.', insufficient: 'The evidence cannot resolve the question.', conflicting: 'Relevant evidence supports incompatible conclusions.' } } }],
     criteria: ['Preserve compatibility.'], subject: { kind: 'proposal', text: 'Keep legacy support until compatibility is verified.' },
   };
   const admission = {
@@ -143,46 +164,52 @@ function selfTest() {
     ifJudgeSupports: 'Advance to owner review with the risk recorded.',
     ifJudgeRejects: 'Collect another compatibility safeguard before owner review.',
     workerPositions: { A: 'The existing safeguard is sufficient.', B: 'The residual risk remains too high.' },
-    willChangeAction: true, directCheck: { available: false }, evidenceFresh: true, jevCallsAtCrossroad: 0,
+    willChangeAction: true, directCheck: { available: false }, evidenceFresh: true, semanticAssessCallsAtCrossroad: 0,
   };
   const packet = { review, admission, evidence: { E1: { source: 'fixture:1', observation: 'Current receipt.' } } };
-  const request = { state: {
-    review, admission,
-    evidence: [{ id: 'E1', ...packet.evidence.E1 }],
-    arguments: {
-      A: { opening: 'Supports E1.', rebuttal: 'Concedes limits of E1.' },
-      B: { opening: 'Challenges E1.', rebuttal: 'Still uncertain about E1.' },
-    },
-    missingEvidence: ['Actual residual compatibility risk.'],
-  }, questions: review.questions };
+  const request = {
+    id: 'review-1',
+    reasoning: 'Resolve the frozen disagreement only if it changes the host action.',
+    resources: [{ id: 'debate', context: { value: {
+      review, admission,
+      evidence: [{ id: 'E1', ...packet.evidence.E1 }],
+      arguments: {
+        A: { opening: 'Supports E1.', rebuttal: 'Concedes limits of E1.' },
+        B: { opening: 'Challenges E1.', rebuttal: 'Still uncertain about E1.' },
+      },
+      missingEvidence: ['Actual residual compatibility risk.'],
+    } } }],
+    questions: review.questions,
+  };
   assert.equal(validateDebate(request, packet).valid, true);
   assert.equal(validateDebate({ queries: [request] }, packet).valid, true);
   const mutations = [
-    x => { x.state.evidence[0].observation = 'Different meaning.'; },
-    x => { x.state.evidence = []; },
-    x => { x.state.evidence.push({ ...x.state.evidence[0] }); },
-    x => { x.state.evidence[0].id = 'E2'; },
-    x => { delete x.state.arguments.B.rebuttal; },
-    x => { x.state.arguments.A.opening = 'Unsupported E9.'; },
-    x => { x.state.review.id = 'other-review'; },
-    x => { x.state.review.rfcRevision = 'new-revision'; },
-    x => { x.state.review.questions.Q1.instructions = 'A different question?'; },
-    x => { x.state.review.questions = { Q2: review.questions.Q1 }; },
-    x => { x.state.review.criteria = ['Ignore compatibility.']; },
-    x => { x.state.review.subject.text = 'Remove legacy support immediately.'; },
-    x => { x.state.proposal = 'Remove legacy support immediately.'; },
+    x => { x.resources[0].context.value.evidence[0].observation = 'Different meaning.'; },
+    x => { x.resources[0].context.value.evidence = []; },
+    x => { x.resources[0].context.value.evidence.push({ ...x.resources[0].context.value.evidence[0] }); },
+    x => { x.resources[0].context.value.evidence[0].id = 'E2'; },
+    x => { delete x.resources[0].context.value.arguments.B.rebuttal; },
+    x => { x.resources[0].context.value.arguments.A.opening = 'Unsupported E9.'; },
+    x => { x.resources[0].context.value.review.id = 'other-review'; },
+    x => { x.resources[0].context.value.review.rfcRevision = 'new-revision'; },
+    x => { x.resources[0].context.value.review.questions[0].question.instructions = 'A different question?'; },
+    x => { x.resources[0].context.value.review.questions[0].id = 'Q2'; },
+    x => { x.resources[0].context.value.review.criteria = ['Ignore compatibility.']; },
+    x => { x.resources[0].context.value.review.subject.text = 'Remove legacy support immediately.'; },
+    x => { x.resources[0].context.value.proposal = 'Remove legacy support immediately.'; },
     x => { x.route = 'retired-route'; },
-    x => { x.state.questionIds = ['Q99']; },
-    x => { x.state.admission.ifJudgeRejects = 'A different action.'; },
-    x => { x.state.admission.willChangeAction = false; },
-    x => { x.state.admission.directCheck = { available: true, action: 'Run the exact check.' }; },
-    x => { x.state.admission.jevCallsAtCrossroad = 1; },
-    x => { x.state.admission.evidenceFresh = false; },
-    x => { x.questions = { Q2: review.questions.Q1 }; },
-    x => { x.questions = { Q1: { ...review.questions.Q1, instructions: 'Select the favored speaker.' } }; },
-    x => { x.questions = { Q1: { ...review.questions.Q1, criteria: { support: 'Always choose this.' } } }; },
-    x => { x.reasoning = 'Retired query field.'; },
-    x => { x.sources = { unseen: { path: '/unreviewed/evidence.md' } }; },
+    x => { x.resources[0].context.value.questionIds = ['Q99']; },
+    x => { x.resources[0].context.value.admission.ifJudgeRejects = 'A different action.'; },
+    x => { x.resources[0].context.value.admission.willChangeAction = false; },
+    x => { x.resources[0].context.value.admission.directCheck = { available: true, action: 'Run the exact check.' }; },
+    x => { x.resources[0].context.value.admission.semanticAssessCallsAtCrossroad = 1; },
+    x => { x.resources[0].context.value.admission.evidenceFresh = false; },
+    x => { x.questions[0].id = 'Q2'; },
+    x => { x.questions[0].question.instructions = 'Select the favored speaker.'; },
+    x => { x.questions[0].question.criteria = { support: 'Always choose this.', reject: null }; },
+    x => { x.state = {}; },
+    x => { x.resources[0].context = { tool: 'localFetch', query: { path: '/unreviewed/evidence.md', reasoning: 'unreviewed' } }; },
+    x => { x.resources.push(structuredClone(x.resources[0])); },
   ];
   for (const mutate of mutations) {
     const broken = structuredClone(request);
@@ -196,16 +223,16 @@ function selfTest() {
     x => { x.admission.willChangeAction = false; },
     x => { x.admission.directCheck.available = true; },
     x => { x.admission.evidenceFresh = false; },
-    x => { x.admission.jevCallsAtCrossroad = 1; },
-    x => { x.review.questions.Q1 = 'Untyped question'; },
-    x => { x.review.questions.Q1.criteria = {}; },
+    x => { x.admission.semanticAssessCallsAtCrossroad = 1; },
+    x => { x.review.questions[0].question = 'Untyped question'; },
+    x => { x.review.questions[0].question.criteria = {}; },
   ];
   for (const mutate of packetMutations) {
     const broken = structuredClone(packet);
     mutate(broken);
     const matchingRequest = structuredClone(request);
-    matchingRequest.state.review = broken.review;
-    matchingRequest.state.admission = broken.admission;
+    matchingRequest.resources[0].context.value.review = broken.review;
+    matchingRequest.resources[0].context.value.admission = broken.admission;
     matchingRequest.questions = broken.review.questions;
     assert.equal(validateDebate(matchingRequest, broken).valid, false);
   }
@@ -214,12 +241,47 @@ function selfTest() {
   assert.equal(validateDebate({ queries: [] }, packet).valid, false);
   const claimPacket = structuredClone(packet);
   claimPacket.review.subject = { kind: 'claim', text: 'The current receipt establishes compatibility.' };
-  claimPacket.review.questions.Q1.instructions = 'Classify support for state.review.subject.text using state.evidence, state.arguments and state.missingEvidence.';
+  claimPacket.review.questions[0].question.instructions = 'Classify support for the resource subject using its evidence, arguments, and missing evidence.';
   const claimRequest = structuredClone(request);
-  claimRequest.state.review = claimPacket.review;
+  claimRequest.resources[0].context.value.review = claimPacket.review;
   claimRequest.questions = claimPacket.review.questions;
   assert.equal(validateDebate(claimRequest, claimPacket).valid, true);
-  return { valid: true, selfTest: true, cases: mutations.length + packetMutations.length + 6 };
+
+  const withQuestion = question => {
+    const nextPacket = structuredClone(packet);
+    nextPacket.review.questions = [{ id: 'Q1', question }];
+    const nextRequest = structuredClone(request);
+    nextRequest.questions = nextPacket.review.questions;
+    nextRequest.resources[0].context.value.review = nextPacket.review;
+    return { nextPacket, nextRequest };
+  };
+  let primitive = withQuestion({
+    type: 'noul', instructions: 'Is the frozen safeguard sufficient?', criteria: { true: null, false: null },
+  });
+  assert.equal(validateDebate(primitive.nextRequest, primitive.nextPacket).valid, true);
+  primitive = withQuestion({
+    type: 'choice', instructions: 'Classify the frozen safeguard.', criteria: { support: null, reject: null },
+  });
+  assert.equal(validateDebate(primitive.nextRequest, primitive.nextPacket).valid, true);
+  primitive = withQuestion({
+    type: 'score', instructions: 'Score the bounded residual risk.', criteria: ['bounded', { level: 'unbounded' }],
+  });
+  assert.equal(validateDebate(primitive.nextRequest, primitive.nextPacket).valid, true);
+  for (const invalidQuestion of [
+    { type: 'noul', instructions: null, criteria: { true: null, false: null } },
+    { type: 'choice', instructions: '', criteria: { support: null, reject: null } },
+    { type: 'choice', instructions: 'Choose.', criteria: { only: null } },
+    { type: 'score', instructions: 'Score.', criteria: [null, 'high'] },
+    { type: 'score', instructions: 'Score.', criteria: ['only-one'] },
+  ]) {
+    primitive = withQuestion(invalidQuestion);
+    assert.equal(validateDebate(primitive.nextRequest, primitive.nextPacket).valid, false);
+  }
+  assert.equal(validateDebate({ state: request.resources[0].context.value, questions: request.questions }, packet).valid, false);
+  const duplicateQuestions = structuredClone(request);
+  duplicateQuestions.questions.push(structuredClone(duplicateQuestions.questions[0]));
+  assert.equal(validateDebate(duplicateQuestions, packet).valid, false);
+  return { valid: true, selfTest: true, cases: mutations.length + packetMutations.length + 16 };
 }
 
 if (process.argv[1] && process.argv[1] !== '-' && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {

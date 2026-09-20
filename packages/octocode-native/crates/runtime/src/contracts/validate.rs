@@ -1156,35 +1156,36 @@ mod tests {
     use serde_json::{Value, json};
 
     #[test]
-    fn pure_jev_requires_reasoning_without_other_metadata_defaults() {
-        let query = json!({"reasoning":"Decide the next evidence read.","context": {"value": {"observation": true}}, "question": {
-            "type": "noul", "instructions": "Assess supplied state"
-        }});
-        let prepared = prepare_and_validate("jev", query.clone(), PrepareOptions::default())
-            .expect("pure Jev query needs no workflow fields");
+    fn pure_semantic_assess_requires_correlation_and_preserves_provider_entries() {
+        let query = json!({"id":"decision","reasoning":"Decide the next evidence read.","resources":[{"id":"source","context": {"value": {"observation": true}},"maxChars":80000}], "questions":[{"id":"answer","question": {
+            "type": "noul", "instructions": {"prompt":"Assess supplied state"}, "criteria":{"true":null,"false":null}
+        }}]});
+        let prepared =
+            prepare_and_validate("semanticAssess", query.clone(), PrepareOptions::default())
+                .expect("pure semantic query needs no workflow fields");
         assert_eq!(prepared, query);
-        let validated =
-            validate("jev", json!({"queries": [query.clone()]})).expect("pure Jev envelope");
+        let validated = validate("semanticAssess", json!({"queries": [query.clone()]}))
+            .expect("pure semantic envelope");
         assert_eq!(validated["queries"][0], query);
         let mut padded = query.clone();
         padded["reasoning"] = json!("  Decide the next evidence read.  ");
         assert_eq!(
-            prepare_and_validate("jev", padded, PrepareOptions::default()).unwrap(),
+            prepare_and_validate("semanticAssess", padded, PrepareOptions::default()).unwrap(),
             query
         );
         for field in ["model", "goal", "debug", "route", "sources"] {
             let mut invalid = query.clone();
             invalid[field] = json!("not part of the pure protocol");
             assert!(
-                prepare_and_validate("jev", invalid, PrepareOptions::default()).is_err(),
+                prepare_and_validate("semanticAssess", invalid, PrepareOptions::default()).is_err(),
                 "{field}"
             );
         }
-        for field in ["reasoning", "context", "question"] {
+        for field in ["id", "reasoning", "resources", "questions"] {
             let mut invalid = query.clone();
             invalid.as_object_mut().expect("query object").remove(field);
             assert!(
-                prepare_and_validate("jev", invalid, PrepareOptions::default()).is_err(),
+                prepare_and_validate("semanticAssess", invalid, PrepareOptions::default()).is_err(),
                 "missing {field}"
             );
         }

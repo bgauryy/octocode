@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Instrumented Octocode arm using the LOCAL monorepo build instead of npx.
-# The research command is the local CLI `node .../octocode/out/octocode.js tools ...`;
+# The research command is the local CLI `node .../octocode/out/octocode.js <toolName> '<json>'`;
 # this wrapper only captures its output for char measurement.
 set -euo pipefail
 
@@ -11,9 +11,9 @@ OCTO_PY="${OCTO_PY:-python3}"
 OCTO_CLI="${OCTO_CLI:-/Users/bgaryy/code/octocode/packages/octocode/out/octocode.js}"
 
 # Label kept identical to the npx form so the arm identity stays "octocode".
-label="npx octocode tools $(printf '%s ' "$@" | sed 's/ *$//')"
+label="npx octocode $(printf '%s ' "$@" | sed 's/ *$//')"
 exec "$OCTO_PY" "$HERE/instrument_command.py" \
   --log "$OCTO_LOG" \
   --artifact-dir "$OCTO_ARTIFACT_DIR" \
   --label "$label" \
-  -- node "$OCTO_CLI" tools "$@"
+  -- node "$OCTO_CLI" "$@"

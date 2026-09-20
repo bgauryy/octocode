@@ -33,7 +33,7 @@ plus `--compact` for single-line JSON (default output is indented JSON).
 | `ghGetHistoryItem` | Read one PR, issue, commit, or comparison. |
 | `ghCloneRepo` | Clone a repository into the local cache for offline analysis. |
 | `artifactSearch` | Package lookup/discovery across 8 registries. |
-| `jev` | Judgment engine: gate, compare, or audit candidates (requires `OCTOCODE_JEV_KEY`). |
+| `semanticAssess` | Apply Noul, Choice, or Score questions across `resources[] × questions[]`, or batch independent matrices in `queries[]`. Requires `OCTOCODE_JEV_KEY`. |
 
 ### System
 
@@ -275,8 +275,13 @@ npx octocode ghGetHistoryItem '{"operation":"compare","owner":"bgauryy","repo":"
 npx octocode scheme --compact
 npx octocode scheme localSearch --view query --compact
 npx octocode localSearch '{"path":"/ABS/repo/src","searchText":"runCLI","resultView":"matchOnly","reasoning":"Locate the entry."}' --compact
-npx octocode jev --input request.json
+npx octocode semanticAssess --input request.json
 ```
+
+The CLI keeps `semanticAssess` discoverable when the provider key is absent. If
+called without a nonblank `OCTOCODE_JEV_KEY`, it exits with an actionable error
+that names the variable and tells the caller to set it. MCP instead omits the
+tool from discovery until the key is available.
 
 ---
 

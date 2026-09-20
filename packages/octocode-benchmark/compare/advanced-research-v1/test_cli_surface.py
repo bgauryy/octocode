@@ -22,12 +22,12 @@ class CliSurface(unittest.TestCase):
                     [shutil.which("node"), str(self.cli)])
         for launch in launches:
             with self.subTest(launch=launch):
-                self.assertIsNone(policy.audit(shlex.join(launch + ["tools", "localFetch", "--scheme"])))
-                self.assertEqual(policy.audit(shlex.join(launch + ["tools", "localFetch", "--queries",
+                self.assertIsNone(policy.audit(shlex.join(launch + ["scheme", "localFetch", "--view", "query"])))
+                self.assertEqual(policy.audit(shlex.join(launch + ["localFetch",
                     '{"path":"/outside/source.py"}'])), "query_outside_corpus")
-                self.assertEqual(policy.audit(shlex.join(launch + ["localFetch", "--queries",
-                    '{"path":"' + str(self.source) + '"}'])), "recoverable_cli_syntax:missing_tools_subcommand")
-        self.assertEqual(policy.audit(shlex.join([str(self.root / "other.js"), "tools"])),
+                self.assertIsNone(policy.audit(shlex.join(launch + ["localFetch",
+                    '{"reasoning":"Read fixture.","path":"' + str(self.source) + '"}'])))
+        self.assertEqual(policy.audit(shlex.join([str(self.root / "other.js"), "scheme"])),
                          "wrong_octocode_executable")
 
     def test_targeted_reads_use_the_shared_output_budget(self):
@@ -46,7 +46,7 @@ class CliSurface(unittest.TestCase):
         self.assertIn("no_research_commands", ordinary.finish(0)["failures"])
 
     def test_invalid_json_can_be_repaired_after_real_cli_rejection(self):
-        fixture = tempfile.TemporaryDirectory(dir=pilot.WORKSPACE / ".octocode/tmp", prefix="repair fixture ")
+        fixture = tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parent, prefix="repair fixture ")
         self.addCleanup(fixture.cleanup)
         self.corpus = Path(fixture.name)
         self.source = self.corpus / "source.py"
@@ -54,7 +54,7 @@ class CliSurface(unittest.TestCase):
         cli = pilot.WORKSPACE / "packages/octocode/out/octocode.js"
         policy = pilot.Policy("octocode", cli, [self.corpus])
         malformed = '{"path":"/outside/source.py",'
-        args = ["node", str(cli), "tools", "localFetch", "--queries", malformed]
+        args = ["node", str(cli), "localFetch", malformed]
         command = shlex.join(args)
         self.assertEqual(policy.audit(command), "recoverable_cli_syntax:invalid_query_json")
         failed = subprocess.run(args, capture_output=True, text=True, timeout=20)
@@ -87,7 +87,7 @@ class CliSurface(unittest.TestCase):
     def test_quoted_newlines_are_argument_data_and_keep_scope_checks(self):
         policy = pilot.Policy("octocode", self.cli, [self.corpus])
         query = json.dumps({"path": str(self.source)}, indent=2)
-        command = shlex.join(["node", str(self.cli), "tools", "localFetch", "--queries", query])
+        command = shlex.join(["node", str(self.cli), "localFetch", query])
         self.assertIsNone(policy.audit(command))
         self.assertIsNone(self.policy.audit(shlex.join(["rg", "-U", "-F", "pass\n", str(self.source)])))
         self.assertIsNotNone(policy.audit(command + "\nid"))
@@ -96,7 +96,7 @@ class CliSurface(unittest.TestCase):
     def test_native_positional_inputs_preserve_all_scope_checks(self):
         policy = pilot.Policy("octocode", self.cli, [self.corpus])
         def call(tool, query, *tail):
-            return policy.audit(shlex.join(["node", str(self.cli), "tools", tool, json.dumps(query), *tail]))
+            return policy.audit(shlex.join(["node", str(self.cli), tool, json.dumps(query), *tail]))
         self.assertIsNone(call("localFetch", {
             "reasoning": "Read the scoped fixture.", "path": str(self.source), "startLine": 1, "endLine": 1
         }))
@@ -115,7 +115,7 @@ class CliSurface(unittest.TestCase):
             "reasoning": "Read the scoped fixture.", "path": str(self.source)
         }, "--unknown"), "unsupported_cli_flags")
         self.assertIsNone(policy.audit(shlex.join([
-            "node", str(self.cli), "tools", "localFetch", "--help"
+            "node", str(self.cli), "localFetch", "--help"
         ])))
 
     def test_read_only_word_counts_keep_every_path_scoped(self):
@@ -131,13 +131,13 @@ class CliSurface(unittest.TestCase):
     def test_multiple_tool_names_get_actual_cli_error_without_tool_execution(self):
         cli = pilot.WORKSPACE / "packages/octocode/out/octocode.js"
         policy = pilot.Policy("octocode", cli, [self.corpus], remote=True)
-        args = ["node", str(cli), "tools", "localFetch", "ghGetFileContent", "--queries",
+        args = ["node", str(cli), "localFetch", "ghGetFileContent",
                 '[{"path":"/outside/source.py"},{"owner":"outside","repo":"scope"}]']
         self.assertEqual(policy.audit(shlex.join(args)), "recoverable_cli_syntax:multiple_tool_names")
         actual = subprocess.run(args, capture_output=True, text=True, timeout=20)
         self.assertNotEqual(actual.returncode, 0)
-        self.assertIn("cannot be used with '--queries", actual.stdout + actual.stderr)
-        self.assertNotIn("source.py", actual.stdout + actual.stderr)
+        self.assertIn("unexpected argument", actual.stdout + actual.stderr)
+        self.assertNotIn("pass\n", actual.stdout + actual.stderr)
         self.assertEqual(policy.audit(shlex.join(args + ["--unexpected"])), "unsupported_cli_flags")
 
 

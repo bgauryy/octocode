@@ -39,7 +39,7 @@ fn help_lists_only_the_minimal_command_surface() {
         "ghGetHistoryItem",
         "ghCloneRepo",
         "artifactSearch",
-        "jev",
+        "semanticAssess",
         "scheme",
         "config",
         "auth",
@@ -73,6 +73,7 @@ fn help_lists_only_the_minimal_command_surface() {
         "\n  logout",
         "\n  cache",
         "\n  lsp-server",
+        "\n  jev",
     ] {
         assert!(!text.contains(removed), "alias leaked into help: {removed}");
     }

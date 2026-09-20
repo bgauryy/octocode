@@ -82,7 +82,7 @@ pub fn prepare(
             return Err(ContractInputError::new("tool input must be an object"));
         }
     };
-    if tool_name != "jev" {
+    if tool_name != "semanticAssess" {
         default_blank(
             &mut object,
             "goal",
@@ -128,16 +128,17 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn pure_jev_preparation_preserves_exactly_the_supplied_values() {
-        let query = json!({"reasoning":"Decide the next evidence read.","context": {"value": {"goal": "source data", "debug": true}}, "question": {
+    fn pure_semantic_assess_preparation_preserves_exactly_the_supplied_values() {
+        let query = json!({"id":"decision","reasoning":"Decide the next evidence read.","resources":[{"id":"source","context": {"value": {"goal": "source data", "debug": true}}}], "questions":[{"id":"relevant","question": {
             "type": "noul", "instructions": "Assess supplied state"
-        }});
+        }}]});
         for input in [
             query.clone(),
             json!([query.clone()]),
             json!({"queries": [query.clone()]}),
         ] {
-            let prepared = prepare("jev", input, PrepareOptions::default()).expect("pure input");
+            let prepared =
+                prepare("semanticAssess", input, PrepareOptions::default()).expect("pure input");
             assert_eq!(serde_json::Value::Object(prepared.query), query);
         }
     }

@@ -24,17 +24,17 @@ $OCTO scheme <name> --compact                   # schema before calling
 | Research / trace / change impact | `octocode-research` skill |
 | Architecture decisions | `octocode-architect` skill |
 | Benchmarks / keep-discard | `octocode-eval-benchmark` skill |
-| Evidence-driven reasoning crossroads | `octocode-jev-reasoning-loop` skill |
+| Evidence-driven semantic crossroads | `octocode-semantic-assess` skill |
 | Offload bulk to local Ollama | `octocode-subagent` skill |
 | After any package change | rebuild → test via real CLI/MCP/skill path — not just compile |
 
 **Skills are first-class** — wired to the same tools; your default entry point for research, architecture, and eval flows.
 
-**Dogfood Jev where it changes the next action.** Follow [`skills/octocode-jev-reasoning-loop/SKILL.md`](skills/octocode-jev-reasoning-loop/SKILL.md): prefer `resources[] × questions[]` for a shared question set so each resource is captured once and every row carries both IDs. Use `queries[]` only for independent `{context,question}` pairs whose cross-product would be wrong. Context is an unread read-tool request `{tool,query}` or observed `{value}`. Keep matrices within 25 cells. Split enormous files/browser bodies into bounded resources and page matrices until all chunks are seen. Results contain typed answers and compact coverage metadata, not retrieved bodies. Partial pages cannot establish global absence. Candidate/question counts and upcoming assertions alone do not trigger calls. Use exact lookups/tests directly, reuse current evidence, and do not automatically chain scout → conditions → reasoning.
+**Dogfood `semanticAssess` where it changes the next action.** Follow [`skills/octocode-semantic-assess/SKILL.md`](skills/octocode-semantic-assess/SKILL.md): prefer `resources[] × questions[]` for a shared question set so each resource is captured once and every row carries both IDs. Use `queries[]` only for independent matrices whose cross-product would be wrong. Context is an unread read-tool request `{tool,query}` or observed `{value}`. Keep matrices within 25 cells. The runtime preserves ordered same-resource pages without a hidden reducer; follow `next.assess` and retain partial/error pages. Results contain typed Noul, Choice, or Score answers and compact coverage metadata, not retrieved bodies. Partial coverage cannot establish global absence. Candidate/question counts and upcoming assertions alone do not trigger calls. Use exact lookups/tests directly, reuse current evidence, and verify semantic conclusions against source evidence.
 
 ### Reflect after every tool/skill use
 
-Note friction, gaps, or wrong defaults and log them (comment/issue) instead of silently working around — if dogfooding hurts, fix it. Raw findings → [`.octocode/GOTCHAS.md`](.octocode/GOTCHAS.md); durable Jev practice → [`.octocode/JEV.md`](.octocode/JEV.md).
+Note friction, gaps, or wrong defaults and log them (comment/issue) instead of silently working around — if dogfooding hurts, fix it. Raw findings → [`.octocode/GOTCHAS.md`](.octocode/GOTCHAS.md); current semantic-assessment practice → [`docs/OCTOCODE_SEMANTIC_ASSESS.md`](docs/OCTOCODE_SEMANTIC_ASSESS.md); frozen Jev history → [`.octocode/JEV.md`](.octocode/JEV.md).
 
 ---
 
@@ -175,6 +175,6 @@ yarn install && yarn prepublish       # lockfile + final guard + readme sync
 | CLI | [`packages/octocode/docs/OCTOCODE_CLI.md`](packages/octocode/docs/OCTOCODE_CLI.md) |
 | Engine / LSP | [`LSP_SERVER_LIFECYCLE.md`](packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md) · [`SUPPORTED_LANGUAGES_AND_FEATURES.md`](packages/octocode-native/docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md) |
 | Research | [`docs/OCTOCODE_RESEARCH_MANIFEST.md`](docs/OCTOCODE_RESEARCH_MANIFEST.md) · [`docs/ROUTING_EVIDENCE_POSITION_PAPER.md`](docs/ROUTING_EVIDENCE_POSITION_PAPER.md) |
-| Jev | [`.octocode/JEV.md`](.octocode/JEV.md) (agent protocol + economics) · [`docs/OCTOCODE_JEV.md`](docs/OCTOCODE_JEV.md) (contract + workflows) · [`docs/JEV_BENCHMARK.md`](docs/JEV_BENCHMARK.md) |
+| Semantic assessment | [`docs/OCTOCODE_SEMANTIC_ASSESS.md`](docs/OCTOCODE_SEMANTIC_ASSESS.md) (contract) · [`docs/SEMANTIC_ASSESS_RESEARCH_GUIDE.md`](docs/SEMANTIC_ASSESS_RESEARCH_GUIDE.md) (workflow) · [`docs/JEV_BENCHMARK.md`](docs/JEV_BENCHMARK.md) (historical provider benchmark) |
 | Benchmarks | [`BENCHMARK.md`](packages/octocode-benchmark/skills/octocode-benchmark/references/BENCHMARK.md) · [`SCORING.md`](packages/octocode-benchmark/skills/octocode-benchmark/references/SCORING.md) |
 | Skills (repo) | [`skills/`](skills/) → linked into [`.agents/skills/`](.agents/skills/) |

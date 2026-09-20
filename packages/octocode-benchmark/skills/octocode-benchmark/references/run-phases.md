@@ -16,7 +16,7 @@ append its **`## Q<n>` section** (Answer + Research steps) to `answers/<arm>-p<p
 headings exactly `Q1..QN` in order. Chars are authoritative from the JSONL. A missing
 `## Q<n>` section = that arm unscored on that question.
 
-Command forms: `octocode`→`npx octocode@<ver> tools <tool> --queries '<json>'` · `rtk`→`rtk
+Command forms: `octocode`→`npx octocode@<ver> <toolName> '<json>'` · `rtk`→`rtk
 gh <args>` · `headroom`→`compare/bin/ghc <gh args>` · `gh`→`compare/bin/ghm <gh args>` (bare baseline).
 
 **Scaling:** you MAY batch questions within one arm's agent, never mix arms. One pass of a

@@ -1,51 +1,70 @@
 [
   {
-    "id": "jev.curated-1",
-    "tool": "jev",
+    "id": "semanticAssess.curated-1",
+    "tool": "semanticAssess",
     "input": {
       "reasoning": "Choose which candidate implements interceptor ordering.",
-      "context": {
-        "tool": "ghGetFileContent",
-        "query": {
-          "owner": "axios",
-          "repo": "axios",
-          "path": "lib/core/Axios.js",
-          "reasoning": "Screen this discovered candidate without a host body read.",
-          "fullContent": true
-        }
-      },
-      "question": {
-        "type": "choice",
-        "instructions": "Does this file implement request interceptor ordering? Judge supplied implementation; missing delegates are insufficient.",
-        "criteria": {
-          "direct": "Implements the ordering or a counterexample.",
-          "unrelated": "Complete content establishes a different concern.",
-          "insufficient": "Missing implementation prevents deciding."
-        }
-      }
-    },
-    "accepted": true,
-    "normalized": {
-      "queries": [
+      "id": "interceptor-candidate",
+      "resources": [
         {
-          "reasoning": "Choose which candidate implements interceptor ordering.",
+          "id": "axios-core",
           "context": {
             "tool": "ghGetFileContent",
             "query": {
               "owner": "axios",
               "repo": "axios",
               "path": "lib/core/Axios.js",
-              "reasoning": "Screen this discovered candidate without a host body read.",
+              "reasoning": "Screen this candidate without a host body read.",
+              "fullContent": true
+            }
+          }
+        }
+      ],
+      "questions": [
+        {
+          "id": "implements-ordering",
+          "question": {
+            "type": "choice",
+            "instructions": "Does this file implement request interceptor ordering?",
+            "criteria": {
+              "direct": "Implements it.",
+              "unrelated": "Different concern.",
+              "insufficient": "Cannot decide."
+            }
+          }
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "id": "interceptor-candidate",
+      "reasoning": "Choose which candidate implements interceptor ordering.",
+      "resources": [
+        {
+          "id": "axios-core",
+          "context": {
+            "tool": "ghGetFileContent",
+            "query": {
+              "owner": "axios",
+              "repo": "axios",
+              "path": "lib/core/Axios.js",
+              "reasoning": "Screen this candidate without a host body read.",
               "fullContent": true
             }
           },
+          "maxChars": 80000
+        }
+      ],
+      "questions": [
+        {
+          "id": "implements-ordering",
           "question": {
             "type": "choice",
-            "instructions": "Does this file implement request interceptor ordering? Judge supplied implementation; missing delegates are insufficient.",
+            "instructions": "Does this file implement request interceptor ordering?",
             "criteria": {
-              "direct": "Implements the ordering or a counterexample.",
-              "unrelated": "Complete content establishes a different concern.",
-              "insufficient": "Missing implementation prevents deciding."
+              "direct": "Implements it.",
+              "unrelated": "Different concern.",
+              "insufficient": "Cannot decide."
             }
           }
         }
@@ -53,37 +72,50 @@
     }
   },
   {
-    "id": "jev.curated-2",
-    "tool": "jev",
+    "id": "semanticAssess.curated-2",
+    "tool": "semanticAssess",
     "input": {
       "reasoning": "Choose the next investigation without fetching the same facts again.",
-      "context": {
-        "value": {
-          "observations": [
-            "The delay occurs before adapter entry.",
-            "Only requests with an asynchronous interceptor show the delay."
-          ],
-          "hypotheses": {
-            "interceptor": "The interceptor chain delays dispatch.",
-            "adapter": "Adapter setup delays dispatch."
+      "id": "next-investigation",
+      "resources": [
+        {
+          "id": "observations",
+          "context": {
+            "value": {
+              "observations": [
+                "The delay occurs before adapter entry.",
+                "Only requests with an asynchronous interceptor show the delay."
+              ],
+              "hypotheses": {
+                "interceptor": "The interceptor chain delays dispatch.",
+                "adapter": "Adapter setup delays dispatch."
+              }
+            }
           }
         }
-      },
-      "question": {
-        "type": "choice",
-        "instructions": "Which hypothesis should the next read or test discriminate first? These observations do not establish a cause.",
-        "criteria": {
-          "interceptor": "Inspect interceptor scheduling first.",
-          "adapter": "Inspect adapter setup first.",
-          "insufficient": "Obtain a timing trace that separates the two boundaries."
+      ],
+      "questions": [
+        {
+          "id": "hypothesis",
+          "question": {
+            "type": "choice",
+            "instructions": "Which hypothesis should the next read or test discriminate first? These observations do not establish a cause.",
+            "criteria": {
+              "interceptor": "Inspect interceptor scheduling first.",
+              "adapter": "Inspect adapter setup first.",
+              "insufficient": "Obtain a timing trace that separates the two boundaries."
+            }
+          }
         }
-      }
+      ]
     },
     "accepted": true,
     "normalized": {
-      "queries": [
+      "id": "next-investigation",
+      "reasoning": "Choose the next investigation without fetching the same facts again.",
+      "resources": [
         {
-          "reasoning": "Choose the next investigation without fetching the same facts again.",
+          "id": "observations",
           "context": {
             "value": {
               "observations": [
@@ -96,6 +128,12 @@
               }
             }
           },
+          "maxChars": 80000
+        }
+      ],
+      "questions": [
+        {
+          "id": "hypothesis",
           "question": {
             "type": "choice",
             "instructions": "Which hypothesis should the next read or test discriminate first? These observations do not establish a cause.",

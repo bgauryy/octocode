@@ -215,7 +215,7 @@ completed commands with oversized output do not auto-replay mutations. See [the 
 
 ### 3.3 MCP research tools (catalog-driven via MCPTool → octocode-mcp server)
 
-The built-in catalog contains twelve tools, including credential-gated `jev`. They are served through `MCPTool`; omitted `server` defaults to the built-in
+The built-in catalog contains twelve tools, including credential-gated `semanticAssess`. MCP omits it when the resolved `OCTOCODE_JEV_KEY` is absent or blank. It accepts one complete semantic query or a batch of resource-question matrices and preserves ordered same-resource pages without hidden reduction. The tools are served through `MCPTool`; omitted `server` defaults to the built-in
 `octocode` server for research, resource, and prompt actions. Stdio and Streamable HTTP connections receive one bounded startup retry by default; `startupRetries` (0–5) and `retryDelayMs` (0–10000) can override that policy per server. Retry waits honor request cancellation, and targeted server stops abort their pending starts. `MCPTool action:"status"` pings live connections, reports healthy/unhealthy/disconnected rows, and evicts failed connections so their next use reconnects. Legacy SSE remains unsupported because no reviewed active source requires it; URL servers use Streamable HTTP.
 
 Their schemas are

@@ -109,12 +109,13 @@ afterEach(() => {
 
 describe('createNativeMcp registration + execution', () => {
   it.each([
-    ['missing', undefined],
-    ['blank', '   '],
+    ['missing', undefined, false],
+    ['blank', '   ', false],
   ])(
     'omits semanticAssess from discovery when OCTOCODE_JEV_KEY is %s',
-    async (_label, credential) => {
-      const nativeAvailable = Boolean(credential?.trim());
+    async (_label, credential, nativeAvailable) => {
+      // Native owns credential resolution. This fixture supplies the catalog
+      // availability state that the adapter must honor without reinterpreting it.
       const instance = createNativeMcp({
         env: { OCTOCODE_JEV_KEY: credential },
         binding: bindingFor(() => ({

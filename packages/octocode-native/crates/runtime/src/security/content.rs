@@ -59,6 +59,131 @@ fn is_private_key_path(path: Option<&Path>) -> bool {
         )
 }
 
+/// PEM/OpenSSH/PGP *private-key* BEGIN marker (`-----BEGIN … PRIVATE KEY-----`).
+fn is_private_key_begin(line: &str) -> bool {
+    let trimmed = line.trim();
+    trimmed.starts_with("-----BEGIN")
+        && trimmed.ends_with("-----")
+        && trimmed.contains("PRIVATE KEY")
+}
+
+/// PEM/OpenSSH/PGP *private-key* END marker (`-----END … PRIVATE KEY-----`).
+fn is_private_key_end(line: &str) -> bool {
+    let trimmed = line.trim();
+    trimmed.starts_with("-----END") && trimmed.ends_with("-----") && trimmed.contains("PRIVATE KEY")
+}
+
+/// Full-file guard: redact every line of each PEM/OpenSSH/PGP *private-key* block
+/// (from its BEGIN marker through its END marker, inclusive), line-for-line.
+///
+/// This runs on the **whole file** before any bounded read/search window is cut,
+/// which is the gap the anchored built-in patterns leave: those match only a
+/// complete BEGIN…END block in a single view, so a window that selects interior
+/// body lines (no marker) leaks the key. Scanning the full file lets us poison
+/// exactly the block's source lines so any later window of them is already safe.
+///
+/// Line count and the trailing newline are preserved so the tool's reported
+/// source-line ranges stay accurate. Content with no `PRIVATE KEY` marker is
+/// returned byte-identical — ordinary base64 (config blobs, hashes, minified
+/// assets) and public `CERTIFICATE` blocks are never touched. An unterminated
+/// block (a BEGIN with no matching END) is redacted through end-of-file.
+pub(crate) fn redact_private_key_blocks(content: &str) -> (String, bool) {
+    if !content.contains("PRIVATE KEY") {
+        return (content.to_owned(), false);
+    }
+    let placeholder = format!("[REDACTED-{}]", SPLIT_KEY_SECRET.to_uppercase());
+    let mut out = String::with_capacity(content.len());
+    let mut inside = false;
+    let mut changed = false;
+    for (i, line) in content.lines().enumerate() {
+        if i > 0 {
+            out.push('\n');
+        }
+        if is_private_key_begin(line) {
+            inside = true;
+        }
+        if inside {
+            changed = true;
+            out.push_str(&placeholder);
+        } else {
+            out.push_str(line);
+        }
+        if is_private_key_end(line) {
+            inside = false;
+        }
+    }
+    if !changed {
+        return (content.to_owned(), false);
+    }
+    if content.ends_with('\n') {
+        out.push('\n');
+    }
+    (out, true)
+}
+
+/// Placeholder emitted for a redacted private-key fragment. Shared by the
+/// full-file block guard and the localSearch match guard so redactions read
+/// identically wherever a key body is stripped.
+pub(crate) fn key_fragment_placeholder() -> String {
+    format!("[REDACTED-{}]", SPLIT_KEY_SECRET.to_uppercase())
+}
+
+/// Cheap trigger: does this search-match snippet contain any line shaped like a
+/// private-key boundary or base64 body? Used by localSearch to decide whether a
+/// file is worth a full-file scan. It has **no false negatives** for real key
+/// body lines (a base64 body line always satisfies [`is_key_body_line`]), so a
+/// match that could expose key material always triggers the scan; innocent
+/// base64 merely triggers a scan that finds no block and redacts nothing.
+pub(crate) fn snippet_may_hold_key_material(snippet: &str) -> bool {
+    snippet
+        .lines()
+        .any(|line| is_private_key_boundary(line) || is_key_body_line(line))
+}
+
+/// 1-based inclusive line ranges of PEM/OpenSSH/PGP private-key blocks in
+/// `content`. Empty when none. Lets localSearch redact only the matches whose
+/// window intersects a real key block. An unterminated block runs to EOF.
+pub(crate) fn private_key_block_line_ranges(content: &str) -> Vec<(u32, u32)> {
+    if !content.contains("PRIVATE KEY") {
+        return Vec::new();
+    }
+    let mut ranges = Vec::new();
+    let mut start: Option<u32> = None;
+    let mut last = 0u32;
+    for (i, line) in content.lines().enumerate() {
+        let n = (i + 1) as u32;
+        last = n;
+        if start.is_none() && is_private_key_begin(line) {
+            start = Some(n);
+        }
+        if is_private_key_end(line)
+            && let Some(s) = start.take()
+        {
+            ranges.push((s, n));
+        }
+    }
+    if let Some(s) = start.take() {
+        ranges.push((s, last.max(s)));
+    }
+    ranges
+}
+
+/// True when a search match's rendered window (its primary `line` plus the
+/// lines its `value` spans, extended both ways to cover context) intersects any
+/// private-key block range. Conservative on purpose: it may redact a match
+/// adjacent to a block, but only within a file that actually contains a private
+/// key.
+pub(crate) fn match_window_intersects_key_block(
+    line: u32,
+    value: &str,
+    ranges: &[(u32, u32)],
+) -> bool {
+    let span = value.lines().count().max(1) as u32;
+    let start = line.saturating_sub(span);
+    let end = line.saturating_add(span);
+    ranges.iter().any(|&(s, e)| start <= e && s <= end)
+}
+
 /// Redact private-key material from a single sanitized leaf when a key boundary
 /// marker survived full-block redaction — the signal that a bounded read or
 /// search-context window split the key across its BEGIN/END boundary, so the
@@ -413,6 +538,61 @@ mod tests {
         assert!(
             redact_split_private_key("-----BEGIN CERTIFICATE-----\nMIIBpayload", None).is_none()
         );
+    }
+
+    #[test]
+    fn full_file_key_block_redaction_preserves_lines_and_surrounding_code() {
+        let body = "MIIEpQIBAAKCAQEAsplitKeyBodyAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+        let body2 = "c3BsaXRLZXlCb2R5VHdvQkFCQUJBQkFCQUJBQkFCQUJBQkFCQUJBQkFCQUJBQkFC";
+        let file = format!(
+            "fn main() {{}}\n-----BEGIN RSA PRIVATE KEY-----\n{body}\n{body2}\n-----END RSA PRIVATE KEY-----\nlet done = true;\n"
+        );
+        let (out, changed) = redact_private_key_blocks(&file);
+        assert!(changed, "a private-key block must be redacted");
+        assert!(
+            !out.contains(body) && !out.contains(body2),
+            "key body leaked: {out}"
+        );
+        assert!(out.contains("fn main() {}"), "leading code dropped: {out}");
+        assert!(
+            out.contains("let done = true;"),
+            "trailing code dropped: {out}"
+        );
+        assert_eq!(
+            out.lines().count(),
+            file.lines().count(),
+            "line count must be preserved for accurate source-line ranges"
+        );
+        assert!(out.ends_with('\n'), "trailing newline must be preserved");
+    }
+
+    #[test]
+    fn full_file_redaction_leaves_innocent_and_certificate_content_byte_identical() {
+        // Ordinary base64 with no private-key marker — must not be touched.
+        let blob = "header\naGVsbG8gd29ybGQgbG9uZyBiYXNlNjQgYmxvYiBoZXJlIQ==\nfooter\n";
+        let (out, changed) = redact_private_key_blocks(blob);
+        assert!(
+            !changed && out == blob,
+            "innocent base64 was altered: {out}"
+        );
+        // A public certificate is not a private key — untouched.
+        let cert = "-----BEGIN CERTIFICATE-----\nMIIBpublicCertBody\n-----END CERTIFICATE-----\n";
+        let (out, changed) = redact_private_key_blocks(cert);
+        assert!(
+            !changed && out == cert,
+            "certificate was wrongly redacted: {out}"
+        );
+    }
+
+    #[test]
+    fn full_file_redaction_covers_unterminated_block_through_eof() {
+        // A BEGIN with no matching END must still redact the trailing body.
+        let body = "MIIEpQIBAAKCAQEAunterminatedKeyBodyAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+        let file = format!("ok\n-----BEGIN OPENSSH PRIVATE KEY-----\n{body}\n");
+        let (out, changed) = redact_private_key_blocks(&file);
+        assert!(changed, "unterminated block must redact");
+        assert!(!out.contains(body), "unterminated key body leaked: {out}");
+        assert!(out.contains("ok"), "pre-block content dropped: {out}");
     }
 
     #[test]

@@ -32,7 +32,7 @@ performance verdict.
 
 | Surface | Native interface | Eligible work | Important limitation |
 |---|---|---|---|
-| Octocode | Workspace-built `octocode tools` CLI | Lexical, structural, semantic, indexed, codemod preview, end-to-end | The workspace receipt must bind the CLI, native addon, sources, dependency lock, catalog, and schemas. |
+| Octocode | Workspace-built direct-command CLI (`octocode <tool> '<json>'`) | Lexical, structural, semantic, indexed, codemod preview, end-to-end | The workspace receipt must bind the CLI, native addon, sources, dependency lock, catalog, and per-tool schemas. |
 | ripgrep | Raw `rg --json` | Lexical and end-to-end evidence gathering | It does not provide structural identity, semantic resolution, or persistent indexing. |
 | ast-grep | Raw `ast-grep`/`sg` JSON output | Structural search, codemod preview, end-to-end evidence gathering | Patterns must use a capability shared with the Octocode structural lane. |
 | Native LSP | Direct stdio JSON-RPC through `terra_v3_lsp_client.py` | Python and TypeScript semantic cases | This measures the language server, not editor UI latency or editor-assisted human interaction. |

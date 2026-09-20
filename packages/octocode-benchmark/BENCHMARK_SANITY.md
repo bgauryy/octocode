@@ -44,6 +44,7 @@ export PATH="<repo>/node_modules/.bin:$PATH"             # typescript-language-s
 export BIN=<repo>/packages/octocode-native/npm/darwin-arm64/octocode   # native CLI
 export NODECLI=<repo>/packages/octocode/out/octocode.js                # node CLI
 export MCP=<repo>/packages/octocode-mcp/dist/index.js                  # MCP server
+export ENABLE_CLONE=true                                # opt in for the ghCloneRepo checks
 ```
 
 **0.3 — Fixture** (local-tool tasks; path policy is scoped to the process cwd):
@@ -56,16 +57,22 @@ printf '{ "name": "sanity-fixture", "version": "1.0.0", "type": "module" }\n' > 
 cd "$FIX"
 ```
 
-**0.4 — Invocation & PASS.** Uniform form on any surface:
-`"$BIN" tools <name> --queries '[<query>]'` (native), `node "$NODECLI" tools …`
-(node), or MCP `tools/call {name, arguments:{queries:[<query>]}}`. Every query except pure `jev`
-needs a `reasoning` string; `jev` accepts `{state, questions}` plus optional named `sources`. **PASS** = structured result with **no**
+**0.4 — Invocation & PASS.** Use `"$BIN" <name> '<json>'` on the native CLI,
+`node "$NODECLI" <name> '<json>'` on the node CLI, or MCP
+`tools/call {name, arguments:<input>}`. Every query needs a `reasoning` string.
+`semanticAssess` accepts one complete SemanticQuery or
+`{queries:[<SemanticQuery>]}`. **PASS** = structured result with **no**
 `outputContractViolation`, no `Invalid arguments`/`invalidInput`, no crash, and
 the stated content check holds.
 
-**0.5 — Automated runners.** §13 runs the **core** matrix (11 tools × 3 surfaces);
-§14 runs the **advanced** matrix (every variant below). Use per-tool sections to
-diagnose anything red.
+**0.5 — Availability and automated runners.** `scheme` always discovers 12
+tools. With clone at its default disabled setting and no `OCTOCODE_JEV_KEY`, 10
+are available. MCP registers only available tools, so it omits
+`semanticAssess`; the CLI keeps `semanticAssess` and its schema discoverable and
+reports the missing key when called. This setup opts into clone. Section 13 runs
+the 11 non-provider tools across three surfaces, section 12 checks the gated
+semantic tool, and section 14 covers advanced variants. Use the corresponding
+tool section to diagnose a failure.
 
 ---
 
@@ -82,8 +89,8 @@ diagnose anything red.
 - [ ] 9. `ghSearchHistory` — commits / pullRequests / issues  (incl. **R3**)
 - [ ] 10. `ghGetHistoryItem` — commit / pullRequest / issue / compare  (incl. **R4**)
 - [ ] 11. `ghCloneRepo` — clone (+ branch / sparsePath)
+- [ ] 12. `semanticAssess` — resource-question matrices with typed Noul / Choice / Score answers (gated)
 - [ ] R1. `astSearch` deadCode continuation is contract-valid
-- [ ] J1. `jev` — pure Noul / Choice / Score judgment (gated)
 
 ---
 
@@ -368,31 +375,58 @@ require `uri` + (`symbolName`+`lineHint`) **or** `position`. `documentSymbols`/
 
 ---
 
-## J1. jev (gated)
+## 12. semanticAssess (gated)
 
-`jev` is the only Jev tool. MCP exposes it when runtime configuration resolves
-`OCTOCODE_JEV_KEY`; live evaluation also requires provider access. Model selection
-belongs to runtime configuration, never the request.
+`semanticAssess` is the only public semantic-assessment tool. The CLI always
+discovers its command and schema. MCP registers it only when runtime
+configuration resolves a nonblank `OCTOCODE_JEV_KEY`; live evaluation also
+requires provider access. Model selection belongs to runtime configuration,
+never the request.
 
 Inspect and execute through the built CLI:
 
 ```bash
-node "$NODECLI" tools jev --scheme --scheme-view query --json --compact
-node "$NODECLI" tools jev --input request.json --json --compact
+node "$NODECLI" scheme semanticAssess --view query --compact
+node "$NODECLI" semanticAssess --input request.json --compact
 ```
 
-`request.json` requires `{state, questions}`. Supply evidence as state and
-independent Noul, Choice, or Score questions with explicit instructions. Optional
-`sources` maps names to local `{type:"local",path}` or GitHub
-`{type:"github",owner,repo,path,ref}` descriptors, with optional paired line bounds.
-Bodies go directly to Jev; results include source/hash/byte receipts. No workflow
-route, model, or top-level reasoning fields.
+Each SemanticQuery has a stable `id`, `reasoning`, `resources[]`, and
+`questions[]`. Every question is applied to every resource. A resource context
+is either supplied non-empty state in `{value:...}` or one unexecuted bounded
+read request in `{tool,query}`. Use a root `queries[]` only to batch independent
+matrices when a cross-product is incorrect. A single matrix allows at most 25
+cells; a batch allows five matrices and 50 total cells. `maxChars` bounds one
+resource to at most 80,000 sanitized characters.
 
-- [ ] Mixed primitive call returns typed answers, model, and usage.
-- [ ] Source-reference calls return receipts without source bodies; unreadable,
-      out-of-policy and over-budget sources fail before the Jev request.
-- [ ] Unknown root fields, missing instructions, empty questions, and invalid
-      primitive cardinalities fail before provider access.
+Noul answers one binary proposition as `P(yes)`. Choice selects among 2–255
+caller labels and returns the distribution. Score evaluates one ordered 2–10
+level rubric and returns the expected zero-based level. Instructions must be
+non-empty. Noul's complete `true`/`false` criteria and Choice descriptions can
+be `null`; Score levels must not be `null`.
+
+Results are correlated as `queries[] → results[] → pages[]` by `queryId`,
+`resourceId`, `questionId`, and `pageIndex`. Each success page preserves the
+typed provider answer, token usage, and separate `requestedModel` and
+`resolvedModel`; its body-free context receipt records hash, coverage,
+limitations, and continuation metadata. Large resources remain ordered,
+page-local results—there is no hidden reducer. Retain partial and error pages,
+and run `next.assess` unchanged when present.
+
+- [ ] Without `OCTOCODE_JEV_KEY`, `scheme semanticAssess` succeeds,
+      `semanticAssess` fails with an error that names the key and setup URL, and
+      MCP `tools/list` omits the tool.
+- [ ] With the key, MCP `tools/list` includes exactly one `semanticAssess` entry.
+- [ ] A two-resource × three-question call returns six correlated cells with
+      Noul, Choice, and Score answers, model provenance, receipts, and usage.
+- [ ] An independent root `queries[]` batch preserves each query's IDs and
+      matrix boundaries.
+- [ ] A resource larger than one provider page exposes every page result in
+      order; partial coverage supplies executable `next.assess` rather than a
+      hidden aggregate.
+- [ ] Read-tool contexts return receipts without source bodies; unreadable,
+      out-of-policy, and over-budget resources fail before provider access.
+- [ ] Unknown root fields, duplicate IDs, empty values/instructions, invalid
+      nulls, primitive cardinalities, and matrix limits fail before provider access.
 - [ ] Returned judgments match fixed expected outcomes on held-out evidence;
       include insufficient-evidence and conflicting-evidence cases.
 - [ ] Report CLI latency and provider input/output tokens separately from host
@@ -401,7 +435,7 @@ route, model, or top-level reasoning fields.
 
 ---
 
-## 13. Core matrix runner (11 tools × 3 surfaces)
+## 13. Core matrix runner (11 non-provider tools × 3 surfaces)
 
 Run from the fixture cwd (§0.3) with the env from §0.2. Prints a pass grid;
 `ghCloneRepo` shows `reached-net(auth)` in credential-less sandboxes.
@@ -424,7 +458,7 @@ const tools = {
   ghCloneRepo:{reasoning:"x",owner:"octocat",repo:"Hello-World"},
 };
 const cl=t=>/outputContractViolation|violates its canonical output contract/.test(t)?"FAIL(contract)":/Invalid arguments|invalidInput|contract validation failed|unexpected argument/.test(t)?"FAIL(input)":/panicked|is not a function|Cannot find module/.test(t)?"FAIL(crash)":/could not read Username|terminal prompts disabled|git .*clone failed/.test(t)?"reached-net(auth)":"PASS";
-const cli=(bin,n,q)=>{const r=spawnSync(bin[0],[...bin.slice(1),"tools",n,"--queries",JSON.stringify([q])],{cwd:FIX,encoding:"utf8",timeout:60000,env:process.env});return cl((r.stdout||"")+(r.stderr||"")+(r.error?.message||""));};
+const cli=(bin,n,q)=>{const r=spawnSync(bin[0],[...bin.slice(1),n,JSON.stringify(q),"--compact"],{cwd:FIX,encoding:"utf8",timeout:60000,env:process.env});return cl((r.stdout||"")+(r.stderr||"")+(r.error?.message||""));};
 const mcpAll=names=>new Promise(res=>{const c=spawn("node",[process.env.MCP],{stdio:["pipe","pipe","pipe"],cwd:FIX,env:process.env});let b="",i=0,id=100;const o={};const s=x=>c.stdin.write(JSON.stringify(x)+"\n");const nx=()=>{if(i>=names.length){c.kill();return res(o);}const n=names[i++];c._n=n;s({jsonrpc:"2.0",id:++id,method:"tools/call",params:{name:n,arguments:{queries:[tools[n]]}}});};c.stdout.on("data",d=>{b+=d;let ls=b.split("\n");b=ls.pop();for(const l of ls){if(!l.trim())continue;let m;try{m=JSON.parse(l)}catch{continue}if(m.id===1)nx();else if(m.id>100){o[c._n]=cl(JSON.stringify(m.result||m.error||""));nx();}}});c.stderr.on("data",()=>{});s({jsonrpc:"2.0",id:1,method:"initialize",params:{protocolVersion:"2025-06-18",capabilities:{},clientInfo:{name:"x",version:"0"}}});setTimeout(()=>{c.kill();res(o)},120000);});
 (async()=>{const names=Object.keys(tools);const mcp=await mcpAll(names);console.log("TOOL".padEnd(18),"NATIVE-CLI".padEnd(20),"NODE-CLI".padEnd(20),"MCP");console.log("-".repeat(78));for(const n of names)console.log(n.padEnd(18),cli([process.env.BIN],n,tools[n]).padEnd(20),cli(["node",process.env.NODECLI],n,tools[n]).padEnd(20),mcp[n]||"?");})();
 NODE
@@ -473,7 +507,7 @@ const V = {
 };
 const ok=t=>!/outputContractViolation|invalidInput|Invalid arguments|panicked|contract validation failed/.test(t);
 for(const [label,[name,q]] of Object.entries(V)){
-  const r=spawnSync(BIN,["tools",name,"--queries",JSON.stringify([q])],{cwd:FIX,encoding:"utf8",timeout:60000,env:process.env});
+  const r=spawnSync(BIN,[name,JSON.stringify(q),"--compact"],{cwd:FIX,encoding:"utf8",timeout:60000,env:process.env});
   console.log((ok((r.stdout||"")+(r.stderr||""))?"✅":"❌")+" "+label);
 }
 NODE

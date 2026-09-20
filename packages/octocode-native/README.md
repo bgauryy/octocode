@@ -177,7 +177,7 @@ octocode ghGetHistoryItem '{"operation":"pullRequest","owner":"octocodeai","repo
 octocode artifactSearch '{"type":"crates","packageName":"clap","reasoning":"Confirm the clap crate."}'
 
 # large queries from a file instead of shell-quoted JSON
-octocode jev --input query.json
+octocode semanticAssess --input query.json
 ```
 
 Exact field names per tool come from `octocode scheme <tool>` — the examples
@@ -204,7 +204,7 @@ contract is identical to the MCP server tool of the same name.
 | `ghGetHistoryItem` | Read one PR, issue, commit, or comparison. |
 | `ghCloneRepo` | Clone into the local cache for offline analysis. |
 | `artifactSearch` | Package lookup/discovery across 8 registries. |
-| `jev` | Judgment engine: gate, compare, or audit candidates. |
+| `semanticAssess` | Apply Noul, Choice, or Score questions to one resource matrix or a batch of independent matrices. Requires `OCTOCODE_JEV_KEY`; CLI calls without it report the missing key. |
 
 ### System
 

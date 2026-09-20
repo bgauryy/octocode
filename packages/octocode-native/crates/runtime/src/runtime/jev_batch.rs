@@ -1,14 +1,14 @@
-//! Capture every context independently, then group only identical captured states.
+//! Resource-major semantic assessment with capture-once paging.
 use super::{
     ExecutionContext, ExecutionError,
     dispatch::{self, DomainResult},
     domain_dispatch::DomainDispatcher,
 };
 use crate::tools::jev::{self, transport::JevProviderError};
-use futures_util::{StreamExt, stream};
 use secrecy::SecretString;
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use sha2::{Digest, Sha256};
+use std::collections::HashSet;
 
 pub(super) struct ProviderConfig<'a> {
     pub key: &'a SecretString,
@@ -17,191 +17,270 @@ pub(super) struct ProviderConfig<'a> {
     pub retries: u32,
 }
 
-struct Captured<'a> {
-    index: usize,
-    state: Value,
-    identity: String,
-    receipt: Option<Value>,
-    question: &'a Value,
-}
-
-#[derive(Clone)]
-enum CaptureOutcome {
+enum CapturedPage {
     Ready {
         state: Value,
-        receipt: Option<Value>,
+        context: Value,
     },
     Failed {
         error: JevProviderError,
-        receipt: Option<Value>,
+        context: Value,
     },
 }
 
-fn capture(
-    query: &Value,
+fn fallback_context(source: &Value) -> Value {
+    let digest = hex::encode(Sha256::digest(source.to_string().as_bytes()));
+    match source.get("tool").and_then(Value::as_str) {
+        Some(tool) => json!({"source":"tool","tool":tool,"resultHash":digest,"coverage":"partial",
+            "limitations":["Context retrieval failed before a complete page was captured."]}),
+        None => json!({"source":"value","resultHash":digest,"coverage":"partial",
+            "limitations":["Context retrieval failed before a complete page was captured."]}),
+    }
+}
+
+fn bounded_prefix(state: &Value, context: &mut Value, max_chars: usize) -> Value {
+    let prefix = state
+        .to_string()
+        .chars()
+        .take(max_chars)
+        .collect::<String>();
+    context["resultHash"] = json!(hex::encode(Sha256::digest(prefix.as_bytes())));
+    context["coverage"] = json!("partial");
+    if let Some(object) = context.as_object_mut() {
+        object.remove("next");
+    }
+    context["limitations"] = json!([
+        "The first sanitized page exceeded maxChars and was assessed only as a bounded prefix; no safe within-page continuation is available."
+    ]);
+    Value::String(prefix)
+}
+
+fn capture_resource(
+    resource: &Value,
     dispatcher: &DomainDispatcher,
-    context: &ExecutionContext,
-) -> CaptureOutcome {
-    match super::jev_context::resolve(query, dispatcher, context) {
-        Ok((state, receipt)) => CaptureOutcome::Ready { state, receipt },
-        Err(failure) => CaptureOutcome::Failed {
-            error: failure.error,
-            receipt: failure.receipt,
-        },
+    execution: &ExecutionContext,
+) -> Result<(Vec<CapturedPage>, Option<Value>), ExecutionError> {
+    let max_chars = resource
+        .get("maxChars")
+        .and_then(Value::as_u64)
+        .unwrap_or(80_000) as usize;
+    let mut source = resource["context"].clone();
+    let mut pages = Vec::new();
+    let mut captured_chars = 0usize;
+    let mut seen = HashSet::new();
+    let mut remaining = None;
+
+    loop {
+        execution.check()?;
+        let identity = source.to_string();
+        if !seen.insert(identity) {
+            remaining = Some(source);
+            break;
+        }
+        match super::jev_context::resolve(&source, dispatcher, execution) {
+            Ok((state, receipt)) => {
+                let state_chars = state.to_string().chars().count();
+                let remaining_chars = max_chars.saturating_sub(captured_chars);
+                if state_chars > remaining_chars && !pages.is_empty() {
+                    remaining = Some(source);
+                    break;
+                }
+                let mut context = receipt.unwrap_or_else(|| fallback_context(&source));
+                if state_chars > remaining_chars {
+                    let state = bounded_prefix(&state, &mut context, remaining_chars.max(1));
+                    pages.push(CapturedPage::Ready { state, context });
+                    break;
+                }
+                captured_chars = captured_chars.saturating_add(state_chars);
+                let continuation = super::jev_context::continuation(&context);
+                pages.push(CapturedPage::Ready { state, context });
+                let Some(next) = continuation else {
+                    break;
+                };
+                if captured_chars >= max_chars || pages.len() >= 100 {
+                    remaining = Some(next);
+                    break;
+                }
+                source = next;
+            }
+            Err(failure) => {
+                let context = failure.receipt.unwrap_or_else(|| fallback_context(&source));
+                pages.push(CapturedPage::Failed {
+                    error: failure.error,
+                    context,
+                });
+                break;
+            }
+        }
     }
+    Ok((pages, remaining))
 }
 
-fn matrix_capture_key(query: &Value) -> Option<(String, String)> {
-    let resource_id = query.get("resourceId")?.as_str()?.to_owned();
-    let mut context = query.get("context")?.clone();
-    context.sort_all_objects();
-    Some((resource_id, context.to_string()))
+fn error_page(index: usize, context: Value, error: JevProviderError) -> Value {
+    json!({
+        "pageIndex": index,
+        "context": context,
+        "status":"error",
+        "error":{"code":error.code,"message":error.message,"hints":error.hints}
+    })
 }
 
-fn failed(error: JevProviderError, receipt: Option<Value>) -> DomainResult {
-    let mut result = dispatch::provider_failure(error.message, error.code, error.hints, None);
-    if let Some(receipt) = receipt {
-        result.data["context"] = receipt;
+async fn assess_page(
+    state: &Value,
+    questions: &[Value],
+    config: &ProviderConfig<'_>,
+    budget: &crate::providers::RequestBudget,
+) -> (Vec<Result<Value, JevProviderError>>, Option<Value>) {
+    let indexed = questions
+        .iter()
+        .enumerate()
+        .map(|(index, question)| (index, &question["question"]))
+        .collect::<Vec<_>>();
+    if indexed.len() > 1 && jev::batch::fits(state, &indexed, config.model) {
+        return match jev::batch::execute(
+            state,
+            &indexed,
+            config.key,
+            config.base_url,
+            config.model,
+            budget,
+            config.retries,
+        )
+        .await
+        {
+            Ok(mut response) => {
+                for answer in response.answers.iter_mut().skip(1).flatten() {
+                    if let Some(object) = answer.as_object_mut() {
+                        object.remove("usage");
+                    }
+                }
+                (response.answers, Some(response.usage))
+            }
+            Err(error) => (vec![Err(error); questions.len()], None),
+        };
     }
-    result
+
+    let mut answers = Vec::with_capacity(questions.len());
+    let mut usages = Vec::new();
+    for question in questions {
+        let result = jev::execute(
+            state,
+            &question["question"],
+            config.key.clone(),
+            config.base_url,
+            config.model,
+            budget.clone(),
+            config.retries,
+        )
+        .await;
+        if let Ok(data) = &result {
+            usages.push(data["usage"].clone());
+        }
+        answers.push(result);
+    }
+    (answers, Some(json!({"calls":usages})))
 }
 
 pub(super) fn execute(
     queries: &[Value],
     dispatcher: &DomainDispatcher,
-    context: &ExecutionContext,
+    execution: &ExecutionContext,
     config: ProviderConfig<'_>,
     mut record_usage: impl FnMut(&Value),
 ) -> Result<Vec<DomainResult>, ExecutionError> {
-    let mut rows: Vec<Option<DomainResult>> = (0..queries.len()).map(|_| None).collect();
-    let mut captured = Vec::new();
-    let mut matrix_captures: HashMap<(String, String), CaptureOutcome> = HashMap::new();
-    for (index, query) in queries.iter().enumerate() {
-        context.check()?;
-        let outcome = match jev::preflight(query) {
-            Err(error) => CaptureOutcome::Failed {
-                error,
-                receipt: None,
-            },
-            Ok(()) => match matrix_capture_key(query) {
-                Some(key) => matrix_captures
-                    .entry(key)
-                    .or_insert_with(|| capture(query, dispatcher, context))
-                    .clone(),
-                None => capture(query, dispatcher, context),
-            },
-        };
-        match outcome {
-            CaptureOutcome::Ready { state, receipt } => {
-                let mut canonical = state.clone();
-                canonical.sort_all_objects();
-                captured.push(Captured {
-                    index,
-                    identity: canonical.to_string(),
-                    state,
-                    receipt,
-                    question: &query["question"],
-                });
-            }
-            CaptureOutcome::Failed { error, receipt } => {
-                rows[index] = Some(failed(error, receipt));
-            }
-        }
-    }
-    let mut groups: Vec<Vec<Captured<'_>>> = Vec::new();
-    for row in captured {
-        if let Some(group) = groups.iter_mut().find(|group| {
-            group[0].identity == row.identity && {
-                let mut questions: Vec<_> =
-                    group.iter().map(|row| (row.index, row.question)).collect();
-                questions.push((row.index, row.question));
-                jev::batch::fits(&row.state, &questions, config.model)
-            }
-        }) {
-            group.push(row);
-        } else {
-            groups.push(vec![row]);
-        }
-    }
-    let budget = jev::transport::budget(context.deadline, context.cancellation.clone());
-    // Capture remains serial; only independent provider groups overlap. All
-    // futures share the admitted deadline/cancellation and are drained before
-    // returning, so each completed response records its usage immediately.
-    let pending = groups.into_iter().map(|group| {
-        let budget = &budget;
-        let config = &config;
-        async move {
-            let first = &group[0];
-            let result = if group.len() == 1 {
-                jev::execute(
-                    &first.state,
-                    first.question,
-                    config.key.clone(),
-                    config.base_url,
-                    config.model,
-                    budget.clone(),
-                    config.retries,
-                )
-                .await
-                .map(|data| jev::batch::GroupResponse {
-                    usage: data["usage"].clone(),
-                    answers: vec![Ok(data)],
-                })
-            } else {
-                let questions: Vec<_> = group.iter().map(|row| (row.index, row.question)).collect();
-                jev::batch::execute(
-                    &first.state,
-                    &questions,
-                    config.key,
-                    config.base_url,
-                    config.model,
-                    budget,
-                    config.retries,
-                )
-                .await
-            };
-            (group, result)
-        }
-    });
-    dispatcher.handle.block_on(async {
-        let mut completions = stream::iter(pending).buffer_unordered(5);
-        while let Some((group, result)) = completions.next().await {
-            match result {
-                Err(error) => {
-                    for row in group {
-                        rows[row.index] = Some(failed(error.clone(), None));
+    let budget = jev::transport::budget(execution.deadline, execution.cancellation.clone());
+    let mut outputs = Vec::with_capacity(queries.len());
+
+    for query in queries {
+        execution.check()?;
+        jev::preflight(query).map_err(|_| ExecutionError::WorkerFailed)?;
+        let questions = query["questions"]
+            .as_array()
+            .ok_or(ExecutionError::WorkerFailed)?;
+        let resources = query["resources"]
+            .as_array()
+            .ok_or(ExecutionError::WorkerFailed)?;
+        let mut results = Vec::with_capacity(resources.len().saturating_mul(questions.len()));
+        let mut continuation_resources = Vec::new();
+
+        for resource in resources {
+            let (pages, continuation) = capture_resource(resource, dispatcher, execution)?;
+            let mut cell_pages = vec![Vec::new(); questions.len()];
+            for (page_index, page) in pages.into_iter().enumerate() {
+                match page {
+                    CapturedPage::Failed { error, context } => {
+                        for output in &mut cell_pages {
+                            output.push(error_page(page_index, context.clone(), error.clone()));
+                        }
                     }
-                }
-                Ok(result) => {
-                    record_usage(&result.usage);
-                    let owner = group
-                        .iter()
-                        .zip(&result.answers)
-                        .find_map(|(row, answer)| answer.is_ok().then_some(row.index));
-                    let shared: Vec<_> = group.iter().map(|row| row.index).collect();
-                    for (row, answer) in group.into_iter().zip(result.answers) {
-                        rows[row.index] = Some(match answer {
-                            Err(error) => failed(error, None),
-                            Ok(mut data) => {
-                                if shared.len() > 1 {
-                                    if owner != Some(row.index) {
-                                        data["usage"] = json!({"input_tokens":0,"output_tokens":0});
-                                    }
-                                    data["usageAttribution"] =
-                                        json!({"ownerIndex":owner,"sharedWith":shared});
+                    CapturedPage::Ready { state, context } => {
+                        let (answers, usage) = dispatcher
+                            .handle
+                            .block_on(assess_page(&state, questions, &config, &budget));
+                        if let Some(usage) = usage {
+                            if let Some(calls) = usage.get("calls").and_then(Value::as_array) {
+                                for call in calls {
+                                    record_usage(call);
                                 }
-                                if let Some(receipt) = row.receipt {
-                                    data["context"] = receipt;
-                                }
-                                dispatch::value_result(data)
+                            } else {
+                                record_usage(&usage);
                             }
-                        });
+                        }
+                        for (output, answer) in cell_pages.iter_mut().zip(answers) {
+                            output.push(match answer {
+                                Ok(mut data) => {
+                                    data["pageIndex"] = json!(page_index);
+                                    data["context"] = context.clone();
+                                    data["status"] = json!("success");
+                                    data
+                                }
+                                Err(error) => error_page(page_index, context.clone(), error),
+                            });
+                        }
                     }
                 }
             }
+
+            let has_continuation = continuation.is_some();
+            if let Some(context) = continuation {
+                let mut pending = resource.clone();
+                pending["context"] = context;
+                continuation_resources.push(pending);
+            }
+            for (question, pages) in questions.iter().zip(cell_pages) {
+                let successes = pages
+                    .iter()
+                    .filter(|page| page["status"] == "success")
+                    .count();
+                let partial_context = pages
+                    .iter()
+                    .any(|page| page["context"]["coverage"] == "partial");
+                let coverage = if successes == 0 {
+                    "error"
+                } else if successes != pages.len() || has_continuation || partial_context {
+                    "partial"
+                } else {
+                    "complete"
+                };
+                results.push(json!({
+                    "resourceId":resource["id"],
+                    "questionId":question["id"],
+                    "coverage":coverage,
+                    "pages":pages
+                }));
+            }
         }
-    });
-    rows.into_iter()
-        .collect::<Option<Vec<_>>>()
-        .ok_or(ExecutionError::WorkerFailed)
+
+        let mut output = json!({"queryId":query["id"],"results":results});
+        if !continuation_resources.is_empty() {
+            output["next"] = json!({"assess":{
+                "id":query["id"],
+                "reasoning":query["reasoning"],
+                "resources":continuation_resources,
+                "questions":query["questions"]
+            }});
+        }
+        outputs.push(dispatch::value_result(output));
+    }
+    Ok(outputs)
 }

@@ -58,16 +58,17 @@ At startup, the Node adapter loads the platform-specific Rust N-API addon (`@oct
 ## Tool catalog
 
 The full discovery catalog contains 12 tools. With the default settings and no
-Jev key, the MCP server registers 10: `ghCloneRepo` is opt-in and requires
-`ENABLE_CLONE=true` plus persistent storage, while `jev`
-is registered only when the resolved `OCTOCODE_JEV_KEY` is nonblank.
+Jev provider key, the MCP server registers 10. `ghCloneRepo` execution is opt-in and requires
+`ENABLE_CLONE=true` plus persistent storage, while `semanticAssess`
+is registered only when the resolved `OCTOCODE_JEV_KEY` is nonblank. An absent
+or whitespace-only key omits the tool from MCP discovery.
 
 | Family | Tools |
 |--------|-------|
 | GitHub | `ghSearch`, `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem`, `ghCloneRepo` |
 | Local | `localSearch`, `localFetch`, `astSearch`, `astRewrite`, `lspSearch` |
 | Package | `artifactSearch` |
-| Reasoning | `jev` |
+| Semantic assessment | `semanticAssess` |
 
 `astRewrite` is preview-first. File mutation is separately opt-in with
 `ENABLE_AST_REWRITE_APPLY=true` and requires the complete set of preview hashes.
@@ -105,8 +106,8 @@ The following table lists the settings that matter most for MCP:
 | `OCTOCODE_OUTPUT_FORMAT` | `yaml` | Tool response format: `yaml` or `json`. |
 | `OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH` | `20000` | Default response size budget (1 000 – 50 000). |
 | `OCTOCODE_LSP_CONFIG` | unset | Path to a custom `lsp-servers.json`. |
-| `OCTOCODE_JEV_KEY` | unset | TypeSafe Jev API key. A nonblank resolved value registers `jev`; keep it in the environment or a protected secret source. |
-| `OCTOCODE_JEV_MODEL` | `jev-latest` | Optional model override for `jev`. |
+| `OCTOCODE_JEV_KEY` | unset | TypeSafe Jev API key. A nonblank resolved value registers `semanticAssess`; keep it in the environment or a protected secret source. |
+| `OCTOCODE_JEV_MODEL` | `jev-latest` | Optional Jev provider model override for `semanticAssess`; results preserve both requested and resolved model names. |
 | `OCTOCODE_JEV_BASE_URL` | `https://api.typesafe.ai` | Optional trusted Jev API root. |
 
 For full details, see the [Octocode configuration and authentication](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) reference.

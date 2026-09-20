@@ -20,7 +20,7 @@ const PUBLIC_TOOL_NAMES = DIRECT_TOOL_DISCOVERY_DEFINITIONS.map(
 const DISCOVERABLE_TOOL_COUNT = PUBLIC_TOOL_NAMES.length;
 const DEFAULT_TOOL_NAMES = PUBLIC_TOOL_NAMES.filter(name => {
   if (
-    name === STATIC_TOOL_NAMES.JEV
+    name === STATIC_TOOL_NAMES.SEMANTIC_ASSESS
   )
     return false;
   return name === 'ghCloneRepo' ? DEFAULT_CONFIG.local.enableClone : true;

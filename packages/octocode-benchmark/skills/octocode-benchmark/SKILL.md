@@ -35,8 +35,8 @@ CLI unchanged, prints output verbatim, and appends one JSONL row per call:
 
 | Arm | Wrapper | Runs | Log env |
 |---|---|---|---|
-| octocode (local build) | `compare/bin/octoc` | `npx octocode tools …` | `OCTO_LOG` |
-| octocode (published pin) | `compare/bin/octoc1822` | `npx -y octocode@18.2.2 tools …` | `OCTO_LOG` |
+| octocode (local build) | `compare/bin/octoc-local` | `node …/octocode.js <toolName> '<json>'` | `OCTO_LOG` |
+| octocode (published historical pin) | `compare/bin/octoc1822` | `npx -y octocode@18.2.2 tools …` | `OCTO_LOG` |
 | gh+RTK | `compare/bin/rtkm` | `rtk gh …` | `RTK_LOG` |
 | gh+Headroom | `compare/bin/ghc` | `gh …` → Headroom compress | `GHC_LOG` (+ `HR_PY`) |
 | plain gh | `compare/bin/ghm` | `gh …` (read-only) | — |
@@ -72,9 +72,9 @@ bash skills/octocode-benchmark/scripts/check-prereqs.sh 18.2.2
 CAMP="campaigns/run-$(date -u +%H%M%S)-$(date -u +%Y-%m-%d)"; mkdir -p "$CAMP/answers" "$CAMP/judge"
 
 # Phase 1 — answer (spawn ONE isolated agent per arm; never mix arms in an agent).
-# Each research call sets its per-question log, e.g. octocode Q4:
-OCTO_LOG="$CAMP/octocode-p1-Q4.jsonl" ./compare/bin/octoc1822 ghGetFileContent \
-  --queries '{"owner":"axios","repo":"axios","path":"lib/adapters/http.js","matchString":"follow-redirects"}'
+# Each research call sets its per-question log, e.g. current local Octocode Q4:
+OCTO_LOG="$CAMP/octocode-p1-Q4.jsonl" ./compare/bin/octoc-local ghGetFileContent \
+  '{"reasoning":"Read the redirect transport branch.","owner":"axios","repo":"axios","path":"lib/adapters/http.js","matchString":"follow-redirects"}'
 # baseline (gh+RTK) Q4:
 RTK_LOG="$CAMP/rtk-p1-Q4.jsonl" ./compare/bin/rtkm search code --repo axios/axios follow-redirects --limit 20
 # log the final answer, then append a "## Q4" section (Answer + Research steps) to answers/<arm>-p1.md
@@ -116,7 +116,7 @@ layout: `references/run-with-agents.md` → `run-preflight.md` + `run-phases.md`
 
 - `scripts/check-prereqs.sh` — Phase 0 gate (all arms + questions + primers).
 - `scripts/measure.sh` — fallback char wrapper for an arm without a dedicated `bin/` wrapper.
-- `compare/bin/`: `octoc` · `octoc1822` · `rtkm` · `ghc` · `ghm` (arm wrappers) ·
+- `compare/bin/`: `octoc-local` · `octoc` · `octoc1822` · `rtkm` · `ghc` · `ghm` (arm wrappers) ·
   `instrument_command.py` / `hr_compress.py` (char capture) · `record_answer.py` ·
   `sumlog.py` (per-question total, `--strict`) · `build_blind_packet.py` (X/Y packet) ·
   `validate_campaign.py` (byte-faithful campaign check) · `per_question_summary.py`

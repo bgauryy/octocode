@@ -168,7 +168,7 @@ class PilotControls(unittest.TestCase):
         for query in ({"operation": "documentSymbols", "uri": str(self.source)},
                       {"operation": "documentSymbols", "uri": self.source.as_uri()},
                       {"operation": "workspaceSymbol", "workspaceRoot": str(self.corpus), "symbolName": "source"}):
-            call = f"node {self.cli} tools lspSearch --queries {shlex.quote(json.dumps(query))} --compact"
+            call = f"node {self.cli} lspSearch {shlex.quote(json.dumps(query))} --compact"
             self.assertIsNone(policy.audit(call), query)
 
     def test_secondary_query_paths_cannot_escape_corpus(self):
@@ -188,14 +188,14 @@ class PilotControls(unittest.TestCase):
         ]
         for tool, query in queries:
             with self.subTest(query=query):
-                call = f"node {self.cli} tools {tool} --queries {shlex.quote(json.dumps(query))} --compact"
+                call = f"node {self.cli} {tool} {shlex.quote(json.dumps(query))} --compact"
                 self.assertEqual(policy.audit(call), "query_outside_corpus")
 
     def test_scoped_topology_supports_root_inference_and_relative_targets(self):
         policy = pilot.Policy("octocode", self.cli, [self.corpus])
         for query in ({"operation": "topology", "analysis": "dependencies", "file": str(self.source)},
                       {"operation": "topology", "analysis": "path", "path": str(self.corpus), "file": "source.py", "target": "source.py"}):
-            call = f"node {self.cli} tools astSearch --queries {shlex.quote(json.dumps(query))} --compact"
+            call = f"node {self.cli} astSearch {shlex.quote(json.dumps(query))} --compact"
             self.assertIsNone(policy.audit(call), query)
 
     def test_exec_network_expansion_and_sed_program_rejected(self):
@@ -260,10 +260,10 @@ class PilotControls(unittest.TestCase):
     def test_octocode_only_local_scoped_queries(self):
         policy = pilot.Policy("octocode", self.cli, [self.corpus])
         query = json.dumps({"path": str(self.source), "startLine": 1, "endLine": 20})
-        base = f"node {self.cli} tools localFetch --queries {shlex.quote(query)} --compact"
+        base = f"node {self.cli} localFetch {shlex.quote(query)} --compact"
         self.assertIsNone(policy.audit(base))
         self.assertIsNotNone(policy.audit(base.replace(str(self.source), "/etc/passwd")))
-        self.assertIsNotNone(policy.audit(f"node {self.cli} tools ghSearch --queries '{{}}'"))
+        self.assertIsNotNone(policy.audit(f"node {self.cli} ghSearch '{{}}'"))
 
     def test_smart_case_is_an_allowed_raw_search_flag(self):
         for flag in ("-S", "--smart-case", "-s", "--case-sensitive"):
@@ -279,14 +279,14 @@ class PilotControls(unittest.TestCase):
         for flags in ("--follow", "--pre=cat", "-f/etc/passwd", "--hostname-bin=id"):
             self.assertIsNotNone(self.policy.audit(f"rg {flags} pass {self.corpus}"))
 
-    def test_missing_tools_is_recorded_and_recoverable_within_call_budget(self):
+    def test_malformed_positional_json_is_recorded_and_recoverable_within_call_budget(self):
         state = pilot.EventAudit(pilot.Policy("octocode", self.cli, [self.corpus]), pilot.Budgets())
         query = shlex.quote(json.dumps({"path": str(self.source), "searchText": "pass"}))
-        wrong = f"node {self.cli} localSearch --queries {query} --compact"
-        correct = f"node {self.cli} tools localSearch --queries {query} --compact"
+        wrong = f"node {self.cli} localSearch '{{broken}}' --compact"
+        correct = f"node {self.cli} localSearch {query} --compact"
         state.feed(self.command(command=wrong, kind="item.started", output=""))
         self.assertFalse(state.stop_requested)
-        state.feed(self.command(command=wrong, output="unknown command localSearch", exit_code=1))
+        state.feed(self.command(command=wrong, output="invalid query JSON", exit_code=1))
         state.feed(self.command("c2", command=correct))
         result = self.finish(state)
         self.assertTrue(result["eligible"])
@@ -297,8 +297,8 @@ class PilotControls(unittest.TestCase):
 
     def test_recoverable_syntax_does_not_waive_scope_or_tool_restrictions(self):
         policy = pilot.Policy("octocode", self.cli, [self.corpus])
-        for suffix in ("auth", "skill install foo", "ghSearch --queries '{}'",
-                       "localFetch --queries '{\"path\":\"/etc/passwd\"}'"):
+        for suffix in ("auth", "skill install foo", "ghSearch '{}'",
+                       "localFetch '{\"path\":\"/etc/passwd\"}'"):
             issue = policy.audit(f"node {self.cli} {suffix}")
             self.assertIsNotNone(issue)
             self.assertFalse(issue.startswith("recoverable_cli_syntax:"))
@@ -409,7 +409,7 @@ class PilotControls(unittest.TestCase):
         plan = json.loads(printed.call_args.args[0])
         self.assertEqual(plan["corpora"]["langchain"]["path"], str(self.corpus.resolve()))
         self.assertEqual(plan["corpora"]["nextjs"]["commit"], pilot.COMMITS["nextjs"])
-        self.assertEqual(plan["protocol"], "read-surface-recovery-v11")
+        self.assertEqual(plan["protocol"], "read-surface-recovery-v12")
         with patch("sys.stderr"), self.assertRaises(SystemExit):
             pilot.main(["--output-dir", str(self.root / "missing-roots")])
 
@@ -427,19 +427,22 @@ class PilotControls(unittest.TestCase):
             self.assertIsNotNone(policy.audit(f"rg pass {target}"), target)
         octocode = pilot.Policy("octocode", self.cli, [self.corpus])
         self.assertEqual(octocode.audit(
-            f'node {self.cli} tools localFetch --queries \'{{"path":"$LANGCHAIN/source.py"}}\' --compact'),
+            f'node {self.cli} localFetch \'{{"path":"$LANGCHAIN/source.py"}}\' --compact'),
             "query_outside_corpus")
         self.assertIsNotNone(octocode.audit(
-            f'node {self.cli} tools localFetch --queries "{{\\"path\\":\\"$LANGCHAIN/source.py\\"}}" --compact'))
+            f'node {self.cli} localFetch "{{\\"path\\":\\"$LANGCHAIN/source.py\\"}}" --compact'))
 
     def test_tool_contract_capture_requires_enabled_schemas_and_bounded_output(self):
         from unittest.mock import patch
-        catalog = {"tools": [{"name": name, "availability": {"enabled": True}} for name in pilot.Policy.local_tools]}
-        schemas = {"schemas": [{"name": name} for name in pilot.Policy.local_tools]}
-        with patch.object(pilot, "command", side_effect=[json.dumps(catalog), json.dumps(schemas), "Canonical context\n"]):
+        catalog = {"instructions": "Canonical context\n", "tools": [
+            {"name": name, "availability": {"enabled": True}} for name in pilot.Policy.local_tools
+        ]}
+        schema_rows = [{"name": name} for name in sorted(pilot.Policy.local_tools)]
+        schemas = {"schemas": schema_rows}
+        with patch.object(pilot, "command", side_effect=[json.dumps(catalog), *map(json.dumps, schema_rows)]):
             self.assertEqual(pilot.capture_tool_contract(self.cli)["localSchemas"], schemas)
         catalog["tools"][0]["availability"]["enabled"] = False
-        with patch.object(pilot, "command", side_effect=[json.dumps(catalog), json.dumps(schemas), "Canonical context\n"]):
+        with patch.object(pilot, "command", side_effect=[json.dumps(catalog), *map(json.dumps, schema_rows)]):
             with self.assertRaisesRegex(RuntimeError, "required_local_tool_unavailable"):
                 pilot.capture_tool_contract(self.cli)
         with patch.object(pilot, "command", return_value="x" * 65537):
@@ -458,8 +461,7 @@ class PilotControls(unittest.TestCase):
             corpora = {"langchain": corpus, "nextjs": corpus}
             for arm in ("raw-tools",):
                 prompt = pilot.prompt_for("A01", arm, "Fixture question", cli, corpora, pilot.Budgets())
-                command = next(line for line in prompt.splitlines()
-                               if "tools localFetch --queries " in line or line.startswith("sed "))
+                command = next(line for line in prompt.splitlines() if line.startswith("sed "))
                 with self.subTest(arm=arm):
                     self.assertIsNone(pilot.Policy(arm, cli, [corpus]).audit(command))
                     result = subprocess.run(["/bin/sh", "-c", command],
@@ -501,8 +503,7 @@ class PilotControls(unittest.TestCase):
             for arm in ("raw-tools",):
                 with self.subTest(arm=arm):
                     prompt = pilot.prompt_for("A01", arm, "question", cli, corpora, pilot.Budgets())
-                    command = next(line for line in prompt.splitlines()
-                                   if "tools localSearch --queries " in line or line.startswith("rg "))
+                    command = next(line for line in prompt.splitlines() if line.startswith("rg "))
                     self.assertIsNone(pilot.Policy(arm, cli, [corpus]).audit(command))
                     result = subprocess.run(["/bin/sh", "-c", command], capture_output=True, timeout=30)
                     self.assertEqual(result.returncode, 0, result.stderr + result.stdout)

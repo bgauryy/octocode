@@ -36,7 +36,7 @@ pub enum ToolId {
     AstSearch,
     AstRewrite,
     LspSearch,
-    Jev,
+    SemanticAssess,
 }
 
 impl ToolId {
@@ -53,7 +53,7 @@ impl ToolId {
         ToolId::AstSearch,
         ToolId::AstRewrite,
         ToolId::LspSearch,
-        ToolId::Jev,
+        ToolId::SemanticAssess,
     ];
 
     /// The wire name exactly as it appears in the generated contract and in
@@ -72,7 +72,7 @@ impl ToolId {
             ToolId::AstSearch => "astSearch",
             ToolId::AstRewrite => "astRewrite",
             ToolId::LspSearch => "lspSearch",
-            ToolId::Jev => "jev",
+            ToolId::SemanticAssess => "semanticAssess",
         }
     }
 
@@ -96,7 +96,7 @@ impl ToolId {
             | ToolId::GhSearchHistory
             | ToolId::GhGetHistoryItem
             | ToolId::GhCloneRepo => ToolFamily::GitHub,
-            ToolId::ArtifactSearch | ToolId::Jev => ToolFamily::Remote,
+            ToolId::ArtifactSearch | ToolId::SemanticAssess => ToolFamily::Remote,
         }
     }
 
@@ -112,10 +112,10 @@ impl ToolId {
         matches!(self.family(), ToolFamily::GitHub)
     }
 
-    /// A Jev reasoning tool (gated on a non-blank `OCTOCODE_JEV_KEY`).
+    /// A semantic assessment tool (gated on a non-blank `OCTOCODE_JEV_KEY`).
     #[must_use]
-    pub const fn is_jev(self) -> bool {
-        matches!(self, ToolId::Jev)
+    pub const fn is_semantic_assess(self) -> bool {
+        matches!(self, ToolId::SemanticAssess)
     }
 
     /// Human-readable category label used in the CLI `scheme` catalog.
@@ -134,7 +134,7 @@ impl ToolId {
             | ToolId::AstRewrite
             | ToolId::LspSearch => "Local Code",
             ToolId::ArtifactSearch => "Package",
-            ToolId::Jev => "Reasoning",
+            ToolId::SemanticAssess => "Reasoning",
         }
     }
 
@@ -146,7 +146,7 @@ impl ToolId {
     pub const fn availability_env_hint(self) -> Option<&'static str> {
         match self {
             ToolId::GhCloneRepo => Some("ENABLE_CLONE|OCTOCODE_STORAGE_MODE"),
-            ToolId::Jev => Some("OCTOCODE_JEV_KEY"),
+            ToolId::SemanticAssess => Some("OCTOCODE_JEV_KEY"),
             ToolId::LocalSearch
             | ToolId::LocalFetch
             | ToolId::AstSearch
@@ -216,7 +216,8 @@ mod tests {
             assert_eq!(id.display_category(), "Local Code", "{id}");
         }
         assert_eq!(ToolId::ArtifactSearch.display_category(), "Package");
-        assert_eq!(ToolId::Jev.display_category(), "Reasoning");
+        assert_eq!(ToolId::SemanticAssess.display_category(), "Reasoning");
+        assert_eq!(ToolId::from_name("jev"), None);
     }
 
     #[test]
@@ -240,7 +241,7 @@ mod tests {
             Some("ENABLE_CLONE|OCTOCODE_STORAGE_MODE")
         );
         assert_eq!(
-            ToolId::Jev.availability_env_hint(),
+            ToolId::SemanticAssess.availability_env_hint(),
             Some("OCTOCODE_JEV_KEY")
         );
         for id in [
@@ -257,13 +258,13 @@ mod tests {
     #[test]
     fn every_tool_has_exactly_one_family() {
         for id in ToolId::ALL {
-            let count = [id.is_local(), id.is_github(), id.is_jev()]
+            let count = [id.is_local(), id.is_github(), id.is_semantic_assess()]
                 .into_iter()
                 .filter(|flag| *flag)
                 .count();
             // Jev tools are Remote family, so is_jev is orthogonal; assert the
             // Local/GitHub families are mutually exclusive and cover no jev tool.
-            if id.is_jev() {
+            if id.is_semantic_assess() {
                 assert!(!id.is_local() && !id.is_github());
                 assert_eq!(id.family(), ToolFamily::Remote);
             } else {

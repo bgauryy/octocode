@@ -110,6 +110,132 @@ mod tests {
         }
     }
 
+    // SEC-1: a search that matches an interior base64 body line of a private key
+    // must not return the key body, even though the match view holds no BEGIN/END
+    // marker. The full-file block scan (triggered by the base64-shaped snippet)
+    // redacts it; the default `SecurityRegistry` window sanitizer alone cannot.
+    #[test]
+    fn interior_private_key_match_is_redacted_without_markers_in_view() {
+        let root = tempfile::tempdir().expect("fixture directory");
+        // 64-char base64 body line carrying a distinctive, searchable fragment.
+        let body = "MIIEpQIBAAKCAQEAinteriorKeyBodyAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+        let file = format!(
+            "fn main() {{}}\n-----BEGIN RSA PRIVATE KEY-----\nZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ\n{body}\nYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY\n-----END RSA PRIVATE KEY-----\nlet done = true;\n"
+        );
+        fs::write(root.path().join("app.rs"), file).expect("fixture");
+        let policy = PathPolicy::new(PathPolicyConfig {
+            workspace_root: Some(root.path().to_path_buf()),
+            ..Default::default()
+        })
+        .expect("policy");
+        let security = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+        // Content view returns the whole matched line (not just the match span),
+        // so a hit inside the base64 body would surface the key material.
+        let request = LocalSearchRequest {
+            path: root.path().to_string_lossy().into_owned(),
+            search_text: "MIIEpQIB".into(),
+            result_view: Some(ResultView::Detailed),
+            context_lines: Some(0),
+            ..Default::default()
+        };
+        let result =
+            execute_local_search(&request, &policy, &security, &NeverCancel).expect("search");
+        let body_json = serde_json::to_value(&result).expect("serialize");
+        let value = body_json["files"][0]["matches"][0]["value"]
+            .as_str()
+            .unwrap_or_default();
+        assert!(
+            !value.contains("interiorKeyBody"),
+            "private key body leaked via a localSearch match: {value}"
+        );
+    }
+
+    // SEC-1 over-redaction guard: a base64-shaped line with no private-key block
+    // anywhere in the file must be returned intact — the snippet triggers a
+    // full-file scan that finds no block and redacts nothing.
+    #[test]
+    fn innocent_base64_match_is_not_redacted() {
+        let root = tempfile::tempdir().expect("fixture directory");
+        let blob = "aGVsbG8gd29ybGRfaW5ub2NlbnRfYmFzZTY0X2Jsb2JfaGVyZQ==";
+        fs::write(
+            root.path().join("data.txt"),
+            format!("prefix\n{blob}\nsuffix\n"),
+        )
+        .expect("fixture");
+        let policy = PathPolicy::new(PathPolicyConfig {
+            workspace_root: Some(root.path().to_path_buf()),
+            ..Default::default()
+        })
+        .expect("policy");
+        let security = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+        let request = LocalSearchRequest {
+            path: root.path().to_string_lossy().into_owned(),
+            search_text: "aGVsbG8".into(),
+            result_view: Some(ResultView::Detailed),
+            context_lines: Some(0),
+            ..Default::default()
+        };
+        let result =
+            execute_local_search(&request, &policy, &security, &NeverCancel).expect("search");
+        let body_json = serde_json::to_value(&result).expect("serialize");
+        let value = body_json["files"][0]["matches"][0]["value"]
+            .as_str()
+            .unwrap_or_default();
+        assert!(
+            value.contains(blob),
+            "innocent base64 was wrongly redacted: {value}"
+        );
+    }
+
+    // OUT-1: a pathological single giant line (generated/minified file) must not
+    // emit a multi-MB body. The total-response budget clips each match value —
+    // every match row and its line anchor is preserved (no silent drop, no
+    // continuation cursor needed); the clip is flagged `truncated`.
+    #[test]
+    fn oversized_match_is_clipped_to_response_budget_without_dropping_rows() {
+        let root = tempfile::tempdir().expect("fixture directory");
+        let line = format!("needle {}", "x".repeat(3_000_000));
+        fs::write(root.path().join("giant.txt"), format!("{line}\n")).expect("fixture");
+        let policy = PathPolicy::new(PathPolicyConfig {
+            workspace_root: Some(root.path().to_path_buf()),
+            ..Default::default()
+        })
+        .expect("policy");
+        let security = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+        let request = LocalSearchRequest {
+            path: root.path().to_string_lossy().into_owned(),
+            search_text: "needle".into(),
+            result_view: Some(ResultView::Detailed),
+            match_content_length: Some(5_000_000), // ask the engine for the whole line
+            context_lines: Some(0),
+            ..Default::default()
+        };
+        let result =
+            execute_local_search(&request, &policy, &security, &NeverCancel).expect("search");
+        let matches = result.files[0].matches.as_ref().expect("matches");
+        assert_eq!(
+            matches.len(),
+            1,
+            "the match row must be preserved, not dropped"
+        );
+        assert_eq!(
+            matches[0].line, 1,
+            "line anchor preserved for localFetch follow-up"
+        );
+        assert!(
+            matches[0].value.chars().count() <= 1_100_000,
+            "value not clipped to budget: {} chars",
+            matches[0].value.chars().count()
+        );
+        assert!(matches[0].truncated, "clip must be flagged truncated");
+        let body = serde_json::to_string(&result).expect("serialize");
+        assert!(
+            body.len() <= 2_000_000,
+            "response body exceeded the byte budget: {} bytes",
+            body.len()
+        );
+    }
+
     #[test]
     fn content_view_snippet_carries_truncation_indicator() {
         // Fix 7: a content-view match on a line longer than matchContentLength is

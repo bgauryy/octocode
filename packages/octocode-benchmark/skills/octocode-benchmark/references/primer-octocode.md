@@ -1,9 +1,9 @@
 # Octocode arm primer
 
 Inject as the `octocode` runner's only primer. Every research call is
-`npx octocode tools <tool> --queries '<json>'` (no MCP, no gh). `--queries` takes one JSON
-object or an array of objects (batch). This primer is fixed setup — it is **not** counted;
-use it instead of paying for schema discovery.
+`npx octocode <toolName> '<json>'` (no MCP, no gh). Pass one query object, or
+wrap 1–5 independent queries in `{"queries":[...]}`. This primer is fixed setup
+and is **not** counted; use it instead of paying for schema discovery.
 
 ## Tools — what each is for and when to STOP
 
@@ -31,20 +31,20 @@ use it instead of paying for schema discovery.
 ## Query forms
 
 ```bash
-npx octocode tools ghSearch --queries '{"operation":"code","owner":"OWNER","repo":"REPO","keywords":["TERM"],"match":"path"}'
-npx octocode tools ghSearch --queries '{"operation":"repositories","keywords":["TERM"],"concise":true}'
-npx octocode tools ghSearch --queries '{"operation":"tree","owner":"OWNER","repo":"REPO","branch":"SHA","path":"PATH"}'
-npx octocode tools ghGetFileContent --queries '{"owner":"OWNER","repo":"REPO","path":"PATH","branch":"SHA","matchString":"SYMBOL","contextLines":8}'
-npx octocode tools ghGetFileContent --queries '{"owner":"OWNER","repo":"REPO","path":"PATH","branch":"SHA","minify":"symbols"}'
-npx octocode tools ghSearchHistory --queries '{"operation":"commits","owner":"OWNER","repo":"REPO","path":"PATH"}'
-npx octocode tools artifactSearch --queries '{"type":"npm","packageName":"@octokit/rest"}'
-npx octocode tools artifactSearch --queries '{"type":"crates","keywords":["async","runtime"]}'
-npx octocode tools ghGetHistoryItem --queries '{"operation":"pullRequest","owner":"OWNER","repo":"REPO","number":123,"content":{"body":true}}'
+npx octocode ghSearch '{"reasoning":"Locate candidate paths.","operation":"code","owner":"OWNER","repo":"REPO","keywords":["TERM"],"match":"path"}'
+npx octocode ghSearch '{"reasoning":"Find the source repository.","operation":"repositories","keywords":["TERM"],"concise":true}'
+npx octocode ghSearch '{"reasoning":"Browse the known revision.","operation":"tree","owner":"OWNER","repo":"REPO","branch":"SHA","path":"PATH"}'
+npx octocode ghGetFileContent '{"reasoning":"Read the deciding source region.","owner":"OWNER","repo":"REPO","path":"PATH","branch":"SHA","matchString":"SYMBOL","contextLines":8}'
+npx octocode ghGetFileContent '{"reasoning":"Map declarations before an exact read.","owner":"OWNER","repo":"REPO","path":"PATH","branch":"SHA","minify":"symbols"}'
+npx octocode ghSearchHistory '{"reasoning":"Find revisions that changed this path.","operation":"commits","owner":"OWNER","repo":"REPO","path":"PATH"}'
+npx octocode artifactSearch '{"reasoning":"Resolve the known dependency.","type":"npm","packageName":"@octokit/rest"}'
+npx octocode artifactSearch '{"reasoning":"Discover candidate runtimes.","type":"crates","keywords":["async","runtime"]}'
+npx octocode ghGetHistoryItem '{"reasoning":"Read the known pull request body.","operation":"pullRequest","owner":"OWNER","repo":"REPO","number":123,"content":{"body":true}}'
 ```
 
 Errors are self-correcting — a missing/typo'd field returns a guiding message (for example, *"Repository
-scope requires owner"*); fix and retry. For a field this primer doesn't cover, `npx octocode
-tools <name> --scheme --brief` prints the compact schema (that call is measured). Freeze every
+scope requires owner"*); fix and retry. For a field this primer doesn't cover,
+`npx octocode scheme <name> --compact` prints the compact contract (that call is measured). Freeze every
 mutable ref (branch/PR-state/SHA + UTC) before answering; use the frozen ref.
 
 ## Critical pitfalls
@@ -57,10 +57,10 @@ be lower than a plain `grep -r` or `find` which ignores `.gitignore`.
 
 ```bash
 # Without noIgnore — only unignored files (default):
-npx octocode tools localSearch --queries '{"searchText":"TERM","path":"/repo","resultView":"files"}'
+npx octocode localSearch '{"reasoning":"Find matching source files.","searchText":"TERM","path":"/repo","resultView":"files"}'
 
 # With noIgnore — matches grep -r behaviour:
-npx octocode tools localSearch --queries '{"searchText":"TERM","path":"/repo","resultView":"files","noIgnore":true}'
+npx octocode localSearch '{"reasoning":"Include ignored build outputs in the file count.","searchText":"TERM","path":"/repo","resultView":"files","noIgnore":true}'
 ```
 
 When the question says "how many files contain X" without specifying gitignore policy, default
@@ -75,10 +75,10 @@ objects with that field as the sole member.
 
 ```bash
 # WRONG — only matches interfaces where `name` is the only field:
-npx octocode tools astSearch --queries '{"operation":"match","path":"/repo","langType":"typescript","pattern":"interface $I { name: $T; }"}'
+npx octocode astSearch '{"reasoning":"Find interfaces with only this field.","operation":"match","path":"/repo","langType":"typescript","pattern":"interface $I { name: $T; }"}'
 
 # CORRECT — matches interfaces that contain `name` plus any other fields:
-npx octocode tools astSearch --queries '{"operation":"match","path":"/repo","langType":"typescript","pattern":"interface $I { $$$ name: $T; $$$ }"}'
+npx octocode astSearch '{"reasoning":"Find interfaces containing this field.","operation":"match","path":"/repo","langType":"typescript","pattern":"interface $I { $$$ name: $T; $$$ }"}'
 ```
 
 The same rule applies to object literals, class bodies, and function parameter objects:
@@ -93,13 +93,13 @@ To find the file with the most lines:
 
 ```bash
 # Returns files sorted by line count (lineCount field appears in output when detail:full):
-npx octocode tools astSearch --queries '{"operation":"files","path":"/repo","detail":"full","sort":"lines","entryType":"f"}'
+npx octocode astSearch '{"reasoning":"Rank files by line count.","operation":"files","path":"/repo","detail":"full","sort":"lines","entryType":"f"}'
 ```
 
 Alternatively, to get line count for a specific file:
 
 ```bash
-npx octocode tools localFetch --queries '{"path":"/repo/file.ts","fullContent":false,"limit":1,"offset":0}'
+npx octocode localFetch '{"reasoning":"Read exact file metadata.","path":"/repo/file.ts","fullContent":false,"limit":1,"offset":0}'
 # Check `totalLines` in the response pagination — this is the exact line count.
 ```
 
@@ -115,10 +115,10 @@ annotations, re-exports, and imports) — not just call sites.
 
 ```bash
 # WRONG — text hits, no function name:
-npx octocode tools localSearch --queries '{"searchText":"buildNextPageContinuation","path":"/repo","resultView":"files"}'
+npx octocode localSearch '{"reasoning":"Locate textual references.","searchText":"buildNextPageContinuation","path":"/repo","resultView":"files"}'
 
 # CORRECT — returns calling function name, file, and call-site line:
-npx octocode tools lspSearch --queries '{"operation":"callers","uri":"file:///repo/scheme/pagination.ts","symbolName":"buildNextPageContinuation","lineHint":118}'
+npx octocode lspSearch '{"reasoning":"Identify calling functions.","operation":"callers","uri":"file:///repo/scheme/pagination.ts","symbolName":"buildNextPageContinuation","lineHint":118}'
 # Each result: item.name=<calling function>, item.uri=<file>, ranges[].line=<call site line>
 ```
 
@@ -149,13 +149,13 @@ The alias is a separate symbol.
 Always also search for type aliases:
 ```bash
 # Step 1: find all usages of the original type
-npx octocode tools lspSearch --queries '{"operation":"references","uri":"...","symbolName":"OriginalType","lineHint":N}'
+npx octocode lspSearch '{"reasoning":"Find uses of the original type.","operation":"references","uri":"...","symbolName":"OriginalType","lineHint":N}'
 
 # Step 2: search for type aliases that equal the original type
-npx octocode tools localSearch --queries '{"searchText":"= OriginalType","path":"/repo","include":["*.ts"],"resultView":"paginated"}'
+npx octocode localSearch '{"reasoning":"Find aliases of the original type.","searchText":"= OriginalType","path":"/repo","include":["*.ts"],"resultView":"paginated"}'
 
 # Step 3: for each alias found, run references on the alias too
-npx octocode tools lspSearch --queries '{"operation":"references","uri":"...","symbolName":"AliasName","lineHint":N}'
+npx octocode lspSearch '{"reasoning":"Find uses of the alias.","operation":"references","uri":"...","symbolName":"AliasName","lineHint":N}'
 ```
 
 ### 7 — Topology edges now include `importLine` and `inboundCount`
@@ -169,7 +169,7 @@ return two additional fields per result item:
 Use `inboundCount` to answer “which files are most imported within this subtree”:
 ```bash
 # Run dependents from the subtree root, then sort by inboundCount in the results
-npx octocode tools astSearch --queries '{"operation":"topology","analysis":"dependents","file":"/repo/subtree/index.ts","path":"/repo/subtree","depth":5}'
+npx octocode astSearch '{"reasoning":"Rank inbound dependencies in this subtree.","operation":"topology","analysis":"dependents","file":"/repo/subtree/index.ts","path":"/repo/subtree","depth":5}'
 # Look at inboundCount on each result — highest = most imported within the scan scope
 ```
 
@@ -205,8 +205,8 @@ octocode/packages/octocode-native/crates/runtime/src/tools/ast_search/
 
 ```bash
 # WRONG — astFiles.ts is not here:
-npx octocode tools localFetch --queries '{"path":"/Users/.../octocode/packages/octocode-native/crates/runtime/src/tools/ast_search/astFiles.ts"}'
+npx octocode localFetch '{"reasoning":"Demonstrate the wrong contract location.","path":"/Users/.../octocode/packages/octocode-native/crates/runtime/src/tools/ast_search/astFiles.ts"}'
 
 # CORRECT:
-npx octocode tools localFetch --queries '{"path":"/Users/.../octocode-mcp-host/packages/octocode-core/src/toolContract/input/resources/tools/astFiles.ts","fullContent":true}'
+npx octocode localFetch '{"reasoning":"Read the canonical input contract.","path":"/Users/.../octocode-mcp-host/packages/octocode-core/src/toolContract/input/resources/tools/astFiles.ts","fullContent":true}'
 ```

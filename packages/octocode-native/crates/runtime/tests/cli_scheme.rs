@@ -32,13 +32,16 @@ fn scheme_catalog_carries_availability_scoped_core_instructions() {
             serde_json::from_slice(&output.stdout).expect("catalog JSON");
         assert_eq!(catalog["instructions"], expected, "{catalog}");
         assert!(catalog.get("guidance").is_none(), "{catalog}");
-        assert_eq!(expected.contains("jev"), enabled, "{catalog}");
-        let jev = catalog["tools"]
+        assert_eq!(expected.contains("semanticAssess"), enabled, "{catalog}");
+        let semantic_assess = catalog["tools"]
             .as_array()
             .expect("tools array")
             .iter()
-            .find(|tool| tool["name"] == "jev")
-            .expect("jev entry");
-        assert_eq!(jev["availability"]["enabled"], enabled, "{catalog}");
+            .find(|tool| tool["name"] == "semanticAssess")
+            .expect("semanticAssess entry");
+        assert_eq!(
+            semantic_assess["availability"]["enabled"], enabled,
+            "{catalog}"
+        );
     }
 }

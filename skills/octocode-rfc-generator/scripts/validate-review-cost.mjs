@@ -7,6 +7,8 @@ import { pathToFileURL } from 'node:url';
 const text = value => typeof value === 'string' && value.trim().length > 0;
 const count = value => Number.isInteger(value) && value >= 0;
 const measure = value => value === null || (typeof value === 'number' && Number.isFinite(value) && value >= 0);
+const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+const only = (value, keys) => object(value) && Object.keys(value).every(key => keys.includes(key));
 const CONTRIBUTIONS = new Set([
   'changed-action', 'prioritized-existing-concern', 'confirmation-only',
   'no-demonstrated-help', 'harmful',
@@ -67,13 +69,18 @@ export function validateReviewCost(receipt) {
     }
   }
   const judge = receipt?.judge;
-  if (!count(judge?.calls) || !count(judge?.attempts) || judge?.attempts < judge?.calls ||
+  if (!only(judge, ['calls', 'attempts', 'requestedModel', 'resolvedModels', 'elapsedMs', 'inputTokens', 'outputTokens', 'outcome']) ||
+      !count(judge?.calls) || !count(judge?.attempts) || judge?.attempts < judge?.calls ||
       !measure(judge?.elapsedMs) || !measure(judge?.inputTokens) || !measure(judge?.outputTokens) ||
-      !['judgment', 'converged-no-call', 'failed', 'unavailable'].includes(judge?.outcome)) {
+      !['judgment', 'converged-no-call', 'failed', 'unavailable'].includes(judge?.outcome) ||
+      !Array.isArray(judge?.resolvedModels) || !judge.resolvedModels.every(text) ||
+      new Set(judge.resolvedModels).size !== judge.resolvedModels.length) {
     errors.push('judge requires valid calls/attempts, measurements, and outcome.');
   }
-  if (judge?.calls > 0 && !text(judge?.model)) errors.push('judge.model is required when a provider call ran.');
-  if (judge?.calls === 0 && judge?.model !== null) errors.push('judge.model must be null when no call ran.');
+  if (judge?.attempts > 0 && !text(judge?.requestedModel)) errors.push('judge.requestedModel is required when a provider attempt ran.');
+  if (judge?.attempts === 0 && judge?.requestedModel !== null) errors.push('judge.requestedModel must be null when no provider attempt ran.');
+  if (judge?.calls === 0 && judge?.resolvedModels?.length !== 0) errors.push('judge.resolvedModels must be empty when no call ran.');
+  if (judge?.outcome === 'judgment' && judge?.resolvedModels?.length === 0) errors.push('A successful judgment must record at least one provider-resolved model.');
   if (judge?.calls === 0 && [judge?.elapsedMs, judge?.inputTokens, judge?.outputTokens].some(value => value !== null)) {
     errors.push('judge measurements must be null when no provider call ran.');
   }
@@ -108,7 +115,7 @@ function fixture() {
       { id: 'A', status: 'complete', rounds: 2, toolCalls: 2, evidenceReads: 2, elapsedMs: 300, inputTokens: null, outputTokens: null },
       { id: 'B', status: 'complete', rounds: 2, toolCalls: 2, evidenceReads: 2, elapsedMs: 320, inputTokens: null, outputTokens: null },
     ],
-    judge: { calls: 1, attempts: 1, model: 'jev-test', elapsedMs: 100, inputTokens: 1000, outputTokens: 90, outcome: 'judgment' },
+    judge: { calls: 1, attempts: 1, requestedModel: 'jev-test', resolvedModels: ['jev-test-2026-09'], elapsedMs: 100, inputTokens: 1000, outputTokens: 90, outcome: 'judgment' },
     failures: [],
     unknowns: ['host.inputTokens', 'host.outputTokens', 'workers.A.inputTokens', 'workers.A.outputTokens', 'workers.B.inputTokens', 'workers.B.outputTokens'],
     contribution: 'prioritized-existing-concern',
@@ -123,6 +130,9 @@ function selfTest() {
     value => { value.workers[1].id = 'A'; },
     value => { value.unknowns.pop(); },
     value => { value.judge.calls = 0; },
+    value => { value.judge.requestedModel = null; },
+    value => { value.judge.resolvedModels = []; },
+    value => { value.judge.model = 'legacy-undifferentiated-model'; },
     value => { value.contribution = 'accuracy-improved'; },
   ];
   for (const mutate of mutations) {
@@ -131,7 +141,7 @@ function selfTest() {
     assert.equal(validateReviewCost(broken).valid, false);
   }
   const converged = fixture();
-  converged.judge = { calls: 0, attempts: 0, model: null, elapsedMs: null, inputTokens: null, outputTokens: null, outcome: 'converged-no-call' };
+  converged.judge = { calls: 0, attempts: 0, requestedModel: null, resolvedModels: [], elapsedMs: null, inputTokens: null, outputTokens: null, outcome: 'converged-no-call' };
   converged.unknowns.push('judge.elapsedMs', 'judge.inputTokens', 'judge.outputTokens');
   assert.equal(validateReviewCost(converged).valid, true);
   return { valid: true, selfTest: true, cases: mutations.length + 2 };

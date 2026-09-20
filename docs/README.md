@@ -21,7 +21,9 @@ Use this page to find the document that owns each topic. The root [README](../RE
 | Choosing among local text, AST, topology, file, and LSP evidence | [Local code research workflow](LOCAL_RESEARCH_WORKFLOW.md) | How-to |
 | Carrying evidence and continuations between tools | [Tool data and handoff contract](TOOL_DATA_CONTRACT.md) | Reference |
 | Evidence grades and agent routing rules | [Octocode research manifest](OCTOCODE_RESEARCH_MANIFEST.md) | Explanation |
-| When to use the Jev judgment tools, with measured results | [Jev benchmark](JEV_BENCHMARK.md) | Explanation |
+| Semantic assessment contract and examples | [Semantic assessment reference](OCTOCODE_SEMANTIC_ASSESS.md) | Reference |
+| Scout, assess, then verify source evidence | [Semantic assessment research guide](SEMANTIC_ASSESS_RESEARCH_GUIDE.md) | How-to |
+| Historical Jev provider measurements | [Jev benchmark](JEV_BENCHMARK.md) | Explanation |
 | The broader research-driven development philosophy | [Research-driven development manifest](../MANIFEST.md) | Explanation |
 | The retrieval and routing model behind the toolkit | [Evidence-graded retrieval position paper](ROUTING_EVIDENCE_POSITION_PAPER.md) | Explanation |
 

@@ -45,39 +45,46 @@ function run(args, env = {}) {
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'triage-test-'));
-  // Stub Octocode CLI: enforces the matrix request shape and correlates rows.
+  // Stub Octocode CLI: enforces SemanticQuery and nested query → cell → page output.
   stubCli = join(dir, 'stub-cli.mjs');
   writeFileSync(stubCli, `
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 const args = process.argv.slice(2);
 if (args[0] === 'scheme') {
-  assert.deepEqual(args, ['scheme', 'jev', '--view', 'query', '--compact']);
-  console.log('{"name":"jev"}');
+  assert.deepEqual(args, ['scheme', 'semanticAssess', '--view', 'query', '--compact']);
+  console.log('{"name":"semanticAssess"}');
   process.exit(0);
 }
 const input = args[2];
-assert.deepEqual(args, ['jev', '--input', input, '--compact']);
+assert.deepEqual(args, ['semanticAssess', '--input', input, '--compact']);
 const req = JSON.parse(readFileSync(input, 'utf8'));
+assert.equal(typeof req.id, 'string');
 assert.equal(typeof req.reasoning, 'string');
 assert.equal(req.questions.length, 1);
 assert.equal(req.questions[0].id, 'relevance');
-const results = process.env.TEST_JEV_EMPTY ? [] : req.resources.map((resource, index) => {
+const continued = req.resources.some((resource) => resource.context.query.offset === 50_000);
+const hasNext = Boolean(process.env.TEST_SEMANTIC_CONTINUATION) && !continued;
+const results = process.env.TEST_SEMANTIC_EMPTY ? [] : req.resources.map((resource) => {
   const p = resource.context.query.path;
   let choice = 'relevant', confidence = 0.95;
   if (/page-002/.test(p)) { choice = 'unrelated'; confidence = 0.9; }
   if (/page-003/.test(p)) { choice = 'unrelated'; confidence = 0.3; }
   if (/page-004/.test(p)) { choice = 'mention'; confidence = 0.7; }
-  const context = { tool: 'localFetch', resultHash: 'a'.repeat(64), coverage: process.env.TEST_JEV_COVERAGE || 'bounded', ...(process.env.TEST_JEV_COVERAGE === 'partial' ? { limitations: ['Only a bounded fragment was available.'] } : {}) };
-  return { index, resourceId: resource.id, questionId: 'relevance', data: { model: 'stub', answer: { type: 'choice', choice, confidence, probabilities: { [choice]: confidence } }, context, usage: { input_tokens: 100, output_tokens: 5 } } };
+  const context = { source: 'tool', tool: 'localFetch', resultHash: 'a'.repeat(64), coverage: process.env.TEST_SEMANTIC_COVERAGE || 'bounded', ...(process.env.TEST_SEMANTIC_COVERAGE === 'partial' ? { limitations: ['Only a bounded fragment was available.'] } : {}) };
+  return { resourceId: resource.id, questionId: 'relevance', coverage: context.coverage === 'partial' || hasNext ? 'partial' : 'complete', pages: [{ pageIndex: continued ? 1 : 0, status: 'success', requestedModel: 'jev', resolvedModel: 'jev-1.0-mini', answer: { type: 'choice', choice, confidence, probabilities: { [choice]: confidence }, rawFutureField: 'preserved' }, context, usage: { input_tokens: 100, output_tokens: 5 } }] };
 });
-console.log(JSON.stringify({ results }));
+const query = { queryId: req.id, results };
+if (hasNext) {
+  query.next = { assess: { ...req, resources: req.resources.map((resource) => ({ ...resource, context: { tool: 'localFetch', query: { path: resource.context.query.path, reasoning: resource.context.query.reasoning, chunkType: 'bytes', offset: 50_000, limit: 30_000, minify: 'none' } } })) } };
+}
+console.log(JSON.stringify({ queries: [query] }));
 `);
 });
 
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-test('dry-run composes valid jev batches; dedups URLs; routes thin pages without jev', () => {
+test('dry-run composes valid semanticAssess matrices; dedups URLs; routes thin pages without assessment', () => {
   writeSession([
     { pageId: 'page-001', url: 'https://ex.test/guide', bytes: 5000 },
     { pageId: 'page-002', url: 'https://ex.test/guide#section', bytes: 5000 },
@@ -96,6 +103,7 @@ test('dry-run composes valid jev batches; dedups URLs; routes thin pages without
   const reqPath = join(dir, 'reports', 'triage', 'request-01.json');
   assert.ok(existsSync(reqPath));
   const req = JSON.parse(readFileSync(reqPath, 'utf8'));
+  assert.match(req.id, /^triage-\d+$/);
   assert.ok(req.resources.length >= 1 && req.resources.length <= 25);
   assert.equal(req.questions.length, 1);
   assert.equal(req.questions[0].id, 'relevance');
@@ -107,10 +115,8 @@ test('dry-run composes valid jev batches; dedups URLs; routes thin pages without
     assert.equal(resource.context.tool, 'localFetch');
     assert.ok(resource.context.query.path);
     assert.ok(resource.context.query.reasoning);
-    assert.equal(resource.context.query.chunkType, 'bytes');
-    assert.equal(resource.context.query.offset, 0);
-    assert.ok(resource.context.query.limit <= 20_000);
-    assert.equal(resource.context.query.fullContent, undefined);
+    assert.equal(resource.context.query.fullContent, true);
+    assert.equal(resource.maxChars, 80_000);
   }
 });
 
@@ -128,13 +134,13 @@ test('verdict routing: relevant→read, confident unrelated→skip, low-confiden
   assert.deepEqual(out.read.map((r) => r.pageId), ['page-001']);
   assert.deepEqual(out.skip.map((r) => r.pageId), ['page-002']);
   assert.deepEqual(out.consider.map((r) => r.pageId).sort(), ['page-003', 'page-004']);
-  assert.equal(out.jevUsage.providerInputTokens, 400);
+  assert.equal(out.semanticAssessUsage.providerInputTokens, 400);
   assert.ok(existsSync(join(dir, 'reports', 'triage', 'triage.json')));
 });
 
 test('provider partial coverage retains a confident unrelated candidate despite small complete-looking file metadata', () => {
   writeSession([{ pageId: 'page-002', url: 'https://ex.test/partial', bytes: 5000 }]);
-  const res = run(['--session-dir', dir, '--goal', 'g', '--octocode', `${process.execPath} ${stubCli}`], { TEST_JEV_COVERAGE: 'partial' });
+  const res = run(['--session-dir', dir, '--goal', 'g', '--octocode', `${process.execPath} ${stubCli}`], { TEST_SEMANTIC_COVERAGE: 'partial' });
   assert.equal(res.status, 0, res.stderr);
   assert.deepEqual(res.parsed.skip, []);
   assert.deepEqual(res.parsed.consider.map((row) => row.pageId), ['page-002']);
@@ -146,35 +152,35 @@ test('provider partial coverage retains a confident unrelated candidate despite 
   });
 });
 
-test('all parts and large UTF-8 files are paged through bounded matrix resources without drops', () => {
+test('large resources follow next.assess and preserve every raw page answer', () => {
   writeSession([{
     pageId: 'page-002',
     url: 'https://ex.test/large',
-    parts: [`é${'a'.repeat(44_999)}`, `界${'b'.repeat(44_999)}`],
+    parts: [`é${'a'.repeat(89_999)}`],
   }]);
   const res = run([
     '--session-dir', dir,
     '--goal', 'g',
     '--limit', '2',
     '--octocode', `${process.execPath} ${stubCli}`,
-  ]);
+  ], { TEST_SEMANTIC_CONTINUATION: '1' });
   assert.equal(res.status, 0, res.stderr);
-  assert.equal(res.parsed.resources, 6);
-  assert.equal(res.parsed.resourcePages, 3);
-  assert.equal(res.parsed.jevUsage.calls, 3);
+  assert.equal(res.parsed.resources, 1);
+  assert.equal(res.parsed.matrixBatches, 1);
+  assert.equal(res.parsed.semanticAssessUsage.calls, 2);
   assert.deepEqual(res.parsed.skip.map((row) => row.pageId), ['page-002']);
-  assert.equal(res.parsed.skip[0].resources, 6);
-  for (let page = 1; page <= 3; page += 1) {
-    const req = JSON.parse(readFileSync(join(dir, 'reports', 'triage', `request-0${page}.json`), 'utf8'));
-    assert.equal(req.resources.length, 2);
-  }
+  assert.equal(res.parsed.skip[0].resources, 1);
+  const report = JSON.parse(readFileSync(res.parsed.report, 'utf8'));
+  assert.equal(report.assessmentPages.length, 2);
+  assert.deepEqual(report.assessmentPages.map((page) => page.answer.rawFutureField), ['preserved', 'preserved']);
+  assert.ok(existsSync(join(dir, 'reports', 'triage', 'request-02.json')));
 });
 
 test('relevant partial resources route only to read, never also to consider', () => {
   writeSession([{ pageId: 'page-001', url: 'https://ex.test/relevant', bytes: 5000 }]);
   const res = run(
     ['--session-dir', dir, '--goal', 'g', '--octocode', `${process.execPath} ${stubCli}`],
-    { TEST_JEV_COVERAGE: 'partial' },
+    { TEST_SEMANTIC_COVERAGE: 'partial' },
   );
   assert.equal(res.status, 0, res.stderr);
   assert.deepEqual(res.parsed.read.map((row) => row.pageId), ['page-001']);
@@ -203,7 +209,7 @@ test('stdout bounds resource errors while the saved report preserves every error
   })));
   const res = run(
     ['--session-dir', dir, '--goal', 'g', '--octocode', `${process.execPath} ${stubCli}`],
-    { TEST_JEV_EMPTY: '1' },
+    { TEST_SEMANTIC_EMPTY: '1' },
   );
   assert.equal(res.status, 1);
   assert.equal(res.parsed.errorCount, 21);
@@ -215,20 +221,20 @@ test('stdout bounds resource errors while the saved report preserves every error
   assert.equal(report.errorsTruncated, false);
 });
 
-test('unavailable jev returns JEV_UNAVAILABLE with lexical fallback hint', () => {
+test('unavailable semanticAssess returns SEMANTIC_ASSESS_UNAVAILABLE with lexical fallback hint', () => {
   writeSession([{ pageId: 'page-001', url: 'https://ex.test/a', bytes: 2000 }]);
   const badCli = join(dir, 'bad-cli.mjs');
-  writeFileSync(badCli, 'console.error("x Unknown tool: jev"); process.exit(1);');
+  writeFileSync(badCli, 'console.error("x Unknown tool: semanticAssess"); process.exit(1);');
   const res = run(['--session-dir', dir, '--goal', 'g', '--octocode', `${process.execPath} ${badCli}`]);
   assert.equal(res.status, 1);
-  assert.equal(res.parsed.code, 'JEV_UNAVAILABLE');
+  assert.equal(res.parsed.code, 'SEMANTIC_ASSESS_UNAVAILABLE');
   assert.match(res.parsed.hint, /corpus-find/);
 });
 
 test('schema check uses the current CLI discovery command without judging candidates', () => {
   const res = run(['--check', '--octocode', `${process.execPath} ${stubCli}`]);
   assert.equal(res.status, 0, res.stderr);
-  assert.equal(res.parsed.code, 'JEV_SCHEMA_OK');
+  assert.equal(res.parsed.code, 'SEMANTIC_ASSESS_SCHEMA_OK');
 });
 
 test('rejects missing args and bad session dir', () => {

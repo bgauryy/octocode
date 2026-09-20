@@ -230,6 +230,14 @@ pub trait PathAccess {
 }
 pub trait ContentScan {
     fn sanitize(&self, text: &str, path: &Path) -> Result<(String, Vec<String>), (String, String)>;
+    /// Redact whole PEM/OpenSSH/PGP private-key blocks across the FULL file
+    /// before any read/search window is cut, closing the interior-window leak the
+    /// anchored full-block patterns cannot catch. The default applies to every
+    /// implementer (including test mocks); see
+    /// [`crate::security::redact_private_key_blocks`].
+    fn redact_key_blocks(&self, content: &str) -> (String, bool) {
+        crate::security::redact_private_key_blocks(content)
+    }
 }
 pub trait RegexMatch {
     fn matching_ranges(

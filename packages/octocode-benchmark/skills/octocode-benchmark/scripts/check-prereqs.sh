@@ -31,6 +31,42 @@ if have npx; then
   [ -n "$v" ] && pass "octocode CLI reachable: $v  (note: --version string may lag the package version)" || bad "octocode CLI did not report a version"
   probe="$(npx -y "octocode@$OCTO_VER" ghSearch '{"operation":"repositories","keywords":["is"],"owner":"sindresorhus","pageSize":1,"reasoning":"Verify the release candidate."}' 2>&1)"
   printf '%s' "$probe" | grep -qiE 'sindresorhus|repositories' && pass "octocode tools probe returned data" || bad "octocode tools probe failed: $(printf '%s' "$probe" | head -1)"
+
+  probe_home="$(mktemp -d "${TMPDIR:-/tmp}/octocode-benchmark-preflight.XXXXXX")"
+  catalog="$(env -u OCTOCODE_JEV_KEY -u ENABLE_CLONE -u TOOLS_TO_RUN \
+    OCTOCODE_HOME="$probe_home" npx -y "octocode@$OCTO_VER" scheme --compact 2>"$NULL")"
+  catalog_status="$(printf '%s' "$catalog" | node -e '
+    const fs = require("node:fs");
+    try {
+      const catalog = JSON.parse(fs.readFileSync(0, "utf8"));
+      const tools = Array.isArray(catalog.tools) ? catalog.tools : [];
+      const byName = new Map(tools.map(tool => [tool.name, tool]));
+      const available = tools.filter(tool => tool.availability?.enabled === true);
+      const semantic = byName.get("semanticAssess");
+      const clone = byName.get("ghCloneRepo");
+      if (tools.length === 12 && available.length === 10 &&
+          semantic?.availability?.enabled === false &&
+          clone?.availability?.enabled === false) {
+        process.stdout.write("OK");
+      }
+    } catch {}
+  ' 2>"$NULL")"
+  if [ "$catalog_status" = "OK" ]; then
+    pass "default catalog: 12 discoverable, 10 available; clone and semanticAssess gated"
+  else
+    bad "default catalog did not expose the expected 12/10 hard-cutover availability"
+  fi
+
+  missing="$(env -u OCTOCODE_JEV_KEY -u TOOLS_TO_RUN OCTOCODE_HOME="$probe_home" \
+    npx -y "octocode@$OCTO_VER" semanticAssess \
+    '{"id":"preflight","reasoning":"Verify missing-key behavior.","resources":[{"id":"state","context":{"value":"probe"}}],"questions":[{"id":"binary","question":{"type":"noul","instructions":"Is state present?"}}]}' 2>&1)"
+  missing_status=$?
+  if [ "$missing_status" -ne 0 ] && printf '%s' "$missing" | grep -q 'OCTOCODE_JEV_KEY'; then
+    pass "semanticAssess missing-key error names OCTOCODE_JEV_KEY"
+  else
+    bad "semanticAssess did not return the expected actionable missing-key error"
+  fi
+  rm -rf -- "$probe_home"
 else
   bad "npx not on PATH (need Node.js)"
 fi
@@ -94,6 +130,12 @@ if [ -f "$prim" ] && grep -q "Octocode arm" "$prim" && grep -Eq "RTK arm" "$prim
   pass "all three arm primers present in RUNNER_TOOL_CONTEXT.md"
 else
   bad "arm primers missing in RUNNER_TOOL_CONTEXT.md (need Octocode/gh+RTK/gh+Headroom)"
+fi
+semantic_prim="$PKG_ROOT/skills/octocode-benchmark/references/primer-octocode-jev.md"
+if [ -f "$semantic_prim" ] && grep -q 'semanticAssess' "$semantic_prim" && grep -q 'resources\[\]' "$semantic_prim" && grep -q 'questions\[\]' "$semantic_prim"; then
+  pass "semantic-assessment primer uses semanticAssess matrix guidance"
+else
+  bad "semantic-assessment primer is missing semanticAssess resources[] × questions[] guidance"
 fi
 echo
 

@@ -1,11 +1,11 @@
 # Jev benchmarks — whole-task results and historical experiments
 
-**Current interface:** `octocode jev` is the only Jev tool. Legacy routes and standalone skill runners referenced below are historical and no longer runnable in the current checkout. [Single-tool evaluation](../.octocode/octocode-eval-benchmark/jev-single-tool-2026-09-20/REPORT.md).
+**Current interface:** `octocode semanticAssess` is the only public semantic-assessment command. Jev remains the provider/model family. Legacy routes and standalone skill runners referenced below are historical and no longer runnable in the current checkout. See the [current contract](OCTOCODE_SEMANTIC_ASSESS.md) and the [frozen real-provider evaluation](../.octocode/octocode-eval-benchmark/jev-real-api-2026-09-21/REPORT.md).
 
 These experiments use different protocols and meters and do not establish current whole-task savings. Later five-bug and six-task host-metered evaluations did not show total-token savings. The completed source-path experiment also failed its host-token target. Keep host and provider usage separate and verify patch quality before claiming an efficiency win.
 
-Audience: users deciding when to reach for the Jev tools, and developers
-extending or re-running the benchmark. Jev is a typed probabilistic judgment
+Audience: users interpreting the historical measurements and developers
+extending or re-running the provider benchmark. Jev is a typed probabilistic judgment
 service: you send bounded state plus typed questions (`noul` → P(yes),
 `choice` → a distribution over named options, `score` → a distribution over
 ordered levels); deterministic code applies the answer. Jev supplies no facts
@@ -48,19 +48,20 @@ No universal model ranking or probability calibration is inferred. Full meters,
 patch reviews, frozen manifests and transcripts are retained under
 `.octocode/octocode-eval-benchmark/jev-source-questions/` (see `REPORT.md`).
 
-## The two tools and when to use each
+## Historical two-tool protocol
 
 | Tool | Use when | Never for |
 |---|---|---|
 | `jevReasoning` | Source-path claims that can avoid substantial host reading, or unresolved evidence-based choices | Cheap exact checks; unchanged votes |
 | `jevScout` | Filtering candidate files can avoid expensive irrelevant reads | A known cheap target; using skip to prove absence |
 
-Both require `OCTOCODE_JEV_KEY` and return provider-billed `usage` per call. A
+These retired tools required `OCTOCODE_JEV_KEY` and returned provider-billed `usage` per call. A
 `blocked` or `needs_evidence` outcome is a correct result: retrieve what it
 names instead of reframing the packet. Scout verdicts are provisional — reopen
 the returned anchors before asserting anything, and never report absence from a
-skip. The `octocode-jev-reasoning-loop` skill owns the full doctrine
-(LOCATE PATHS → JUDGE → VERIFY → ACT) and the reference runners.
+skip. At the time, the retired `octocode-jev-reasoning-loop` skill owned the
+reference runners. The current [semantic-assessment research guide](SEMANTIC_ASSESS_RESEARCH_GUIDE.md)
+keeps the durable LOCATE → ASSESS → VERIFY boundary.
 
 ## Agent WITH vs WITHOUT Jev — the head-to-head (2026-09-19)
 

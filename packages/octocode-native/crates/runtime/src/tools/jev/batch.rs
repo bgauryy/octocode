@@ -101,7 +101,13 @@ fn project_response(
                 .map_or_else(|| json!({}), |answer| json!({&id:answer}));
             octocode_engine::jev::validate_response(&row_request, &row_response)
                 .map_err(|error| response_error(error.message))?;
-            project(question, &answers[&id], model, &response["usage"])
+            project(
+                question,
+                &answers[&id],
+                model,
+                response["model"].as_str().unwrap_or(model),
+                &response["usage"],
+            )
         })
         .collect();
     Ok(GroupResponse {

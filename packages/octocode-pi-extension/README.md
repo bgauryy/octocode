@@ -124,7 +124,7 @@ The build copies these main-agent skills into `dist/skills/`:
 - `octocode-clean-agentic-code`
 - `octocode-documentation`
 - `octocode-eval-benchmark`
-- `octocode-jev-reasoning-loop`
+- `octocode-semantic-assess`
 - `octocode-prompt-optimizer`
 - `octocode-research`
 - `octocode-rfc-generator`

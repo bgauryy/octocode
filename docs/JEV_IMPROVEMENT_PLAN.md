@@ -1,17 +1,28 @@
 # `semanticAssess` implementation plan
 
-Status: naming decision accepted on 2026-09-20; the public hard cutover from `jev` to `semanticAssess` is not implemented. Earlier runtime fixes and script POCs remain verified within their recorded scope. This plan owns implementation status and acceptance criteria. Until the cutover ships, the [tool guide](OCTOCODE_JEV.md) describes the current interface, [JEV.md](../.octocode/JEV.md) indexes experiments, and [GOTCHAS](../.octocode/GOTCHAS.md) records operational lessons.
+Status: implemented and integration-verified in the working tree as of 2026-09-21. The public contract, native runtime, CLI, MCP, Pi-facing docs, skills, and provider lab now use the single `semanticAssess` surface. The canonical core was committed at `a169eeb5`; native contracts were regenerated without an override and report `sourceDirty:false` with fingerprint `4fd4e81f2d54…`. The clean-provenance test and contract-sync check pass. The [semantic assessment reference](OCTOCODE_SEMANTIC_ASSESS.md) describes the current public contract, [JEV.md](../.octocode/JEV.md) indexes frozen provider-era experiments, and [GOTCHAS](../.octocode/GOTCHAS.md) records operational lessons.
 
 ## Audit Reasoning — fix-and-keep (2026-09-20)
 
-- **Status:** Partially implemented. The resource-question matrix, correlated rows, native capture reuse, and browser/scrape paging exist in the working tree. The live staged CLI still exposes the old `jev` pair schema, and no surface has completed the `semanticAssess` cutover.
-- **Why kept:** This document remains the owner for the open public rename, contract regeneration, interface rebuild, cleanup, and release verification.
-- **Evidence:** The core schema contains the matrix union; native matrix expansion and browser triage tests exist; live `scheme jev` still returns the previous staged schema. Root `AGENTS.md` also mandates retired `tools … --scheme` commands that the live CLI rejects; the live forms are `scheme <tool>` and direct canonical tool commands. These are working-tree observations, not release claims.
-- **Remaining work:** Complete the hard rename and generic public contract across core, native, CLI, MCP, Pi, skills, browser/scraping helpers, docs, tests, generated artifacts, telemetry, and release checks.
+- **Status:** Cutover implementation, end-to-end behavior verification, and clean-source contract provenance pass.
+- **Why kept:** This document remains the owner for acceptance criteria, frozen evidence, and release verification.
+- **Evidence:** The generated contract exposes `semanticAssess`, the direct/batch matrix union, correlated pages, and separate requested/resolved model fields. Interface, skill, and documentation changes are working-tree observations, not release claims until rebuild and end-to-end checks pass.
+- **Remaining work:** No semantic-cutover work remains. Run the repository's normal final publish workflow at release time; do not bypass its provenance or package guards.
+
+### Implemented verification snapshot — 2026-09-21
+
+- Canonical core: 189/189 tests passed, including direct and batched SemanticQuery validation, primitive null boundaries, matrix limits, and nested output schemas.
+- Native: focused semantic runtime, CLI, catalog, provider, contract-relation, generated-corpus, identity, and clean-provenance tests passed; `cargo check` and contract sync passed.
+- Built path: native, CLI, and MCP development builds passed. CLI tests passed 109/109; MCP tests passed 181/181.
+- Availability: an isolated real MCP process registered 10 tools without a key and omitted `semanticAssess`; with a nonblank key it registered 11 and included `semanticAssess`. The CLI kept the command discoverable, returned exit 5 without a key, and named `OCTOCODE_JEV_KEY` plus the setup URL. The removed `jev` command returned an unknown-subcommand error.
+- Live provider matrix: two resources × three questions produced six correlated cells. Noul, Choice, and Score all returned native answer objects; the observed requested model was `jev-latest` and the resolved model was `jev-1.13.0`.
+- Live batch: two independent SemanticQuery objects retained their query IDs and produced separate nested results.
+- Live resource pagination: a 95,004-byte local document produced two explicit page-local answers, `coverage:"partial"`, and a schema-valid `next.assess` containing only `{tool,query}` context keys. Running the continuation preserved correlation and leaked no source body; the terminal page returned `coverage:"complete"` with no continuation.
+- Skills and docs: research, semantic assessment, RFC, Chrome, and scraping skills passed their self-tests and a five-skill review with zero errors or warnings. Documentation verification passed.
 
 ### Agent-readiness scorecard before this amendment
 
-These are planning-rubric scores, not product-quality or token-saving measurements. A live pre-rename semantic review of this document classified agent admission/mode selection as `gap` with 0.93 probability, layer ownership as `adequate` with 0.98 probability, and the context/evaluation lifecycle as `adequate` with only 0.65 probability. On that evidence, the plan was **7.5/10 for agent readiness**: strong architecture and ownership, but underspecified call admission, context reuse, resource paging, and held-out behavior checks. After the `SemanticQuery` and paging repair, bounded semantic rechecks classified the input/output grammar as `ready` with 0.97 probability, paging/recovery as `ready` with 0.99 probability, and agent guidance/evaluation as `ready` with 0.95 probability. The revised planning score is **9.5/10**; implementation and S7 behavior evidence are the remaining gap to a product-quality rating.
+These are planning-rubric scores, not token-saving measurements. A live pre-rename semantic review of this document classified agent admission/mode selection as `gap` with 0.93 probability, layer ownership as `adequate` with 0.98 probability, and the context/evaluation lifecycle as `adequate` with only 0.65 probability. On that evidence, the plan was **7.5/10 for agent readiness**: strong architecture and ownership, but underspecified call admission, context reuse, resource paging, and held-out behavior checks. After the `SemanticQuery` and paging repair, bounded semantic rechecks classified the input/output grammar as `ready` with 0.97 probability, paging/recovery as `ready` with 0.99 probability, and agent guidance/evaluation as `ready` with 0.95 probability. The implemented design rates **9.8/10**: contracts, live behavior, and clean provenance pass. The remaining 0.2 reflects the deliberately narrow live semantic sample and single provider version, not a known contract or runtime defect.
 
 ## Decision and boundaries
 
@@ -19,9 +30,9 @@ Ship one public `semanticAssess` tool. Its unit of work is a `SemanticQuery`: `{
 
 The query language is the product boundary: resources name evidence, questions define typed conditions, and the cross-product produces body-free assessment cells. Background context acquisition is part of language execution, not an optional helper. For `context:{tool,query}`, the runtime privately dispatches the ordinary read, applies its validation, authorization, caching, redaction, SSRF/path, timeout, and cancellation policies, and sends only the sanitized captured state to the private provider adapter. The host receives typed judgments, stable IDs, coverage, usage, and recovery—not the retrieved body. `context:{value}` remains an escape hatch for evidence already visible to the host; it is not the primary path.
 
-The target admits one to five semantic queries per call, up to 25 resources, five questions, and 25 logical cells per semantic query. The global call cap is 50 logical cells. One logical resource can cover at most 80,000 characters. The private adapter splits that logical resource into provider pages below 20,000 estimated input tokens, including question and serialization overhead. These are safety ceilings, not throughput promises: exact limits remain constants in core and native, and S7 must confirm them before release. Model selection and tokenization stay internal. `semanticAssess` must not gain a separate reader, GitHub client, or policy bypass.
+The tool admits one to five semantic queries per call, up to 25 resources, five questions, and 25 logical cells per semantic query. The global call cap is 50 logical cells. One logical resource can assess at most 80,000 sanitized characters in a call. Safe ordinary-tool continuations become explicit page-local assessments; the runtime stops before a later page would exceed `maxChars`, and an oversized first page is a visibly partial bounded prefix rather than an unbounded provider request. Provider grouping also observes request-byte headroom. These are safety ceilings, not throughput promises. Model selection and tokenization stay internal. `semanticAssess` must not gain a separate reader, GitHub client, or policy bypass.
 
-Public schemas and agent guidance belong in octocode-core. CLI/MCP expose those contracts; native runtime owns context orchestration. The public runtime module becomes `tools/semantic_assess/`; the private provider adapter retains the Jev service/model name and provider-specific credentials. Skills remain optional shortcuts. Assessments route effort; source reads and tests establish claims. Generic semantic assessment does not imply arbitrary-size ingestion, free-form summarization, unseen identifier extraction, proof, or authority to take actions.
+Public schemas and agent guidance belong in octocode-core. CLI/MCP expose those contracts; native runtime owns context orchestration. Native public dispatch uses the `SemanticAssess` identity, while resource paging lives in the runtime orchestration layer and the private `tools/jev/` adapter retains provider-specific request, model, credential, retry, and transport concerns. Skills remain optional shortcuts. Assessments route effort; source reads and tests establish claims. Generic semantic assessment does not imply arbitrary-size ingestion, free-form summarization, unseen identifier extraction, proof, or authority to take actions.
 
 The cutover is intentionally hard: do not register a public `jev` alias, compatibility tool, duplicate schema, forwarding command, or deprecated skill. Document the rename in release notes, but expose only `semanticAssess` through runtime discovery. Historical receipts, POCs, and frozen benchmark artifacts keep their original names for provenance; label them pre-rename rather than rewriting them.
 
@@ -34,7 +45,7 @@ The cutover is intentionally hard: do not register a public `jev` alias, compati
 | Public tool and CLI command | `semanticAssess` | The only discoverable/callable name. |
 | Display title | Semantic Assessment | Human-readable title; not a second identifier. |
 | Public schema/types | `SemanticAssess*` | No exported `Jev*` contract aliases after the cutover. |
-| Native public module | `semantic_assess` | Owns validation handoff, capture orchestration, batching, and output shaping. |
+| Native public dispatch | `SemanticAssess` / `semanticAssess` | Owns public identity and validation handoff; runtime orchestration owns capture, paging, batching, and output shaping. |
 | Provider adapter | Jev-specific internal module | Retains endpoint, model, credential, retry, and transport concerns. Native Noul/Choice/Score primitives remain public because changing them alters answer semantics. |
 | Active skill | `octocode-semantic-assess` | Replaces `octocode-jev-reasoning-loop`; no forwarding skill. |
 | Active docs | Semantic-assessment names | Rename current guides and links; preserve historical artifact paths. |
@@ -45,11 +56,11 @@ The cutover is intentionally hard: do not register a public `jev` alias, compati
 - Require unique `queryId`, `resourceId`, and `questionId` values. A result cell carries all three; a resource page retains the same triple plus its zero-based `pageIndex`.
 - Define `queries[]` as a batch of complete semantic queries. Reject legacy pair elements, mixed envelopes, duplicate IDs, empty arrays, unknown fields, and any batch whose logical-cell total exceeds the global cap.
 - Keep every question atomic. Several questions over the same resources belong in one semantic query; dependent questions require later calls because provider answers cannot change the active matrix.
-- Require nonblank string `reasoning`. Question `instructions` accept a nonempty string, object, or array; recommend a string first and structure only when labels or supporting data improve the boundary. Noul criteria are optional; when supplied they define both `true` and `false`. Choice requires 2–255 declared alternatives. Score requires 2–10 independently described ordered levels. Criterion descriptions retain the provider's JSON entry shapes, including `null` when a Choice label is self-explanatory. Reject blank/null instructions, one-option choices, numeric-only Score labels, and undeclared answer labels.
+- Require nonblank string `reasoning`. Question `instructions` accept a nonempty string, object, or array; recommend a string first and structure only when labels or supporting data improve the boundary. Noul criteria are optional; when supplied they define both `true` and `false`, whose descriptions may be `null`. Choice requires 2–255 declared alternatives whose descriptions may be `null`. Score requires 2–10 independently described ordered levels, and each level must be a non-null, non-empty string, object, or array. Reject blank/null instructions, one-option choices, null/empty Score levels, and undeclared answer labels.
 - Allow `context.value` only for a string, nonempty object, or nonempty array. Wrap scalar facts, such as `{observed:false}` or `{count:3}`; do not silently transform them.
 - Keep the native primitive names and answer shapes: `noul`, `choice`, and `score`. `semanticAssess` is the generic tool identity; renaming Noul or replacing its answer creates semantic drift at the adapter boundary.
-- Keep provider/model diagnostics optional and clearly non-contractual. Do not expose the configured Jev model as the tool identity.
-- Use one output shape for direct and batch inputs: `queries:[{queryId,results:[...]}]`. Each logical cell has `{resourceId,questionId,coverage,pages:[...]}`; each successful page has `{pageIndex,answer,context,usage?}` where `answer` is the unmodified native primitive answer object. Never threshold, relabel, average, round, flatten, or synthesize answer fields. Never echo source bodies.
+- Keep provider/model diagnostics separate from tool identity. Every successful page reports both required `requestedModel` and `resolvedModel`; error pages may omit them when resolution never occurred.
+- Use one output shape for direct and batch inputs: `queries:[{queryId,results:[...]}]`. Each logical cell has `{resourceId,questionId,coverage,pages:[...]}`; each successful page has `{pageIndex,answer,context,requestedModel,resolvedModel,usage?}` where `answer` is the unmodified native primitive answer object. Never threshold, relabel, average, round, flatten, or synthesize answer fields. Never echo source bodies.
 
 ### Native primitive contract
 
@@ -168,7 +179,7 @@ type SemanticPageResult = {
   pageIndex: number;
   context: BodyFreeReceipt;
   usage?: UsageAttribution;
-} & ({ status: "success"; answer: TypedAnswer } |
+} & ({ status: "success"; requestedModel: string; resolvedModel: string; answer: TypedAnswer } |
      { status: "error"; error: SafeError });
 
 type TypedAnswer =
@@ -395,6 +406,14 @@ These checkpoint bullets preserve the earlier matrix scope. The target acceptanc
 - A final live semantic review of `.octocode/JEV.md` shared one captured state across three questions. Full cross-product semantics returned `yes` at 0.97 confidence, safe large-resource paging at 0.96, and correlated output/evidence boundaries at 1.00.
 - Browser/scrape triage passes 10 focused regressions. A six-resource UTF-8 fixture is processed through three automatic matrix pages without drops. Stdout bounds resource errors with `errorCount`/`errorsTruncated`; `triage.json` preserves every error and receipt.
 
+### Frozen real-provider evaluation (2026-09-21)
+
+The [real-API suite](../.octocode/octocode-eval-benchmark/jev-real-api-2026-09-21/REPORT.md) exercised structured Noul, Choice, and Score; a two-resource by three-question matrix; CLI batching; and four exact pages over one 78,377-character local resource. It made an estimated 13 provider calls with no request failures. All 23 held-out semantic assertions passed, direct-provider p95 was 861.71 ms, and total direct plus CLI-reported usage was 29,070 input / 561 output tokens.
+
+The verdict is **CONTINUE**, not release acceptance. The built CLI still exposes legacy independent `context + question` queries instead of `semanticAssess` `resources[] × questions[]`, so the target automatic paging flow is not interface-verifiable. The adapter also reports requested `jev-latest` where the direct provider returned resolved `jev-1.13.0`; preserve requested and resolved model provenance separately. Native answer fields, structured Score legends, ordered batch rows, exact continuations, bounded coverage, and compact-output body non-leakage passed.
+
+The implementation should keep the provider's documented native answers unchanged, expose page-level judgments, and avoid generated explanations or hidden chain-of-thought. Background acquisition is the differentiator: capture and sanitize each resource once, submit every independent question together, page the same logical resource with unchanged questions, and read exact proof after scouting. No page-local absence may become global absence without an explicit reducer.
+
 [POC v1](../.octocode/jev-poc-2026-09-20/REPORT.md) preserved a failed compound-question exact-label gate; uncertain candidates were retained. [Separately frozen v2](../.octocode/jev-poc-2026-09-20/v2/REPORT.md) passed six atomic classifications, retaining four relevant candidates and excluding two irrelevant windows from routed proof. Separate verifier reads count. Generated negatives could have been excluded by ordinary path filtering. These development probes do not establish blind adoption, actual host-token savings or the effect of core instructions built after the POCs. No new Octocode-only baseline ran.
 
 ## Review disposition
@@ -451,7 +470,7 @@ Public context handles remain gated on demonstrated cross-call benefit and a lif
 
 ### Artifact workflows and shared acquisition — A3
 
-Use the [tool-by-tool guide](JEV_TOOL_RESEARCH_GUIDE.md) for supported read families; do not duplicate its matrix here. For RFCs, saved articles, and browser artifacts, expose a small visible manifest, build background resource descriptors, then read selected proof. Supplied alternatives can use `value`. `semanticAssess` can select sections or assess a supplied summary; its primitives do not generate free-form summaries.
+Use the [semantic assessment research guide](SEMANTIC_ASSESS_RESEARCH_GUIDE.md) for supported read families; do not duplicate its matrix here. For RFCs, saved articles, and browser artifacts, expose a small visible manifest, build background resource descriptors, then read selected proof. Supplied alternatives can use `value`. `semanticAssess` can select sections or assess a supplied summary; its primitives do not generate free-form summaries.
 
 Use the existing [HAR capture guide](../skills/octocode-chrome-devtools/references/har-capture.md) and [ingestion bridge](../skills/octocode-chrome-devtools/scripts/har-ingest-to-scrape.mjs) to produce bounded records or selected response bodies. Skills produce hashed artifacts; the pure CLI/MCP tool acquires them in the background through ordinary `localFetch`. Do not create a provider-only acquisition path.
 
@@ -463,7 +482,7 @@ The pre-rename `localFetch` contract has distinct limits: 10 MiB source acquisit
 
 | Area | Owning source |
 |---|---|
-| Input descriptions and validation | [Core Jev schema](../../octocode-mcp-host/packages/octocode-core/src/toolContract/validation/jev.ts) |
+| Input descriptions and validation | [Core semantic assessment schema](../../octocode-mcp-host/packages/octocode-core/src/toolContract/validation/semanticAssess.ts) |
 | Agent guidance and descriptions | [Core instructions](../../octocode-mcp-host/packages/octocode-core/src/toolContract/instructions.ts), [tool descriptions](../../octocode-mcp-host/packages/octocode-core/src/toolContract/descriptions.ts) |
 | Output contract | [Core output schemas](../../octocode-mcp-host/packages/octocode-core/src/toolContract/outputSchemas.ts) |
 | Capture, failure receipts and grouping | [Context execution](../packages/octocode-native/crates/runtime/src/runtime/jev_context.rs), [batch execution](../packages/octocode-native/crates/runtime/src/runtime/jev_batch.rs) |

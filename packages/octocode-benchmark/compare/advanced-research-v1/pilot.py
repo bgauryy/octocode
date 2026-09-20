@@ -28,7 +28,7 @@ WORKSPACE = HERE.parents[3]
 MODEL = "gpt-5.6-terra"
 COMMITS = {"langchain": "67ee6cb63dd9ae7f3a4dfedc3095652bce15a125",
            "nextjs": "d155ba9ebfffe4742efefda8d68c2e0e8e490924"}
-PROTOCOL = "read-surface-recovery-v11"
+PROTOCOL = "read-surface-recovery-v12"
 REMOTE_REPOS = {("langchain-ai", "langchain"): COMMITS["langchain"],
                 ("vercel", "next.js"): COMMITS["nextjs"]}
 GITHUB_HEADERS = {
@@ -177,48 +177,46 @@ class Policy:
             return "wrong_octocode_executable"
         if not args:
             return "non_tool_cli_command"
-        if args[0] == "context":
-            flags = args[1:]
-            modes = {"--minimal", "--full"}
-            valid = (len(flags) == len(set(flags)) and set(flags) <= modes | {"--json"}
-                     and len(set(flags) & modes) <= 1)
-            return None if valid else "unsupported_context_flags"
-        if args[0] in self.allowed_tools:
-            # The CLI rejects this missing-subcommand form. Audit its intended
-            # query too, so an observed typo never waives scope restrictions.
-            issue = self.octocode(["node", str(self.cli), "tools"] + args)
-            return issue or "recoverable_cli_syntax:missing_tools_subcommand"
-        if args[0] != "tools":
-            return "non_tool_cli_command"
-        args = args[1:]
-        if not args or args[0].startswith("-"):
-            valid = (args == ["--help"] or
-                     (len(args) == len(set(args)) and set(args) <= {"--json", "--compact"}))
-            return None if valid else "unsupported_catalog_flags"
+        if args[0] == "scheme":
+            args = args[1:]
+            if args == ["--help"]:
+                return None
+            names = [value for value in args if not value.startswith("-")]
+            view_index = args.index("--view") if "--view" in args else None
+            if view_index is not None and view_index + 1 < len(args):
+                names.remove(args[view_index + 1])
+            if len(names) > 1:
+                return "schema_flags"
+            if names and names[0] not in self.allowed_tools:
+                return "non_local_tool_or_inventory"
+            allowed = {"--compact", "--json-errors"}
+            remainder = [value for value in args if value not in names]
+            if any(remainder.count(flag) > 1 for flag in allowed | {"--view"}):
+                return "schema_flags"
+            index = 0
+            while index < len(remainder):
+                value = remainder[index]
+                if value in allowed:
+                    index += 1
+                    continue
+                if value == "--view" and index + 1 < len(remainder) and remainder[index + 1] in {"full", "query"}:
+                    index += 2
+                    continue
+                return "schema_flags"
+            return None
         tool = args.pop(0)
         if tool not in self.allowed_tools:
             return "non_local_tool_or_inventory"
-        if "--scheme" in args:
-            return None if set(args) <= {"--scheme", "--json", "--compact", "--brief", "--yaml"} else "schema_flags"
         if args == ["--help"]:
             return None
-        if "--queries" in args:
-            if args.count("--queries") != 1:
-                return "missing_single_tool_queries"
-            index = args.index("--queries")
-            if index + 1 >= len(args):
-                return "missing_queries"
-            query_text = args[index + 1]
-            remainder = args[:index] + args[index + 2:]
-        else:
-            positionals = [value for value in args if not value.startswith("-")]
-            if len(positionals) != 1:
-                return "missing_queries" if not positionals else "recoverable_cli_syntax:multiple_tool_names"
-            query_text = positionals[0]
-            remainder = [value for value in args if value != query_text]
-        output_flags = {"--compact", "--json", "--yaml"}
-        if any(value.startswith("-") and value not in output_flags for value in remainder):
+        output_flags = {"--compact", "--json-errors"}
+        if any(value.startswith("-") and value not in output_flags for value in args):
             return "unsupported_cli_flags"
+        positionals = [value for value in args if not value.startswith("-")]
+        if len(positionals) != 1:
+            return "missing_queries" if not positionals else "recoverable_cli_syntax:multiple_tool_names"
+        query_text = positionals[0]
+        remainder = [value for value in args if value != query_text]
         if any(not value.startswith("-") for value in remainder):
             return "recoverable_cli_syntax:multiple_tool_names"
         try:
@@ -786,22 +784,26 @@ def trial(case, arm, pass_number, question, args, corpora, budgets):
 
 
 def capture_tool_contract(cli, remote=False):
-    captured = {}
     selected = Policy.local_tools | (Policy.remote_tools if remote else set())
-    for name, arguments in (("catalog", ["tools", "--json", "--compact"]),
-                            ("localSchemas", ["tools", *sorted(selected), "--scheme", "--json", "--compact"])):
-        raw = command(["node", str(cli), *arguments])
+    raw = command(["node", str(cli), "scheme", "--compact"])
+    if len(raw.encode("utf-8")) > 65536:
+        raise RuntimeError("tool_contract_output_limit:catalog")
+    catalog_payload = json.loads(raw)
+    schemas = []
+    for tool in sorted(selected):
+        raw = command(["node", str(cli), "scheme", tool, "--view", "query", "--compact"])
         if len(raw.encode("utf-8")) > 65536:
-            raise RuntimeError("tool_contract_output_limit:" + name)
-        captured[name] = json.loads(raw)
-    catalog = {row["name"]: row for row in captured["catalog"]["tools"]}
-    schemas = {row["name"] for row in captured["localSchemas"]["schemas"]}
-    context = command(["node", str(cli), "context", "--full"])
+            raise RuntimeError("tool_contract_output_limit:schema:" + tool)
+        schemas.append(json.loads(raw))
+    captured = {"catalog": catalog_payload, "localSchemas": {"schemas": schemas}}
+    catalog = {row["name"]: row for row in catalog_payload["tools"]}
+    schema_names = {row["name"] for row in schemas}
+    context = catalog_payload.get("instructions", "")
     if not context.strip() or len(context.encode("utf-8")) > 65536:
         raise RuntimeError("tool_context_missing_or_output_limit")
     captured["context"] = context
-    if schemas != selected or any(not catalog.get(name, {}).get("availability", {}).get("enabled")
-                                           for name in selected):
+    if schema_names != selected or any(not catalog.get(name, {}).get("availability", {}).get("enabled")
+                                       for name in selected):
         raise RuntimeError("required_local_tool_unavailable")
     return captured
 

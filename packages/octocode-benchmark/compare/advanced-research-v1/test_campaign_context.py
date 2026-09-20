@@ -15,17 +15,16 @@ class CampaignContext(unittest.TestCase):
 
     def test_canonical_discovery_grammar_and_budget(self):
         policy = pilot.Policy("octocode", self.cli, [self.corpus])
-        for suffix in ("tools", "tools --json --compact", "tools --json", "tools --help",
-                       "context", "context --minimal", "context --full",
-                       "context --minimal --json", "context --json"):
+        for suffix in ("scheme", "scheme --compact", "scheme --help",
+                       "scheme localFetch", "scheme localFetch --view query --compact"):
             self.assertIsNone(policy.audit(f"node {self.cli} {suffix}"), suffix)
-        for suffix in ("tools --json --path /tmp", "tools --queries '{}'", "tools --json --json",
-                       "context --minimal --full", "context --compact",
-                       "context --path /tmp", "context --env x", "tools astRewrite --queries '{}'",
-                       "tools ghCloneRepo --queries '{}'", "skill install x"):
+        for suffix in ("scheme --path /tmp", "scheme --compact --compact",
+                       "scheme localFetch --view invalid", "scheme astRewrite",
+                       "scheme ghCloneRepo", "tools", "context --full", "skill install x"):
             self.assertIsNotNone(policy.audit(f"node {self.cli} {suffix}"), suffix)
         audit = pilot.EventAudit(policy, pilot.Budgets(max_calls=1))
-        for ident, suffix in (("c1", "tools --json --compact"), ("c2", "context --minimal")):
+        for ident, suffix in (("c1", "scheme --compact"),
+                              ("c2", "scheme localFetch --view query --compact")):
             audit.feed({"type": "item.started", "item": {"id": ident, "type": "command_execution",
                         "command": f"node {self.cli} {suffix}"}})
         self.assertIn("call_budget_exceeded", audit.failures)
@@ -35,27 +34,26 @@ class CampaignContext(unittest.TestCase):
         import subprocess
         cli = pilot.WORKSPACE / "packages/octocode/out/octocode.js"
         policy = pilot.Policy("octocode", cli, [self.corpus])
-        for args in (("tools", "--json", "--compact"),
-                     ("context", "--full"), ("context", "--minimal"),
-                     ("context", "--minimal", "--json")):
+        for args in (("scheme", "--compact"),
+                     ("scheme", "localFetch", "--view", "query", "--compact")):
             argv = ["node", str(cli), *args]
             with self.subTest(args=args):
                 self.assertIsNone(policy.audit(shlex.join(argv)))
                 result = subprocess.run(argv, capture_output=True, text=True, timeout=30)
                 self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-                if args != ("context", "--minimal"):
-                    self.assertIn("localSearch", result.stdout)
-                if args[0] == "tools":
+                if args == ("scheme", "--compact"):
                     self.assertIn("localSearch", {row["name"] for row in json.loads(result.stdout)["tools"]})
+                else:
+                    self.assertEqual(json.loads(result.stdout)["name"], "localFetch")
     def test_cli_query_envelopes_preserve_every_scope_check(self):
         policy = pilot.Policy("octocode", self.cli, [self.corpus])
         query = {"reasoning": "Read the scoped fixture.", "path": str(self.source)}
         for payload in ({"queries": [query]}, [query], query):
-            command = f"node {self.cli} tools localFetch --queries {shlex.quote(json.dumps(payload))} --compact"
+            command = f"node {self.cli} localFetch {shlex.quote(json.dumps(payload))} --compact"
             self.assertIsNone(policy.audit(command))
         for payload in ({"queries": []}, {"queries": [query, {"reasoning": "Attempt an unscoped read.", "path": "/etc/passwd"}]},
                         {"queries": [query], "extra": True}):
-            command = f"node {self.cli} tools localFetch --queries {shlex.quote(json.dumps(payload))} --compact"
+            command = f"node {self.cli} localFetch {shlex.quote(json.dumps(payload))} --compact"
             self.assertIsNotNone(policy.audit(command))
 
     def test_response_continuation_envelope_preserves_scope_and_owns_no_schema_validation(self):
@@ -63,7 +61,7 @@ class CampaignContext(unittest.TestCase):
         payload = {"queries": [{"reasoning": "Read the scoped fixture.", "path": str(self.source)}], "responseCharLength": 1000,
                    "responseCharOffset": 1000, "responseSnapshot": "response-v1:fixture"}
         def audit(value):
-            return policy.audit(f"node {self.cli} tools localFetch --queries {shlex.quote(json.dumps(value))} --compact")
+            return policy.audit(f"node {self.cli} localFetch {shlex.quote(json.dumps(value))} --compact")
         self.assertIsNone(audit(payload))
         self.assertIsNone(audit({**payload, "responseCharLength": "invalid-runtime-schema-value"}))
         self.assertIsNotNone(audit({**payload, "extra": True}))
@@ -74,14 +72,14 @@ class CampaignContext(unittest.TestCase):
         import tempfile
         from pathlib import Path
         cli = pilot.WORKSPACE / "packages/octocode/out/octocode.js"
-        with tempfile.TemporaryDirectory(dir=pilot.WORKSPACE / ".octocode/tmp", prefix="response fixture ") as root:
+        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parent, prefix="response fixture ") as root:
             source = Path(root) / "source.py"
             source.write_text("".join(f"fixture source line {line}\n" for line in range(1, 101)))
             query = {"queries": [{"reasoning": "Page the bounded local fixture.", "path": str(source), "startLine": 1, "endLine": 100}], "responseCharLength": 1024}
             policy = pilot.Policy("octocode", cli, [root])
             offsets, pages = [], []
             while True:
-                argv = ["node", str(cli), "tools", "localFetch", "--queries", json.dumps(query), "--compact"]
+                argv = ["node", str(cli), "localFetch", json.dumps(query), "--compact"]
                 self.assertIsNone(policy.audit(shlex.join(argv)))
                 result = subprocess.run(argv, capture_output=True, text=True, timeout=30)
                 self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
@@ -108,11 +106,11 @@ class CampaignContext(unittest.TestCase):
         import tempfile
         from pathlib import Path
         cli = pilot.WORKSPACE / "packages/octocode/out/octocode.js"
-        with tempfile.TemporaryDirectory(dir=pilot.WORKSPACE / ".octocode/tmp", prefix="envelope fixture ") as root:
+        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parent, prefix="envelope fixture ") as root:
             source = Path(root) / "source.py"
             source.write_text("pass\n")
             payload = {"queries": [{"reasoning": "Read the bounded local fixture.", "path": str(source), "startLine": 1, "endLine": 1}]}
-            argv = ["node", str(cli), "tools", "localFetch", "--queries", json.dumps(payload), "--compact"]
+            argv = ["node", str(cli), "localFetch", json.dumps(payload), "--compact"]
             self.assertIsNone(pilot.Policy("octocode", cli, [root]).audit(shlex.join(argv)))
             result = subprocess.run(argv, capture_output=True, text=True, timeout=30)
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
@@ -122,10 +120,14 @@ class CampaignContext(unittest.TestCase):
 
     def test_context_is_captured_verbatim_and_not_replaced_by_harness_guidance(self):
         catalog = {"tools": [{"name": name, "availability": {"enabled": True}}
-                             for name in pilot.Policy.local_tools]}
-        schemas = {"schemas": [{"name": name} for name in pilot.Policy.local_tools]}
+                             for name in pilot.Policy.local_tools],
+                   "instructions": "Canonical context, unchanged.\n"}
         context = "Canonical context, unchanged.\n"
-        with patch.object(pilot, "command", side_effect=[json.dumps(catalog), json.dumps(schemas), context]):
+        def contract_command(argv, cwd=pilot.WORKSPACE):
+            if argv[-2:] == ["scheme", "--compact"]:
+                return json.dumps(catalog)
+            return json.dumps({"name": argv[3]})
+        with patch.object(pilot, "command", side_effect=contract_command):
             contract = pilot.capture_tool_contract(self.cli)
         self.assertEqual(contract["context"], context)
         prompt = pilot.prompt_for("A01", "octocode", "Question", self.cli,
@@ -140,7 +142,7 @@ class CampaignContext(unittest.TestCase):
         query = {"reasoning": "Read the pinned remote fixture.", "owner": "vercel", "repo": "next.js",
                  "path": "packages/next/src/server/config.ts", "branch": pilot.COMMITS["nextjs"]}
         def audit(tool, value):
-            return policy.audit(f"node {self.cli} tools {tool} --queries {shlex.quote(json.dumps(value))} --compact")
+            return policy.audit(f"node {self.cli} {tool} {shlex.quote(json.dumps(value))} --compact")
         self.assertIsNone(audit("ghGetFileContent", query))
         self.assertIsNotNone(audit("ghGetFileContent", {**query, "branch": "canary"}))
         self.assertIsNotNone(audit("ghGetFileContent", {**query, "owner": "other"}))

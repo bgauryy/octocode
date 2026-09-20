@@ -243,7 +243,9 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
         Command::ArtifactSearch(args) => {
             run_tool(runtime, "artifactSearch", args, json_errors).await
         }
-        Command::Jev(args) => run_tool(runtime, "jev", args, json_errors).await,
+        Command::SemanticAssess(args) => {
+            run_tool(runtime, "semanticAssess", args, json_errors).await
+        }
         Command::Scheme {
             tool,
             view,

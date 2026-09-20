@@ -17,11 +17,15 @@ fn request_error(message: &str) -> JevProviderError {
     }
 }
 
-fn entry(value: &Value) -> bool {
+fn nullable_entry(value: &Value) -> bool {
     matches!(
         value,
         Value::Null | Value::String(_) | Value::Array(_) | Value::Object(_)
     )
+}
+
+fn entry(value: &Value) -> bool {
+    !value.is_null() && nullable_entry(value)
 }
 
 pub(crate) fn is_context_tool(tool: &str) -> bool {
@@ -48,45 +52,63 @@ pub(crate) fn preflight(query: &Value) -> Result<(), JevProviderError> {
     let query = query
         .as_object()
         .ok_or_else(|| request_error("Query must be an object."))?;
-    let resource_id = query.get("resourceId");
-    let question_id = query.get("questionId");
-    let correlated = resource_id.is_some() && question_id.is_some();
-    if query.len() != if correlated { 5 } else { 3 }
-        || !query.contains_key("context")
-        || !query.contains_key("question")
+    if query.len() != 4
+        || !query.get("id").is_some_and(valid_matrix_id)
+        || !query.get("resources").is_some_and(Value::is_array)
+        || !query.get("questions").is_some_and(Value::is_array)
         || query
             .get("reasoning")
             .and_then(Value::as_str)
             .is_none_or(|value| value.trim().is_empty())
     {
         return Err(request_error(
-            "Supply nonblank reasoning, context and one typed question; correlation IDs must be supplied together.",
+            "Supply an id, nonblank reasoning, resources, and typed questions.",
         ));
     }
-    if correlated
-        && (!resource_id.is_some_and(valid_matrix_id) || !question_id.is_some_and(valid_matrix_id))
+    let resources = query["resources"]
+        .as_array()
+        .ok_or_else(|| request_error("Resources must be an array."))?;
+    let questions = query["questions"]
+        .as_array()
+        .ok_or_else(|| request_error("Questions must be an array."))?;
+    if resources.is_empty()
+        || questions.is_empty()
+        || resources.len().saturating_mul(questions.len()) > 25
     {
         return Err(request_error(
-            "resourceId and questionId must each use 1–64 ASCII letters, digits, dots, underscores, or hyphens and start with a letter or digit.",
+            "Supply 1–25 resources/questions with at most 25 matrix cells.",
         ));
     }
-    validate_question(&query["question"])?;
-    let context = query["context"]
-        .as_object()
-        .ok_or_else(|| request_error("Context must be an object."))?;
-    if context.len() == 1 && context.get("value").is_some_and(entry) {
-        return Ok(());
+    for resource in resources {
+        if !resource.get("id").is_some_and(valid_matrix_id) {
+            return Err(request_error(
+                "Every resource requires a valid correlation id.",
+            ));
+        }
+        let context = resource
+            .get("context")
+            .and_then(Value::as_object)
+            .ok_or_else(|| request_error("Every resource requires context."))?;
+        let value_context = context.len() == 1 && context.get("value").is_some_and(entry);
+        let tool_context = context.len() == 2
+            && context
+                .get("tool")
+                .and_then(Value::as_str)
+                .is_some_and(is_context_tool)
+            && context.get("query").is_some_and(Value::is_object);
+        if !value_context && !tool_context {
+            return Err(request_error(
+                "Resource context requires a non-empty value, or an allowed read tool with one ordinary query.",
+            ));
+        }
     }
-    if context.len() != 2
-        || !context
-            .get("tool")
-            .and_then(Value::as_str)
-            .is_some_and(is_context_tool)
-        || !context.get("query").is_some_and(Value::is_object)
-    {
-        return Err(request_error(
-            "Context requires value, or an allowed read tool with one ordinary query.",
-        ));
+    for question in questions {
+        if !question.get("id").is_some_and(valid_matrix_id) {
+            return Err(request_error(
+                "Every question requires a valid correlation id.",
+            ));
+        }
+        validate_question(&question["question"])?;
     }
     Ok(())
 }
@@ -124,13 +146,13 @@ fn validate_question(question: &Value) -> Result<(), JevProviderError> {
                     criteria.len() == 2
                         && criteria.contains_key("true")
                         && criteria.contains_key("false")
-                        && criteria.values().all(entry)
+                        && criteria.values().all(nullable_entry)
                 })
         }),
         Some("choice") => criteria.and_then(Value::as_object).is_some_and(|criteria| {
-            (1..=255).contains(&criteria.len())
+            (2..=255).contains(&criteria.len())
                 && criteria.keys().all(|key| !key.is_empty())
-                && criteria.values().all(entry)
+                && criteria.values().all(nullable_entry)
         }),
         Some("score") => criteria.and_then(Value::as_array).is_some_and(|criteria| {
             (2..=10).contains(&criteria.len()) && criteria.iter().all(entry)
@@ -189,6 +211,7 @@ pub async fn execute(
         question,
         &response["answers"]["answer"],
         model,
+        response["model"].as_str().unwrap_or(model),
         &response["usage"],
     )
 }
@@ -196,7 +219,8 @@ pub async fn execute(
 fn project(
     question: &Value,
     answer: &Value,
-    model: &str,
+    requested_model: &str,
+    resolved_model: &str,
     usage: &Value,
 ) -> Result<Value, JevProviderError> {
     let answer = match question["type"].as_str() {
@@ -217,9 +241,11 @@ fn project(
         }
         _ => return Err(request_error("Invalid question type.")),
     };
-    Ok(json!({"model":model,"answer":answer,"usage":{
-        "input_tokens":usage["input_tokens"],"output_tokens":usage["output_tokens"]
-    }}))
+    Ok(
+        json!({"requestedModel":requested_model,"resolvedModel":resolved_model,"answer":answer,"usage":{
+            "input_tokens":usage["input_tokens"],"output_tokens":usage["output_tokens"]
+        }}),
+    )
 }
 
 #[cfg(test)]
@@ -234,6 +260,14 @@ mod tests {
     fn question() -> Value {
         json!({"type":"noul","instructions":"Assess only supplied context"})
     }
+    fn semantic_query(context: Value, question: Value) -> Value {
+        json!({
+            "id":"decision",
+            "reasoning":"Decide whether to inspect the retry branch.",
+            "resources":[{"id":"resource-1","context":context}],
+            "questions":[{"id":"relevance.v1","question":question}]
+        })
+    }
     fn budget() -> RequestBudget {
         super::transport::budget(
             Instant::now() + Duration::from_secs(30),
@@ -242,10 +276,15 @@ mod tests {
     }
     #[test]
     fn reasoning_is_required_metadata_and_never_provider_evidence() {
-        let mut query = json!({"reasoning":"  Decide whether to inspect the retry branch.  ","context":{"value":{"observation":true}},"question":question()});
+        let mut query = semantic_query(json!({"value":{"observation":true}}), question());
         preflight(&query).expect("reasoning metadata accepted");
         assert_eq!(
-            prepare(&query["context"]["value"], &query["question"], "m").unwrap(),
+            prepare(
+                &query["resources"][0]["context"]["value"],
+                &query["questions"][0]["question"],
+                "m"
+            )
+            .unwrap(),
             json!({"model":"m","state":{"observation":true},"questions":{"answer":question()}})
         );
         for invalid in [Value::Null, json!(7), json!(""), json!(" \t\n")] {
@@ -258,39 +297,36 @@ mod tests {
 
     #[test]
     fn correlation_ids_are_validated_but_never_sent_to_the_provider() {
-        let query = json!({
-            "reasoning":"Classify this matrix cell.",
-            "context":{"value":{"observation":true}},
-            "question":question(),
-            "resourceId":"resource-1",
-            "questionId":"relevance.v1"
-        });
+        let query = semantic_query(json!({"value":{"observation":true}}), question());
         preflight(&query).expect("valid correlation IDs");
         assert_eq!(
-            prepare(&query["context"]["value"], &query["question"], "m").unwrap(),
+            prepare(
+                &query["resources"][0]["context"]["value"],
+                &query["questions"][0]["question"],
+                "m"
+            )
+            .unwrap(),
             json!({"model":"m","state":{"observation":true},"questions":{"answer":question()}})
         );
         let mut null_id = query.clone();
-        null_id["questionId"] = Value::Null;
+        null_id["questions"][0]["id"] = Value::Null;
         let mut invalid_id = query.clone();
-        invalid_id["resourceId"] = json!("bad id");
+        invalid_id["resources"][0]["id"] = json!("bad id");
         for invalid in [null_id, invalid_id] {
             assert!(preflight(&invalid).is_err());
         }
         let mut missing = query;
-        missing.as_object_mut().unwrap().remove("questionId");
+        missing["questions"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("id");
         assert!(preflight(&missing).is_err());
     }
 
     #[test]
     fn one_question_and_explicit_context_replace_all_legacy_shapes() {
-        for value in [
-            Value::Null,
-            json!([]),
-            json!({"value":"one"}),
-            json!("literal"),
-        ] {
-            assert!(preflight(&json!({"reasoning":"Decide the next evidence read.","context":{"value":value},"question":question()})).is_ok());
+        for value in [json!(["one"]), json!({"value":"one"}), json!("literal")] {
+            assert!(preflight(&semantic_query(json!({"value":value}), question())).is_ok());
         }
         for tool in [
             "localFetch",
@@ -304,36 +340,42 @@ mod tests {
             "artifactSearch",
         ] {
             assert!(
-                preflight(&json!({"reasoning":"Decide the next evidence read.","context":{"tool":tool,"query":{}},"question":question()}))
-                    .is_ok()
+                preflight(&semantic_query(json!({"tool":tool,"query":{}}), question())).is_ok()
             );
         }
-        for tool in ["jev", "astRewrite", "ghCloneRepo", "unknown"] {
+        for tool in [
+            "jev",
+            "semanticAssess",
+            "astRewrite",
+            "ghCloneRepo",
+            "unknown",
+        ] {
             assert!(
-                preflight(&json!({"reasoning":"Decide the next evidence read.","context":{"tool":tool,"query":{}},"question":question()}))
-                    .is_err()
+                preflight(&semantic_query(json!({"tool":tool,"query":{}}), question())).is_err()
             );
         }
         for invalid in [
-            json!({"state":null,"questions":{"q":question()}}),
-            json!({"reasoning":"Decide the next evidence read.","context":{"value":true},"question":question()}),
-            json!({"reasoning":"Decide the next evidence read.","context":{"value":null,"tool":"localFetch","query":{}},"question":question()}),
-            json!({"reasoning":"Decide the next evidence read.","context":{"value":null},"questions":{"q":question()}}),
+            semantic_query(json!({"value":true}), question()),
+            semantic_query(
+                json!({"value":null,"tool":"localFetch","query":{}}),
+                question(),
+            ),
+            semantic_query(json!({"value":null}), question()),
         ] {
             assert!(preflight(&invalid).is_err());
         }
-        let oversized = json!({"reasoning":"Decide the next evidence read.","context":{"value":"x".repeat(MAX_REQUEST_BYTES)},"question":question()});
+        let oversized = semantic_query(json!({"value":"x".repeat(MAX_REQUEST_BYTES)}), question());
         assert!(preflight(&oversized).is_err());
     }
     #[test]
     fn validates_each_primitive_and_provider_shape() {
-        for (count, valid) in [(1, true), (255, true), (256, false)] {
+        for (count, valid) in [(1, false), (2, true), (255, true), (256, false)] {
             let criteria: serde_json::Map<String, Value> =
                 (0..count).map(|i| (i.to_string(), Value::Null)).collect();
             assert_eq!(
                 prepare(
-                    &Value::Null,
-                    &json!({"type":"choice","instructions":null,"criteria":criteria}),
+                    &json!({"state":true}),
+                    &json!({"type":"choice","instructions":"Pick","criteria":criteria}),
                     "m"
                 )
                 .is_ok(),
@@ -343,8 +385,8 @@ mod tests {
         for (count, valid) in [(1, false), (2, true), (10, true), (11, false)] {
             assert_eq!(
                 prepare(
-                    &Value::Null,
-                    &json!({"type":"score","instructions":null,"criteria":vec![Value::Null;count]}),
+                    &json!({"state":true}),
+                    &json!({"type":"score","instructions":"Rate","criteria":vec![json!("level");count]}),
                     "m"
                 )
                 .is_ok(),
@@ -355,7 +397,7 @@ mod tests {
             json!({"type":"noul"}),
             json!({"type":"noul","instructions":true}),
             json!({"type":"noul","instructions":null,"criteria":{}}),
-            json!({"type":"choice","instructions":null,"criteria":{"":null}}),
+            json!({"type":"choice","instructions":"Pick","criteria":{"":null,"b":null}}),
         ] {
             assert!(validate_question(&invalid).is_err());
         }
@@ -382,7 +424,7 @@ mod tests {
             let mut supplied = answer.clone();
             supplied["content"] = json!("HIDDEN_BODY");
             Mock::given(method("POST")).and(body_json(prepare(&state,&question,"m").unwrap()))
-                .respond_with(ResponseTemplate::new(200).set_body_json(json!({"model":"HIDDEN_BODY","answers":{"answer":supplied},"content":"HIDDEN_BODY","usage":{"input_tokens":10,"output_tokens":1,"content":"HIDDEN_BODY"}})))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({"model":"provider-model","answers":{"answer":supplied},"content":"HIDDEN_BODY","usage":{"input_tokens":10,"output_tokens":1,"content":"HIDDEN_BODY"}})))
                 .expect(1).mount(&server).await;
             let result = execute(
                 &state,
@@ -397,7 +439,7 @@ mod tests {
             .unwrap();
             assert_eq!(
                 result,
-                json!({"model":"m","answer":answer,"usage":{"input_tokens":10,"output_tokens":1}})
+                json!({"requestedModel":"m","resolvedModel":"provider-model","answer":answer,"usage":{"input_tokens":10,"output_tokens":1}})
             );
             assert!(!result.to_string().contains("HIDDEN_BODY"));
         }
@@ -412,7 +454,7 @@ mod tests {
             .await;
         assert!(
             execute(
-                &Value::Null,
+                &json!({"state":true}),
                 &json!({}),
                 SecretString::from("test-key"),
                 &server.uri(),
@@ -427,7 +469,7 @@ mod tests {
         cancelled.cancellation.cancel();
         assert_eq!(
             execute(
-                &Value::Null,
+                &json!({"state":true}),
                 &question(),
                 SecretString::from("test-key"),
                 &server.uri(),
@@ -452,7 +494,7 @@ mod tests {
             Mock::given(method("POST")).respond_with(ResponseTemplate::new(200).set_body_json(json!({"model":"m","answers":answer,"usage":{"input_tokens":1,"output_tokens":1}}))).expect(1).mount(&server).await;
             assert_eq!(
                 execute(
-                    &Value::Null,
+                    &json!({"state":true}),
                     &question(),
                     SecretString::from("test-key"),
                     &server.uri(),

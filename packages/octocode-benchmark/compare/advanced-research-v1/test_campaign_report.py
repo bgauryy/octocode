@@ -149,7 +149,7 @@ class CampaignReportTests(unittest.TestCase):
                 events = [json.loads(line) for line in events_path.read_text().splitlines()]
                 query = json.dumps({"reasoning": "Read the campaign fixture.", "path": str(source)})
                 events[0]["item"]["command"] = (
-                    shlex.join(["node", str(cli), "tools", "localFetch", query])
+                    shlex.join(["node", str(cli), "localFetch", query])
                     if row["arm"] == "octocode" else f"rg value {source}"
                 )
                 events.append({"type": "item.completed", "item": {

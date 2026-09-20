@@ -4,7 +4,13 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
-import { prepareExperiment, resolveEndpoint, sendJev, summarize } from '../src/lib.mjs';
+import {
+  prepareExperiment,
+  resolveEndpoint,
+  runExperiment,
+  sendJev,
+  summarize,
+} from '../src/lib.mjs';
 
 test('prepares several files as resource-major matrix requests without local paths', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'jev-lab-'));
@@ -114,8 +120,97 @@ test('summarizes latency and usage without rewriting samples', () => {
     successes: 2,
     failures: 1,
     latencyMs: { min: 10, median: 10, p95: 20, max: 20 },
-    usage: { inputTokens: 7, outputTokens: 3 },
+    usage: {
+      inputTokens: 7,
+      outputTokens: 3,
+      reportedSamples: 2,
+      missingSamples: 0,
+    },
+    resolvedModels: [],
   });
+});
+
+test('keeps aggregate usage unknown when a successful sample omits usage', () => {
+  const samples = [
+    {
+      ok: true,
+      elapsedMs: 10,
+      response: {
+        model: 'jev-1.13.0',
+        usage: { input_tokens: 3, output_tokens: 1 },
+      },
+    },
+    { ok: true, elapsedMs: 20, response: { model: 'jev-1.13.0' } },
+  ];
+  assert.deepEqual(summarize(samples).usage, {
+    inputTokens: null,
+    outputTokens: null,
+    reportedSamples: 1,
+    missingSamples: 1,
+  });
+  assert.deepEqual(summarize(samples).resolvedModels, ['jev-1.13.0']);
+});
+
+test('preserves mixed native answers and reports requested and resolved models adjacently', async t => {
+  const provider = {
+    model: 'jev-1.13.0',
+    answers: {
+      supported: { type: 'noul', noul: 0.81, provider_note: 'future-noul-field' },
+      route: {
+        type: 'choice',
+        choice: 'keep',
+        probabilities: { keep: 0.72, revise: 0.28 },
+        confidence: 0.44,
+        future_choice_metric: 17,
+      },
+      quality: {
+        type: 'score',
+        score: 1.6,
+        probabilities: { '0': 0.1, '1': 0.2, '2': 0.7 },
+        legend: { '0': 'low', '1': 'medium', '2': 'high' },
+        confidence: 0.61,
+        future_score_detail: { calibration: 'provider-owned' },
+      },
+    },
+    usage: { input_tokens: 31, output_tokens: 9 },
+    future_top_level: { trace: 'provider-owned' },
+  };
+  const server = createServer((_request, response) => {
+    response.setHeader('content-type', 'application/json');
+    response.end(JSON.stringify(provider));
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => server.close());
+  const address = server.address();
+  const prepared = await prepareExperiment(
+    {
+      state: { source: 'bounded fixture' },
+      model: 'jev-latest',
+      questions: {
+        supported: { type: 'noul', instructions: 'Supported?' },
+        route: {
+          type: 'choice',
+          instructions: 'Route?',
+          criteria: { keep: null, revise: null },
+        },
+        quality: {
+          type: 'score',
+          instructions: 'Quality?',
+          criteria: ['low', 'medium', 'high'],
+        },
+      },
+    },
+    '/tmp/request.json',
+    {},
+  );
+  const result = await runExperiment(prepared, {
+    key: 'test-key',
+    baseUrl: `http://127.0.0.1:${address.port}`,
+  });
+  assert.equal(result.request.requestedModel, 'jev-latest');
+  assert.equal(Object.hasOwn(result.request, 'model'), false);
+  assert.deepEqual(result.summary.resolvedModels, ['jev-1.13.0']);
+  assert.deepEqual(result.samples[0].response, provider);
 });
 
 test('rejects non-root and insecure remote endpoints', () => {

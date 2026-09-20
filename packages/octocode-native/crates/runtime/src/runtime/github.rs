@@ -23,6 +23,11 @@ use std::{
 
 type Store = ChainedCredentialSource<PlatformCredentialStore, GhCliCredentialSource>;
 
+/// Single source for the permission-denied message shared by the file, search,
+/// and history error mappers below — previously three near-identical literals
+/// that had already drifted in punctuation (hyphen vs em dash).
+const PERMISSION_DENIED_MESSAGE: &str = "Access forbidden - insufficient permissions";
+
 pub(super) struct GitHubServices {
     credentials: Arc<ConfigCredentialResolver<Store>>,
     provider: GitHubProvider<StaticCredentialResolver, GitHubContentCache>,
@@ -535,7 +540,7 @@ fn file_error(error: ProviderError, query: &Value) -> DomainResult {
     }
     let message = match error.kind {
         ProviderErrorKind::Authentication => "GitHub authentication required".into(),
-        ProviderErrorKind::Permission => "Access forbidden - insufficient permissions".into(),
+        ProviderErrorKind::Permission => PERMISSION_DENIED_MESSAGE.into(),
         ProviderErrorKind::NotFound => "Repository, resource, or path not found".into(),
         ProviderErrorKind::Validation => "Invalid search query or request parameters".into(),
         ProviderErrorKind::Server if matches!(error.status, Some(502..=504)) => {
@@ -623,7 +628,7 @@ fn search_error(error: ProviderError) -> DomainResult {
     let failure = failure_kind(error.kind);
     let message = match error.kind {
         ProviderErrorKind::Authentication => "GitHub authentication required".to_owned(),
-        ProviderErrorKind::Permission => "Access forbidden — insufficient permissions".to_owned(),
+        ProviderErrorKind::Permission => PERMISSION_DENIED_MESSAGE.to_owned(),
         ProviderErrorKind::NotFound => "Repository or resource not found".to_owned(),
         ProviderErrorKind::RateLimited => error.message.to_string(),
         ProviderErrorKind::Validation if error.status == Some(422) => {
@@ -667,7 +672,7 @@ fn history_error(error: ProviderError, search: bool) -> DomainResult {
             Some("octocode login, or set GITHUB_TOKEN / GH_TOKEN"),
         ),
         ProviderErrorKind::Permission => (
-            "Access forbidden - insufficient permissions",
+            PERMISSION_DENIED_MESSAGE,
             Some("Check repository permissions or authentication"),
         ),
         ProviderErrorKind::NotFound => ("Repository, resource, or path not found", None),

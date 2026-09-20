@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 // Semantic pre-read triage for saved browser/scrape corpora. Every body part is
-// represented by bounded localFetch resources; Jev sees resources × questions,
-// while stdout contains only aggregate verdicts and paths.
+// represented once as a bounded localFetch resource; semanticAssess preserves
+// page-local provider answers while stdout contains only routes and paths.
 import { existsSync } from 'node:fs';
-import { open, realpath, stat, writeFile } from 'node:fs/promises';
+import { realpath, stat, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { resolve, isAbsolute, relative, join } from 'node:path';
 import { readJsonl, takeArg, hasFlag, ensureDir } from './lib/bridge.mjs';
 
 const MATRIX_RESOURCE_MAX = 25;
-const RESOURCE_BYTES = 20_000;
+const RESOURCE_MAX_CHARS = 80_000;
 const THIN_BYTES = 600;
 
 function usage(code = 2) {
@@ -18,11 +18,11 @@ function usage(code = 2) {
     '  [--pages page-001,page-002] [--files <p1,p2>] [--limit <1..25>=25]\n' +
     '  [--min-skip-confidence <p>=0.6] [--include-mentions]\n' +
     '  [--octocode "<cmd>"] [--dry-run] [--check]\n' +
-    'Judges every bounded resource with one Jev resources[] × questions[] matrix.\n' +
-    '--limit controls resources per matrix page; it never drops resources.\n' +
+    'Judges every resource with one semanticAssess resources[] × questions[] matrix.\n' +
+    '--limit controls resources per initial matrix; it never drops resources.\n' +
     'Explicit files and manifest parts must resolve inside the session directory.\n' +
-    'Thin extractions (<600 clean bytes) and duplicate URLs are routed without Jev.\n' +
-    'If Jev is unavailable, fall back to lexical triage via corpus-find.mjs.'
+    'Thin extractions (<600 clean bytes) and duplicate URLs are routed without semantic assessment.\n' +
+    'If semanticAssess is unavailable, fall back to lexical triage via corpus-find.mjs.'
   );
   process.exit(code);
 }
@@ -67,31 +67,31 @@ if (!(minSkipConfidence >= 0 && minSkipConfidence <= 1)) usage();
 const cli = splitCommand(octocodeCmd);
 if (!cli.length) usage();
 
-function runJev(inputPath) {
-  const res = spawnSync(cli[0], [...cli.slice(1), 'jev', '--input', inputPath, '--compact'], {
+function runSemanticAssess(inputPath) {
+  const res = spawnSync(cli[0], [...cli.slice(1), 'semanticAssess', '--input', inputPath, '--compact'], {
     encoding: 'utf8',
     timeout: 120_000,
     maxBuffer: 4 * 1024 * 1024,
   });
   const stdout = String(res.stdout || '');
   const stderr = String(res.stderr || '');
-  if (/Unknown tool: jev|not available|OCTOCODE_JEV_KEY/i.test(stdout + stderr)) {
+  if (/Unknown tool: semanticAssess|not available|OCTOCODE_JEV_KEY/i.test(stdout + stderr)) {
     return { unavailable: true, detail: (stderr || stdout).slice(0, 300) };
   }
   if (res.status !== 0 && !stdout.trim()) {
-    return { error: `jev CLI exit ${res.status}: ${(stderr || stdout).slice(0, 300)}` };
+    return { error: `semanticAssess CLI exit ${res.status}: ${(stderr || stdout).slice(0, 300)}` };
   }
   const jsonLine = stdout.trim().split('\n').findLast((line) => line.trim().startsWith('{'));
-  if (!jsonLine) return { error: `no JSON in jev output: ${(stderr || stdout).slice(0, 300)}` };
+  if (!jsonLine) return { error: `no JSON in semanticAssess output: ${(stderr || stdout).slice(0, 300)}` };
   try {
     return { parsed: JSON.parse(jsonLine) };
   } catch (error) {
-    return { error: `bad jev JSON: ${error.message}` };
+    return { error: `bad semanticAssess JSON: ${error.message}` };
   }
 }
 
 if (checkOnly) {
-  const res = spawnSync(cli[0], [...cli.slice(1), 'scheme', 'jev', '--view', 'query', '--compact'], {
+  const res = spawnSync(cli[0], [...cli.slice(1), 'scheme', 'semanticAssess', '--view', 'query', '--compact'], {
     encoding: 'utf8',
     timeout: 60_000,
   });
@@ -99,7 +99,7 @@ if (checkOnly) {
   const available = res.status === 0 && !/Unknown tool/i.test(out);
   console.log(JSON.stringify({
     ok: available,
-    code: available ? 'JEV_SCHEMA_OK' : 'JEV_UNAVAILABLE',
+    code: available ? 'SEMANTIC_ASSESS_SCHEMA_OK' : 'SEMANTIC_ASSESS_UNAVAILABLE',
     cli: octocodeCmd,
     hint: available ? null : 'fall back to corpus-find.mjs lexical triage',
   }));
@@ -123,34 +123,6 @@ async function resolveSessionFile(rawPath) {
   const details = await stat(actual);
   if (!details.isFile()) throw new Error(`Not a regular file: ${rawPath}`);
   return { path: actual, bytes: details.size };
-}
-
-async function utf8Boundary(handle, desired, size) {
-  if (desired <= 0 || desired >= size) return Math.max(0, Math.min(desired, size));
-  const bytes = Buffer.alloc(4);
-  const { bytesRead } = await handle.read(bytes, 0, bytes.length, desired);
-  let shift = 0;
-  while (shift < bytesRead && (bytes[shift] & 0xc0) === 0x80) shift += 1;
-  return desired + shift;
-}
-
-async function byteChunks(file) {
-  const details = await stat(file);
-  if (!details.isFile() || details.size === 0) return [];
-  const handle = await open(file, 'r');
-  const chunks = [];
-  try {
-    let offset = 0;
-    while (offset < details.size) {
-      const desired = Math.min(offset + RESOURCE_BYTES, details.size);
-      const end = await utf8Boundary(handle, desired, details.size);
-      chunks.push({ offset, limit: end - offset });
-      offset = end;
-    }
-  } finally {
-    await handle.close();
-  }
-  return chunks;
 }
 
 const sources = await readJsonl(sessionRoot, 'sources.jsonl');
@@ -236,84 +208,139 @@ const resources = [];
 for (const [candidateIndex, candidate] of candidates.entries()) {
   candidate.resourceIds = [];
   for (const [partIndex, file] of candidate.files.entries()) {
-    const chunks = await byteChunks(file.path);
-    for (const [chunkIndex, chunk] of chunks.entries()) {
-      const id = `r${String(resources.length + 1).padStart(4, '0')}`;
-      candidate.resourceIds.push(id);
-      resources.push({
-        id,
-        candidateIndex,
-        partIndex,
-        chunkIndex,
-        file: file.path,
-        context: {
-          tool: 'localFetch',
-          query: {
-            path: file.path,
-            reasoning: 'Screen one bounded saved-browser resource without returning its body.',
-            chunkType: 'bytes',
-            offset: chunk.offset,
-            limit: chunk.limit,
-            minify: 'none',
-          },
+    if (file.bytes === 0) continue;
+    const id = `r${String(resources.length + 1).padStart(4, '0')}`;
+    candidate.resourceIds.push(id);
+    resources.push({
+      id,
+      candidateIndex,
+      partIndex,
+      file: file.path,
+      maxChars: RESOURCE_MAX_CHARS,
+      context: {
+        tool: 'localFetch',
+        query: {
+          path: file.path,
+          reasoning: 'Assess this saved-browser resource without returning its body.',
+          fullContent: true,
+          minify: 'none',
         },
-      });
-    }
+      },
+    });
   }
 }
 
 const decisions = new Map();
 const errors = [];
+const assessmentPages = [];
+const pageDecisions = new Map();
+const resourceCoverage = new Map();
 let providerIn = 0;
 let providerOut = 0;
 let calls = 0;
+let requestNumber = 0;
 for (let offset = 0; offset < resources.length; offset += matrixPageSize) {
   const batch = resources.slice(offset, offset + matrixPageSize);
-  const request = {
+  let request = {
+    id: `triage-${offset / matrixPageSize + 1}`,
     reasoning: 'Decide which saved browser resources need direct evidence reads.',
-    resources: batch.map((resource) => ({ id: resource.id, context: resource.context })),
+    resources: batch.map((resource) => ({ id: resource.id, context: resource.context, maxChars: resource.maxChars })),
     questions: [{ id: 'relevance', question }],
   };
-  const reqPath = join(reportDir, `request-${String(offset / matrixPageSize + 1).padStart(2, '0')}.json`);
-  await writeFile(reqPath, `${JSON.stringify(request, null, 2)}\n`, { mode: 0o600 });
-  if (dryRun) continue;
-  const run = runJev(reqPath);
-  calls += 1;
-  if (run.unavailable) {
-    console.log(JSON.stringify({ ok: false, code: 'JEV_UNAVAILABLE', cli: octocodeCmd, detail: run.detail, hint: 'fall back to corpus-find.mjs lexical triage', requests: reportDir }));
-    process.exit(1);
-  }
-  if (run.error) {
-    for (const resource of batch) errors.push({ resourceId: resource.id, file: resource.file, error: run.error });
-    continue;
-  }
-  const rows = run.parsed?.results || [];
-  for (const resource of batch) {
-    const row = rows.find((candidate) => candidate.resourceId === resource.id && candidate.questionId === 'relevance');
-    const data = row?.data;
-    const choice = data?.answer?.choice;
-    if (!['relevant', 'mention', 'unrelated', 'insufficient'].includes(choice)) {
-      errors.push({
-        resourceId: resource.id,
-        file: resource.file,
-        error: data?.error || row?.error || (choice ? `unknown choice: ${choice}` : 'missing answer'),
-        errorCode: data?.errorCode,
-      });
-      continue;
+  const seenRequests = new Set();
+  while (request) {
+    const fingerprint = JSON.stringify(request);
+    if (seenRequests.has(fingerprint)) {
+      for (const resource of batch) errors.push({ resourceId: resource.id, file: resource.file, error: 'repeated next.assess continuation' });
+      break;
     }
-    providerIn += data.usage?.input_tokens || 0;
-    providerOut += data.usage?.output_tokens || 0;
-    decisions.set(resource.id, {
-      choice,
-      confidence: data.answer.confidence,
-      probabilities: data.answer.probabilities,
-      partialCoverage: data.context?.coverage === 'partial',
-      receipt: data.context ? {
-        coverage: data.context.coverage,
-        limitations: data.context.limitations,
-      } : undefined,
-    });
+    seenRequests.add(fingerprint);
+    requestNumber += 1;
+    const reqPath = join(reportDir, `request-${String(requestNumber).padStart(2, '0')}.json`);
+    await writeFile(reqPath, `${JSON.stringify(request, null, 2)}\n`, { mode: 0o600 });
+    if (dryRun) break;
+    const run = runSemanticAssess(reqPath);
+    calls += 1;
+    if (run.unavailable) {
+      console.log(JSON.stringify({ ok: false, code: 'SEMANTIC_ASSESS_UNAVAILABLE', cli: octocodeCmd, detail: run.detail, hint: 'fall back to corpus-find.mjs lexical triage', requests: reportDir }));
+      process.exit(1);
+    }
+    if (run.error) {
+      for (const resource of request.resources) {
+        const known = resources.find((candidate) => candidate.id === resource.id);
+        errors.push({ resourceId: resource.id, file: known?.file, error: run.error });
+      }
+      break;
+    }
+    const queryResult = run.parsed?.queries?.find((candidate) => candidate.queryId === request.id);
+    if (!queryResult) {
+      for (const resource of request.resources) {
+        const known = resources.find((candidate) => candidate.id === resource.id);
+        errors.push({ resourceId: resource.id, file: known?.file, error: 'missing correlated semanticAssess query result' });
+      }
+      break;
+    }
+    const continuedResourceIds = new Set((queryResult.next?.assess?.resources || []).map((resource) => resource.id));
+    for (const resource of request.resources) {
+      const known = resources.find((candidate) => candidate.id === resource.id);
+      const cell = queryResult.results?.find((candidate) => candidate.resourceId === resource.id && candidate.questionId === 'relevance');
+      if (!cell || !Array.isArray(cell.pages) || !cell.pages.length) {
+        errors.push({ resourceId: resource.id, file: known?.file, error: 'missing semanticAssess result cell or pages' });
+        continue;
+      }
+      const unresolvedCoverage = cell.coverage !== 'complete' && !continuedResourceIds.has(resource.id);
+      if (unresolvedCoverage) resourceCoverage.set(resource.id, true);
+      for (const page of cell.pages) {
+        assessmentPages.push({ queryId: request.id, resourceId: resource.id, questionId: 'relevance', coverage: cell.coverage, ...page });
+        if (page.status !== 'success') {
+          errors.push({ resourceId: resource.id, file: known?.file, error: page.error?.message || 'semanticAssess page error', errorCode: page.error?.code });
+          continue;
+        }
+        const choice = page.answer?.choice;
+        if (!['relevant', 'mention', 'unrelated', 'insufficient'].includes(choice)) {
+          errors.push({ resourceId: resource.id, file: known?.file, error: choice ? `unknown choice: ${choice}` : 'missing choice answer' });
+          continue;
+        }
+        providerIn += page.usage?.input_tokens || 0;
+        providerOut += page.usage?.output_tokens || 0;
+        const prior = pageDecisions.get(resource.id) || [];
+        prior.push({
+          choice,
+          confidence: page.answer.confidence,
+          probabilities: page.answer.probabilities,
+          partialCoverage: unresolvedCoverage || page.context?.coverage === 'partial',
+          receipt: page.context ? { coverage: page.context.coverage, limitations: page.context.limitations } : undefined,
+        });
+        pageDecisions.set(resource.id, prior);
+      }
+    }
+    request = queryResult.next?.assess || null;
   }
+}
+
+for (const resource of resources) {
+  const rows = pageDecisions.get(resource.id) || [];
+  if (!rows.length || errors.some((error) => error.resourceId === resource.id)) continue;
+  const partialCoverage = Boolean(resourceCoverage.get(resource.id)) || rows.some((row) => row.partialCoverage);
+  const relevant = rows.filter((row) => row.choice === 'relevant');
+  const mentions = rows.filter((row) => row.choice === 'mention');
+  const insufficient = rows.filter((row) => row.choice === 'insufficient');
+  let choice;
+  let confidence;
+  if (relevant.length) {
+    choice = 'relevant';
+    confidence = Math.max(...relevant.map((row) => Number(row.confidence ?? 0)));
+  } else if (insufficient.length || partialCoverage) {
+    choice = 'insufficient';
+    confidence = Math.max(...insufficient.map((row) => Number(row.confidence ?? 0)), 0);
+  } else if (mentions.length) {
+    choice = 'mention';
+    confidence = Math.max(...mentions.map((row) => Number(row.confidence ?? 0)));
+  } else {
+    choice = 'unrelated';
+    confidence = Math.min(...rows.map((row) => Number(row.confidence ?? 0)));
+  }
+  decisions.set(resource.id, { choice, confidence, partialCoverage, receipts: rows.map((row) => row.receipt).filter(Boolean) });
 }
 
 const judged = candidates.map((candidate) => {
@@ -351,7 +378,7 @@ const judged = candidates.map((candidate) => {
     choice,
     confidence,
     partialCoverage,
-    receipts: rows.map((row) => row.receipt).filter(Boolean),
+    receipts: rows.flatMap((row) => row.receipts || []),
   };
 });
 
@@ -385,7 +412,7 @@ const out = {
   dryRun,
   judged: judged.length,
   resources: resources.length,
-  resourcePages: Math.ceil(resources.length / matrixPageSize),
+  matrixBatches: Math.ceil(resources.length / matrixPageSize),
   read: readRows.map(publicRow),
   consider: [
     ...considerRows.map(publicRow),
@@ -396,15 +423,15 @@ const out = {
   errorCount: errors.length,
   errors: publicErrors,
   errorsTruncated: publicErrors.length < errors.length,
-  jevUsage: dryRun ? null : { calls, providerInputTokens: providerIn, providerOutputTokens: providerOut },
+  semanticAssessUsage: dryRun ? null : { calls, providerInputTokens: providerIn, providerOutputTokens: providerOut },
   requests: reportDir,
   caveats: [
-    'Verdicts are bounded to every saved resource chunk, not proof of global absence.',
-    'Relevant, partial, insufficient, or errored resources require direct evidence reads.',
+    'Routes are an explicit reduction over preserved page-local answers, not proof of global absence.',
+    'Relevant, partial, insufficient, or errored pages require direct evidence reads.',
   ],
 };
 const reportPath = join(reportDir, 'triage.json');
-await writeFile(reportPath, `${JSON.stringify({ ...out, errors, errorsTruncated: false, judgedRows: judged }, null, 2)}\n`, { mode: 0o600 });
+await writeFile(reportPath, `${JSON.stringify({ ...out, errors, errorsTruncated: false, assessmentPages, judgedRows: judged }, null, 2)}\n`, { mode: 0o600 });
 out.report = reportPath;
 console.log(JSON.stringify(out, null, 2));
 process.exit(out.ok ? 0 : 1);

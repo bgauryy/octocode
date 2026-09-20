@@ -16,7 +16,7 @@ npx octocode scheme <toolName> --compact
 | Packages | `artifactSearch` |
 | Local | `localSearch`, `localFetch`, `astSearch`, `astRewrite` |
 | LSP | `lspSearch` |
-| Reasoning | `jev` |
+| Semantic assessment | `semanticAssess` |
 
 ## Contents
 
@@ -26,15 +26,14 @@ npx octocode scheme <toolName> --compact
 - [GitHub tools reference](#github-tools-reference)
 - [Local code tools reference](#local-code-tools-reference)
 - [LSP tools reference](#lsp-tools-reference)
-- [Jev reasoning reference](#jev-reasoning-reference)
-- [Jev Scout reference](#jev-scout-reference)
+- [Semantic assessment reference](#semantic-assessment-reference)
 - [Clone and local tools workflow](#clone-and-local-tools-workflow)
 - [Tool verification playbook](#tool-verification-playbook)
 - [MCP tool quality and agent workflow](https://github.com/bgauryy/octocode/blob/main/docs/MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md)
 
 ## How every tool call works
 
-The CLI and MCP server expose the same canonical contracts from `@octocodeai/octocode-core` and execute through `@octocodeai/octocode-native`. The interface validates one strict outer object, validates each query against the selected tool and operation, runs independent queries with bounded concurrency, and returns one row for every input position. A failure in one row does not erase successful sibling rows.
+The CLI and MCP server expose the same canonical contracts from `@octocodeai/octocode-core` and execute through `@octocodeai/octocode-native`. Ordinary tools validate a strict `queries[]` envelope, run independent queries with bounded concurrency, and return one row for every input position. `semanticAssess` instead accepts one complete `SemanticQuery` directly or a batch of complete queries; see [Semantic assessment reference](#semantic-assessment-reference). A failure in one row or assessment page does not erase successful siblings.
 
 ### Base call envelope
 
@@ -60,7 +59,7 @@ The CLI and MCP server expose the same canonical contracts from `@octocodeai/oct
 | `responseCharLength` | Optional outer field | Limits the rendered whole-response text window to 1–50,000 characters. It does not replace a tool's own result pagination. |
 | `responseCharOffset` | Optional outer field | Continues a whole-response text window. Copy the returned executable `responsePagination.next` call instead of constructing an offset by hand. |
 
-`goal` and `reasoning` are the only fields shared by every individual query. All other fields belong to a specific tool variant. The schemas are strict: fields from different `operation` branches cannot be mixed, selector pairs such as `startLine`/`endLine` must be complete, and mutually exclusive selectors must not be combined.
+For ordinary tools, `goal` and `reasoning` are the shared query fields. All other fields belong to a specific tool variant. The schemas are strict: fields from different `operation` branches cannot be mixed, selector pairs such as `startLine`/`endLine` must be complete, and mutually exclusive selectors must not be combined. `semanticAssess` has its own matrix contract and required query-level `reasoning` field.
 
 ### Schema discovery, variants, relations, and hints
 
@@ -124,9 +123,9 @@ Keep continuation tokens scoped to their surface: operation-level `snapshot` val
 | `astRewrite` | Internal/local | Previews structural ast-grep rewrites and performs serialized, snapshot-bound, hash-guarded applies with journal recovery. Apply is separately opt-in; inspect the commit or recovery receipt. Cross-file changes are not simultaneously visible. |
 | `localFetch` | Internal/local | Reads a known allowed path with full, match, line-range, minified, or symbol-outline views and exact continuations. |
 | `lspSearch` | Internal/local with a language-server process | Resolves an anchored symbol and asks a real language server for definitions, references, calls, types, symbols, hierarchy, or diagnostics. It reports unavailable capabilities instead of returning a syntactic approximation as semantic proof. |
-| `jev` | External provider | Executes an unread read-tool request or accepts inline evidence, then returns one typed classification per query without retrieved bodies. |
+| `semanticAssess` | External Jev provider | Executes unread read-tool requests or accepts supplied state, applies Noul, Choice, or Score questions across a resource-question matrix, and returns correlated typed pages without retrieved bodies. |
 
-Remote GitHub tools require provider runtime and credentials. `artifactSearch` uses official registry APIs; `type:"npm"` honors the effective npm registry configuration. Local tools require `ENABLE_LOCAL`; clone/materialization additionally requires `ENABLE_CLONE` and persistent storage. LSP availability also depends on a compatible server for the file language. `jev` requires a nonblank resolved `OCTOCODE_JEV_KEY`; without one, MCP does not register this tool.
+Remote GitHub tools require provider runtime and credentials. `artifactSearch` uses official registry APIs; `type:"npm"` honors the effective npm registry configuration. Local tools require `ENABLE_LOCAL`; clone/materialization additionally requires `ENABLE_CLONE` and persistent storage. LSP availability also depends on a compatible server for the file language. `semanticAssess` requires a nonblank resolved `OCTOCODE_JEV_KEY`; without one, MCP omits it and a CLI call returns an actionable missing-key error.
 
 ## Text, AST, graph, and LSP: choose the evidence you need
 
@@ -1343,13 +1342,13 @@ Workspace-symbol search:
 
 ---
 
-## Pure Jev reference
+## Semantic assessment reference
 
-Use `octocode jev --input request.json --compact`; discover `octocode scheme jev --view query --compact` once. Prefer `{reasoning,resources:[{id,context}],questions:[{id,question}]}` for a shared question set; every question sees every resource, rows carry both IDs, and each resource is captured once. A matrix has at most 25 cells, 25 resources, and five questions. Use `queries[]` only for independent `{reasoning,context,question}` pairs whose cross-product would be wrong; those rows use ordered `index`. Context is inline `{value}` or an unread `{tool,query}` request.
+Use `octocode semanticAssess --input request.json`; inspect `octocode scheme semanticAssess --compact` before hand-authoring a call. Pass one complete `SemanticQuery` directly or batch one to five complete matrices in `queries[]`. Within a query, every question sees every resource, each resource is captured once, and every result carries `queryId`, `resourceId`, and `questionId`. Keep a matrix at 25 cells or fewer and the batch at 50 cells or fewer.
 
-The runtime executes the context tool under its normal policies, sends its sanitized bounded result to Jev, and returns one typed answer plus model, usage and compact coverage metadata. Retrieved bodies stay out of the host response. Use Noul for yes/no probability, Choice for alternatives and Score for 2–10 ordered levels. Context, instructions and criterion descriptions accept structured JSON. Model configuration is internal.
+Context is supplied non-empty `{value}` state or one unread `{tool,query}` request. `instructions` is always a non-null, non-empty string, object, or array. Noul criteria are optional; when present, both `true` and `false` are required and their descriptions may be null. Choice requires 2–255 labels whose descriptions may be null. Score requires 2–10 ordered, non-null, non-empty string/object/array levels.
 
-Read tools are supported; recursive Jev, astRewrite and ghCloneRepo are excluded. Partial results preserve continuation or terminal limitations without following source pages. Split huge file/browser/HAR bodies into bounded resources and page matrices until all chunks are judged. Missing coverage and tool errors cannot establish a negative. See [the current contract and examples](OCTOCODE_JEV.md). Earlier state/sources and separate scout/reasoning tools are retired.
+The runtime executes supported read requests under normal policy and automatically retains ordered same-resource results in `pages[]`; it never silently averages or reduces them. Successful pages report `requestedModel` and `resolvedModel` separately. Follow an executable `next.assess` unchanged, retain error pages, and never use partial coverage to establish global absence. See the [complete contract and examples](OCTOCODE_SEMANTIC_ASSESS.md) and the [research workflow](SEMANTIC_ASSESS_RESEARCH_GUIDE.md).
 
 ---
 

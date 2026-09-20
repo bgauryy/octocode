@@ -9,7 +9,7 @@ Seeking the other runner, the judge, or any hidden reference invalidates the run
 
 Your assigned arm is exactly one of (arm id in **bold** — use it in your output path):
 
-- **`octocode`** — every research command is `npx octocode@<ver> tools <tool> --queries …` (via `compare/bin/octoc`); no MCP, no gh.
+- **`octocode`** — every research command is `npx octocode@<ver> <toolName> '<json>'` (via `compare/bin/octoc`); no MCP, no gh.
 - **`rtk`** — every research command is `rtk gh <args>` (read-only, via `compare/bin/rtkm`).
 - **`headroom`** — every research command is `compare/bin/ghc <gh args>` (compressed).
 - **`gh`** — every research command is `gh <args>` (read-only, via `compare/bin/ghm`).
