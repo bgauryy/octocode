@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/server';
 import { getNativeContractFingerprint } from '@octocodeai/octocode-core/schema';
-import { createNativeMcp, loadNativeBinding } from '../../src/native/index.mjs';
+// Raw-node boundary smoke test: exercises the SHIPPED artifact under plain node
+// (no vitest transform). Requires a prior `yarn build` so dist/public.js exists.
+import { createNativeMcp, loadNativeBinding } from '../../dist/public.js';
 
 class FakeRuntime {
   static instance;

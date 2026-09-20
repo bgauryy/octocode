@@ -552,7 +552,7 @@ pub struct MinifyResult {
 
 impl MinifyResult {
     pub fn ok(content: String, strategy: &str) -> Self {
-        MinifyResult {
+        Self {
             content,
             failed: false,
             r#type: strategy.to_owned(),
@@ -560,7 +560,7 @@ impl MinifyResult {
         }
     }
     pub fn fail(content: String, reason: impl Into<String>) -> Self {
-        MinifyResult {
+        Self {
             content,
             failed: true,
             r#type: "failed".to_owned(),

@@ -38,6 +38,6 @@ impl From<Error> for napi::Error {
             Status::InvalidArg => napi::Status::InvalidArg,
             Status::GenericFailure => napi::Status::GenericFailure,
         };
-        napi::Error::new(status, error.reason)
+        Self::new(status, error.reason)
     }
 }

@@ -3,7 +3,7 @@
 //! in each language. Adding a configured extension automatically adds cases.
 use super::apply::apply_content_view_minification_inner;
 use super::comment_remover::rules_for;
-use super::config::{indentation_sensitive_names, minify_config, FileTypeConfig};
+use super::config::{FileTypeConfig, indentation_sensitive_names, minify_config};
 use super::minifier::{get_file_config, minify_content_result_inner};
 
 const MARKER: &str = "octocodeKeepMarker";
@@ -40,7 +40,9 @@ fn research_views_preserve_multiline_literal_payloads() {
 fn research_web_views_preserve_raw_regions_and_script_literals() {
     let payload = "alpha  \n\n\nbeta\t\n";
     for extension in ["html", "htm", "vue", "svelte"] {
-        let source = format!("<!-- removable -->\n<script>\nconst marker = \"<!-- retained literal -->\";\nconsole.log(marker);\n</script>\n<pre>{payload}</pre>\n<textarea>{payload}</textarea>\n<script type=\"application/json\">{{\"value\":\"<!-- json literal -->\"}}</script>\n");
+        let source = format!(
+            "<!-- removable -->\n<script>\nconst marker = \"<!-- retained literal -->\";\nconsole.log(marker);\n</script>\n<pre>{payload}</pre>\n<textarea>{payload}</textarea>\n<script type=\"application/json\">{{\"value\":\"<!-- json literal -->\"}}</script>\n"
+        );
         let output =
             apply_content_view_minification_inner(&source, &format!("literal.{extension}"));
         assert!(
@@ -112,6 +114,11 @@ fn every_structural_extension_has_an_explicit_minification_route() {
             &["cpp", "hpp", "cc", "cxx", "hh", "hxx"][..],
         ),
         (cfg!(feature = "tree-sitter-c-sharp"), &["cs"][..]),
+        (cfg!(feature = "tree-sitter-cuda"), &["cu", "cuh"][..]),
+        (
+            cfg!(feature = "tree-sitter-asm"),
+            &["asm", "assembly", "s"][..],
+        ),
     ] {
         if enabled {
             expected.extend(optional.iter().copied());
@@ -143,7 +150,7 @@ fn every_configured_extension_preserves_evidence_and_removes_its_comments() {
     let config = minify_config();
     assert_eq!(
         config.len(),
-        148,
+        152,
         "review new entries and update the published inventory"
     );
     for (&extension, cfg) in config {

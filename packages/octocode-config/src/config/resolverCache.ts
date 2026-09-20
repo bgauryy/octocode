@@ -3,6 +3,7 @@ import { DEFAULT_CONFIG } from './defaults.js';
 import { loadConfigSync } from './loader.js';
 import { validateConfig } from './validator.js';
 import {
+  CONFIG_SOURCE_ENV_KEYS,
   resolveExtensionStorage,
   resolveGitHub,
   resolveLocal,
@@ -14,30 +15,10 @@ import {
   resolveStorage,
 } from './resolverSections.js';
 
-const CONFIG_ENV_KEYS = [
-  'GITHUB_API_URL',
-  'OCTOCODE_GITHUB_GRAPHQL',
-  'ENABLE_LOCAL',
-  'ENABLE_CLONE',
-  'ENABLE_AST_REWRITE_APPLY',
-  'ALLOWED_PATHS',
-  'WORKSPACE_ROOT',
-  'TOOLS_TO_RUN',
-  'DISABLE_TOOLS',
-  'REQUEST_TIMEOUT',
-  'MAX_RETRIES',
-  'OCTOCODE_LSP_CONFIG',
-  'OCTOCODE_OUTPUT_FORMAT',
-  'OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH',
-  'OCTOCODE_ENABLE_STATS',
-  'OCTOCODE_STORAGE_MODE',
-  'OCTOCODE_EXTENSION_STORAGE_MODE',
-] as const;
-
 type FileState = 'absent' | 'valid' | 'invalid';
 
 function hasEnvOverrides(env: NodeJS.ProcessEnv = process.env): boolean {
-  return CONFIG_ENV_KEYS.some(key => env[key] !== undefined);
+  return CONFIG_SOURCE_ENV_KEYS.some(key => env[key] !== undefined);
 }
 
 function sourceFor(fileState: FileState): ResolvedConfig['source'] {

@@ -181,6 +181,15 @@ fn validate_object(
             }
         }
     }
+    if let Some(properties) = properties {
+        for (name, field_schema) in properties {
+            if !object.contains_key(name)
+                && let Some(default) = field_schema.get("default")
+            {
+                object.insert(name.clone(), default.clone());
+            }
+        }
+    }
     for required in schema
         .get("required")
         .and_then(Value::as_array)
@@ -207,11 +216,6 @@ fn validate_object(
     }
     if let Some(properties) = properties {
         for (name, field_schema) in properties {
-            if !object.contains_key(name)
-                && let Some(default) = field_schema.get("default")
-            {
-                object.insert(name.clone(), default.clone());
-            }
             if let Some(field) = object.get_mut(name) {
                 path.push(name.clone());
                 let result = validate_schema(root, field_schema, field, path);

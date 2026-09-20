@@ -239,6 +239,12 @@ fn extension(file: &str) -> &str {
         .filter(|x| !x.contains('/'))
         .unwrap_or("")
 }
+fn is_c_family_extension(ext: &str) -> bool {
+    matches!(
+        ext,
+        "c" | "h" | "cc" | "cpp" | "cxx" | "hh" | "hpp" | "hxx" | "cu" | "cuh"
+    )
+}
 fn linking(ext: &str) -> &'static str {
     if matches!(
         ext,
@@ -249,7 +255,7 @@ fn linking(ext: &str) -> &'static str {
         "rust-modules"
     } else if matches!(ext, "py" | "pyi") {
         "python-modules"
-    } else if matches!(ext, "c" | "h" | "cc" | "cpp" | "cxx" | "hh" | "hpp" | "hxx") {
+    } else if is_c_family_extension(ext) {
         "c-relative-includes"
     } else {
         "unsupported"
@@ -266,7 +272,7 @@ fn edge_kind(ext: &str, kind: &str) -> &'static str {
         "type-import"
     } else if matches!(ext, "py" | "pyi") {
         "python-import"
-    } else if matches!(ext, "c" | "h" | "cc" | "cpp" | "cxx" | "hh" | "hpp" | "hxx") {
+    } else if is_c_family_extension(ext) {
         "c-include"
     } else {
         "static-import"
@@ -383,12 +389,7 @@ fn link_file(
                 ),
                 i.line,
             )?;
-            if i.imported_name.as_deref() == Some("*")
-                || matches!(
-                    ext.as_str(),
-                    "c" | "h" | "cc" | "cpp" | "cxx" | "hh" | "hpp" | "hxx"
-                )
-            {
+            if i.imported_name.as_deref() == Some("*") || is_c_family_extension(&ext) {
                 b.namespace_targets.insert(t.clone());
             }
         }
@@ -651,7 +652,7 @@ fn resolve(
     if matches!(ext, "py" | "pyi") {
         return resolve_python(spec, importer, hint, imported, known);
     }
-    if matches!(ext, "c" | "h" | "cc" | "cpp" | "cxx" | "hh" | "hpp" | "hxx") {
+    if is_c_family_extension(ext) {
         if hint != Some("c-relative") || spec.starts_with('/') {
             return None;
         }

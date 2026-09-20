@@ -437,32 +437,66 @@ fn continuation_with(q: &AstMatchQuery, changes: Value, snapshot: &str) -> Value
 }
 
 fn language_include_globs(language: &str) -> Option<Vec<String>> {
-    let extensions: &[&str] = match language
-        .trim()
-        .trim_start_matches('.')
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "rust" | "rs" => &["rs"],
-        "typescript" | "ts" => &["ts", "tsx", "mts", "cts"],
-        "typescriptreact" | "tsx" => &["tsx"],
-        "javascript" | "js" => &["js", "jsx", "mjs", "cjs"],
-        "python" | "py" => &["py", "pyi"],
-        "go" => &["go"],
-        "java" => &["java"],
-        "c" => &["c", "h"],
-        "scala" => &["scala", "sc", "sbt"],
-        "cpp" | "c++" => &["cpp", "hpp", "cc", "cxx", "hh", "hxx"],
-        "csharp" | "c#" | "cs" => &["cs"],
-        _ => return None,
-    };
-    Some(
+    let selector = language.trim().trim_start_matches('.').to_ascii_lowercase();
+    let extensions: std::collections::BTreeSet<String> =
+        octocode_engine::portable::grammar_capabilities()
+            .into_iter()
+            .filter(|capability| {
+                capability.language.eq_ignore_ascii_case(&selector)
+                    || capability
+                        .language_id
+                        .as_deref()
+                        .is_some_and(|id| id.eq_ignore_ascii_case(&selector))
+                    || capability
+                        .selector_aliases
+                        .iter()
+                        .any(|alias| alias.eq_ignore_ascii_case(&selector))
+                    || capability
+                        .extensions
+                        .iter()
+                        .any(|extension| extension.eq_ignore_ascii_case(&selector))
+            })
+            .flat_map(|capability| capability.extensions)
+            .collect();
+    (!extensions.is_empty()).then(|| {
         extensions
-            .iter()
+            .into_iter()
             .map(|extension| format!("*.{extension}"))
-            .collect(),
-    )
+            .collect()
+    })
 }
+
+#[cfg(test)]
+mod language_glob_tests {
+    use super::language_include_globs;
+
+    #[test]
+    fn directory_language_globs_derive_from_the_canonical_grammar_registry() {
+        assert_eq!(
+            language_include_globs("cuda"),
+            Some(vec!["*.cu".to_owned(), "*.cuh".to_owned()])
+        );
+        assert_eq!(
+            language_include_globs("assembly"),
+            Some(vec![
+                "*.asm".to_owned(),
+                "*.assembly".to_owned(),
+                "*.s".to_owned()
+            ])
+        );
+        assert_eq!(
+            language_include_globs("typescript"),
+            Some(vec![
+                "*.cts".to_owned(),
+                "*.mts".to_owned(),
+                "*.ts".to_owned(),
+                "*.tsx".to_owned()
+            ])
+        );
+        assert_eq!(language_include_globs("unsupported"), None);
+    }
+}
+
 fn diag(d: StructuralDiagnostic) -> Value {
     json!({"code":d.code,"severity":d.severity,"stage":d.stage,"message":d.message,"path":d.path,"recovery":d.recovery})
 }

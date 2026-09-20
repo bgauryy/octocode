@@ -1,3 +1,6 @@
+/** Mirrors NATIVE_ABI_VERSION in crates/runtime/src/lib.rs. */
+export declare const NATIVE_ABI_VERSION: number;
+
 export interface NativeRuntimeOptions {
   surface?: string;
   regexWorkerPath?: string;

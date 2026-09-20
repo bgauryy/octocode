@@ -22,6 +22,10 @@ opt-level = 3
 
 [profile.dev.package."tree-sitter"]
 opt-level = 3
+[profile.dev.package."tree-sitter-asm"]
+opt-level = 3
+[profile.dev.package."tree-sitter-cuda"]
+opt-level = 3
 [profile.dev.package."tree-sitter-javascript"]
 opt-level = 3
 [profile.dev.package."tree-sitter-typescript"]
@@ -48,6 +52,10 @@ opt-level = 2
 opt-level = 2
 
 [profile.test.package."tree-sitter"]
+opt-level = 3
+[profile.test.package."tree-sitter-asm"]
+opt-level = 3
+[profile.test.package."tree-sitter-cuda"]
 opt-level = 3
 [profile.test.package."tree-sitter-javascript"]
 opt-level = 3

@@ -85,10 +85,12 @@ fn ast_audit_unanchored_directory_reports_unsupported_files() {
         .expect("async directory result includes its query plan");
     assert_eq!(query.kind, "pattern");
     assert_eq!(query.pre_filter, "disabled");
-    assert!(result
-        .diagnostics
-        .iter()
-        .any(|diagnostic| { diagnostic.code == "structural.language.unsupported" }));
+    assert!(
+        result
+            .diagnostics
+            .iter()
+            .any(|diagnostic| { diagnostic.code == "structural.language.unsupported" })
+    );
     fs::remove_dir_all(root).expect("cleanup");
 }
 
@@ -226,6 +228,37 @@ fn rust_pattern_with_expando_char() {
     let src = "fn main() {\n    println(a);\n    println(b);\n}\n";
     let matches = run_pattern(src, "rs", "println($X)");
     assert_eq!(matches.len(), 2);
+}
+
+#[cfg(feature = "tree-sitter-cuda")]
+#[test]
+fn cuda_pattern_matches_kernel_launch_and_captures_configuration() {
+    let src = "void launch(int *values) { kernel<<<1, 32>>>(values); }\n";
+    let matches = run_pattern(
+        src,
+        "cu",
+        "void launch(int *$ARG) { kernel<<<$GRID, $BLOCK>>>($ARG); }",
+    );
+    assert_eq!(matches.len(), 1);
+    for (name, expected) in [("GRID", "1"), ("BLOCK", "32"), ("ARG", "values")] {
+        assert_eq!(
+            matches[0].metavars.get(name).map(Vec::as_slice),
+            Some(&[expected.to_owned()][..]),
+            "{name}"
+        );
+    }
+}
+
+#[cfg(feature = "tree-sitter-asm")]
+#[test]
+fn assembly_pattern_uses_an_ascii_expando() {
+    let src = "target:\n  mov %rax, %rbx\n  mov %rcx, %rdx\n";
+    let matches = run_pattern(src, "asm", "mov $SOURCE, $DESTINATION");
+    assert_eq!(matches.len(), 2);
+    assert_eq!(
+        matches[0].metavars.get("SOURCE").map(Vec::as_slice),
+        Some(&["%rax".to_owned()][..])
+    );
 }
 
 #[test]
@@ -478,10 +511,12 @@ fn detailed_file_search_explains_prefilter_and_unsupported_files() {
     assert_eq!(result.skipped_by_pre_filter, 1);
     assert_eq!(result.skipped_unsupported, 1);
     assert_eq!(result.query.literal_anchor.as_deref(), Some("target"));
-    assert!(result
-        .files
-        .iter()
-        .any(|file| file.status == "skippedByPreFilter"));
+    assert!(
+        result
+            .files
+            .iter()
+            .any(|file| file.status == "skippedByPreFilter")
+    );
     assert!(result.files.iter().any(|file| file.status == "unsupported"));
     fs::remove_dir_all(root).expect("cleanup");
 }
@@ -1109,11 +1144,13 @@ fn structural_review_file_limits_retain_completed_files() {
         result.diagnostics[0].code,
         "structural.match.backtrackingLimit"
     );
-    assert!(result.diagnostics[0]
-        .path
-        .as_deref()
-        .expect("path")
-        .ends_with("wide.ts"));
+    assert!(
+        result.diagnostics[0]
+            .path
+            .as_deref()
+            .expect("path")
+            .ends_with("wide.ts")
+    );
     let detailed =
         search_files_detailed(review_file_options(&root, rule, 10)).expect("detailed file search");
     assert_eq!(detailed.status, "truncated");
@@ -1162,10 +1199,12 @@ fn structural_review_compile_interruption_keeps_mixed_language_evidence() {
     assert_eq!(result.status, "truncated");
     assert_eq!(result.total_matches, 1);
     assert_eq!(result.diagnostics[0].code, "structural.parse.interrupted");
-    assert!(!result
-        .warnings
-        .iter()
-        .any(|warning| warning.contains("not valid syntax")));
+    assert!(
+        !result
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("not valid syntax"))
+    );
     octo::INTERRUPT_NEXT_COMPILE_PARSE.with(|interrupt| interrupt.set(true));
     let detailed = search_files_detailed(options()).expect("detailed mixed-language search");
     assert_eq!(detailed.status, "truncated");

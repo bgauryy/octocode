@@ -1,4 +1,7 @@
-use super::types::{CONFIG_SCHEMA_VERSION, ValidationResult};
+use super::types::{
+    CONFIG_SCHEMA_VERSION, MAX_OUTPUT_DEFAULT_CHAR_LENGTH, MAX_RETRIES, MAX_TIMEOUT,
+    MIN_OUTPUT_DEFAULT_CHAR_LENGTH, MIN_RETRIES, MIN_TIMEOUT, ValidationResult,
+};
 use serde_json::Value;
 use std::path::Path;
 
@@ -192,8 +195,20 @@ pub fn validate_config(config: &Value) -> ValidationResult {
     warn_unknown(tools, "tools", &["enabled", "disabled"], &mut w);
     let net = object(root.get("network"), "network", &mut e);
     if let Some(o) = net {
-        number(o.get("timeout"), "network.timeout", 5000., 300000., &mut e);
-        number(o.get("maxRetries"), "network.maxRetries", 0., 10., &mut e);
+        number(
+            o.get("timeout"),
+            "network.timeout",
+            MIN_TIMEOUT,
+            MAX_TIMEOUT,
+            &mut e,
+        );
+        number(
+            o.get("maxRetries"),
+            "network.maxRetries",
+            MIN_RETRIES,
+            MAX_RETRIES,
+            &mut e,
+        );
         boolean(
             o.get("allowPrivateRegistry"),
             "network.allowPrivateRegistry",
@@ -227,8 +242,8 @@ pub fn validate_config(config: &Value) -> ValidationResult {
         number(
             o.get("defaultCharLength"),
             "output.pagination.defaultCharLength",
-            1000.,
-            50000.,
+            MIN_OUTPUT_DEFAULT_CHAR_LENGTH,
+            MAX_OUTPUT_DEFAULT_CHAR_LENGTH,
             &mut e,
         )
     }

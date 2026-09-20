@@ -29,6 +29,20 @@ fn checked(context: &ExecutionContext) -> Result<(), JevProviderError> {
     })
 }
 
+pub(super) struct ContextFailure {
+    pub error: JevProviderError,
+    pub receipt: Option<Value>,
+}
+
+impl From<JevProviderError> for ContextFailure {
+    fn from(error: JevProviderError) -> Self {
+        Self {
+            error,
+            receipt: None,
+        }
+    }
+}
+
 fn prepare(tool: &str, query: &Value) -> Result<Value, JevProviderError> {
     let object = query.as_object().ok_or_else(|| {
         error(
@@ -75,8 +89,8 @@ pub(super) fn resolve(
     query: &Value,
     dispatcher: &DomainDispatcher,
     context: &ExecutionContext,
-) -> Result<(Value, Option<Value>), JevProviderError> {
-    checked(context)?;
+) -> Result<(Value, Option<Value>), ContextFailure> {
+    checked(context).map_err(ContextFailure::from)?;
     let source = &query["context"];
     if let Some(value) = source.get("value") {
         return Ok((value.clone(), None));
@@ -89,29 +103,30 @@ pub(super) fn resolve(
                 "invalidJevContext",
                 "Only read tools can provide Jev context.",
             )
-        })?;
+        })
+        .map_err(ContextFailure::from)?;
     if !dispatcher.available_tools.contains(&tool) {
-        return Err(error(
+        return Err(ContextFailure::from(error(
             "jevContextUnavailable",
             format!("Context tool {tool} is disabled by runtime policy."),
-        ));
+        )));
     }
-    let prepared = prepare(tool, &source["query"])?;
+    let prepared = prepare(tool, &source["query"]).map_err(ContextFailure::from)?;
     let checked_input = dispatcher.security.validate_input_parameters(&prepared);
     if !checked_input.is_valid {
-        return Err(error(
+        return Err(ContextFailure::from(error(
             "securityValidationFailed",
             "Context query is blocked by input security policy.",
-        ));
+        )));
     }
     let prepared = Value::Object(checked_input.sanitized_params);
     let result = dispatcher.execute(tool, &prepared, context).map_err(|_| {
-        error(
+        ContextFailure::from(error(
             "jevContextFailed",
             format!("Context tool {tool} could not complete."),
-        )
+        ))
     })?;
-    checked(context)?;
+    checked(context).map_err(ContextFailure::from)?;
     let failed = result.failure.is_some() || result.status == Some("error");
     let mut row = response::result_row(tool, 0, &prepared, result.data, result.status);
     response::attach_diagnostics(&mut row, result.diagnostics);
@@ -121,26 +136,60 @@ pub(super) fn resolve(
     response::apply_hint_policy(&mut row, tool, &prepared);
     let mut state = response::envelope(vec![row]);
     response::attach_query_base(&mut state, tool, &prepared);
-    response::sanitize_fields(&mut state, &dispatcher.security, context)
-        .map_err(|_| error("jevContextFailed", "Context output sanitization failed."))?;
+    response::finalize_output_fields(
+        &mut state,
+        tool,
+        &dispatcher.security,
+        context,
+        dispatcher.config.resolved.output.redact_emails,
+    )
+    .map_err(|_| {
+        ContextFailure::from(error(
+            "jevContextFailed",
+            "Context output sanitization failed.",
+        ))
+    })?;
     contracts::validate_output(tool, &state).map_err(|_| {
-        error(
+        ContextFailure::from(error(
             "jevContextContractViolation",
             format!("Context tool {tool} returned invalid output."),
-        )
+        ))
     })?;
     if failed {
-        return Err(error(
-            "jevContextFailed",
-            format!("Context tool {tool} returned an error; Jev was not called."),
-        ));
+        let receipt = failed_receipt(tool, &state);
+        let code = state
+            .pointer("/results/0/data/errorCode")
+            .and_then(Value::as_str)
+            .unwrap_or("jevContextFailed");
+        return Err(ContextFailure {
+            error: error(
+                code,
+                format!("Context tool {tool} returned an error; Jev was not called."),
+            ),
+            receipt: Some(receipt),
+        });
     }
-    checked(context)?;
+    checked(context).map_err(ContextFailure::from)?;
     let receipt = receipt(tool, &state);
     Ok((state, Some(receipt)))
 }
 
+fn append_limitation(receipt: &mut Value, limitation: &str) {
+    match receipt.get_mut("limitations").and_then(Value::as_array_mut) {
+        Some(limitations) => limitations.push(json!(limitation)),
+        None => receipt["limitations"] = json!([limitation]),
+    }
+}
+
 fn receipt(tool: &str, state: &Value) -> Value {
+    receipt_with_evaluation(tool, state, true)
+}
+
+fn failed_receipt(tool: &str, state: &Value) -> Value {
+    receipt_with_evaluation(tool, state, false)
+}
+
+fn receipt_with_evaluation(tool: &str, state: &Value, evaluation_completed: bool) -> Value {
     let mut next = Map::new();
     let mut terminal = false;
     let mut partial = response::is_partial(state);
@@ -153,19 +202,36 @@ fn receipt(tool: &str, state: &Value) -> Value {
         let limitation = if terminal {
             "The context tool reported a terminal limit; this result does not cover all matching evidence."
         } else if receipt.get("next").is_some() {
-            "Only the returned tool page was evaluated; continue explicitly for additional evidence."
+            if evaluation_completed {
+                "Only the returned tool page was evaluated; continue explicitly for additional evidence."
+            } else {
+                "Context retrieval failed after returning a partial page; continue explicitly to recover additional evidence."
+            }
         } else {
             "The context tool reported incomplete evidence without a safe continuation; inspect the ordinary tool result to change its bounds."
         };
         receipt["limitations"] = json!([limitation]);
     }
+    if !evaluation_completed {
+        append_limitation(
+            &mut receipt,
+            "Context retrieval failed; Jev evaluation was not run.",
+        );
+    }
     if receipt.to_string().len() > MAX_RECEIPT_BYTES {
         if let Some(object) = receipt.as_object_mut() {
             object.remove("next");
         }
-        receipt["limitations"] = json!([
-            "Continuation metadata exceeded the receipt limit; inspect the ordinary tool result to continue."
-        ]);
+        receipt["limitations"] = if evaluation_completed {
+            json!([
+                "Continuation metadata exceeded the receipt limit; inspect the ordinary tool result to continue."
+            ])
+        } else {
+            json!([
+                "Continuation metadata exceeded the receipt limit; inspect the ordinary tool result to continue.",
+                "Context retrieval failed; Jev evaluation was not run."
+            ])
+        };
     }
     receipt
 }

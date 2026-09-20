@@ -80,12 +80,14 @@ impl AgLanguage {
 }
 
 /// Primary stand-in identifier character for `$` metavariables, per language.
-/// Languages where `$` is a legal identifier character keep it; C and C++ use
-/// an astral Unicode letter to avoid collisions; other grammars use `µ`.
+/// Languages where `$` is a legal identifier character keep it; C-family
+/// grammars use an astral Unicode letter to avoid collisions; the ASCII-only
+/// Assembly grammar uses `Q`; other grammars use `µ`.
 pub(super) fn primary_expando_for_ext(ext: &str) -> char {
     match ext {
         "ts" | "tsx" | "mts" | "cts" | "js" | "jsx" | "mjs" | "cjs" | "java" => '$',
-        "c" | "h" | "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" => '\u{10000}',
+        "c" | "h" | "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" | "cu" | "cuh" => '\u{10000}',
+        "asm" | "assembly" | "s" => 'Q',
         _ => '\u{00b5}',
     }
 }

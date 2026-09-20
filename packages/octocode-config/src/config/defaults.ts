@@ -11,6 +11,15 @@ import type {
   ResolvedConfig,
 } from './types.js';
 
+export {
+  MAX_OUTPUT_DEFAULT_CHAR_LENGTH,
+  MAX_RETRIES,
+  MAX_TIMEOUT,
+  MIN_OUTPUT_DEFAULT_CHAR_LENGTH,
+  MIN_RETRIES,
+  MIN_TIMEOUT,
+} from './sharedConstants.generated.js';
+
 export const DEFAULT_GITHUB_CONFIG: RequiredGitHubConfig = {
   apiUrl: 'https://api.github.com',
   graphqlEnabled: true,
@@ -37,6 +46,8 @@ export const DEFAULT_TOOLS_CONFIG: RequiredToolsConfig = {
 export const DEFAULT_NETWORK_CONFIG: RequiredNetworkConfig = {
   timeout: 30000,
   maxRetries: 3,
+  // Opt-in: disabled by default so private/loopback registries are blocked.
+  allowPrivateRegistry: false,
 };
 
 export const DEFAULT_LSP_CONFIG: RequiredLspConfig = {
@@ -48,6 +59,8 @@ export const DEFAULT_OUTPUT_CONFIG: RequiredOutputConfig = {
   pagination: {
     defaultCharLength: 20000,
   },
+  // Opt-in: off by default to avoid unintended data masking.
+  redactEmails: false,
 };
 
 export const DEFAULT_SESSION_CONFIG: RequiredSessionConfig = {
@@ -77,14 +90,3 @@ export const DEFAULT_CONFIG: Omit<ResolvedConfig, 'source' | 'configPath'> = {
   extension: DEFAULT_EXTENSION_CONFIG,
 };
 
-export const MIN_TIMEOUT = 5000;
-
-export const MAX_TIMEOUT = 300000;
-
-export const MIN_RETRIES = 0;
-
-export const MAX_RETRIES = 10;
-
-export const MIN_OUTPUT_DEFAULT_CHAR_LENGTH = 1000;
-
-export const MAX_OUTPUT_DEFAULT_CHAR_LENGTH = 50000;

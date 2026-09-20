@@ -335,6 +335,22 @@ pub(super) fn redact_email_fields(
     })
 }
 
+/// Apply the shared ordinary-output disclosure policy before output validation
+/// or any downstream consumer observes the value.
+pub(super) fn finalize_output_fields(
+    value: &mut Value,
+    tool: &str,
+    security: &crate::security::ContentSecurity,
+    context: &super::ExecutionContext,
+    redact_emails: bool,
+) -> Result<(), super::ExecutionError> {
+    sanitize_fields(value, security, context)?;
+    if redact_emails && tool.starts_with("gh") {
+        redact_email_fields(value, security, context)?;
+    }
+    Ok(())
+}
+
 fn preserve_continuation_metadata(value: &mut Value, original_query: &Value) {
     match value {
         Value::Array(values) => {
@@ -373,13 +389,19 @@ pub fn result_row(
     mut data: Value,
     status: Option<&str>,
 ) -> Value {
-    preserve_continuation_metadata(&mut data, query);
+    // Jev owns no response continuations. Any tool/query pairs in its result
+    // belong to the already-finalized hidden read receipt and retain that
+    // nested invocation's rationale and debug setting.
+    if tool != "jev" {
+        preserve_continuation_metadata(&mut data, query);
+    }
     if let Some(object) = data.as_object_mut() {
         if object.get("isPartial") == Some(&Value::Null) {
             object.insert("isPartial".into(), Value::Bool(false));
         }
+        let preserve_compare_status = tool == "ghGetHistoryItem"
+            && object.get("type").and_then(Value::as_str) == Some("compare");
         for key in [
-            "status",
             "cache",
             "goal",
             "reasoning",
@@ -388,6 +410,9 @@ pub fn result_row(
             "query",
         ] {
             object.remove(key);
+        }
+        if !preserve_compare_status {
+            object.remove("status");
         }
         if status != Some("error") {
             object.remove("error");
@@ -621,6 +646,14 @@ fn hoist_shared_fields(rows: &mut [Value]) -> Option<Map<String, Value>> {
         "kind",
         "reason",
         "isPartial",
+        "number",
+        "title",
+        "state",
+        "author",
+        "labels",
+        "createdAt",
+        "mergedAt",
+        "commentsCount",
         "startLine",
         "endLine",
         "start",
@@ -890,6 +923,40 @@ mod tests {
             Some(&json!({"partial":true}))
         );
     }
+
+    #[test]
+    fn shared_compaction_preserves_required_pull_request_row_fields() {
+        let output = envelope(vec![result_row(
+            "ghSearchHistory",
+            0,
+            &json!({"operation":"pullRequests"}),
+            json!({
+                "type":"pullRequests",
+                "pullRequests":[
+                    {"number":1,"title":"One","state":"merged","author":"octocode","labels":[],"createdAt":"2026-01-01","mergedAt":"2026-01-02","commentsCount":0},
+                    {"number":2,"title":"Two","state":"merged","author":"octocode","labels":[],"createdAt":"2026-01-03","mergedAt":"2026-01-04","commentsCount":0}
+                ]
+            }),
+            None,
+        )]);
+        for row in output["results"][0]["data"]["pullRequests"]
+            .as_array()
+            .expect("pull requests")
+        {
+            for field in [
+                "number",
+                "title",
+                "state",
+                "author",
+                "labels",
+                "createdAt",
+                "mergedAt",
+                "commentsCount",
+            ] {
+                assert!(row.get(field).is_some(), "missing {field}: {output}");
+            }
+        }
+    }
     #[test]
     fn incomplete_evidence_requires_executable_continuation_or_terminal_diagnostic() {
         let missing = result_row(
@@ -926,6 +993,18 @@ mod tests {
             None,
         );
         assert_eq!(row.pointer("/data/isPartial"), Some(&json!(false)));
+    }
+
+    #[test]
+    fn result_rows_preserve_compare_status_as_contract_data() {
+        let row = result_row(
+            "ghGetHistoryItem",
+            0,
+            &json!({"operation":"compare"}),
+            json!({"type":"compare","status":"ahead","commits":[]}),
+            None,
+        );
+        assert_eq!(row.pointer("/data/status"), Some(&json!("ahead")));
     }
 
     #[test]
@@ -972,6 +1051,39 @@ mod tests {
         assert_eq!(
             row.pointer("/data/next/continue/query/debug"),
             Some(&json!(false))
+        );
+    }
+
+    #[test]
+    fn outer_jev_metadata_does_not_overwrite_nested_continuation_ownership() {
+        let row = result_row(
+            "jev",
+            0,
+            &json!({"reasoning":"Evaluate captured evidence.","debug":false}),
+            json!({
+                "context": {
+                    "next": {
+                        "continue": {
+                            "tool": "localFetch",
+                            "query": {
+                                "path":"/repo/a.rs",
+                                "offset":2,
+                                "reasoning":"Read the next exact page.",
+                                "debug":true
+                            }
+                        }
+                    }
+                }
+            }),
+            None,
+        );
+        assert_eq!(
+            row.pointer("/data/context/next/continue/query/reasoning"),
+            Some(&json!("Read the next exact page."))
+        );
+        assert_eq!(
+            row.pointer("/data/context/next/continue/query/debug"),
+            Some(&json!(true))
         );
     }
 

@@ -1,4 +1,4 @@
-import { startNativeMcp } from './native/index.mjs';
+import { startNativeMcp } from './native/index.js';
 
 async function startServer(): Promise<void> {
   await startNativeMcp();

@@ -9,10 +9,10 @@ pub struct LanguageEntry {
     /// (for example TypeScript also selecting the TSX grammar).
     pub selector_aliases: &'static [&'static str],
     pub extensions: &'static [&'static str],
-    /// LSP server language id (e.g. `"typescript"`, `"css"`). `None` for grammars
-    /// with no configured language server (e.g. Scala) — those still do structural
-    /// search and signatures, but `lsp::grammar::grammar_for_file` skips them. This
-    /// is the single source the LSP grammar map derives from (no second table).
+    /// Protocol language id used for LSP document setup and grammar-based syntax
+    /// anchoring. This does not imply a built-in semantic server route: Assembly
+    /// has an id for trusted custom servers but intentionally no default command.
+    /// This is the single source the LSP grammar map derives from (no second table).
     pub language_id: Option<&'static str>,
     /// Pre-built `Language` handle. `Language` is `Clone + Send + Sync` but
     /// NOT `Copy` in tree-sitter 0.27 — always use `.clone()` at call sites.
@@ -63,6 +63,20 @@ const CPP_BODY_QUERY: &str = r#"[
   (function_definition  body: (compound_statement) @body)
   (lambda_expression    body: (compound_statement) @body)
 ]"#;
+
+#[cfg(feature = "tree-sitter-cuda")]
+const CUDA_BODY_QUERY: &str = r#"[
+  (function_definition  body: (compound_statement) @body)
+  (lambda_expression    body: (compound_statement) @body)
+]"#;
+
+// Assembly outlines retain labels, constants, and directives while eliding the
+// instruction stream. This gives callers stable navigation anchors without
+// pretending that a generic multi-dialect grammar has high-level functions.
+#[cfg(feature = "tree-sitter-asm")]
+const ASM_BODY_QUERY: &str = r#"
+  (instruction) @body
+"#;
 
 #[cfg(feature = "tree-sitter-c-sharp")]
 const CS_BODY_QUERY: &str = r#"[
@@ -168,6 +182,18 @@ fn init_language_table() -> Vec<LanguageEntry> {
             body_query: C_BODY_QUERY,
             comment_style: "c",
         },
+        #[cfg(feature = "tree-sitter-asm")]
+        LanguageEntry {
+            name: "Assembly",
+            selector_aliases: &[],
+            extensions: &["asm", "assembly", "s"],
+            // No built-in semantic server is claimed. The language id still
+            // enables syntax anchoring when a trusted custom server is used.
+            language_id: Some("asm"),
+            language: tree_sitter_asm::LANGUAGE.into(),
+            body_query: ASM_BODY_QUERY,
+            comment_style: "asm",
+        },
         // Scala: function bodies stripped; class/object/trait bodies kept so
         // member signatures remain visible (mirrors Java/TS behaviour).
         #[cfg(feature = "tree-sitter-scala")]
@@ -193,6 +219,17 @@ fn init_language_table() -> Vec<LanguageEntry> {
         language_id: Some("cpp"),
         language: tree_sitter_cpp::LANGUAGE.into(),
         body_query: CPP_BODY_QUERY,
+        comment_style: "c",
+    });
+
+    #[cfg(feature = "tree-sitter-cuda")]
+    entries.push(LanguageEntry {
+        name: "CUDA",
+        selector_aliases: &[],
+        extensions: &["cu", "cuh"],
+        language_id: Some("cuda"),
+        language: tree_sitter_cuda::LANGUAGE.into(),
+        body_query: CUDA_BODY_QUERY,
         comment_style: "c",
     });
 

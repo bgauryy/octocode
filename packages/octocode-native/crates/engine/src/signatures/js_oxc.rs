@@ -63,7 +63,7 @@ struct DocumentSymbol {
     #[serde(rename = "selectionRange")]
     selection_range: Range,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    children: Vec<DocumentSymbol>,
+    children: Vec<Self>,
 }
 
 #[derive(Serialize)]
@@ -156,7 +156,7 @@ fn source_type_for(ext: &str, file_path: &str) -> SourceType {
     // .d.mts, .d.cts). Preserve the existing module/JSX policy and let OXC
     // identify declaration files from their complete path.
     let declaration_file = SourceType::from_path(file_path)
-        .is_ok_and(|source_type| source_type.is_typescript_definition());
+        .is_ok_and(SourceType::is_typescript_definition);
     source_type.with_typescript_definition(declaration_file)
 }
 
@@ -1137,7 +1137,7 @@ fn collect_statement(stmt: &Statement, li: &LineIndex, out: &mut Vec<DocumentSym
         }
         Statement::ExportDefaultDeclaration(e) => match &e.declaration {
             ExportDefaultDeclarationKind::FunctionDeclaration(f) => {
-                push_opt(out, function_symbol(f, li))
+                push_opt(out, function_symbol(f, li));
             }
             ExportDefaultDeclarationKind::ClassDeclaration(c) => push_opt(out, class_symbol(c, li)),
             _ => {}

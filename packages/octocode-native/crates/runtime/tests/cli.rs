@@ -674,6 +674,8 @@ fn scheme_prints_the_complete_tool_contract() {
     );
     assert!(value["inputSchema"].is_object());
     assert!(value["outputSchema"].is_object());
+    // The per-tool view echoes the concrete run command for the inspected tool.
+    assert_eq!(value["run"], "octocode localSearch '<json>'");
 }
 
 #[test]

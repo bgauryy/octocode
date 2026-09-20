@@ -94,7 +94,7 @@ impl Language for RewriteLanguage {
     fn field_to_id(&self, field: &str) -> Option<u16> {
         self.get_ts_language()
             .field_id_for_name(field)
-            .map(|id| id.get())
+            .map(std::num::NonZero::get)
     }
 
     fn build_pattern(&self, builder: &PatternBuilder) -> Result<Pattern, PatternError> {

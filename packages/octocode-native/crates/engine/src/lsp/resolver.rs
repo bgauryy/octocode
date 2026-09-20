@@ -11,7 +11,10 @@ const DEFAULT_RADIUS: i32 = 5;
 const MAX_POSITION_SOURCE_BYTES: usize = 1_000_000;
 
 fn budget_error() -> Error {
-    Error::new(Status::GenericFailure, "[lspPositionTimeout] Symbol position analysis exceeded its time budget; narrow the source.")
+    Error::new(
+        Status::GenericFailure,
+        "[lspPositionTimeout] Symbol position analysis exceeded its time budget; narrow the source.",
+    )
 }
 
 fn check_budget(deadline: Instant) -> Result<()> {
@@ -656,10 +659,12 @@ mod tests {
             &mut candidates,
             std::time::Instant::now(),
         );
-        assert!(result
-            .expect_err("walk budget must fail")
-            .reason
-            .contains("[lspPositionTimeout]"));
+        assert!(
+            result
+                .expect_err("walk budget must fail")
+                .reason
+                .contains("[lspPositionTimeout]")
+        );
         assert!(candidates.is_empty());
     }
 
@@ -813,6 +818,12 @@ mod tests {
             ("demo.java", "class Target { void target() {} }\n", 1),
             ("demo.c", "void target() {}\n", 1),
             ("demo.cpp", "void target() {}\n", 1),
+            (
+                "demo.cu",
+                "__global__ void target() {}\nvoid launch() { target<<<1, 1>>>(); }\n",
+                1,
+            ),
+            ("demo.asm", "target:\n  mov %rax, %rbx\n", 1),
             ("demo.cs", "class Target { void target() {} }\n", 1),
             ("demo.sh", "target() { echo ok; }\n", 1),
             ("demo.json", "{\"target\": true}\n", 1),

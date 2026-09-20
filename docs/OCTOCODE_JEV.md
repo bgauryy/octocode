@@ -40,11 +40,16 @@ Every query has **short nonblank `reasoning`, one `context` and one `question`**
       }
     },
     {
-      "reasoning": "Choose whether to inspect the caller or strengthen the guard.",
-      "context": {"value": {"implementation": "function start(cancelled, invoke) { if (cancelled) return; invoke(); }"}},
+      "reasoning": "Choose the next investigation before reading another subsystem.",
+      "context": {"value": {"facts": ["Cancelled queued jobs never start in the queue test.", "A request cancelled during execution still writes output.", "Whether the running worker receives cancellation has not been observed."]}},
       "question": {
-        "type": "noul",
-        "instructions": "Within the supplied function only, is invoke prevented when cancelled is true?"
+        "type": "choice",
+        "instructions": "Which next check best distinguishes the remaining cancellation hypotheses? Select an investigation, not a proven cause.",
+        "criteria": {
+          "propagation": "Trace cancellation delivery from the request to the running worker.",
+          "queue": "Reinspect whether cancelled queued jobs start.",
+          "insufficient": "The supplied facts cannot prioritize these checks."
+        }
       }
     }
   ]
@@ -55,7 +60,7 @@ Replace illustrative paths with observed, authorized paths. Inspect the context 
 
 ## Discover, scout, then read selected proof
 
-A discovered path is a candidate, not a decision to read its whole body. Use `ghSearch` tree or code `match: "path"`, or `localSearch` `resultView: "files"`, to discover paths without bodies. When choosing among large candidates requires semantic reading, pass their unexecuted reads to Jev in one batch; do not fetch the bodies first to compose the context. One query judges one candidate. Retain relevant or uncertain candidates, then fetch only the source needed to verify the answer. Small known deciding spans remain direct reads.
+A discovered path is a candidate, not a decision to read its whole body. Use `ghSearch` tree or code `match: "path"`, or `localSearch` `resultView: "files"`, to discover paths without bodies. When choosing among large candidates requires semantic reading, pass their unexecuted reads to Jev in one batch; do not fetch the bodies first to compose the context. One query asks one question; repeat a context to check another direction. Retain relevant or uncertain candidates, then fetch only the source needed to verify the answer. Small known deciding spans remain direct reads.
 
 These are ordinary native MCP calls through a client’s `callTool` method. This example discovers Axios core paths, then constructs two independent scouts from returned paths; it does not prescribe their answers:
 
@@ -94,7 +99,7 @@ For reasoning over facts already available, use `context: {value: {facts, hypoth
 
 Supported context tools are `localSearch`, `localFetch`, `astSearch`, `lspSearch`, `ghSearch`, `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem` and `artifactSearch`. These cover search results, files, structure, semantic lookup, history and package discovery. They use their normal schemas, configuration, availability, security checks, cancellation and caches. Recursive `jev`, mutation tool `astRewrite`, and filesystem-writing `ghCloneRepo` are excluded. This is not an arbitrary external MCP tool executor.
 
-The runtime sends the sanitized tool result to Jev and returns one typed `answer`, configured `model`, provider `usage`, and a compact `context` receipt for tool requests. Retrieved result bodies are not returned to the host. A result hash identifies the supplied evidence; it does not prove correctness or freshness. Inline `context.value` is passed as evidence. JSON strings, objects, arrays and null are accepted for values, instructions and criterion descriptions; structured values stay structured.
+The runtime sends the sanitized tool result to Jev and returns one typed `answer`, configured `model`, provider `usage`, and a compact `context` receipt for tool requests. Retrieved result bodies are not returned to the host. A result hash identifies the sanitized context-tool result; it does not prove correctness or freshness. On retrieval failure, a receipt identifies the error result, not evaluated evidence. Inline `context.value` is passed as evidence. JSON strings, objects, arrays and null are accepted for values, instructions and criterion descriptions; structured values stay structured.
 
 | Question type | Criteria | Answer meaning |
 |---|---|---|
@@ -103,6 +108,8 @@ The runtime sends the sanitized tool result to Jev and returns one typed `answer
 | `score` | 2–10 independently described levels, low to high | Expected zero-based level index, possibly fractional |
 
 Use Choice with an explicit insufficient/conflicting alternative when missing evidence must be distinguishable from false. Tool/provider failures remain errors; never treat them as negative classifications. The host owns thresholds and permissions. Choice/Score confidence measures distribution concentration, not the winning option's probability or probability of correctness. Noul has no separate confidence field. Score `0.92` on three levels means expected position `0.92` on the 0–2 scale, not 92%.
+
+Independent questions can disagree semantically even when every numerical response is valid. Keep the disagreement unresolved and inspect the deciding source or run a discriminating test. Do not average incompatible judgments into agreement. Reasoning selects effort; it does not establish a cause or certify a fix.
 
 ## Scouting and verification
 
@@ -115,6 +122,10 @@ Search matches and AST outlines can be excellent filters, but they do not establ
 ## Pagination and cost
 
 Context tools keep their ordinary bounded retrieval behavior. Jev evaluates the returned selection/page without automatically fetching further pages. A receipt marked `bounded` refers to the requested scope, not an entire repository. `partial` means explicit coverage limits were detected; use its executable continuation when available, or narrow the request when a terminal limit is reported. A negative on a partial page cannot prove global absence. Do not average probabilities across pages as if they were one complete evaluation.
+
+A context tool's validated error stops before inference. Jev preserves its error code and returns a body-free recovery receipt when available, with an explicit no-evaluation limitation. Follow the nested continuation unchanged as an ordinary read or a later Jev context; its reasoning/debug belong to that nested tool. No answer or provider usage is produced for a retrieval that failed before inference. Hidden GitHub reads apply the same configured email-redaction policy as direct reads, before evidence reaches Jev.
+
+For PR patches, `charLength` limits each file patch, not all patches combined. Bound the file count as well as the character window, follow each returned pagination axis, and verify that captured patches and final source refer to the same revision.
 
 Jev's own response does not support `responseCharLength`, `responseCharOffset` or `responseSnapshot`: replaying inference cannot return a page of the original judgment. Repeating a query performs another evaluation. The provider request has a 4 MiB serialized limit, and ordinary tool/input limits still apply.
 

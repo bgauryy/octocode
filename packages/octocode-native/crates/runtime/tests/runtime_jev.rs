@@ -279,6 +279,59 @@ async fn nested_queries_use_canonical_validation_and_skip_provider_on_failure() 
 }
 
 #[tokio::test]
+async fn recoverable_hidden_failure_returns_body_free_receipt_without_provider_call() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(500))
+        .expect(0)
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let path = workspace.workspace.join("oversized.txt");
+    let file = std::fs::File::create(&path).expect("create sparse oversized source");
+    file.set_len(10 * 1024 * 1024 + 1)
+        .expect("extend sparse oversized source");
+    drop(file);
+    let runtime = workspace.runtime(&settings(&server));
+    let out = runtime
+        .execute(
+            "recoverable-hidden-failure".into(),
+            "jev".into(),
+            hidden(
+                "localFetch",
+                json!({"path":path,"reasoning":"Read bounded source"}),
+            ),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(row_status(&out), "error", "{}", out.structured_content);
+    let data = row_data(&out);
+    assert_eq!(data["errorCode"], "fileTooLarge");
+    assert!(data.get("answer").is_none());
+    assert!(data.get("usage").is_none());
+    let receipt = &data["context"];
+    assert_eq!(receipt["tool"], "localFetch");
+    assert_eq!(receipt["coverage"], "partial");
+    assert!(receipt.get("next").is_none());
+    assert!(
+        receipt["limitations"]
+            .as_array()
+            .is_some_and(|limitations| {
+                limitations.iter().any(|value| {
+                    value
+                        .as_str()
+                        .is_some_and(|text| text.contains("Jev evaluation was not run"))
+                })
+            })
+    );
+    let serialized = receipt.to_string();
+    assert!(!serialized.contains("oversized.txt"));
+    assert!(!serialized.contains("File too large"));
+    runtime.close().await;
+}
+
+#[tokio::test]
 async fn oversized_context_rejects_before_reader_or_provider() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
@@ -385,7 +438,7 @@ async fn partial_context_returns_executable_continuation_without_automatic_pagin
             "jev".into(),
             hidden(
                 "localFetch",
-                json!({"path":file,"reasoning":"Read first page","limit":1}),
+                json!({"path":file,"reasoning":"Read first page","debug":true,"limit":1}),
             ),
         )
         .await
@@ -395,6 +448,8 @@ async fn partial_context_returns_executable_continuation_without_automatic_pagin
     assert_eq!(receipt["coverage"], "partial");
     let continuation = &receipt["next"]["continue"];
     assert!(continuation.get("cursor").is_none());
+    assert_eq!(continuation["query"]["reasoning"], "Read first page");
+    assert_eq!(continuation["query"]["debug"], true);
     let next = runtime
         .execute(
             "next".into(),
@@ -877,7 +932,7 @@ async fn github_read_context_uses_ordinary_security_and_shared_cache() {
     let server = MockServer::start().await;
     Mock::given(method("GET")).and(path("/api/v3/repos/a/b/contents/source.rs"))
         .respond_with(|request:&Request| if request.headers.get("if-none-match").is_some(){ResponseTemplate::new(304)}else{
-            ResponseTemplate::new(200).insert_header("etag","\"v1\"").set_body_json(json!({"type":"file","encoding":"base64","content":STANDARD.encode("REMOTE_HIDDEN_BODY\n")}))
+            ResponseTemplate::new(200).insert_header("etag","\"v1\"").set_body_json(json!({"type":"file","encoding":"base64","content":STANDARD.encode("REMOTE_HIDDEN_BODY developer@example.com\n")}))
         }).expect(2).mount(&server).await;
     Mock::given(method("POST"))
         .respond_with(ResponseTemplate::new(200).set_body_json(response()))
@@ -916,5 +971,83 @@ async fn github_read_context_uses_ordinary_security_and_shared_cache() {
         .filter(|r| r.method.as_str() == "POST")
         .collect();
     assert!(String::from_utf8_lossy(&posts[0].body).contains("REMOTE_HIDDEN_BODY"));
+    assert!(String::from_utf8_lossy(&posts[0].body).contains("developer@example.com"));
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn github_hidden_context_matches_ordinary_email_redaction_policy() {
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/contents/contact.txt"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "type":"file",
+            "encoding":"base64",
+            "content":STANDARD.encode("contact developer@example.com\n")
+        })))
+        .expect(2)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(response()))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let mut config = settings(&server);
+    config.push(("GITHUB_API_URL", format!("{}/api/v3", server.uri())));
+    config.push(("OCTOCODE_REDACT_EMAILS", "true".into()));
+    let runtime = workspace.runtime(&config);
+    let inner = json!({
+        "owner":"a",
+        "repo":"b",
+        "path":"contact.txt",
+        "branch":"a".repeat(40),
+        "reasoning":"Read contact"
+    });
+    let ordinary = runtime
+        .execute(
+            "ordinary-email-redaction".into(),
+            "ghGetFileContent".into(),
+            inner.clone(),
+        )
+        .await
+        .unwrap();
+    assert!(
+        !ordinary
+            .structured_content
+            .to_string()
+            .contains("developer@example.com")
+    );
+    assert!(
+        ordinary
+            .structured_content
+            .to_string()
+            .contains("[REDACTED-EMAIL]")
+    );
+    let hidden = runtime
+        .execute(
+            "hidden-email-redaction".into(),
+            "jev".into(),
+            hidden("ghGetFileContent", inner),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        row_status(&hidden),
+        "success",
+        "{}",
+        hidden.structured_content
+    );
+    let requests = server.received_requests().await.unwrap();
+    let post = requests
+        .iter()
+        .find(|request| request.method.as_str() == "POST")
+        .expect("provider request");
+    let payload: Value = serde_json::from_slice(&post.body).expect("provider payload");
+    let state = payload["state"].to_string();
+    assert!(!state.contains("developer@example.com"));
+    assert!(state.contains("[REDACTED-EMAIL]"));
     runtime.close().await;
 }

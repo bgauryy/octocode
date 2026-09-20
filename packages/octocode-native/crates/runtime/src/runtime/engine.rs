@@ -611,10 +611,13 @@ impl ToolRuntime {
                 {
                     response::attach_query_base(&mut structured, &tool, query);
                 }
-                response::sanitize_fields(&mut structured, &security, &context)?;
-                if redact_emails && tool.starts_with("gh") {
-                    response::redact_email_fields(&mut structured, &security, &context)?;
-                }
+                response::finalize_output_fields(
+                    &mut structured,
+                    &tool,
+                    &security,
+                    &context,
+                    redact_emails,
+                )?;
                 context.check()?;
                 let render = options.render_text.unwrap_or(mcp)
                     || failure.is_some()

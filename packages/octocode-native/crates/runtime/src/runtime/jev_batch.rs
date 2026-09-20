@@ -24,8 +24,12 @@ struct Captured<'a> {
     question: &'a Value,
 }
 
-fn failed(error: JevProviderError) -> DomainResult {
-    dispatch::provider_failure(error.message, error.code, error.hints, None)
+fn failed(error: JevProviderError, receipt: Option<Value>) -> DomainResult {
+    let mut result = dispatch::provider_failure(error.message, error.code, error.hints, None);
+    if let Some(receipt) = receipt {
+        result.data["context"] = receipt;
+    }
+    result
 }
 
 pub(super) fn execute(
@@ -39,9 +43,14 @@ pub(super) fn execute(
     let mut captured = Vec::new();
     for (index, query) in queries.iter().enumerate() {
         context.check()?;
-        match jev::preflight(query)
-            .and_then(|()| super::jev_context::resolve(query, dispatcher, context))
-        {
+        let resolved = match jev::preflight(query) {
+            Ok(()) => super::jev_context::resolve(query, dispatcher, context),
+            Err(error) => Err(super::jev_context::ContextFailure {
+                error,
+                receipt: None,
+            }),
+        };
+        match resolved {
             Ok((state, receipt)) => {
                 let mut canonical = state.clone();
                 canonical.sort_all_objects();
@@ -53,7 +62,7 @@ pub(super) fn execute(
                     question: &query["question"],
                 });
             }
-            Err(error) => rows[index] = Some(failed(error)),
+            Err(failure) => rows[index] = Some(failed(failure.error, failure.receipt)),
         }
     }
     let mut groups: Vec<Vec<Captured<'_>>> = Vec::new();
@@ -117,7 +126,7 @@ pub(super) fn execute(
             match result {
                 Err(error) => {
                     for row in group {
-                        rows[row.index] = Some(failed(error.clone()));
+                        rows[row.index] = Some(failed(error.clone(), None));
                     }
                 }
                 Ok(result) => {
@@ -129,7 +138,7 @@ pub(super) fn execute(
                     let shared: Vec<_> = group.iter().map(|row| row.index).collect();
                     for (row, answer) in group.into_iter().zip(result.answers) {
                         rows[row.index] = Some(match answer {
-                            Err(error) => failed(error),
+                            Err(error) => failed(error, None),
                             Ok(mut data) => {
                                 if shared.len() > 1 {
                                     if owner != Some(row.index) {

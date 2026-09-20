@@ -38,6 +38,7 @@
     "./native.cjs": "./native.cjs",
     "./bin/octocode.cjs": "./bin/octocode.cjs",
     "./bin/octocode-regex-worker.cjs": "./bin/octocode-regex-worker.cjs",
+    "./bin/resolve-binary.cjs": "./bin/resolve-binary.cjs",
     "./package.json": "./package.json"
   },
   "files": [
@@ -78,8 +79,8 @@
   },
   "scripts": {
     "contracts:regen": "node scripts/regen-contracts.cjs",
-  "contracts:check": "node scripts/check-core-contract-sync.cjs",
-  "audit": "yarn audit:rust",
+    "contracts:check": "node scripts/check-core-contract-sync.cjs",
+    "audit": "yarn audit:rust",
     "audit:rust": "cargo audit -D unmaintained -D unsound -D yanked",
     "build": "yarn build:runtime && yarn build:addons",
     "build:runtime": "cargo build -p octocode-native --release --bins --no-default-features",

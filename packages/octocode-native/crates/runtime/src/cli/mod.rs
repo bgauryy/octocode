@@ -8,6 +8,7 @@ use clap::Parser;
 use commands::{AuthCommand, Command, ToolArgs};
 use octocode_native::config::RuntimeSurface;
 use octocode_native::runtime::{HostOptions, ToolRuntime};
+use octocode_native::tools::id::ToolId;
 use serde_json::{Value, json};
 use std::io::{self, Write};
 
@@ -67,15 +68,11 @@ fn emit_error(msg: &str, json_errors: bool) {
 }
 
 /// Group tool names into catalog families.
+/// Delegates to `ToolId::display_category` — tool names are not re-spelled here.
 fn tool_family(name: &str) -> &'static str {
-    match name {
-        "ghSearch" | "ghGetFileContent" | "ghSearchHistory" | "ghGetHistoryItem"
-        | "ghCloneRepo" => "GitHub",
-        "localSearch" | "localFetch" | "astSearch" | "astRewrite" | "lspSearch" => "Local Code",
-        "artifactSearch" => "Package",
-        "jev" => "Reasoning",
-        _ => "Other",
-    }
+    ToolId::from_name(name)
+        .map(ToolId::display_category)
+        .unwrap_or("Other")
 }
 
 fn compact_fields(tool: &Value) -> String {
@@ -113,17 +110,10 @@ fn compact_fields(tool: &Value) -> String {
     format!("[{}]", fields.join(", "))
 }
 
+/// Env-var hint for a disabled tool.
+/// Delegates to `ToolId::availability_env_hint` — tool names are not re-spelled here.
 fn availability_env_var(name: &str) -> Option<&'static str> {
-    match name {
-        // Canonical names; `OCTOCODE_ENABLE_CLONE`/`OCTOCODE_ENABLE_LOCAL`
-        // are accepted aliases (config/resolver.rs).
-        "ghCloneRepo" => Some("ENABLE_CLONE|OCTOCODE_STORAGE_MODE"),
-        "jev" => Some("OCTOCODE_JEV_KEY"),
-        "localFetch" | "localSearch" | "astSearch" | "astRewrite" | "lspSearch" => {
-            Some("ENABLE_LOCAL")
-        }
-        _ => None,
-    }
+    ToolId::from_name(name)?.availability_env_hint()
 }
 
 /// Text for a disabled tool whose gating env key was present in a `.env`
@@ -295,6 +285,10 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
             match schema::project_selected(value, view.unwrap_or_default(), select.as_deref()) {
                 Ok(mut value) => {
                     value["instructions"] = instructions;
+                    // The compact catalog carries a generic `run` hint; the
+                    // per-tool view echoes the concrete invocation so an agent
+                    // inspecting one contract sees exactly how to execute it.
+                    value["run"] = Value::String(format!("octocode {name} '<json>'"));
                     write_json(&value, compact)
                 }
                 Err(error) => {

@@ -18,12 +18,15 @@ function makeFakeBin(body: string): string {
 }
 
 describe('resolveNativeBin', () => {
-  it('resolves the launcher shim or null when nothing is explicitly configured', () => {
+  it('resolves the platform binary directly (no launcher shim) or null', () => {
     // Environment-agnostic: with no OCTOCODE_NATIVE_BIN the result is either the
-    // resolvable `@octocodeai/octocode-native` launcher (monorepo/installed) or
-    // null (not installed) — never a throw and never an arbitrary path.
+    // compiled platform binary (monorepo/installed) or null (not installed) —
+    // never a throw, never a `.cjs` launcher, never an arbitrary path.
     const resolved = resolveNativeBin({});
-    expect(resolved === null || /octocode\.cjs$/.test(resolved)).toBe(true);
+    expect(
+      resolved === null ||
+        (/[\\/]octocode(\.exe)?$/.test(resolved) && !resolved.endsWith('.cjs'))
+    ).toBe(true);
   });
 
   it('returns null when OCTOCODE_NATIVE_BIN points at a missing path', () => {

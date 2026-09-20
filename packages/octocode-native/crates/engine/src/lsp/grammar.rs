@@ -69,6 +69,11 @@ mod tests {
                 &["cpp", "cc", "cxx", "hpp", "hh", "hxx"][..],
             ),
             (cfg!(feature = "tree-sitter-c-sharp"), &["cs"][..]),
+            (cfg!(feature = "tree-sitter-cuda"), &["cu", "cuh"][..]),
+            (
+                cfg!(feature = "tree-sitter-asm"),
+                &["asm", "assembly", "s"][..],
+            ),
         ] {
             for ext in extensions {
                 assert_eq!(
@@ -110,6 +115,14 @@ mod tests {
                 "scala",
                 "object Target { def target(): Unit = {} }\n",
             ),
+            #[cfg(feature = "tree-sitter-cuda")]
+            (
+                "demo.cu",
+                "cuda",
+                "__global__ void target() {}\nvoid launch() { target<<<1, 1>>>(); }\n",
+            ),
+            #[cfg(feature = "tree-sitter-asm")]
+            ("demo.asm", "asm", "target:\n  mov %rax, %rbx\n"),
         ];
 
         for (file_name, language_id, source) in cases {

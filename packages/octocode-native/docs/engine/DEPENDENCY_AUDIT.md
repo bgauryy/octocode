@@ -22,7 +22,7 @@ This audit covers every direct dependency declared by the runtime and engine cra
 | `serde_yaml_ng` | YAML ast-grep rule documents | Keep; this is not YAML source parsing |
 | `tokio` | LSP process, I/O, synchronization, timeout, and async filesystem lifecycle | Keep |
 | `tree-sitter` | Canonical parser API and query execution | Keep |
-| `tree-sitter-c`, `tree-sitter-c-sharp`, `tree-sitter-cpp`, `tree-sitter-go`, `tree-sitter-java`, `tree-sitter-javascript`, `tree-sitter-python`, `tree-sitter-rust`, `tree-sitter-scala`, `tree-sitter-typescript` | The ten first-class grammar families | Keep; C++, C#, and Scala remain feature-gated but are enabled by `portable-default` |
+| `tree-sitter-asm`, `tree-sitter-c`, `tree-sitter-c-sharp`, `tree-sitter-cpp`, `tree-sitter-cuda`, `tree-sitter-go`, `tree-sitter-java`, `tree-sitter-javascript`, `tree-sitter-python`, `tree-sitter-rust`, `tree-sitter-scala`, `tree-sitter-typescript` | The 12 first-class grammar families | Keep; Assembly, C++, C#, CUDA, and Scala remain feature-gated but are enabled by `portable-default` (`tree-sitter-large-grammars` groups C++, C#, and CUDA) |
 | `url` | Validated LSP and file-URI handling | Keep |
 | `which` | Trusted language-server executable discovery | Keep |
 | `napi-build` (build) | N-API build setup when the addon feature is enabled | Keep, optional |
@@ -55,6 +55,8 @@ Removed direct dependencies: `ast-grep-language`, `grep`, `lightningcss`, `cross
 ## Footprint interpretation
 
 The Darwin ARM64 release engine addon decreased from 35,520,496 bytes to 27,651,104 bytes (−7.50 MiB, −22.2%). Its Mach-O `__text` section decreased from 10,004,732 bytes to 6,996,712 bytes (−2.87 MiB, −30.1%). These are shipped-artifact measurements, not Cargo registry source size or build-cache size.
+
+A same-source, same-profile N-API feature ablation on 2026-09-20 measured the pre-addition 10-family feature set at **27,877,344 bytes**. Enabling only Assembly produced **27,893,872 bytes** (+16,528 bytes, +0.06%); enabling only CUDA produced **34,994,048 bytes** (+7,116,704 bytes, +6.787 MiB, +25.53%); enabling both produced **35,010,576 bytes** (+7,133,232 bytes, +6.803 MiB, +25.59%). Every arm included `napi-addon`, `pcre2`, C++, C#, and Scala and used the release profile with symbol stripping. This is the authoritative grammar delta; generated parser source sizes are not binary-size measurements.
 
 `cargo-bloat 0.12.1` could not attribute the mixed `cdylib`/`rlib` engine target because it selected the rlib and rejected it. The release receipt therefore uses exact addon bytes and platform section sizes; crate-attributed bloat remains a CI/tooling follow-up rather than an invented comparison.
 

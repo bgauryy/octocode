@@ -33,6 +33,9 @@ pub(super) fn declaration_kind(kind: &str) -> Option<&'static str> {
             Some("type")
         }
         "macro_definition" | "macro_rule" => Some("macro"),
+        // Generic Assembly grammars model navigation anchors as labels rather
+        // than high-level function declarations.
+        "label" => Some("label"),
         _ => None,
     }
 }
@@ -76,6 +79,7 @@ fn is_name_like(kind: &str) -> bool {
     matches!(
         kind,
         "identifier"
+            | "ident"
             | "type_identifier"
             | "field_identifier"
             | "property_identifier"
@@ -187,12 +191,15 @@ pub(super) fn is_exported_declaration(
     let text = node_text(node, content).unwrap_or("").trim_start();
     match ext {
         "rs" => text.starts_with("pub ") || text.starts_with("pub("),
-        "go" => name.chars().next().is_some_and(|ch| ch.is_uppercase()),
+        "go" => name.chars().next().is_some_and(char::is_uppercase),
         "py" | "pyi" => parent.is_none() && !name.starts_with('_'),
         "java" | "cs" => text.starts_with("public ") || text.starts_with("export "),
-        "c" | "h" | "cpp" | "hpp" | "cc" | "cxx" | "hh" | "hxx" => {
+        "c" | "h" | "cpp" | "hpp" | "cc" | "cxx" | "hh" | "hxx" | "cu" | "cuh" => {
             parent.is_none() && !text.starts_with("static ")
         }
+        // The generic grammar does not model `.global`/`.globl` visibility
+        // strongly enough to advertise labels as exported bindings.
+        "asm" | "assembly" | "s" => false,
         "scala" | "sc" | "sbt" => parent.is_none() && !name.starts_with('_'),
         _ => parent.is_none() && !name.starts_with('_'),
     }

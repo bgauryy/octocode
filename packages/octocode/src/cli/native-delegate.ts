@@ -1,10 +1,16 @@
 // Thin Node-to-Rust delegation boundary. Public tools and flag-only management
 // commands execute in the compiled native CLI; Node retains only interactive
-// installation and skill materialization.
+// installation and skill materialization. This CLI is the single launcher: it
+// resolves and spawns the platform native binary directly (no intermediate
+// `octocode.cjs` shim process), so a tool call costs one Node hop, not two.
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { existsSync } from 'node:fs';
 import { constants as osConstants } from 'node:os';
+
+interface NativeBinaryResolver {
+  resolveNativeBinaryPath: () => string;
+}
 
 const FORWARDED_SIGNALS: NodeJS.Signals[] = ['SIGINT', 'SIGTERM', 'SIGHUP'];
 
@@ -15,10 +21,11 @@ const FORWARDED_SIGNALS: NodeJS.Signals[] = ['SIGINT', 'SIGTERM', 'SIGHUP'];
 export const NODE_OWNED_COMMANDS: ReadonlySet<string> = new Set(['skill']);
 
 /**
- * Resolve the native `octocode` binary (or its platform-selecting launcher),
- * or null when unavailable. An explicit `OCTOCODE_NATIVE_BIN` path wins;
- * otherwise the published `@octocodeai/octocode-native` launcher shim is
- * resolved if installed. Never throws.
+ * Resolve the compiled native `octocode` binary, or null when unavailable. An
+ * explicit `OCTOCODE_NATIVE_BIN` path wins; otherwise the platform binary is
+ * resolved directly through `@octocodeai/octocode-native`'s shared resolver — so
+ * delegation spawns the native binary itself, not a second Node launcher. Never
+ * throws.
  */
 export function resolveNativeBin(
   env: NodeJS.ProcessEnv = process.env
@@ -29,7 +36,9 @@ export function resolveNativeBin(
   }
   try {
     const require = createRequire(import.meta.url);
-    return require.resolve('@octocodeai/octocode-native/bin/octocode.cjs');
+    const { resolveNativeBinaryPath } =
+      require('@octocodeai/octocode-native/bin/resolve-binary.cjs') as NativeBinaryResolver;
+    return resolveNativeBinaryPath();
   } catch {
     return null;
   }

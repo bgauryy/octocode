@@ -254,6 +254,12 @@ fn spec_for_extension(extension: &str) -> Option<ServerSpec> {
             args: &[],
             env_var: Some("OCTOCODE_CLANGD_SERVER_PATH"),
         },
+        ".cu" | ".cuh" => ServerSpec {
+            language_id: "cuda",
+            command: "clangd",
+            args: &[],
+            env_var: Some("OCTOCODE_CLANGD_SERVER_PATH"),
+        },
         ".cs" => ServerSpec {
             language_id: "csharp",
             command: "csharp-ls",
@@ -579,6 +585,11 @@ mod tests {
             ("demo.java", "java"),
             ("demo.c", "c"),
             ("demo.cpp", "cpp"),
+            ("demo.cu", "cuda"),
+            ("demo.cuh", "cuda"),
+            ("demo.asm", "asm"),
+            ("demo.assembly", "asm"),
+            ("demo.S", "asm"),
             ("demo.cs", "csharp"),
             ("demo.scala", "scala"),
             ("demo.sbt", "scala"),
@@ -596,15 +607,16 @@ mod tests {
     #[test]
     fn builtin_routes_cover_the_exact_first_class_extension_set() {
         let expected = [
-            "c", "cc", "cjs", "cpp", "cs", "cts", "cxx", "go", "h", "hh", "hpp", "hxx", "java",
-            "js", "jsx", "mjs", "mts", "py", "pyi", "rs", "sbt", "sc", "scala", "ts", "tsx",
+            "c", "cc", "cjs", "cpp", "cs", "cts", "cu", "cuh", "cxx", "go", "h", "hh", "hpp",
+            "hxx", "java", "js", "jsx", "mjs", "mts", "py", "pyi", "rs", "sbt", "sc", "scala",
+            "ts", "tsx",
         ];
-        for extension in expected {
-            assert!(
-                super::spec_for_extension(&format!(".{extension}")).is_some(),
-                "missing built-in route for .{extension}"
-            );
-        }
+        let mut actual: Vec<_> = crate::signatures::languages::supported_extensions()
+            .into_iter()
+            .filter(|extension| super::spec_for_extension(&format!(".{extension}")).is_some())
+            .collect();
+        actual.sort_unstable();
+        assert_eq!(actual, expected, "built-in LSP route inventory drift");
     }
 
     #[test]
@@ -615,6 +627,28 @@ mod tests {
                     .expect(extension);
             assert_eq!(config.command, "clangd");
             assert_eq!(config.language_id.as_deref(), Some("cpp"));
+        }
+    }
+
+    #[test]
+    fn all_cuda_extensions_resolve_to_clangd() {
+        for extension in ["cu", "cuh"] {
+            let config =
+                default_server_for_file(format!("fixture.{extension}"), "/workspace".to_owned())
+                    .expect(extension);
+            assert_eq!(config.command, "clangd");
+            assert_eq!(config.language_id.as_deref(), Some("cuda"));
+        }
+    }
+
+    #[test]
+    fn assembly_requires_a_trusted_custom_language_server() {
+        for extension in ["asm", "assembly", "s", "S"] {
+            assert!(
+                default_server_for_file(format!("fixture.{extension}"), "/workspace".to_owned())
+                    .is_none(),
+                ".{extension} must not pretend clangd provides Assembly semantics"
+            );
         }
     }
 

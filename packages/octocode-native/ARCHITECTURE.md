@@ -58,7 +58,7 @@ Nested context supports the nine read tools; recursive Jev, astRewrite and ghClo
 
 ## Language capability ownership
 
-`crates/engine/src/signatures/languages.rs` is the sole native grammar inventory. The default release registers ten first-class families and 25 extensions. Structural search/rewrite, signatures, graph facts, syntax inspection, and LSP grammar adapters derive from that registry; built-in server routes have exact-set tests against the same product boundary. YAML rule parsing is configuration syntax, not YAML source support.
+`crates/engine/src/signatures/languages.rs` is the sole native grammar inventory. The default release registers 12 first-class families and 30 extensions. Structural search/rewrite, signatures, graph facts, syntax inspection, directory language filters, and LSP grammar adapters derive from that registry. Built-in semantic-server routing is a narrower, separately tested capability: 11 families and 27 extensions because generic Assembly requires trusted custom server configuration, while CUDA routes to `clangd`. YAML rule parsing is configuration syntax, not YAML source support.
 
 Generic text search, reads, minification, file recognition, GitHub/history operations, artifact registries, and trusted custom LSP configuration do not consult the grammar allowlist. Syntax graph relations remain candidate evidence; callers use explicit LSP operations for semantic proof.
 

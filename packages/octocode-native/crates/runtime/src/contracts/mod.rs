@@ -289,7 +289,7 @@ mod contract_owner_tests {
         use sha2::{Digest, Sha256};
         let digest = hex::encode(Sha256::digest(contract_json().as_bytes()));
         assert_eq!(
-            digest, "6af5b5fb7917de185bdcd922bd3afdb1e7a94d2629d4f476578b07ede0e03b3e",
+            digest, "8bcca0b3de3afab410b6f603c95354f5a225f40292a198985020101ec40570b0",
             "generated contract body changed without regeneration from core"
         );
     }
@@ -388,6 +388,42 @@ mod contract_owner_tests {
     }
 
     #[test]
+    fn history_output_accepts_pull_request_optional_content_actions() {
+        let output = json!({"results":[{
+            "index":0,
+            "status":"empty",
+            "data":{
+                "type":"pullRequests",
+                "pullRequests":[{
+                    "number":463,
+                    "title":"Example",
+                    "state":"merged",
+                    "author":"octocode",
+                    "createdAt":"2026-08-07T20:37:26Z",
+                    "next":{
+                        "getBody":{
+                            "tool":"ghGetHistoryItem",
+                            "confidence":"exact",
+                            "query":{
+                                "operation":"pullRequest",
+                                "owner":"octocodeai",
+                                "repo":"octocode",
+                                "number":463,
+                                "content":{"body":true},
+                                "reasoning":"Read the optional body.",
+                                "debug":false
+                            }
+                        }
+                    }
+                }],
+                "errorCode":"noSelectedFilesMatched",
+                "hints":["Choose a changed path first."]
+            }
+        }]});
+        validate_output("ghGetHistoryItem", &output).expect("valid history output");
+    }
+
+    #[test]
     fn artifact_keyword_continuation_drops_null_lookup_fields() {
         // Regression: keyword-discovery emitted next.nextPage.query with
         // packageName/registry serialized as null (the exact-lookup branch
@@ -431,49 +467,37 @@ mod contract_owner_tests {
     }
 
     #[test]
-    fn ghsearch_advisory_next_action_carries_pagination() {
-        // Regression: gh_search empty_scope emitted advisory tree/repositories
-        // recovery queries without page/pageSize, which the continuation
-        // contract requires. They are now stamped page:1 + pageSize.
+    fn ghsearch_advisory_next_action_accepts_defaults_but_requires_operation() {
+        // Continuation validation applies query defaults on a clone, so
+        // page/pageSize/debug may be omitted. The operation discriminator is
+        // genuinely required and keeps the follow-up executable.
         let data = |query: serde_json::Value| {
             json!({"results":[{"index":0,"data":{
+                "operation":"tree",
                 "next":{"viewStructure":{"tool":"ghSearch","query":query,
                     "confidence":"exact","why":"Verify structure."}}
             }}]})
         };
-        let buggy = validate_output(
+        validate_output(
             "ghSearch",
             &data(json!({"operation":"tree","owner":"o","repo":"r","path":""})),
         )
-        .expect_err("missing page/pageSize must be rejected");
+        .expect("defaulted pagination fields may be omitted");
+        let invalid = validate_output("ghSearch", &data(json!({"owner":"o","repo":"r","path":""})))
+            .expect_err("missing operation must be rejected");
         assert!(
-            buggy.issues.iter().any(|issue| issue
-                .path
+            invalid
+                .issues
                 .iter()
-                .any(|part| part == "page" || part == "pageSize")),
-            "expected a page/pageSize issue, got {buggy:?}"
+                .any(|issue| issue.path.iter().any(|part| part == "operation")),
+            "expected an operation issue, got {invalid:?}"
         );
-        if let Err(fixed) = validate_output(
-            "ghSearch",
-            &data(json!({"operation":"tree","owner":"o","repo":"r","path":"",
-                "page":1,"pageSize":30})),
-        ) {
-            assert!(
-                !fixed.issues.iter().any(|issue| issue
-                    .path
-                    .iter()
-                    .any(|part| part == "page" || part == "pageSize")),
-                "stamped advisory query must not trip page/pageSize errors: {fixed:?}"
-            );
-        }
     }
 
     #[test]
-    fn deadcode_verify_references_continuation_is_contract_valid() {
-        // Regression: astSearch deadCode emitted next.verifyReferences with an
-        // lspSearch query missing the required defaulted fields (orderHint,
-        // page, format, debug), tripping outputContractViolation. The builder
-        // now stamps them so the advisory hint is a valid lspSearch query.
+    fn deadcode_verify_references_accepts_defaults_but_requires_anchor() {
+        // orderHint/page/format/debug are defaulted during validation. The URI
+        // remains a real anchored-reference requirement.
         let data = |query: serde_json::Value| {
             json!({"results":[{"index":0,"data":{
                 "operation":"topology",
@@ -485,44 +509,27 @@ mod contract_owner_tests {
                     "confidence":"high","why":"Verify candidate before deletion."}}
             }}]})
         };
-        let buggy = validate_output(
-            "astSearch",
-            &data(
-                json!({"operation":"references","uri":"/r/a.ts","symbolName":"greet",
-                "lineHint":1,"includeDeclaration":false,"groupByFile":true}),
-            ),
-        )
-        .expect_err("missing lspSearch defaulted fields must be rejected");
+        let minimal = json!({"operation":"references","uri":"/r/a.ts","symbolName":"greet",
+            "lineHint":1,"includeDeclaration":false,"groupByFile":true});
+        validate_output("astSearch", &data(minimal.clone()))
+            .expect("defaulted lspSearch fields may be omitted");
+        let mut missing_anchor = minimal;
+        missing_anchor.as_object_mut().unwrap().remove("uri");
+        let invalid = validate_output("astSearch", &data(missing_anchor))
+            .expect_err("missing anchored URI must be rejected");
         assert!(
-            buggy
+            invalid
                 .issues
                 .iter()
-                .any(|issue| issue.path.iter().any(|part| part == "verifyReferences")),
-            "expected a verifyReferences continuation issue, got {buggy:?}"
+                .any(|issue| issue.path.iter().any(|part| part == "uri")),
+            "expected a URI issue, got {invalid:?}"
         );
-        if let Err(fixed) = validate_output(
-            "astSearch",
-            &data(
-                json!({"operation":"references","uri":"/r/a.ts","symbolName":"greet",
-                "lineHint":1,"includeDeclaration":false,"groupByFile":true,
-                "orderHint":0,"page":1,"format":"structured","debug":false}),
-            ),
-        ) {
-            assert!(
-                !fixed.issues.iter().any(|issue| issue
-                    .path
-                    .iter()
-                    .any(|part| { part == "verifyReferences" || part == "query" })),
-                "stamped verifyReferences query must not trip continuation errors: {fixed:?}"
-            );
-        }
     }
 
     #[test]
-    fn filecontent_notfound_viewtree_continuation_carries_pagination() {
-        // Regression: ghGetFileContent's 404 recovery hint emitted a viewTree
-        // ghSearch tree query without page/pageSize/debug, which the tree
-        // continuation contract requires. They are now stamped (fresh page 1).
+    fn filecontent_viewtree_accepts_defaults_but_requires_operation() {
+        // Tree pagination/debug fields are defaulted during validation; the
+        // operation discriminator is still required.
         let data = |query: serde_json::Value| {
             json!({"results":[{"index":0,"data":{
                 "owner":"o","repo":"r","path":"missing.md","error":"not found",
@@ -530,70 +537,52 @@ mod contract_owner_tests {
                     "confidence":"low"}}
             }}]})
         };
-        let buggy = validate_output(
+        validate_output(
             "ghGetFileContent",
             &data(json!({"operation":"tree","owner":"o","repo":"r","path":"."})),
         )
-        .expect_err("missing page/pageSize must be rejected");
-        assert!(
-            buggy.issues.iter().any(|issue| issue
-                .path
-                .iter()
-                .any(|part| part == "page" || part == "pageSize")),
-            "expected a page/pageSize issue, got {buggy:?}"
-        );
-        if let Err(fixed) = validate_output(
+        .expect("defaulted tree pagination fields may be omitted");
+        let invalid = validate_output(
             "ghGetFileContent",
-            &data(json!({"operation":"tree","owner":"o","repo":"r","path":".",
-                "page":1,"pageSize":100,"debug":false})),
-        ) {
-            assert!(
-                !fixed.issues.iter().any(|issue| issue
-                    .path
-                    .iter()
-                    .any(|part| part == "page" || part == "pageSize")),
-                "stamped viewTree query must not trip page/pageSize errors: {fixed:?}"
-            );
-        }
+            &data(json!({"owner":"o","repo":"r","path":"."})),
+        )
+        .expect_err("missing operation must be rejected");
+        assert!(
+            invalid
+                .issues
+                .iter()
+                .any(|issue| issue.path.iter().any(|part| part == "operation")),
+            "expected an operation issue, got {invalid:?}"
+        );
     }
 
     #[test]
-    fn ghsearchhistory_nextpage_carries_pagesize() {
-        // Regression: ghSearchHistory (pullRequests) emitted next.nextPage with a
-        // query missing pageSize, which the continuation contract requires. The
-        // builder now stamps the effective pageSize.
+    fn ghsearchhistory_nextpage_accepts_defaults_but_requires_operation() {
+        // pageSize/debug are defaulted during validation; operation remains the
+        // required discriminator for an executable history continuation.
         let data = |query: serde_json::Value| {
             json!({"results":[{"index":0,"data":{
                 "type":"pullRequests","owner":"o","repo":"r","pullRequests":[],
                 "next":{"nextPage":{"tool":"ghSearchHistory","query":query,"confidence":"exact"}}
             }}]})
         };
-        let buggy = validate_output(
+        validate_output(
             "ghSearchHistory",
             &data(json!({"operation":"pullRequests","owner":"o","repo":"r","page":2})),
         )
-        .expect_err("missing pageSize must be rejected");
+        .expect("defaulted history pageSize may be omitted");
+        let invalid = validate_output(
+            "ghSearchHistory",
+            &data(json!({"owner":"o","repo":"r","page":2})),
+        )
+        .expect_err("missing operation must be rejected");
         assert!(
-            buggy
+            invalid
                 .issues
                 .iter()
-                .any(|issue| issue.path.iter().any(|p| p == "nextPage")),
-            "expected a nextPage continuation issue, got {buggy:?}"
+                .any(|issue| issue.path.iter().any(|p| p == "operation")),
+            "expected an operation issue, got {invalid:?}"
         );
-        if let Err(fixed) = validate_output(
-            "ghSearchHistory",
-            &data(
-                json!({"operation":"pullRequests","owner":"o","repo":"r","page":2,"pageSize":30}),
-            ),
-        ) {
-            assert!(
-                !fixed
-                    .issues
-                    .iter()
-                    .any(|issue| issue.path.iter().any(|p| p == "pageSize")),
-                "stamped nextPage query must not trip pageSize errors: {fixed:?}"
-            );
-        }
     }
 
     #[test]

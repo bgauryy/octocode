@@ -6,32 +6,6 @@ use super::types::*;
 use super::validation::validate_config;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
-const SOURCE_KEYS: [&str; 24] = [
-    "GITHUB_API_URL",
-    "OCTOCODE_GITHUB_CLIENT_ID",
-    "OCTOCODE_GITHUB_GRAPHQL",
-    "ENABLE_LOCAL",
-    "ENABLE_CLONE",
-    "OCTOCODE_ENABLE_LOCAL",
-    "OCTOCODE_ENABLE_CLONE",
-    "ENABLE_AST_REWRITE_APPLY",
-    "ALLOWED_PATHS",
-    "WORKSPACE_ROOT",
-    "TOOLS_TO_RUN",
-    "DISABLE_TOOLS",
-    "REQUEST_TIMEOUT",
-    "MAX_RETRIES",
-    "OCTOCODE_LSP_CONFIG",
-    "OCTOCODE_OUTPUT_FORMAT",
-    "OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH",
-    "OCTOCODE_REDACT_EMAILS",
-    "OCTOCODE_ENABLE_STATS",
-    "OCTOCODE_STORAGE_MODE",
-    "OCTOCODE_EXTENSION_STORAGE_MODE",
-    "OCTOCODE_JEV_KEY",
-    "OCTOCODE_JEV_MODEL",
-    "OCTOCODE_JEV_BASE_URL",
-];
 fn object<'a>(root: Option<&'a Value>, key: &str) -> Option<&'a serde_json::Map<String, Value>> {
     root?.get(key)?.as_object()
 }
@@ -283,7 +257,9 @@ pub fn resolve_config(input: &ConfigInput) -> ConfigOutput {
         });
         (None, "invalid")
     };
-    let has_env = SOURCE_KEYS.iter().any(|k| effective.contains_key(*k));
+    let has_env = CONFIG_SOURCE_ENV_KEYS
+        .iter()
+        .any(|key| effective.contains_key(*key));
     let source = match state {
         "invalid" => ConfigSource::Invalid,
         "valid" if has_env => ConfigSource::Mixed,

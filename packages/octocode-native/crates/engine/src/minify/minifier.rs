@@ -25,7 +25,7 @@ pub fn get_file_config(file_path: &str) -> Option<&'static FileTypeConfig> {
 }
 
 pub fn comment_groups(cfg: &FileTypeConfig) -> Vec<&'static str> {
-    cfg.comments.map(|c| c.to_vec()).unwrap_or_default()
+    cfg.comments.map(<[&str]>::to_vec).unwrap_or_default()
 }
 
 /// Full minification returning MinifyResult.

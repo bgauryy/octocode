@@ -51,6 +51,13 @@ fn is_pure_comment(text: &str, prefix: &str) -> bool {
             false
         }
         "hash" => t.starts_with('#'),
+        "asm" => {
+            t.starts_with('#')
+                || t.starts_with(';')
+                || t.starts_with("//")
+                || t.starts_with("/*")
+                || t.starts_with('*')
+        }
         "html" => t.starts_with("<!--") || t.starts_with("-->"),
         "sql" => {
             if t.starts_with("--") {

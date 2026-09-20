@@ -3,7 +3,8 @@
  * Build script for @octocodeai/config.
  * Uses esbuild (fast) for JS output + tsc --emitDeclarationOnly for .d.ts files.
  *
- * The package has zero external dependencies; only Node built-ins are used.
+ * The published package has zero runtime dependencies; build-only validation
+ * is completed before esbuild emits the self-contained runtime.
  * esbuild produces a self-contained ESM file for each entry point, which is
  * then injected by package builds into each skill's scripts/ dir
  * as octocode-config.mjs for standalone use without npm.

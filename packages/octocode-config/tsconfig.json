@@ -17,9 +17,10 @@
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
     "noUncheckedIndexedAccess": true,
+    "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "types": ["node"]
   },
-  "include": ["src/**/*", "tests/**/*"],
+  "include": ["scripts/**/*", "src/**/*", "tests/**/*"],
   "exclude": ["node_modules", "dist"]
 }

@@ -1,6 +1,7 @@
-export const CONFIG_SCHEMA_VERSION = 1;
-
-export const CONFIG_FILE_NAME = '.octocoderc';
+export {
+  CONFIG_FILE_NAME,
+  CONFIG_SCHEMA_VERSION,
+} from './sharedConstants.generated.js';
 
 export interface GitHubConfigOptions {
   apiUrl?: string;
@@ -29,6 +30,9 @@ export interface NetworkConfigOptions {
   timeout?: number;
 
   maxRetries?: number;
+
+  /** Opt-in SSRF escape hatch for private/loopback/link-local npm registries. Default: false. */
+  allowPrivateRegistry?: boolean;
 }
 
 export interface LspConfigOptions {
@@ -45,6 +49,9 @@ export interface OutputConfigOptions {
   format?: 'yaml' | 'json';
 
   pagination?: OutputPaginationConfigOptions;
+
+  /** Opt-in: mask email addresses (e.g. commit authors) in GitHub tool outputs. Default: false. */
+  redactEmails?: boolean;
 }
 
 export type StorageMode = 'persistent' | 'memory';
@@ -70,6 +77,18 @@ export interface ExtensionConfigOptions {
   storage?: StorageConfigOptions;
 }
 
+/**
+ * Jev reasoning credential section — read from `.octocoderc` as a fallback
+ * for the protected `OCTOCODE_JEV_*` env vars. Values are injected into the
+ * effective env; they never appear in `ResolvedConfig` and cannot be read
+ * back via `config get`. Env var always wins when both are set.
+ */
+export interface JevConfigOptions {
+  key?: string | null;
+  baseUrl?: string | null;
+  model?: string | null;
+}
+
 export interface OctocodeConfig {
   $schema?: string;
 
@@ -91,6 +110,12 @@ export interface OctocodeConfig {
 
   /** Per-consumer overrides for the Pi extension runtime. */
   extension?: ExtensionConfigOptions;
+
+  /**
+   * Jev credential fallback — injected into effective env; never in ResolvedConfig.
+   * Env vars (`OCTOCODE_JEV_KEY`, `OCTOCODE_JEV_BASE_URL`, `OCTOCODE_JEV_MODEL`) always win.
+   */
+  jev?: JevConfigOptions;
 }
 
 export interface RequiredGitHubConfig {
@@ -114,6 +139,7 @@ export interface RequiredToolsConfig {
 export interface RequiredNetworkConfig {
   timeout: number;
   maxRetries: number;
+  allowPrivateRegistry: boolean;
 }
 
 export interface RequiredLspConfig {
@@ -127,6 +153,7 @@ export interface RequiredOutputPaginationConfig {
 export interface RequiredOutputConfig {
   format: 'yaml' | 'json';
   pagination: RequiredOutputPaginationConfig;
+  redactEmails: boolean;
 }
 
 export interface RequiredStorageConfig {

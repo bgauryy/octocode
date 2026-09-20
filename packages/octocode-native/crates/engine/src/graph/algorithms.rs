@@ -303,7 +303,7 @@ fn scc_inner(
                 || graph
                     .get(&c[0])
                     .is_some_and(|n| n.edges.contains_key(&c[0]))
-        })
+        });
     }
     out
 }
@@ -360,7 +360,7 @@ pub fn condense(graph: &BTreeMap<String, Node>) -> Condensed {
                 if let Some(d) = indegree.get_mut(&to) {
                     *d = d.saturating_sub(1);
                     if *d == 0 {
-                        next.push(to)
+                        next.push(to);
                     }
                 }
             }
@@ -390,7 +390,7 @@ pub fn transitive_edges(edges: &BTreeMap<usize, BTreeSet<usize>>) -> BTreeSet<(u
                     break;
                 }
                 if seen.insert(n) {
-                    stack.extend(edges.get(&n).into_iter().flat_map(|x| x.iter()).copied())
+                    stack.extend(edges.get(&n).into_iter().flat_map(|x| x.iter()).copied());
                 }
             }
         }

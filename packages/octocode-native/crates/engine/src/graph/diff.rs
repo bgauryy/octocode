@@ -61,8 +61,7 @@ impl DiffIncompatibility {
     fn is_hard(&self) -> bool {
         matches!(
             self,
-            DiffIncompatibility::FactsSchemaChanged { .. }
-                | DiffIncompatibility::RootChanged { .. }
+            Self::FactsSchemaChanged { .. } | Self::RootChanged { .. }
         )
     }
 }

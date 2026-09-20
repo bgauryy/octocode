@@ -175,9 +175,11 @@ project-local executables, packaged servers, ecosystem locations, and managed
 downloads.
 
 Managed installation supports `rust-analyzer` and `clangd`. Built-in routes
-cover the ten first-class families: JavaScript, TypeScript, Python, Rust, Go,
-Java, C, C++, C#, and Scala. Other extensions require an explicit trusted
-`.octocode/lsp-servers.json` entry.
+cover 11 families: JavaScript, TypeScript, Python, Rust, Go, Java, C, C++, CUDA,
+C#, and Scala. CUDA uses `clangd`. Assembly parsing is first-class, but semantic
+navigation requires an explicit trusted `.octocode/lsp-servers.json` entry
+because there is no truthful generic built-in Assembly server route. Other
+extensions likewise require explicit trusted configuration.
 
 ---
 

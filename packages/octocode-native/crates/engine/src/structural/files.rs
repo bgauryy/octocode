@@ -698,7 +698,7 @@ fn matching_prefilter_paths(
     // feeding an empty pattern to Aho-Corasick. Otherwise build one automaton
     // for all anchors and scan each file in a single linear pass, replacing the
     // former per-anchor O(n·m) `windows` scan.
-    let automaton = if anchors.iter().any(|anchor| anchor.is_empty()) {
+    let automaton = if anchors.iter().any(String::is_empty) {
         None
     } else {
         Some(aho_corasick::AhoCorasick::new(anchors).map_err(|error| error.to_string())?)
@@ -1023,7 +1023,7 @@ fn collect_files_filtered(
         .git_ignore(no_ignore != Some(true))
         .ignore(no_ignore != Some(true))
         .max_depth(max_depth.map(|n| n as usize))
-        .sort_by_file_path(|a, b| a.cmp(b))
+        .sort_by_file_path(Ord::cmp)
         .filter_entry(move |entry| {
             if entry.depth() == 0 {
                 return true;

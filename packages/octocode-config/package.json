@@ -13,7 +13,8 @@
     "esbuild": "^0.28.2",
     "typescript": "^6.0.3",
     "vite": "^8.3.0",
-    "vitest": "^5.0.0"
+    "vitest": "^5.0.0",
+    "zod": "^4.6.2"
   },
   "engines": {
     "node": "^24.15.0"
@@ -48,9 +49,11 @@
     "directory": "packages/octocode-config"
   },
   "scripts": {
-    "build": "node build.mjs",
+    "build": "node scripts/generate-shared-constants.ts && node build.mjs",
+    "check:shared-constants": "node scripts/generate-shared-constants.ts --check",
     "clean": "rm -rf dist/",
-    "lint": "node ../../node_modules/typescript/bin/tsc --noEmit -p tsconfig.json",
+    "generate:shared-constants": "node scripts/generate-shared-constants.ts",
+    "lint": "node scripts/generate-shared-constants.ts --check && node ../../node_modules/typescript/bin/tsc --noEmit -p tsconfig.json",
     "prepublishOnly": "node ../octocode/scripts/check-no-workspace-protocol.mjs",
     "test": "node ../../node_modules/vitest/vitest.mjs run --coverage",
     "test:quiet": "node ../../node_modules/vitest/vitest.mjs run --reporter=dot --silent",

@@ -106,7 +106,7 @@ pub fn minify_javascript_core(content: &str) -> String {
     let s = re_tighten_punct_js(&s, rules.as_ref());
     // Split back to lines, drop empty
     s.lines()
-        .map(|l| l.trim())
+        .map(str::trim)
         .filter(|l| !l.is_empty())
         .collect::<Vec<_>>()
         .join("\n")

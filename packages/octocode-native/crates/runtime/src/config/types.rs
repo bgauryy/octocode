@@ -4,48 +4,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::path::PathBuf;
 
-pub const CONFIG_SCHEMA_VERSION: i64 = 1;
-pub const CONFIG_FILE_NAME: &str = ".octocoderc";
-pub const ENV_TOKEN_VARS: [&str; 4] = [
-    "OCTOCODE_TOKEN",
-    "GH_TOKEN",
-    "GITHUB_TOKEN",
-    "GITHUB_PERSONAL_ACCESS_TOKEN",
-];
-pub const PROTECTED_KEYS: [&str; 19] = [
-    "PATH",
-    "HOME",
-    "SHELL",
-    "USER",
-    "LOGNAME",
-    "PWD",
-    "TMPDIR",
-    "NODE_OPTIONS",
-    "OCTOCODE_TOKEN",
-    "GH_TOKEN",
-    "GITHUB_TOKEN",
-    "GITHUB_PERSONAL_ACCESS_TOKEN",
-    "PYTHON",
-    "GITHUB_API_URL",
-    // Selects the GitHub host (gh-CLI convention); protected so an untrusted
-    // `.env` cannot redirect API traffic to an attacker-controlled host.
-    "GH_HOST",
-    // SSRF opt-in for private/loopback/link-local package registries; protected
-    // so an untrusted `.env` cannot flip it on (only real process env or the
-    // config file may).
-    "OCTOCODE_ALLOW_PRIVATE_REGISTRY",
-    "OCTOCODE_JEV_KEY",
-    "OCTOCODE_JEV_BASE_URL",
-    "OCTOCODE_JEV_MODEL",
-];
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum RuntimeSurface {
-    Cli,
-    #[default]
-    Mcp,
-}
+include!(concat!(env!("OUT_DIR"), "/shared_constants.rs"));
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum FileInput {

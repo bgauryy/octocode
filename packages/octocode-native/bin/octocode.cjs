@@ -1,61 +1,26 @@
 #!/usr/bin/env node
 /**
- * Platform-selecting shim for the native `octocode` CLI binary.
+ * Platform-selecting bin for `@octocodeai/octocode-native` (e.g. `npx
+ * @octocodeai/octocode-native`). Resolves the compiled binary via the shared
+ * `resolve-binary.cjs` and spawns it, passing arguments and stdio through.
  *
- * npm/yarn installs only the matching platform package via optionalDependencies
- * (cpu + os guards). This shim resolves that package at runtime, finds the
- * compiled binary, and spawns it — passing all arguments and stdio through.
+ * The `octocode` npm CLI does NOT route through this launcher — it resolves the
+ * platform binary directly (same resolver) and spawns it, so a tool call costs
+ * one Node hop, not two.
  */
 'use strict';
 
 const { spawn } = require('child_process');
-const { join } = require('path');
-const { existsSync } = require('fs');
 const { constants: osConstants } = require('os');
-const { getPlatformSuffix } = require('./platform.cjs');
+const { resolveNativeBinaryPath } = require('./resolve-binary.cjs');
 
-// ── platform detection ────────────────────────────────────────────────────────
+// ── resolve platform binary ───────────────────────────────────────────────────
 
-const isWindows = process.platform === 'win32';
-
-const key = `${process.platform}-${process.arch}`;
-const platformSuffix = getPlatformSuffix();
-
-if (!platformSuffix) {
-  console.error(
-    `octocode: unsupported platform '${key}'.\n` +
-      'Supported: darwin arm64/x64, Linux arm64 GNU, Linux x64 GNU/musl, Windows x64'
-  );
-  process.exit(1);
-}
-
-// ── resolve platform package ──────────────────────────────────────────────────
-
-const pkgName = `@octocodeai/octocode-native-${platformSuffix}`;
-const binaryName = isWindows ? 'octocode.exe' : 'octocode';
-
-let pkgDir;
+let binaryPath;
 try {
-  // require.resolve finds the package.json; strip it to get the dir.
-  pkgDir = require
-    .resolve(`${pkgName}/package.json`)
-    .replace(/[\/\\]package\.json$/, '');
-} catch {
-  console.error(
-    `octocode: platform package '${pkgName}' is not installed.\n` +
-      `This usually means the optional dependency was skipped.\n` +
-      `Try: npm install ${pkgName}`
-  );
-  process.exit(1);
-}
-
-const binaryPath = join(pkgDir, binaryName);
-
-if (!existsSync(binaryPath)) {
-  console.error(
-    `octocode: binary not found at '${binaryPath}'.\n` +
-      `Rebuild: yarn workspace @octocodeai/octocode-native build:${platformSuffix}`
-  );
+  binaryPath = resolveNativeBinaryPath();
+} catch (error) {
+  console.error(error.message);
   process.exit(1);
 }
 

@@ -447,7 +447,10 @@ mod tests {
                 addresses: vec![*server.address()],
             }),
         };
-        let budget = RequestBudget::with_timeout(Duration::from_secs(15), 1024);
+        // The full native suite runs several network/process fixtures in
+        // parallel. This test proves address pinning, not latency, so keep its
+        // fixture deadline wide enough to avoid scheduler-starvation flakes.
+        let budget = RequestBudget::with_timeout(Duration::from_secs(60), 1024);
         let response = SystemArtifactHttp::new()
             .expect("HTTP client")
             .get(request, &budget)

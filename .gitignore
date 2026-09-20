@@ -20,6 +20,7 @@ campaigns
 # ─── Rust / NAPI packages ───────────────────────────────────────────────────
 # Cargo build artefacts
 target/
+.octocode-*-target/
 # Compiled NAPI native bindings — built locally per platform, never committed
 *.node
 # Benchmark results (local timing data, machine-specific)

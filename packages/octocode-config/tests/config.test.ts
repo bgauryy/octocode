@@ -551,6 +551,8 @@ describe('DEFAULT_CONFIG', () => {
     expect(DEFAULT_CONFIG.local.enableClone).toBe(false);
     expect(DEFAULT_CONFIG.local.enableAstRewriteApply).toBe(false);
     expect(DEFAULT_NETWORK_CONFIG.timeout).toBe(30000);
+    expect(DEFAULT_NETWORK_CONFIG.allowPrivateRegistry).toBe(false);
+    expect(DEFAULT_CONFIG.output.redactEmails).toBe(false);
   });
 
   it('timeout bounds are sane', () => {
@@ -643,6 +645,7 @@ describe('validateConfig', () => {
       tools: { enabled: null, enableAdditonal: ['artifactSearch'] },
       network: { timeout: 30000, retries: 2 },
       lsp: { configPath: '/tmp/lsp.json', config: 'typo' },
+      jev: { model: 'gpt-5-mini', modle: 'typo' },
       output: {
         format: 'yaml',
         formatter: 'typo',
@@ -658,6 +661,7 @@ describe('validateConfig', () => {
         'Unknown configuration key: tools.enableAdditonal',
         'Unknown configuration key: network.retries',
         'Unknown configuration key: lsp.config',
+        'Unknown configuration key: jev.modle',
         'Unknown configuration key: output.formatter',
         'Unknown configuration key: output.pagination.defaultChars',
       ])
@@ -688,6 +692,7 @@ describe('validateConfig', () => {
       tools: [],
       network: [],
       lsp: [],
+      jev: [],
       output: [],
     });
     expect(r.valid).toBe(false);
@@ -698,6 +703,7 @@ describe('validateConfig', () => {
         'tools: Must be an object',
         'network: Must be an object',
         'lsp: Must be an object',
+        'jev: Must be an object',
         'output: Must be an object',
       ])
     );
@@ -789,6 +795,10 @@ describe('validateConfig', () => {
         expect.stringContaining('network.maxRetries: Must be between'),
       ])
     );
+
+    expect(
+      validateConfig({ network: { allowPrivateRegistry: 'yes' } }).errors
+    ).toContain('network.allowPrivateRegistry: Must be a boolean');
   });
 
   it('rejects invalid lsp and output values', () => {
@@ -819,6 +829,39 @@ describe('validateConfig', () => {
       validateConfig({ output: { pagination: { defaultCharLength: 'long' } } })
         .errors
     ).toContain('output.pagination.defaultCharLength: Must be a number');
+    expect(
+      validateConfig({ output: { redactEmails: 'yes' } }).errors
+    ).toContain('output.redactEmails: Must be a boolean');
+  });
+
+  it('validates Jev credential fallback values and URL protocols', () => {
+    expect(
+      validateConfig({
+        jev: {
+          key: 'secret',
+          model: 'gpt-5-mini',
+          baseUrl: 'https://api.example.test/v1',
+        },
+      }).valid
+    ).toBe(true);
+
+    const invalidTypes = validateConfig({
+      jev: { key: 1, model: false, baseUrl: 2 },
+    });
+    expect(invalidTypes.errors).toEqual(
+      expect.arrayContaining([
+        'jev.key: Must be a string',
+        'jev.model: Must be a string',
+        'jev.baseUrl: Must be a string',
+      ])
+    );
+
+    expect(
+      validateConfig({ jev: { baseUrl: 'file:///tmp/provider' } }).errors
+    ).toContain('jev.baseUrl: Only http/https URLs allowed');
+    expect(
+      validateConfig({ jev: { baseUrl: 'not a URL' } }).errors
+    ).toContain('jev.baseUrl: Invalid URL format');
   });
 
   it('accepts Windows absolute local paths', () => {
@@ -1186,7 +1229,11 @@ describe('resolveNetwork', () => {
   const savedEnv: Record<string, string | undefined> = {};
 
   beforeEach(() => {
-    for (const key of ['REQUEST_TIMEOUT', 'MAX_RETRIES']) {
+    for (const key of [
+      'REQUEST_TIMEOUT',
+      'MAX_RETRIES',
+      'OCTOCODE_ALLOW_PRIVATE_REGISTRY',
+    ]) {
       savedEnv[key] = process.env[key];
       delete process.env[key];
     }
@@ -1210,7 +1257,15 @@ describe('resolveNetwork', () => {
     expect(resolveNetwork({ timeout: 5000, maxRetries: 10 })).toEqual({
       timeout: 300000,
       maxRetries: 0,
+      allowPrivateRegistry: false,
     });
+  });
+
+  it('uses the private-registry env opt-in before file config', () => {
+    process.env['OCTOCODE_ALLOW_PRIVATE_REGISTRY'] = 'true';
+    expect(
+      resolveNetwork({ allowPrivateRegistry: false }).allowPrivateRegistry
+    ).toBe(true);
   });
 });
 
@@ -1243,6 +1298,7 @@ describe('resolveOutput', () => {
     for (const key of [
       'OCTOCODE_OUTPUT_FORMAT',
       'OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH',
+      'OCTOCODE_REDACT_EMAILS',
     ]) {
       savedEnv[key] = process.env[key];
       delete process.env[key];
@@ -1264,6 +1320,7 @@ describe('resolveOutput', () => {
     ).toEqual({
       format: 'json',
       pagination: { defaultCharLength: 50000 },
+      redactEmails: false,
     });
   });
 
@@ -1276,7 +1333,13 @@ describe('resolveOutput', () => {
     ).toEqual({
       format: 'yaml',
       pagination: { defaultCharLength: 1000 },
+      redactEmails: false,
     });
+  });
+
+  it('uses the email-redaction env opt-in before file config', () => {
+    process.env['OCTOCODE_REDACT_EMAILS'] = 'true';
+    expect(resolveOutput({ redactEmails: false }).redactEmails).toBe(true);
   });
 });
 
@@ -1335,8 +1398,16 @@ describe('getConfigSync', () => {
           allowedPaths: ['/workspace'],
         },
         tools: { enabled: ['ghSearch'], disabled: null },
-        network: { timeout: 5000, maxRetries: 2 },
-        output: { format: 'json', pagination: { defaultCharLength: 12000 } },
+        network: {
+          timeout: 5000,
+          maxRetries: 2,
+          allowPrivateRegistry: true,
+        },
+        output: {
+          format: 'json',
+          pagination: { defaultCharLength: 12000 },
+          redactEmails: true,
+        },
         lsp: { configPath: '/workspace/lsp-servers.json' },
       })
     );
@@ -1353,9 +1424,11 @@ describe('getConfigSync', () => {
         'DISABLE_TOOLS',
         'REQUEST_TIMEOUT',
         'MAX_RETRIES',
+        'OCTOCODE_ALLOW_PRIVATE_REGISTRY',
         'OCTOCODE_LSP_CONFIG',
         'OCTOCODE_OUTPUT_FORMAT',
         'OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH',
+        'OCTOCODE_REDACT_EMAILS',
         'OCTOCODE_ENABLE_STATS',
         'OCTOCODE_STORAGE_MODE',
       ])
@@ -1374,9 +1447,11 @@ describe('getConfigSync', () => {
       expect(cfg.tools.enabled).toEqual(['ghSearch']);
       expect(cfg.network.timeout).toBe(5000);
       expect(cfg.network.maxRetries).toBe(2);
+      expect(cfg.network.allowPrivateRegistry).toBe(true);
       expect(cfg.output).toEqual({
         format: 'json',
         pagination: { defaultCharLength: 12000 },
+        redactEmails: true,
       });
       expect(cfg.lsp.configPath).toBe('/workspace/lsp-servers.json');
       expect(cfg.storage.mode).toBe('persistent');

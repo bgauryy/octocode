@@ -10,6 +10,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseBooleanEnv } from './config/resolverSections.js';
+import { PROTECTED_KEY_NAMES } from './config/sharedConstants.generated.js';
 
 // ─── Re-export getOctocodeHome (defined in home.ts to break circular deps) ───
 export { getOctocodeHome } from './home.js';
@@ -76,6 +77,8 @@ export {
   loadConfig,
 } from './config/loader.js';
 export {
+  CONFIG_SOURCE_ENV_KEYS,
+  type ConfigSourceEnvKey,
   parseBooleanEnv,
   parseIntEnv,
   parseStringArrayEnv,
@@ -110,35 +113,7 @@ import { loadConfigSync } from './config/loader.js';
 import { getConfigSync } from './config/resolver.js';
 
 /** Keys a project/global .env must never override — infrastructure + all auth tokens. */
-export const PROTECTED_KEYS: ReadonlySet<string> = new Set([
-  'PATH',
-  'HOME',
-  'SHELL',
-  'USER',
-  'LOGNAME',
-  'PWD',
-  'TMPDIR',
-  'NODE_OPTIONS',
-  'OCTOCODE_TOKEN',
-  'GH_TOKEN',
-  'GITHUB_TOKEN',
-  'GITHUB_PERSONAL_ACCESS_TOKEN',
-  'PYTHON',
-  // GitHub API URL — resolved from shell/MCP env or .octocoderc (github.apiUrl),
-  // never from .env, so an untrusted project cannot redirect API traffic.
-  'GITHUB_API_URL',
-  // Selects the GitHub host (gh-CLI convention); protected so an untrusted `.env`
-  // cannot redirect API traffic to an attacker-controlled host.
-  'GH_HOST',
-  // SSRF opt-in for private/loopback/link-local package registries; protected so
-  // an untrusted `.env` cannot flip it on.
-  'OCTOCODE_ALLOW_PRIVATE_REGISTRY',
-  // Jev provider credentials/config — env-only everywhere, mirroring the native
-  // runtime's PROTECTED_KEYS. Must never be sourced from a .env file.
-  'OCTOCODE_JEV_KEY',
-  'OCTOCODE_JEV_BASE_URL',
-  'OCTOCODE_JEV_MODEL',
-]);
+export const PROTECTED_KEYS: ReadonlySet<string> = new Set(PROTECTED_KEY_NAMES);
 
 /**
  * Parse dotenv text into a { KEY: VALUE } map. Strict KEY=VALUE, `#` comments,

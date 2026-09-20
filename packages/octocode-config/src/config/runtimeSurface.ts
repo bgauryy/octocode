@@ -15,7 +15,12 @@
  * value is seen even when bundlers (esbuild) inline this module more than once
  * across different package subpath entry points (`/config`, `/direct`, …).
  */
-export type RuntimeSurface = 'cli' | 'mcp';
+import {
+  DEFAULT_RUNTIME_SURFACE,
+  type RuntimeSurface,
+} from './sharedConstants.generated.js';
+
+export type { RuntimeSurface };
 
 const SURFACE_KEY = '__octocodeRuntimeSurface__';
 
@@ -26,7 +31,7 @@ export function setRuntimeSurface(surface: RuntimeSurface): void {
 }
 
 export function getRuntimeSurface(): RuntimeSurface {
-  return (globalThis as SurfaceHolder)[SURFACE_KEY] ?? 'mcp';
+  return (globalThis as SurfaceHolder)[SURFACE_KEY] ?? DEFAULT_RUNTIME_SURFACE;
 }
 
 /** Test helper: restore the default surface. */

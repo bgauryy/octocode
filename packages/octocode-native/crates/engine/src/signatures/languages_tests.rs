@@ -33,15 +33,18 @@ fn excluded_grammars_report_unsupported_across_native_capabilities() {
 #[test]
 fn default_release_capabilities_are_exactly_the_first_class_extension_set() {
     if !cfg!(all(
+        feature = "tree-sitter-asm",
         feature = "tree-sitter-cpp",
         feature = "tree-sitter-c-sharp",
+        feature = "tree-sitter-cuda",
         feature = "tree-sitter-scala"
     )) {
         return;
     }
     let expected = [
-        "c", "cc", "cjs", "cpp", "cs", "cts", "cxx", "go", "h", "hh", "hpp", "hxx", "java", "js",
-        "jsx", "mjs", "mts", "py", "pyi", "rs", "sbt", "sc", "scala", "ts", "tsx",
+        "asm", "assembly", "c", "cc", "cjs", "cpp", "cs", "cts", "cu", "cuh", "cxx", "go", "h",
+        "hh", "hpp", "hxx", "java", "js", "jsx", "mjs", "mts", "py", "pyi", "rs", "s", "sbt", "sc",
+        "scala", "ts", "tsx",
     ];
     for (name, mut actual) in [
         (
@@ -86,14 +89,43 @@ fn removed_languages_have_no_analysis_minifier_or_builtin_server_route() {
 #[test]
 fn modern_language_constructs_parse_without_errors() {
     let cases = [
-        ("ts", "const options = { mode: 'fast' } satisfies Record<string, string>;"),
-        ("tsx", "const View = () => <section>{items?.map(item => <span key={item.id}>{item.name}</span>)}</section>;"),
-        ("py", "type Vector[T] = list[T]\ndef first[T](values: Vector[T]) -> T:\n    return values[0]\n"),
-        ("go", "package main\nfunc First[T any](values []T) T { return values[0] }\n"),
-        ("rs", "fn main() { if let Some(x) = Some(1) && x > 0 { println!(\"{x}\"); } }"),
-        ("java", "record Point(int x, int y) { int sum() { return switch (x) { case 0 -> y; default -> x + y; }; } }"),
-        ("cs", "class Point(int x, int y) { public int[] Values => [x, y]; }"),
-        ("cpp", "template<typename T> concept Number = requires(T x) { x + x; };\ntemplate<Number T> T add(T x) { return x + x; }"),
+        (
+            "ts",
+            "const options = { mode: 'fast' } satisfies Record<string, string>;",
+        ),
+        (
+            "tsx",
+            "const View = () => <section>{items?.map(item => <span key={item.id}>{item.name}</span>)}</section>;",
+        ),
+        (
+            "py",
+            "type Vector[T] = list[T]\ndef first[T](values: Vector[T]) -> T:\n    return values[0]\n",
+        ),
+        (
+            "go",
+            "package main\nfunc First[T any](values []T) T { return values[0] }\n",
+        ),
+        (
+            "rs",
+            "fn main() { if let Some(x) = Some(1) && x > 0 { println!(\"{x}\"); } }",
+        ),
+        (
+            "java",
+            "record Point(int x, int y) { int sum() { return switch (x) { case 0 -> y; default -> x + y; }; } }",
+        ),
+        (
+            "cs",
+            "class Point(int x, int y) { public int[] Values => [x, y]; }",
+        ),
+        (
+            "cpp",
+            "template<typename T> concept Number = requires(T x) { x + x; };\ntemplate<Number T> T add(T x) { return x + x; }",
+        ),
+        (
+            "cu",
+            "__global__ void kernel(int *values) { values[threadIdx.x] += 1; }\nvoid launch(int *values) { kernel<<<1, 32>>>(values); }\n",
+        ),
+        ("asm", "target:\n  mov %rax, %rbx\n  ret\n"),
     ];
     for (ext, source) in cases {
         let Some(entry) = find_entry(ext) else {
@@ -115,17 +147,41 @@ fn modern_language_constructs_parse_without_errors() {
 // leaving a newly advertised language untested.
 fn fixture(ext: &str) -> &'static str {
     match ext {
-        "ts" => "export function target(value: number): number {\n  const body_marker = helper(value);\n  return body_marker;\n}\n",
-        "tsx" => "export function target(value: number) {\n  const body_marker = helper(value);\n  return <div>{body_marker}</div>;\n}\n",
-        "js" => "export function target(value) {\n  const body_marker = helper(value);\n  return body_marker;\n}\n",
+        "ts" => {
+            "export function target(value: number): number {\n  const body_marker = helper(value);\n  return body_marker;\n}\n"
+        }
+        "tsx" => {
+            "export function target(value: number) {\n  const body_marker = helper(value);\n  return <div>{body_marker}</div>;\n}\n"
+        }
+        "js" => {
+            "export function target(value) {\n  const body_marker = helper(value);\n  return body_marker;\n}\n"
+        }
         "py" => "def target(value):\n    body_marker = helper(value)\n    return body_marker\n",
-        "go" => "package fixture\nfunc target(value int) int {\n  body_marker := helper(value)\n  return body_marker\n}\n",
-        "rs" => "fn target(value: i32) -> i32 {\n  let body_marker = helper(value);\n  body_marker\n}\n",
-        "java" => "class Fixture {\n  int target(int value) {\n    int body_marker = helper(value);\n    return body_marker;\n  }\n}\n",
-        "c" => "int target(int value) {\n  int body_marker = helper(value);\n  return body_marker;\n}\n",
-        "cpp" => "class Fixture {\npublic:\n  int target(int value) {\n    int body_marker = helper(value);\n    return body_marker;\n  }\n};\n",
-        "cs" => "class Fixture {\n  public int target(int value) {\n    int body_marker = helper(value);\n    return body_marker;\n  }\n}\n",
-        "scala" => "object Fixture {\n  def target(value: Int): Int = {\n    val body_marker = helper(value)\n    body_marker\n  }\n}\n",
+        "go" => {
+            "package fixture\nfunc target(value int) int {\n  body_marker := helper(value)\n  return body_marker\n}\n"
+        }
+        "rs" => {
+            "fn target(value: i32) -> i32 {\n  let body_marker = helper(value);\n  body_marker\n}\n"
+        }
+        "java" => {
+            "class Fixture {\n  int target(int value) {\n    int body_marker = helper(value);\n    return body_marker;\n  }\n}\n"
+        }
+        "c" => {
+            "int target(int value) {\n  int body_marker = helper(value);\n  return body_marker;\n}\n"
+        }
+        "cpp" => {
+            "class Fixture {\npublic:\n  int target(int value) {\n    int body_marker = helper(value);\n    return body_marker;\n  }\n};\n"
+        }
+        "cs" => {
+            "class Fixture {\n  public int target(int value) {\n    int body_marker = helper(value);\n    return body_marker;\n  }\n}\n"
+        }
+        "scala" => {
+            "object Fixture {\n  def target(value: Int): Int = {\n    val body_marker = helper(value)\n    body_marker\n  }\n}\n"
+        }
+        "cu" => {
+            "__global__ void target(int *value) {\n  int body_marker = helper(*value);\n  *value = body_marker;\n}\n"
+        }
+        "asm" => "target:\n  mov body_marker, %rax\n  call helper\n  ret\n",
         _ => panic!("missing grammar fixture for .{ext}"),
     }
 }
@@ -169,12 +225,14 @@ fn every_registered_grammar_and_alias_parses_and_searches_real_source() {
                         .any(|declaration| declaration["name"] == "target")),
                 ".{ext}: target declaration missing from graph facts: {graph_json}"
             );
-            assert!(
-                graph["calls"]
-                    .as_array()
-                    .is_some_and(|calls| !calls.is_empty()),
-                ".{ext}: helper call missing from graph facts: {graph_json}"
-            );
+            if entry.extensions[0] != "asm" {
+                assert!(
+                    graph["calls"]
+                        .as_array()
+                        .is_some_and(|calls| !calls.is_empty()),
+                    ".{ext}: helper call missing from graph facts: {graph_json}"
+                );
+            }
 
             if let Some(language_id) = entry.language_id {
                 let file = format!("fixture.{ext}");

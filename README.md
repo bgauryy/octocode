@@ -430,14 +430,14 @@ Create a token at [github.com/settings/tokens](https://github.com/settings/token
 
 ## Language support
 
-Octocode has ten first-class source languages: JavaScript, TypeScript, Rust, Python, C, C++, Java, Scala, Go, and C#. Their structural, signature, graph-fact, rewrite, and built-in LSP inventories agree on exactly 25 extensions.
+Octocode has 12 first-class source-language families: JavaScript, TypeScript, Rust, Python, C, C++, CUDA, Assembly, Java, Scala, Go, and C#. Structural search/rewrite, signatures, graph facts, syntax inspection, and LSP grammar adapters derive from one registry covering exactly 30 extensions. Built-in semantic-server routes cover 11 families and 27 extensions because generic Assembly requires trusted custom configuration; CUDA uses `clangd`.
 
 | Axis | What it does | How to use it |
 |------|--------------|---------------|
-| **Structural AST** | Tree-sitter shape queries (`pattern` or YAML rule documents) over the 25 first-class extensions. | `astSearch operation:"match"` · CLI `scheme astSearch` |
+| **Structural AST** | Tree-sitter shape queries (`pattern` or YAML rule documents) over the 30 first-class extensions. | `astSearch operation:"match"` · CLI `scheme astSearch` |
 | **Signature outline** | Body-free skeleton with line numbers from the same grammar registry, no heuristics. | `minify:"symbols"` · CLI `scheme localFetch` |
 | **Content minification** | Broader best-effort comment/whitespace processing for code and data formats. A minifier route is not parser support. | `minify:"standard"` (default) |
-| **LSP navigation** | Semantic navigation through installed servers for the ten built-in language families; trusted custom routes can support other extensions. | `lspSearch` · CLI `scheme lspSearch` |
+| **LSP navigation** | Semantic navigation through installed servers for the 11 built-in language families; trusted custom routes can support Assembly and other extensions. | `lspSearch` · CLI `scheme lspSearch` |
 
 Text search, ordinary reads, GitHub/history tools, and artifact lookup remain language-agnostic. YAML ast-grep rule documents do not imply YAML source parsing. Syntax graph facts are candidates; use LSP for semantic proof.
 

@@ -1,6 +1,6 @@
 # Octocode config
 
-`@octocodeai/config` is the zero-dependency configuration loader shared by the
+`@octocodeai/config` is the zero-runtime-dependency configuration loader shared by the
 Octocode CLI, MCP server, native packages, extensions, and standalone skills.
 It is the only owner of Octocode home-directory resolution and `.env` or
 `.octocoderc` parsing.
@@ -30,10 +30,15 @@ npx @octocodeai/config --check OCTOCODE_HOME
 From the repository root:
 
 ```bash
+yarn workspace @octocodeai/config generate:shared-constants
 yarn workspace @octocodeai/config build
 yarn workspace @octocodeai/config test
 yarn workspace @octocodeai/config lint
 ```
+
+Shared TypeScript/Rust values are edited only in `shared-constants.json`.
+The generator validates that file with Zod and emits the TypeScript literal
+exports; Rust consumes the same JSON from its build script.
 
 See the repository [configuration reference](../../docs/CONFIGURATION.md) and
 [security model](../../docs/SECURITY.md).

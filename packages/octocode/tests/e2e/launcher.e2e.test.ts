@@ -75,7 +75,10 @@ describe.skipIf(!ready)('launcher → native binary e2e', () => {
   });
 
   it('keeps the skill recursion guard intact in the packaged binary', () => {
-    const result = spawnSync(binary as string, ['skill', 'list'], {
+    // The guard only applies to subcommands the native binary DELEGATES to the
+    // npm CLI. list/install/remove/check/info are served natively (no delegation,
+    // no guard), so exercise a non-native subcommand that must delegate.
+    const result = spawnSync(binary as string, ['skill', 'sync'], {
       encoding: 'utf8',
       env: { ...process.env, OCTOCODE_SKILL_DELEGATED: '1' },
       timeout: 30_000,

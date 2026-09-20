@@ -272,6 +272,12 @@ function validateNetwork(network: unknown, errors: string[]): void {
     MAX_RETRIES
   );
   if (retriesError) errors.push(retriesError);
+
+  const allowPrivateRegistryError = validateBoolean(
+    net.allowPrivateRegistry,
+    'network.allowPrivateRegistry'
+  );
+  if (allowPrivateRegistryError) errors.push(allowPrivateRegistryError);
 }
 
 function validateLsp(lsp: unknown, errors: string[]): void {
@@ -286,6 +292,37 @@ function validateLsp(lsp: unknown, errors: string[]): void {
 
   const configPathError = validateString(l.configPath, 'lsp.configPath');
   if (configPathError) errors.push(configPathError);
+}
+
+function validateJev(jev: unknown, errors: string[]): void {
+  if (jev === undefined || jev === null) return;
+
+  if (typeof jev !== 'object' || Array.isArray(jev)) {
+    errors.push('jev: Must be an object');
+    return;
+  }
+
+  const j = jev as Record<string, unknown>;
+
+  const keyError = validateString(j.key, 'jev.key');
+  if (keyError) errors.push(keyError);
+
+  const modelError = validateString(j.model, 'jev.model');
+  if (modelError) errors.push(modelError);
+
+  const baseUrlError = validateString(j.baseUrl, 'jev.baseUrl');
+  if (baseUrlError) errors.push(baseUrlError);
+
+  if (j.baseUrl !== undefined && j.baseUrl !== null && typeof j.baseUrl === 'string') {
+    try {
+      const parsed = new URL(j.baseUrl);
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        errors.push('jev.baseUrl: Only http/https URLs allowed');
+      }
+    } catch {
+      errors.push('jev.baseUrl: Invalid URL format');
+    }
+  }
 }
 
 function validateOutput(output: unknown, errors: string[]): void {
@@ -320,6 +357,9 @@ function validateOutput(output: unknown, errors: string[]): void {
       if (defaultCharLengthError) errors.push(defaultCharLengthError);
     }
   }
+
+  const redactEmailsError = validateBoolean(out.redactEmails, 'output.redactEmails');
+  if (redactEmailsError) errors.push(redactEmailsError);
 }
 
 function warnUnknownObjectKeys(
@@ -371,6 +411,7 @@ export function validateConfig(config: unknown): ValidationResult {
   validateOutput(cfg.output, errors);
   validateStorage(cfg.storage, errors);
   validateExtension(cfg.extension, errors);
+  validateJev(cfg.jev, errors);
 
   warnUnknownObjectKeys(
     cfg.github,
@@ -404,14 +445,20 @@ export function validateConfig(config: unknown): ValidationResult {
   warnUnknownObjectKeys(
     cfg.network,
     'network',
-    ['timeout', 'maxRetries'],
+    ['timeout', 'maxRetries', 'allowPrivateRegistry'],
     warnings
   );
   warnUnknownObjectKeys(cfg.lsp, 'lsp', ['configPath'], warnings);
   warnUnknownObjectKeys(
     cfg.output,
     'output',
-    ['format', 'pagination'],
+    ['format', 'pagination', 'redactEmails'],
+    warnings
+  );
+  warnUnknownObjectKeys(
+    cfg.jev,
+    'jev',
+    ['key', 'baseUrl', 'model'],
     warnings
   );
   if (
@@ -438,6 +485,7 @@ export function validateConfig(config: unknown): ValidationResult {
     'output',
     'storage',
     'extension',
+    'jev',
   ]);
 
   for (const key of Object.keys(cfg)) {

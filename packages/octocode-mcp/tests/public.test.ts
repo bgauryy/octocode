@@ -6,7 +6,7 @@ const native = vi.hoisted(() => ({
   startNativeMcp: vi.fn(),
 }));
 
-vi.mock('../src/native/index.mjs', () => native);
+vi.mock('../src/native/index.js', () => native);
 
 import {
   createNativeMcp,
@@ -40,6 +40,8 @@ describe('public native adapter', () => {
     native.startNativeMcp.mockResolvedValue(instance);
 
     await expect(startNativeMcp()).resolves.toBe(instance);
-    expect(native.startNativeMcp).toHaveBeenCalledWith(undefined);
+    // public re-exports the native adapter directly (no pass-through wrapper),
+    // so a no-arg call reaches the impl with no arguments.
+    expect(native.startNativeMcp).toHaveBeenCalledWith();
   });
 });

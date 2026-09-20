@@ -124,9 +124,9 @@ impl Readiness {
     /// Stable string form crossing the napi boundary into JS.
     pub fn as_str(self) -> &'static str {
         match self {
-            Readiness::ProgressIdle => "progressIdle",
-            Readiness::SettledFallback => "settledFallback",
-            Readiness::Timeout => "timeout",
+            Self::ProgressIdle => "progressIdle",
+            Self::SettledFallback => "settledFallback",
+            Self::Timeout => "timeout",
         }
     }
 }

@@ -648,11 +648,16 @@ fn canonical_extension(ext: &str) -> &str {
 }
 
 fn fact_families_for_extension(ext: &str) -> Vec<&'static str> {
+    if canonical_extension(ext) == "asm" {
+        // The generic Assembly grammar provides reliable labels but no lexical
+        // function scopes or dialect-neutral call semantics.
+        return vec!["declarations"];
+    }
     let mut families = vec!["declarations", "contains", "calls"];
     match canonical_extension(ext) {
         // JS/TS (oxc lane) already emit import/export facts — advertise them so
         // `getGraphFactCapabilities` matches what `extractGraphFacts` returns.
-        "ts" | "tsx" | "js" | "rs" | "py" | "go" | "java" | "c" | "cpp" | "scala" => {
+        "ts" | "tsx" | "js" | "rs" | "py" | "go" | "java" | "c" | "cpp" | "cu" | "scala" => {
             families.push("imports");
             families.push("exports");
         }
@@ -683,7 +688,10 @@ mod tests {
 
     #[test]
     fn rust_import_binding_ranges_are_exact_utf16() {
-        let value = facts("/*😀*/ use crate::origin::{target as first, target as second};\nuse crate::origin::{\n target as third,\n};\nuse crate::origin::target as fourth;\n", "aliases.rs");
+        let value = facts(
+            "/*😀*/ use crate::origin::{target as first, target as second};\nuse crate::origin::{\n target as third,\n};\nuse crate::origin::target as fourth;\n",
+            "aliases.rs",
+        );
         let imports = value["imports"].as_array().unwrap();
         assert_eq!(imports.len(), 4);
         for (index, (line, imported, local, length)) in [
@@ -725,7 +733,10 @@ mod tests {
 
     #[test]
     fn python_import_binding_ranges_are_exact_utf16() {
-        let value = facts("marker = \"😀\"; from origin import target as first, target as second\nfrom origin import (\n    target as third,\n)\n", "aliases.py");
+        let value = facts(
+            "marker = \"😀\"; from origin import target as first, target as second\nfrom origin import (\n    target as third,\n)\n",
+            "aliases.py",
+        );
         let imports = value["imports"].as_array().unwrap();
         assert_eq!(imports.len(), 3);
         for (index, (line, imported, local, length)) in
@@ -750,32 +761,40 @@ mod tests {
             "#[cfg(feature = \"x\")]\n// note\nmod child;\n#[path = \"actual.rs\"]\n/// documented\nmod alias;\nmod gated { #![cfg(feature = \"x\")] use super::Thing; }",
             "src/lib.rs",
         );
-        assert!(value["modules"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|module| module["name"] == "child" && module["unsupported"] == true));
-        assert!(value["modules"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|module| module["name"] == "alias" && module["path"] == "actual.rs"));
-        assert!(value["modules"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|module| module["name"] == "gated" && module["unsupported"] == true));
+        assert!(
+            value["modules"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|module| module["name"] == "child" && module["unsupported"] == true)
+        );
+        assert!(
+            value["modules"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|module| module["name"] == "alias" && module["path"] == "actual.rs")
+        );
+        assert!(
+            value["modules"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|module| module["name"] == "gated" && module["unsupported"] == true)
+        );
         let root = facts("#![cfg(feature = \"x\")]\nmod child;", "src/lib.rs");
         assert_eq!(root["rustRootUnsupported"], true);
         let local = facts(
             "fn f() { mod hidden { #[path = \"child.rs\"] mod child; } }",
             "src/lib.rs",
         );
-        assert!(local["modules"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|module| module["unsupported"] == true));
+        assert!(
+            local["modules"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|module| module["unsupported"] == true)
+        );
     }
 
     #[test]
@@ -791,16 +810,20 @@ mod tests {
         assert!(modules.iter().any(|module| module["name"] == "child"
             && module["scope"] == serde_json::json!(["inside"])
             && module["path"] == "nested.rs"));
-        assert!(modules
-            .iter()
-            .any(|module| module["name"] == "conditional" && module["unsupported"] == true));
-        assert!(value["imports"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|import| import["specifier"] == "super::Thing"
-                && import["moduleScope"] == serde_json::json!(["inside"])
-                && import["resolutionHint"].is_null()));
+        assert!(
+            modules
+                .iter()
+                .any(|module| module["name"] == "conditional" && module["unsupported"] == true)
+        );
+        assert!(
+            value["imports"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|import| import["specifier"] == "super::Thing"
+                    && import["moduleScope"] == serde_json::json!(["inside"])
+                    && import["resolutionHint"].is_null())
+        );
     }
 
     #[test]
@@ -850,9 +873,11 @@ mod tests {
                 "missing {expected}: {imports:?}"
             );
         }
-        assert!(imports
-            .iter()
-            .any(|i| i["localName"] == "Alias" && i["importedName"] == "Thing"));
+        assert!(
+            imports
+                .iter()
+                .any(|i| i["localName"] == "Alias" && i["importedName"] == "Thing")
+        );
     }
 
     #[test]
@@ -862,19 +887,23 @@ mod tests {
             "src/lib.rs",
         );
         let imports = value["imports"].as_array().unwrap();
-        assert!(imports
-            .iter()
-            .any(|item| item["specifier"] == "self::child"
-                && item["resolutionHint"] == "unsupported"));
-        assert!(imports
-            .iter()
-            .any(|item| item["specifier"] == "super::Thing"
-                && item["moduleScope"] == serde_json::json!(["inline"])));
-        assert!(value["diagnostics"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|item| item.as_str().unwrap().contains("macro expansion")));
+        assert!(
+            imports.iter().any(|item| item["specifier"] == "self::child"
+                && item["resolutionHint"] == "unsupported")
+        );
+        assert!(
+            imports
+                .iter()
+                .any(|item| item["specifier"] == "super::Thing"
+                    && item["moduleScope"] == serde_json::json!(["inline"]))
+        );
+        assert!(
+            value["diagnostics"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|item| item.as_str().unwrap().contains("macro expansion"))
+        );
     }
 
     #[cfg(feature = "tree-sitter-cpp")]
@@ -895,13 +924,15 @@ mod tests {
             .expect("method declaration");
         assert_eq!(class["kind"], "class");
         assert_eq!(method["parent"], class["id"]);
-        assert!(value["edges"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|edge| edge["relation"] == "contains"
-                && edge["from"] == class["id"]
-                && edge["to"] == method["id"]));
+        assert!(
+            value["edges"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|edge| edge["relation"] == "contains"
+                    && edge["from"] == class["id"]
+                    && edge["to"] == method["id"])
+        );
     }
 
     fn facts(src: &str, path: &str) -> Value {
@@ -920,11 +951,13 @@ mod tests {
         let graph: Value = serde_json::from_str(&raw).unwrap();
         assert_eq!(graph["rustRootUnsupported"], true);
         assert_eq!(graph["imports"], serde_json::json!([]));
-        assert!(graph["diagnostics"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|d| d.as_str().unwrap().contains("graph.parse.deadlineExceeded")));
+        assert!(
+            graph["diagnostics"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|d| d.as_str().unwrap().contains("graph.parse.deadlineExceeded"))
+        );
     }
 
     #[test]
@@ -956,11 +989,13 @@ mod tests {
         let graph = facts(&source, "imports.rs");
         assert_eq!(graph["imports"].as_array().unwrap().len(), 1);
         assert_eq!(graph["imports"][0]["specifier"], "std");
-        assert!(!graph["diagnostics"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|d| d.as_str().unwrap().contains("parse errors")));
+        assert!(
+            !graph["diagnostics"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|d| d.as_str().unwrap().contains("parse errors"))
+        );
     }
 
     #[test]
@@ -1029,37 +1064,47 @@ pub fn distance(point: Point) -> f64 {
 "#;
         let graph = facts(src, "geo.rs");
         assert_eq!(graph["schemaVersion"], 1);
-        assert!(graph
-            .get("language")
-            .is_some_and(|language| language == "rust"));
-        assert!(graph
-            .get("declarations")
-            .and_then(Value::as_array)
-            .is_some_and(|decls| decls
-                .iter()
-                .any(|decl| decl.get("name").is_some_and(|name| name == "Point"))));
-        assert!(graph
-            .get("declarations")
-            .and_then(Value::as_array)
-            .is_some_and(|decls| decls.iter().any(|decl| decl
-                .get("name")
-                .is_some_and(|name| name == "distance")
-                && decl
-                    .get("exported")
-                    .is_some_and(|exported| exported == true))));
-        assert!(graph
-            .get("imports")
-            .and_then(Value::as_array)
-            .is_some_and(|imports| imports.iter().any(|import| import
-                .get("specifier")
-                .and_then(Value::as_str)
-                .is_some_and(|specifier| specifier.contains("crate::other")))));
-        assert!(graph
-            .get("calls")
-            .and_then(Value::as_array)
-            .is_some_and(|calls| calls
-                .iter()
-                .any(|call| call.get("callee").is_some_and(|callee| callee == "helper"))));
+        assert!(
+            graph
+                .get("language")
+                .is_some_and(|language| language == "rust")
+        );
+        assert!(
+            graph
+                .get("declarations")
+                .and_then(Value::as_array)
+                .is_some_and(|decls| decls
+                    .iter()
+                    .any(|decl| decl.get("name").is_some_and(|name| name == "Point")))
+        );
+        assert!(
+            graph
+                .get("declarations")
+                .and_then(Value::as_array)
+                .is_some_and(|decls| decls.iter().any(|decl| decl
+                    .get("name")
+                    .is_some_and(|name| name == "distance")
+                    && decl
+                        .get("exported")
+                        .is_some_and(|exported| exported == true)))
+        );
+        assert!(
+            graph
+                .get("imports")
+                .and_then(Value::as_array)
+                .is_some_and(|imports| imports.iter().any(|import| import
+                    .get("specifier")
+                    .and_then(Value::as_str)
+                    .is_some_and(|specifier| specifier.contains("crate::other"))))
+        );
+        assert!(
+            graph
+                .get("calls")
+                .and_then(Value::as_array)
+                .is_some_and(|calls| calls
+                    .iter()
+                    .any(|call| call.get("callee").is_some_and(|callee| callee == "helper")))
+        );
     }
 
     #[test]
@@ -1109,37 +1154,47 @@ def helper():
     return os.getcwd()
 "#;
         let graph = facts(src, "service.py");
-        assert!(graph
-            .get("language")
-            .is_some_and(|language| language == "python"));
-        assert!(graph
-            .get("declarations")
-            .and_then(Value::as_array)
-            .is_some_and(|decls| decls
-                .iter()
-                .any(|decl| decl.get("name").is_some_and(|name| name == "Service"))));
-        assert!(graph
-            .get("declarations")
-            .and_then(Value::as_array)
-            .is_some_and(|decls| decls.iter().any(|decl| decl
-                .get("name")
-                .is_some_and(|name| name == "helper")
-                && decl
-                    .get("exported")
-                    .is_some_and(|exported| exported == true))));
-        assert!(graph
-            .get("imports")
-            .and_then(Value::as_array)
-            .is_some_and(|imports| imports.iter().any(|import| import
-                .get("specifier")
-                .and_then(Value::as_str)
-                .is_some_and(|specifier| specifier.contains("os")))));
-        assert!(graph
-            .get("calls")
-            .and_then(Value::as_array)
-            .is_some_and(|calls| calls
-                .iter()
-                .any(|call| call.get("callee").is_some_and(|callee| callee == "helper"))));
+        assert!(
+            graph
+                .get("language")
+                .is_some_and(|language| language == "python")
+        );
+        assert!(
+            graph
+                .get("declarations")
+                .and_then(Value::as_array)
+                .is_some_and(|decls| decls
+                    .iter()
+                    .any(|decl| decl.get("name").is_some_and(|name| name == "Service")))
+        );
+        assert!(
+            graph
+                .get("declarations")
+                .and_then(Value::as_array)
+                .is_some_and(|decls| decls.iter().any(|decl| decl
+                    .get("name")
+                    .is_some_and(|name| name == "helper")
+                    && decl
+                        .get("exported")
+                        .is_some_and(|exported| exported == true)))
+        );
+        assert!(
+            graph
+                .get("imports")
+                .and_then(Value::as_array)
+                .is_some_and(|imports| imports.iter().any(|import| import
+                    .get("specifier")
+                    .and_then(Value::as_str)
+                    .is_some_and(|specifier| specifier.contains("os"))))
+        );
+        assert!(
+            graph
+                .get("calls")
+                .and_then(Value::as_array)
+                .is_some_and(|calls| calls
+                    .iter()
+                    .any(|call| call.get("callee").is_some_and(|callee| callee == "helper")))
+        );
     }
 
     #[test]

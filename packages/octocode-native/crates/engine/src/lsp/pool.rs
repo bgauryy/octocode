@@ -9,7 +9,7 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use tokio::sync::{Mutex, Notify};
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 
 type ClientFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 
@@ -486,7 +486,7 @@ fn readiness_timeout(language_id: Option<&str>) -> Option<u32> {
         // partiality signal the lifecycle contract promises.
         Some("typescript" | "typescriptreact" | "javascript" | "javascriptreact") => Some(30_000),
         Some("python") => Some(15_000),
-        Some("c" | "cpp") => Some(20_000),
+        Some("c" | "cpp" | "cuda") => Some(20_000),
         _ => None,
     }
 }
@@ -860,6 +860,7 @@ mod tests {
             "python",
             "c",
             "cpp",
+            "cuda",
         ] {
             assert!(
                 readiness_timeout(Some(language)).is_some(),
@@ -880,6 +881,7 @@ mod tests {
         assert_eq!(readiness_timeout(Some("python")), Some(15_000));
         assert_eq!(readiness_timeout(Some("c")), Some(20_000));
         assert_eq!(readiness_timeout(Some("cpp")), Some(20_000));
+        assert_eq!(readiness_timeout(Some("cuda")), Some(20_000));
         // An unknown/unlisted language still opts out of the readiness wait.
         assert_eq!(readiness_timeout(Some("plaintext")), None);
         assert_eq!(readiness_timeout(None), None);

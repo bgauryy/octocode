@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const startNativeMcp = vi.hoisted(() => vi.fn(async () => ({})));
 
-vi.mock('../src/native/index.mjs', () => ({ startNativeMcp }));
+vi.mock('../src/native/index.js', () => ({ startNativeMcp }));
 
 describe('native MCP process entry', () => {
   beforeEach(() => {

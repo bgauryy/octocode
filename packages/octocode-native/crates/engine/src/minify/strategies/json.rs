@@ -41,7 +41,7 @@ pub fn minify_json_readable_inner(content: &str) -> (String, bool) {
     }
     let cleaned = cleaned
         .lines()
-        .map(|l| l.trim_end())
+        .map(str::trim_end)
         .collect::<Vec<_>>()
         .join("\n");
     // collapse ≥3 blank lines

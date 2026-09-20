@@ -89,12 +89,14 @@ and separate addons even though one npm distribution owns their artifacts.
 
 ### Language boundary
 
-The default release has ten first-class source languages and exactly 25
-extensions: JavaScript, TypeScript, Rust, Python, C, C++, Java, Scala, Go, and
-C#. Structural search/rewrite, signatures, graph facts, and built-in LSP routes
-share this boundary. Text search, ordinary reads, generic best-effort
-minification, artifact lookup, and trusted custom LSP configuration remain
-language-agnostic. See
+The default release has 12 first-class source-language families and exactly 30
+extensions: JavaScript, TypeScript, Rust, Python, C, C++, CUDA, Assembly, Java,
+Scala, Go, and C#. Structural search/rewrite, signatures, graph facts, syntax
+inspection, and LSP grammar adapters derive from one registry. Built-in semantic
+server routes cover 11 families and 27 extensions: CUDA uses `clangd`, while
+generic Assembly requires trusted custom LSP configuration. Text search,
+ordinary reads, generic best-effort minification, artifact lookup, and trusted
+custom LSP configuration remain language-agnostic. See
 [`docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md`](docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md). The direct Rust dependency necessity and footprint receipt is in
 [`docs/engine/DEPENDENCY_AUDIT.md`](docs/engine/DEPENDENCY_AUDIT.md).
 

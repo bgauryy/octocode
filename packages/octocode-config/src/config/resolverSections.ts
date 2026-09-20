@@ -27,6 +27,12 @@ import {
   MIN_OUTPUT_DEFAULT_CHAR_LENGTH,
   MAX_OUTPUT_DEFAULT_CHAR_LENGTH,
 } from './defaults.js';
+import {
+  CONFIG_SOURCE_ENV_KEYS,
+  type ConfigSourceEnvKey,
+} from './sharedConstants.generated.js';
+
+export { CONFIG_SOURCE_ENV_KEYS, type ConfigSourceEnvKey };
 
 export function parseBooleanEnv(
   value: string | undefined
@@ -131,6 +137,9 @@ export function resolveNetwork(
 ): RequiredNetworkConfig {
   const envTimeout = parseIntEnv(process.env.REQUEST_TIMEOUT);
   const envMaxRetries = parseIntEnv(process.env.MAX_RETRIES);
+  const envAllowPrivateRegistry = parseBooleanEnv(
+    process.env.OCTOCODE_ALLOW_PRIVATE_REGISTRY
+  );
 
   let timeout =
     envTimeout ?? fileConfig?.timeout ?? DEFAULT_NETWORK_CONFIG.timeout;
@@ -142,7 +151,12 @@ export function resolveNetwork(
     DEFAULT_NETWORK_CONFIG.maxRetries;
   maxRetries = Math.max(MIN_RETRIES, Math.min(MAX_RETRIES, maxRetries));
 
-  return { timeout, maxRetries };
+  const allowPrivateRegistry =
+    envAllowPrivateRegistry ??
+    fileConfig?.allowPrivateRegistry ??
+    DEFAULT_NETWORK_CONFIG.allowPrivateRegistry;
+
+  return { timeout, maxRetries, allowPrivateRegistry };
 }
 
 export function resolveLsp(
@@ -226,6 +240,12 @@ export function resolveOutput(
     Math.min(MAX_OUTPUT_DEFAULT_CHAR_LENGTH, configuredDefaultCharLength)
   );
 
+  const envRedactEmails = parseBooleanEnv(process.env.OCTOCODE_REDACT_EMAILS);
+  const redactEmails =
+    envRedactEmails ??
+    fileConfig?.redactEmails ??
+    DEFAULT_OUTPUT_CONFIG.redactEmails;
+
   return {
     format: VALID_OUTPUT_FORMATS.has(resolved)
       ? (resolved as 'yaml' | 'json')
@@ -233,5 +253,6 @@ export function resolveOutput(
     pagination: {
       defaultCharLength: clampedDefaultCharLength,
     },
+    redactEmails,
   };
 }

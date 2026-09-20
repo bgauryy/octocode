@@ -76,9 +76,9 @@ describe('artifactSearch schema', () => {
     // PyPI has no keyword search; the structural contract excludes it from
     // the discovery branch, so the unservable call never reaches the runtime.
     expect(() => parsedQuery({ type: 'pypi', keywords: ['http'] })).toThrow();
-    expect(parsedQuery({ type: 'pypi', packageName: 'requests' })).toMatchObject(
-      { type: 'pypi', packageName: 'requests' }
-    );
+    expect(
+      parsedQuery({ type: 'pypi', packageName: 'requests' })
+    ).toMatchObject({ type: 'pypi', packageName: 'requests' });
   });
 
   it('limits custom registry routing to npm', () => {

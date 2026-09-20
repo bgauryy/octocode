@@ -21,6 +21,8 @@ Tree-sitter-backed. Two query forms: `pattern` (code-shaped, `$X`/`$$$ARGS` meta
 |---|---|---|
 | C | `c` `h` | `.h` defaults to C; explicitly select C++ when project context requires it |
 | C++ | `cc` `cpp` `cxx` `hh` `hpp` `hxx` | Function patterns repair a narrow C++11 initializer-list ambiguity only when the alternate parse is a function definition |
+| CUDA | `cu` `cuh` | CUDA-specific C++ grammar; complete function patterns and direct `kind` rules support kernel-launch syntax |
+| Assembly | `asm` `assembly` `s` | Generic multi-dialect grammar; uppercase `.S` normalizes to `.s`; label/directive outlines omit instructions |
 | C# | `cs` | Member patterns use a transparent synthetic wrapper class for grammar context |
 | Go | `go` | |
 | Java | `java` | Bare method-call patterns receive grammar-checked statement context |
@@ -30,15 +32,15 @@ Tree-sitter-backed. Two query forms: `pattern` (code-shaped, `$X`/`$$$ARGS` meta
 | JavaScript | `js` `jsx` `mjs` `cjs` | Tree-sitter owns structural matching; OXC owns richer JS analysis |
 | TypeScript | `ts` `tsx` `mts` `cts` | Tree-sitter owns structural matching; OXC owns richer TS analysis |
 
-The default release build registers exactly **25 extensions across 10 language families**. Structural, signature, graph-fact, rewrite, and built-in LSP route tests share this boundary. Exact expected-set assertions live in `crates/engine/src/signatures/languages_tests.rs` and `tests/engine/ffi.test.ts`; every retained grammar also parses and searches a representative fixture.
+The default release build registers exactly **30 extensions across 12 language families**. Structural search/rewrite, signatures, graph facts, syntax inspection, and LSP grammar adapters derive from the single registry in `crates/engine/src/signatures/languages.rs`. Exact expected-set assertions live in `crates/engine/src/signatures/languages_tests.rs` and `tests/engine/ffi.test.ts`; every retained grammar also parses and searches a representative fixture. Built-in semantic-server routing is intentionally narrower because generic Assembly has no truthful default server.
 
 ## Signature extraction / graph facts — `minify:"symbols"`, `astSearch operation:"topology"`
 
 `localFetch minify:"symbols"` provides skeleton outlines. All supported code languages, including JS/TS, use Tree-sitter body queries for signature skeletons. OXC provides JS/TS graph facts, native document symbols and in-file references, and minification. Graph facts are syntax-derived and vary by language; signature capability does not establish complete declaration or call extraction.
 
-Cross-file graph linking covers JavaScript/TypeScript ESM and binding-safe CommonJS, Rust modules, bounded Python absolute and relative imports, and quoted relative C/C++ includes. Explicit relative `package.json` imports become bounded metadata leaves. CommonJS links require an unshadowed literal `require`, `module.require`, or `createRequire(import.meta.url)` binding; dynamic, shadowed, reassigned, and otherwise ambiguous loaders remain coverage diagnostics. Python wildcards, ambiguous package attributes, and ambiguous stub layouts remain diagnostics. C/C++ system and macro includes are not linked. Other languages report unsupported cross-file linking rather than producing heuristic edges.
+Cross-file graph linking covers JavaScript/TypeScript ESM and binding-safe CommonJS, Rust modules, bounded Python absolute and relative imports, and quoted relative C/C++/CUDA includes. Explicit relative `package.json` imports become bounded metadata leaves. CommonJS links require an unshadowed literal `require`, `module.require`, or `createRequire(import.meta.url)` binding; dynamic, shadowed, reassigned, and otherwise ambiguous loaders remain coverage diagnostics. Python wildcards, ambiguous package attributes, and ambiguous stub layouts remain diagnostics. C/C++/CUDA system and macro includes are not linked. Other languages report unsupported cross-file linking rather than producing heuristic edges.
 
-Supported: the same exact 25 extensions in the structural table. Every registered grammar has a real body query; use the capability APIs for builds with optional C++, C#, or Scala features turned off.
+Supported: the same exact 30 extensions in the structural table. Every registered grammar has a real body query; use the capability APIs for builds with optional Assembly, C++, C#, CUDA, or Scala features turned off. Assembly graph facts expose labels as declarations but deliberately do not claim dialect-neutral calls, containment, exports, or cross-file links.
 
 Kotlin (`kt`/`kts`), PHP (`php`), CSS (`css`), HTML (`html`/`htm`), JSON (`json`/`jsonc`), TOML, Lua, Zig, Ruby, SCSS, SQL, Swift, YAML, Elixir, HCL/Terraform, Protobuf, Shell, Less, OCaml, Julia, R, Erlang, Vue, Svelte, Astro, Dart, and other non-target languages have no native source grammar. Grammar-dependent operations return a typed unsupported result instead of selecting another parser.
 
@@ -47,7 +49,7 @@ Text search, ordinary reads, GitHub/history operations, artifact lookup, file re
 ## Minification — file reads and search fragments
 
 Minification support is separate from parser and LSP support. The default
-configuration contains **148 extension entries**, plus 15
+configuration contains **152 extension entries**, plus 15
 filename overrides. Many entries use comment and whitespace processing without
 a syntax parser. Scala `.scala`, `.sc`, and `.sbt` share one strategy.
 
@@ -55,7 +57,7 @@ a syntax parser. Scala `.scala`, `.sc`, and `.sbt` share one strategy.
 |---|---|---|
 | `none` | Skips minification; extraction, security redaction, and response formatting still apply | Source evidence, comments, type declarations, edits, and literal matches |
 | `standard` | Uses language-dependent processing. JS/TS uses OXC compact code generation without optimization, mangling, or type-declaration removal; other strategies compact JSON, markup, CSS, Markdown, or comments and whitespace | Orientation; use `none` for exact text, comments, and formatting |
-| `symbols` | Extracts an outline for the 25 first-class extensions; Markdown has a heading fallback. Unsupported or unavailable outlines fall back to `standard` | Declaration locations and source-line anchors; follow with an exact read for bodies |
+| `symbols` | Extracts an outline for the 30 first-class extensions; Markdown has a heading fallback. Unsupported or unavailable outlines fall back to `standard` | Declaration locations and source-line anchors; follow with an exact read for bodies |
 
 For file reads, `fullContent:true` defaults to `none`. Local line ranges also
 default to `none`; GitHub line ranges and other ordinary reads default to
@@ -69,7 +71,7 @@ survived security redaction, the fragment falls back to its sanitized source.
 Treat snippets as discovery evidence and read the source with `minify:"none"`
 before quoting or checking identifier usage.
 
-Native regression coverage exercises all 148 configured extensions in standard
+Native regression coverage exercises all 152 configured extensions in standard
 and full minification, all 15 filename overrides, and embedded script views.
 Public file-read and engine FFI tests exercise retained and removed-language fixtures, transformed views, and continuations. Minification coverage is intentionally broader than the first-class parser set and is representative rather than exhaustive language conformance.
 
@@ -85,12 +87,12 @@ does not establish which transformations ran. See the
 
 ## LSP — `lspSearch`
 
-Built-in LSP routing covers the same ten first-class language families and 25 extensions. Scala routes `.scala`, `.sc`, and `.sbt` to Metals. `typescript-language-server --stdio` remains the stable JS/TS default; `tsgo` is available only through an explicit override until parity evidence exists. Python currently defaults to `pylsp`; BasedPyright/Pyright preference requires a separately committed executable and behavior matrix.
+Built-in LSP routing covers 11 language families and 27 extensions. CUDA `.cu`/`.cuh` files route to `clangd`; Scala routes `.scala`, `.sc`, and `.sbt` to Metals. Assembly remains grammar-backed for syntax anchoring but requires a trusted custom language-server configuration because `clangd` does not provide a truthful generic Assembly semantic route. `typescript-language-server --stdio` remains the stable JS/TS default; `tsgo` is available only through an explicit override until parity evidence exists. Python currently defaults to `pylsp`; BasedPyright/Pyright preference requires a separately committed executable and behavior matrix.
 
 | Source | Languages | What happens |
 |---|---|---|
-| **Workspace, ecosystem, or PATH** | The ten built-in language families | Resolves an installed known command; the engine npm package does not bundle language servers |
-| **Managed cache** | Rust (`rust-analyzer`), C/C++ (`clangd`) | Uses assets explicitly installed by `octocode lsp-server install` after HTTPS and SHA-256 verification |
+| **Workspace, ecosystem, or PATH** | The 11 built-in language families | Resolves an installed known command; the engine npm package does not bundle language servers |
+| **Managed cache** | Rust (`rust-analyzer`), C/C++/CUDA (`clangd`) | Uses assets explicitly installed by `octocode lsp-server install` after HTTPS and SHA-256 verification |
 | **Language-specific override** | Built-in routes | Uses the matching `OCTOCODE_*_SERVER_PATH` command after executable validation |
 | **Custom configuration** | Any extension, including removed first-class routes | Registers an extension, command, arguments, and language ID; project configuration requires explicit trust |
 

@@ -117,6 +117,44 @@ impl ToolId {
     pub const fn is_jev(self) -> bool {
         matches!(self, ToolId::Jev)
     }
+
+    /// Human-readable category label used in the CLI `scheme` catalog.
+    /// Canonical grouping: the CLI must not spell tool names a second time.
+    #[must_use]
+    pub const fn display_category(self) -> &'static str {
+        match self {
+            ToolId::GhSearch
+            | ToolId::GhGetFileContent
+            | ToolId::GhSearchHistory
+            | ToolId::GhGetHistoryItem
+            | ToolId::GhCloneRepo => "GitHub",
+            ToolId::LocalSearch
+            | ToolId::LocalFetch
+            | ToolId::AstSearch
+            | ToolId::AstRewrite
+            | ToolId::LspSearch => "Local Code",
+            ToolId::ArtifactSearch => "Package",
+            ToolId::Jev => "Reasoning",
+        }
+    }
+
+    /// Env-var hint shown in the CLI `scheme` catalog when a tool is disabled.
+    /// `None` means availability is controlled via `tools.enabled`/`disabled`.
+    /// `ENABLE_CLONE` and `OCTOCODE_ENABLE_CLONE` are accepted aliases
+    /// (resolver.rs); only the canonical short form is shown here.
+    #[must_use]
+    pub const fn availability_env_hint(self) -> Option<&'static str> {
+        match self {
+            ToolId::GhCloneRepo => Some("ENABLE_CLONE|OCTOCODE_STORAGE_MODE"),
+            ToolId::Jev => Some("OCTOCODE_JEV_KEY"),
+            ToolId::LocalSearch
+            | ToolId::LocalFetch
+            | ToolId::AstSearch
+            | ToolId::AstRewrite
+            | ToolId::LspSearch => Some("ENABLE_LOCAL"),
+            _ => None,
+        }
+    }
 }
 
 impl FromStr for ToolId {
@@ -147,6 +185,45 @@ mod tests {
         }
         assert_eq!(ToolId::from_name("nope"), None);
         assert!("nope".parse::<ToolId>().is_err());
+    }
+
+    #[test]
+    fn display_category_covers_every_tool_and_matches_family() {
+        let categories: std::collections::HashSet<_> =
+            ToolId::ALL.iter().map(|id| id.display_category()).collect();
+        assert!(categories.contains("GitHub"));
+        assert!(categories.contains("Local Code"));
+        assert!(categories.contains("Package"));
+        assert!(categories.contains("Reasoning"));
+        // GitHub tools
+        for id in [ToolId::GhSearch, ToolId::GhGetFileContent, ToolId::GhSearchHistory,
+                   ToolId::GhGetHistoryItem, ToolId::GhCloneRepo] {
+            assert_eq!(id.display_category(), "GitHub", "{id}");
+        }
+        // Local tools
+        for id in [ToolId::LocalSearch, ToolId::LocalFetch, ToolId::AstSearch,
+                   ToolId::AstRewrite, ToolId::LspSearch] {
+            assert_eq!(id.display_category(), "Local Code", "{id}");
+        }
+        assert_eq!(ToolId::ArtifactSearch.display_category(), "Package");
+        assert_eq!(ToolId::Jev.display_category(), "Reasoning");
+    }
+
+    #[test]
+    fn availability_env_hint_covers_gated_tools_and_is_none_for_always_on() {
+        // Always available (no env gate)
+        for id in [ToolId::GhSearch, ToolId::GhGetFileContent, ToolId::GhSearchHistory,
+                   ToolId::GhGetHistoryItem, ToolId::ArtifactSearch] {
+            assert!(id.availability_env_hint().is_none(), "{id} should have no hint");
+        }
+        // Env-gated tools
+        assert_eq!(ToolId::GhCloneRepo.availability_env_hint(),
+                   Some("ENABLE_CLONE|OCTOCODE_STORAGE_MODE"));
+        assert_eq!(ToolId::Jev.availability_env_hint(), Some("OCTOCODE_JEV_KEY"));
+        for id in [ToolId::LocalSearch, ToolId::LocalFetch, ToolId::AstSearch,
+                   ToolId::AstRewrite, ToolId::LspSearch] {
+            assert_eq!(id.availability_env_hint(), Some("ENABLE_LOCAL"), "{id}");
+        }
     }
 
     #[test]

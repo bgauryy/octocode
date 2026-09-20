@@ -364,7 +364,7 @@ fn is_delimiter_row(line: &str) -> bool {
 fn compact_table_row(line: &str) -> String {
     let compacted = line
         .split('|')
-        .map(|p| p.trim())
+        .map(str::trim)
         .collect::<Vec<_>>()
         .join("|");
     strip_md_inline_noise(&compacted)

@@ -72,6 +72,39 @@ const PUBLIC_NATIVE_FUNCTION_EXPORTS =
 const PUBLIC_NATIVE_EXPORTS =
   PUBLIC_NATIVE_EXPORT_NAMES satisfies readonly (keyof typeof import('../../js/engine.js'))[];
 
+const EXPECTED_STRUCTURAL_EXTENSIONS = [
+  'asm',
+  'assembly',
+  'c',
+  'cc',
+  'cjs',
+  'cpp',
+  'cs',
+  'cts',
+  'cu',
+  'cuh',
+  'cxx',
+  'go',
+  'h',
+  'hh',
+  'hpp',
+  'hxx',
+  'java',
+  'js',
+  'jsx',
+  'mjs',
+  'mts',
+  'py',
+  'pyi',
+  'rs',
+  's',
+  'sbt',
+  'sc',
+  'scala',
+  'ts',
+  'tsx',
+] as const;
+
 beforeAll(async () => {
   if (!addonExists) return;
   addon = await import('../../js/engine.js');
@@ -122,33 +155,7 @@ describe('canonical grammar capabilities', () => {
       addon!.getSupportedStructuralExtensions().sort()
     );
     expect(new Set(extensions).size).toBe(extensions.length);
-    expect(extensions.sort()).toEqual([
-      'c',
-      'cc',
-      'cjs',
-      'cpp',
-      'cs',
-      'cts',
-      'cxx',
-      'go',
-      'h',
-      'hh',
-      'hpp',
-      'hxx',
-      'java',
-      'js',
-      'jsx',
-      'mjs',
-      'mts',
-      'py',
-      'pyi',
-      'rs',
-      'sbt',
-      'sc',
-      'scala',
-      'ts',
-      'tsx',
-    ]);
+    expect(extensions.sort()).toEqual([...EXPECTED_STRUCTURAL_EXTENSIONS]);
     expect(capabilities.every(capability => capability.signatureOutline)).toBe(
       true
     );
@@ -691,9 +698,7 @@ describe('getSupportedStructuralExtensions', () => {
 
   it('returns the exact first-class extension set', () => {
     expect(addon!.getSupportedStructuralExtensions().sort()).toEqual([
-      'c', 'cc', 'cjs', 'cpp', 'cs', 'cts', 'cxx', 'go', 'h', 'hh', 'hpp',
-      'hxx', 'java', 'js', 'jsx', 'mjs', 'mts', 'py', 'pyi', 'rs', 'sbt',
-      'sc', 'scala', 'ts', 'tsx',
+      ...EXPECTED_STRUCTURAL_EXTENSIONS,
     ]);
   });
 

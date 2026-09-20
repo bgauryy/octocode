@@ -353,7 +353,12 @@ code ~/.octocode/.octocoderc
     "timeout": 30000,
 
     // Max retries on failure. Range: 0–10. Default: 3
-    "maxRetries": 3
+    "maxRetries": 3,
+
+    // Opt-in SSRF escape hatch for private/loopback/link-local npm registries.
+    // Default: false. Set true only for internal enterprise registries.
+    // Cannot be set from a project .env (protected key).
+    "allowPrivateRegistry": false
   },
 
   // ── Output ────────────────────────────────────────────────────────────────
@@ -364,7 +369,11 @@ code ~/.octocode/.octocoderc
     "pagination": {
       // Auto-pagination character budget. Range: 1000–50000. Default: 20000
       "defaultCharLength": 20000
-    }
+    },
+
+    // Opt-in: mask email addresses (e.g. commit authors) in GitHub tool outputs.
+    // Default: false.
+    "redactEmails": false
   },
 
   // ── LSP ───────────────────────────────────────────────────────────────────
@@ -506,6 +515,7 @@ enabled. Removed compatibility names are rejected; they cannot be re-enabled.
 |---------|------------------|---------|-------|
 | `REQUEST_TIMEOUT` | `network.timeout` | `30000` ms | 5 000 – 300 000 |
 | `MAX_RETRIES` | `network.maxRetries` | `3` | 0 – 10 |
+| `OCTOCODE_ALLOW_PRIVATE_REGISTRY` | `network.allowPrivateRegistry` | `false` | Opt-in SSRF escape hatch for private/loopback/link-local npm registries. Protected key — cannot be set from a `.env` file. |
 
 #### Jev reasoning
 
@@ -523,6 +533,7 @@ Evidence-based reasoning routes apply deterministic action-change, direct-check,
 |---------|------------------|---------|-------|
 | `OCTOCODE_OUTPUT_FORMAT` | `output.format` | `yaml` | `yaml` or `json` |
 | `OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH` | `output.pagination.defaultCharLength` | `20000` | 1 000 – 50 000 |
+| `OCTOCODE_REDACT_EMAILS` | `output.redactEmails` | `false` | Opt-in: mask email addresses (e.g. commit authors) in GitHub tool outputs. Also accepted as `--redact-emails` on the native CLI. |
 
 #### LSP
 
@@ -570,12 +581,6 @@ only when `OCTOCODE_TRUST_PROJECT_LSP_CONFIG=true`.
 | `OCTOCODE_CACHE_TTL_MS` | `86400000` (24 h) | How long a cloned repository stays fresh before re-fetch |
 | `OCTOCODE_MAX_CACHE_SIZE` | `2147483648` (2 GB) | Total byte cap for the clone cache on disk |
 | `OCTOCODE_MAX_CLONES` | `50` | Maximum number of repositories the clone cache keeps |
-
-#### Output redaction
-
-| Env var | `.octocoderc` key | Default | Notes |
-|---------|------------------|---------|-------|
-| `OCTOCODE_REDACT_EMAILS` | `output.redactEmails` | `false` | Opt-in: mask email addresses (e.g. commit authors) in GitHub tool outputs. The native CLI also accepts `--redact-emails`. |
 
 #### Response cache
 
