@@ -78,7 +78,7 @@ fn compact_fields(tool: &Value) -> String {
 fn availability_env_var(name: &str) -> Option<&'static str> {
     match name {
         "ghCloneRepo" => Some("OCTOCODE_ENABLE_CLONE|OCTOCODE_STORAGE_MODE"),
-        "jevReasoning" | "jevScout" => Some("OCTOCODE_JEV_KEY"),
+        "jev" => Some("OCTOCODE_JEV_KEY"),
         "localFetch" | "localSearch" | "astSearch" | "astRewrite" | "lspSearch" => {
             Some("OCTOCODE_LOCAL")
         }
@@ -224,8 +224,7 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
                 "ghGetHistoryItem",
                 "ghCloneRepo",
                 "artifactSearch",
-                "jevReasoning",
-                "jevScout",
+                "jev",
             ];
             if let Some(tool_name) = args.first().map(|s| s.as_str())
                 && KNOWN_TOOLS.contains(&tool_name)
@@ -816,7 +815,27 @@ pub(super) async fn execute(
                         None => 0,
                     };
                 if structured && !outcome.all_failed {
-                    exit = 0;
+                    // Parity with human mode: a bulk result where some rows
+                    // succeeded is not a total failure, but a partial source read
+                    // or an available continuation is still exit 6 (same gate as
+                    // the human `next.*`/incomplete-read path) rather than forcing
+                    // 0. A nested/informational partial with no continuation and no
+                    // source content (e.g. a reasoning tool's coverage `truncated`)
+                    // stays 0.
+                    let has_continuation =
+                        value["results"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .any(|row| {
+                                row.pointer("/data/next").is_some()
+                                    || (octocode_native::runtime::response::is_partial(
+                                        &row["data"],
+                                    ) && row["data"]["content"]
+                                        .as_str()
+                                        .is_some_and(|text| !text.is_empty()))
+                            });
+                    exit = if has_continuation { 6 } else { 0 };
                 }
                 if structured {
                     let code = write_json(&value, compact);
@@ -899,6 +918,21 @@ pub(super) async fn execute(
                                                     return 6;
                                                 }
                                             }
+                                        } else if let (Some(next_tool), Some(next_query)) = (
+                                            call.get("tool").and_then(Value::as_str),
+                                            call.get("query"),
+                                        ) {
+                                            // `next.*` are prefilled, self-contained
+                                            // continuation queries (research manifest).
+                                            // The HMAC cursor token is per-process and
+                                            // cannot resume in a fresh CLI invocation,
+                                            // so advertise the query itself as a command
+                                            // the caller can actually re-run.
+                                            let query_json = serde_json::to_string(next_query)
+                                                .unwrap_or_default();
+                                            eprintln!(
+                                                "Continue: octocode tools {next_tool} '{query_json}'"
+                                            );
                                         } else {
                                             eprintln!("Continue: octocode next {token}");
                                         }
@@ -910,12 +944,25 @@ pub(super) async fn execute(
                                         )
                                     }
                                 }
-                            } else {
+                                if exit == 0 {
+                                    exit = 6;
+                                }
+                            } else if row["data"]["content"]
+                                .as_str()
+                                .is_some_and(|text| !text.is_empty())
+                            {
+                                // A truncated source read with no continuation is a
+                                // genuine incomplete read.
                                 eprintln!("Incomplete read; select a smaller source-line range.");
+                                if exit == 0 {
+                                    exit = 6;
+                                }
                             }
-                            if exit == 0 {
-                                exit = 6;
-                            }
+                            // else: a nested/informational partial with no
+                            // continuation and no top-level source content (e.g. a
+                            // reasoning tool's per-candidate coverage `truncated`) is
+                            // NOT an incomplete source read; do not print the read
+                            // message or force exit 6.
                         }
                     }
                 }

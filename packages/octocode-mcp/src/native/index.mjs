@@ -7,6 +7,12 @@ import { DIRECT_TOOL_DEFINITIONS } from '@octocodeai/octocode-core/schema';
 
 const require = createRequire(import.meta.url);
 
+// Must match `NATIVE_ABI_VERSION` in crates/runtime/src/lib.rs. The loader
+// fails closed on mismatch so a stale/ABI-incompatible addon (e.g. via the
+// OCTOCODE_NATIVE_BINDING override or independent npm resolution) surfaces a
+// precise error instead of an obscure struct/method-layout crash.
+const EXPECTED_ABI_VERSION = 2;
+
 export function loadNativeBinding(env = process.env) {
   const bindingPath =
     env.OCTOCODE_NATIVE_BINDING ??
@@ -18,12 +24,35 @@ export function loadNativeBinding(env = process.env) {
   return binding;
 }
 
+// Order-independent canonical serialization, so a schema comparison is not
+// tripped by benign key-ordering differences between the JS and Rust emitters.
+function canonicalJson(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalJson).join(',')}]`;
+  }
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value)
+      .sort()
+      .map(key => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value ?? null);
+}
+
 export function createNativeMcp({ env = process.env, binding } = {}) {
   const { NativeRuntime } = binding ?? loadNativeBinding(env);
   const runtime = new NativeRuntime({
     surface: 'mcp',
     regexWorkerPath: env.OCTOCODE_REGEX_WORKER,
   });
+  if (runtime.abiVersion !== EXPECTED_ABI_VERSION) {
+    const actual = runtime.abiVersion;
+    void runtime.close();
+    throw new Error(
+      `Native addon ABI ${actual} does not match expected ${EXPECTED_ABI_VERSION}; ` +
+        'rebuild or reinstall @octocodeai/octocode-native'
+    );
+  }
   const catalog = runtime.catalog();
   const availableTools = catalog.tools.filter(tool => tool.available);
   if (availableTools.length === 0) {
@@ -43,6 +72,37 @@ export function createNativeMcp({ env = process.env, binding } = {}) {
   const definitions = new Map(
     DIRECT_TOOL_DEFINITIONS.map(definition => [definition.name, definition])
   );
+
+  // Schemas are advertised from @octocodeai/octocode-core but *enforced* by the
+  // native runtime's own embedded contract — two independently-versioned
+  // artifacts. Tool-name presence is guarded below, but a schema-shape mismatch
+  // (a field required on one side and optional on the other) is otherwise silent:
+  // a client call valid per the advertised schema gets rejected by the enforcer,
+  // or vice-versa. Surface it (non-fatally, on stderr — stdout carries the MCP
+  // protocol) so the divergence is visible instead of manifesting as confusing
+  // per-call validation errors. The native catalog carries the enforced schema.
+  const drifted = [];
+  for (const tool of availableTools) {
+    const definition = definitions.get(tool.name);
+    if (!definition || tool.inputSchema === undefined) {
+      continue;
+    }
+    if (
+      canonicalJson(tool.inputSchema) !== canonicalJson(definition.inputSchema) ||
+      canonicalJson(tool.outputSchema) !== canonicalJson(definition.outputSchema)
+    ) {
+      drifted.push(tool.name);
+    }
+  }
+  if (drifted.length > 0) {
+    console.error(
+      '[octocode-mcp] WARNING: advertised tool schema (@octocodeai/octocode-core) ' +
+        'does not match the native runtime\'s enforced schema for: ' +
+        `${drifted.join(', ')}. Clients may be shown a schema the runtime rejects; ` +
+        'realign the core schema package with the native contract.'
+    );
+  }
+
   for (const tool of availableTools) {
     const definition = definitions.get(tool.name);
     if (!definition) {
@@ -84,9 +144,15 @@ export function createNativeMcp({ env = process.env, binding } = {}) {
 
 export async function startNativeMcp(options) {
   const instance = createNativeMcp(options);
-  process.once('SIGINT', () => void instance.close());
-  process.once('SIGTERM', () => void instance.close());
-  process.stdin.once('end', () => void instance.close());
+  // Drain in-flight requests (runtime.close awaits active_requests==0) and close
+  // the server before exiting, rather than fire-and-forget, so shutdown does not
+  // truncate a request mid-flight.
+  const shutdown = () => {
+    instance.close().finally(() => process.exit(0));
+  };
+  process.once('SIGINT', shutdown);
+  process.once('SIGTERM', shutdown);
+  process.stdin.once('end', shutdown);
   await instance.server.connect(new StdioServerTransport());
   return instance;
 }

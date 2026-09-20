@@ -11,6 +11,63 @@ const MAX_STRING_LENGTH: usize = 10_000;
 const MAX_ARRAY_LENGTH: usize = 100;
 const MAX_DEPTH: usize = 20;
 
+/// Secret label recorded when the split-private-key window guard fires.
+const SPLIT_KEY_SECRET: &str = "privateKeyFragment";
+
+/// A PEM/OpenSSH/PGP *private-key* boundary line (BEGIN or END). Public
+/// certificates (`-----BEGIN CERTIFICATE-----`) are intentionally excluded —
+/// they are not secret.
+fn is_private_key_boundary(line: &str) -> bool {
+    let trimmed = line.trim();
+    trimmed.ends_with("-----")
+        && trimmed.contains("PRIVATE KEY")
+        && (trimmed.starts_with("-----BEGIN") || trimmed.starts_with("-----END"))
+}
+
+/// A base64 body line as emitted inside PEM/OpenSSH/PGP key blocks (wrapped at
+/// 64–76 chars). The 80-char cap avoids redacting ordinary long source lines.
+fn is_key_body_line(line: &str) -> bool {
+    let trimmed = line.trim();
+    (16..=80).contains(&trimmed.len())
+        && trimmed
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '/' | '='))
+}
+
+/// Redact private-key material from a single sanitized leaf when a key boundary
+/// marker survived full-block redaction — the signal that a bounded read or
+/// search-context window split the key across its BEGIN/END boundary, so the
+/// anchored built-in patterns (which need a complete block) could not match.
+/// Returns `None` when no boundary marker is present, so `fullContent` reads
+/// (already collapsed to one marker) and non-key content stay byte-identical.
+/// Redaction is line-for-line, preserving the leaf's line count so the tool's
+/// reported line ranges remain accurate.
+fn redact_split_private_key(text: &str) -> Option<String> {
+    if !text.lines().any(is_private_key_boundary) {
+        return None;
+    }
+    let mut changed = false;
+    let redacted: Vec<String> = text
+        .lines()
+        .map(|line| {
+            if is_private_key_boundary(line) || is_key_body_line(line) {
+                changed = true;
+                format!("[REDACTED-{}]", SPLIT_KEY_SECRET.to_uppercase())
+            } else {
+                line.to_owned()
+            }
+        })
+        .collect();
+    if !changed {
+        return None;
+    }
+    let mut out = redacted.join("\n");
+    if text.ends_with('\n') {
+        out.push('\n');
+    }
+    Some(out)
+}
+
 #[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct ValidationResult {
     pub sanitized_params: Map<String, Value>,
@@ -39,6 +96,20 @@ impl ContentSecurity {
                 warnings: vec![error.to_string()],
             });
         if self.registry.secret_patterns().is_empty() {
+            // Even with no registry patterns, guard against a multi-line private
+            // key that a bounded read/search window split across its BEGIN/END
+            // boundary (the anchored built-in patterns only match a complete
+            // block, so a single-boundary window would otherwise leak the body).
+            if let Some(guarded) = redact_split_private_key(&native.content) {
+                let mut secrets = native.secrets_detected;
+                secrets.push(SPLIT_KEY_SECRET.to_owned());
+                return SanitizationResult {
+                    content: guarded,
+                    has_secrets: true,
+                    warnings: vec![format!("{} secret(s) redacted", secrets.len())],
+                    secrets_detected: secrets,
+                };
+            }
             return native;
         }
         let mut sanitized = native.content;
@@ -64,6 +135,12 @@ impl ContentSecurity {
                     pattern.regex.replace(&sanitized, replacement).into_owned()
                 };
             }
+        }
+        if let Some(guarded) = redact_split_private_key(&sanitized) {
+            if !secrets.iter().any(|name| name == SPLIT_KEY_SECRET) {
+                secrets.push(SPLIT_KEY_SECRET.to_owned());
+            }
+            sanitized = guarded;
         }
         let has_secrets = !secrets.is_empty();
         SanitizationResult {
@@ -302,6 +379,40 @@ impl ContentSecurity {
 mod tests {
     use super::*;
     use crate::security::SensitiveDataPattern;
+    #[test]
+    fn split_private_key_guard_targets_only_key_markers() {
+        // Body-only base64 with no key marker → guard is a no-op (must not
+        // redact ordinary base64 that happens to appear in source).
+        assert!(redact_split_private_key("aGVsbG8gd29ybGQ=\nc29tZSBkYXRhIGhlcmU=").is_none());
+        // A window holding only the BEGIN boundary + body (END is in the next
+        // window) → the body must be redacted.
+        let out = redact_split_private_key(
+            "config header line\n-----BEGIN RSA PRIVATE KEY-----\nMIIEpQIBAAKCAQEA7Yn8xK2vJ9qLmN3pQrSt",
+        )
+        .expect("split private key must be redacted");
+        assert!(!out.contains("MIIEpQIB"), "key body leaked: {out}");
+        assert!(
+            out.contains("config header line"),
+            "non-secret context dropped"
+        );
+        assert_eq!(out.lines().count(), 3, "line count must be preserved");
+        // A public certificate boundary is not a private key → no-op.
+        assert!(redact_split_private_key("-----BEGIN CERTIFICATE-----\nMIIBpayload").is_none());
+    }
+
+    #[test]
+    fn split_key_window_does_not_leak_through_sanitize_text() {
+        let policy = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+        let window = "config header line\n-----BEGIN RSA PRIVATE KEY-----\nMIIEpQIBAAKCAQEA7Yn8xK2vJ9qLmN3pQrStUvWxYz0123456789AbCdEfGhIjKlMn";
+        let result = policy.sanitize_text(window, Some(Path::new("secrets/key.pem")));
+        assert!(result.has_secrets, "split key window must be flagged");
+        assert!(
+            !result.content.contains("MIIEpQIB"),
+            "key body leaked from a split search/read window: {}",
+            result.content
+        );
+    }
+
     #[test]
     fn custom_patterns_follow_builtin_then_custom_order() {
         let mut registry = SecurityRegistry::default();

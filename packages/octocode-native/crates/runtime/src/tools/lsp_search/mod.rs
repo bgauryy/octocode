@@ -16,6 +16,18 @@ use std::path::Path;
 mod render;
 use render::{as_array, decode_uri_path, flatten_document_symbol, paginate, uri_to_path};
 
+/// Upper bound on a source file synced to the language server via `didOpen`.
+/// Mirrors the engine's `MAX_SAFE_READ_FILE_BYTES`/snippet/position caps (1 MiB
+/// decimal): a document above this is oversize-diagnosed rather than read
+/// uncapped and streamed to the server.
+const MAX_LSP_DIDOPEN_BYTES: u64 = 1_000_000;
+
+/// Whether a source of `len` bytes exceeds the didOpen sync cap. Extracted as a
+/// pure seam so the cap decision is unit-testable without touching the fs.
+fn didopen_exceeds_cap(len: u64) -> bool {
+    len > MAX_LSP_DIDOPEN_BYTES
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LspPosition {
@@ -33,6 +45,15 @@ pub struct LspSearchQuery {
     pub workspace_root: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub symbol_name: Option<String>,
+    /// Explicit source anchor, consumed as **zero-based** LSP coordinates and
+    /// passed straight through to the language server (`resolve_anchor`). Note
+    /// the deliberate asymmetry with the rest of the contract: every human-facing
+    /// coordinate this tool emits — `foundAtLine` (`position.line + 1`),
+    /// symbolName resolution, and `displayRange` — is **one-based**. This input
+    /// stays zero-based because migrating it to one-based would silently shift
+    /// every existing caller's anchor by a line and break the published
+    /// pagination contract; the `symbolName`+`lineHint` path is the one-based
+    /// entry point for callers that prefer editor-style coordinates.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub position: Option<LspPosition>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -206,6 +227,31 @@ pub async fn execute(
         ));
     }
     if Path::new(&path).is_file() {
+        // Size-gate BEFORE reading: an uncapped `read_to_string` of a huge file
+        // then a `didOpen` under a payload-scaled write deadline can still stall
+        // or OOM. Above the cap we emit an oversize diagnostic instead of syncing.
+        match fs::metadata(&path) {
+            Ok(metadata) if didopen_exceeds_cap(metadata.len()) => {
+                return Ok(failure(
+                    &query,
+                    "lsp.documentTooLarge",
+                    &format!(
+                        "The source document is too large to synchronize with the language server ({} bytes > {MAX_LSP_DIDOPEN_BYTES} bytes).",
+                        metadata.len()
+                    ),
+                    false,
+                ));
+            }
+            Ok(_) => {}
+            Err(error) => {
+                return Ok(failure(
+                    &query,
+                    "lsp.documentReadFailed",
+                    &format!("The source document could not be read: {error}"),
+                    false,
+                ));
+            }
+        }
         let content = match fs::read_to_string(&path) {
             Ok(content) => content,
             Err(error) => {
@@ -1420,6 +1466,33 @@ mod tests {
     }
 
     #[test]
+    fn explicit_position_is_zero_based_lsp_while_presentation_is_one_based() {
+        // Pinned contract (see the `position` field doc): an explicit `position`
+        // input is consumed as ZERO-based LSP coordinates (fed straight through
+        // `resolve_anchor`), while every human-facing coordinate — `foundAtLine`,
+        // symbolName resolution, displayRange — is ONE-based. Changing the input
+        // to one-based would silently shift every existing caller's anchor and
+        // break the published pagination contract, so the semantics are pinned
+        // here rather than migrated.
+        let query: super::LspSearchQuery = serde_json::from_value(serde_json::json!({
+            "operation": "definition",
+            "uri": "file:///repo/src/lib.rs",
+            "position": { "line": 7, "character": 11 }
+        }))
+        .expect("position query");
+
+        // Input consumed as-is (zero-based) for the LSP request.
+        assert_eq!(super::resolve_anchor(&query, "/unused"), Ok((7, 11)));
+
+        // Presentation reports the same anchor one-based (line + 1).
+        let resolved = super::present_resolved_symbol(&query, "/unused", "file:///repo/src/lib.rs")
+            .expect("explicit position presents a resolved anchor");
+        assert_eq!(resolved["foundAtLine"], 8);
+        assert_eq!(resolved["position"]["line"], 7);
+        assert_eq!(resolved["position"]["character"], 11);
+    }
+
+    #[test]
     fn pagination_omits_nullable_next_page_at_the_terminal_page() {
         let items = vec![serde_json::json!({"name": "one"})];
         let (_, terminal) = super::paginate(&items, 1, 20);
@@ -1478,6 +1551,15 @@ mod tests {
         }
 
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn didopen_read_is_capped_to_avoid_oversized_document_sync() {
+        // A source at/under the cap is opened; one above it is skipped rather
+        // than read uncapped and streamed to the server under a flat deadline.
+        assert!(!super::didopen_exceeds_cap(0));
+        assert!(!super::didopen_exceeds_cap(super::MAX_LSP_DIDOPEN_BYTES));
+        assert!(super::didopen_exceeds_cap(super::MAX_LSP_DIDOPEN_BYTES + 1));
     }
 
     #[test]

@@ -6,7 +6,9 @@ import {
 
 const LOSS_LANGUAGE: RegExp[] = [
   /may be truncated/i,
-  /silently (?:dropped|truncated)/i,
+  // Flags a *claim* of silent loss, but not a negated reassurance such as
+  // "never silently truncated" (which affirms the paginate-don't-truncate rule).
+  /(?<!never )silently (?:dropped|truncated)/i,
   /first \d+ [^."]*only/i,
 ];
 
@@ -38,13 +40,9 @@ const TOOL_PAGINATION_CONTRACT: Record<
   astRewrite: { controls: ['page', 'pageSize'] },
   localFetch: { controls: ['chunkType', 'offset', 'limit'] },
   lspSearch: { controls: ['page', 'pageSize'] },
-  jevReasoning: {
+  jev: {
     controls: [],
     exemption: 'bounded typed-judgment operation',
-  },
-  jevScout: {
-    controls: [],
-    exemption: 'bounded candidate-ranking operation',
   },
 };
 

@@ -52,13 +52,13 @@ grep-searcher = "0.1.17"
 ignore = "0.4"
 napi = { version = "3", default-features = false, features = ["napi4", "tokio_rt", "serde-json"], optional = true }
 napi-derive = { version = "3", optional = true }
-oxc_allocator = "0.150"
-oxc_ast = "0.150"
-oxc_codegen = { version = "0.150", default-features = false }
-oxc_minifier = "0.150"
-oxc_parser = "0.150"
-oxc_semantic = "0.150"
-oxc_span = "0.150"
+oxc_allocator = "=0.150.0"
+oxc_ast = "=0.150.0"
+oxc_codegen = { version = "=0.150.0", default-features = false }
+oxc_minifier = "=0.150.0"
+oxc_parser = "=0.150.0"
+oxc_semantic = "=0.150.0"
+oxc_span = "=0.150.0"
 rayon = "1"
 regex = "1"
 regex-syntax = "0.8"

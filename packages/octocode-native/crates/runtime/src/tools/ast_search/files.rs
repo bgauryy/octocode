@@ -45,6 +45,7 @@ pub struct AstFilesQuery {
     pub page_size: u32,
     pub detail: Option<String>,
     pub sort: Option<String>,
+    pub snapshot: Option<String>,
 }
 fn files_op() -> String {
     "files".into()
@@ -115,10 +116,12 @@ pub fn execute_files(
     let full = q.detail.as_deref() == Some("full");
     // The immutable CLI's packaged filesystem primitive does not expose
     // modifiedMs. Keep the raw value for sorting, but do not synthesize a
-    // public timestamp that the reference cannot return.
-    let collect_modified = full
-        || q.detail.as_deref() == Some("modified")
-        || q.sort.as_deref().unwrap_or("modified") == "modified";
+    // public timestamp that the reference cannot return. Because mtimes are
+    // never populated a `modified` sort ties every row at 0.0 and falls back to
+    // OS readdir order, so it is only honoured when explicitly requested and the
+    // default sort is the unique relative path (see `sort_rows`).
+    let collect_modified =
+        full || q.detail.as_deref() == Some("modified") || q.sort.as_deref() == Some("modified");
     let count_lines = (full || q.sort.as_deref() == Some("lines")) && native.entries.len() <= 2_000;
     let mut rows = native
         .entries
@@ -137,13 +140,39 @@ pub fn execute_files(
         .collect::<Result<Vec<_>, super::AstError>>()?;
     sort_rows(
         &mut rows,
-        q.sort.as_deref().unwrap_or("modified"),
+        q.sort.as_deref().unwrap_or("path"),
         collect_modified,
     );
     let available = rows.len();
     let requested = q.limit.unwrap_or(MAX_WALK).min(MAX_WALK) as usize;
     rows.truncate(requested);
     let total = rows.len();
+    // Snapshot fingerprint over the query shape plus the ordered result set, so
+    // a continuation cursor (page>1) can be rejected with `ast.snapshot.changed`
+    // when the corpus or query drifted between pages.
+    let snapshot = super::syntax::digest(&json!([
+        q.path,
+        q.max_depth,
+        q.min_depth,
+        q.names,
+        q.extensions,
+        q.path_pattern,
+        q.path_regex,
+        q.entry_type,
+        q.empty,
+        q.permissions,
+        q.access,
+        q.exclude_dir,
+        // Effective (not raw) values: the nextPage continuation injects these
+        // defaults, so the digest must match what the follow-up request carries.
+        q.sort.as_deref().unwrap_or("path"),
+        q.detail.as_deref().unwrap_or("basic"),
+        requested,
+        rows.iter().map(|r| &r.path).collect::<Vec<_>>()
+    ]));
+    if q.page > 1 && q.snapshot.as_deref() != Some(&snapshot) {
+        return Ok(super::snapshot_changed(&snapshot));
+    }
     let page_size = q.page_size.clamp(1, 100) as usize;
     let page = q.page.max(1) as usize;
     let total_pages = total.div_ceil(page_size).max(1);
@@ -160,13 +189,13 @@ pub fn execute_files(
     let scan_cut = native.was_capped;
     let can_expand = limit_cut && requested < MAX_WALK as usize;
     let terminal = (has_more && page >= 1000) || ((limit_cut || scan_cut) && !can_expand);
-    let mut out = json!({"path":super::display_name(&validated.canonical),"files":files,"pagination":{"currentPage":page,"totalPages":total_pages,"filesPerPage":page_size,"totalFiles":total,"hasMore":has_more}});
+    let mut out = json!({"path":super::display_name(&validated.canonical),"snapshot":snapshot,"files":files,"pagination":{"currentPage":page,"totalPages":total_pages,"filesPerPage":page_size,"totalFiles":total,"hasMore":has_more}});
     if total == 0 {
         out["status"] = json!("empty")
     }
     if has_more && !terminal {
         out["pagination"]["nextPage"] = json!(page + 1);
-        out["next"]["nextPage"] = continuation(q, json!({"page":page+1}))
+        out["next"]["nextPage"] = continuation(q, json!({"page":page+1,"snapshot":snapshot}))
     }
     if can_expand {
         out["next"]["expandLimit"] = continuation(
@@ -261,7 +290,7 @@ fn continuation(q: &AstFilesQuery, changes: Value) -> Value {
         query["detail"] = json!("basic");
     }
     if query.get("sort").is_none() {
-        query["sort"] = json!("modified");
+        query["sort"] = json!("path");
     }
     if let (Some(to), Some(from)) = (query.as_object_mut(), changes.as_object()) {
         to.extend(from.clone())

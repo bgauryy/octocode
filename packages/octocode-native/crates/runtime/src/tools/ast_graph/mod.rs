@@ -330,3 +330,107 @@ mod drift_tests {
         );
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod dead_code_root_tests {
+    use super::*;
+    use crate::{
+        policy::path::{PathPolicy, PathPolicyConfig},
+        security::SecurityRegistry,
+    };
+    use serde_json::{Value, json};
+    use std::sync::Arc;
+
+    struct Active;
+    impl CancellationCheck for Active {
+        fn check(&self) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    fn run(query: Value, root: &std::path::Path) -> AstGraphResult {
+        let paths = PathPolicy::new(PathPolicyConfig {
+            workspace_root: Some(root.to_path_buf()),
+            ..Default::default()
+        })
+        .expect("path policy");
+        let security = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+        let parsed: AstGraphQuery = serde_json::from_value(query).expect("query");
+        execute_topology(&parsed, &paths, &security, &Active)
+    }
+
+    // Regression: dead-code root inference must not be package.json-only. A Rust
+    // crate must infer `src/main.rs` as a root so the helper it calls reads as
+    // reachable rather than dead.
+    #[test]
+    fn rust_dead_code_infers_main_root_and_keeps_helper_reachable() {
+        let temp = tempfile::TempDir::new().expect("temp");
+        let root = temp.path();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(
+            root.join("src/main.rs"),
+            "use crate::helper;\nfn main() { helper::run(); }\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("src/helper.rs"), "pub fn run() {}\n").unwrap();
+
+        let out = run(
+            json!({"operation":"topology","analysis":"deadCode","path":root.to_string_lossy()}),
+            root,
+        )
+        .expect("dead code result");
+
+        assert!(
+            out["summary"]["entrypointsResolvedCount"]
+                .as_u64()
+                .unwrap_or(0)
+                >= 1,
+            "src/main.rs must be inferred as a root: {out}"
+        );
+        let dead = out["results"].as_array().cloned().unwrap_or_default();
+        // The reachability defect: with a real root the helper is reached
+        // through main's `use crate::helper`, so no file may be reported as an
+        // unreachable file or dead cluster. (Export-level name-usage heuristics
+        // are a separate, lower-confidence signal outside this fix's scope.)
+        assert!(
+            !dead
+                .iter()
+                .any(|r| r["reason"] == "unreachable-file" || r["reason"] == "dead-cluster"),
+            "no file should be unreachable/dead-clustered when main is a root: {out}"
+        );
+        assert_eq!(
+            out["summary"]["deadClusterCount"],
+            json!(0),
+            "a reachable helper must not form a dead cluster: {out}"
+        );
+    }
+
+    // Regression: when no roots resolve for the detected languages the dead-code
+    // verdict must be hard-gated (empty dead list + low confidence), not report
+    // every export in the tree as dead.
+    #[test]
+    fn dead_code_hard_gates_when_no_roots_resolve() {
+        let temp = tempfile::TempDir::new().expect("temp");
+        let root = temp.path();
+        // A Rust source file with no main.rs/lib.rs/bin and no Cargo.toml: no
+        // entrypoint can be inferred.
+        std::fs::write(root.join("util.rs"), "pub fn util() {}\n").unwrap();
+
+        let out = run(
+            json!({"operation":"topology","analysis":"deadCode","path":root.to_string_lossy()}),
+            root,
+        )
+        .expect("dead code result");
+
+        assert_eq!(
+            out["summary"]["deadExportCount"],
+            json!(0),
+            "with no resolvable roots the dead list must be suppressed, not everything flagged: {out}"
+        );
+        assert_eq!(
+            out["confidence"], "low",
+            "an ungated dead-code verdict without roots must degrade to low confidence: {out}"
+        );
+    }
+}

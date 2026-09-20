@@ -722,6 +722,13 @@ export interface RipgrepMatch {
   kind?: string
   /** Deterministic relevance hint (0.0..1.0) derived from `kind`. */
   scoreHint?: number
+  /**
+   * When the assembled content-view snippet was clipped to `max_snippet_chars`,
+   * the original (pre-truncation) Unicode-scalar length of the value. `None`
+   * when the snippet was not truncated. Lets callers surface a truncation
+   * indicator on content-view snippets, not just only-matching spans.
+   */
+  originalChars?: number
 }
 
 export interface RipgrepParseOptions {
@@ -831,9 +838,18 @@ export interface RipgrepSearchOptions {
   /**
    * Native collection guard: stop after this many matched files have been
    * collected. Distinct from native runtime maxFiles, which is a per-page UI
-   * size, not an engine resource cap.
+   * size, not an engine resource cap. The cap is applied as a stable
+   * truncation of the fully sorted result set, so page 1 is deterministic and
+   * pagination snapshots stay valid across runs.
    */
   maxCollectedFiles?: number
+  /**
+   * Per-file byte ceiling: a file larger than this is skipped before it is
+   * searched (surfaced as a `maxFileSize` cap reason). `None` uses
+   * [`DEFAULT_MAX_SEARCH_FILE_BYTES`]. Guards against OOM on pathological
+   * multi-GB single-line files.
+   */
+  maxFileBytes?: number
 }
 
 export interface RipgrepStats {

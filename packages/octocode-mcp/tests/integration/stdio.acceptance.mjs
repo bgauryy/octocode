@@ -99,8 +99,10 @@ const invoke = async (name, args) => {
 };
 const call = async (name, query) => {
   const publicQuery = {
-    reasoning: `Exercise ${name} through built stdio acceptance.`,
-    debug: false,
+    ...(name === 'jev' ? {} : {
+      reasoning: `Exercise ${name} through built stdio acceptance.`,
+      debug: false,
+    }),
     ...query,
   };
   const response = await invoke(name, { queries: [publicQuery] });
@@ -182,19 +184,14 @@ try {
       `serialized MCP catalog is ${receipt.catalogBytes} bytes`
     )
   );
-  await check('source_questions admits path requests and rejects oversized evidence before provider access', async () => {
-    const source = path.join(fixture, 'source-questions-cap.ts');
-    await writeFile(source, 'export const bounded = true;\n');
-    const response = await invoke('jevReasoning', { queries: [{
-      reasoning: 'Verify source-path admission without a paid provider request.',
-      route: 'source_questions',
-      sources: [{ path: source }],
-      questions: { bounded: 'The source exports bounded as true.' },
-      maxChars: 1,
+  await check('pure Jev rejects caller model selection before provider access', async () => {
+    const response = await invoke('jev', { queries: [{
+      state: 'Supplied evidence.',
+      questions: { bounded: { type: 'noul', instructions: 'Is evidence supplied?' } },
+      model: 'caller-model-is-forbidden',
     }] });
     const row = response.structuredContent?.results?.[0];
-    assert.equal(row?.status, 'error');
-    assert.equal(row?.data?.errorCode, 'sourceTooLarge');
+    assert.ok(response.isError || row?.status === 'error');
     assert.equal(row?.data?.usage, undefined);
   });
   await check('CLI and MCP input schema parity for every tool', () => {
@@ -731,7 +728,7 @@ try {
       ]);
       const liveOnlyTools = new Set([...cacheVolatileTools, 'ghCloneRepo']);
       for (const name of expectedTools) {
-        if (name === 'jevReasoning' || name === 'jevScout') {
+        if (name === 'jev') {
           parity.push({
             name,
             status: 'not-applicable',

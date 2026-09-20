@@ -39,4 +39,4 @@ Put the broad source inventory in `RESOURCES.md`; cite decisive claims inline wh
 | Scope too broad | split into multiple RFCs or phases |
 | Another pass is unlikely to close the gap | summarize what is known and ask for direction |
 
-Next: close decision blockers through `references/rfc-prerequisites.md` or further research. For decision mode, compare options and write through `references/rfc-template.md`; for plan mode, confirm the settled direction. Define separate acceptance with `references/rfc-kpi.md` when warranted, then carry only execution questions into `references/rfc-implementation.md`.
+Next: for decision mode, provisionally compare options through `references/rfc-template.md` to identify deciding evidence, then close blockers through `references/rfc-prerequisites.md` or further research before recommending; for plan mode, confirm the settled direction. Define separate acceptance with `references/rfc-kpi.md` when warranted, then carry only execution questions into `references/rfc-implementation.md`.

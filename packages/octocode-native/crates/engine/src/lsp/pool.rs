@@ -479,6 +479,14 @@ fn readiness_timeout(language_id: Option<&str>) -> Option<u32> {
         Some("java") => Some(120_000),
         Some("csharp" | "swift") => Some(30_000),
         Some("shellscript") => Some(2_000),
+        // tsserver/typescript-language-server and pyright/jedi build a project
+        // model before they can answer navigation queries. clangd parses the
+        // compilation database + preamble. Without a readiness wait a query can
+        // race that indexing and return a partial/empty answer stripped of the
+        // partiality signal the lifecycle contract promises.
+        Some("typescript" | "typescriptreact" | "javascript" | "javascriptreact") => Some(30_000),
+        Some("python") => Some(15_000),
+        Some("c" | "cpp") => Some(20_000),
         _ => None,
     }
 }
@@ -832,6 +840,49 @@ mod tests {
         pool.clear_all().await;
         assert_eq!(other.stops.load(Ordering::SeqCst), 1);
         assert_eq!(pool.len(), 0);
+    }
+
+    #[test]
+    fn readiness_timeout_gates_the_slow_indexing_languages() {
+        // Languages whose servers index before answering must get a readiness
+        // wait so a query cannot race indexing and return a partial/empty answer
+        // without the partiality signal.
+        for language in [
+            "go",
+            "rust",
+            "java",
+            "csharp",
+            "swift",
+            "shellscript",
+            "typescript",
+            "typescriptreact",
+            "javascript",
+            "python",
+            "c",
+            "cpp",
+        ] {
+            assert!(
+                readiness_timeout(Some(language)).is_some(),
+                "{language} must gate on indexing readiness"
+            );
+        }
+        // Preserve existing budgets for the already-wired set.
+        assert_eq!(readiness_timeout(Some("go")), Some(15_000));
+        assert_eq!(readiness_timeout(Some("rust")), Some(60_000));
+        assert_eq!(readiness_timeout(Some("java")), Some(120_000));
+        assert_eq!(readiness_timeout(Some("csharp")), Some(30_000));
+        assert_eq!(readiness_timeout(Some("swift")), Some(30_000));
+        assert_eq!(readiness_timeout(Some("shellscript")), Some(2_000));
+        // Newly-gated languages.
+        assert_eq!(readiness_timeout(Some("typescript")), Some(30_000));
+        assert_eq!(readiness_timeout(Some("typescriptreact")), Some(30_000));
+        assert_eq!(readiness_timeout(Some("javascript")), Some(30_000));
+        assert_eq!(readiness_timeout(Some("python")), Some(15_000));
+        assert_eq!(readiness_timeout(Some("c")), Some(20_000));
+        assert_eq!(readiness_timeout(Some("cpp")), Some(20_000));
+        // An unknown/unlisted language still opts out of the readiness wait.
+        assert_eq!(readiness_timeout(Some("plaintext")), None);
+        assert_eq!(readiness_timeout(None), None);
     }
 
     #[test]

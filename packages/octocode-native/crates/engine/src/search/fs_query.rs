@@ -190,22 +190,30 @@ fn walk_children(
         }
     };
 
+    // `fs::read_dir` yields entries in raw OS order (hash order on APFS, etc.),
+    // so without sorting the result set — and its silent truncation at the limit
+    // — would vary run-to-run. Collect and sort by file name for deterministic,
+    // stable output (fix 4). Read errors are still surfaced as skips.
+    let mut children: Vec<fs::DirEntry> = Vec::new();
     for dir_entry in read_dir {
-        // Look ahead to one additional matching entry before declaring overflow.
-        // Reaching the stored-entry cap alone does not prove the scan is partial.
-        if query.stop_at_limit && state.total_discovered as usize > query.limit {
-            return Ok(());
-        }
-        let dir_entry = match dir_entry {
-            Ok(entry) => entry,
+        match dir_entry {
+            Ok(entry) => children.push(entry),
             Err(err) => {
                 state.skipped += 1;
                 if err.kind() == std::io::ErrorKind::PermissionDenied {
                     state.permission_denied += 1;
                 }
-                continue;
             }
-        };
+        }
+    }
+    children.sort_by_key(fs::DirEntry::file_name);
+
+    for dir_entry in children {
+        // Look ahead to one additional matching entry before declaring overflow.
+        // Reaching the stored-entry cap alone does not prove the scan is partial.
+        if query.stop_at_limit && state.total_discovered as usize > query.limit {
+            return Ok(());
+        }
 
         let path = dir_entry.path();
         // Authorize before metadata, matching (which can inspect empty
@@ -700,6 +708,47 @@ mod tests {
 
         assert_eq!(result.entries.len(), 1);
         assert_eq!(result.entries[0].name, "leaf.ts");
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn walk_children_yields_deterministic_sorted_order() {
+        // Fix 4: `fs::read_dir` yields entries in raw OS order; the walk must sort
+        // them so output is deterministic across runs and sorted within a dir.
+        let root = temp_root("sorted_order");
+        for name in ["z.txt", "a.txt", "m.txt", "b.txt"] {
+            File::create(root.join(name)).expect("create root file");
+        }
+        fs::create_dir_all(root.join("sub")).expect("create sub");
+        for name in ["y.txt", "c.txt"] {
+            File::create(root.join("sub").join(name)).expect("create sub file");
+        }
+        let run = || {
+            query_file_system_inner(FileSystemQueryOptions {
+                path: root.to_string_lossy().to_string(),
+                recursive: Some(true),
+                entry_type: Some("f".to_owned()),
+                ..Default::default()
+            })
+            .expect("query")
+            .entries
+            .into_iter()
+            .map(|entry| entry.relative_path)
+            .collect::<Vec<_>>()
+        };
+        let first = run();
+        for _ in 0..5 {
+            assert_eq!(run(), first, "fs query order must be deterministic");
+        }
+        // Files directly under the root are emitted in sorted order.
+        let root_files: Vec<&str> = first
+            .iter()
+            .filter(|p| !p.contains('/') && !p.contains('\\'))
+            .map(String::as_str)
+            .collect();
+        let mut sorted = root_files.clone();
+        sorted.sort_unstable();
+        assert_eq!(root_files, sorted);
         fs::remove_dir_all(root).expect("cleanup");
     }
 

@@ -8,11 +8,15 @@ const HELP = `Validate Octocode RFC Generator artifacts.
 
 Usage:
   node scripts/validate-rfc.mjs <file-or-folder>
+  node scripts/validate-rfc.mjs --draft <file-or-folder>
   node scripts/validate-rfc.mjs --self-test
   node scripts/validate-rfc.mjs --help
 
 Checks primary mode, required sections, decision-blocker closure, step dependency
-order, acceptance links, KPI traceability, and rollback-threshold ownership.`;
+order, acceptance links, KPI traceability, and rollback-threshold ownership.
+--draft checks an exploratory RFC's structure and explicit Draft/none declarations;
+it permits declared open blockers and rejects common covert recommendation or
+execution language. This bounded lint does not certify prose truth.`;
 
 const REQUIRED = {
   'RFC.md': [
@@ -69,7 +73,44 @@ function escapeRegex(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function validateFiles(files) {
+const DRAFT_COMMITMENT_PATTERNS = [
+  {
+    name: 'declared winner',
+    pattern: /\b(?:option|candidate|approach|design)\s+[A-Z0-9][\w-]*\s+(?:wins|is selected|is recommended|is the (?:obvious|clear|best|preferred) (?:winner|choice))\b/i,
+  },
+  {
+    name: 'committed implementation',
+    pattern: /\b(?:we|the team|this rfc)\s+(?:will|shall)\s+(?:adopt|choose|select|implement|deploy|roll out|migrate to|use)\b/i,
+  },
+  {
+    name: 'immediate execution',
+    pattern: /\b(?:start|begin)\s+(?:the\s+)?(?:implementation|migration|rollout|deployment)\s+(?:now|immediately|today)\b/i,
+  },
+  {
+    name: 'selection directive',
+    pattern: /\b(?:proceed with|approve|adopt|select|choose)\s+(?:option|candidate|approach|design)\b/i,
+  },
+  {
+    name: 'explicit recommendation',
+    pattern: /\b(?:we|the team|this rfc)\s+recommend(?:s)?\s+(?:option|candidate|approach|design)\b/i,
+  },
+];
+
+function draftCommitmentFindings(content) {
+  const findings = [];
+  let fenced = false;
+  for (const [index, rawLine] of content.split('\n').entries()) {
+    const line = rawLine.trim();
+    if (line.startsWith('```')) { fenced = !fenced; continue; }
+    if (fenced || !line || line.startsWith('>') || /^(Status|Recommendation):/i.test(line)) continue;
+    if (/^if\b/i.test(line) || /\b(?:unless|would|could|only when|subject to|do not|must not|not selected|not recommended)\b/i.test(line) || /\bwins\s+if\b/i.test(line)) continue;
+    const match = DRAFT_COMMITMENT_PATTERNS.find(({ pattern }) => pattern.test(line));
+    if (match) findings.push({ line: index + 1, kind: match.name, text: line.slice(0, 180) });
+  }
+  return findings;
+}
+
+function validateFiles(files, { draft = false } = {}) {
   const errors = [];
   const names = new Set(Object.keys(files));
   const hasRfc = names.has('RFC.md');
@@ -99,10 +140,35 @@ function validateFiles(files) {
 
   if (hasRfc) {
     const questions = section(files['RFC.md'], 'Unresolved Questions');
-    if (!/Decision blockers:\s*(?:none|resolved)\b/i.test(questions)) {
+    if (draft) {
+      const statuses = [...files['RFC.md'].matchAll(/^Status:\s*(.+)$/gm)];
+      const recommendations = [...files['RFC.md'].matchAll(/^Recommendation:\s*(.+)$/gm)];
+      if (statuses.length !== 1 || statuses[0][1].trim() !== 'Draft') {
+        errors.push('RFC.md: --draft requires exactly one Status: Draft declaration.');
+      }
+      if (recommendations.length !== 1 || recommendations[0][1].trim() !== 'none') {
+        errors.push('RFC.md: --draft requires exactly one Recommendation: none declaration.');
+      }
+      const blockers = [...questions.matchAll(/^Decision blockers:\s*(none|resolved|open|blocked|contested)\.?\s*$/gm)];
+      if (blockers.length !== 1) {
+        errors.push('RFC.md: --draft requires one explicit Decision blockers: none, resolved, open, blocked or contested declaration.');
+      } else if (!['none', 'resolved'].includes(blockers[0][1])) {
+        if (!/^Q\d+:\s*\S.*\bowner\b.*\bevidence gap\b.*\bnext check\b/im.test(questions)) {
+          errors.push('RFC.md: open draft blockers require a Q<number> entry with owner, evidence gap, and next check.');
+        }
+        const alternatives = section(files['RFC.md'], 'Rationale and Alternatives');
+        if (!/^Comparison outcome:\s*unresolved\.?\s*$/im.test(alternatives)) {
+          errors.push('RFC.md: an open-blocker Draft requires Comparison outcome: unresolved in Rationale and Alternatives.');
+        }
+        for (const finding of draftCommitmentFindings(files['RFC.md'])) {
+          errors.push(`RFC.md: possible covert recommendation (${finding.kind}) at line ${finding.line}: ${finding.text}`);
+        }
+      }
+    } else if (!/Decision blockers:\s*(?:none|resolved)\b/i.test(questions)) {
       errors.push('RFC.md: decision blockers must be none or resolved before recommendation.');
     }
   }
+  if (draft && !hasRfc) errors.push('--draft requires RFC.md; standalone plans use readiness checks.');
 
   if (hasPlan) {
     const context = section(files['PLAN.md'], 'Plan Context');
@@ -323,7 +389,36 @@ KPI.md owns the measurable rollback threshold.
   } finally {
     fs.rmSync(temp, { recursive: true, force: true });
   }
-  console.log(JSON.stringify({ valid: true, selfTest: true, cases: 5 }));
+  const draftRfc = validRfc.replace('# RFC: Valid', '# RFC: Valid\nStatus: Draft\nRecommendation: none')
+    .replace('Chosen option.', 'Comparison outcome: unresolved.\nOption A improves speed; Option B preserves compatibility. The result depends on Q1.')
+    .replace('Decision blockers: none.', 'Decision blockers: open.\nQ1: compatibility — owner: API team — evidence gap: old-client behavior — next check: replay.');
+  const draftCases = [
+    ['honest draft', { 'RFC.md': draftRfc }, true],
+    ['missing status', { 'RFC.md': draftRfc.replace('Status: Draft\n', '') }, false],
+    ['accepted status', { 'RFC.md': draftRfc.replace('Status: Draft', 'Status: Accepted') }, false],
+    ['duplicate status', { 'RFC.md': draftRfc.replace('Status: Draft', 'Status: Draft\nStatus: Accepted') }, false],
+    ['final recommendation', { 'RFC.md': draftRfc.replace('Recommendation: none', 'Recommendation: final') }, false],
+    ['missing recommendation', { 'RFC.md': draftRfc.replace('Recommendation: none\n', '') }, false],
+    ['unnamed blocker', { 'RFC.md': draftRfc.replace(/^Q1:.*$/m, '') }, false],
+    ['incomplete blocker', { 'RFC.md': draftRfc.replace(' — evidence gap: old-client behavior', '') }, false],
+    ['missing unresolved comparison', { 'RFC.md': draftRfc.replace('Comparison outcome: unresolved.\n', '') }, false],
+    ['declared winner', { 'RFC.md': draftRfc.replace('Option A improves speed;', 'Option A wins;') }, false],
+    ['committed migration', { 'RFC.md': draftRfc.replace('The result depends on Q1.', 'We will migrate to Option A.') }, false],
+    ['immediate execution', { 'RFC.md': draftRfc.replace('The result depends on Q1.', 'Start the migration now.') }, false],
+    ['explicit recommendation', { 'RFC.md': draftRfc.replace('The result depends on Q1.', 'We recommend Option A.') }, false],
+    ['conditional comparison', { 'RFC.md': draftRfc.replace('The result depends on Q1.', 'Option A would win if Q1 proves compatibility.') }, true],
+    ['covert winner with later condition', { 'RFC.md': draftRfc.replace('The result depends on Q1.', 'Option A wins; if Q1 fails, revisit later.') }, false],
+    ['missing section', { 'RFC.md': draftRfc.replace('## Summary', '## Other') }, false],
+    ['plan only', { 'PLAN.md': validPlan }, false],
+  ];
+  for (const [label, files, expected] of draftCases) {
+    const actual = validateFiles(files, { draft: true });
+    if ((actual.length === 0) !== expected) throw new Error(`Draft self-test ${label}: ${JSON.stringify(actual)}`);
+  }
+  if (!validateFiles({ 'RFC.md': draftRfc }).some(error => error.includes('decision blockers'))) {
+    throw new Error('Default readiness must still reject open blockers.');
+  }
+  console.log(JSON.stringify({ valid: true, selfTest: true, cases: 24 }));
 }
 
 const args = process.argv.slice(2);
@@ -335,14 +430,20 @@ if (args.includes('--self-test')) {
   runSelfTest();
   process.exit(0);
 }
-if (args.length !== 1 || args[0].startsWith('-')) {
+const draft = args[0] === '--draft';
+const targets = draft ? args.slice(1) : args;
+if (targets.length !== 1 || targets[0].startsWith('-')) {
   console.error(HELP);
   process.exit(2);
 }
 
 try {
-  const errors = validateFiles(loadFiles(args[0]));
-  const result = { valid: errors.length === 0, target: path.resolve(args[0]), errors };
+  const errors = validateFiles(loadFiles(targets[0]), { draft });
+  const result = {
+    valid: errors.length === 0, target: path.resolve(targets[0]),
+    mode: draft ? 'draft' : 'readiness',
+    ...(draft ? { reviewReady: false, semanticLint: 'bounded-pattern-check' } : {}), errors,
+  };
   console.log(JSON.stringify(result, null, 2));
   if (errors.length) {
     console.error(`Validation failed with ${errors.length} error(s).`);

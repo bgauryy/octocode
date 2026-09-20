@@ -13,8 +13,10 @@
 
 use std::collections::HashMap;
 use std::path::Path;
+#[cfg(feature = "pcre2")]
+use std::sync::atomic::AtomicUsize;
 use std::sync::{
-    atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
     Arc, Mutex,
 };
 use std::time::{Duration, Instant, SystemTime};
@@ -47,6 +49,22 @@ impl RipgrepPathFilter for AllowAll {
 }
 
 const DEFAULT_MAX_SNIPPET_CHARS: u32 = 500;
+
+/// Default per-file byte ceiling for the search path. A file larger than this is
+/// skipped before it is opened/searched, so a pathological multi-GB (often
+/// single-line, minified/generated) file cannot force a giant line buffer plus a
+/// lossy-UTF8 copy. Callers may override via [`RipgrepSearchOptions::max_file_bytes`].
+/// Skipped files are surfaced as a `maxFileSize` cap reason, never silently
+/// dropped. Mirrors the classification guard (`classify.rs`), but larger so real
+/// source files (including sizeable generated ones) are still searched.
+pub(crate) const DEFAULT_MAX_SEARCH_FILE_BYTES: u64 = 20 * 1024 * 1024;
+
+/// Hard heap ceiling for a single `Searcher` pass. `grep-searcher` buffers a
+/// whole line (or multiline block) before matching; without a cap a huge single
+/// line can allocate unbounded. Files above [`DEFAULT_MAX_SEARCH_FILE_BYTES`]
+/// are already skipped, so this only bounds a within-ceiling pathological line;
+/// exceeding it fails that file (recorded as an error), never the whole search.
+const SEARCH_HEAP_LIMIT_BYTES: usize = 64 * 1024 * 1024;
 
 /// Cap on emitted spans per line in only-matching mode, so a pathological
 /// minified line with a huge number of hits can't blow up the result. The true
@@ -84,6 +102,58 @@ pub(crate) const PCRE2_SEARCH_DEADLINE: Duration = Duration::from_secs(5);
 /// Extra time the driver waits past the cooperative deadline before abandoning a
 /// stuck PCRE2 worker (see [`PCRE2_SEARCH_DEADLINE`]).
 pub(crate) const PCRE2_DEADLINE_GRACE: Duration = Duration::from_secs(2);
+
+#[cfg(feature = "pcre2")]
+/// Maximum number of PCRE2 (`-P`) search worker threads allowed to be alive at
+/// once. A worker abandoned on the hard deadline keeps its slot until its
+/// uninterruptible match finally returns, so this also bounds how many
+/// *abandoned* workers can accumulate: once saturated, a new `-P` search is
+/// rejected rather than spawning an unbounded thread (each holding up to a
+/// 1 MiB JIT stack — see [`PCRE2_MAX_JIT_STACK_BYTES`]) (fix 5).
+const MAX_ACTIVE_PCRE2_WORKERS: usize = 8;
+
+#[cfg(feature = "pcre2")]
+/// Live PCRE2 worker count (including abandoned-but-still-running workers).
+static ACTIVE_PCRE2_WORKERS: AtomicUsize = AtomicUsize::new(0);
+
+#[cfg(feature = "pcre2")]
+/// Reserve a worker slot if the live count is below `max`. Returns false when
+/// saturated (leaving the counter unchanged). Lock-free and pure so the bound is
+/// directly unit-testable without driving a real catastrophic regex.
+fn try_acquire_worker_slot(counter: &AtomicUsize, max: usize) -> bool {
+    let mut current = counter.load(Ordering::Relaxed);
+    loop {
+        if current >= max {
+            return false;
+        }
+        match counter.compare_exchange_weak(
+            current,
+            current + 1,
+            Ordering::AcqRel,
+            Ordering::Relaxed,
+        ) {
+            Ok(_) => return true,
+            Err(observed) => current = observed,
+        }
+    }
+}
+
+#[cfg(feature = "pcre2")]
+fn release_worker_slot(counter: &AtomicUsize) {
+    counter.fetch_sub(1, Ordering::AcqRel);
+}
+
+#[cfg(feature = "pcre2")]
+/// Releases the global PCRE2 worker slot when the worker thread exits — whether
+/// it completed normally or was abandoned after the hard deadline.
+struct Pcre2WorkerSlot;
+
+#[cfg(feature = "pcre2")]
+impl Drop for Pcre2WorkerSlot {
+    fn drop(&mut self) {
+        release_worker_slot(&ACTIVE_PCRE2_WORKERS);
+    }
+}
 
 fn to_napi_err<E: std::fmt::Display>(e: E) -> Error {
     Error::new(Status::GenericFailure, e.to_string())
@@ -203,8 +273,14 @@ struct CollectResult {
     files_searched: u32,
     bytes_searched: u64,
     elapsed: Duration,
-    capped: bool,
-    cap_reason: Option<String>,
+    /// A per-line only-matching span cap was hit (`maxOnlyMatchingPerLine`).
+    span_capped: bool,
+    /// The PCRE2 wall-clock deadline was hit (`pcre2Deadline`).
+    timed_out: bool,
+    /// At least one file exceeded the byte ceiling and was skipped (`maxFileSize`).
+    size_skipped: bool,
+    /// At least one file was quit as binary (`binaryQuit`); coverage is partial.
+    binary_quit: bool,
     error_count: u32,
     first_error: Option<String>,
 }
@@ -237,6 +313,10 @@ struct CollectSink<'a, M: Matcher> {
     deadline: Option<Instant>,
     /// Set when `deadline` was hit and the search was stopped early.
     deadline_hit: bool,
+    /// Set when the file was quit as binary (a NUL byte was found). The searcher
+    /// stops at that point, so any matches after it are unsearched — coverage for
+    /// this file is partial, not exhaustive.
+    binary_detected: bool,
 }
 
 impl<M: Matcher> Sink for CollectSink<'_, M> {
@@ -279,6 +359,7 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
                             count: None,
                             kind: None,
                             score_hint: None,
+                            original_chars: None,
                         });
                     } else {
                         self.span_cap_reached = true;
@@ -297,6 +378,7 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
                     count: None,
                     kind: None,
                     score_hint: None,
+                    original_chars: None,
                 });
             }
         } else if self.work.enumerate_submatches {
@@ -335,6 +417,19 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
         let line_cow = String::from_utf8_lossy(ctx.bytes());
         let line_text = strip_trailing_newline(line_cow.into_owned());
         self.entry.contexts.insert(line_number, line_text);
+        Ok(true)
+    }
+
+    fn binary_data(
+        &mut self,
+        _searcher: &Searcher,
+        _binary_byte_offset: u64,
+    ) -> std::io::Result<bool> {
+        // A NUL byte was detected; with `BinaryDetection::quit` the searcher
+        // stops here. Record it so the file is reported as partially-searched
+        // (a `binaryQuit` diagnostic) rather than silently counted as fully
+        // covered. Returning Ok(true) lets the search quit as configured.
+        self.binary_detected = true;
         Ok(true)
     }
 }
@@ -405,7 +500,14 @@ fn capture_sort_time(opts: &RipgrepSearchOptions, entry: &ignore::DirEntry) -> O
 fn build_searcher(opts: &RipgrepSearchOptions, context_lines: u32) -> Searcher {
     let mut sb = SearcherBuilder::new();
     sb.line_number(true)
-        .binary_detection(BinaryDetection::quit(b'\x00'));
+        .binary_detection(BinaryDetection::quit(b'\x00'))
+        // Bound the per-file line/block buffer so a pathological within-ceiling
+        // single-line file cannot allocate unbounded (fix 2).
+        .heap_limit(Some(SEARCH_HEAP_LIMIT_BYTES))
+        // Sniff a BOM so BOM-prefixed UTF-8/UTF-16 files are decoded rather than
+        // mis-detected as binary on their first NUL (fix 3). Default is on; set
+        // explicitly so the behavior is not silently lost on a builder change.
+        .bom_sniffing(true);
     if opts.multiline.unwrap_or(false) {
         sb.multi_line(true);
     }
@@ -421,30 +523,22 @@ fn build_searcher(opts: &RipgrepSearchOptions, context_lines: u32) -> Searcher {
 
 /// Per-worker collection buffer. Workers push lock-free into their own `Vec`
 /// and merge into the shared sink once, on drop, after `build_parallel().run()`
-/// finishes — instead of taking a global mutex for every matched file. The
-/// `max_collected_files` cap stays exact: each push first reserves a slot in
-/// the shared counter, so at most `max` records exist across all workers.
+/// finishes — instead of taking a global mutex for every matched file.
+///
+/// The `max_collected_files` cap is deliberately NOT applied here: stopping the
+/// walk mid-collection retains a race-dependent subset of the full match set,
+/// which makes page 1 vary run-to-run and invalidates pagination snapshots on
+/// trees with more matches than the cap. Instead every matching file is
+/// collected, sorted, and then truncated to the cap in [`sort_and_cap`], so the
+/// retained subset is the deterministic sorted prefix (fix 1).
 struct WorkerRecs {
     local: Vec<FileRec>,
     sink: Arc<Mutex<Vec<FileRec>>>,
 }
 
 impl WorkerRecs {
-    fn push(
-        &mut self,
-        rec: FileRec,
-        max_collected_files: Option<usize>,
-        collected: &AtomicUsize,
-        capped: &AtomicBool,
-    ) -> bool {
-        if let Some(max) = max_collected_files {
-            if collected.fetch_add(1, Ordering::Relaxed) >= max {
-                capped.store(true, Ordering::Relaxed);
-                return false;
-            }
-        }
+    fn push(&mut self, rec: FileRec) {
         self.local.push(rec);
-        true
     }
 }
 
@@ -483,32 +577,41 @@ fn collect<M: Matcher + Sync>(
     let match_window = opts.match_window.unwrap_or(0) as usize;
     let keep_unmatched = mode == Mode::FilesWithoutMatch;
 
+    let max_file_bytes = opts
+        .max_file_bytes
+        .map(u64::from)
+        .unwrap_or(DEFAULT_MAX_SEARCH_FILE_BYTES);
+
     let recs = Arc::new(Mutex::new(Vec::<FileRec>::new()));
-    let collected_count = Arc::new(AtomicUsize::new(0));
     let files_searched = Arc::new(AtomicU32::new(0));
     let bytes_searched = Arc::new(AtomicU64::new(0));
-    let capped = Arc::new(AtomicBool::new(false));
     let span_capped = Arc::new(AtomicBool::new(false));
     let timed_out = Arc::new(AtomicBool::new(false));
+    let size_skipped = Arc::new(AtomicBool::new(false));
+    let binary_quit = Arc::new(AtomicBool::new(false));
     let error_count = Arc::new(AtomicU32::new(0));
     let first_error = Arc::new(Mutex::new(None));
-    let max_collected_files = opts
-        .max_collected_files
-        .map(|n| n as usize)
-        .filter(|n| *n > 0);
 
-    build_walk_builder(opts)?.build_parallel().run(|| {
+    // Traversal ordering is only stable if a single worker drains the walk in a
+    // fixed order; the default parallel walk merges worker buffers arbitrarily,
+    // so a `sort:"traversal"` result would vary run-to-run (fix 6).
+    let mut walk_builder = build_walk_builder(opts)?;
+    if preserves_traversal_order(opts) {
+        walk_builder.threads(1);
+    }
+
+    walk_builder.build_parallel().run(|| {
         let path_filter = Arc::clone(&path_filter);
         let mut worker_recs = WorkerRecs {
             local: Vec::new(),
             sink: Arc::clone(&recs),
         };
-        let collected_count = Arc::clone(&collected_count);
         let files_searched = Arc::clone(&files_searched);
         let bytes_searched = Arc::clone(&bytes_searched);
-        let capped = Arc::clone(&capped);
         let span_capped = Arc::clone(&span_capped);
         let timed_out = Arc::clone(&timed_out);
+        let size_skipped = Arc::clone(&size_skipped);
+        let binary_quit = Arc::clone(&binary_quit);
         let error_count = Arc::clone(&error_count);
         let first_error = Arc::clone(&first_error);
         let mut searcher = build_searcher(opts, context_lines);
@@ -545,8 +648,18 @@ fn collect<M: Matcher + Sync>(
             }
             let path: &Path = dent.path();
 
+            // Skip files above the byte ceiling BEFORE opening/searching them, so
+            // a pathological multi-GB file cannot force a giant buffer + lossy
+            // copy. Surfaced as a `maxFileSize` diagnostic, never silently
+            // dropped (fix 2). A skipped file is not counted in `files_searched`.
+            let file_len = dent.metadata().ok().map(|meta| meta.len());
+            if file_len.is_some_and(|len| len > max_file_bytes) {
+                size_skipped.store(true, Ordering::Relaxed);
+                return WalkState::Continue;
+            }
+
             let mut entry = FileEntry::new();
-            let (submatches, matched_lines, om_matches) = {
+            let (submatches, matched_lines, om_matches, was_binary) = {
                 let mut sink = CollectSink {
                     matcher,
                     entry: &mut entry,
@@ -558,6 +671,7 @@ fn collect<M: Matcher + Sync>(
                     span_cap_reached: false,
                     deadline,
                     deadline_hit: false,
+                    binary_detected: false,
                 };
                 // Keep successful files, but report incomplete coverage when
                 // traversal or matching fails. A skipped file proves no absence.
@@ -579,11 +693,17 @@ fn collect<M: Matcher + Sync>(
                     sink.submatches,
                     sink.matched_lines,
                     std::mem::take(&mut sink.om_matches),
+                    sink.binary_detected,
                 )
             };
             files_searched.fetch_add(1, Ordering::Relaxed);
-            if let Ok(metadata) = dent.metadata() {
-                bytes_searched.fetch_add(metadata.len(), Ordering::Relaxed);
+            if let Some(len) = file_len {
+                bytes_searched.fetch_add(len, Ordering::Relaxed);
+            }
+            if was_binary {
+                // Quit as binary: matches after the NUL were not searched, so
+                // coverage for this file is partial (fix 3).
+                binary_quit.store(true, Ordering::Relaxed);
             }
 
             let has_match = matched_lines > 0;
@@ -602,11 +722,8 @@ fn collect<M: Matcher + Sync>(
                 sort_time: capture_sort_time(opts, &dent),
             };
 
-            if worker_recs.push(rec, max_collected_files, &collected_count, &capped) {
-                WalkState::Continue
-            } else {
-                WalkState::Quit
-            }
+            worker_recs.push(rec);
+            WalkState::Continue
         })
     });
 
@@ -615,28 +732,38 @@ fn collect<M: Matcher + Sync>(
         std::mem::take(&mut *guard)
     };
 
-    let mut cap_reasons = Vec::new();
-    if capped.load(Ordering::Relaxed) {
-        cap_reasons.push("maxCollectedFiles");
-    }
-    if span_capped.load(Ordering::Relaxed) {
-        cap_reasons.push("maxOnlyMatchingPerLine");
-    }
-    if timed_out.load(Ordering::Relaxed) {
-        cap_reasons.push("pcre2Deadline");
-    }
-    let was_capped = !cap_reasons.is_empty();
     let first_error = first_error.lock().map_err(to_napi_err)?.take();
     Ok(CollectResult {
         recs,
         files_searched: files_searched.load(Ordering::Relaxed),
         bytes_searched: bytes_searched.load(Ordering::Relaxed),
         elapsed: started.elapsed(),
-        capped: was_capped,
-        cap_reason: was_capped.then(|| cap_reasons.join(", ")),
+        span_capped: span_capped.load(Ordering::Relaxed),
+        timed_out: timed_out.load(Ordering::Relaxed),
+        size_skipped: size_skipped.load(Ordering::Relaxed),
+        binary_quit: binary_quit.load(Ordering::Relaxed),
         error_count: error_count.load(Ordering::Relaxed),
         first_error,
     })
+}
+
+/// Apply the collection cap as a stable truncation of the fully sorted result
+/// set. Sorting happens first so the retained subset is the deterministic sorted
+/// prefix (never a race-dependent subset chosen mid-walk). Returns whether any
+/// records were dropped by the cap (fix 1).
+fn sort_and_cap(opts: &RipgrepSearchOptions, recs: &mut Vec<FileRec>) -> bool {
+    sort_recs(opts, recs);
+    if let Some(max) = opts
+        .max_collected_files
+        .map(|n| n as usize)
+        .filter(|n| *n > 0)
+    {
+        if recs.len() > max {
+            recs.truncate(max);
+            return true;
+        }
+    }
+    false
 }
 
 fn sort_recs(opts: &RipgrepSearchOptions, recs: &mut [FileRec]) {
@@ -697,12 +824,37 @@ fn build_result(
         files_searched,
         bytes_searched,
         elapsed,
-        capped,
-        cap_reason,
+        span_capped,
+        timed_out,
+        size_skipped,
+        binary_quit,
         error_count,
         first_error,
     } = collected;
-    sort_recs(opts, &mut recs);
+    // Sort the full match set, THEN truncate to the collection cap, so the
+    // retained subset is the deterministic sorted prefix (fix 1).
+    let cap_truncated = sort_and_cap(opts, &mut recs);
+
+    // Assemble cap reasons in a fixed order so single-cause results carry a
+    // stable, exact reason string.
+    let mut cap_reasons: Vec<&str> = Vec::new();
+    if cap_truncated {
+        cap_reasons.push("maxCollectedFiles");
+    }
+    if span_capped {
+        cap_reasons.push("maxOnlyMatchingPerLine");
+    }
+    if timed_out {
+        cap_reasons.push("pcre2Deadline");
+    }
+    if size_skipped {
+        cap_reasons.push("maxFileSize");
+    }
+    if binary_quit {
+        cap_reasons.push("binaryQuit");
+    }
+    let capped = !cap_reasons.is_empty();
+    let cap_reason = capped.then(|| cap_reasons.join(", "));
 
     let context_lines = opts.context_lines.unwrap_or(0);
     let max_snippet = opts.max_snippet_chars.unwrap_or(DEFAULT_MAX_SNIPPET_CHARS) as usize;
@@ -828,6 +980,17 @@ pub(crate) fn search_filtered(
             .jit_if_available(true)
             .max_jit_stack_size(Some(PCRE2_MAX_JIT_STACK_BYTES));
         let matcher = b.build(&opts.pattern).map_err(to_napi_err)?;
+        // Bound the number of concurrently outstanding PCRE2 worker threads.
+        // Workers abandoned on the hard deadline keep running (uninterruptibly)
+        // and hold their slot until they finish, so a stream of pathological `-P`
+        // patterns cannot accumulate unbounded threads: once saturated, reject
+        // the new search instead of spawning (fix 5).
+        if !try_acquire_worker_slot(&ACTIVE_PCRE2_WORKERS, MAX_ACTIVE_PCRE2_WORKERS) {
+            return Err(Error::new(
+                Status::GenericFailure,
+                "Too many concurrent PCRE2 (-P) searches are in flight (some abandoned on their wall-clock deadline are still running); retry shortly, or use regex:\"literal\"/the default engine.",
+            ));
+        }
         // Bound the PCRE2 search by wall clock (see PCRE2_SEARCH_DEADLINE). The
         // search runs on a worker thread with a cooperative deadline; if a single
         // uninterruptible match blows past the hard grace period, the driver
@@ -837,9 +1000,12 @@ pub(crate) fn search_filtered(
         let (tx, rx) = std::sync::mpsc::channel();
         let opts_worker = opts.clone();
         let filter_worker = Arc::clone(&path_filter);
-        std::thread::Builder::new()
+        let spawned = std::thread::Builder::new()
             .name("pcre2-search".into())
             .spawn(move || {
+                // Release the slot when this thread exits, whether it completed
+                // or was abandoned by the driver after the deadline.
+                let _slot = Pcre2WorkerSlot;
                 let _ = tx.send(collect(
                     &opts_worker,
                     &matcher,
@@ -847,8 +1013,12 @@ pub(crate) fn search_filtered(
                     filter_worker,
                     Some(deadline),
                 ));
-            })
-            .map_err(to_napi_err)?;
+            });
+        if spawned.is_err() {
+            // Spawn failed: no worker will ever run to release the reserved slot.
+            release_worker_slot(&ACTIVE_PCRE2_WORKERS);
+        }
+        spawned.map_err(to_napi_err)?;
         return match rx.recv_timeout(PCRE2_SEARCH_DEADLINE + PCRE2_DEADLINE_GRACE) {
             Ok(collected) => Ok(build_result(&opts, mode, collected?)),
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Ok(pcre2_timeout_result()),

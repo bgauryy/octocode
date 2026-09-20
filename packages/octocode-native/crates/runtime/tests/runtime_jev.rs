@@ -1,165 +1,68 @@
 mod support;
 
-use serde_json::json;
-use support::{Workspace, call, row_data, row_status};
+use serde_json::{Value, json};
+use support::{Workspace, row_data, row_status};
 use wiremock::matchers::{body_json, header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-fn hunch_query() -> serde_json::Value {
-    json!({
-        "route": "hunch_check",
-        "willChangeAction": true,
-        "directCheck": { "available": false },
-        "deliberation": {
-            "observations": "The exact runtime branch returns the observed value.",
-            "uncertainty": "Whether the lead is worth expanding into alternatives.",
-            "strongestCounter": "The adapter may rewrite the runtime value.",
-            "falsifier": "A focused test shows the runtime returns another value."
-        },
-        "state": {
-            "goal": "Decide whether to investigate the lead.",
-            "hunch": "The runtime branch owns the behavior.",
-            "basis": "One source-anchored observation supports the lead."
-        }
-    })
+fn query() -> Value {
+    json!({"state":{"observations":["A cancellation guard precedes the write."]},"questions":{
+        "supported":{"type":"noul","instructions":"Does the supplied observation support cancellation before writing?"}
+    }})
 }
 
 #[test]
-fn catalog_exposes_jev_only_for_a_nonblank_resolved_key() {
+fn catalog_has_one_jev_tool_gated_on_a_nonblank_key() {
     let workspace = Workspace::new();
     let without_key = workspace.runtime(&[]);
-    assert!(!without_key.is_available("jevReasoning"));
-    let catalog = without_key.catalog().expect("catalog");
-    assert_eq!(
-        catalog["tools"]
-            .as_array()
-            .and_then(|tools| tools.iter().find(|tool| tool["name"] == "jevReasoning"))
-            .and_then(|tool| tool["available"].as_bool()),
-        Some(false)
-    );
+    assert!(!without_key.is_available("jev"));
+    let catalog = without_key.catalog().unwrap();
+    let tools = catalog["tools"].as_array().unwrap();
+    let jev: Vec<_> = tools
+        .iter()
+        .filter(|tool| tool["name"].as_str().unwrap_or_default().starts_with("jev"))
+        .collect();
+    assert_eq!(jev.len(), 1);
+    assert_eq!(jev[0]["name"], "jev");
+    assert_eq!(jev[0]["available"], false);
     drop(without_key);
-
     let blank = workspace.runtime(&[("OCTOCODE_JEV_KEY", "   ".to_owned())]);
-    assert!(!blank.is_available("jevReasoning"));
+    assert!(!blank.is_available("jev"));
     drop(blank);
-
     let with_key = workspace.runtime(&[("OCTOCODE_JEV_KEY", "secret".to_owned())]);
-    assert!(with_key.is_available("jevReasoning"));
+    assert!(with_key.is_available("jev"));
+    assert!(!with_key.is_available("jevReasoning"));
+    assert!(!with_key.is_available("jevScout"));
 }
 
 #[tokio::test]
-async fn deterministic_gate_skips_the_provider() {
-    let workspace = Workspace::new();
-    let runtime = workspace.runtime(&[("OCTOCODE_JEV_KEY", "secret".to_owned())]);
-    let mut query = hunch_query();
-    query["willChangeAction"] = json!(false);
-    let outcome = call(&runtime, "jevReasoning", query)
-        .await
-        .expect("skipped judgment");
-    assert_eq!(row_status(&outcome), "success");
-    assert_eq!(row_data(&outcome)["gate"], "skipped");
-    assert_eq!(row_data(&outcome)["policyAction"], "act_without_jev");
-    assert_eq!(row_data(&outcome)["provisional"], true);
-    runtime.close().await;
-}
-
-#[tokio::test]
-async fn bulk_gates_keep_each_reasoning_fork_independent() {
-    let workspace = Workspace::new();
-    let runtime = workspace.runtime(&[("OCTOCODE_JEV_KEY", "secret".to_owned())]);
-    let mut first = hunch_query();
-    first["reasoning"] = json!("Skip a judgment that cannot change the next action.");
-    first["willChangeAction"] = json!(false);
-    let mut second = hunch_query();
-    second["reasoning"] = json!("Prefer the available deterministic check.");
-    second["directCheck"] = json!({
-        "available": true,
-        "action": "Run the focused runtime test."
-    });
-
-    let outcome = runtime
-        .execute(
-            "test-bulk".into(),
-            "jevReasoning".into(),
-            json!({ "queries": [first, second] }),
-        )
-        .await
-        .expect("independent bulk gates");
-    let results = outcome.structured_content["results"]
-        .as_array()
-        .expect("result rows");
-    assert_eq!(results.len(), 2);
-    assert_eq!(results[0]["index"], 0);
-    assert_eq!(results[0]["data"]["policyAction"], "act_without_jev");
-    assert_eq!(results[1]["index"], 1);
-    assert_eq!(results[1]["data"]["policyAction"], "run_direct_check");
-    assert_eq!(
-        results[1]["data"]["nextAction"],
-        "Run the focused runtime test."
-    );
-    runtime.close().await;
-}
-
-#[tokio::test]
-async fn jev_request_is_typed_and_response_is_provisional() {
+async fn pure_runtime_preserves_values_and_injects_configured_model() {
     let server = MockServer::start().await;
-    let mut query = hunch_query();
-    query["context"] = json!({
-        "cot": "Observed one runtime value, considered an adapter rewrite, and identified a focused falsifier.",
-        "thinking": "The runtime explanation is the current provisional lead.",
-        "context": { "task": "Choose the next evidence step." },
-        "agentRole": "research host"
-    });
+    let query = query();
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
         .and(header("authorization", "Bearer secret"))
-        .and(body_json(json!({
-            "model": "jev-1.13.0",
-            "state": {
-                "goal": "Decide whether to investigate the lead.",
-                "hunch": "The runtime branch owns the behavior.",
-                "basis": "One source-anchored observation supports the lead.",
-                "context": {
-                    "cot": "Observed one runtime value, considered an adapter rewrite, and identified a focused falsifier.",
-                    "thinking": "The runtime explanation is the current provisional lead.",
-                    "context": { "task": "Choose the next evidence step." },
-                    "agentRole": "research host"
-                }
-            },
-            "questions": {
-                "worth_pursuing": {
-                    "type": "noul",
-                    "instructions": "Based solely on state.basis, is state.hunch a useful lead worth turning into competing falsifiable hypotheses?",
-                    "criteria": {
-                        "true": "The hunch is a useful lead to test.",
-                        "false": "The supplied basis does not justify pursuing the hunch."
-                    }
-                }
-            }
-        })))
+        .and(body_json(
+            json!({"model":"jev-test","state":query["state"],"questions":query["questions"]}),
+        ))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "model": "jev-1.13.0",
-            "answers": {
-                "worth_pursuing": { "type": "noul", "noul": 0.81 }
-            },
-            "usage": { "input_tokens": 100, "output_tokens": 4 }
+            "model":"jev-test","answers":{"supported":{"type":"noul","noul":0.81}},
+            "usage":{"input_tokens":100,"output_tokens":4}
         })))
         .expect(1)
         .mount(&server)
         .await;
-
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[
         ("OCTOCODE_JEV_KEY", "secret".to_owned()),
-        ("OCTOCODE_JEV_MODEL", "jev-1.13.0".to_owned()),
+        ("OCTOCODE_JEV_MODEL", "jev-test".to_owned()),
         ("OCTOCODE_JEV_BASE_URL", server.uri()),
-        // TLS/client startup can exceed the harness's 5 s minimum timeout under
-        // full-suite contention; keep this transport-contract test deterministic.
         ("REQUEST_TIMEOUT", "30000".to_owned()),
     ]);
-    let outcome = call(&runtime, "jevReasoning", query)
+    let outcome = runtime
+        .execute("test-pure".into(), "jev".into(), query)
         .await
-        .expect("Jev judgment");
+        .unwrap();
     assert_eq!(
         row_status(&outcome),
         "success",
@@ -167,10 +70,132 @@ async fn jev_request_is_typed_and_response_is_provisional() {
         outcome.structured_content
     );
     let data = row_data(&outcome);
-    assert_eq!(data["gate"], "judgment");
-    assert_eq!(data["provisional"], true);
-    assert_eq!(data["model"], "jev-1.13.0");
-    assert_eq!(data["answers"]["worth_pursuing"]["noul"], 0.81);
-    assert_eq!(data["applied"]["blocked"], false);
+    assert_eq!(data["model"], "jev-test");
+    assert_eq!(data["answers"]["supported"]["noul"], 0.81);
+    for field in ["gate", "route", "applied", "nextAction", "policyAction"] {
+        assert!(
+            data.get(field).is_none(),
+            "unexpected workflow field: {field}"
+        );
+    }
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn legacy_tools_and_workflow_fields_fail_before_transport() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(500))
+        .expect(0)
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[
+        ("OCTOCODE_JEV_KEY", "secret".to_owned()),
+        ("OCTOCODE_JEV_BASE_URL", server.uri()),
+    ]);
+    for tool in ["jevReasoning", "jevScout"] {
+        assert!(
+            runtime
+                .execute(format!("legacy-{tool}"), tool.into(), query())
+                .await
+                .is_err()
+        );
+    }
+    for field in ["model", "reasoning", "goal", "debug", "route", "sources"] {
+        let mut value = query();
+        value[field] = json!("unwanted");
+        assert!(
+            runtime
+                .execute(format!("field-{field}"), "jev".into(), value)
+                .await
+                .is_err(),
+            "accepted {field}"
+        );
+    }
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn oversized_input_rejects_before_source_or_jev_network_calls() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(500))
+        .expect(0)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(500))
+        .expect(0)
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[
+        ("OCTOCODE_JEV_KEY", "secret".into()),
+        ("OCTOCODE_JEV_BASE_URL", server.uri()),
+        ("GITHUB_API_URL", server.uri()),
+    ]);
+    let mut value = query();
+    value["state"] = Value::Object(
+        (0..5)
+            .map(|index| (index.to_string(), json!(vec!["x".repeat(9000); 100])))
+            .collect(),
+    );
+    value["sources"] =
+        json!({"remote":{"type":"github","owner":"a","repo":"b","path":"source.rs","ref":"main"}});
+    let outcome = runtime
+        .execute("oversized".into(), "jev".into(), value)
+        .await
+        .unwrap();
+    assert_eq!(row_status(&outcome), "error");
+    assert_eq!(row_data(&outcome)["errorCode"], "invalidJevRequest");
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn source_receipts_and_caller_rubric_paths_keep_their_identity() {
+    let workspace = Workspace::new();
+    let source = workspace.write("source.rs", "HIDDEN_SOURCE_BODY\n");
+    let canonical = source.canonicalize().unwrap();
+    let criteria = json!([{"path":canonical},{"path":"/other/rubric/value"}]);
+    let mut value = query();
+    value["sources"] = json!({"local":{"type":"local","path":source}});
+    value["questions"] = json!({"quality":{"type":"score","instructions":"Assess only supplied evidence","criteria":criteria}});
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(body_json(json!({"model":"jev-test","state":{"context":value["state"],"sources":{"local":{"source":{"type":"local","path":canonical},"content":"HIDDEN_SOURCE_BODY\n"}}},"questions":value["questions"]})))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"model":"HIDDEN_SOURCE_BODY","answers":{"quality":{"type":"score","score":0.75,"confidence":0.8,"probabilities":{"0":0.25,"1":0.75},"legend":{"0":criteria[0],"1":criteria[1]}}},"usage":{"input_tokens":20,"output_tokens":3}})))
+        .expect(1).mount(&server).await;
+    let runtime = workspace.runtime(&[
+        ("OCTOCODE_JEV_KEY", "secret".into()),
+        ("OCTOCODE_JEV_MODEL", "jev-test".into()),
+        ("OCTOCODE_JEV_BASE_URL", server.uri()),
+        ("REQUEST_TIMEOUT", "30000".into()),
+    ]);
+    let outcome = runtime
+        .execute("receipt-identity".into(), "jev".into(), value)
+        .await
+        .unwrap();
+    assert_eq!(
+        row_status(&outcome),
+        "success",
+        "{}",
+        outcome.structured_content
+    );
+    assert_eq!(
+        row_data(&outcome)["sources"]["local"]["source"]["path"],
+        json!(canonical)
+    );
+    assert_eq!(
+        row_data(&outcome)["answers"]["quality"]["legend"]["0"],
+        criteria[0]
+    );
+    assert_eq!(row_data(&outcome)["model"], "jev-test");
+    assert!(
+        !outcome
+            .structured_content
+            .to_string()
+            .contains("HIDDEN_SOURCE_BODY")
+    );
     runtime.close().await;
 }

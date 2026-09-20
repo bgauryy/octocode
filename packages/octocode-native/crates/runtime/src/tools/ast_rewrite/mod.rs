@@ -315,7 +315,7 @@ fn execute(
     let lock = RootLock::acquire(&boundary)?;
     recover_transactions(&boundary, cancellation)?;
     let executable = embedded_engine_receipt();
-    let prepared = prepare(
+    let (prepared, coverage) = prepare(
         &query,
         &root,
         &PrepareContext {
@@ -338,13 +338,18 @@ fn execute(
     }
     if prepared.is_empty() {
         drop(lock);
-        return Ok(json!({
+        let mut empty = json!({
             "status":"empty","operation":"rewrite",
             "mode":if query.apply {"apply"} else {"preview"},
             "root":root,"executable":executable_value(&executable),"isolation":isolation_receipt(),
             "totalMatches":0,"affectedFiles":0,"matches":[],"files":[],
-            "complete":true,"isPartial":false
-        }));
+            "complete":!coverage.has_gaps(),"isPartial":coverage.has_gaps()
+        });
+        if coverage.has_gaps() {
+            empty["coverage"] = coverage.to_json();
+            empty["warnings"] = json!([coverage.warning()]);
+        }
+        return Ok(empty);
     }
     let all_matches = prepared
         .iter()
@@ -363,7 +368,7 @@ fn execute(
         None
     };
     drop(lock);
-    Ok(success_value(
+    let mut value = success_value(
         &query,
         &root,
         &snapshot,
@@ -371,7 +376,16 @@ fn execute(
         &result_matches,
         &executable,
         transaction,
-    ))
+    );
+    if coverage.has_gaps() {
+        value["coverage"] = coverage.to_json();
+        if let Some(warnings) = value.get_mut("warnings").and_then(Value::as_array_mut) {
+            warnings.push(json!(coverage.warning()));
+        } else {
+            value["warnings"] = json!([coverage.warning()]);
+        }
+    }
+    Ok(value)
 }
 
 fn validate_query(query: &AstRewriteQuery) -> Result<(), RewriteError> {
@@ -463,11 +477,55 @@ fn engine_error(error: String) -> RewriteError {
     RewriteError::new(code, error)
 }
 
+/// Corpus-coverage accounting from the rewrite candidate scan. Mirrors the
+/// engine's per-file skip counters so a preview/apply can report how much of the
+/// tree the rewrite actually reached instead of dropping skipped files silently.
+#[derive(Clone, Copy, Default)]
+struct RewriteCoverage {
+    scan_truncated: bool,
+    skipped_unreadable: u32,
+    skipped_large: u32,
+    skipped_binary: u32,
+    skipped_errored: u32,
+}
+impl RewriteCoverage {
+    fn has_gaps(&self) -> bool {
+        self.scan_truncated
+            || self.skipped_unreadable > 0
+            || self.skipped_large > 0
+            || self.skipped_binary > 0
+            || self.skipped_errored > 0
+    }
+    fn to_json(&self) -> Value {
+        json!({
+            "scanTruncated": self.scan_truncated,
+            "skippedUnreadable": self.skipped_unreadable,
+            "skippedLarge": self.skipped_large,
+            "skippedBinary": self.skipped_binary,
+            "skippedErrored": self.skipped_errored,
+        })
+    }
+    fn warning(&self) -> String {
+        format!(
+            "Rewrite coverage is partial: {} unreadable, {} oversized, {} non-UTF8, {} rewrite-errored file(s) were not covered{}. Results are a bounded subset of the corpus.",
+            self.skipped_unreadable,
+            self.skipped_large,
+            self.skipped_binary,
+            self.skipped_errored,
+            if self.scan_truncated {
+                ", and the candidate scan hit maxFiles"
+            } else {
+                ""
+            }
+        )
+    }
+}
+
 fn run_scan(
     query: &AstRewriteQuery,
     target: &Path,
     cancellation: &dyn CancellationCheck,
-) -> Result<Vec<RawMatch>, RewriteError> {
+) -> Result<(Vec<RawMatch>, RewriteCoverage), RewriteError> {
     cancellation.check().map_err(cancelled)?;
     let config = rule_config(query);
     octocode_engine::structural::structural_rewrite("", config.clone()).map_err(engine_error)?;
@@ -495,9 +553,16 @@ fn run_scan(
     )
     .map_err(engine_error)?;
     cancellation.check().map_err(cancelled)?;
+    let coverage = RewriteCoverage {
+        scan_truncated: files.scan_truncated,
+        skipped_unreadable: files.skipped_unreadable,
+        skipped_large: files.skipped_large,
+        skipped_binary: files.skipped_binary,
+        skipped_errored: files.skipped_errored,
+    };
 
     let mut raw = Vec::new();
-    for file in files {
+    for file in files.files {
         for matched in file.matches {
             let mut meta_variables = RawMetaVariables::default();
             for (name, capture) in matched.captures {
@@ -551,15 +616,15 @@ fn run_scan(
             });
         }
     }
-    Ok(raw)
+    Ok((raw, coverage))
 }
 
 fn prepare(
     query: &AstRewriteQuery,
     root: &Path,
     context: &PrepareContext<'_>,
-) -> Result<Vec<PreparedFile>, RewriteError> {
-    let raw_matches = run_scan(query, root, context.cancellation)?;
+) -> Result<(Vec<PreparedFile>, RewriteCoverage), RewriteError> {
+    let (raw_matches, coverage) = run_scan(query, root, context.cancellation)?;
     if raw_matches.len() > query.max_matches {
         return Err(RewriteError::new(
             "ast.rewrite.match_limit",
@@ -674,7 +739,7 @@ fn prepare(
         });
     }
     files.sort_by(|left, right| left.path.cmp(&right.path));
-    Ok(files)
+    Ok((files, coverage))
 }
 
 fn rule_config(query: &AstRewriteQuery) -> Value {

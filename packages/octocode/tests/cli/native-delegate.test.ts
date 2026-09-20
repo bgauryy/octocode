@@ -87,24 +87,26 @@ describe('shouldDelegateToNative', () => {
 });
 
 describe('delegateToNative', () => {
-  it('passes through the child exit code (success)', () => {
+  it('passes through the child exit code (success)', async () => {
     const bin = makeFakeBin('process.exit(0)');
-    expect(delegateToNative(bin, ['--help'])).toBe(0);
+    await expect(delegateToNative(bin, ['--help'])).resolves.toBe(0);
   });
 
-  it('passes through a non-zero exit code', () => {
+  it('passes through a non-zero exit code', async () => {
     const bin = makeFakeBin('process.exit(7)');
-    expect(delegateToNative(bin, [])).toBe(7);
+    await expect(delegateToNative(bin, [])).resolves.toBe(7);
   });
 
-  it('returns 1 when the binary cannot be spawned', () => {
-    expect(delegateToNative('/no/such/octocode-binary', [])).toBe(1);
+  it('returns 1 when the binary cannot be spawned', async () => {
+    await expect(
+      delegateToNative('/no/such/octocode-binary', [])
+    ).resolves.toBe(1);
   });
 
-  it('runs a .cjs launcher via the node executable', () => {
+  it('runs a .cjs launcher via the node executable', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'native-launcher-'));
     const launcher = join(dir, 'octocode.cjs');
     writeFileSync(launcher, 'process.exit(3)\n');
-    expect(delegateToNative(launcher, [])).toBe(3);
+    await expect(delegateToNative(launcher, [])).resolves.toBe(3);
   });
 });

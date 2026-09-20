@@ -509,8 +509,8 @@ enabled. Removed compatibility names are rejected; they cannot be re-enabled.
 
 | Env var | `.octocoderc` key | Default | Notes |
 |---------|------------------|---------|-------|
-| `OCTOCODE_JEV_KEY` | `jev.key` | unset | TypeSafe Jev API key. A nonblank resolved value exposes `jevReasoning`. A protected key: never read from a project `.env`. Set it in your shell, MCP `env` block, or `jev.key` in `.octocoderc` (env wins if both are set). |
-| `OCTOCODE_JEV_MODEL` | `jev.model` | `jev-latest` | Optional model override. A query-level `model` takes precedence. |
+| `OCTOCODE_JEV_KEY` | `jev.key` | unset | TypeSafe Jev API key. A nonblank resolved value exposes `jev`. A protected key: never read from a project `.env`. Set it in your shell, MCP `env` block, or `jev.key` in `.octocoderc` (env wins if both are set). |
+| `OCTOCODE_JEV_MODEL` | `jev.model` | `jev-latest` | Optional model override. Model selection is internal; caller requests cannot override it. |
 | `OCTOCODE_JEV_BASE_URL` | `jev.baseUrl` | `https://api.typesafe.ai` | Optional trusted API root. Octocode sends the key to this origin, rejects redirects, and requires HTTPS except for loopback development servers. |
 
 Evidence-based reasoning routes apply deterministic action-change, direct-check, evidence-freshness, and one-call gates before provider access. The `source_questions` route instead validates and reads bounded source paths under the local access policy, then judges independent claims together. Removing or blanking the resolved key removes Jev tools from MCP registration.

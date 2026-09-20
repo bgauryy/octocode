@@ -28,15 +28,13 @@ $OCTO tools <name> --scheme --json --compact    # schema before calling
 | Offload bulk to local Ollama | `octocode-subagent` skill |
 | After any package change | rebuild → test via real CLI/MCP/skill path — not just compile |
 
-**Skills are first-class.** They're wired to the same tools and should be your default entry point for research, architecture, and eval flows.
+**Skills are first-class** — wired to the same tools; your default entry point for research, architecture, and eval flows.
 
-**Dogfood Jev where it changes the next action.** Follow [`skills/octocode-jev-reasoning-loop/SKILL.md`](skills/octocode-jev-reasoning-loop/SKILL.md): scout to avoid expensive candidate reads; batch independent semantic conditions over shared evidence; use reasoning for an unresolved hypothesis, inference, or consequential plan. Candidate/question counts and upcoming assertions alone do not trigger calls. Use exact lookups/tests directly, reuse already inspected current evidence, and do not automatically chain scout → conditions → reasoning.
+**Dogfood Jev where it changes the next action.** Follow [`skills/octocode-jev-reasoning-loop/SKILL.md`](skills/octocode-jev-reasoning-loop/SKILL.md): use the pure `jev` tool with caller-supplied `{state, questions}` for bounded relevance, conditions, claim support or alternatives. Use optional named `sources` to load unread local/GitHub file contents internally; otherwise supply observed evidence. The result contains source receipts, not file bodies. Batch independent questions over shared state. Candidate/question counts and upcoming assertions alone do not trigger calls. Use exact lookups/tests directly, reuse current evidence, and do not automatically chain scout → conditions → reasoning.
 
-### Reflect and critique after every tool/skill use
+### Reflect after every tool/skill use
 
-After using a local tool or skill, note: _Did it work well? Was the output useful? Any friction, gaps, or wrong defaults?_ Log friction in a comment or open an issue — do not silently bypass or workaround. If dogfooding hurts, fix it.
-
-**Gotchas, improvements, and possibilities must be documented at [`.octocode/GOTCHAS.md`](.octocode/GOTCHAS.md).**
+Note friction, gaps, or wrong defaults and log them (comment/issue) instead of silently working around — if dogfooding hurts, fix it. Raw findings → [`.octocode/GOTCHAS.md`](.octocode/GOTCHAS.md); durable Jev practice → [`.octocode/JEV.md`](.octocode/JEV.md).
 
 ---
 
@@ -177,5 +175,6 @@ yarn install && yarn prepublish       # lockfile + final guard + readme sync
 | CLI | [`packages/octocode/docs/OCTOCODE_CLI.md`](packages/octocode/docs/OCTOCODE_CLI.md) |
 | Engine / LSP | [`LSP_SERVER_LIFECYCLE.md`](packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md) · [`SUPPORTED_LANGUAGES_AND_FEATURES.md`](packages/octocode-native/docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md) |
 | Research | [`docs/OCTOCODE_RESEARCH_MANIFEST.md`](docs/OCTOCODE_RESEARCH_MANIFEST.md) · [`docs/ROUTING_EVIDENCE_POSITION_PAPER.md`](docs/ROUTING_EVIDENCE_POSITION_PAPER.md) |
+| Jev | [`.octocode/JEV.md`](.octocode/JEV.md) (agent protocol + economics) · [`docs/OCTOCODE_JEV.md`](docs/OCTOCODE_JEV.md) (OJQL RFC) · [`docs/JEV_BENCHMARK.md`](docs/JEV_BENCHMARK.md) |
 | Benchmarks | [`BENCHMARK.md`](packages/octocode-benchmark/skills/octocode-benchmark/references/BENCHMARK.md) · [`SCORING.md`](packages/octocode-benchmark/skills/octocode-benchmark/references/SCORING.md) |
-| Skills (repo) | [`skills/`](skills/) → linked into [`.agents/skills/`](.agents/skills/) · includes `octocode-jev-reasoning-loop` (bounded Jev judgment inside an evidence-driven host reasoning loop, available via CLI and MCP) |
+| Skills (repo) | [`skills/`](skills/) → linked into [`.agents/skills/`](.agents/skills/) |

@@ -1,5 +1,6 @@
 use super::CloneError;
 use crate::tools::local_fetch::CancellationCheck;
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use std::ffi::OsString;
 use std::fmt;
 use std::io::{self, Read};
@@ -163,12 +164,18 @@ impl GitRunner for SystemGit {
             command.env("SystemRoot", root);
         }
         if let (Some(token), Some(url)) = (request.authorization, request.authorization_url) {
+            // Use HTTP Basic with the `x-access-token` username instead of
+            // `Bearer`: GitHub's git-over-HTTPS accepts Basic for every token
+            // class (classic / fine-grained PAT AND `gho_` OAuth), whereas a
+            // `Bearer gho_…` header 401s — and with prompts disabled that fails
+            // the clone even for a public repo that would succeed anonymously.
+            let basic = STANDARD.encode(format!("x-access-token:{token}"));
             command
                 .env("GIT_CONFIG_COUNT", "1")
                 .env("GIT_CONFIG_KEY_0", format!("http.{url}.extraHeader"))
                 .env(
                     "GIT_CONFIG_VALUE_0",
-                    format!("Authorization: Bearer {token}"),
+                    format!("Authorization: Basic {basic}"),
                 );
         }
         let mut child = command.spawn().map_err(|error| {
@@ -280,10 +287,14 @@ fn scrub(text: &str, token: Option<&str>) -> String {
     if let Some(token) = token {
         result = result.replace(token, "[REDACTED]");
     }
-    let bearer = regex::Regex::new(r"(?i)Authorization:\s*(Bearer|token)\s+\S+")
+    // Redact the injected credential regardless of scheme. The clone token is
+    // sent as `Authorization: Basic <base64(x-access-token:…)>`; the base64 form
+    // does NOT contain the plaintext token, so this header pattern — not the
+    // token replace above — is what stops a reversible credential from leaking
+    // if git echoes its environment.
+    let auth = regex::Regex::new(r"(?i)Authorization:\s*(Bearer|token|Basic)\s+\S+")
         .expect("static authorization regex");
-    bearer
-        .replace_all(&result, "Authorization: Bearer [REDACTED]")
+    auth.replace_all(&result, "Authorization: [REDACTED]")
         .into_owned()
 }
 

@@ -74,9 +74,14 @@ pub(super) fn continuation_query(query: &AstRewriteQuery, canonical_root: &Path)
         "ruleKind".to_owned(),
         json!(query.rule_kind.as_deref().unwrap_or("pattern")),
     );
-    if query.allow_syntax_regression {
-        value.insert("allowSyntaxRegression".to_owned(), json!(true));
-    }
+    // Always serialize allowSyntaxRegression: the continuation-query output
+    // contract marks it required, so omitting it on the default (false) case
+    // produced an outputContractViolation on every paginated preview / apply
+    // restart. It stays an optional boolean on the input side.
+    value.insert(
+        "allowSyntaxRegression".to_owned(),
+        json!(query.allow_syntax_regression),
+    );
     for (key, item) in [
         ("pattern", query.pattern.as_ref().map(|value| json!(value))),
         ("rewrite", query.rewrite.as_ref().map(|value| json!(value))),

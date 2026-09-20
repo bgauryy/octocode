@@ -17,6 +17,9 @@ pub(super) fn project(tool: Value, view: SchemeView) -> Value {
         // own root, including all core-owned $defs and validation constraints.
         SchemeView::Query => {
             let mut query = json!({"name": tool["name"], "querySchema": tool["querySchema"]});
+            if let Some(description) = tool.get("description") {
+                query["description"] = description.clone();
+            }
             if let Some(queries) = tool.pointer("/inputSchema/properties/queries") {
                 let bounds: Map<String, Value> = ["minItems", "maxItems"]
                     .into_iter()
@@ -267,24 +270,24 @@ mod tests {
         let args = Args::try_parse_from([
             "octocode",
             "tools",
-            "jevReasoning",
+            "ghSearch",
             "--scheme",
             "--scheme-view",
             "query",
             "--scheme-select",
-            "route=hallucination_gate",
+            "operation=code",
         ])
         .unwrap();
         assert!(
-            matches!(args.command, Command::Tools { scheme_select: Some(selection), .. } if selection == "route=hallucination_gate")
+            matches!(args.command, Command::Tools { scheme_select: Some(selection), .. } if selection == "operation=code")
         );
         for args in [
             vec![
                 "octocode",
                 "tools",
-                "jevReasoning",
+                "ghSearch",
                 "--scheme-select",
-                "route=x",
+                "operation=x",
             ],
             vec![
                 "octocode",
@@ -293,27 +296,27 @@ mod tests {
                 "--scheme-view",
                 "query",
                 "--scheme-select",
-                "route=x",
+                "operation=x",
             ],
             vec![
                 "octocode",
                 "tools",
-                "jevReasoning",
+                "ghSearch",
                 "--scheme",
                 "--scheme-select",
-                "route=x",
+                "operation=x",
             ],
         ] {
             assert!(Args::try_parse_from(args).is_err());
         }
         for args in [
-            vec!["--scheme-select", "route=x"],
-            vec!["--scheme-select=route=x"],
+            vec!["--scheme-select", "operation=x"],
+            vec!["--scheme-select=operation=x"],
         ] {
             let args = args.into_iter().map(String::from).collect::<Vec<_>>();
             assert_eq!(
                 direct_scheme_select(&args, true, SchemeView::Query).unwrap(),
-                Some("route=x".into())
+                Some("operation=x".into())
             );
             assert!(direct_scheme_select(&args, false, SchemeView::Query).is_err());
             assert!(direct_scheme_select(&args, true, SchemeView::Full).is_err());
@@ -394,19 +397,15 @@ mod tests {
             .as_array()
             .unwrap()
             .iter()
-            .find(|tool| tool["name"] == "jevReasoning")
+            .find(|tool| tool["name"] == "ghSearch")
             .unwrap();
-        let result = project_selected(
-            tool.clone(),
-            SchemeView::Query,
-            Some("route=hallucination_gate"),
-        )
-        .unwrap();
+        let result =
+            project_selected(tool.clone(), SchemeView::Query, Some("operation=code")).unwrap();
         let original = tool["querySchema"]["oneOf"]
             .as_array()
             .unwrap()
             .iter()
-            .find(|branch| branch["properties"]["route"]["const"] == "hallucination_gate")
+            .find(|branch| branch["properties"]["operation"]["const"] == "code")
             .unwrap();
         assert_eq!(result["querySchema"]["oneOf"], json!([original]));
         assert_local_refs_resolve(&result["querySchema"], &result["querySchema"]);
@@ -426,7 +425,7 @@ mod tests {
             let args = Args::try_parse_from([
                 "octocode",
                 "tools",
-                "jevReasoning",
+                "ghSearch",
                 "--scheme",
                 "--scheme-view",
                 flag,
@@ -437,29 +436,17 @@ mod tests {
             );
         }
         for args in [
-            vec![
-                "octocode",
-                "tools",
-                "jevReasoning",
-                "--scheme-view",
-                "query",
-            ],
+            vec!["octocode", "tools", "ghSearch", "--scheme-view", "query"],
             vec!["octocode", "tools", "--scheme", "--scheme-view", "query"],
             vec![
                 "octocode",
                 "tools",
-                "jevReasoning",
+                "ghSearch",
                 "--scheme",
                 "--scheme-view",
                 "bad",
             ],
-            vec![
-                "octocode",
-                "tools",
-                "jevReasoning",
-                "--scheme",
-                "--scheme-view",
-            ],
+            vec!["octocode", "tools", "ghSearch", "--scheme", "--scheme-view"],
             vec!["octocode", "--scheme-view", "query"],
         ] {
             assert!(Args::try_parse_from(args).is_err());
@@ -478,7 +465,7 @@ mod tests {
     fn scheme_view_direct_alias_parsing() {
         for flag in ["--scheme", "--schema"] {
             let args =
-                Args::try_parse_from(["octocode", "jevReasoning", flag, "--scheme-view", "query"])
+                Args::try_parse_from(["octocode", "ghSearch", flag, "--scheme-view", "query"])
                     .unwrap();
             let Command::Pattern(args) = args.command else {
                 panic!("direct alias")
@@ -531,6 +518,8 @@ mod tests {
         let contract = octocode_native::contracts::parsed_contract().unwrap();
         for tool in contract["tools"].as_array().unwrap() {
             let query = project(tool.clone(), SchemeView::Query);
+            assert_eq!(query["description"], tool["description"]);
+            assert!(query.get("outputSchema").is_none());
             for bound in ["minItems", "maxItems"] {
                 assert_eq!(
                     query["queryEnvelope"]["queries"][bound],
@@ -570,18 +559,18 @@ mod tests {
         for tool in contract["tools"].as_array().unwrap() {
             assert_eq!(project(tool.clone(), SchemeView::Full), *tool);
             let query = project(tool.clone(), SchemeView::Query);
-            assert_eq!(query.as_object().unwrap().len(), 3);
+            assert_eq!(query.as_object().unwrap().len(), 4);
             assert_eq!(query["name"], tool["name"]);
             assert_eq!(query["querySchema"], tool["querySchema"]);
             assert_local_refs_resolve(&query["querySchema"], &query["querySchema"]);
         }
-        let jev = contract["tools"]
+        let search = contract["tools"]
             .as_array()
             .unwrap()
             .iter()
-            .find(|tool| tool["name"] == "jevReasoning")
+            .find(|tool| tool["name"] == "astRewrite")
             .unwrap();
-        assert!(jev["querySchema"]["$defs"].is_object());
-        assert!(jev["querySchema"]["oneOf"].is_array());
+        assert!(search["querySchema"]["$defs"].is_object());
+        assert!(search["querySchema"]["oneOf"].is_array());
     }
 }

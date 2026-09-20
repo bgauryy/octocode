@@ -1103,9 +1103,32 @@ pub struct StructuralRewriteFileResult {
     pub matches: Vec<super::StructuralRewriteMatch>,
 }
 
+/// Aggregate result of a structural rewrite file-tree scan, including coverage
+/// accounting. Files that error, exceed the byte limit, are non-UTF8, or cannot
+/// be read used to vanish silently; the counters below let `astRewrite` report
+/// how much of the corpus the rewrite actually covered.
+#[cfg(feature = "embedded-ast-grep-rewrite")]
+#[derive(Default)]
+pub struct StructuralRewriteFilesResult {
+    /// Files that produced at least one rewrite match.
+    pub files: Vec<StructuralRewriteFileResult>,
+    /// Candidate scan hit `max_files`; files beyond it were not evaluated.
+    pub scan_truncated: bool,
+    /// Candidate files that could not be read (vanished, permission, IO).
+    pub skipped_unreadable: u32,
+    /// Candidate files larger than `max_file_bytes`.
+    pub skipped_large: u32,
+    /// Candidate files whose bytes are not valid UTF-8.
+    pub skipped_binary: u32,
+    /// Candidate files the rewrite engine rejected (parse/apply error, or the
+    /// per-file match cap).
+    pub skipped_errored: u32,
+}
+
 /// Walk a file tree and apply an ast-grep inline-rule rewrite to every
-/// candidate file in parallel. Files that produce no matches or cannot be read
-/// (binary, unreadable, too large) are silently skipped.
+/// candidate file in parallel. Files that produce no matches are omitted from
+/// `files`; files that error, exceed the byte limit, are non-UTF8, or cannot be
+/// read are counted in the coverage fields instead of being dropped silently.
 ///
 /// The rule config must be a complete ast-grep inline-rule object (language,
 /// rule, fix, etc.) — the same JSON that `astRewrite` used to pass via
@@ -1113,7 +1136,7 @@ pub struct StructuralRewriteFileResult {
 #[cfg(feature = "embedded-ast-grep-rewrite")]
 pub fn rewrite_files(
     options: super::types::StructuralRewriteFilesOptions,
-) -> Result<Vec<StructuralRewriteFileResult>, String> {
+) -> Result<StructuralRewriteFilesResult, String> {
     let root = std::path::PathBuf::from(&options.path);
     check_root_exists(&root)?;
 
@@ -1137,29 +1160,120 @@ pub fn rewrite_files(
         options.no_ignore,
         options.max_depth,
     )?;
+    // `collect_files` was asked for `max_files + 1`; if it returned more than
+    // `max_files` the candidate scan was truncated and files beyond the cap were
+    // never evaluated.
+    let scan_truncated = candidate_files.len() > max_files;
     let candidate_files: Vec<_> = candidate_files.into_iter().take(max_files).collect();
 
     // Arc so the (immutable) rule config can be shared across rayon threads.
     let rule_config = std::sync::Arc::new(rule_config);
+    // Per-thread skip accounting, mirroring the search path's coverage counters.
+    use std::sync::atomic::{AtomicU32, Ordering};
+    let skipped_unreadable = AtomicU32::new(0);
+    let skipped_large = AtomicU32::new(0);
+    let skipped_binary = AtomicU32::new(0);
+    let skipped_errored = AtomicU32::new(0);
 
-    let results: Vec<StructuralRewriteFileResult> = candidate_files
+    let files: Vec<StructuralRewriteFileResult> = candidate_files
         .par_iter()
         .filter_map(|path| {
-            let bytes = fs::read(path).ok()?;
+            let Ok(bytes) = fs::read(path) else {
+                skipped_unreadable.fetch_add(1, Ordering::Relaxed);
+                return None;
+            };
             if bytes.len() as u64 > max_file_bytes {
+                skipped_large.fetch_add(1, Ordering::Relaxed);
                 return None;
             }
-            let content = String::from_utf8(bytes).ok()?;
-            let matches = super::rewrite::rewrite(&content, (*rule_config).clone()).ok()?;
-            if matches.is_empty() {
+            let Ok(content) = String::from_utf8(bytes) else {
+                skipped_binary.fetch_add(1, Ordering::Relaxed);
                 return None;
+            };
+            match super::rewrite::rewrite(&content, (*rule_config).clone()) {
+                Ok(matches) if matches.is_empty() => None,
+                Ok(matches) => Some(StructuralRewriteFileResult {
+                    path: path.to_string_lossy().into_owned(),
+                    matches,
+                }),
+                Err(_) => {
+                    skipped_errored.fetch_add(1, Ordering::Relaxed);
+                    None
+                }
             }
-            Some(StructuralRewriteFileResult {
-                path: path.to_string_lossy().into_owned(),
-                matches,
-            })
         })
         .collect();
 
-    Ok(results)
+    Ok(StructuralRewriteFilesResult {
+        files,
+        scan_truncated,
+        skipped_unreadable: skipped_unreadable.into_inner(),
+        skipped_large: skipped_large.into_inner(),
+        skipped_binary: skipped_binary.into_inner(),
+        skipped_errored: skipped_errored.into_inner(),
+    })
+}
+
+#[cfg(all(test, feature = "embedded-ast-grep-rewrite"))]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod rewrite_coverage_tests {
+    use super::*;
+
+    // Regression: a rewrite over a dir containing a non-UTF8 candidate file must
+    // account for the skip in the coverage counters, not drop it silently.
+    #[test]
+    fn rewrite_files_reports_skipped_non_utf8_and_oversized_files() {
+        let root = std::env::temp_dir().join(format!(
+            "octocode-rewrite-skip-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("fixture root");
+        // A matchable, valid file.
+        fs::write(root.join("good.rs"), "fn main() { oldCall(); }\n").expect("good file");
+        // A non-UTF8 file with a supported extension.
+        fs::write(root.join("bad.rs"), [0xff_u8, 0xfe, 0xfd, 0x00]).expect("bad file");
+        // An oversized file (exceeds the tiny max_file_bytes below).
+        fs::write(root.join("big.rs"), "fn main() { oldCall(); }\n".repeat(64)).expect("big file");
+
+        let options = crate::structural::StructuralRewriteFilesOptions {
+            path: root.to_string_lossy().into_owned(),
+            rule_config_json: serde_json::json!({
+                "id":"octocode-inline-rewrite",
+                "language":"rust",
+                "rule":{"pattern":"oldCall()"},
+                "fix":"newCall()"
+            })
+            .to_string(),
+            include: None,
+            exclude: None,
+            exclude_dir: None,
+            hidden: Some(false),
+            no_ignore: Some(false),
+            max_depth: None,
+            max_files: Some(2_000),
+            max_file_bytes: Some(64),
+        };
+
+        let result = rewrite_files(options).expect("rewrite files");
+        let _ = fs::remove_dir_all(&root);
+
+        assert_eq!(
+            result.skipped_binary, 1,
+            "the non-UTF8 file must be reported as a skip, not silently dropped"
+        );
+        assert_eq!(
+            result.skipped_large, 1,
+            "the oversized file must be reported as a skip, not silently dropped"
+        );
+        assert_eq!(
+            result.files.len(),
+            1,
+            "only the small valid file should produce matches"
+        );
+    }
 }

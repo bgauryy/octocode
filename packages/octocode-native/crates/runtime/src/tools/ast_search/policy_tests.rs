@@ -170,3 +170,204 @@ fn cancellation_interrupts_descendant_traversal() {
     .expect_err("cancel structural walk");
     assert_eq!(error.code, "ast.execution.cancelled");
 }
+
+// Regression: astSearch `match` over a directory must not silently drop files
+// past `maxFiles`. When the candidate scan is truncated, the result must carry
+// an explicit truncation signal (a `structural.scan.truncated` diagnostic and a
+// top-level `truncated`/`complete:false`) rather than reporting a bounded set as
+// if it were the whole corpus.
+#[test]
+fn match_directory_scan_truncation_is_surfaced_not_silent() {
+    let root = Fixture::new();
+    // Three candidate files, each with the matchable identifier `source`.
+    for name in ["a.rs", "b.rs", "c.rs"] {
+        std::fs::write(root.0.join(name), "pub fn source() {}\n").expect("source file");
+    }
+    let paths = PathPolicy::with_registry(
+        PathPolicyConfig {
+            workspace_root: Some(root.0.clone()),
+            ..Default::default()
+        },
+        &SecurityRegistry::default(),
+    )
+    .expect("policy");
+    let security = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+    let out = execute_ast(
+        json!({
+            "operation":"match","path":root.0,"langType":"rust",
+            "pattern":"pub fn source() {}","maxFiles":1
+        }),
+        &paths,
+        &security,
+        &Active,
+    )
+    .expect("match runs");
+
+    assert_eq!(
+        out["truncated"],
+        json!(true),
+        "capped scan must set truncated=true; got {out}"
+    );
+    assert_eq!(
+        out["complete"],
+        json!(false),
+        "capped scan is not complete; got {out}"
+    );
+    let diagnostics = out["diagnostics"].as_array().cloned().unwrap_or_default();
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d["code"] == json!("structural.scan.truncated")),
+        "expected a structural.scan.truncated diagnostic; got {out}"
+    );
+}
+
+fn simple_policy(root: &std::path::Path) -> (PathPolicy, ContentSecurity) {
+    let paths = PathPolicy::with_registry(
+        PathPolicyConfig {
+            workspace_root: Some(root.to_path_buf()),
+            ..Default::default()
+        },
+        &SecurityRegistry::default(),
+    )
+    .expect("policy");
+    let security = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+    (paths, security)
+}
+
+// Regression: `files` mode default sort must be deterministic. The scan
+// primitive never provides mtimes, so a `modified` default ties every row at
+// 0.0 and pages fall back to OS readdir order. The default order must instead
+// be lexicographic by path and stable across identical invocations.
+#[test]
+fn files_default_sort_is_lexicographic_and_stable() {
+    let root = Fixture::new();
+    for name in ["zebra.rs", "apple.rs", "mango.rs", "banana.rs"] {
+        std::fs::write(root.0.join(name), "x\n").expect("file");
+    }
+    let (paths, security) = simple_policy(&root.0);
+    let run = || {
+        let out = execute_ast(
+            json!({"operation":"files","path":root.0,"entryType":"f"}),
+            &paths,
+            &security,
+            &Active,
+        )
+        .expect("files");
+        out["files"]
+            .as_array()
+            .expect("files array")
+            .iter()
+            .map(|f| f["path"].as_str().expect("path").to_string())
+            .collect::<Vec<_>>()
+    };
+    let first = run();
+    let mut sorted = first.clone();
+    sorted.sort();
+    assert_eq!(first, sorted, "default order must be lexicographic by path");
+    let second = run();
+    assert_eq!(first, second, "default order must be stable across runs");
+}
+
+#[test]
+fn files_continuation_rejects_stale_snapshot() {
+    let root = Fixture::new();
+    for i in 0..6 {
+        std::fs::write(root.0.join(format!("f{i}.rs")), "x\n").expect("file");
+    }
+    let (paths, security) = simple_policy(&root.0);
+    let page1 = execute_ast(
+        json!({"operation":"files","path":root.0,"entryType":"f","pageSize":2}),
+        &paths,
+        &security,
+        &Active,
+    )
+    .expect("page1");
+    let snapshot = page1["snapshot"].as_str().expect("snapshot").to_string();
+    // Happy path: the freshly emitted snapshot must be accepted on page 2.
+    let good = execute_ast(
+        json!({"operation":"files","path":root.0,"entryType":"f","pageSize":2,"page":2,"snapshot":snapshot}),
+        &paths,
+        &security,
+        &Active,
+    )
+    .expect("good page2");
+    assert!(
+        good.get("errorCode").is_none(),
+        "valid continuation must not be rejected; got {good}"
+    );
+    assert_eq!(good["pagination"]["currentPage"], json!(2));
+    std::fs::write(root.0.join("newcomer.rs"), "x\n").expect("mutate corpus");
+    let page2 = execute_ast(
+        json!({"operation":"files","path":root.0,"entryType":"f","pageSize":2,"page":2,"snapshot":snapshot}),
+        &paths,
+        &security,
+        &Active,
+    )
+    .expect("page2");
+    assert_eq!(
+        page2["errorCode"],
+        json!("ast.snapshot.changed"),
+        "got {page2}"
+    );
+}
+
+#[test]
+fn tree_continuation_rejects_stale_snapshot() {
+    let root = Fixture::new();
+    for i in 0..6 {
+        std::fs::write(root.0.join(format!("f{i}.rs")), "x\n").expect("file");
+    }
+    let (paths, security) = simple_policy(&root.0);
+    let page1 = execute_ast(
+        json!({"operation":"tree","treeKind":"filesystem","path":root.0,"pageSize":2}),
+        &paths,
+        &security,
+        &Active,
+    )
+    .expect("page1");
+    let snapshot = page1["snapshot"].as_str().expect("snapshot").to_string();
+    std::fs::write(root.0.join("newcomer.rs"), "x\n").expect("mutate corpus");
+    let page2 = execute_ast(
+        json!({"operation":"tree","treeKind":"filesystem","path":root.0,"pageSize":2,"page":2,"snapshot":snapshot}),
+        &paths,
+        &security,
+        &Active,
+    )
+    .expect("page2");
+    assert_eq!(
+        page2["errorCode"],
+        json!("ast.snapshot.changed"),
+        "got {page2}"
+    );
+}
+
+#[test]
+fn match_continuation_rejects_stale_snapshot() {
+    let root = Fixture::new();
+    for name in ["a.rs", "b.rs", "c.rs", "d.rs"] {
+        std::fs::write(root.0.join(name), "pub fn source() {}\n").expect("file");
+    }
+    let (paths, security) = simple_policy(&root.0);
+    let page1 = execute_ast(
+        json!({"operation":"match","path":root.0,"langType":"rust","pattern":"pub fn source() {}","pageSize":2}),
+        &paths,
+        &security,
+        &Active,
+    )
+    .expect("page1");
+    let snapshot = page1["snapshot"].as_str().expect("snapshot").to_string();
+    std::fs::write(root.0.join("e.rs"), "pub fn source() {}\n").expect("mutate corpus");
+    let page2 = execute_ast(
+        json!({"operation":"match","path":root.0,"langType":"rust","pattern":"pub fn source() {}","pageSize":2,"page":2,"snapshot":snapshot}),
+        &paths,
+        &security,
+        &Active,
+    )
+    .expect("page2");
+    assert_eq!(
+        page2["errorCode"],
+        json!("ast.snapshot.changed"),
+        "got {page2}"
+    );
+}

@@ -58,8 +58,8 @@ cd "$FIX"
 
 **0.4 — Invocation & PASS.** Uniform form on any surface:
 `"$BIN" tools <name> --queries '[<query>]'` (native), `node "$NODECLI" tools …`
-(node), or MCP `tools/call {name, arguments:{queries:[<query>]}}`. Every query
-needs a `reasoning` string. **PASS** = structured result with **no**
+(node), or MCP `tools/call {name, arguments:{queries:[<query>]}}`. Every query except pure `jev`
+needs a `reasoning` string; `jev` accepts `{state, questions}` plus optional named `sources`. **PASS** = structured result with **no**
 `outputContractViolation`, no `Invalid arguments`/`invalidInput`, no crash, and
 the stated content check holds.
 
@@ -83,7 +83,7 @@ diagnose anything red.
 - [ ] 10. `ghGetHistoryItem` — commit / pullRequest / issue / compare  (incl. **R4**)
 - [ ] 11. `ghCloneRepo` — clone (+ branch / sparsePath)
 - [ ] R1. `astSearch` deadCode continuation is contract-valid
-- [ ] J1. `jevReasoning` (gated) · [ ] J2. `jevScout` (gated)
+- [ ] J1. `jev` — pure Noul / Choice / Score judgment (gated)
 
 ---
 
@@ -368,21 +368,36 @@ require `uri` + (`symbolName`+`lineHint`) **or** `position`. `documentSymbols`/
 
 ---
 
-## J1 / J2. jev tools (gated)
+## J1. jev (gated)
 
-`jevReasoning` and `jevScout` are **not** in the default MCP catalog; they need
-`OCTOCODE_JEV_KEY` + network. The runnable path is the CLI at
-`skills/octocode-jev-reasoning-loop/scripts/jev.mjs` (typed decision contract).
+`jev` is the only Jev tool. MCP exposes it when runtime configuration resolves
+`OCTOCODE_JEV_KEY`; live evaluation also requires provider access. Model selection
+belongs to runtime configuration, never the request.
 
-- **J2 `jevScout`** query: required `reasoning`, `claim`, `source`.
-- **J1 `jevReasoning`** query: required `reasoning`, `willChangeAction`,
-  `directCheck`, `deliberation`, `route`, `state` (see the reasoning-loop skill;
-  or drive `jev.mjs evaluate` with `{state, questions}`).
+Inspect and execute through the built CLI:
 
-**PASS:** a typed decision/triage object returns. Non-2xx/network errors are
-env-limited (missing key), not wiring failures — note rather than fail.
+```bash
+node "$NODECLI" tools jev --scheme --scheme-view query --json --compact
+node "$NODECLI" tools jev --input request.json --json --compact
+```
 
-- [ ] J1 jevReasoning  [ ] J2 jevScout
+`request.json` requires `{state, questions}`. Supply evidence as state and
+independent Noul, Choice, or Score questions with explicit instructions. Optional
+`sources` maps names to local `{type:"local",path}` or GitHub
+`{type:"github",owner,repo,path,ref}` descriptors, with optional paired line bounds.
+Bodies go directly to Jev; results include source/hash/byte receipts. No workflow
+route, model, or top-level reasoning fields.
+
+- [ ] Mixed primitive call returns typed answers, model, and usage.
+- [ ] Source-reference calls return receipts without source bodies; unreadable,
+      out-of-policy and over-budget sources fail before the Jev request.
+- [ ] Unknown root fields, missing instructions, empty questions, and invalid
+      primitive cardinalities fail before provider access.
+- [ ] Returned judgments match fixed expected outcomes on held-out evidence;
+      include insufficient-evidence and conflicting-evidence cases.
+- [ ] Report CLI latency and provider input/output tokens separately from host
+      prompt/discovery tokens. Missing key or provider failure is unverified,
+      never a quality pass.
 
 ---
 

@@ -115,6 +115,52 @@ fn wait_for_graceful_exit_kills_a_process_that_ignores_the_window() {
 }
 
 #[test]
+fn graceful_exit_sweeps_process_group_on_the_clean_exit_path_too() {
+    // The bug: the process-group sweep ran ONLY on the timeout branch, so a
+    // server that exits cleanly leaked its descendants (proc-macro-srv,
+    // cargo/build scripts, clangd workers). The sweep must run on BOTH paths;
+    // the hard kill only when the process outlived the window.
+    let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+    runtime.block_on(async {
+        // Clean-exit path: exited == true. Sweep MUST run; hard-kill MUST NOT.
+        let swept = std::cell::Cell::new(0u32);
+        let hard_killed = std::cell::Cell::new(0u32);
+        finish_graceful_exit(
+            true,
+            || swept.set(swept.get() + 1),
+            || async { hard_killed.set(hard_killed.get() + 1) },
+        )
+        .await;
+        assert_eq!(
+            swept.get(),
+            1,
+            "process-group sweep must run on the clean-exit path"
+        );
+        assert_eq!(
+            hard_killed.get(),
+            0,
+            "no hard kill when the process exited on its own"
+        );
+
+        // Timeout path: exited == false. Both sweep and hard-kill run.
+        let swept = std::cell::Cell::new(0u32);
+        let hard_killed = std::cell::Cell::new(0u32);
+        finish_graceful_exit(
+            false,
+            || swept.set(swept.get() + 1),
+            || async { hard_killed.set(hard_killed.get() + 1) },
+        )
+        .await;
+        assert_eq!(swept.get(), 1, "sweep still runs on the timeout path");
+        assert_eq!(
+            hard_killed.get(),
+            1,
+            "a process that outlived the window is hard-killed"
+        );
+    });
+}
+
+#[test]
 fn content_modified_detected_by_error_code() {
     let error = Error::new(
         Status::GenericFailure,
@@ -310,6 +356,61 @@ fn graph_server_receipt_is_stable_without_exposing_session_handles() {
     assert!(!first.configuration_digest.is_empty());
     assert!(first.capabilities.is_empty());
     assert_eq!(client.document_version("/workspace/src/lib.rs"), None);
+}
+
+#[test]
+fn open_documents_evicts_least_recently_used_when_over_cap() {
+    // A long session must not grow `open_docs` (and the server-side document
+    // set) without bound. Over the cap, the least-recently-synced document is
+    // evicted and its URI is returned so the caller can emit a `didClose`.
+    let mut docs = OpenDocuments::new(2);
+
+    let (version_a, evicted) = docs.reserve("file:///a");
+    assert_eq!(version_a, 1);
+    assert!(evicted.is_none());
+
+    let (_, evicted) = docs.reserve("file:///b");
+    assert!(evicted.is_none());
+    assert_eq!(docs.len(), 2);
+
+    // Touch `a` so `b` becomes the least-recently-used document.
+    let (version_a2, evicted) = docs.reserve("file:///a");
+    assert_eq!(version_a2, 2, "a re-open bumps the document version");
+    assert!(evicted.is_none());
+
+    // Opening a third distinct document exceeds the cap: `b` (LRU) is evicted
+    // and returned as the didClose target; the map stays bounded.
+    let (version_c, evicted) = docs.reserve("file:///c");
+    assert_eq!(version_c, 1);
+    assert_eq!(
+        evicted.as_deref(),
+        Some("file:///b"),
+        "the least-recently-used document is the eviction/didClose target"
+    );
+    assert_eq!(docs.len(), 2, "the open-document map is bounded by the cap");
+    assert_eq!(docs.version("file:///b"), None);
+    assert_eq!(docs.version("file:///a"), Some(2));
+    assert_eq!(docs.version("file:///c"), Some(1));
+
+    // The currently-syncing document is never chosen as its own eviction victim.
+    let (_, evicted) = docs.reserve("file:///c");
+    assert_ne!(evicted.as_deref(), Some("file:///c"));
+}
+
+#[test]
+fn open_documents_rollback_restores_prior_version_state() {
+    let mut docs = OpenDocuments::new(4);
+    // A failed first sync (didOpen) rolls the URI back out entirely.
+    let (v1, _) = docs.reserve("file:///a");
+    docs.rollback("file:///a", v1);
+    assert_eq!(docs.version("file:///a"), None);
+
+    // A failed later sync (didChange) rolls the version back by one.
+    docs.reserve("file:///b");
+    let (v2, _) = docs.reserve("file:///b");
+    assert_eq!(v2, 2);
+    docs.rollback("file:///b", v2);
+    assert_eq!(docs.version("file:///b"), Some(1));
 }
 
 fn temp_file(name: &str) -> PathBuf {

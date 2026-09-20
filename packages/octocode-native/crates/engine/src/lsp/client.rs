@@ -24,6 +24,12 @@ const CONTENT_MODIFIED_RETRY_DELAY_MS: u64 = 500;
 const STDERR_RING_CAPACITY: usize = 100;
 const STDERR_LINE_MAX_CHARS: usize = 2_000;
 const MAX_SNIPPET_SOURCE_BYTES: u64 = 1_000_000;
+/// Upper bound on documents kept in the `didOpen` lifecycle at once. Without a
+/// cap, `open_docs` (and the server-side document set it mirrors) grows
+/// monotonically over a long session until the server's RLIMIT_AS / Job memory
+/// cap kills it. When exceeded, the least-recently-synced document is evicted
+/// and a `didClose` is issued for it.
+const MAX_OPEN_DOCUMENTS: usize = 64;
 /// Bound on how long `stop()` waits for the server to exit on its own after
 /// `exit` before escalating to a hard kill. Keeps the common (graceful) path
 /// from discarding the exit status while still bounding worst-case shutdown
@@ -52,13 +58,37 @@ const LSP_SERVER_ENV_ALLOWLIST: &[&str] = &[
 /// Returns `true` if the process exited within `timeout_duration` without
 /// needing to be killed.
 async fn wait_for_graceful_exit(child: &mut Child, timeout_duration: Duration) -> bool {
-    match timeout(timeout_duration, child.wait()).await {
-        Ok(_) => true,
-        Err(_) => {
-            group_kill(child);
+    // Capture the group-leader pid BEFORE reaping: once `child.wait()` resolves,
+    // `Child::id()` returns `None` and the group can no longer be swept, so a
+    // clean-exit sweep would otherwise be a silent no-op.
+    let pid = child.id();
+    let exited = timeout(timeout_duration, child.wait()).await.is_ok();
+    finish_graceful_exit(
+        exited,
+        || group_kill_pid(pid),
+        || async {
             let _ = child.kill().await;
-            false
-        }
+        },
+    )
+    .await;
+    exited
+}
+
+/// Post-wait teardown shared by `wait_for_graceful_exit`. Runs the process-group
+/// sweep UNCONDITIONALLY — descendants (proc-macro-srv, cargo/build scripts,
+/// clangd workers) must be reaped on the clean-exit path too, not only on
+/// timeout — and hard-kills the leader only when it outlived the graceful
+/// window. Split out with injected `sweep_group`/`hard_kill` so the
+/// "sweep always runs" contract is unit-testable without a real child process.
+async fn finish_graceful_exit<S, K, KFut>(exited: bool, mut sweep_group: S, hard_kill: K)
+where
+    S: FnMut(),
+    K: FnOnce() -> KFut,
+    KFut: std::future::Future<Output = ()>,
+{
+    sweep_group();
+    if !exited {
+        hard_kill().await;
     }
 }
 
@@ -80,7 +110,15 @@ fn configure_lsp_process_group(_command: &mut tokio::process::Command) {}
 /// Object handles tree teardown when the guard is dropped.
 #[cfg(unix)]
 fn group_kill(child: &Child) {
-    if let Some(pid) = child.id() {
+    group_kill_pid(child.id());
+}
+
+/// Group-kill by a previously-captured pid. Callers that have already reaped the
+/// child (e.g. after a graceful `child.wait()`) must use this, because
+/// `Child::id()` returns `None` post-reap and would make the sweep a no-op.
+#[cfg(unix)]
+fn group_kill_pid(pid: Option<u32>) {
+    if let Some(pid) = pid {
         // SAFETY: the child is spawned as its own process-group leader (see
         // `configure_lsp_process_group`), so the negative pid targets exactly
         // that group. `kill` with an invalid/dead group is a harmless no-op.
@@ -92,6 +130,9 @@ fn group_kill(child: &Child) {
 
 #[cfg(not(unix))]
 fn group_kill(_child: &Child) {}
+
+#[cfg(not(unix))]
+fn group_kill_pid(_pid: Option<u32>) {}
 
 async fn lsp_spawn_program(validated_command: &str, args: &mut Vec<String>) -> Result<String> {
     if executable_has_node_shebang(validated_command).await? {
@@ -140,6 +181,99 @@ async fn executable_has_node_shebang(path: &str) -> Result<bool> {
     Ok(first_line.starts_with("#!") && first_line.contains("node"))
 }
 
+/// Bounded open-document lifecycle bookkeeping: `uri -> last sent version`
+/// plus LRU recency. Capped so a long session cannot grow the open-document set
+/// (and the mirrored server-side document memory) without bound. All state is
+/// synchronous/pure so the open/evict decision is unit-testable without a real
+/// server; the async `didClose` for an evicted URI is issued by the caller.
+struct OpenDocuments {
+    versions: HashMap<String, i32>,
+    /// Recency order, least-recently-synced at the front.
+    lru: VecDeque<String>,
+    cap: usize,
+}
+
+impl OpenDocuments {
+    fn new(cap: usize) -> Self {
+        Self {
+            versions: HashMap::new(),
+            lru: VecDeque::new(),
+            cap: cap.max(1),
+        }
+    }
+
+    fn clear(&mut self) {
+        self.versions.clear();
+        self.lru.clear();
+    }
+
+    fn version(&self, uri: &str) -> Option<i32> {
+        self.versions.get(uri).copied()
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.versions.len()
+    }
+
+    /// Reserve the next version for a sync of `uri`, refreshing its recency.
+    /// Returns the version to send and, when the cap is exceeded, the URI of the
+    /// evicted least-recently-used document (never the document being synced),
+    /// which the caller must `didClose`.
+    fn reserve(&mut self, uri: &str) -> (i32, Option<String>) {
+        let version = self.versions.get(uri).copied().unwrap_or(0) + 1;
+        self.versions.insert(uri.to_owned(), version);
+        self.touch(uri);
+        let evicted = if self.versions.len() > self.cap {
+            self.evict_lru(uri)
+        } else {
+            None
+        };
+        (version, evicted)
+    }
+
+    fn touch(&mut self, uri: &str) {
+        self.lru.retain(|candidate| candidate != uri);
+        self.lru.push_back(uri.to_owned());
+    }
+
+    /// Evict the least-recently-used document, skipping the one currently being
+    /// synced so a cap of 1 never closes the document we are opening.
+    fn evict_lru(&mut self, current: &str) -> Option<String> {
+        while let Some(candidate) = self.lru.pop_front() {
+            if candidate == current {
+                self.lru.push_back(candidate);
+                if self.lru.len() <= 1 {
+                    return None;
+                }
+                continue;
+            }
+            self.versions.remove(&candidate);
+            return Some(candidate);
+        }
+        None
+    }
+
+    /// Undo a `reserve` whose notification failed to send, restoring the prior
+    /// version (or removing the URI entirely for a failed first `didOpen`).
+    fn rollback(&mut self, uri: &str, applied_version: i32) {
+        if self.versions.get(uri).copied() != Some(applied_version) {
+            return;
+        }
+        if applied_version <= 1 {
+            self.versions.remove(uri);
+            self.lru.retain(|candidate| candidate != uri);
+        } else {
+            self.versions.insert(uri.to_owned(), applied_version - 1);
+        }
+    }
+
+    fn remove(&mut self, uri: &str) -> bool {
+        self.lru.retain(|candidate| candidate != uri);
+        self.versions.remove(uri).is_some()
+    }
+}
+
 #[cfg_attr(feature = "napi-addon", napi)]
 #[derive(Clone)]
 pub struct NativeLspClient {
@@ -168,10 +302,13 @@ struct NativeLspClientInner {
     readiness: StdMutex<Option<String>>,
     progress: Arc<ProgressTracker>,
     active_requests: AtomicUsize,
-    /// Open-document lifecycle state: `uri -> last sent version`. Drives the
-    /// LSP `didOpen` (once) → `didChange` (incrementing version) → `didClose`
-    /// protocol so servers never see a second `didOpen` for the same document.
-    open_docs: StdMutex<HashMap<String, i32>>,
+    /// Open-document lifecycle state: `uri -> last sent version`, bounded by an
+    /// LRU cap. Drives the LSP `didOpen` (once) → `didChange` (incrementing
+    /// version) → `didClose` protocol so servers never see a second `didOpen`
+    /// for the same document, and evicts the least-recently-synced document
+    /// (with a `didClose`) once the cap is exceeded so the set cannot grow
+    /// without bound over a long session.
+    open_docs: StdMutex<OpenDocuments>,
     /// Windows: owns the Job Object enforcing the server's memory cap; must
     /// outlive the child and be released only after the child is reaped
     /// (closing a kill-on-close job hard-kills the tree). Unit on Unix, where
@@ -200,7 +337,7 @@ impl NativeLspClient {
                 readiness: StdMutex::new(None),
                 progress: ProgressTracker::new(),
                 active_requests: AtomicUsize::new(0),
-                open_docs: StdMutex::new(HashMap::new()),
+                open_docs: StdMutex::new(OpenDocuments::new(MAX_OPEN_DOCUMENTS)),
                 memory_cap_guard: StdMutex::new(None),
             }),
         }
@@ -508,7 +645,7 @@ impl NativeLspClient {
             .open_docs
             .lock()
             .ok()
-            .and_then(|documents| documents.get(&uri).copied())
+            .and_then(|documents| documents.version(&uri))
             .map(i64::from)
     }
 
@@ -563,16 +700,16 @@ impl NativeLspClient {
 
         // Decide didOpen-vs-didChange and reserve the version under the lock,
         // then release it before awaiting the notify (never hold a std mutex
-        // across an await).
-        let next_version = {
+        // across an await). `reserve` also enforces the LRU cap, handing back
+        // the URI of any evicted least-recently-synced document so we can close
+        // it out below and keep the open-document set bounded.
+        let (next_version, evicted) = {
             let mut open_docs = self
                 .inner
                 .open_docs
                 .lock()
                 .map_err(|_| Error::new(Status::GenericFailure, "open_docs lock poisoned"))?;
-            let version = open_docs.get(&uri).copied().unwrap_or(0) + 1;
-            open_docs.insert(uri.clone(), version);
-            version
+            open_docs.reserve(&uri)
         };
 
         let notification = if next_version == 1 {
@@ -597,14 +734,21 @@ impl NativeLspClient {
         };
         if notification.is_err() {
             if let Ok(mut open_docs) = self.inner.open_docs.lock() {
-                if open_docs.get(&uri).copied() == Some(next_version) {
-                    if next_version == 1 {
-                        open_docs.remove(&uri);
-                    } else {
-                        open_docs.insert(uri, next_version - 1);
-                    }
-                }
+                open_docs.rollback(&uri, next_version);
             }
+        }
+        // Close the document the cap evicted (if any) so both our bookkeeping
+        // and the server's document set stay bounded. Best-effort: a stopped or
+        // wedged connection makes this moot, and it must not mask the primary
+        // notification result.
+        if let Some(evicted_uri) = evicted {
+            connection.clear_push_diagnostics(&evicted_uri);
+            let _ = connection
+                .notify(
+                    "textDocument/didClose",
+                    json!({ "textDocument": { "uri": evicted_uri } }),
+                )
+                .await;
         }
         notification
     }
@@ -620,7 +764,7 @@ impl NativeLspClient {
                 .open_docs
                 .lock()
                 .map_err(|_| Error::new(Status::GenericFailure, "open_docs lock poisoned"))?;
-            open_docs.remove(&uri).is_some()
+            open_docs.remove(&uri)
         };
         if !was_open {
             return Ok(());
@@ -813,8 +957,7 @@ impl NativeLspClient {
             .open_docs
             .lock()
             .map_err(|_| Error::new(Status::GenericFailure, "open_docs lock poisoned"))?
-            .get(&uri)
-            .copied()
+            .version(&uri)
             .map(i64::from);
         Ok(connection
             .wait_for_push_diagnostics(&uri, timeout_ms.unwrap_or(1_500).min(10_000), min_version)

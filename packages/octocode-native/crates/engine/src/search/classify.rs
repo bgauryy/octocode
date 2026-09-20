@@ -325,6 +325,7 @@ mod tests {
             count: None,
             kind: None,
             score_hint: None,
+            original_chars: None,
         }
     }
 

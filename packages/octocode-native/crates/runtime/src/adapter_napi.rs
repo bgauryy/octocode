@@ -41,6 +41,20 @@ fn scrub_error_payload(payload: &mut Value) {
     });
 }
 
+/// Contain a panic in a synchronous boundary method. napi (v3) does not wrap
+/// synchronous `#[napi]` calls in `catch_unwind`, so an unguarded panic here
+/// (deep in a dependency, or on pathological input) would unwind across the FFI
+/// boundary and abort the entire host process. Converting it to a catchable
+/// error mirrors `octocode_engine::portable::guard_panic`.
+fn boundary_guard<T>(what: &str, call: impl FnOnce() -> napi::Result<T>) -> napi::Result<T> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(call)).unwrap_or_else(|_| {
+        Err(napi::Error::new(
+            napi::Status::GenericFailure,
+            format!("{what} failed on pathological input"),
+        ))
+    })
+}
+
 fn boundary_error(error: RuntimeError) -> napi::Error {
     let status = match error.code.as_str() {
         "invalidInput" | "securityValidationFailed" | "invalidCursor" | "staleCursor" => {
@@ -71,14 +85,16 @@ fn boundary_error(error: RuntimeError) -> napi::Error {
 impl NativeRuntime {
     #[napi(constructor)]
     pub fn new(options: Option<Value>) -> napi::Result<Self> {
-        let options: HostOptions = match options {
-            Some(value) => serde_json::from_value(value).map_err(|_| {
-                napi::Error::new(napi::Status::InvalidArg, "Invalid native host options")
-            })?,
-            None => HostOptions::default(),
-        };
-        Ok(Self {
-            runtime: Arc::new(ToolRuntime::from_host(options).map_err(boundary_error)?),
+        boundary_guard("NativeRuntime::new", || {
+            let options: HostOptions = match options {
+                Some(value) => serde_json::from_value(value).map_err(|_| {
+                    napi::Error::new(napi::Status::InvalidArg, "Invalid native host options")
+                })?,
+                None => HostOptions::default(),
+            };
+            Ok(Self {
+                runtime: Arc::new(ToolRuntime::from_host(options).map_err(boundary_error)?),
+            })
         })
     }
 
@@ -92,7 +108,7 @@ impl NativeRuntime {
     }
     #[napi]
     pub fn catalog(&self) -> napi::Result<Value> {
-        self.runtime.catalog().map_err(boundary_error)
+        boundary_guard("catalog", || self.runtime.catalog().map_err(boundary_error))
     }
     #[napi]
     pub fn execute<'env>(
@@ -140,30 +156,36 @@ impl NativeRuntime {
 
     #[napi]
     pub fn store_credentials(&self, value: Value) -> napi::Result<Value> {
-        let credentials: StoredCredentials = serde_json::from_value(value).map_err(|_| {
-            napi::Error::new(napi::Status::InvalidArg, "Invalid stored credentials")
-        })?;
-        store_platform_credential(&credentials).map_err(credential_error)?;
-        Ok(json!({ "success": true }))
+        boundary_guard("store_credentials", || {
+            let credentials: StoredCredentials = serde_json::from_value(value).map_err(|_| {
+                napi::Error::new(napi::Status::InvalidArg, "Invalid stored credentials")
+            })?;
+            store_platform_credential(&credentials).map_err(credential_error)?;
+            Ok(json!({ "success": true }))
+        })
     }
 
     #[napi]
     pub fn get_credentials(&self, hostname: Option<String>) -> napi::Result<Value> {
-        match load_stored_credentials(&default_hostname(hostname)).map_err(credential_error)? {
-            Some(credentials) => serde_json::to_value(credentials).map_err(|_| {
-                napi::Error::new(
-                    napi::Status::GenericFailure,
-                    "Failed to serialize stored credentials",
-                )
-            }),
-            None => Ok(Value::Null),
-        }
+        boundary_guard("get_credentials", || {
+            match load_stored_credentials(&default_hostname(hostname)).map_err(credential_error)? {
+                Some(credentials) => serde_json::to_value(credentials).map_err(|_| {
+                    napi::Error::new(
+                        napi::Status::GenericFailure,
+                        "Failed to serialize stored credentials",
+                    )
+                }),
+                None => Ok(Value::Null),
+            }
+        })
     }
 
     #[napi]
     pub fn delete_credentials(&self, hostname: Option<String>) -> napi::Result<Value> {
-        delete_platform_credential(&default_hostname(hostname)).map_err(credential_error)?;
-        Ok(json!({ "success": true }))
+        boundary_guard("delete_credentials", || {
+            delete_platform_credential(&default_hostname(hostname)).map_err(credential_error)?;
+            Ok(json!({ "success": true }))
+        })
     }
 
     #[napi]

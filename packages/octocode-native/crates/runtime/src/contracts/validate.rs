@@ -330,8 +330,6 @@ fn apply_validation_rules(rules: &Value, input: &Value) -> Result<(), ContractVa
             Some("ast_topology") => validate_topology_queries(input),
             Some("history_keyword_scope") => validate_history_keyword_scope(input),
             Some("lsp_rust_context") => validate_lsp_queries(input),
-            Some("jev_reasoning") => validate_jev_queries(input),
-            Some("jev_scout") => validate_jev_scout_queries(input),
             Some("ast_rewrite_rule") => validate_ast_rewrite_rules(input),
             Some("history_content_selection") => validate_history_content_selection(input),
             Some(opcode) => {
@@ -477,323 +475,6 @@ fn validate_ast_rewrite_rules(input: &Value) -> Result<(), ContractValidationErr
                     "experimental rules require a rewrite transformation",
                 ));
             }
-        }
-    }
-    Ok(())
-}
-
-// jevScout cross-field rules the JSON schema cannot express: source exclusivity,
-// exactly one primary dimension with unique keys, the 24-question budget, and
-// no absolute candidate paths. Mirrors the core contract's superRefine; the
-// tool re-validates fail-closed at execution.
-fn validate_jev_scout_queries(input: &Value) -> Result<(), ContractValidationError> {
-    for (index, query) in query_values(input) {
-        let source = &query["source"];
-        let local = source.get("local");
-        let items = source.get("items");
-        if local.is_some() == items.is_some() {
-            return Err(issue(
-                "jevScout.source",
-                vec!["queries".into(), index.to_string(), "source".into()],
-                "source requires exactly one of local or items".to_string(),
-            ));
-        }
-        let pool_len = local
-            .and_then(|l| l.get("candidates"))
-            .or(items)
-            .and_then(Value::as_array)
-            .map_or(0, Vec::len);
-        if let Some(candidates) = local
-            .and_then(|l| l.get("candidates"))
-            .and_then(Value::as_array)
-        {
-            let mut paths = std::collections::HashSet::new();
-            if !candidates
-                .iter()
-                .filter_map(Value::as_str)
-                .all(|path| paths.insert(path))
-            {
-                return Err(issue(
-                    "jevScout.candidates",
-                    vec![
-                        "queries".into(),
-                        index.to_string(),
-                        "source".into(),
-                        "local".into(),
-                        "candidates".into(),
-                    ],
-                    "candidate paths must be unique".to_string(),
-                ));
-            }
-            for candidate in candidates {
-                if candidate
-                    .as_str()
-                    .is_some_and(|path| path.starts_with('/') || path.starts_with('~'))
-                {
-                    return Err(issue(
-                        "jevScout.candidates",
-                        vec![
-                            "queries".into(),
-                            index.to_string(),
-                            "source".into(),
-                            "local".into(),
-                            "candidates".into(),
-                        ],
-                        "candidate paths must be root-relative, not absolute".to_string(),
-                    ));
-                }
-            }
-        }
-        if let Some(items) = items.and_then(Value::as_array) {
-            let mut ids = std::collections::HashSet::new();
-            if !items
-                .iter()
-                .filter_map(|item| item.get("id").and_then(Value::as_str))
-                .all(|id| ids.insert(id))
-            {
-                return Err(issue(
-                    "jevScout.items",
-                    vec![
-                        "queries".into(),
-                        index.to_string(),
-                        "source".into(),
-                        "items".into(),
-                    ],
-                    "item IDs must be unique".to_string(),
-                ));
-            }
-        }
-        if let Some(dimensions) = query.get("dimensions").and_then(Value::as_array) {
-            if query.get("taxonomy").is_some() {
-                return Err(issue(
-                    "jevScout.taxonomy",
-                    vec!["queries".into(), index.to_string(), "taxonomy".into()],
-                    "Use taxonomy or dimensions, not both.".to_string(),
-                ));
-            }
-            let primaries = dimensions
-                .iter()
-                .filter(|d| d.get("role").and_then(Value::as_str) == Some("primary"))
-                .count();
-            if primaries != 1 {
-                return Err(issue(
-                    "jevScout.dimensions",
-                    vec!["queries".into(), index.to_string(), "dimensions".into()],
-                    "dimensions require exactly one primary".to_string(),
-                ));
-            }
-            let mut keys = std::collections::HashSet::new();
-            if !dimensions
-                .iter()
-                .filter_map(|d| d.get("key").and_then(Value::as_str))
-                .all(|key| keys.insert(key))
-            {
-                return Err(issue(
-                    "jevScout.dimensions",
-                    vec!["queries".into(), index.to_string(), "dimensions".into()],
-                    "dimension keys must be unique".to_string(),
-                ));
-            }
-            if pool_len * dimensions.len() > 24 {
-                return Err(issue(
-                    "jevScout.dimensions",
-                    vec!["queries".into(), index.to_string(), "dimensions".into()],
-                    "candidates x dimensions must not exceed 24 questions".to_string(),
-                ));
-            }
-        }
-    }
-    Ok(())
-}
-
-fn validate_jev_queries(input: &Value) -> Result<(), ContractValidationError> {
-    fn ids(values: &Value) -> Vec<&str> {
-        values
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|value| value.get("id").and_then(Value::as_str))
-            .collect()
-    }
-    fn unique(values: &[&str]) -> bool {
-        let mut seen = std::collections::HashSet::new();
-        values.iter().all(|value| seen.insert(*value))
-    }
-    for (index, query) in query_values(input) {
-        let state = &query["state"];
-        match query["route"].as_str() {
-            Some("hypothesis_triage") => {
-                let hypothesis_ids = ids(&state["hypotheses"]);
-                let evidence_ids = ids(&state["evidence"]);
-                let check_ids = ids(&state["nextChecks"]);
-                for (field, values) in [
-                    ("hypotheses", &hypothesis_ids),
-                    ("evidence", &evidence_ids),
-                    ("nextChecks", &check_ids),
-                ] {
-                    if !unique(values) {
-                        return Err(issue(
-                            "jev.references",
-                            vec![
-                                "queries".into(),
-                                index.to_string(),
-                                "state".into(),
-                                field.into(),
-                            ],
-                            format!("{field} IDs must be unique"),
-                        ));
-                    }
-                }
-                if let Some(checks) = state["nextChecks"].as_array() {
-                    for (check_index, check) in checks.iter().enumerate() {
-                        let mut discriminates = false;
-                        if let Some(outcomes) = check["expectedOutcomes"].as_array() {
-                            for (outcome_index, outcome) in outcomes.iter().enumerate() {
-                                let effects = outcome["effect"].as_object();
-                                if effects.is_some_and(|effects| {
-                                    effects
-                                        .keys()
-                                        .any(|id| !hypothesis_ids.contains(&id.as_str()))
-                                }) {
-                                    return Err(issue(
-                                        "jev.references",
-                                        vec![
-                                            "queries".into(),
-                                            index.to_string(),
-                                            "state".into(),
-                                            "nextChecks".into(),
-                                            check_index.to_string(),
-                                            "expectedOutcomes".into(),
-                                            outcome_index.to_string(),
-                                            "effect".into(),
-                                        ],
-                                        "effects may reference only supplied hypotheses",
-                                    ));
-                                }
-                                if effects.is_some_and(|effects| {
-                                    let mut values = effects.values();
-                                    values
-                                        .next()
-                                        .is_some_and(|first| values.any(|value| value != first))
-                                }) {
-                                    discriminates = true;
-                                }
-                            }
-                        }
-                        if !discriminates {
-                            return Err(issue(
-                                "jev.references",
-                                vec![
-                                    "queries".into(),
-                                    index.to_string(),
-                                    "state".into(),
-                                    "nextChecks".into(),
-                                    check_index.to_string(),
-                                ],
-                                "each check must distinguish at least two hypotheses",
-                            ));
-                        }
-                    }
-                }
-            }
-            Some("reflection_delta") => {
-                let hypothesis_ids = ids(&state["hypotheses"]);
-                if !unique(&hypothesis_ids) {
-                    return Err(issue(
-                        "jev.references",
-                        vec![
-                            "queries".into(),
-                            index.to_string(),
-                            "state".into(),
-                            "hypotheses".into(),
-                        ],
-                        "hypothesis IDs must be unique",
-                    ));
-                }
-                if !state["priorLead"]
-                    .as_str()
-                    .is_some_and(|lead| hypothesis_ids.contains(&lead))
-                {
-                    return Err(issue(
-                        "jev.references",
-                        vec![
-                            "queries".into(),
-                            index.to_string(),
-                            "state".into(),
-                            "priorLead".into(),
-                        ],
-                        "priorLead must identify a supplied hypothesis",
-                    ));
-                }
-            }
-            Some("disputed_inference") => {
-                let evidence_ids = ids(&state["evidence"]);
-                let basis_ids = ids(&state["evidenceBases"]);
-                if !unique(&evidence_ids) || !unique(&basis_ids) {
-                    return Err(issue(
-                        "jev.references",
-                        vec!["queries".into(), index.to_string(), "state".into()],
-                        "evidence and evidence-basis IDs must be unique",
-                    ));
-                }
-                if let Some(bases) = state["evidenceBases"].as_array() {
-                    for (basis_index, basis) in bases.iter().enumerate() {
-                        if basis["evidenceIds"].as_array().is_some_and(|references| {
-                            references
-                                .iter()
-                                .filter_map(Value::as_str)
-                                .any(|id| !evidence_ids.contains(&id))
-                        }) {
-                            return Err(issue(
-                                "jev.references",
-                                vec![
-                                    "queries".into(),
-                                    index.to_string(),
-                                    "state".into(),
-                                    "evidenceBases".into(),
-                                    basis_index.to_string(),
-                                    "evidenceIds".into(),
-                                ],
-                                "evidence bases may reference only supplied evidence",
-                            ));
-                        }
-                    }
-                }
-            }
-            Some("hallucination_gate") => {
-                let evidence_ids = ids(&state["evidence"]);
-                if !unique(&evidence_ids) {
-                    return Err(issue(
-                        "jev.references",
-                        vec![
-                            "queries".into(),
-                            index.to_string(),
-                            "state".into(),
-                            "evidence".into(),
-                        ],
-                        "evidence IDs must be unique",
-                    ));
-                }
-                if let Some(scope) = state["claimScope"].as_str()
-                    && !state["evidence"].as_array().is_some_and(|evidence| {
-                        evidence
-                            .iter()
-                            .any(|item| item["scope"].as_str() == Some(scope))
-                    })
-                {
-                    return Err(issue(
-                        "jev.references",
-                        vec![
-                            "queries".into(),
-                            index.to_string(),
-                            "state".into(),
-                            "claimScope".into(),
-                        ],
-                        "at least one evidence item must match claimScope",
-                    ));
-                }
-            }
-            _ => {}
         }
     }
     Ok(())
@@ -1475,60 +1156,32 @@ mod tests {
     use serde_json::{Value, json};
 
     #[test]
-    fn source_questions_defaults_follow_the_selected_route_without_broadening_admission() {
-        let source = json!({
-            "route": "source_questions",
-            "reasoning": "Check native source-question admission.",
-            "sources": [{"path": "/tmp/source-questions.rs"}],
-            "questions": {"supports": "The supplied source supports this claim."}
-        });
-        let admitted = validate("jevReasoning", json!({"queries": [source.clone()]}))
-            .expect("valid source-question envelope");
-        let query = &admitted["queries"][0];
-        assert_eq!(query["debug"], false);
-        assert_eq!(query["maxChars"], 24000);
-        assert!(query.get("evidenceFresh").is_none());
-        assert!(query.get("jevCallsAtCrossroad").is_none());
-        let prepared = prepare_and_validate(
-            "jevReasoning",
-            source.clone(),
-            PrepareOptions {
-                source_label: "fixture",
-            },
-        )
-        .expect("complete native preparation and validation");
-        assert_eq!(prepared["maxChars"], 24000);
-        assert!(prepared.get("evidenceFresh").is_none());
-        for field in ["evidenceFresh", "jevCallsAtCrossroad", "unknown"] {
-            let mut invalid = source.clone();
-            invalid[field] = json!(true);
-            assert!(validate("jevReasoning", json!({"queries": [invalid]})).is_err());
+    fn pure_jev_accepts_only_state_and_questions_without_metadata_defaults() {
+        let query = json!({"state": {"observation": true}, "questions": {
+            "q": {"type": "noul", "instructions": "Assess supplied state"}
+        }});
+        let prepared = prepare_and_validate("jev", query.clone(), PrepareOptions::default())
+            .expect("pure Jev query needs no workflow fields");
+        assert_eq!(prepared, query);
+        let validated =
+            validate("jev", json!({"queries": [query.clone()]})).expect("pure Jev envelope");
+        assert_eq!(validated["queries"][0], query);
+        for field in ["model", "reasoning", "goal", "debug", "route", "sources"] {
+            let mut invalid = query.clone();
+            invalid[field] = json!("not part of the pure protocol");
+            assert!(
+                prepare_and_validate("jev", invalid, PrepareOptions::default()).is_err(),
+                "{field}"
+            );
         }
-        let mut empty_questions = source;
-        empty_questions["questions"] = json!({});
-        assert!(validate("jevReasoning", json!({"queries": [empty_questions]})).is_err());
-    }
-
-    #[test]
-    fn legacy_jev_route_defaults_and_explicit_values_are_preserved() {
-        let legacy = json!({
-            "route": "hallucination_gate", "reasoning": "Check legacy default admission.",
-            "willChangeAction": true, "directCheck": {"available": false},
-            "state": {"goal": "Assess a claim.", "claim": "The source supports this claim.",
-                "evidence": [{"id": "E1", "source": "fixture.rs:L1", "scope": "fixture", "content": "Observed source text."}]}
-        });
-        let admitted = validate("jevReasoning", json!({"queries": [legacy.clone()]}))
-            .expect("legacy route remains valid");
-        assert_eq!(admitted["queries"][0]["debug"], false);
-        assert_eq!(admitted["queries"][0]["evidenceFresh"], true);
-        assert_eq!(admitted["queries"][0]["jevCallsAtCrossroad"], 0);
-        let mut explicit = legacy;
-        explicit["evidenceFresh"] = json!(false);
-        explicit["jevCallsAtCrossroad"] = json!(1);
-        let admitted = validate("jevReasoning", json!({"queries": [explicit]}))
-            .expect("explicit legacy values remain valid");
-        assert_eq!(admitted["queries"][0]["evidenceFresh"], false);
-        assert_eq!(admitted["queries"][0]["jevCallsAtCrossroad"], 1);
+        for field in ["state", "questions"] {
+            let mut invalid = query.clone();
+            invalid.as_object_mut().expect("query object").remove(field);
+            assert!(
+                prepare_and_validate("jev", invalid, PrepareOptions::default()).is_err(),
+                "missing {field}"
+            );
+        }
     }
 
     #[test]

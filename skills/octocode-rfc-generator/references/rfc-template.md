@@ -1,18 +1,18 @@
 # RFC.md template — decision body
 
-Load when writing `RFC.md`. Why: this reviewer-facing document is the single source of truth for goals, scope, and decision; freeze it when accepted.
-Implementation detail belongs in `rfc-implementation.md`, metrics in `rfc-kpi.md`, and source inventories in `rfc-resources.md`. On (re)read against live code, insert the audit block right after the header fields: `references/rfc-audit.md`.
+Load when writing `RFC.md`. Why: this reviewer-facing document owns goals, scope, and decision; freeze it when accepted. Implementation belongs in `rfc-implementation.md`, metrics in `rfc-kpi.md`, sources in `rfc-resources.md`, and live-code audit directly after the header via `references/rfc-audit.md`.
 
 ```markdown
 # RFC: {Title}
 
 Status: Draft | In Review | Accepted | Rejected | Superseded
+Recommendation: none | final
 Decision type: Reversible | Irreversible
 Author(s): {names}
 Created / Updated: {dates}
 
 ## Summary
-One paragraph that states the decision and why it matters.
+For a Draft, state the decision being investigated, open blockers and no final recommendation. After blockers close, state the recommended decision and why it matters.
 
 ## Goals and Non-Goals
 - Goal: {checkable outcome}
@@ -31,13 +31,15 @@ Define architecture, APIs/contracts, interactions, edge cases, compatibility, an
 List cost, complexity, operations, performance, learning, migration, blast radius, failure trigger, and mitigation.
 
 ## Rationale and Alternatives
-Explain why this design wins. Compare viable options, including do-nothing when relevant, on the criteria that can change the decision.
+Comparison outcome: unresolved | final
+During investigation compare conditional tradeoffs, including do-nothing when viable, and name reversal conditions and deciding checks. Do not select an overall winner while blockers remain. After blockers close, explain why the recommended design wins on the owner criteria.
 
 ## Prior Art
 State decision-relevant lessons from local systems, ecosystem implementations, standards, or research. Put the inventory in `RESOURCES.md`.
 
 ## Unresolved Questions
-Decision blockers: none. A decision blocker must close before comparing options or recommending; while one remains, keep Status `Draft` and do not present a recommendation.
+Decision blockers: open | none | resolved. Select the truthful value. While any remain, keep `Status: Draft` and `Recommendation: none`; compare options provisionally and list each blocker with owner, evidence gap and next check. Close every blocker before a final recommendation or readiness claim.
+Q1: {open decision blocker, if any} — owner / evidence gap / next check
 - [ ] {non-blocking execution question} — impact / owner / next proof or deferral trigger
 Carry execution questions into `IMPLEMENTATION.md`; resolve them with evidence or defer them explicitly before Ready for Review.
 
@@ -45,6 +47,4 @@ Carry execution questions into `IMPLEMENTATION.md`; resolve them with evidence o
 Optional extensions that remain outside this decision.
 ```
 
-Quality gate: exact citations support non-obvious claims; decision-blocking uncertainty is resolved and remaining uncertainty is explicit; goals and scope appear only here. Every citation states why it matters; option comparisons render as a markdown table; no filler or duplicate phrasing. <!-- style-lint: ignore-line passive-voice -->
-
-Next: when the change touches existing code load `references/rfc-prerequisites.md`; once blockers close and the decision is settled, define separate acceptance with `references/rfc-kpi.md` when warranted, then build with `references/rfc-implementation.md`.
+Quality gate: exact citations support non-obvious claims; Drafts expose blockers, final recommendations resolve them; goals and scope appear only here. Explain why citations matter, render comparisons as a table, and remove filler. Next: existing code → `references/rfc-prerequisites.md`; settled decision → acceptance via `references/rfc-kpi.md` when warranted, then `references/rfc-implementation.md`.

@@ -183,8 +183,12 @@ pub(crate) fn assemble_file(
             // Fast path for the common `context_lines == 0` case: the joined
             // buffer would just be a copy of `line_text`, so truncate it
             // directly and avoid one intermediate allocation per match.
-            let value = if context_lines == 0 {
-                truncate_unicode(&m.line_text, max_snippet)
+            let (value, original_chars) = if context_lines == 0 {
+                let chars = m.line_text.chars().count();
+                (
+                    truncate_unicode(&m.line_text, max_snippet),
+                    (chars > max_snippet).then(|| u32::try_from(chars).unwrap_or(u32::MAX)),
+                )
             } else {
                 let mut joined = String::new();
                 for i in (1..=context_lines).rev() {
@@ -198,7 +202,11 @@ pub(crate) fn assemble_file(
                         push_joined_line(&mut joined, ctx);
                     }
                 }
-                truncate_unicode(&joined, max_snippet)
+                let chars = joined.chars().count();
+                (
+                    truncate_unicode(&joined, max_snippet),
+                    (chars > max_snippet).then(|| u32::try_from(chars).unwrap_or(u32::MAX)),
+                )
             };
 
             RipgrepMatch {
@@ -208,6 +216,7 @@ pub(crate) fn assemble_file(
                 count: None,
                 kind: None,
                 score_hint: None,
+                original_chars,
             }
         })
         .collect();
@@ -449,6 +458,35 @@ mod tests {
         // Reachable only if no overflow/abort occurred.
         assert_eq!(r.files[0].matches[0].line, u32::MAX);
         assert!(r.files[0].matches[0].value.contains("match"));
+    }
+
+    #[test]
+    fn truncated_content_snippet_records_original_char_length() {
+        // Fix 7: a clipped content-view snippet carries the pre-truncation
+        // Unicode length so callers can surface a truncation indicator.
+        let long = "a".repeat(600);
+        let stdout = make_match_line("f.ts", &format!("{long}\n"), 1, 0);
+        let r = parse_ripgrep_json_inner(
+            &stdout,
+            Some(RipgrepParseOptions {
+                context_lines: None,
+                max_snippet_chars: Some(500),
+            }),
+        );
+        assert_eq!(r.files[0].matches[0].original_chars, Some(600));
+    }
+
+    #[test]
+    fn untruncated_content_snippet_has_no_original_char_length() {
+        let stdout = make_match_line("f.ts", "short line\n", 1, 0);
+        let r = parse_ripgrep_json_inner(
+            &stdout,
+            Some(RipgrepParseOptions {
+                context_lines: None,
+                max_snippet_chars: Some(500),
+            }),
+        );
+        assert_eq!(r.files[0].matches[0].original_chars, None);
     }
 
     #[test]

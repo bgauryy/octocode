@@ -1,6 +1,8 @@
-# Jev benchmark — historical experiments
+# Jev benchmarks — whole-task results and historical experiments
 
-These experiments use different protocols and meters and do not establish current whole-task savings. Later five-bug and six-task host-metered evaluations did not show total-token savings. The current source-path protocol is under evaluation; keep host and provider usage separate and verify patch quality before claiming an efficiency win.
+**Current interface:** `octocode tools jev` is the only Jev tool. Legacy routes and standalone skill runners referenced below are historical and no longer runnable in the current checkout. [Single-tool evaluation](../.octocode/octocode-eval-benchmark/jev-single-tool-2026-09-20/REPORT.md).
+
+These experiments use different protocols and meters and do not establish current whole-task savings. Later five-bug and six-task host-metered evaluations did not show total-token savings. The completed source-path experiment also failed its host-token target. Keep host and provider usage separate and verify patch quality before claiming an efficiency win.
 
 Audience: users deciding when to reach for the Jev tools, and developers
 extending or re-running the benchmark. Jev is a typed probabilistic judgment
@@ -8,6 +10,43 @@ service: you send bounded state plus typed questions (`noul` → P(yes),
 `choice` → a distribution over named options, `score` → a distribution over
 ordered levels); deterministic code applies the answer. Jev supplies no facts
 and its output is never citable evidence.
+
+## Source-path offloading: five paired bug fixes (2026-09-20)
+
+Ten fresh agents used the same frozen local CLI, model and budgets. Five assisted
+agents read the skill and sent Jev unread paths before implementation bodies
+entered their context. All five actually received judgments before dependent
+reads. This measures a prescribed workflow, not optional adoption.
+
+| Measured total | CLI only | CLI + Jev | Change |
+|---|---:|---:|---:|
+| Host input + output, including cached input | 1,690,815 | 2,734,508 | +61.73% |
+| Uncached host input + output | 225,855 | 292,908 | +29.69% |
+| CLI calls | 46 | 72 | +56.52% |
+| Summed solver seconds | 787.00 | 953.02 | +21.10% |
+| Supplied-test passes | 5/5 | 5/5 | equal |
+| Independently accepted sound fixes | 3/5 | 3/5 | equal |
+
+Provider usage is separate: 31,268 input + 950 output tokens across five calls.
+Independent review rejects both minimatch fixes for severe regex backtracking
+and both permissive-pattern fixes for invalid conditional annotation leakage.
+Both arms therefore achieve three sound fixes, despite five supplied-test passes. Agents caught two source-refuted
+Jev judgments. Three initial plans stayed unchanged; the others gained bounded
+refinements, with no major fix-branch change demonstrated.
+
+**Reject automatic source-path judgment as a token-saving bug-fix protocol.**
+Offloading worked mechanically, but preparation and subsequent verification
+added work. Prefer a call only when its possible answers can avoid substantial
+reading or change an unresolved action. Creating more answer schemas would not
+address the observed failure.
+
+Limitations: one run per case/arm, five bugs across three repositories, prescribed
+skill/call policy, and common wrapper/catalog repair overhead. Assisted agents
+also incurred schema-selector repair overhead. Concurrent review/build activity
+confounds wall time; the timing difference is not a clean provider-latency effect.
+No universal model ranking or probability calibration is inferred. Full meters,
+patch reviews, frozen manifests and transcripts are retained under
+`.octocode/octocode-eval-benchmark/jev-source-questions/` (see `REPORT.md`).
 
 ## The two tools and when to use each
 
@@ -35,18 +74,14 @@ and Jev provider tokens are separate meters billed to different services.
 | **WITHOUT** Jev (own reasoning + grep/reads) | 9/9 | 54,895 | 0 | 27 | 100 s |
 | **WITH Jev, v2: zero-authoring driver** | **9/9** | **34,852** | 30,750 (measured) | **5** | **41 s** |
 
-The three rows tell one story. Quality tied everywhere. v1 lost to the
-control on agent tokens because the agent spent its own context hand-writing
-nine JSON packets and inspecting schemas — protocol overhead, not judgment
-cost. Fixing only the ergonomics (`.octocode/octocode-eval-benchmark/jevpeek-scout/run-case.mjs`: one command per case, the
-driver builds the packet and returns the verdict plus billed usage) flipped
-the result: **36 % fewer agent tokens than the control, 5 tool calls instead
-of 27, and 2.4× faster** — with the Jev spend isolated on its own meter. Two
-boundaries survive both runs: against read-everything the scout measures
-0.19–0.40× (table below), and against a strong model grepping a cheap
-shortlist the *judgment* is nearly free but the *packet authoring* is not —
-so give agents a packet-free entry point, and skip scouting entirely when a
-grep settles the shortlist. Caveats: n = 9, one run per arm, discovery stage
+In this historical stage-limited comparison, quality tied. v1 used more
+agent tokens while hand-writing packets and inspecting schemas. Changing
+the ergonomics (`.octocode/octocode-eval-benchmark/jevpeek-scout/run-case.mjs`: one command per case, the
+driver builds the packet and returns the verdict plus billed usage) changed
+the measured result: **36 % fewer agent tokens than the control, 5 tool calls instead
+of 27, and 2.4× faster** — with the Jev spend isolated on its own meter. The comparison excludes discovery and combines driver changes with Jev
+usage; it does not establish whole-task savings or isolate the model effect.
+Skip scouting when an exact search already settles the shortlist. Caveats: n = 9, one run per arm, discovery stage
 excluded, v1 Jev meter estimated from identical prior runs. Raw:
 `ab-results.json`.
 

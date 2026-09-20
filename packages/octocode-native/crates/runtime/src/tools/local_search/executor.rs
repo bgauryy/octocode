@@ -141,6 +141,9 @@ pub fn execute_local_search(
         )),
         count_unique: Some(query.unique == Some(UniqueMode::Count)),
         max_collected_files: Some(10_000),
+        // Use the engine default per-file byte ceiling (skips pathological
+        // multi-GB files, surfaced as a maxFileSize diagnostic).
+        max_file_bytes: None,
     };
     let frozen = query.no_ignore == Some(true);
     let (mut parsed, from_manifest) = if frozen
@@ -385,6 +388,9 @@ pub fn execute_local_search(
             ))
             .then_some(total_matches),
             has_more,
+            // Hard ceiling: never advertise a next page past page 1000. Beyond
+            // this, deep file pagination is refused by contract (matched in
+            // `build_next`) — narrow the search rather than paging indefinitely.
             next_page: (page < total_pages && page < 1000).then_some(page + 1),
             out_of_range: start >= total_files as usize && total_files > 0,
         }),
@@ -408,6 +414,7 @@ fn project_match(
     matched: &octocode_engine::types::RipgrepMatch,
     max_chars: Option<usize>,
 ) -> SearchMatch {
+    // matchOnly display cap: clip the exact span to the public display bound.
     let cut = max_chars.and_then(|limit| {
         matched
             .value
@@ -415,17 +422,30 @@ fn project_match(
             .nth(limit)
             .map(|(byte, _)| (byte, limit))
     });
+    if let Some((byte, chars)) = cut {
+        return SearchMatch {
+            line: matched.line,
+            column: matched.column,
+            value: matched.value[..byte].into(),
+            count: matched.count,
+            truncated: true,
+            original_chars: Some(matched.value.chars().count()),
+            returned_chars: Some(chars),
+        };
+    }
+    // Content-view path: the engine already clipped the assembled snippet to
+    // maxSnippetChars and reported the pre-truncation length via `original_chars`.
+    // Surface that as a truncation indicator too, not just for only-matching
+    // spans (fix 7).
+    let truncated = matched.original_chars.is_some();
     SearchMatch {
         line: matched.line,
         column: matched.column,
-        value: cut.map_or_else(
-            || matched.value.clone(),
-            |(byte, _)| matched.value[..byte].into(),
-        ),
+        value: matched.value.clone(),
         count: matched.count,
-        truncated: cut.is_some(),
-        original_chars: cut.map(|_| matched.value.chars().count()),
-        returned_chars: cut.map(|(_, chars)| chars),
+        truncated,
+        original_chars: matched.original_chars.map(|chars| chars as usize),
+        returned_chars: truncated.then(|| matched.value.chars().count()),
     }
 }
 
@@ -619,6 +639,9 @@ fn build_next(
 ) -> Option<Value> {
     let mut map = serde_json::Map::new();
     let base = normalized_query(q);
+    // Hard 1000-page ceiling (mirrors the pagination `next_page` guard above): a
+    // `nextPage` continuation is never emitted past page 1000, so file paging is
+    // bounded by contract. Callers must narrow the query to reach later results.
     if page < total_pages && page < 1000 {
         let mut n = base.clone();
         n["page"] = json!(page + 1);

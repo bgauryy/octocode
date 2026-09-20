@@ -16,7 +16,7 @@ The CLI never loads N-API or JavaScript. The MCP addon and native CLI call the s
 
 ## Public catalog
 
-The runtime executes all thirteen tools:
+The runtime executes all twelve tools:
 
 - `ghSearch`
 - `ghGetFileContent`
@@ -29,10 +29,11 @@ The runtime executes all thirteen tools:
 - `astSearch`
 - `astRewrite`
 - `lspSearch`
-- `jevReasoning`
-- `jevScout`
+- `jev`
 
-Availability is resolved natively. GitHub and artifact tools are enabled by default; local tools honor local policy; cloning requires its feature gate and persistent storage. `jevReasoning` and `jevScout` are available only when the resolved `OCTOCODE_JEV_KEY` is nonblank. Contract preparation accepts direct, array, and `{ "queries": [...] }` forms, validates the complete bulk envelope, and preserves ordered row indexes and isolated domain failures.
+Availability is resolved natively. GitHub and artifact tools are enabled by default; local tools honor local policy; cloning requires its feature gate and persistent storage. `jev` is available only when the resolved `OCTOCODE_JEV_KEY` is nonblank. Contract preparation accepts direct, array, and `{ "queries": [...] }` forms, validates the complete bulk envelope, and preserves ordered row indexes and isolated domain failures.
+
+`jev` accepts caller-supplied `state`, typed `questions`, and optional named `sources`; configuration selects the model. `runtime/jev_sources` loads bounded local/GitHub files through existing path, content-security and provider policies. With sources, provider state wraps caller values under `context` and file bodies under `sources`; the response adds provenance/hash receipts without bodies. The tool generates no questions and makes no workflow decisions. Shared transport enforces deadlines, cancellation, bounded responses, and no redirects.
 
 ## Ownership
 

@@ -390,6 +390,146 @@ fn results_are_sorted_by_path() {
 }
 
 #[test]
+fn sort_then_cap_retains_deterministic_sorted_prefix() {
+    // Fix 1: the collection cap must be a STABLE truncation of the sorted
+    // prefix, not a race-dependent subset chosen during the parallel walk.
+    // Feeding an unsorted record set exceeding a small cap must always retain
+    // the same sorted prefix, identical across repeated runs.
+    fn rec(path: &str) -> FileRec {
+        FileRec {
+            path: path.to_owned(),
+            entry: FileEntry::new(),
+            matched_lines: 1,
+            submatches: 1,
+            om_matches: Vec::new(),
+            sort_time: None,
+        }
+    }
+    let make = || {
+        vec![
+            rec("m.txt"),
+            rec("a.txt"),
+            rec("z.txt"),
+            rec("b.txt"),
+            rec("c.txt"),
+        ]
+    };
+    let mut o = opts("/fixture".to_owned(), "p");
+    o.max_collected_files = Some(3);
+    let run = || {
+        let mut recs = make();
+        let capped = sort_and_cap(&o, &mut recs);
+        (
+            recs.iter().map(|r| r.path.clone()).collect::<Vec<_>>(),
+            capped,
+        )
+    };
+    let (first, capped_first) = run();
+    assert_eq!(first, vec!["a.txt", "b.txt", "c.txt"]);
+    assert!(capped_first);
+    for _ in 0..10 {
+        let (again, capped_again) = run();
+        assert_eq!(again, first, "sorted-prefix truncation must be stable");
+        assert!(capped_again);
+    }
+
+    // Under the cap: no truncation, all records kept in sorted order.
+    let mut under = vec![rec("b.txt"), rec("a.txt")];
+    let mut o2 = opts("/fixture".to_owned(), "p");
+    o2.max_collected_files = Some(3);
+    assert!(!sort_and_cap(&o2, &mut under));
+    assert_eq!(
+        under.iter().map(|r| r.path.as_str()).collect::<Vec<_>>(),
+        vec!["a.txt", "b.txt"]
+    );
+}
+
+#[test]
+fn oversize_file_is_skipped_with_diagnostic_and_normal_file_still_matches() {
+    // Fix 2: a file above the byte ceiling is skipped before it is searched and
+    // surfaced as a `maxFileSize` diagnostic; a normal file still matches.
+    let t = TmpDir::new();
+    t.write("small.txt", "needle\n"); // 7 bytes, under the ceiling
+    t.write("big.txt", &"needle ".repeat(50)); // 350 bytes, over the ceiling
+    let mut o = opts(t.path(), "needle");
+    o.max_file_bytes = Some(10);
+    let r = search(o).expect("ok");
+    assert_eq!(r.files.len(), 1);
+    assert!(r.files[0].path.ends_with("small.txt"));
+    assert_eq!(r.stats.capped, Some(true));
+    assert!(r
+        .stats
+        .cap_reason
+        .as_deref()
+        .is_some_and(|reason| reason.contains("maxFileSize")));
+    // The skipped file is not counted as covered (no overstated filesSearched).
+    assert_eq!(r.stats.files_searched, Some(1));
+}
+
+#[test]
+fn binary_quit_file_is_flagged_not_silently_absent() {
+    // Fix 3: a file quit as binary (NUL byte) is reflected in a diagnostic, and
+    // an ordinary text file still matches.
+    let t = TmpDir::new();
+    t.write("data.bin", "needle before\u{0}needle after\n");
+    t.write("text.txt", "needle plain\n");
+    let r = search(opts(t.path(), "needle")).expect("ok");
+    assert!(r.files.iter().any(|f| f.path.ends_with("text.txt")));
+    assert_eq!(r.stats.capped, Some(true));
+    assert!(r
+        .stats
+        .cap_reason
+        .as_deref()
+        .is_some_and(|reason| reason.contains("binaryQuit")));
+}
+
+#[cfg(feature = "pcre2")]
+#[test]
+fn pcre2_worker_slots_are_bounded_and_released() {
+    // Fix 5: the worker-slot bound rejects new acquisitions once saturated and
+    // frees a slot on release — tested directly on the counter logic.
+    use std::sync::atomic::AtomicUsize;
+    let counter = AtomicUsize::new(0);
+    let max = 3;
+    assert!(try_acquire_worker_slot(&counter, max));
+    assert!(try_acquire_worker_slot(&counter, max));
+    assert!(try_acquire_worker_slot(&counter, max));
+    // Saturated: the 4th acquisition is rejected and the counter is unchanged.
+    assert!(!try_acquire_worker_slot(&counter, max));
+    assert_eq!(counter.load(Ordering::Relaxed), 3);
+    // Releasing frees exactly one slot.
+    release_worker_slot(&counter);
+    assert_eq!(counter.load(Ordering::Relaxed), 2);
+    assert!(try_acquire_worker_slot(&counter, max));
+    assert!(!try_acquire_worker_slot(&counter, max));
+}
+
+#[test]
+fn traversal_sort_output_is_stable_across_runs() {
+    // Fix 6: with sort:"traversal" the walk is forced single-threaded so the
+    // emitted order is stable run-to-run on the same tree.
+    let t = TmpDir::new();
+    for i in 0..40 {
+        t.write(&format!("dir{}/file{i:02}.txt", i % 5), "needle\n");
+    }
+    let run = || {
+        let mut o = opts(t.path(), "needle");
+        o.sort = Some("traversal".to_owned());
+        search(o)
+            .expect("ok")
+            .files
+            .into_iter()
+            .map(|f| f.path)
+            .collect::<Vec<_>>()
+    };
+    let first = run();
+    assert_eq!(first.len(), 40);
+    for _ in 0..5 {
+        assert_eq!(run(), first, "traversal order must be stable across runs");
+    }
+}
+
+#[test]
 fn explicit_traversal_sort_bypasses_post_collection_sorting() {
     let mut o = opts("/fixture".to_owned(), "m");
     o.sort = Some("traversal".to_owned());

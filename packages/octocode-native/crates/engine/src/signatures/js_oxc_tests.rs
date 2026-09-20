@@ -72,6 +72,43 @@ fn extracts_graph_facts_for_imports_exports_and_calls() {
 }
 
 #[test]
+fn destructured_exports_emit_each_binding_name() {
+    // Regression: `export const {a,b} = …` / `export const [x] = …` previously
+    // dropped every binding because only bare identifiers were collected.
+    let src = "export const { a, b } = obj;\nexport const [x, [y]] = arr;\nexport const { c: { d }, ...rest } = obj;\n";
+    let v = graph(src, "main.ts");
+    let exports = names(&v["exports"]);
+    for expected in ["a", "b", "x", "y", "d", "rest"] {
+        assert!(
+            exports.contains(&expected.to_string()),
+            "expected {expected:?} among exports: {exports:?}"
+        );
+    }
+}
+
+#[test]
+fn export_assignment_and_import_equals_are_captured() {
+    // Regression: `export = x` and `import x = require(...)` were dropped by the
+    // graph-facts statement walker.
+    let src = "import util = require('./util');\nexport = util;\n";
+    let v = graph(src, "main.ts");
+    let exports = names(&v["exports"]);
+    assert!(
+        exports.contains(&"util".to_string()),
+        "export= must emit its name: {exports:?}"
+    );
+    let imports = v["imports"].as_array().unwrap();
+    let specifiers = imports
+        .iter()
+        .map(|i| i["specifier"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert!(
+        specifiers.contains(&"./util"),
+        "import= must emit its specifier: {specifiers:?}"
+    );
+}
+
+#[test]
 fn distinguishes_declaration_and_specifier_level_type_imports() {
     let src =
         "import type { Whole } from './whole';\nimport { type Shape, value } from './mixed';\n";

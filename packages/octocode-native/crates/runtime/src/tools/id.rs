@@ -22,8 +22,7 @@ pub enum ToolFamily {
     Remote,
 }
 
-/// Every tool the native runtime can execute — the twelve public tools plus
-/// the internal `jevScout` reasoning sub-tool.
+/// Every tool the native runtime can execute.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum ToolId {
     GhSearch,
@@ -37,13 +36,12 @@ pub enum ToolId {
     AstSearch,
     AstRewrite,
     LspSearch,
-    JevReasoning,
-    JevScout,
+    Jev,
 }
 
 impl ToolId {
-    /// All tool identities in declaration order. Public tools plus `JevScout`.
-    pub const ALL: [ToolId; 13] = [
+    /// All tool identities in declaration order.
+    pub const ALL: [ToolId; 12] = [
         ToolId::GhSearch,
         ToolId::GhGetFileContent,
         ToolId::GhSearchHistory,
@@ -55,8 +53,7 @@ impl ToolId {
         ToolId::AstSearch,
         ToolId::AstRewrite,
         ToolId::LspSearch,
-        ToolId::JevReasoning,
-        ToolId::JevScout,
+        ToolId::Jev,
     ];
 
     /// The wire name exactly as it appears in the generated contract and in
@@ -75,8 +72,7 @@ impl ToolId {
             ToolId::AstSearch => "astSearch",
             ToolId::AstRewrite => "astRewrite",
             ToolId::LspSearch => "lspSearch",
-            ToolId::JevReasoning => "jevReasoning",
-            ToolId::JevScout => "jevScout",
+            ToolId::Jev => "jev",
         }
     }
 
@@ -100,7 +96,7 @@ impl ToolId {
             | ToolId::GhSearchHistory
             | ToolId::GhGetHistoryItem
             | ToolId::GhCloneRepo => ToolFamily::GitHub,
-            ToolId::ArtifactSearch | ToolId::JevReasoning | ToolId::JevScout => ToolFamily::Remote,
+            ToolId::ArtifactSearch | ToolId::Jev => ToolFamily::Remote,
         }
     }
 
@@ -119,7 +115,7 @@ impl ToolId {
     /// A Jev reasoning tool (gated on a non-blank `OCTOCODE_JEV_KEY`).
     #[must_use]
     pub const fn is_jev(self) -> bool {
-        matches!(self, ToolId::JevReasoning | ToolId::JevScout)
+        matches!(self, ToolId::Jev)
     }
 }
 

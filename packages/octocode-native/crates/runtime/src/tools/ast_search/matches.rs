@@ -64,6 +64,11 @@ pub fn execute_match(
             "Directory matching requires langType; choose the grammar from the source files.",
         ));
     }
+    // Corpus-coverage signals from the directory scan. The directory branch
+    // fills these; the single-file branch leaves them at their complete defaults.
+    let mut scan_truncated = false;
+    let mut scan_diagnostics: Vec<StructuralDiagnostic> = Vec::new();
+    let mut scan_skips = (0_u32, 0_u32, 0_u32);
     let mut files = if meta.is_file() {
         let bytes = std::fs::read(&p.canonical).map_err(super::io_error)?;
         let s = security
@@ -113,6 +118,10 @@ pub fn execute_match(
         if let Some(error) = diagnostic_error(&r.diagnostics) {
             return Err(error);
         }
+        // Preserve the scan-level coverage signals the group projection drops.
+        scan_truncated = r.scan_truncated;
+        scan_skips = (r.skipped_unsupported, r.skipped_unreadable, r.skipped_large);
+        scan_diagnostics = r.diagnostics;
         r.files
             .into_iter()
             .map(|f| {
@@ -140,6 +149,35 @@ pub fn execute_match(
             ordering
         }
     });
+    // Snapshot fingerprint over the query shape plus the ordered result set
+    // (each file and its match count). Continuation cursors (page>1 or
+    // matchPage>1) that carry a stale snapshot are rejected with
+    // `ast.snapshot.changed`. Fields the continuation normalizes to a default
+    // are digested by their effective value so a fresh page matches.
+    let ordered = files
+        .iter()
+        .map(|f| (f.0.clone(), f.1.len()))
+        .collect::<Vec<_>>();
+    let snapshot = super::syntax::digest(&json!([
+        q.path,
+        q.pattern,
+        q.rule,
+        q.include,
+        q.exclude,
+        q.exclude_dir,
+        q.hidden,
+        q.no_ignore,
+        q.max_depth,
+        q.lang_type,
+        q.reverse,
+        q.sort.as_deref().unwrap_or("relevance"),
+        q.result_view.as_deref().unwrap_or("content"),
+        q.max_files.unwrap_or(2_000),
+        ordered
+    ]));
+    if (q.page > 1 || q.match_page > 1) && q.snapshot.as_deref() != Some(&snapshot) {
+        return Ok(super::snapshot_changed(&snapshot));
+    }
     let mut groups = vec![];
     let mut all_diagnostics = vec![];
     let mut total_matches = 0_u64;
@@ -201,6 +239,21 @@ pub fn execute_match(
             all_diagnostics.extend(diagnostics.into_iter().map(diag));
         }
     }
+    // Surface scan-level coverage signals (skips, unsupported extensions) that
+    // the group projection would otherwise discard.
+    all_diagnostics.extend(scan_diagnostics.into_iter().map(diag));
+    let (skipped_unsupported, skipped_unreadable, skipped_large) = scan_skips;
+    if scan_truncated {
+        let limit = q.max_files.unwrap_or(2_000);
+        all_diagnostics.push(json!({
+            "code":"structural.scan.truncated",
+            "severity":"warning",
+            "stage":"scan",
+            "message":format!("Candidate scan hit the maxFiles limit ({limit}); files beyond it were not evaluated. Results are a bounded subset, not the full corpus."),
+            "path":super::display_name(&p.canonical),
+            "recovery":"Narrow the scope with include globs or excludeDir, or raise maxFiles, then re-run."
+        }));
+    }
     let size = q.page_size.unwrap_or(20).clamp(1, 1_000) as usize;
     let page = q.page.max(1) as usize;
     let start = (page - 1) * size;
@@ -208,8 +261,7 @@ pub fn execute_match(
         .get(start..(start + size).min(groups.len()))
         .unwrap_or(&[]);
     let more = start + size < groups.len();
-    let mut out =
-        json!({"searchEngine":"structural","stats":{"totalStructuralMatches":total_matches}});
+    let mut out = json!({"searchEngine":"structural","snapshot":snapshot,"stats":{"totalStructuralMatches":total_matches}});
     if !groups.is_empty() {
         out["files"] = json!(selected);
         out["pagination"] = json!({"currentPage":page,"totalPages":groups.len().div_ceil(size).max(1),"filesPerPage":size,"totalFiles":groups.len()});
@@ -236,18 +288,27 @@ pub fn execute_match(
             "path":path
         }]);
     }
+    let incomplete =
+        scan_truncated || skipped_unsupported > 0 || skipped_unreadable > 0 || skipped_large > 0;
+    out["truncated"] = json!(scan_truncated);
+    out["complete"] = json!(!more && !incomplete);
+    if scan_truncated && !more {
+        out["terminalLimit"] = json!(true);
+    }
     if more {
         out["pagination"]["nextPage"] = json!(page + 1);
-        out["next"] = json!({"nextPage":continuation(q, page + 1)})
+        out["next"] = json!({"nextPage":continuation(q, page + 1, &snapshot)})
     }
     if has_more_matches && match_page < 1_000 {
         out["next"]["nextMatchPage"] = continuation_with(
             q,
             json!({"maxMatchesPerFile":matches_per_page,"matchPage":match_page+1}),
+            &snapshot,
         );
     }
     if has_truncated_captures && !q.capture_text.unwrap_or(false) {
-        out["next"]["expandCaptures"] = continuation_with(q, json!({"captureText":true}));
+        out["next"]["expandCaptures"] =
+            continuation_with(q, json!({"captureText":true}), &snapshot);
     }
     Ok(out)
 }
@@ -354,11 +415,11 @@ fn match_display_path(root: &std::path::Path, path: &str) -> String {
         .into_owned()
 }
 
-fn continuation(q: &AstMatchQuery, page: usize) -> Value {
-    continuation_with(q, json!({"page":page}))
+fn continuation(q: &AstMatchQuery, page: usize, snapshot: &str) -> Value {
+    continuation_with(q, json!({"page":page}), snapshot)
 }
 
-fn continuation_with(q: &AstMatchQuery, changes: Value) -> Value {
+fn continuation_with(q: &AstMatchQuery, changes: Value, snapshot: &str) -> Value {
     let mut query = serde_json::to_value(q).unwrap_or_else(|_| json!({}));
     if let Some(map) = query.as_object_mut() {
         map.retain(|_, value| !value.is_null());
@@ -368,6 +429,7 @@ fn continuation_with(q: &AstMatchQuery, changes: Value) -> Value {
     query["rankingProfile"] = json!(q.ranking_profile.as_deref().unwrap_or("auto"));
     query["resultView"] = json!(q.result_view.as_deref().unwrap_or("content"));
     query["maxFiles"] = json!(q.max_files.unwrap_or(2_000));
+    query["snapshot"] = json!(snapshot);
     if let (Some(target), Some(changes)) = (query.as_object_mut(), changes.as_object()) {
         target.extend(changes.clone());
     }

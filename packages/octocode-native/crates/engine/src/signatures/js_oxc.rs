@@ -18,8 +18,8 @@ use oxc_ast::ast::{
     ExportDefaultDeclarationKind, ExportSpecifier, Expression, Function, ImportDeclaration,
     ImportDeclarationSpecifier, ImportOrExportKind, MethodDefinitionKind, Program, Statement,
     TSEnumDeclaration, TSEnumMemberName, TSExternalModuleDeclaration, TSGlobalDeclaration,
-    TSInterfaceDeclaration, TSNamespaceDeclaration, TSNamespaceDeclarationBody, TSSignature,
-    TSTypeAliasDeclaration, VariableDeclaration, VariableDeclarationKind,
+    TSInterfaceDeclaration, TSModuleReference, TSNamespaceDeclaration, TSNamespaceDeclarationBody,
+    TSSignature, TSTypeAliasDeclaration, VariableDeclaration, VariableDeclarationKind,
 };
 use oxc_parser::Parser;
 use oxc_semantic::SemanticBuilder;
@@ -29,7 +29,8 @@ use serde::Serialize;
 use crate::text::file_extension::is_js_ts_extension;
 
 use super::{
-    deep_stack::run_on_deep_stack,
+    deep_stack::run_on_deep_stack_with_timeout,
+    extractor::AST_EXECUTION_TIMEOUT,
     js_oxc_calls::collect_program_calls,
     js_oxc_commonjs as commonjs,
     js_oxc_shared::{
@@ -172,7 +173,7 @@ pub fn extract_js_symbols(content: &str, file_path: &str) -> Option<String> {
     // oxc can ICE on pathological input; contain the unwind so it never crosses
     // the napi FFI boundary and aborts Node (mirrors the minifier/signature
     // guards elsewhere in the crate).
-    run_on_deep_stack(move || {
+    run_on_deep_stack_with_timeout(AST_EXECUTION_TIMEOUT, move || {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             extract_js_symbols_inner(&content, &file_path)
         }))
@@ -223,7 +224,7 @@ pub fn find_in_file_references(
     }
     let content = content.to_owned();
     let file_path = file_path.to_owned();
-    run_on_deep_stack(move || {
+    run_on_deep_stack_with_timeout(AST_EXECUTION_TIMEOUT, move || {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             find_in_file_references_inner(&content, &file_path, line, character)
         }))
@@ -252,7 +253,7 @@ pub(crate) fn extract_graph_facts_with_metadata(
     }
     let content = content.to_owned();
     let file_path = file_path.to_owned();
-    run_on_deep_stack(move || {
+    run_on_deep_stack_with_timeout(AST_EXECUTION_TIMEOUT, move || {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             extract_graph_facts_with_metadata_inner::<true>(&content, &file_path)
         }))
@@ -538,6 +539,49 @@ fn collect_module_facts(
             Statement::ExportAllDeclaration(decl) => {
                 collect_export_all(decl, li, exports, export_names);
             }
+            // `export = expr;` (TS/CommonJS interop). Previously dropped, so a
+            // module's single export vanished from the facts.
+            Statement::TSExportAssignment(decl) => {
+                let range = li.range(decl.span);
+                let name = match &decl.expression {
+                    Expression::Identifier(ident) => ident.name.as_str().to_string(),
+                    _ => "export=".to_string(),
+                };
+                export_names.push(name.clone());
+                exports.push(GraphExport {
+                    id: format!("export:{}:{}", name, range.start.line + 1),
+                    name,
+                    line: range.start.line + 1,
+                    export_kind: "value",
+                    local_name: None,
+                    source: None,
+                });
+            }
+            // `import x = require('mod');` / `import x = ns.member;`. Previously
+            // dropped, so the dependency edge was missing.
+            Statement::TSImportEqualsDeclaration(decl) => {
+                let range = li.range(decl.span);
+                let local_name = decl.id.name.as_str().to_string();
+                let specifier = match &decl.module_reference {
+                    TSModuleReference::ExternalModuleReference(reference) => {
+                        reference.expression.value.as_str().to_string()
+                    }
+                    TSModuleReference::IdentifierReference(reference) => {
+                        reference.name.as_str().to_string()
+                    }
+                    TSModuleReference::QualifiedName(_) => local_name.clone(),
+                };
+                imports.push(GraphImport {
+                    id: format!("import:{}:{}", local_name, range.start.line + 1),
+                    specifier,
+                    line: range.start.line + 1,
+                    import_kind: import_export_kind(decl.import_kind),
+                    local_name: Some(local_name),
+                    imported_name: None,
+                    imported_range: None,
+                    local_range: Some(li.range(decl.id.span)),
+                });
+            }
             _ => {}
         }
     }
@@ -681,6 +725,35 @@ fn collect_export_all(
     });
 }
 
+/// Collect every bound identifier from a binding pattern, recursing through
+/// object/array destructuring, rest elements, and default-valued bindings. A
+/// bare identifier yields one name; `{a, b: {c}, ...rest}` yields `a`, `c`,
+/// `rest`; `[x, [y]]` yields `x`, `y`.
+fn collect_binding_names(pattern: &BindingPattern, out: &mut Vec<String>) {
+    match pattern {
+        BindingPattern::BindingIdentifier(id) => out.push(id.name.as_str().to_string()),
+        BindingPattern::ObjectPattern(object) => {
+            for property in &object.properties {
+                collect_binding_names(&property.value, out);
+            }
+            if let Some(rest) = &object.rest {
+                collect_binding_names(&rest.argument, out);
+            }
+        }
+        BindingPattern::ArrayPattern(array) => {
+            for element in array.elements.iter().flatten() {
+                collect_binding_names(element, out);
+            }
+            if let Some(rest) = &array.rest {
+                collect_binding_names(&rest.argument, out);
+            }
+        }
+        BindingPattern::AssignmentPattern(assignment) => {
+            collect_binding_names(&assignment.left, out);
+        }
+    }
+}
+
 fn declaration_names(decl: &Declaration) -> Vec<String> {
     match decl {
         Declaration::FunctionDeclaration(function) => function
@@ -693,14 +766,13 @@ fn declaration_names(decl: &Declaration) -> Vec<String> {
             .as_ref()
             .map(|id| vec![id.name.as_str().to_string()])
             .unwrap_or_default(),
-        Declaration::VariableDeclaration(variable) => variable
-            .declarations
-            .iter()
-            .filter_map(|declarator| match &declarator.id {
-                BindingPattern::BindingIdentifier(id) => Some(id.name.as_str().to_string()),
-                _ => None,
-            })
-            .collect(),
+        Declaration::VariableDeclaration(variable) => {
+            let mut names = Vec::new();
+            for declarator in &variable.declarations {
+                collect_binding_names(&declarator.id, &mut names);
+            }
+            names
+        }
         Declaration::TSInterfaceDeclaration(interface) => {
             vec![interface.id.name.as_str().to_string()]
         }
@@ -1250,6 +1322,40 @@ fn type_alias_symbol(decl: &TSTypeAliasDeclaration, li: &LineIndex) -> Option<Do
     ))
 }
 
+/// Emit one document symbol per identifier bound by a destructuring pattern,
+/// recursing through nested object/array patterns, rest elements, and defaults.
+fn push_pattern_leaves(
+    pattern: &BindingPattern,
+    symbol_kind: u8,
+    li: &LineIndex,
+    out: &mut Vec<DocumentSymbol>,
+) {
+    match pattern {
+        BindingPattern::BindingIdentifier(id) => {
+            out.push(leaf(id.name.as_str(), symbol_kind, id.span, id.span, li));
+        }
+        BindingPattern::ObjectPattern(object) => {
+            for property in &object.properties {
+                push_pattern_leaves(&property.value, symbol_kind, li, out);
+            }
+            if let Some(rest) = &object.rest {
+                push_pattern_leaves(&rest.argument, symbol_kind, li, out);
+            }
+        }
+        BindingPattern::ArrayPattern(array) => {
+            for element in array.elements.iter().flatten() {
+                push_pattern_leaves(element, symbol_kind, li, out);
+            }
+            if let Some(rest) = &array.rest {
+                push_pattern_leaves(&rest.argument, symbol_kind, li, out);
+            }
+        }
+        BindingPattern::AssignmentPattern(assignment) => {
+            push_pattern_leaves(&assignment.left, symbol_kind, li, out);
+        }
+    }
+}
+
 fn collect_variable(decl: &VariableDeclaration, li: &LineIndex, out: &mut Vec<DocumentSymbol>) {
     let is_const = matches!(
         decl.kind,
@@ -1258,24 +1364,34 @@ fn collect_variable(decl: &VariableDeclaration, li: &LineIndex, out: &mut Vec<Do
             | VariableDeclarationKind::AwaitUsing
     );
     for declarator in &decl.declarations {
-        let BindingPattern::BindingIdentifier(id) = &declarator.id else {
-            // Destructuring patterns have no single name — skip.
-            continue;
-        };
-        let symbol_kind = match &declarator.init {
-            Some(Expression::ArrowFunctionExpression(_))
-            | Some(Expression::FunctionExpression(_)) => kind::FUNCTION,
-            Some(Expression::ClassExpression(_)) => kind::CLASS,
-            _ if is_const => kind::CONSTANT,
-            _ => kind::VARIABLE,
-        };
-        out.push(leaf(
-            id.name.as_str(),
-            symbol_kind,
-            declarator.span,
-            id.span,
-            li,
-        ));
+        match &declarator.id {
+            BindingPattern::BindingIdentifier(id) => {
+                let symbol_kind = match &declarator.init {
+                    Some(Expression::ArrowFunctionExpression(_))
+                    | Some(Expression::FunctionExpression(_)) => kind::FUNCTION,
+                    Some(Expression::ClassExpression(_)) => kind::CLASS,
+                    _ if is_const => kind::CONSTANT,
+                    _ => kind::VARIABLE,
+                };
+                out.push(leaf(
+                    id.name.as_str(),
+                    symbol_kind,
+                    declarator.span,
+                    id.span,
+                    li,
+                ));
+            }
+            // Destructuring binds several names; emit each as its own symbol
+            // instead of dropping the whole declarator.
+            pattern => {
+                let symbol_kind = if is_const {
+                    kind::CONSTANT
+                } else {
+                    kind::VARIABLE
+                };
+                push_pattern_leaves(pattern, symbol_kind, li, out);
+            }
+        }
     }
 }
 

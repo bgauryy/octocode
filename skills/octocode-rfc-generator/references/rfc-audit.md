@@ -12,4 +12,4 @@ Produce this whenever an existing RFC is checked against the live repository. Th
 - **Remaining work:** the specific unclosed items, or "entire RFC" if nothing has shipped.
 ```
 
-Next: apply the keep/fix/delete recommendation from `references/workflow.md` § Reassess existing RFCs — never delete without explicit approval; when the RFC is fix-and-keep, refresh the open items in `references/rfc-implementation.md`.
+Next: apply the keep/fix/delete recommendation from `references/workflow.md` § Reassess existing RFCs — reuse explicit deletion authority when already given; otherwise ask before deletion; when the RFC is fix-and-keep, refresh the open items in `references/rfc-implementation.md`.

@@ -111,6 +111,43 @@ mod tests {
     }
 
     #[test]
+    fn content_view_snippet_carries_truncation_indicator() {
+        // Fix 7: a content-view match on a line longer than matchContentLength is
+        // clipped by the engine; the runtime must surface truncated/originalChars
+        // (previously only the matchOnly path did), plus the truncation warning.
+        let root = tempfile::tempdir().expect("fixture directory");
+        let long_line = format!("needle {}", "x".repeat(600));
+        fs::write(root.path().join("big.txt"), format!("{long_line}\n")).expect("fixture");
+        let policy = PathPolicy::new(PathPolicyConfig {
+            workspace_root: Some(root.path().to_path_buf()),
+            ..Default::default()
+        })
+        .expect("policy");
+        let security = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+        let request = LocalSearchRequest {
+            path: root.path().to_string_lossy().into_owned(),
+            search_text: "needle".into(),
+            ..Default::default()
+        };
+        let result =
+            execute_local_search(&request, &policy, &security, &NeverCancel).expect("search");
+        let body = serde_json::to_value(&result).expect("serialize");
+        let matched = &body["files"][0]["matches"][0];
+        assert_eq!(matched["truncated"], true);
+        assert!(
+            matched["originalChars"].as_u64().expect("originalChars") >= 606,
+            "{matched:?}"
+        );
+        assert!(matched["returnedChars"].as_u64().expect("returnedChars") <= 500);
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("matchContentLength"))
+        );
+    }
+
+    #[test]
     fn excludes_sensitive_binary_and_symlink_descendants_before_projection() {
         let root = std::env::temp_dir().join(format!(
             "local-search-security-{}",

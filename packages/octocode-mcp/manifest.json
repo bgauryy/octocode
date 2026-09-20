@@ -79,12 +79,8 @@
       "description": "Run LSP semantic navigation over local files"
     },
     {
-      "name": "jevReasoning",
-      "description": "Request a bounded provisional Jev judgment for an evidence-driven reasoning fork"
-    },
-    {
-      "name": "jevScout",
-      "description": "Rank bounded candidate spans for selective reading with provisional Jev judgments"
+      "name": "jev",
+      "description": "Evaluate supplied state and typed questions when a semantic judgment changes the next action. Optional named local/GitHub sources go directly to Jev; results contain judgments and source receipts, never retrieved bodies. Skip exact checks and settled decisions. Verify deciding evidence; confidence is not correctness. Model is configured internally; requires OCTOCODE_JEV_KEY."
     }
   ],
   "keywords": [

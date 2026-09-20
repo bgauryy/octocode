@@ -180,6 +180,15 @@ pub(crate) struct LineIndex<'a> {
 
 impl<'a> LineIndex<'a> {
     pub(crate) fn new(content: &'a str) -> Self {
+        // NOTE: line breaks are `\n` only — intentionally. This index feeds LSP
+        // position math (`byte_to_position`) and the semantic-boundary offset
+        // table, both of which must stay byte-for-byte aligned with tree-sitter,
+        // whose row counting also advances on `\n` only. `\r\n` is handled
+        // correctly because the `\n` terminates the line and the `\r` remains on
+        // it. Treating lone `\r` (classic Mac) or U+2028/U+2029 as breaks here
+        // would diverge from the grammar's row numbering and silently shift every
+        // downstream position, so it is deliberately NOT done. See the
+        // `line_index_only_newline_starts_a_line` test.
         let mut line_starts_byte = vec![0u32];
         let mut line_starts_utf16 = vec![0u32];
         let mut utf16_units: u32 = 0;
@@ -517,6 +526,38 @@ mod tests {
         let src = "a🌍\nbb";
         let index = LineIndex::new(src);
         assert_eq!(index.line_starts_utf16(), &[0, 4]);
+    }
+
+    #[test]
+    fn line_index_only_newline_starts_a_line() {
+        // Documented, deliberate behavior (see NOTE on `LineIndex::new`): line
+        // breaks are `\n` only. This matches tree-sitter's row convention and
+        // the byte offsets LSP position math is aligned to. `\r\n` keeps `\r` on
+        // the preceding line; lone `\r` (classic Mac) and the Unicode line/
+        // paragraph separators U+2028/U+2029 do NOT start a new line here.
+        // Changing this would silently shift every downstream LSP position.
+        let crlf = LineIndex::new("a\r\nb");
+        assert_eq!(
+            crlf.line_starts_utf16(),
+            &[0, 3],
+            "\\r\\n: one break after \\n"
+        );
+        assert_eq!(crlf.byte_to_position(0), (0, 0));
+        assert_eq!(crlf.byte_to_position(3), (1, 0), "b is the start of line 1");
+
+        let lone_cr = LineIndex::new("a\rb");
+        assert_eq!(
+            lone_cr.line_starts_utf16(),
+            &[0],
+            "lone \\r is not a line break"
+        );
+
+        let separators = LineIndex::new("a\u{2028}b\u{2029}c");
+        assert_eq!(
+            separators.line_starts_utf16(),
+            &[0],
+            "U+2028/U+2029 are not line breaks"
+        );
     }
 
     #[test]

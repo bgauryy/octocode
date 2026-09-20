@@ -26,6 +26,21 @@ pub(super) const MAX_PUSH_DIAGNOSTIC_DOCUMENTS: usize = 256;
 pub(super) const MAX_PUSH_DIAGNOSTICS_PER_DOCUMENT: usize = 2_000;
 pub(super) const MAX_PUSH_DIAGNOSTIC_BYTES_PER_DOCUMENT: usize = 256 * 1024;
 const MAX_PARTIAL_RESULT_BYTES: usize = 16 * 1024 * 1024;
+/// Floor for a notification's write deadline. A small notification (initialized,
+/// exit, a tiny didChange) must complete within this window.
+const NOTIFY_BASE_DEADLINE_MS: u64 = 1_000;
+/// Extra write budget granted per megabyte of notification payload, so a large
+/// `didOpen` body is not guillotined by the flat floor before it can be flushed
+/// to a server that drains stdin slowly.
+const NOTIFY_MS_PER_MIB: u64 = 1_000;
+
+/// Write deadline (in ms) for a notification of `payload_bytes`, scaled to the
+/// payload so large `didOpen` bodies get proportional headroom while small
+/// notifications keep the 1s floor.
+fn notify_write_deadline_ms(payload_bytes: usize) -> u64 {
+    let mib = (payload_bytes as u64) / (1024 * 1024);
+    NOTIFY_BASE_DEADLINE_MS.saturating_add(mib.saturating_mul(NOTIFY_MS_PER_MIB))
+}
 
 #[derive(Default)]
 struct PartialResultBuffer {
@@ -357,6 +372,13 @@ where
                 let _ = self
                     .write_before(&cancellation, Instant::now() + Duration::from_millis(100))
                     .await;
+                // Retire the connection: a request that consumed its whole
+                // timeout indicates a wedged (not merely slow) server, so mark it
+                // failed to make `is_alive()` report it and let the pool
+                // evict/restart it instead of re-serving a hung server. Done
+                // AFTER the cancel write above so the cancellation still goes out
+                // (write_before short-circuits once the connection is failed).
+                self.failed.store(true, Ordering::Release);
                 Err(Error::new(
                     Status::GenericFailure,
                     format!("LSP request timed out after {timeout_ms}ms"),
@@ -398,9 +420,15 @@ where
     pub async fn notify(&self, method: &str, params: Value) -> Result<()> {
         let message = json!({"jsonrpc":"2.0","method":method,"params":params});
         // didOpen/initialized/exit writes must not hold startup or shutdown open
-        // indefinitely when a server stops draining stdin.
-        self.write_before(&message, Instant::now() + Duration::from_secs(1))
-            .await
+        // indefinitely when a server stops draining stdin. The deadline scales
+        // with payload size so a large didOpen body gets proportional headroom
+        // instead of being guillotined by a flat 1s cap.
+        let payload_bytes = serde_json::to_vec(&message)
+            .map(|body| body.len())
+            .unwrap_or(0);
+        let deadline =
+            Instant::now() + Duration::from_millis(notify_write_deadline_ms(payload_bytes));
+        self.write_before(&message, deadline).await
     }
 
     async fn write_before(&self, message: &Value, deadline: Instant) -> Result<()> {
@@ -483,11 +511,18 @@ async fn read_loop<R, W>(
                 }
             }
             if let Some(id) = value.get("id").cloned() {
-                let response = json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "result": client_response_for(method, value.get("params"), &context),
-                });
+                let response = match client_response_for(method, value.get("params"), &context) {
+                    ClientResponse::Result(result) => json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": result,
+                    }),
+                    ClientResponse::Error { code, message } => json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": { "code": code, "message": message },
+                    }),
+                };
                 let _ = write_message(&writer, &response).await;
             }
             continue;
@@ -582,11 +617,21 @@ async fn fail_all_pending(pending: &PendingMap, reason: &str) {
     }
 }
 
+/// A reply to a server->client request: either a JSON-RPC `result` payload or a
+/// JSON-RPC `error`. Genuinely unknown methods map to MethodNotFound (-32601)
+/// rather than a misleading `result: null` (which a server could mistake for a
+/// successful empty response).
+#[derive(Debug)]
+enum ClientResponse {
+    Result(Value),
+    Error { code: i64, message: String },
+}
+
 fn client_response_for(
     method: &str,
     params: Option<&Value>,
     context: &ClientRequestContext,
-) -> Value {
+) -> ClientResponse {
     match method {
         "workspace/configuration" => {
             let item_count = params
@@ -594,19 +639,22 @@ fn client_response_for(
                 .and_then(Value::as_array)
                 .map(Vec::len)
                 .unwrap_or(0);
-            Value::Array(
+            ClientResponse::Result(Value::Array(
                 (0..item_count)
                     .map(|_| context.configuration.clone())
                     .collect(),
-            )
+            ))
         }
-        "workspace/workspaceFolders" => context.workspace_folders.clone(),
-        "workspace/applyEdit" => json!({ "applied": false }),
+        "workspace/workspaceFolders" => ClientResponse::Result(context.workspace_folders.clone()),
+        "workspace/applyEdit" => ClientResponse::Result(json!({ "applied": false })),
         "client/registerCapability"
         | "client/unregisterCapability"
         | "window/showMessageRequest"
-        | "workDoneProgress/create" => Value::Null,
-        _ => Value::Null,
+        | "workDoneProgress/create" => ClientResponse::Result(Value::Null),
+        other => ClientResponse::Error {
+            code: -32601,
+            message: format!("Method not found: {other}"),
+        },
     }
 }
 
@@ -700,6 +748,22 @@ mod tests {
     use tokio::io::{duplex, sink};
 
     #[test]
+    fn notify_write_deadline_scales_with_payload_size() {
+        // A small notification keeps the 1s floor; a large didOpen body must not
+        // be guillotined by a flat 1s deadline — the budget grows with payload.
+        assert_eq!(notify_write_deadline_ms(0), NOTIFY_BASE_DEADLINE_MS);
+        assert_eq!(notify_write_deadline_ms(1_024), NOTIFY_BASE_DEADLINE_MS);
+        assert_eq!(
+            notify_write_deadline_ms(3 * 1024 * 1024),
+            NOTIFY_BASE_DEADLINE_MS + 3 * NOTIFY_MS_PER_MIB
+        );
+        // A larger payload yields a strictly larger deadline (monotonic).
+        assert!(
+            notify_write_deadline_ms(8 * 1024 * 1024) > notify_write_deadline_ms(1 * 1024 * 1024)
+        );
+    }
+
+    #[test]
     fn partial_result_store_merges_array_and_object_chunks_in_protocol_order() {
         let store = PartialResultStore::default();
         store.begin("locations".to_owned());
@@ -778,6 +842,36 @@ mod tests {
             server.await.expect("server");
             assert_eq!(result, json!([{"uri":"partial"},{"uri":"final"}]));
         });
+    }
+
+    #[test]
+    fn client_response_for_unknown_method_is_method_not_found() {
+        let context = ClientRequestContext {
+            configuration: json!({ "settings": true }),
+            workspace_folders: json!([{ "uri": "file:///w", "name": "workspace" }]),
+        };
+        // A genuinely unknown server->client request must be answered with a
+        // JSON-RPC MethodNotFound error, not a misleading `result: null`.
+        match client_response_for("nonexistent/method", None, &context) {
+            ClientResponse::Error { code, .. } => assert_eq!(code, -32601),
+            other => panic!("expected -32601 MethodNotFound, got {other:?}"),
+        }
+        // Known handled methods still yield their expected results.
+        match client_response_for("workspace/workspaceFolders", None, &context) {
+            ClientResponse::Result(value) => {
+                assert_eq!(value, context.workspace_folders.clone())
+            }
+            other => panic!("expected workspaceFolders result, got {other:?}"),
+        }
+        match client_response_for("workspace/applyEdit", None, &context) {
+            ClientResponse::Result(value) => assert_eq!(value, json!({ "applied": false })),
+            other => panic!("expected applyEdit result, got {other:?}"),
+        }
+        // Known-but-null-returning methods are preserved as results, not errors.
+        match client_response_for("client/registerCapability", None, &context) {
+            ClientResponse::Result(Value::Null) => {}
+            other => panic!("registerCapability must stay a null result, got {other:?}"),
+        }
     }
 
     #[test]
@@ -1221,6 +1315,45 @@ mod tests {
                 written.contains("\"id\":1"),
                 "cancel must reference the timed-out request id, got: {written}"
             );
+        });
+    }
+
+    #[test]
+    fn request_timeout_marks_the_connection_failed_for_pool_eviction() {
+        // A request that blows its full timeout means the server is wedged (not
+        // just slow — indexing waits go through wait_for_ready, not here). The
+        // connection must transition to not-alive so the pool evicts/restarts it
+        // instead of re-handing-out a hung server.
+        let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+        runtime.block_on(async {
+            // Server never responds: client_r is never written to.
+            let (client_w, mut server_r) = duplex(8192);
+            let (_server_w, client_r) = duplex(8192);
+            let conn = Arc::new(JsonRpcConnection::new(
+                client_r,
+                client_w,
+                ClientRequestContext {
+                    configuration: Value::Null,
+                    workspace_folders: Value::Null,
+                },
+                ProgressTracker::new(),
+            ));
+
+            assert!(conn.is_alive(), "connection should start alive");
+            let result = conn
+                .request("textDocument/definition", Value::Null, 50)
+                .await;
+            assert!(result.is_err(), "request should time out");
+            assert!(result.unwrap_err().reason.contains("timed out"));
+            assert!(
+                !conn.is_alive(),
+                "a wedged (timed-out) connection must be marked failed for eviction"
+            );
+
+            // The cancellation still went out before the connection was retired.
+            let mut buf = vec![0u8; 4096];
+            let n = server_r.read(&mut buf).await.expect("read client output");
+            assert!(String::from_utf8_lossy(&buf[..n]).contains("$/cancelRequest"));
         });
     }
 

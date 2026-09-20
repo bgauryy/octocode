@@ -351,6 +351,18 @@ fn dead_code(
     security: &ContentSecurity,
 ) -> (Vec<Value>, Value, Vec<String>, bool) {
     let (roots, mut warnings, low_entries) = entrypoints(b, q, security);
+    // Hard gate: with no resolvable roots, reachability is undefined and every
+    // export would falsely read as dead. Suppress the verdict rather than report
+    // the whole tree as dead.
+    if roots.is_empty() {
+        warnings.push("dead-code verdict suppressed: no entrypoints resolved, so reachability cannot be computed and no export can be proven dead. Pass `entrypoints` explicitly to enable the analysis.".into());
+        return (
+            vec![],
+            json!({"entrypointsResolved":roots,"entrypointsResolvedCount":0,"deadClusters":[],"deadClusterCount":0,"deadExportCount":0,"suppressed":true}),
+            warnings,
+            true,
+        );
+    }
     let live = reachable(&b.nodes, &roots, false);
     let static_live = reachable(&b.nodes, &roots, true);
     let dynamic = live.difference(&static_live).cloned().collect::<Vec<_>>();
@@ -617,8 +629,13 @@ fn entrypoints(
                 }
             }
         }
+        // Package.json is JS-only. Infer roots for the other ecosystems so a
+        // Rust/Go tree does not read as entirely dead. Inferrers are additive: a
+        // mixed repository can contribute roots from several ecosystems.
+        infer_rust_roots(b, security, &mut roots, &mut seen_roots);
+        infer_go_roots(b, &mut roots, &mut seen_roots);
         if roots.is_empty() {
-            warnings.push("no entrypoints resolved from package.json — pass `entrypoints` explicitly, or every export in a reachable file will read as unreachable".into());
+            warnings.push("no entrypoints resolved for the detected languages — expected package.json main/bin/exports, a Cargo.toml target or src/main.rs|src/lib.rs|src/bin/*.rs, or a Go `func main`. Pass `entrypoints` explicitly; without a root every export reads as unreachable, so the dead-code verdict is suppressed.".into());
             low = true
         }
     }
@@ -632,6 +649,96 @@ fn entrypoints(
 fn push_unique(roots: &mut Vec<String>, seen: &mut BTreeSet<String>, file: String) {
     if seen.insert(file.clone()) {
         roots.push(file);
+    }
+}
+
+/// Infer Rust crate entrypoints: `[[bin]]`/`[lib]` (and other) `path = "…"`
+/// targets declared in a root `Cargo.toml`, plus the conventional
+/// `src/main.rs`, `src/lib.rs`, and `src/bin/*.rs` targets (also matched for
+/// workspace members via their path suffix). Only node keys that actually exist
+/// in the scanned graph are added.
+fn infer_rust_roots(
+    b: &BuiltGraph,
+    security: &ContentSecurity,
+    roots: &mut Vec<String>,
+    seen: &mut BTreeSet<String>,
+) {
+    let has_rust = b.nodes.keys().any(|k| k.ends_with(".rs"));
+    if !has_rust {
+        return;
+    }
+    let cargo = b.root.join("Cargo.toml");
+    if let Ok(bytes) = fs::read(&cargo)
+        && let Ok(safe) = security.validate_text_bytes(&bytes, Some(&cargo), 1_000_000)
+    {
+        for path in cargo_target_paths(&safe.content) {
+            let key = normalize(path.trim_start_matches("./"));
+            if b.nodes.contains_key(&key) {
+                push_unique(roots, seen, key);
+            }
+        }
+    }
+    for key in b.nodes.keys() {
+        if is_rust_conventional_root(key) {
+            push_unique(roots, seen, key.clone());
+        }
+    }
+}
+
+/// A node key that Cargo treats as a default target: crate roots (`main.rs`,
+/// `lib.rs`, at the tree root or as a `src/` child, including workspace members)
+/// and binaries under a `src/bin/` directory.
+fn is_rust_conventional_root(key: &str) -> bool {
+    key == "main.rs"
+        || key == "lib.rs"
+        || key == "src/main.rs"
+        || key == "src/lib.rs"
+        || key.ends_with("/main.rs")
+        || key.ends_with("/lib.rs")
+        || (key.ends_with(".rs") && (key.starts_with("src/bin/") || key.contains("/src/bin/")))
+}
+
+/// Extract quoted values of `path = "…"` keys from a Cargo.toml. Kept
+/// intentionally lenient (no TOML dependency): callers only add targets that
+/// resolve to a real scanned node, so a stray candidate is harmless.
+fn cargo_target_paths(content: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for line in content.lines() {
+        let trimmed = line.trim();
+        let Some(rest) = trimmed.strip_prefix("path") else {
+            continue;
+        };
+        let rest = rest.trim_start();
+        let Some(rest) = rest.strip_prefix('=') else {
+            continue;
+        };
+        let rest = rest.trim();
+        if let Some(inner) = rest
+            .strip_prefix('"')
+            .and_then(|r| r.split('"').next())
+            .filter(|s| !s.is_empty())
+        {
+            out.push(inner.to_owned());
+        }
+    }
+    out
+}
+
+/// Infer Go entrypoints: any `.go` file that declares a `func main` — the
+/// signature of a `package main` executable. Test files are excluded here (they
+/// are added separately as roots when tests are included).
+fn infer_go_roots(b: &BuiltGraph, roots: &mut Vec<String>, seen: &mut BTreeSet<String>) {
+    for (file, facts) in &b.facts {
+        if !file.ends_with(".go") {
+            continue;
+        }
+        let has_main = facts
+            .declarations
+            .iter()
+            .any(|d| d.name == "main" && (d.kind == "function" || d.kind == "func"));
+        if has_main {
+            push_unique(roots, seen, file.clone());
+        }
     }
 }
 fn leaves_json(v: &Value, out: &mut Vec<String>) {

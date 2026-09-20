@@ -16,7 +16,7 @@ npx octocode tools <toolName> --scheme --json --compact
 | Packages | `artifactSearch` |
 | Local | `localSearch`, `localFetch`, `astSearch`, `astRewrite` |
 | LSP | `lspSearch` |
-| Reasoning | `jevReasoning`, `jevScout` |
+| Reasoning | `jev` |
 
 ## Contents
 
@@ -124,10 +124,9 @@ Keep continuation tokens scoped to their surface: operation-level `snapshot` val
 | `astRewrite` | Internal/local | Previews structural ast-grep rewrites and performs serialized, snapshot-bound, hash-guarded applies with journal recovery. Apply is separately opt-in; inspect the commit or recovery receipt. Cross-file changes are not simultaneously visible. |
 | `localFetch` | Internal/local | Reads a known allowed path with full, match, line-range, minified, or symbol-outline views and exact continuations. |
 | `lspSearch` | Internal/local with a language-server process | Resolves an anchored symbol and asks a real language server for definitions, references, calls, types, symbols, hierarchy, or diagnostics. It reports unavailable capabilities instead of returning a syntactic approximation as semantic proof. |
-| `jevReasoning` | Hybrid | Reads bounded source paths for independent claims, or judges a caller-supplied reasoning fork. Returns provisional typed probabilities; it does not execute checks or establish source facts. |
-| `jevScout` | Hybrid | Reads bounded, redacted local spans or accepts pre-fetched rows, then asks TypeSafe Jev to rank which candidates to read. Returned actions and probabilities are provisional, not evidence. |
+| `jev` | External provider | Evaluates caller-supplied `state` and typed `questions`; model is configured internally. Optionally loads local/GitHub source contents internally. Returns configured model, answers, usage and source receipts; source selection and actions remain caller-owned. |
 
-Remote GitHub tools require provider runtime and credentials. `artifactSearch` uses official registry APIs; `type:"npm"` honors the effective npm registry configuration. Local tools require `ENABLE_LOCAL`; clone/materialization additionally requires `ENABLE_CLONE` and persistent storage. LSP availability also depends on a compatible server for the file language. `jevReasoning` and `jevScout` require a nonblank resolved `OCTOCODE_JEV_KEY`; without one, MCP does not register either tool.
+Remote GitHub tools require provider runtime and credentials. `artifactSearch` uses official registry APIs; `type:"npm"` honors the effective npm registry configuration. Local tools require `ENABLE_LOCAL`; clone/materialization additionally requires `ENABLE_CLONE` and persistent storage. LSP availability also depends on a compatible server for the file language. `jev` requires a nonblank resolved `OCTOCODE_JEV_KEY`; without one, MCP does not register this tool.
 
 ## Text, AST, graph, and LSP: choose the evidence you need
 
@@ -1344,49 +1343,13 @@ Workspace-symbol search:
 
 ---
 
-## Jev reasoning reference
+## Pure Jev reference
 
-Use `jevReasoning route:source_questions` before substantial source reading: pass absolute `sources` paths and independent bounded `questions` claims. Octocode reads and redacts all sources into one shared request; the host need not build an evidence packet. Judgments choose the next deciding read or test. Other routes review supplied evidence and alternatives. Prefer a cheap deterministic check when it settles the question. All judgments remain provisional.
+Use `octocode tools jev --input request.json --json --compact` for a pure evaluation. Inspect `octocode tools jev --scheme --scheme-view query --json --compact` first. The query view includes canonical tool instructions and primitive guidance; loading the Jev skill is optional. The agent supplies `state`, `questions`, and optional `sources` for internal local/GitHub file loading; model selection comes from runtime configuration. It accepts no narration, goal, debug or route fields.
 
-| Route | Use |
-| --- | --- |
-| `source_questions` | Judge independent claims against source paths read by the runtime: supported, contradicted, insufficient or conflicting. |
-| `hunch_check` | Decide whether one weak lead merits further hypothesis work. |
-| `hypothesis_triage` | Rank two to five supplied hypotheses and candidate discriminating checks. |
-| `reflection_delta` | Reconsider a prior lead after one material new observation. |
-| `decision_review` | Review a costly or difficult-to-reverse proposal and its supplied risks. |
-| `disputed_inference` | Assess two source-backed interpretations that remain unresolved. |
-| `hallucination_gate` | Gate a bounded claim immediately before assertion. |
+State and question instructions/description values accept text, objects, arrays or null. Use Noul for yes/no, Choice for supplied alternatives and Score for 2–10 ordered levels. Batch independent questions over shared evidence. The runtime can load named sources without showing their bodies to the agent. With sources, provider state is `{context: state, sources: {id: {source, content}}}`; results add metadata receipts. Keep source selection, thresholds and actions in the caller. Use only when a semantic judgment can change the next worthwhile action; exact lookups and settled claims need no model call. See the [short skill](../skills/octocode-jev-reasoning-loop/SKILL.md).
 
-Every query includes `willChangeAction`, `directCheck`, `evidenceFresh`, `jevCallsAtCrossroad`, and `deliberation`. These fields enforce deterministic preflight gates before provider access. A query is skipped without network access when the judgment cannot change the next action, when a direct check is available, when evidence is stale, or when the fork already used its one Jev call.
-
-Optional query `context` keeps supplemental material separate from the required route `state`. Use `context.cot` only for a compact, shareable decision trace, `context.thinking` for a shareable summary of current beliefs or considerations, and `context.context` or additional JSON fields for relevant task, conversation, memory, tool, or agent facts. Never provide raw private chain-of-thought. Omit `context` when the bounded route state is sufficient. Octocode nests supplied context under `state.context` in the documented provider request; it does not inject the mandatory host `deliberation`.
-
-The shared envelope accepts one to five independent queries. Each row is a separate fork and receives its own judgment; batching does not create a multi-step Jev conversation. Successful provider rows include `provisional: true`, typed answers and provider usage. Source questions add source paths, ranges and hashes without returning bodies. Evidence-based routes also return a `policyAction` and host-owned `nextAction`; Octocode does not execute it.
-
-Set `OCTOCODE_JEV_KEY` through a protected resolved environment source to expose the tool. `OCTOCODE_JEV_MODEL` and `OCTOCODE_JEV_BASE_URL` optionally override the default model and trusted API root. Inspect the complete bounded route schema before constructing a call:
-
-```bash
-npx -y octocode tools jevReasoning --scheme --scheme-view query --scheme-select route=source_questions --json
-```
-
-Invoke the direct CLI command with the same bulk JSON object accepted by MCP:
-
-```bash
-npx octocode jevReasoning '<json>'
-```
-
-## Jev Scout reference
-
-Use `jevScout` to prioritize a selective fan-out of candidate files or pre-fetched rows before reading them into the host context. Each query supplies one claim and exactly one source: two to twelve root-relative local files with regex anchors, or two to twelve bounded items with stable IDs. Local reads remain inside the resolved sandbox and are redacted before provider access.
-
-Omit `dimensions` and `taxonomy` to use the default `implements` taxonomy; use `taxonomy:"relevance"` to locate evidence relevant to a question. A custom taxonomy can define one to four dimensions, exactly one `primary`, plus optional `veto` and `info` dimensions. Candidate count multiplied by dimension count cannot exceed 24 judgments per query. Results return source anchors, coverage, taxonomy levels, probabilities, and a provisional `read`, `gray_read`, or `skip` action. With `includeEvidence:true`, inspect the returned original `read`/`gray_read` excerpts before citing or asserting anything; fetch missing or incomplete deciding spans.
-
-`jevScout` uses the same `OCTOCODE_JEV_KEY`, `OCTOCODE_JEV_MODEL`, and `OCTOCODE_JEV_BASE_URL` settings as `jevReasoning`. Inspect its current schema before constructing a call:
-
-```bash
-npx octocode jevScout --scheme
-```
+The former `jevReasoning` and `jevScout` tools have been retired. Migrate by supplying evidence in `state` or optional named `sources`, and expressing the judgment in typed `questions`. Sources support local paths and GitHub owner/repo/path/ref, with optional paired line ranges. Source loading is explicit; no route policies or generated questions are hidden in the tool.
 
 ---
 

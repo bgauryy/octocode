@@ -6,6 +6,7 @@ mod engine;
 pub mod error;
 mod github;
 mod github_cache;
+mod jev_sources;
 mod lifecycle;
 mod maintenance;
 pub mod render;

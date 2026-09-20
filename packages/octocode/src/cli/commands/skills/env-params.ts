@@ -102,7 +102,15 @@ const GITHUB_TOKEN_PARAMS: EnvParam[] = [
 export const SKILL_ENV_PARAMS: Record<string, EnvParam[]> = {
   'octocode-brainstorming': WEB_SEARCH_PARAMS,
   'octocode-research': GITHUB_TOKEN_PARAMS,
-  'octocode-rfc-generator': GITHUB_TOKEN_PARAMS,
+  'octocode-rfc-generator': [
+    ...GITHUB_TOKEN_PARAMS,
+    {
+      key: 'OCTOCODE_JEV_KEY',
+      description: 'Jev — optional two-agent RFC review',
+      required: 'optional',
+      link: 'https://console.typesafe.ai/keys',
+    },
+  ],
   'octocode-roast': GITHUB_TOKEN_PARAMS,
   // awareness, eval, prompt-optimizer, skills, subagent: no special env params
 };
@@ -213,7 +221,7 @@ export function missingHint(envStatus: SkillEnvStatus): string {
   const standaloneKeys: string[] = [];
 
   for (const ps of envStatus.params) {
-    if (ps.status === 'set') continue;
+    if (ps.status === 'set' || ps.param.required === 'optional') continue;
     if (ps.param.group) {
       const groupSatisfied = isGroupSatisfied(ps, envStatus.params);
       if (!groupSatisfied) unsatisfiedGroups.add(ps.param.group);

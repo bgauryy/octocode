@@ -83,6 +83,35 @@ impl GitHubServices {
         paths: &PathPolicy,
     ) -> Result<DomainResult, ExecutionError> {
         context.check()?;
+        let request_context = match self.request_context(context, handle) {
+            Ok(value) => value,
+            Err(error) => {
+                return Ok(if tool == "ghGetFileContent" {
+                    file_error(error, query)
+                } else if tool == "ghSearch" {
+                    search_error(error)
+                } else {
+                    history_error(error)
+                });
+            }
+        };
+        context.check()?;
+        handle.block_on(self.execute_resolved(
+            tool,
+            query,
+            &request_context,
+            context,
+            security,
+            regex,
+            paths,
+        ))
+    }
+
+    fn request_context(
+        &self,
+        context: &ExecutionContext,
+        handle: &tokio::runtime::Handle,
+    ) -> Result<RequestContext, ProviderError> {
         let host = self
             .provider
             .transport
@@ -97,19 +126,17 @@ impl GitHubServices {
                 override_token: None,
             })
             .finish();
-        context.check()?;
-        let credential = match credential {
-            Ok(value) => value,
-            Err(error) => {
-                return Ok(if tool == "ghGetFileContent" {
-                    file_error(error, query)
-                } else if tool == "ghSearch" {
-                    search_error(error)
+        let credential = credential?;
+        context.check().map_err(|error| {
+            ProviderError::new(
+                if error == ExecutionError::Timeout {
+                    ProviderErrorKind::Timeout
                 } else {
-                    history_error(error)
-                });
-            }
-        };
+                    ProviderErrorKind::Cancelled
+                },
+                "GitHub credential resolution exceeded the request budget",
+            )
+        })?;
         let credential = if credential
             .as_ref()
             .is_some_and(|value| value.source == CredentialSource::Storage)
@@ -138,13 +165,7 @@ impl GitHubServices {
                         Some(ResolvedCredential::new(token, CredentialSource::Storage))
                     }
                     _ => {
-                        return Ok(if tool == "ghGetFileContent" {
-                            file_error(refresh_error, query)
-                        } else if tool == "ghSearch" {
-                            search_error(refresh_error)
-                        } else {
-                            history_error(refresh_error)
-                        });
+                        return Err(refresh_error);
                     }
                 },
             }
@@ -155,15 +176,36 @@ impl GitHubServices {
             RequestContext::with_resolved_credential(self.timeout, 16 * 1024 * 1024, credential);
         request_context.deadline = context.deadline.min(Instant::now() + self.timeout);
         request_context.cancellation = context.cancellation.clone();
-        handle.block_on(self.execute_resolved(
-            tool,
-            query,
-            &request_context,
-            context,
-            security,
-            regex,
-            paths,
-        ))
+        Ok(request_context)
+    }
+
+    pub(super) fn read_jev_source(
+        &self,
+        source: &Value,
+        context: &ExecutionContext,
+        handle: &tokio::runtime::Handle,
+    ) -> Result<(Vec<u8>, String), crate::tools::jev_transport::JevProviderError> {
+        let failed = |error: ProviderError| crate::tools::jev_transport::JevProviderError {
+            code: "jevSourceUnavailable".into(),
+            message: format!("GitHub source retrieval failed ({:?}).", error.kind),
+            hints: vec!["Check repository access, path, and the explicit ref.".into()],
+        };
+        let mut request_context = self.request_context(context, handle).map_err(failed)?;
+        request_context.max_body_bytes = 128 * 1024;
+        let acquired = handle
+            .block_on(self.provider.get_file_content(
+                &ContentRequest {
+                    owner: source["owner"].as_str().unwrap_or_default().into(),
+                    repo: source["repo"].as_str().unwrap_or_default().into(),
+                    path: source["path"].as_str().unwrap_or_default().into(),
+                    reference: source["ref"].as_str().map(str::to_owned),
+                    force_refresh: false,
+                    session_id: None,
+                },
+                &request_context,
+            ))
+            .map_err(failed)?;
+        Ok((acquired.bytes.to_vec(), acquired.resolved_ref))
     }
 
     #[allow(clippy::too_many_arguments)]

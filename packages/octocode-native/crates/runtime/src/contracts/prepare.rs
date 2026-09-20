@@ -82,14 +82,16 @@ pub fn prepare(
             return Err(ContractInputError::new("tool input must be an object"));
         }
     };
-    default_blank(
-        &mut object,
-        "goal",
-        format!("Execute {tool_name} via {}", options.source_label),
-    );
-    object
-        .entry("debug".to_owned())
-        .or_insert(Value::Bool(false));
+    if tool_name != "jev" {
+        default_blank(
+            &mut object,
+            "goal",
+            format!("Execute {tool_name} via {}", options.source_label),
+        );
+        object
+            .entry("debug".to_owned())
+            .or_insert(Value::Bool(false));
+    }
     if tool_name == "artifactSearch" {
         trim_string(&mut object, "packageName");
         if let Some(Value::Array(keywords)) = object.get_mut("keywords") {
@@ -124,6 +126,21 @@ fn default_blank(object: &mut Map<String, Value>, field: &str, default: String) 
 mod tests {
     use super::{PrepareOptions, prepare};
     use serde_json::json;
+
+    #[test]
+    fn pure_jev_preparation_preserves_exactly_the_supplied_values() {
+        let query = json!({"state": {"goal": "source data", "debug": true}, "questions": {
+            "q": {"type": "noul", "instructions": "Assess supplied state"}
+        }});
+        for input in [
+            query.clone(),
+            json!([query.clone()]),
+            json!({"queries": [query.clone()]}),
+        ] {
+            let prepared = prepare("jev", input, PrepareOptions::default()).expect("pure input");
+            assert_eq!(serde_json::Value::Object(prepared.query), query);
+        }
+    }
 
     #[test]
     fn defaults_goal_and_debug_but_never_invents_reasoning() {

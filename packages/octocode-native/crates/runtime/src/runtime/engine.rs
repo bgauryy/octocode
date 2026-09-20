@@ -602,77 +602,93 @@ impl ToolRuntime {
                             )?,
                             Err(error) => super::github::provider_error(error.clone()),
                         }
-                    } else if tool == "jevReasoning" {
+                    } else if tool == "jev" {
                         let _enter = handle.enter();
                         context.check()?;
                         let Some(key) = jev_key.clone() else {
                             return Err(ExecutionError::WorkerFailed);
                         };
-                        let configured_deadline = Instant::now() + jev_timeout;
-                        let deadline = context.deadline.min(configured_deadline);
-                        handle.block_on(async {
-                            match crate::tools::jev_reasoning::execute(
-                                query,
-                                key,
-                                &jev_base_url,
-                                &jev_model,
-                                crate::tools::jev_reasoning::budget(
-                                    deadline,
-                                    context.cancellation.clone(),
-                                ),
-                                jev_retries,
-                                crate::tools::jev_source_questions::SourceAccess {
-                                    paths: &paths,
-                                    security: &security,
-                                    local_enabled: config.resolved.local.enabled,
-                                },
-                            )
-                            .await
-                            {
-                                Ok(data) => {
-                                    super::session_stats::record_jev(&home, stats_enabled, &data);
-                                    super::dispatch::value_result(data)
-                                }
-                                Err(error) => super::dispatch::provider_failure(
-                                    error.message,
-                                    error.code,
-                                    error.hints,
-                                ),
-                            }
-                        })
-                    } else if tool == "jevScout" {
-                        let _enter = handle.enter();
-                        context.check()?;
-                        let Some(key) = jev_key.clone() else {
-                            return Err(ExecutionError::WorkerFailed);
+                        let deadline = context.deadline.min(Instant::now() + jev_timeout);
+                        let evaluation_context = ExecutionContext {
+                            deadline,
+                            ..context.clone()
                         };
-                        let configured_deadline = Instant::now() + jev_timeout;
-                        let deadline = context.deadline.min(configured_deadline);
-                        handle.block_on(async {
-                            match crate::tools::jev_scout::execute(
-                                query,
-                                key,
-                                &jev_base_url,
-                                &jev_model,
-                                crate::tools::jev_reasoning::budget(
-                                    deadline,
-                                    context.cancellation.clone(),
-                                ),
-                                jev_retries,
-                            )
-                            .await
-                            {
-                                Ok(data) => {
-                                    super::session_stats::record_scout(&home, stats_enabled, &data);
-                                    super::dispatch::value_result(data)
+                        let hydrated =
+                            crate::tools::jev::preflight(query, &jev_model).and_then(|()| {
+                                super::jev_sources::hydrate(
+                                    query,
+                                    &paths,
+                                    &security,
+                                    &evaluation_context,
+                                    config.resolved.local.enabled,
+                                    |source| {
+                                        let services = github_services.get_or_init(|| {
+                                            super::github::GitHubServices::new(
+                                                config.clone(),
+                                                home.clone(),
+                                                github_cache.clone(),
+                                            )
+                                        });
+                                        match services {
+                                            Ok(services) => services.read_jev_source(
+                                                source,
+                                                &evaluation_context,
+                                                &handle,
+                                            ),
+                                            Err(_) => {
+                                                Err(crate::tools::jev_transport::JevProviderError {
+                                                    code: "jevSourceUnavailable".into(),
+                                                    message:
+                                                        "GitHub source service is unavailable."
+                                                            .into(),
+                                                    hints: vec![
+                                                        "Check configured GitHub access.".into(),
+                                                    ],
+                                                })
+                                            }
+                                        }
+                                    },
+                                )
+                            });
+                        match hydrated {
+                            Err(error) => super::dispatch::provider_failure(
+                                error.message,
+                                error.code,
+                                error.hints,
+                            ),
+                            Ok((query, sources)) => handle.block_on(async {
+                                match crate::tools::jev::execute(
+                                    &query,
+                                    key,
+                                    &jev_base_url,
+                                    &jev_model,
+                                    crate::tools::jev_transport::budget(
+                                        deadline,
+                                        context.cancellation.clone(),
+                                    ),
+                                    jev_retries,
+                                )
+                                .await
+                                {
+                                    Ok(mut data) => {
+                                        if let Some(sources) = sources {
+                                            data["sources"] = sources;
+                                        }
+                                        super::session_stats::record_jev(
+                                            &home,
+                                            stats_enabled,
+                                            &data,
+                                        );
+                                        super::dispatch::value_result(data)
+                                    }
+                                    Err(error) => super::dispatch::provider_failure(
+                                        error.message,
+                                        error.code,
+                                        error.hints,
+                                    ),
                                 }
-                                Err(error) => super::dispatch::provider_failure(
-                                    error.message,
-                                    error.code,
-                                    error.hints,
-                                ),
-                            }
-                        })
+                            }),
+                        }
                     } else if tool == "artifactSearch" {
                         let _enter = handle.enter();
                         context.check()?;
@@ -756,7 +772,13 @@ impl ToolRuntime {
                 let all_failed = rows.iter().all(|row| {
                     row.get("status").and_then(serde_json::Value::as_str) == Some("error")
                 });
-                let mut structured = response::envelope(rows);
+                // Jev receipts and caller-authored rubric values are opaque JSON:
+                // path compaction would mutate their identity and meaning.
+                let mut structured = if tool == "jev" {
+                    json!({"results": rows})
+                } else {
+                    response::envelope(rows)
+                };
                 let shared_path = queries
                     .first()
                     .and_then(|query| query.get("path"))

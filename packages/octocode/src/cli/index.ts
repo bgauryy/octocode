@@ -59,7 +59,7 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
         await import('./interactive-install.js');
       process.exitCode = await runInteractiveInstall(bin, rawArgv);
     } else {
-      process.exitCode = delegateToNative(bin, rawArgv);
+      process.exitCode = await delegateToNative(bin, rawArgv);
     }
     return true;
   }

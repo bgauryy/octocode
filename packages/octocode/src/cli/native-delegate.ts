@@ -1,9 +1,12 @@
 // Thin Node-to-Rust delegation boundary. Public tools and flag-only management
 // commands execute in the compiled native CLI; Node retains only interactive
 // installation and skill materialization.
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { existsSync } from 'node:fs';
+import { constants as osConstants } from 'node:os';
+
+const FORWARDED_SIGNALS: NodeJS.Signals[] = ['SIGINT', 'SIGTERM', 'SIGHUP'];
 
 /**
  * `skill` remains in Node because the native command intentionally invokes this
@@ -47,18 +50,68 @@ export function shouldDelegateToNative(
 }
 
 /**
- * Spawn the native binary with the given argv, passing stdio through. Returns
- * the child exit code (0 when it exits cleanly, 1 on spawn failure).
+ * Spawn the native binary with the given argv, passing stdio through, and
+ * resolve with the child exit code (0 clean, 1 on spawn failure, 128+N on a
+ * signal death).
+ *
+ * Uses async `spawn` (not `spawnSync`) so a termination signal directed only at
+ * this Node process — e.g. `SIGTERM` from systemd/docker, which does not hit the
+ * whole process group — is forwarded to the native child instead of queuing
+ * behind a blocking wait. While the child owns stdio this function is the sole
+ * signal owner: it removes the parent's SIGINT/SIGTERM/SIGHUP handlers (so their
+ * "Goodbye"/forced-exit cannot race the child's own interrupt handling and drain)
+ * and restores them once the child exits.
  */
 export function delegateToNative(
   bin: string,
   argv: readonly string[],
   env: NodeJS.ProcessEnv = process.env
-): number {
+): Promise<number> {
   const isLauncher = bin.endsWith('.cjs') || bin.endsWith('.js');
-  const result = isLauncher
-    ? spawnSync(process.execPath, [bin, ...argv], { stdio: 'inherit', env })
-    : spawnSync(bin, [...argv], { stdio: 'inherit', env });
-  if (result.error) return 1;
-  return result.status ?? 1;
+  const child = isLauncher
+    ? spawn(process.execPath, [bin, ...argv], { stdio: 'inherit', env })
+    : spawn(bin, [...argv], { stdio: 'inherit', env });
+
+  const saved = new Map<NodeJS.Signals, NodeJS.SignalsListener[]>();
+  const forwarders = new Map<NodeJS.Signals, () => void>();
+  for (const signal of FORWARDED_SIGNALS) {
+    saved.set(signal, process.listeners(signal) as NodeJS.SignalsListener[]);
+    process.removeAllListeners(signal);
+    const forward = (): void => {
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill(signal);
+      }
+    };
+    forwarders.set(signal, forward);
+    process.on(signal, forward);
+  }
+  const restoreSignals = (): void => {
+    for (const signal of FORWARDED_SIGNALS) {
+      const forward = forwarders.get(signal);
+      if (forward) {
+        process.removeListener(signal, forward);
+      }
+      for (const listener of saved.get(signal) ?? []) {
+        process.on(signal, listener);
+      }
+    }
+  };
+
+  return new Promise<number>(resolve => {
+    child.once('error', () => {
+      restoreSignals();
+      resolve(1);
+    });
+    child.once('close', (code, signal) => {
+      restoreSignals();
+      if (code !== null) {
+        resolve(code);
+        return;
+      }
+      // Signal death: report 128+N so OOM (SIGKILL→137) and crashes
+      // (SIGSEGV→139) stay distinguishable from an ordinary error exit.
+      const signalNumber = signal ? osConstants.signals[signal] : undefined;
+      resolve(typeof signalNumber === 'number' ? 128 + signalNumber : 1);
+    });
+  });
 }

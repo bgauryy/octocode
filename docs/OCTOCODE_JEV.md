@@ -1,9 +1,11 @@
 # Octocode-JEV
 
-**Status:** Draft RFC
+**Status:** Original broad design draft; current implementation direction is the [skill-first OJQL / Jev v2 RFC](../.octocode/rfc/jev-v2-protocol/RFC.md).
 **Working name:** Octocode-JEV / OJQL
 **Repository:** Octocode
 **Purpose:** Structured probabilistic decision-making for agents over code and research evidence.
+
+**2026-09-20 synthesis:** After the skill prototype, the user explicitly selected `octocode tools jev`: a pure `{state, questions}` judgment contract with optional source loading with internal model selection and workflows expressed through prompts. The short skill now runs and verifies this CLI entry. The user subsequently selected one pure tool: legacy Jev tools and standalone skill clients are retired. Whole-task efficiency remains unproven. See the [consolidation evaluation](../.octocode/octocode-eval-benchmark/jev-single-tool-2026-09-20/REPORT.md). The sections below preserve the original design space; they are not a commitment to ship a new package, cache, inheritance, workflow engine or full DSL. See the [POC evidence](../.octocode/rfc/ojql-feasibility/poc/RESULTS.md), [review disposition](../.octocode/rfc/ojql-feasibility/redteam-2026-09-20/REVIEW.md) and [current acceptance gates](../.octocode/rfc/jev-v2-protocol/RFC.md#acceptance-and-implementation-sequence).
 
 ---
 

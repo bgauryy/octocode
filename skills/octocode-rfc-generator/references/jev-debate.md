@@ -1,0 +1,39 @@
+# Two agents, one bounded disagreement
+
+Load before spawning. Why: independent challenges expose omissions; role-played agreement and repeated voting do not.
+
+## Dispatch packet
+
+The host owns requester communication, workspace writes, evidence checks, and final disposition. Workers are read-only consultants; no nested agents or external actions. Supply both with:
+
+- Goal, question IDs and type, frozen RFC revision, exact raw evidence with scope/date, constraints and owner criteria.
+- Include/exclude boundaries, available tools, authority and the shared deadline. Default each opening to 600 words and each rebuttal to 300 words; at most four targeted evidence reads per worker. Report truncation or exhausted budgets as partial.
+- One role: **proposal advocate** develops the strongest evidence-compatible answer and admits its failure conditions; **adversarial reviewer** seeks missing blockers, counterexamples and viable alternatives. Neither must defend a false claim or invent disagreement.
+- Required return: `status` (complete/partial/blocked), per-question proposed answer, source anchors, assumptions, strongest counterargument, falsifying/deciding check, and gaps. Provide concise public arguments, never private chain-of-thought.
+
+Use fresh-context workers with no inherited preferred conclusion when the host supports it. Keep the raw inputs identical except role. If isolation is unavailable, record the limitation; two instances of one model are not independent experimental replicates.
+
+## Exchange and judge
+
+1. **Opening barrier:** collect both completed openings before either sees the other. If a worker fails, preserve partial work and label the debate incomplete. Do not submit a one-sided packet as a completed debate.
+2. **Shared evidence:** inspect sources cited by the workers, then give both workers the same additions. Unsupported citations stay claims. Source changes invalidate affected statements.
+3. **Rebuttal barrier:** send each worker the other's public opening. If the proposal emerged during openings, freeze its exact text, revision, questions and criteria before this exchange and give the same contract to both workers. Ask for concessions, the remaining precise disagreement, and the single strongest deciding check. Stop after one rebuttal each. If they converge, or inspected evidence/direct checks settle the question, record the outcome and omit Jev. Later subject changes require affected worker review or an incomplete label; do not relabel old arguments as review of a new proposal.
+4. **Judge packet:** preserve both openings/rebuttals or faithful bounded summaries with original receipt links. Use anonymous A/B labels, identical evidence IDs, missing evidence, dissent, decision criteria and applicable question IDs. Include neither an instruction to favor one agent nor the host's desired winner. Record a content hash/revision for the packet. Before the API call, run `node scripts/validate-debate.mjs request.json worker-packet.json` from this skill folder; resolve paths explicitly from other directories. Stop on a failed check and repair packet construction, retaining the original receipt.
+5. **Jev judgment:** map the unresolved object through `references/jev-api.md`. Before calling, save the host's intended next action and which answers change it. Jev assesses the claim/proposal from the supplied evidence; it need not choose a winning speaker. Both arguments can be wrong. Record the actual model, request, typed result, host action, usage and elapsed time when available.
+6. **Host check:** inspect the original deciding evidence or run the selected check. Apply `references/rfc-completeness.md` transition rules, preserving material dissent. A low-confidence/insufficient result stays open; a high-confidence result without proof also stays open.
+
+A follow-up round requires a changed proposal, new deciding evidence or changed authorized criteria, with its effect recorded before dispatch. A new question label or paraphrase is not a new crossroad. Count all attempts/retries against the session budget. Stop at the earlier of the deadline, call cap or no-progress condition.
+
+## Receipt
+
+Store the input revision, both worker outputs, rebuttals, exact request/response, model, availability/transport outcome, deciding check and resulting ledger changes under the review directory. Retain raw provider results beside host interpretation; record the host's subsequent action separately; a judgment does not establish RFC acceptance. Do not put credentials or hidden reasoning in receipts.
+
+Freeze the worker packet's `evidence` as an object keyed by `E1`, `E2`, …, with each value containing `source` and `observation`. Copy those exact entries into the query's `state.evidence` array, adding only `id`. Keep optional entry fields unchanged too; never consolidate or renumber after worker dispatch. Store `state.arguments.A` and `state.arguments.B` as objects with nonempty `opening` and `rebuttal` strings. A batch shares one evidence snapshot; use separate packets when the evidence differs.
+
+The worker packet also contains `review: {id, rfcRevision, questions: {Q1: {type, instructions, criteria}}, criteria: ["decision criterion"], subject: {kind: "proposal", text: "exact proposed action"}}`. Use `kind: "claim"` for a bounded factual or causal claim. Freeze the complete typed question map, including instructions and any per-question criteria; copy it unchanged to the query's `questions`. Instructions name `state.review.subject`, the relevant evidence, both arguments, and the decision criteria. Question IDs carry no instructions. Optional question criteria follow the selected Jev type.
+
+Freeze `admission: {workersDisagree:true, remainingDisagreement, evidenceDoesNotSettleBecause, directCheckUnavailableBecause, currentAction, ifJudgeSupports, ifJudgeRejects, workerPositions:{A,B}, willChangeAction:true, directCheck:{available:false}, evidenceFresh:true, jevCallsAtCrossroad:0}`. The positions and result-dependent actions must differ. Copy `review` and `admission` unchanged into query `state`. Keep the judged subject inside `state.review.subject`; do not duplicate it elsewhere in state. These admission fields are host policy evidence, not native Jev controls. The host checks them before submitting this source-free `{state, questions}` query. Although Jev supports optional top-level `sources`, this RFC preflight excludes them to prevent content that the workers did not inspect from entering the judgment. For a subset or changed subject, freeze a new scoped contract for both workers; do not silently select it after debate.
+
+The preflight checks review identity, the actual judged subject, both argument rounds and exact evidence preservation. It cannot prove the workers consumed the contract, verify source truth, detect every misleading summary, or establish owner authority or semantic closure. Preserve raw dispatches and worker messages so the host can inspect actual review coverage; no checksum substitutes for that audit. When changing the helper, run `node scripts/validate-debate.mjs --self-test`.
+
+After verification, record `intended action before | judgment field | action after | checked outcome | discovery origin | incremental contribution | cost`. Classify contribution as changed action, prioritized an existing concern, confirmation only, no demonstrated help, or harmful. Attribute defects and ideas to their actual source. This is descriptive attribution for the run, not proof of accuracy benefit; use `references/jev-evaluation.md` for that comparison and `references/review-cost.md` for cost coverage.

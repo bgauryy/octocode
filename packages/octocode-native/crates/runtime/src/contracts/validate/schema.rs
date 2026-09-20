@@ -356,13 +356,18 @@ fn check_size(
         .or_else(|| schema.get("maxItems"))
         .or_else(|| schema.get("maxProperties"))
         .and_then(Value::as_u64);
-    if minimum.is_some_and(|bound| length < bound as usize)
-        || maximum.is_some_and(|bound| length > bound as usize)
-    {
+    if let Some(bound) = minimum.filter(|bound| length < *bound as usize) {
         return Err(issue(
             "schema.size",
             path.to_vec(),
-            "Value length is outside the allowed range",
+            format!("Value length {length} is below the minimum of {bound}"),
+        ));
+    }
+    if let Some(bound) = maximum.filter(|bound| length > *bound as usize) {
+        return Err(issue(
+            "schema.size",
+            path.to_vec(),
+            format!("Value length {length} exceeds the maximum of {bound}"),
         ));
     }
     Ok(())
@@ -386,10 +391,19 @@ mod tests {
             let result = validate_schema(&schema, &schema, &mut value, &mut vec![]);
             assert_eq!(result.is_ok(), (1..=24).contains(&count));
             if let Err(error) = result {
-                assert!(error.issues.iter().any(|issue| issue.rule_id == "schema.size"));
+                assert!(
+                    error
+                        .issues
+                        .iter()
+                        .any(|issue| issue.rule_id == "schema.size")
+                );
             }
         }
-        for mut value in [json!({"Bad id":"claim"}), json!({"claim":""}), json!({"claim":1})] {
+        for mut value in [
+            json!({"Bad id":"claim"}),
+            json!({"claim":""}),
+            json!({"claim":1}),
+        ] {
             assert!(validate_schema(&schema, &schema, &mut value, &mut vec![]).is_err());
         }
     }

@@ -256,7 +256,7 @@ All LSP commands accept: `--symbol <name>` `--line <n>` `--character <n>` `--ope
 octocode tools                          # list enabled tools
 octocode tools <name> --scheme          # print the complete tool contract
 octocode tools <name> '<json>'          # run with a raw JSON query
-octocode <name> '<json>'                # direct tool-name form, including jevReasoning
+octocode <name> '<json>'                # direct tool-name form, including jev
 octocode tools <name> --json --compact  # schema in compact JSON
 ```
 

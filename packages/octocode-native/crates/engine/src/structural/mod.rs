@@ -17,7 +17,7 @@ mod syntax_tree;
 mod types;
 
 #[cfg(feature = "embedded-ast-grep-rewrite")]
-pub use files::{rewrite_files, StructuralRewriteFileResult};
+pub use files::{rewrite_files, StructuralRewriteFileResult, StructuralRewriteFilesResult};
 pub use files::{search_files, search_files_detailed, search_files_detailed_filtered};
 #[cfg(feature = "embedded-ast-grep-rewrite")]
 pub use rewrite::{

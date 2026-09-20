@@ -27,6 +27,7 @@ pub struct AstTreeQuery {
     pub sort: Option<String>,
     pub reverse: Option<bool>,
     pub name_pattern: Option<String>,
+    pub snapshot: Option<String>,
 }
 fn tree_op() -> String {
     "tree".into()
@@ -118,6 +119,28 @@ pub fn execute_tree(
         entries.truncate(limit as usize)
     }
     let total = entries.len();
+    // Snapshot fingerprint over the query shape plus the ordered result set, so
+    // a continuation cursor (page>1) can be rejected with `ast.snapshot.changed`
+    // when the corpus or query drifted between pages.
+    let snapshot = super::syntax::digest(&json!([
+        q.path,
+        q.max_depth,
+        q.hidden,
+        q.extensions,
+        q.entry_type,
+        q.exclude_dir,
+        q.name_pattern,
+        q.reverse,
+        q.limit,
+        // Effective (not raw) values: the nextPage continuation injects these
+        // defaults, so the digest must match what the follow-up request carries.
+        q.sort.as_deref().unwrap_or("name"),
+        q.detail.as_deref().unwrap_or("basic"),
+        entries.iter().map(|e| &e.relative).collect::<Vec<_>>()
+    ]));
+    if q.page > 1 && q.snapshot.as_deref() != Some(&snapshot) {
+        return Ok(super::snapshot_changed(&snapshot));
+    }
     let size = q.page_size.clamp(1, 100) as usize;
     let pages = total.div_ceil(size).max(1);
     let requested = q.page.max(1) as usize;
@@ -167,6 +190,7 @@ pub fn execute_tree(
         "{total} entries ({files} files, {dirs} dirs, {})",
         format_size(bytes)
     ));
+    out["snapshot"] = json!(snapshot);
     if has_more || pages > 1 || out_of_range {
         out["pagination"] = json!({"currentPage":page,"totalPages":pages,"entriesPerPage":size,"totalEntries":total,"hasMore":has_more});
     }
@@ -180,7 +204,7 @@ pub fn execute_tree(
     }
     if has_more && !terminal {
         out["pagination"]["nextPage"] = json!(page + 1);
-        out["next"]["nextPage"] = continuation(q, json!({"page":page+1}))
+        out["next"]["nextPage"] = continuation(q, json!({"page":page+1,"snapshot":snapshot}))
     }
     if limit_cut && q.limit.unwrap_or(10_000) < 10_000 {
         out["next"]["expandLimit"] = continuation(

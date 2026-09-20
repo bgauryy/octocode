@@ -9,7 +9,7 @@ Canonical Agent Skills for this monorepo. Each skill is a standalone folder whos
 | Investigate code, packages, history, or a failure | [octocode-research](octocode-research/) |
 | Review or refactor architecture, algorithms, dependencies, flows, interfaces, or maintainability | [octocode-architect](octocode-architect/) |
 | Explore whether an idea is worth building | [octocode-brainstorming](octocode-brainstorming/) |
-| Make a consequential design or migration decision | [octocode-rfc-generator](octocode-rfc-generator/) |
+| Make a consequential design or migration decision, with optional Jev review | [octocode-rfc-generator](octocode-rfc-generator/) |
 | Measure whether a change improved behavior | [octocode-eval-benchmark](octocode-eval-benchmark/) |
 | Orchestrate workers or offload sealed work to local Ollama | [octocode-subagent](octocode-subagent/) |
 | Write, restructure, or copyedit documentation | [octocode-documentation](octocode-documentation/) |

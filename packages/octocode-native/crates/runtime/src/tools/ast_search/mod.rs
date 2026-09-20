@@ -124,6 +124,20 @@ pub(super) fn display_name(path: &std::path::Path) -> String {
         .to_string_lossy()
         .into_owned()
 }
+
+/// Shared `ast.snapshot.changed` continuation guard payload. Emitted when a
+/// page>1 request carries a snapshot that no longer matches the freshly
+/// computed digest of the query shape and ordered result set — i.e. the corpus
+/// or query changed underneath a continuation cursor.
+pub(super) fn snapshot_changed(snapshot: &str) -> Value {
+    serde_json::json!({
+        "status":"error",
+        "errorCode":"ast.snapshot.changed",
+        "error":"The source or query changed, or this continuation omitted its snapshot. Discard earlier pages and restart.",
+        "snapshot":snapshot,
+        "complete":false
+    })
+}
 pub type AstResult = Result<Value, AstError>;
 
 pub fn execute_ast(
