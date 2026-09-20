@@ -800,7 +800,12 @@ async fn matrix_captures_each_hidden_resource_once_and_correlates_every_answer()
         )
         .await
         .unwrap();
-    assert_eq!(reads.load(Ordering::SeqCst), 1, "{}", out.structured_content);
+    assert_eq!(
+        reads.load(Ordering::SeqCst),
+        1,
+        "{}",
+        out.structured_content
+    );
     let rows = out.structured_content["results"].as_array().unwrap();
     assert_eq!(rows.len(), 2);
     for (index, row) in rows.iter().enumerate() {

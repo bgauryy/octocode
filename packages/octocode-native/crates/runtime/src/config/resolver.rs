@@ -4,7 +4,7 @@ use super::dotenv::{
 use super::loader::load_config;
 use super::types::*;
 use super::validation::validate_config;
-use serde_json::{json, Number, Value};
+use serde_json::{Number, Value, json};
 use std::collections::BTreeMap;
 use std::path::Path;
 

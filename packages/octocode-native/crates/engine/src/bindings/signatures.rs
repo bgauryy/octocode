@@ -2,8 +2,8 @@ use crate::bindings::tasks::{
     SemanticBoundaryOffsetsTask, StructuralSearchFilesTask, StructuralSearchTask,
     SyntaxTreeInspectTask,
 };
-use napi::Result;
 use napi::bindgen_prelude::AsyncTask;
+use napi::Result;
 use napi_derive::napi;
 
 /// Native exports.
@@ -302,11 +302,9 @@ mod tests {
             "every extension must belong to exactly one parser entry"
         );
 
-        assert!(
-            capabilities
-                .iter()
-                .all(|capability| capability.signature_outline)
-        );
+        assert!(capabilities
+            .iter()
+            .all(|capability| capability.signature_outline));
         for removed in ["Kotlin", "PHP", "HTML", "CSS", "JSON"] {
             assert!(
                 capabilities
@@ -320,10 +318,9 @@ mod tests {
             .iter()
             .find(|capability| capability.language == "TSX")
             .expect("TSX capability");
-        assert!(
-            tsx.selector_aliases
-                .iter()
-                .any(|alias| alias == "typescript")
-        );
+        assert!(tsx
+            .selector_aliases
+            .iter()
+            .any(|alias| alias == "typescript"));
     }
 }

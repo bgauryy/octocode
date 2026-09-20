@@ -4,8 +4,50 @@ use super::{
     ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState, ArtifactQuery,
     ArtifactType,
 };
-use regex::Regex;
 use url::Url;
+
+/// Compile-once XML/coordinate patterns. `maven-metadata.xml` and POM parsing
+/// run per lookup; compiling these constant patterns on every call (and once
+/// per extracted tag in the old `field` closure) was pure waste.
+mod patterns {
+    use regex::Regex;
+    use std::sync::LazyLock;
+
+    macro_rules! pattern {
+        ($name:ident, $src:expr) => {
+            pub(super) fn $name() -> &'static Regex {
+                static RE: LazyLock<Regex> = LazyLock::new(|| {
+                    #[allow(clippy::expect_used)]
+                    Regex::new($src).expect(concat!("static maven pattern: ", stringify!($name)))
+                });
+                &RE
+            }
+        };
+    }
+
+    pattern!(valid_coordinate, r"^[A-Za-z0-9_][A-Za-z0-9_.-]*$");
+    pattern!(doctype, r"(?i)<!DOCTYPE|<!ENTITY");
+    pattern!(comment, r"(?s)<!--.*?-->");
+    pattern!(url_tag, r"<url>\s*([^<]+?)\s*</url>");
+    pattern!(scm, r"(?s)<scm>(.*?)</scm>");
+    pattern!(group_id, r"<groupId>\s*([^<]+?)\s*</groupId>");
+    pattern!(artifact_id, r"<artifactId>\s*([^<]+?)\s*</artifactId>");
+    pattern!(release, r"<release>\s*([^<]+?)\s*</release>");
+    pattern!(latest, r"<latest>\s*([^<]+?)\s*</latest>");
+
+    /// The bounded set of `<tag>value</tag>` fields extracted from
+    /// `maven-metadata.xml`. Unknown tags return `None` (the `regex` crate has
+    /// no backreferences, so a single generic `<(\w+)>…</\1>` is unavailable).
+    pub(super) fn field(tag: &str) -> Option<&'static Regex> {
+        Some(match tag {
+            "groupId" => group_id(),
+            "artifactId" => artifact_id(),
+            "release" => release(),
+            "latest" => latest(),
+            _ => return None,
+        })
+    }
+}
 
 pub(crate) async fn maven(
     query: &ArtifactQuery,
@@ -90,8 +132,7 @@ async fn exact(
     client: &RegistryClient<'_>,
 ) -> Result<ArtifactProviderPage, ArtifactError> {
     let parts = package_name.split(':').collect::<Vec<_>>();
-    let valid = Regex::new(r"^[A-Za-z0-9_][A-Za-z0-9_.-]*$")
-        .map_err(|_| super::util::invalid(ArtifactType::Maven))?;
+    let valid = patterns::valid_coordinate();
     if parts.len() != 2 || parts.iter().any(|part| !valid.is_match(part)) {
         return Err(ArtifactError::new(
             "invalid_query",
@@ -112,18 +153,12 @@ async fn exact(
     let Some(xml) = client.text(ArtifactType::Maven, url, true).await? else {
         return Ok(ArtifactProviderPage::empty(Some(0)));
     };
-    if Regex::new(r"(?i)<!DOCTYPE|<!ENTITY")
-        .map_err(|_| super::util::invalid(ArtifactType::Maven))?
-        .is_match(&xml)
-    {
+    if patterns::doctype().is_match(&xml) {
         return Err(super::util::invalid(ArtifactType::Maven));
     }
-    let clean = Regex::new(r"(?s)<!--.*?-->")
-        .map_err(|_| super::util::invalid(ArtifactType::Maven))?
-        .replace_all(&xml, "");
+    let clean = patterns::comment().replace_all(&xml, "");
     let field = |tag: &str| -> Option<String> {
-        Regex::new(&format!(r"<{tag}>\s*([^<]+?)\s*</{tag}>"))
-            .ok()?
+        patterns::field(tag)?
             .captures(&clean)
             .and_then(|capture| capture.get(1))
             .map(|value| value.as_str().trim().to_owned())
@@ -173,24 +208,17 @@ async fn repository_from_pom(
     let Some(xml) = client.text(ArtifactType::Maven, url, true).await? else {
         return Ok(None);
     };
-    if Regex::new(r"(?i)<!DOCTYPE|<!ENTITY")
-        .map_err(|_| super::util::invalid(ArtifactType::Maven))?
-        .is_match(&xml)
-    {
+    if patterns::doctype().is_match(&xml) {
         return Ok(None);
     }
-    let clean = Regex::new(r"(?s)<!--.*?-->")
-        .map_err(|_| super::util::invalid(ArtifactType::Maven))?
-        .replace_all(&xml, "");
+    let clean = patterns::comment().replace_all(&xml, "");
     let first_url = |text: &str| -> Option<String> {
-        Regex::new(r"<url>\s*([^<]+?)\s*</url>")
-            .ok()?
+        patterns::url_tag()
             .captures(text)
             .and_then(|capture| capture.get(1))
             .map(|value| value.as_str().trim().to_owned())
     };
-    let scm_url = Regex::new(r"(?s)<scm>(.*?)</scm>")
-        .map_err(|_| super::util::invalid(ArtifactType::Maven))?
+    let scm_url = patterns::scm()
         .captures(&clean)
         .and_then(|capture| capture.get(1))
         .and_then(|block| first_url(block.as_str()));

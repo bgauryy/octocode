@@ -5,7 +5,7 @@ use tree_sitter::Node;
 
 use crate::signatures::nodes::node_text;
 
-use super::{GraphAccumulator, LineIndex, push_language_import};
+use super::{push_language_import, GraphAccumulator, LineIndex};
 
 pub(super) fn collect_python_imports(
     node: Node<'_>,

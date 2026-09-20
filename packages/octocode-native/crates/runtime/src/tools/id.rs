@@ -196,13 +196,23 @@ mod tests {
         assert!(categories.contains("Package"));
         assert!(categories.contains("Reasoning"));
         // GitHub tools
-        for id in [ToolId::GhSearch, ToolId::GhGetFileContent, ToolId::GhSearchHistory,
-                   ToolId::GhGetHistoryItem, ToolId::GhCloneRepo] {
+        for id in [
+            ToolId::GhSearch,
+            ToolId::GhGetFileContent,
+            ToolId::GhSearchHistory,
+            ToolId::GhGetHistoryItem,
+            ToolId::GhCloneRepo,
+        ] {
             assert_eq!(id.display_category(), "GitHub", "{id}");
         }
         // Local tools
-        for id in [ToolId::LocalSearch, ToolId::LocalFetch, ToolId::AstSearch,
-                   ToolId::AstRewrite, ToolId::LspSearch] {
+        for id in [
+            ToolId::LocalSearch,
+            ToolId::LocalFetch,
+            ToolId::AstSearch,
+            ToolId::AstRewrite,
+            ToolId::LspSearch,
+        ] {
             assert_eq!(id.display_category(), "Local Code", "{id}");
         }
         assert_eq!(ToolId::ArtifactSearch.display_category(), "Package");
@@ -212,16 +222,34 @@ mod tests {
     #[test]
     fn availability_env_hint_covers_gated_tools_and_is_none_for_always_on() {
         // Always available (no env gate)
-        for id in [ToolId::GhSearch, ToolId::GhGetFileContent, ToolId::GhSearchHistory,
-                   ToolId::GhGetHistoryItem, ToolId::ArtifactSearch] {
-            assert!(id.availability_env_hint().is_none(), "{id} should have no hint");
+        for id in [
+            ToolId::GhSearch,
+            ToolId::GhGetFileContent,
+            ToolId::GhSearchHistory,
+            ToolId::GhGetHistoryItem,
+            ToolId::ArtifactSearch,
+        ] {
+            assert!(
+                id.availability_env_hint().is_none(),
+                "{id} should have no hint"
+            );
         }
         // Env-gated tools
-        assert_eq!(ToolId::GhCloneRepo.availability_env_hint(),
-                   Some("ENABLE_CLONE|OCTOCODE_STORAGE_MODE"));
-        assert_eq!(ToolId::Jev.availability_env_hint(), Some("OCTOCODE_JEV_KEY"));
-        for id in [ToolId::LocalSearch, ToolId::LocalFetch, ToolId::AstSearch,
-                   ToolId::AstRewrite, ToolId::LspSearch] {
+        assert_eq!(
+            ToolId::GhCloneRepo.availability_env_hint(),
+            Some("ENABLE_CLONE|OCTOCODE_STORAGE_MODE")
+        );
+        assert_eq!(
+            ToolId::Jev.availability_env_hint(),
+            Some("OCTOCODE_JEV_KEY")
+        );
+        for id in [
+            ToolId::LocalSearch,
+            ToolId::LocalFetch,
+            ToolId::AstSearch,
+            ToolId::AstRewrite,
+            ToolId::LspSearch,
+        ] {
             assert_eq!(id.availability_env_hint(), Some("ENABLE_LOCAL"), "{id}");
         }
     }

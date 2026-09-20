@@ -292,9 +292,12 @@ fn scrub(text: &str, token: Option<&str>) -> String {
     // does NOT contain the plaintext token, so this header pattern — not the
     // token replace above — is what stops a reversible credential from leaking
     // if git echoes its environment.
-    let auth = regex::Regex::new(r"(?i)Authorization:\s*(Bearer|token|Basic)\s+\S+")
-        .expect("static authorization regex");
-    auth.replace_all(&result, "Authorization: [REDACTED]")
+    static AUTH: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        #[allow(clippy::expect_used)]
+        regex::Regex::new(r"(?i)Authorization:\s*(Bearer|token|Basic)\s+\S+")
+            .expect("static authorization regex")
+    });
+    AUTH.replace_all(&result, "Authorization: [REDACTED]")
         .into_owned()
 }
 

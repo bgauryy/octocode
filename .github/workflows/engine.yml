@@ -40,9 +40,14 @@ jobs:
         with:
           toolchain: 1.96.0
           components: clippy, rustfmt
+      - name: Set up mold linker
+        uses: rui314/setup-mold@v1
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: packages/octocode-native
+      - name: Format check
+        working-directory: packages/octocode-native
+        run: cargo fmt --all --check
       - name: Build engine addon
         run: yarn workspace @octocodeai/octocode-native build:engine:dev
       - name: Verify N-API ABI

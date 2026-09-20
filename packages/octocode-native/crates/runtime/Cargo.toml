@@ -4,7 +4,8 @@ version = "20.0.0"
 publish = false
 edition = "2024"
 # MSRV floor shared with octocode-engine (File::try_lock/unlock, Rust 1.89).
-# Enforced by clippy::incompatible_msrv; verify with a CI MSRV job.
+# Enforced in CI by `clippy::incompatible_msrv` (in `clippy::all`, denied, run
+# with `-D warnings`), which flags any std/core API newer than this floor.
 rust-version = "1.89"
 autobins = false
 autoexamples = false
@@ -57,7 +58,6 @@ napi-derive = { version = "3", optional = true }
 napi-build = { version = "2", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-jsonschema = { version = "0.56", default-features = false }
 
 [dev-dependencies]
 tempfile = "3"

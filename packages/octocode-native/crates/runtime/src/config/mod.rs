@@ -125,9 +125,10 @@ mod tests {
         let bad =
             validate_config(&json!({"local":{"allowedPaths":["relative","/a/../b"]},"extra":1}));
         assert!(!bad.valid);
-        assert!(bad
-            .warnings
-            .contains(&"Unknown configuration key: extra".into()))
+        assert!(
+            bad.warnings
+                .contains(&"Unknown configuration key: extra".into())
+        )
     }
     #[test]
     fn all_fields_and_source_quirk_resolve() {

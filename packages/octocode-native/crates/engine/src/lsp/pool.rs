@@ -9,7 +9,7 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use tokio::sync::{Mutex, Notify};
-use tokio::time::{Duration, sleep};
+use tokio::time::{sleep, Duration};
 
 type ClientFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 

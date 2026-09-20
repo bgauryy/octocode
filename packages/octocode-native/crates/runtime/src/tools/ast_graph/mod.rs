@@ -1,6 +1,6 @@
 mod algorithms;
 mod analysis;
-mod build;
+mod graph;
 mod types;
 
 use crate::{
@@ -25,7 +25,7 @@ pub fn execute_topology(
         if query.analysis == GraphAnalysis::Drift {
             return analysis::drift(query, paths, security, cancel);
         }
-        let built = build::build_graph(query, paths, security, cancel)?;
+        let built = graph::build_graph(query, paths, security, cancel)?;
         analysis::analyze(built, query, security, cancel)
     }))
     .unwrap_or_else(|panic| {

@@ -1,4 +1,4 @@
-use super::{algorithms::*, build::normalize, types::*};
+use super::{algorithms::*, graph::normalize, types::*};
 use crate::{
     policy::path::PathPolicy, security::ContentSecurity, tools::local_fetch::CancellationCheck,
 };
@@ -809,7 +809,7 @@ pub(crate) fn drift(
     security: &ContentSecurity,
     cancel: &dyn CancellationCheck,
 ) -> AstGraphResult {
-    let head = super::build::build_graph(q, paths, security, cancel)?;
+    let head = super::graph::build_graph(q, paths, security, cancel)?;
     let baseline_root = q
         .baseline
         .clone()
@@ -817,7 +817,7 @@ pub(crate) fn drift(
     let mut base_query = q.clone();
     base_query.path = Some(baseline_root);
     base_query.baseline = None;
-    let mut base = super::build::build_graph(&base_query, paths, security, cancel)?;
+    let mut base = super::graph::build_graph(&base_query, paths, security, cancel)?;
     cancel
         .check()
         .map_err(|e| AstGraphError::new("ast.cancelled", e))?;

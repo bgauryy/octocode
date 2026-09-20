@@ -334,7 +334,7 @@ fn rust_field_type(definition: &Map<String, Value>) -> Result<String, Box<dyn Er
         other => {
             return Err(invalid(format!(
                 "unsupported generated Rust field type {other}"
-            )))
+            )));
         }
     })
 }
@@ -817,29 +817,16 @@ fn config_path(manifest_dir: &Path, name: &str) -> PathBuf {
 fn generate_config_contract() -> Result<(), Box<dyn Error>> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
     let contract_path = config_path(&manifest_dir, "config-contract.json");
-    let schema_path = config_path(&manifest_dir, "config-contract.schema.json");
     println!("cargo:rerun-if-changed={}", contract_path.display());
-    println!("cargo:rerun-if-changed={}", schema_path.display());
 
+    // The contract is authored and JSON-Schema-validated (Ajv2020) by the
+    // octocode-config generator and committed pre-validated. `render()` below
+    // independently fails closed on any missing or mistyped field, so
+    // re-validating the meta-schema here only ever bought a heavyweight
+    // `jsonschema` build-dependency (fancy-regex, fraction, num-bigint, idna, …)
+    // compiled on every clean build of every platform. Schema authority stays
+    // with the generator; structural safety stays with `render()`.
     let contract: Value = serde_json::from_str(&fs::read_to_string(&contract_path)?)?;
-    let schema: Value = serde_json::from_str(&fs::read_to_string(&schema_path)?)?;
-    jsonschema::meta::validate(&schema)
-        .map_err(|error| invalid(format!("invalid config contract meta-schema: {error}")))?;
-    let validator = jsonschema::validator_for(&schema).map_err(|error| {
-        invalid(format!(
-            "could not compile config contract meta-schema: {error}"
-        ))
-    })?;
-    let validation_errors = validator
-        .iter_errors(&contract)
-        .map(|error| error.to_string())
-        .collect::<Vec<_>>();
-    if !validation_errors.is_empty() {
-        return Err(invalid(format!(
-            "invalid config contract:\n{}",
-            validation_errors.join("\n")
-        )));
-    }
 
     let output_path = PathBuf::from(env::var("OUT_DIR")?).join("config_contract.rs");
     fs::write(output_path, render(&contract)?)?;

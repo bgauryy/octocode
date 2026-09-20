@@ -155,8 +155,8 @@ fn source_type_for(ext: &str, file_path: &str) -> SourceType {
     // The final extension alone loses ambient declaration-file mode (.d.ts,
     // .d.mts, .d.cts). Preserve the existing module/JSX policy and let OXC
     // identify declaration files from their complete path.
-    let declaration_file = SourceType::from_path(file_path)
-        .is_ok_and(SourceType::is_typescript_definition);
+    let declaration_file =
+        SourceType::from_path(file_path).is_ok_and(SourceType::is_typescript_definition);
     source_type.with_typescript_definition(declaration_file)
 }
 

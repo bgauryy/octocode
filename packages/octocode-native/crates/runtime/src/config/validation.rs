@@ -1,6 +1,6 @@
 use super::types::{
-    ConfigEnumStyle, ConfigFieldKind, ConfigFieldSpec, ValidationResult, CONFIG_FIELDS,
-    CONFIG_SCHEMA_VERSION,
+    CONFIG_FIELDS, CONFIG_SCHEMA_VERSION, ConfigEnumStyle, ConfigFieldKind, ConfigFieldSpec,
+    ValidationResult,
 };
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -257,19 +257,23 @@ mod tests {
     fn output_format_invalid_string_errors() {
         let result = validate_config(&json!({"output": {"format": "xml"}}));
         assert!(!result.valid);
-        assert!(result
-            .errors
-            .iter()
-            .any(|error| error == "output.format: Must be one of: yaml, json"));
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|error| error == "output.format: Must be one of: yaml, json")
+        );
     }
 
     #[test]
     fn output_format_non_string_errors() {
         let result = validate_config(&json!({"output": {"format": 42}}));
         assert!(!result.valid);
-        assert!(result
-            .errors
-            .iter()
-            .any(|error| error == "output.format: Must be a string"));
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|error| error == "output.format: Must be a string")
+        );
     }
 }

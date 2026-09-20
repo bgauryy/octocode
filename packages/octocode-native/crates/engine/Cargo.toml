@@ -3,7 +3,8 @@ name = "octocode-engine"
 version = "20.0.0"
 edition = "2021"
 # MSRV floor: highest stable API in use is File::try_lock/unlock (Rust 1.89).
-# Enforced by clippy::incompatible_msrv; verify with a CI MSRV job.
+# Enforced in CI by `clippy::incompatible_msrv` (in `clippy::all`, denied, run
+# with `-D warnings`), which flags any std/core API newer than this floor.
 rust-version = "1.89"
 build = "build.rs"
 publish = false

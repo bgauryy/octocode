@@ -369,9 +369,7 @@ mod contract_owner_tests {
         assert_eq!(duplicate.issues[0].path, ["resources", "1", "id"]);
 
         let resources: Vec<_> = (0..6)
-            .map(|index| {
-                json!({"id":format!("r{index}"),"context":{"value":{"index":index}}})
-            })
+            .map(|index| json!({"id":format!("r{index}"),"context":{"value":{"index":index}}}))
             .collect();
         let questions: Vec<_> = (0..5)
             .map(|index| json!({"id":format!("q{index}"),"question":question.clone()}))

@@ -85,12 +85,10 @@ fn ast_audit_unanchored_directory_reports_unsupported_files() {
         .expect("async directory result includes its query plan");
     assert_eq!(query.kind, "pattern");
     assert_eq!(query.pre_filter, "disabled");
-    assert!(
-        result
-            .diagnostics
-            .iter()
-            .any(|diagnostic| { diagnostic.code == "structural.language.unsupported" })
-    );
+    assert!(result
+        .diagnostics
+        .iter()
+        .any(|diagnostic| { diagnostic.code == "structural.language.unsupported" }));
     fs::remove_dir_all(root).expect("cleanup");
 }
 
@@ -511,12 +509,10 @@ fn detailed_file_search_explains_prefilter_and_unsupported_files() {
     assert_eq!(result.skipped_by_pre_filter, 1);
     assert_eq!(result.skipped_unsupported, 1);
     assert_eq!(result.query.literal_anchor.as_deref(), Some("target"));
-    assert!(
-        result
-            .files
-            .iter()
-            .any(|file| file.status == "skippedByPreFilter")
-    );
+    assert!(result
+        .files
+        .iter()
+        .any(|file| file.status == "skippedByPreFilter"));
     assert!(result.files.iter().any(|file| file.status == "unsupported"));
     fs::remove_dir_all(root).expect("cleanup");
 }
@@ -1144,13 +1140,11 @@ fn structural_review_file_limits_retain_completed_files() {
         result.diagnostics[0].code,
         "structural.match.backtrackingLimit"
     );
-    assert!(
-        result.diagnostics[0]
-            .path
-            .as_deref()
-            .expect("path")
-            .ends_with("wide.ts")
-    );
+    assert!(result.diagnostics[0]
+        .path
+        .as_deref()
+        .expect("path")
+        .ends_with("wide.ts"));
     let detailed =
         search_files_detailed(review_file_options(&root, rule, 10)).expect("detailed file search");
     assert_eq!(detailed.status, "truncated");
@@ -1199,12 +1193,10 @@ fn structural_review_compile_interruption_keeps_mixed_language_evidence() {
     assert_eq!(result.status, "truncated");
     assert_eq!(result.total_matches, 1);
     assert_eq!(result.diagnostics[0].code, "structural.parse.interrupted");
-    assert!(
-        !result
-            .warnings
-            .iter()
-            .any(|warning| warning.contains("not valid syntax"))
-    );
+    assert!(!result
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("not valid syntax")));
     octo::INTERRUPT_NEXT_COMPILE_PARSE.with(|interrupt| interrupt.set(true));
     let detailed = search_files_detailed(options()).expect("detailed mixed-language search");
     assert_eq!(detailed.status, "truncated");

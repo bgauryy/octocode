@@ -19,6 +19,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Supply-chain gate: RUSTSEC advisories, license policy, banned/duplicate
+  # crates, and registry allow-list — all driven by deny.toml (previously only
+  # runnable by hand via `yarn deny`).
+  deny:
+    name: cargo-deny (advisories, licenses, bans, sources)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: packages/octocode-native/Cargo.toml
+          arguments: --all-features
+
   test:
     name: ${{ matrix.os }} — test & clippy
     runs-on: ${{ matrix.os }}
@@ -31,10 +44,19 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.96.0
-          components: clippy
+          components: clippy, rustfmt
+      # mold links large Rust binaries ~5–10× faster than GNU BFD; a no-op on
+      # non-Linux runners. Combined with thin LTO this is the main build-speed
+      # lever for the matrix.
+      - name: Set up mold linker (Linux)
+        if: runner.os == 'Linux'
+        uses: rui314/setup-mold@v1
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: packages/octocode-native
+      - name: Format check
+        working-directory: packages/octocode-native
+        run: cargo fmt --all --check
       - name: Test runtime and engine crates
         working-directory: packages/octocode-native
         run: cargo test -p octocode-native --no-default-features && cargo test -p octocode-engine --all-features
@@ -74,6 +96,11 @@ jobs:
         with:
           toolchain: 1.96.0
           targets: ${{ matrix.rustTarget }}
+      # Faster release linking (thin-LTO link is the dominant per-target cost).
+      # Skipped for musl, whose static cross-link path does not use mold.
+      - name: Set up mold linker (Linux, non-musl)
+        if: runner.os == 'Linux' && matrix.target != 'linux-x64-musl'
+        uses: rui314/setup-mold@v1
       - name: Install musl toolchain
         if: matrix.target == 'linux-x64-musl'
         uses: taiki-e/setup-cross-toolchain-action@v1

@@ -5,7 +5,12 @@ resolver = "2"
 
 
 [profile.release]
-lto = true
+# Thin LTO recovers nearly all of fat LTO's cross-crate optimization at a
+# fraction of the link time — the dominant cost when this profile is built
+# once per release target across six platforms. Benchmark before/after with the
+# engine's criterion suites (structural/search/minify) and confirm binary size
+# holds; revert to `true` if a hot path regresses beyond ~2%.
+lto = "thin"
 codegen-units = 1
 opt-level = 3
 strip = "symbols"
