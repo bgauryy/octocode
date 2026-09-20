@@ -67,13 +67,14 @@ describe('generated config contract', () => {
       output: { format: 1 },
     } as unknown as OctocodeConfig;
 
-    const resolved = resolveConfigFields(malformed, {
+    const malformedEnvironment = {
       GITHUB_API_URL: 'not a URL',
-      ENABLE_LOCAL: 'sometimes',
+      ENABLE_LOCAL: 1,
       ALLOWED_PATHS: 'relative/path',
       REQUEST_TIMEOUT: 'fast',
       OCTOCODE_OUTPUT_FORMAT: 'xml',
-    });
+    } as unknown as Record<string, string | undefined>;
+    const resolved = resolveConfigFields(malformed, malformedEnvironment);
 
     expect(resolved).toEqual(
       expect.objectContaining({
