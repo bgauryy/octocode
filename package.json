@@ -54,6 +54,7 @@
     "docs:verify": "node ./scripts/docs-verify.mjs",
     "health:check": "node ./scripts/workspace-health.mjs check",
     "health:report": "node ./scripts/workspace-health.mjs report",
+    "jev:probe": "node packages/octocode-jev-lab/src/cli.mjs",
     "lint": "node ./scripts/workspace-health.mjs run lint",
     "lint:ci": "node ./scripts/workspace-health.mjs run lint --exclude @octocodeai/octocode-benchmark",
     "lint:fix": "yarn workspaces foreach -Apt run lint:fix",

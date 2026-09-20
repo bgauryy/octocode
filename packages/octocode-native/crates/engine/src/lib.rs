@@ -9,6 +9,12 @@
 //! `octocode-native` uses this crate as a pure `rlib` (no N-API) for the
 //! native CLI and MCP runtime.
 
+// Production code is held to the `expect_used`/`unwrap_used`/`panic` denials in
+// Cargo.toml `[lints]`. Test code is exempt: tests legitimately assert with
+// `.unwrap()`/`.expect()`/`panic!` and forcing `Result`-returning tests only
+// hurts readability without adding safety.
+#![cfg_attr(test, allow(clippy::expect_used, clippy::unwrap_used, clippy::panic))]
+
 pub mod error;
 pub mod graph;
 pub mod index;

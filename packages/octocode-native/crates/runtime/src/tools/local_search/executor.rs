@@ -615,6 +615,8 @@ fn score(
 
 fn normalized_query(q: &LocalSearchRequest) -> Value {
     let mut value = serde_json::to_value(q).unwrap_or_else(|_| json!({}));
+    // `LocalSearchRequest` serializes to a JSON object.
+    #[allow(clippy::expect_used)]
     let o = value.as_object_mut().expect("request object");
     o.retain(|_, v| !v.is_null());
     o.entry("regex").or_insert(json!("rust"));

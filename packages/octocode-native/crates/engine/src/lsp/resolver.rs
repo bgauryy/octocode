@@ -538,6 +538,8 @@ fn is_ident(ch: Option<char>) -> bool {
     // Use a conservative cross-language identifier boundary, including combining
     // marks and ECMAScript join controls. ASCII-only boundaries can bind a
     // requested name to a different Unicode identifier.
+    // Constant pattern: compile failure is a build-time bug, so fail loud.
+    #[allow(clippy::expect_used)]
     static IDENT_CONTINUE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
         regex::Regex::new(r"^[\p{ID_Continue}\u{200C}\u{200D}]$")
             .expect("valid Unicode identifier boundary")

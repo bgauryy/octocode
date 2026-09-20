@@ -1,3 +1,4 @@
+#![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 //! Micro-benchmarks for the minify hot path.
 //!
 //! `applyContentViewMinification` is the agent-readable minify entry point: for

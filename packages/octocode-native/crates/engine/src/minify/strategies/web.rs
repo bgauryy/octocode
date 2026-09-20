@@ -23,6 +23,9 @@ pub fn minify_css_quality(content: &str) -> String {
 
 // ── HTML ─────────────────────────────────────────────────────────────────────
 
+// Constant patterns: a compile failure is a build-time programming error, not a
+// runtime condition — `expect` is the correct fail-loud contract here.
+#[allow(clippy::expect_used)]
 static TAG_GAP_WHITESPACE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r">[ \t\r\n]+<").expect("tag gap regex must compile"));
 
@@ -55,18 +58,23 @@ pub fn minify_html_quality(content: &str) -> String {
 
 // ── Embedded-language content view (HTML / Vue / Svelte) ───────────────────────
 
+// Constant patterns — see the `expect` note on `TAG_GAP_WHITESPACE`.
+#[allow(clippy::expect_used)]
 static STYLE_BLOCK: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?is)(<style\b[^>]*>)(.*?)(</style>)").expect("style block regex must compile")
 });
+#[allow(clippy::expect_used)]
 static WEB_BLOCK_OR_COMMENT: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r"(?is)(<!--.*?-->)|(<script\b[^>]*>)(.*?)(</script\s*>)|(<style\b[^>]*>)(.*?)(</style\s*>)",
     )
     .expect("embedded web block regex must compile")
 });
+#[allow(clippy::expect_used)]
 static ATTR_TYPE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(?i)\btype\s*=\s*["']([^"']*)["']"#).expect("type attr regex must compile")
 });
+#[allow(clippy::expect_used)]
 static ATTR_LANG: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(?i)\blang\s*=\s*["']([^"']*)["']"#).expect("lang attr regex must compile")
 });

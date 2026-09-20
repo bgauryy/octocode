@@ -1,3 +1,6 @@
+// Test code (cli submodule tests) may assert with unwrap/expect/panic.
+#![cfg_attr(test, allow(clippy::expect_used, clippy::unwrap_used, clippy::panic))]
+
 mod cli;
 
 use clap::Parser;

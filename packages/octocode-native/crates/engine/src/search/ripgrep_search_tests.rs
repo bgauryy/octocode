@@ -12,7 +12,7 @@ impl TmpDir {
         let id = COUNTER.fetch_add(1, Ordering::SeqCst);
         let dir = std::env::temp_dir().join(format!("octo-rg-test-{}-{id}", std::process::id()));
         fs::create_dir_all(&dir).expect("create temp dir");
-        TmpDir(dir)
+        Self(dir)
     }
     fn write(&self, rel: &str, content: &str) {
         let p = self.0.join(rel);

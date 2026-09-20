@@ -41,6 +41,8 @@ pub fn query_documents(documents: &[ContentRecord], query: &IndexQuery) -> Index
     let mut ordered = documents.iter().collect::<Vec<_>>();
     ordered.sort_by(|left, right| left.path.cmp(&right.path));
 
+    // `regex::escape` yields a literal pattern that always compiles.
+    #[allow(clippy::expect_used)]
     let matcher = RegexBuilder::new(&regex::escape(&query.text))
         .case_insensitive(!query.case_sensitive)
         .build()

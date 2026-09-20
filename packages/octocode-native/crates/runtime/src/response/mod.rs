@@ -147,6 +147,8 @@ impl ResponsePager {
                 pagination.scope = "structuredContent".into();
                 pagination.next =
                     build_continuation(&input.tool, &input.query, &input.options, &pagination);
+                // pagination is a plain serializable struct
+                #[allow(clippy::expect_used)]
                 windowed.insert(
                     "responsePagination".into(),
                     serde_json::to_value(&pagination).expect("serializable pagination"),
@@ -178,6 +180,8 @@ impl ResponsePager {
         if let Some(mut pagination) = page.pagination {
             pagination.next =
                 build_continuation(&input.tool, &input.query, &input.options, &pagination);
+            // pagination is a plain serializable struct
+            #[allow(clippy::expect_used)]
             structured.insert(
                 "responsePagination".into(),
                 serde_json::to_value(&pagination).expect("serializable pagination"),
@@ -253,6 +257,8 @@ fn paginate_units(text: &str, options: &ResponsePageOptions, with_header: bool) 
     let has_more = end < total;
     let current = page_number(&units, offset, length);
     let pages = total_pages(&units, length);
+    // `choose_end` never splits a UTF-16 surrogate pair, so this is well-formed.
+    #[allow(clippy::expect_used)]
     let body = String::from_utf16(&units[offset..end]).expect("page never splits UTF-16 pairs");
     let header = if !with_header {
         String::new()

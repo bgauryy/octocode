@@ -282,9 +282,11 @@ pub async fn login(
     }
 
     let endpoints = octocode_native::providers::github::login::LoginEndpoints::from_host(&host);
+    // The guard above returns before this point unless a client ID was resolved.
+    #[allow(clippy::expect_used)]
+    let client_id = client_id.expect("public GitHub or validated enterprise client ID");
     match octocode_native::providers::github::login::login_device_flow_with_client_id(
-        &endpoints,
-        client_id.expect("public GitHub or validated enterprise client ID"),
+        &endpoints, client_id,
     )
     .await
     {

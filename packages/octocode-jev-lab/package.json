@@ -1,0 +1,21 @@
+{
+  "name": "@octocodeai/jev-lab",
+  "description": "Small direct Jev API probe for multi-resource semantic experiments.",
+  "version": "19.2.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "^24.15.0"
+  },
+  "dependencies": {
+    "@octocodeai/config": "workspace:*"
+  },
+  "scripts": {
+    "build": "node --check src/cli.mjs && node --check src/lib.mjs",
+    "lint": "node ../../node_modules/eslint/bin/eslint.js --config eslint.config.mjs src/*.mjs test/*.mjs",
+    "probe": "node src/cli.mjs",
+    "test": "node --test test/*.test.mjs",
+    "typecheck": "node --check src/cli.mjs && node --check src/lib.mjs",
+    "verify": "yarn lint && yarn typecheck && yarn test"
+  }
+}

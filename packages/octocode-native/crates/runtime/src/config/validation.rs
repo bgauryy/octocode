@@ -200,10 +200,11 @@ pub fn validate_config(config: &Value) -> ValidationResult {
     let mut warnings = Vec::new();
 
     for section in section_paths() {
-        if let Some(value) = get_path(config, &section) {
-            if !value.is_null() && !value.is_object() {
-                errors.push(format!("{section}: Must be an object"));
-            }
+        if let Some(value) = get_path(config, &section)
+            && !value.is_null()
+            && !value.is_object()
+        {
+            errors.push(format!("{section}: Must be an object"));
         }
     }
     for field in CONFIG_FIELDS.iter().filter(|field| field.file) {

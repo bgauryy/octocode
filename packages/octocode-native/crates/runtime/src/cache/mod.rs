@@ -175,6 +175,8 @@ impl<V> BoundedCache<V> {
         }
         self.touch(key);
         self.stats.hits += 1;
+        // Presence was established by the miss checks above before `touch`.
+        #[allow(clippy::expect_used)]
         let entry = self.entries.get(key).expect("entry checked above");
         CacheLookup::Hit {
             value: Arc::clone(&entry.value),

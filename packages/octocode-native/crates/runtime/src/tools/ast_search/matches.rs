@@ -466,6 +466,17 @@ fn language_include_globs(language: &str) -> Option<Vec<String>> {
     })
 }
 
+fn diag(d: StructuralDiagnostic) -> Value {
+    json!({"code":d.code,"severity":d.severity,"stage":d.stage,"message":d.message,"path":d.path,"recovery":d.recovery})
+}
+
+fn diagnostic_error(diagnostics: &[StructuralDiagnostic]) -> Option<super::AstError> {
+    diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.severity == "error")
+        .map(|diagnostic| super::AstError::new(diagnostic.code.clone(), diagnostic.message.clone()))
+}
+
 #[cfg(test)]
 mod language_glob_tests {
     use super::language_include_globs;
@@ -495,15 +506,4 @@ mod language_glob_tests {
         );
         assert_eq!(language_include_globs("unsupported"), None);
     }
-}
-
-fn diag(d: StructuralDiagnostic) -> Value {
-    json!({"code":d.code,"severity":d.severity,"stage":d.stage,"message":d.message,"path":d.path,"recovery":d.recovery})
-}
-
-fn diagnostic_error(diagnostics: &[StructuralDiagnostic]) -> Option<super::AstError> {
-    diagnostics
-        .iter()
-        .find(|diagnostic| diagnostic.severity == "error")
-        .map(|diagnostic| super::AstError::new(diagnostic.code.clone(), diagnostic.message.clone()))
 }

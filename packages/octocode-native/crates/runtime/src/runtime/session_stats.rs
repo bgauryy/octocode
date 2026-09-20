@@ -46,6 +46,8 @@ pub fn record_jev(home: &Path, enabled: bool, payload: &Value) {
     if !stats.is_object() {
         *stats = json!({});
     }
+    // Both values were just normalized to `{}` above when not already objects.
+    #[allow(clippy::expect_used)]
     let jev = stats
         .as_object_mut()
         .expect("stats normalized to object")
@@ -54,6 +56,7 @@ pub fn record_jev(home: &Path, enabled: bool, payload: &Value) {
     if !jev.is_object() {
         *jev = json!({});
     }
+    #[allow(clippy::expect_used)]
     let jev_map = jev.as_object_mut().expect("jev normalized to object");
     bump(jev_map, "calls", 1);
     bump(jev_map, "input_tokens", input);

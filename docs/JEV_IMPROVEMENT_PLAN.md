@@ -11,11 +11,15 @@ Status: naming decision accepted on 2026-09-20; the public hard cutover from `je
 
 ### Agent-readiness scorecard before this amendment
 
-These are planning-rubric scores, not product-quality or token-saving measurements. A live pre-rename semantic review of this document classified agent admission/mode selection as `gap` with 0.93 probability, layer ownership as `adequate` with 0.98 probability, and the context/evaluation lifecycle as `adequate` with only 0.65 probability. On that evidence, the plan was **7.5/10 for agent readiness**: strong architecture and ownership, but underspecified call admission, context reuse, resource paging, and held-out behavior checks. After the repair below, bounded semantic rechecks classified the agent contract as `ready` with 0.85 probability and its evaluation gate as `ready` with 0.98 probability. The revised planning score is **9/10**; S7 must establish real agent behavior before this can become a product-quality or efficiency rating.
+These are planning-rubric scores, not product-quality or token-saving measurements. A live pre-rename semantic review of this document classified agent admission/mode selection as `gap` with 0.93 probability, layer ownership as `adequate` with 0.98 probability, and the context/evaluation lifecycle as `adequate` with only 0.65 probability. On that evidence, the plan was **7.5/10 for agent readiness**: strong architecture and ownership, but underspecified call admission, context reuse, resource paging, and held-out behavior checks. After the `SemanticQuery` and paging repair, bounded semantic rechecks classified the input/output grammar as `ready` with 0.97 probability, paging/recovery as `ready` with 0.99 probability, and agent guidance/evaluation as `ready` with 0.95 probability. The revised planning score is **9.5/10**; implementation and S7 behavior evidence are the remaining gap to a product-quality rating.
 
 ## Decision and boundaries
 
-Ship one public `semanticAssess` tool. The name describes the stable capability rather than the current Jev classification model. `{reasoning,resources:[{id,context}],questions:[{id,question}]}` is the primary shared-question contract; `queries[]` remains only for independent context/question pairs where a cross-product produces unwanted cells. Matrices are resource-major and capture each resource once. The pre-rename checkpoint admits 25 cells, 25 resources, and five questions; the target replaces the fixed cell ceiling with evaluated total-call limits and automatic private provider pages. Model selection stays internal. An unread `context:{tool,query}` uses ordinary dispatch, validation, authorization, caches, content security, and cancellation. `semanticAssess` must not gain a separate reader, GitHub client, or policy bypass.
+Ship one public `semanticAssess` tool. Its unit of work is a `SemanticQuery`: `{id,reasoning,resources:[{id,context}],questions:[{id,question}]}`. The tool accepts either one unwrapped `SemanticQuery` or `{queries: SemanticQuery[]}` for a batch. Each semantic query defines one bounded decision domain; the runtime evaluates its resource-major `resources[] × questions[]` cross-product. Every question checks one atomic aspect. Add questions to assess several aspects of the same resources; add semantic queries only when the resource set, question set, reasoning, or paging policy differs. Batch elements stay isolated and correlate by `queryId`; `queries[]` never accepts the legacy flat `{context,question}` pair.
+
+The query language is the product boundary: resources name evidence, questions define typed conditions, and the cross-product produces body-free assessment cells. Background context acquisition is part of language execution, not an optional helper. For `context:{tool,query}`, the runtime privately dispatches the ordinary read, applies its validation, authorization, caching, redaction, SSRF/path, timeout, and cancellation policies, and sends only the sanitized captured state to the private provider adapter. The host receives typed judgments, stable IDs, coverage, usage, and recovery—not the retrieved body. `context:{value}` remains an escape hatch for evidence already visible to the host; it is not the primary path.
+
+The target admits one to five semantic queries per call, up to 25 resources, five questions, and 25 logical cells per semantic query. The global call cap is 50 logical cells. One logical resource can cover at most 80,000 characters. The private adapter splits that logical resource into provider pages below 20,000 estimated input tokens, including question and serialization overhead. These are safety ceilings, not throughput promises: exact limits remain constants in core and native, and S7 must confirm them before release. Model selection and tokenization stay internal. `semanticAssess` must not gain a separate reader, GitHub client, or policy bypass.
 
 Public schemas and agent guidance belong in octocode-core. CLI/MCP expose those contracts; native runtime owns context orchestration. The public runtime module becomes `tools/semantic_assess/`; the private provider adapter retains the Jev service/model name and provider-specific credentials. Skills remain optional shortcuts. Assessments route effort; source reads and tests establish claims. Generic semantic assessment does not imply arbitrary-size ingestion, free-form summarization, unseen identifier extraction, proof, or authority to take actions.
 
@@ -37,11 +41,15 @@ The cutover is intentionally hard: do not register a public `jev` alias, compati
 
 ### Public schema cleanup
 
-- Prefer `resources[] × questions[]`; describe `queries[]` only as the independent-pair mode.
-- Matrix rows require paired `resourceId` and `questionId`. Independent-pair rows use ordered `index` and reject matrix IDs.
+- Export one `SemanticQuerySchema` and derive both accepted envelopes from it: direct `SemanticQuery` or `{queries: SemanticQuery[]}`. Do not retain a second pair schema.
+- Require unique `queryId`, `resourceId`, and `questionId` values. A result cell carries all three; a resource page retains the same triple plus its zero-based `pageIndex`.
+- Define `queries[]` as a batch of complete semantic queries. Reject legacy pair elements, mixed envelopes, duplicate IDs, empty arrays, unknown fields, and any batch whose logical-cell total exceeds the global cap.
+- Keep every question atomic. Several questions over the same resources belong in one semantic query; dependent questions require later calls because provider answers cannot change the active matrix.
+- Require nonblank string `reasoning` and question `instructions`. Require explicit true/false criteria for `binary`, 2–10 declared alternatives for `choice`, and 2–10 ordered levels for `score`. Reject null instructions, one-option choices, numeric-only score labels, and undeclared answer labels.
+- Allow `context.value` only for a string, nonempty object, or nonempty array. Wrap scalar facts, such as `{observed:false}` or `{count:3}`; do not silently transform them.
 - Rename provider-specific public primitives when they leak model vocabulary. In particular, map the public binary question/answer to generic `binary` plus a probability field; translate to/from provider-specific Noul only inside the Jev adapter. Keep `choice` and `score` generic.
 - Keep provider/model diagnostics optional and clearly non-contractual. Do not expose the configured Jev model as the tool identity.
-- Reject mixed matrix/pair envelopes, duplicate IDs, incomplete output ID pairs, unknown fields, and provider-body echoes. Replace the current fixed 25-cell admission ceiling with evaluated public roster and total-cell limits plus smaller private provider pages; do not expose the current model's token ceiling as a public constant.
+- Use one output shape for direct and batch inputs: `queries:[{queryId,results:[...]}]`. Each logical cell has `{resourceId,questionId,coverage,pages:[...]}`; each page has `{pageIndex,answer|error,context,usage?}`. Never echo provider or source bodies.
 
 ### Agent behavior and context contract
 
@@ -53,17 +61,20 @@ The agent-facing promise is: **use `semanticAssess` only when a bounded semantic
 |---|---|
 | Exact lookup, arithmetic, schema inspection, known deciding span, or source that must be read either way | Skip `semanticAssess`; use the exact tool or test directly. |
 | Optional unread candidates where relevance, risk, support, or an alternative changes the next read/test | Call `semanticAssess` with unread `context:{tool,query}` resources. |
-| The same questions apply to every resource | Use one `resources[] × questions[]` matrix. Every admitted resource must receive every admitted question. |
-| Context/question pairs are independent and a cross-product creates meaningless cells | Use `queries[]`; correlate rows by `index`. |
-| A later question depends on an earlier answer | Keep calls sequential; do not place dependent questions in one matrix. |
+| The same questions apply to every resource | Use one `SemanticQuery`. Every admitted resource receives every admitted question. |
+| The same resources need several independent aspects checked | Add atomic entries to `questions[]`; do not repeat the resources in separate queries. |
+| Resource sets, question sets, reasoning, or paging policies differ | Submit `queries:[SemanticQuery,...]`; correlate by `queryId`, `resourceId`, and `questionId`. |
+| A later question depends on an earlier answer | Keep calls sequential; do not encode control flow inside one semantic query or batch. |
 | Evidence is already visible to the host | Use `context:{value}` only when another judgment still changes an action; never reread or resend it through an ordinary tool. |
 | Opposite valid answers lead to the same action | Skip the call because it cannot change the next step. |
+| A logical resource spans provider pages | Keep the same question object and cell IDs on every page; inspect every page result before routing the resource. |
 | A source page, resource page, or result is partial, errored, or insufficient | Retain it, preserve its receipt, and run the returned continuation or direct proof read. Never classify uncovered scope as unrelated. |
 
-The target call below is illustrative and does not become live until S4. It produces four resource-major cells; no resource can disappear merely because another resource or question failed.
+The target single-query call below does not become live until S4. It produces four resource-major cells; no resource can disappear merely because another resource or question fails. To batch different decision domains, wrap complete objects of this shape in `{"queries":[...]}`. Do not place legacy `{context,question}` pairs in that array.
 
 ```json
 {
+  "id": "rename-impact",
   "reasoning": "Choose which contract and runtime regions require proof reads before the rename.",
   "resources": [
     {
@@ -98,29 +109,92 @@ The target call below is illustrative and does not become live until S4. It prod
 }
 ```
 
+The public type contract is:
+
+```ts
+type SemanticAssessInput = SemanticQuery | { queries: SemanticQuery[] };
+type SemanticQuery = {
+  id: SemanticId;
+  reasoning: string;
+  resources: SemanticResource[];
+  questions: SemanticQuestion[];
+};
+type SemanticResource = {
+  id: SemanticId;
+  context: { tool: ReadTool; query: ReadQuery } | { value: JsonValue };
+  maxChars?: number; // Default and maximum: 80_000.
+};
+```
+
+#### Conditional query semantics
+
+| Element | Meaning |
+|---|---|
+| `SemanticQuery` | One decision domain with one reason the result changes the next action. |
+| `resources[]` | Evidence operands. A resource is a supplied value or an executable background read descriptor, never an already-read body disguised as a path. |
+| `questions[]` | Atomic typed conditions. `binary` tests one proposition, `choice` selects among declared conditions, and `score` evaluates one ordered dimension. |
+| Cross-product | For each resource in order, evaluate every question in order. A batch never crosses resources or questions between semantic queries. |
+| `queries[]` | Independent semantic tables that share transport only. Each table keeps its own reasoning, resources, questions, failures, usage, and continuation. |
+| Result cell | The stable `(queryId,resourceId,questionId)` condition result, with one or more ordered page judgments and explicit coverage. |
+
+This is a conditional query language, not a workflow/action language. Typed answers act as predicates for the host agent's next read, test, or decision. They cannot invoke tools, mutate state, grant permission, rewrite later questions, or let retrieved content define new instructions. `reasoning` records why the condition matters; it does not enter provider evidence.
+
+Use one output shape for direct and batch inputs:
+
+```ts
+type SemanticAssessOutput = { queries: SemanticQueryResult[] };
+type SemanticQueryResult = {
+  queryId: SemanticId;
+  results: SemanticCellResult[];
+  next?: { assess: SemanticAssessInput };
+};
+type SemanticCellResult = {
+  resourceId: SemanticId;
+  questionId: SemanticId;
+  coverage: "complete" | "partial" | "error";
+  pages: SemanticPageResult[];
+};
+type SemanticPageResult = {
+  pageIndex: number;
+  context: BodyFreeReceipt;
+  usage?: UsageAttribution;
+} & ({ status: "success"; answer: TypedAnswer } |
+     { status: "error"; error: SafeError });
+```
+
+Order query results by input query, cells by resource then question, and pages by `pageIndex`. Omit unknown usage rather than reporting zero. Shared provider calls assign usage once and identify the owner. Errors stay isolated at the smallest valid level.
+
 #### Context lifecycle
 
 1. **Discover without bodies:** obtain candidate paths, URIs, refs, manifest entries, or exact ranges through body-free search/list views.
-2. **Build bounded resources:** assign stable resource and question IDs; use canonical unexecuted read queries. Do not read a body merely to prepare an assessment.
-3. **Assess once:** capture and sanitize each matrix resource once, then evaluate every question against that same captured state. Retrieved text is untrusted data and cannot change the caller's question, permissions, or objective.
-4. **Inspect every row:** keep answer, completeness, errors, usage ownership, hashes, and executable continuations. A missing, partial, or errored row is never a negative answer.
-5. **Read retained proof:** directly read the deciding original source for relevant, uncertain, insufficient, or conflicting rows. Cite source locations, not hidden assessment bodies.
-6. **Verify consequential claims:** use exact source, LSP, tests, or runtime checks appropriate to the claim. The assessment remains routing evidence.
+2. **Build semantic queries:** assign stable query, resource, and question IDs; use canonical unexecuted read queries. Put every atomic aspect that shares the resource set in `questions[]`. Do not read a body merely to prepare an assessment.
+3. **Acquire in the background:** capture and sanitize each logical resource once. If a same-resource continuation is needed, freeze source identity and collect ordered pages without exposing bodies to the host.
+4. **Assess every cell:** apply every question to every resource. For a paged resource, apply the exact same question object to each provider page and retain the stable `(queryId,resourceId,questionId)` identity.
+5. **Inspect every result:** keep page answers, completeness, errors, usage ownership, hashes, and executable continuations. A missing, partial, or errored page is never a negative answer. Do not average page probabilities or manufacture one answer when the question has no declared reducer.
+6. **Read retained proof:** directly read the deciding original source for relevant, uncertain, insufficient, or conflicting results. Cite source locations, not background assessment bodies.
+7. **Verify consequential claims:** use exact source, LSP, tests, or runtime checks appropriate to the claim. The assessment remains routing evidence.
 
-Compaction may drop repeated logs and rejected candidates only after preserving IDs, source anchors, decisions, open limitations, continuations, and the next action. A summary must never become the only copy of proof. Stable schemas/instructions should form a cacheable prefix; dynamic resources and questions remain the request tail. Cache behavior is an optimization, not a permission boundary or correctness claim.
+Compaction can drop repeated logs and rejected candidates only after preserving IDs, source anchors, decisions, open limitations, continuations, and the next action. A summary must never become the only copy of proof. Stable schemas/instructions should form a cacheable prefix; dynamic resources and questions remain the request tail. Cache behavior is an optimization, not a permission boundary or correctness claim.
 
-#### Built-in resource paging
+#### Background resource pagination
 
-`semanticAssess` owns resource paging; browser and scraping skills consume that contract rather than implementing a second semantic protocol. One accepted request may contain a bounded resource roster and shared questions. The runtime captures each resource once and automatically partitions the cross-product into private provider pages under the adapter's input headroom, preserving resource-major order, IDs, row isolation, and usage ownership. Public limits are derived from payload, latency, cost, and output evaluations; provider-specific token ceilings remain private.
+`semanticAssess` owns semantic paging; browser and scraping skills only create safe artifact resources. A logical resource can contain up to 80,000 characters. The runtime keeps its body in background execution and separates two paging axes:
 
-If the complete roster or result cannot fit the public call/output budget, return `isPartial` plus an executable `next.assess` query containing the unchanged questions and remaining resource descriptors. The continuation must work across one-shot CLI processes; it cannot depend solely on in-memory cursor state. Callers run it unchanged until every resource-question cell is present, then aggregate. This paging is distinct from source-tool pagination: `semanticAssess` never silently follows a nested source continuation because that changes evidence scope. No page can establish a global negative, and `skip` requires complete, confidently unrelated coverage across all pages.
+1. **Acquisition pages:** Follow only an executable continuation that the ordinary tool marks `continuationKind:"sameResource"`. Add this discriminator to the shared continuation contract. Never auto-follow collection pages, optional-content menus, related links, search expansion, or any continuation that changes evidence scope.
+2. **Provider pages:** Split the frozen logical resource into UTF-8-safe pages whose estimated input stays below 20,000 tokens after adding the exact question, wrapper, and provider overhead. Use the configured model's tokenizer when available. Otherwise use a conservative byte ceiling and bisect an oversize page; never assume four characters equal one token.
+
+The first acquisition page freezes identity. GitHub files resolve to an immutable commit SHA before another page. Local files carry a content hash through every continuation; mutation stops the cell with a stale-resource error instead of mixing versions. Browser and scrape manifests pin their artifact hashes and canonical paths. Each acquisition page executes once per logical resource, and every question sees the same ordered page set.
+
+For every provider page, send the same immutable question object and retain the same `(queryId,resourceId,questionId)` cell identity. Return one logical cell with ordered `pages[]`, where each page contains `pageIndex`, its typed `answer` or isolated `error`, a body-free receipt, and usage attribution. Set cell `coverage` to `complete` only after every admitted source/provider page returns. Do not average page probabilities or choose a global answer without an explicit reducer contract. Agent guidance conservatively retains a resource when any page is relevant, uncertain, insufficient, partial, or errored; exclusion requires complete confidently unrelated coverage across all pages.
+
+If deadline, cost, output, or call limits stop execution, return `isPartial` plus an executable `next.assess` containing the stable query ID, unchanged question objects, unresolved resource descriptors, frozen source identity, and exact continuation. It must resume in a one-shot CLI process without in-memory state or replaying completed pages. A slow semantic query cannot suppress completed sibling queries: the batch returns completed query results and an isolated continuation/error for unfinished queries. Bound concurrency, honor cancellation between capture and provider pages, and record known usage before returning.
 
 #### Guidance ownership
 
 | Layer | Sole responsibility |
 |---|---|
 | Core schema | Exact discriminated envelopes, field semantics, IDs, limits, mutual exclusions, output correlation, completeness, and executable continuation shape. |
-| Core tool description | `Use when → Do not use when → Inputs → Returns → Next`; enough information to select `semanticAssess` and matrix versus independent mode, without restating types. |
+| Core tool description | `Use when → Do not use when → Inputs → Returns → Next`; enough information to select `semanticAssess`, one semantic query, or a batch, without restating types. |
 | Core MCP/CLI instructions | Cross-tool `discover → assess → read proof → verify` workflow, shared trust boundary, and partial-result rule. |
 | Active skill | Conditional examples, large-artifact workflow, recovery recipes, and live-schema discovery; it points to core rather than copying the full schema. |
 | Native runtime | Ordinary-tool dispatch, authorization, redaction, capture-once semantics, provider paging, cancellation, output shaping, and recovery. |
@@ -128,30 +202,49 @@ If the complete roster or result cannot fit the public call/output budget, retur
 
 The contract audit must compare `semanticAssess` against every ordinary tool allowed in `context.tool`, verify that every advertised `Next` exists, and fail on split ownership, field/name/type drift, phantom continuations, or guidance that exceeds runtime authority.
 
+#### Target tool and agent wording
+
+Use the following wording as the implementation baseline, then change it only when held-out tool-selection evaluation supports the change.
+
+**Short description:** “Evaluate typed questions over background-fetched resources without returning their bodies.”
+
+**Tool description:** “Use when bounded semantic judgments over unread resources can change the next read, test, or decision. Do not use for exact checks, known deciding spans, or evidence that must be read regardless. Input one `SemanticQuery`, or batch complete semantic queries in `queries[]`. Within each semantic query, every atomic question applies to every resource; add questions for more aspects, and add semantic queries only when their resource/question sets or policies differ. The runtime acquires and sanitizes resources in the background, pages large logical resources with the same questions, and returns body-free results correlated by query, resource, question, and page. Read retained source for proof. Continue incomplete results with the returned `next.assess` unchanged.”
+
+The shared MCP/CLI instruction owns this workflow:
+
+1. Discover candidate identifiers without bodies.
+2. Skip `semanticAssess` if direct evidence is mandatory or opposite judgments lead to the same action.
+3. Build one semantic query per decision domain. Put shared resources in `resources[]` and atomic aspects in `questions[]`; use `queries[]` only to batch complete semantic queries.
+4. Prefer background `context:{tool,query}` acquisition. Use `context:{value}` only for evidence already present in host context.
+5. Inspect every query, cell, and page. Retain incomplete, relevant, uncertain, insufficient, conflicting, or errored resources.
+6. Read original retained evidence and run the verification appropriate to the claim.
+
+The active skill uses the flow `DISCOVER IDS → BUILD SEMANTIC QUERY → BACKGROUND ACQUIRE → ASSESS MATRIX → READ RETAINED PROOF → VERIFY`. It includes one single-query example, one batch-of-semantic-queries example, one 80,000-character paged resource example, and one failure/continuation example. It must not copy the complete schema or teach provider-specific terms.
+
 ### Dependency-ordered implementation
 
 | Step | Change | Depends on | Pass condition |
 |---|---|---|---|
-| S1 | Finalize `semanticAssess` input/output schemas, names, layer-owned descriptions/instructions, examples, evaluated limits, paging continuations, relations, and diagnostics in octocode-core. | None | Core lint, typecheck, tests, build, JSON Schema audit, contract-set audit, and prompt budget pass. |
-| S2 | Rename native public tool/runtime modules and constants; keep Jev terminology only in the private provider adapter. Add capture-once orchestration, private provider paging, and cross-process executable resource continuations; remove redundant pair-ID handling and all public `jev` branches. | S1 | Native unit tests prove one canonical tool path, resource-major expansion, capture-once semantics, all-cell provider paging, private provider translation, continuations, and paired output IDs. |
+| S1 | Define `SemanticQuery`, direct-or-batch input, stable triple correlation, nested page results, limits, `continuationKind`, descriptions, instructions, examples, relations, and diagnostics in octocode-core. Delete the independent-pair schema. | None | Core lint, typecheck, tests, build, JSON Schema audit, contract-set audit, prompt budget, invalid legacy-pair, duplicate-ID, and total-cell cases pass. |
+| S2 | Rename native public modules/constants; keep Jev terminology only in the private provider adapter. Implement semantic-query expansion, background capture, frozen source identity, token-aware provider paging, batch isolation, and cross-process `next.assess`; remove all flat-pair and public `jev` branches. | S1 | Native tests prove direct/batch parity, resource-major cells, capture once per logical resource, identical questions across pages, stale-source failure, body-free output, partial sibling return, cancellation, and stable IDs. |
 | S3 | Regenerate native contracts from the actual core revision and provenance. | S1–S2 | Fingerprint, embedded body hash, source revision, and dirty flag are truthful; release mode rejects dirty provenance. |
 | S4 | Rebuild CLI and MCP from the regenerated contract. Rename commands, catalog rows, help, examples, error paths, and telemetry labels. | S3 | `scheme semanticAssess` and real calls work identically through CLI/MCP; `scheme jev` is unknown and no alias appears in discovery. |
-| S5 | Update Pi contracts/prompts/rendering and every skill, Chrome/scraping helper, script, error code, fixture, and test. Helpers chunk source artifacts but delegate semantic resource paging to the public contract. | S4 | No active caller invokes `jev`; every resource-question cell is processed or returned through an executable continuation, and incomplete/error chunks remain retained. |
+| S5 | Update Pi contracts/prompts/rendering and every skill, Chrome/scraping helper, script, error code, fixture, and test. Helpers create hashed resources but delegate semantic acquisition/paging to the public contract. | S4 | No active caller invokes `jev`; agents use one semantic query or a batch of full semantic queries; every cell/page completes or returns an executable continuation. |
 | S6 | Rename active docs and cross-links, repair root/package agent instructions to match live CLI syntax, and label historical artifacts rather than rewriting them. | S4–S5 | Documentation, link, skill, instruction, and style validators pass with one current name, one current usage contract, and executable discovery examples. |
-| S7 | Run the frozen agent-behavior evaluation plus live local-file, GitHub-file, missing-path recovery, supplied-value, matrix, independent-pair, paged-roster, saved-browser, CLI, MCP, and Pi smoke paths. | S4–S6 | Agents select the right mode, every required row is present/correlated/body-free/policy-equivalent, held-out safety and quality gates pass, and no stale public name appears. |
+| S7 | Run the frozen agent-behavior evaluation plus live local-file, GitHub-file, missing-path recovery, supplied-value, direct semantic query, batched semantic queries, 80,000-character paging, saved-browser, CLI, MCP, and Pi smoke paths. | S4–S6 | Agents select the right shape, every required query/cell/page is correlated/body-free/policy-equivalent, slow siblings do not suppress completed results, held-out safety/quality gates pass, and no stale public name appears. |
 | S8 | Run release checks and inspect the published artifact contents. | S7 | Clean provenance, platform checks, package contents, catalog fingerprints, and release documentation all pass. |
 
 ### Files, APIs, and contracts
 
 | Area | Required update | No-legacy check |
 |---|---|---|
-| octocode-core | Tool constants, schemas, exported types, descriptions, instructions, catalog, preparation, output schemas, examples, tests, README. | No public `Jev*`, `jev` tool name, pair correlation IDs, or pair-first guidance. |
-| Native runtime | Contract preparation, engine dispatch, security routing, context capture, batching, provider translation, results, tests, architecture docs. | One `semanticAssess` dispatch branch; Jev name confined to provider code and provider configuration. |
+| octocode-core | Tool constants, `SemanticQuery` direct/batch schemas, continuation kinds, exported types, descriptions, instructions, catalog, preparation, output schemas, examples, tests, README. | No public `Jev*`, `jev` tool name, flat pair schema, pair result index, or pair-first guidance. |
+| Native runtime | Contract preparation, query/cell expansion, security routing, background context acquisition, source identity, token-aware paging, batch isolation, provider translation, results, tests, architecture docs. | One `semanticAssess` dispatch branch; Jev name stays inside provider code and provider configuration. |
 | CLI and MCP | Commands, scheme output, registration, help, rendering, structured output, integration tests. | No alias, fallback registration, stale catalog entry, or hand-written divergent guidance. |
 | Repository agent instructions | Root/package `AGENTS.md`, handoffs, and setup snippets use `scheme <tool>` plus direct canonical tool calls from live help. | No active `tools --json`, `tools <name> --scheme`, retired tool-call `--json`, or other known-dead invocation. |
 | Pi | Gateway contracts, catalog prompts, rendering hints, harness docs, tests. | No `jev` activation or prose outside historical fixtures. |
-| Skills | Rename skill folder/name, triggers, README, references, validators, installed manifests, and internal links; encode the admission table and context lifecycle without duplicating field definitions. | No forwarding skill or duplicated schema; live discovery remains the source of truth. |
-| Chrome/scraping | Triage invocation, request filenames where public, functions, errors, usage fields, docs, fixtures. Helpers own safe artifact splitting and roster construction; `semanticAssess` owns semantic paging. | Every chunk enters the public matrix/continuation flow; no private paging protocol, `JEV_UNAVAILABLE`, or `runJev` remains in active code. |
+| Skills | Rename skill folder/name, triggers, README, references, validators, installed manifests, and internal links; teach single-versus-batch semantics, background acquisition, atomic aspects, and page recovery without duplicating field definitions. | No forwarding skill, legacy pair example, or duplicated schema; live discovery remains the source of truth. |
+| Chrome/scraping | Triage invocation, request filenames where public, functions, errors, usage fields, docs, fixtures. Helpers own safe artifact extraction, hashes, and resource construction; `semanticAssess` owns acquisition and semantic paging. | Every artifact enters the public query/page flow; no private semantic paging protocol, `JEV_UNAVAILABLE`, or `runJev` remains in active code. |
 | Docs | Rename active Jev guides, headings, commands, examples, ownership links, architecture references, and release notes. | Historical POCs remain immutable and explicitly labeled; active guidance uses only `semanticAssess`. |
 | Generated/release | Regenerated Rust/JSON contracts, provenance, fingerprints, package output, platform bundles. | No hand edits; published catalog contains exactly one semantic-assessment tool. |
 
@@ -162,11 +255,11 @@ The contract audit must compare `semanticAssess` against every ordinary tool all
 | One public tool | All live catalogs expose exactly `semanticAssess`; `jev` is absent. | Any duplicate/alias or interface disagreement blocks release. |
 | Executable discovery guidance | Every active agent instruction and skill example executes against the staged CLI/MCP catalog exactly as written. | Any retired command, unknown flag, or stale schema path blocks release. |
 | Model-independent contract | Public names, schemas, descriptions, examples, and skills contain no provider-specific Jev terminology except provider setup documentation. | Any provider term in the public contract blocks release. |
-| Matrix correctness | Every question evaluates every resource once; rows are resource-major and carry both IDs. | Missing/duplicate cells, repeat capture, or leaked IDs in provider payload blocks release. |
-| Independent mode | `queries[]` supports only independent pairs and correlates by `index`; matrix IDs are rejected. | Any ambiguous mixed mode or redundant public correlation path blocks release. |
-| Agent routing | Held-out agents skip exact/mandatory reads, choose matrix for shared questions, choose `queries[]` only for independent pairs, and keep dependent questions sequential. | Any systematic wrong-mode selection, forced-call behavior, or unread-body defeat blocks release. |
+| Semantic-query correctness | Every question evaluates every resource in its semantic query; cells are resource-major and carry query, resource, and question IDs. | Missing/duplicate cells, repeated acquisition, cross-query leakage, or IDs in provider evidence blocks release. |
+| Direct and batch modes | Direct input is one `SemanticQuery`; `queries[]` contains only complete semantic queries and isolates their failures. Output uses one shape for both. | Any accepted flat pair, mixed envelope, lost query ID, or slow sibling that suppresses completed results blocks release. |
+| Agent routing | Held-out agents skip exact/mandatory reads, add questions for shared-resource aspects, batch only distinct semantic queries, and keep dependent questions sequential. | Any systematic wrong-shape selection, forced-call behavior, duplicated resources, or unread-body defeat blocks release. |
 | Context discipline | Unread resources stay outside host context until selected for proof; already-visible evidence uses `value`; compaction preserves identifiers, limitations, and continuations. | Any needless reread, lost recovery handle, or summary-only proof blocks release. |
-| Resource paging | The runtime evaluates every accepted cell through internal provider pages or returns a cross-process `next.assess`; helpers only split source artifacts. | Any silent resource/error drop, in-memory-only continuation, duplicate capture, or global negative from a partial page blocks release. |
+| Resource paging | One logical resource supports 80,000 characters; runtime pages below 20,000 estimated provider-input tokens, repeats the identical question, freezes source identity, and returns ordered body-free page results or cross-process `next.assess`. | A four-characters-per-token assumption, mixed source versions, silent page/error drop, in-memory-only continuation, replayed completed page, or global negative from partial coverage blocks release. |
 | Security and evidence | Hidden bodies remain out of host output; ordinary authorization, redaction, SSRF, path, continuation, and cancellation policies remain active. | Any policy bypass or body/secret leak blocks release. |
 | Trust boundary | Retrieved files, pages, tool annotations, and provider text remain data; they cannot alter questions, objectives, permissions, or requested actions. | Any benign or adversarial fixture that changes agent authority blocks release. |
 | Measured benefit | Equivalent-workflow evaluation preserves task correctness, citation fidelity, and false-exclusion safety while reporting host/provider tokens, reads, pages, calls, latency, and errors. | Regressed quality/safety or an efficiency claim without production-token evidence blocks the claim and can block the instruction change. |
@@ -179,18 +272,30 @@ Freeze the baseline prompts, tool catalog, executable hashes, source fixtures, a
 | Case | Expected observable behavior |
 |---|---|
 | Exact known span or required evidence | Zero `semanticAssess` calls; direct source read. |
-| Several unread local and GitHub candidates with two shared questions | One matrix, stable IDs, complete cross-product, proof reads only for retained rows. |
-| Independent facts with unrelated questions | `queries[]`; no meaningless cross-product. |
-| Question B depends on answer A | Two sequential calls or direct verification, never one matrix. |
+| Several unread local and GitHub candidates with two shared aspects | One semantic query, stable IDs, complete cross-product, and proof reads only for retained results. |
+| Two unrelated decision domains | `queries[]` containing two complete semantic queries; no resource/question leakage across them. |
+| One resource set with several aspects | One semantic query with several atomic questions, not duplicated batch elements. |
+| Question B depends on answer A | Two sequential calls or direct verification, never one semantic query or batch. |
 | Evidence already in host context | `context:{value}` or no call; no duplicate read. |
-| Roster exceeds one provider page | Automatic internal pages; every cell returned once with truthful shared usage. |
-| Roster/result exceeds the public response budget | `isPartial` and executable `next.assess`; the resumed one-shot CLI call completes the roster without lost IDs. |
-| Nested source continuation or incomplete view | No automatic scope expansion; partial/insufficient remains retained and the exact continuation is recoverable. |
+| Local, GitHub, and saved-browser resources | Background acquisition uses the ordinary tool's policy and returns no source body to the host. |
+| One 80,000-character code or minified-JSON resource | Token-aware provider pages repeat the identical question object; all page results retain one cell identity. |
+| Mutable local file or moving GitHub branch changes between pages | The cell fails stale rather than mixing source versions. |
+| Same-resource continuation | Runtime follows only `continuationKind:"sameResource"`; collection and optional-content continuations remain explicit. |
+| Roster/result exceeds the public response budget | `isPartial` and executable `next.assess`; a resumed one-shot CLI call completes unresolved work without lost IDs or replay. |
 | Missing local path, missing GitHub path, provider error, and cancellation | No inference on failed retrieval; isolated error row and safe recovery where available. |
+| One slow semantic query beside a completed query | Return the completed sibling plus an isolated unfinished error/continuation before the batch deadline. |
 | Browser/HAR corpus containing prompt injection and split secrets | Task facts remain usable, instructions remain caller-owned, and no secret/body leaks to host output. |
 | Conflicting typed judgments | No averaging or voting; route to direct evidence/test. |
 
-Track task success, tool-selection accuracy, invalid calls, false exclusions, citation fidelity, changed-next-action rate, unnecessary assessments, proof reads, source bytes kept out of host context, actual host input/cached/output tokens, provider input/output tokens, calls, pages, latency, and failures. Count preparation, discovery, retries, continuations, and verification. Provider-token or byte reductions are not host-token savings. Keep the instruction change only when the target behavior improves without unacceptable correctness, security, or latency regression; otherwise revert or narrow the owning rule.
+Track task success, tool-selection accuracy, invalid calls, false exclusions, citation fidelity, changed-next-action rate, unnecessary assessments, proof reads, and source bytes kept out of host context. Separately track host and provider tokens, calls, pages, latency, and failures. Count preparation, discovery, retries, continuations, and verification. Provider-token or byte reductions are not host-token savings. Keep the instruction change only when the target behavior improves without unacceptable correctness, security, or latency regression; otherwise revert or narrow the owning rule.
+
+### Live background-context paging evidence (pre-rename)
+
+On 2026-09-20, the staged `jev` CLI processed this plan through three sequential background `localFetch` byte pages: offsets 0, 20,000, and 40,000 with a 20,000-byte limit and the same Choice question. The first two receipts were partial and returned exact `continue` queries; the final receipt reported bounded coverage. Host output contained only typed answers, provider usage, result hashes, coverage, and continuations—not source bodies. The page answers were `partial`, `partial`, and `no`, which confirms that page judgments do not form a safe global answer without complete coverage and an explicit reducer.
+
+A second run assessed the first 80,000 UTF-8 bytes of `packages/octocode-native/crates/runtime/src/contracts/generated/tool-contract.json` as four isolated 20,000-byte pages with the same binary question. Every page completed and returned the next exact offset. Provider input was 6,642, 8,049, 8,057, and 8,094 tokens: 30,842 total for 80,000 mostly ASCII/minified-JSON bytes. This directly rejects the assumption that 80,000 characters reliably equal 20,000 tokens; token density depends on content and serialization.
+
+The equivalent four-row legacy batch emitted no result within 60 seconds; the test cancelled it with exit code 130. The isolated page calls completed in about 18 seconds when launched in parallel. This does not diagnose the provider/runtime boundary, but it establishes a release case for batch deadlines, partial sibling results, progress diagnostics, and bounded concurrency. The staged CLI still exposes legacy flat `queries[]`, so these runs verify background acquisition, body-free receipts, and manual continuation—not the target `SemanticQuery` direct/batch contract or automatic paging.
 
 ### Rollout and rollback
 
@@ -198,9 +303,9 @@ Ship the rename in one major-version cutover after S1–S8 pass. Do not stage bo
 
 ## Implementation and POC checkpoint
 
-**Implemented in this working tree:** W1 recovery receipts, A1 continuation ownership, A2 output-policy parity, W2 per-patch guidance, W4 matrix questions/capture reuse, W5 unread-query guidance, and A3 bounded browser/scrape resources. The matrix is additive; flat pairs remain compatible. Failed retrieval retains its safe error code and body-free receipt, states that inference did not run, and has no answer or provider usage. Nested continuations and direct/hidden sanitization remain unchanged.
+**Implemented in this working tree:** W1 recovery receipts, A1 continuation ownership, A2 output-policy parity, W2 per-patch guidance, W4 matrix questions/capture reuse, W5 unread-query guidance, and A3 bounded browser/scrape resources. At this checkpoint, the matrix is additive and flat pairs remain compatible; the target contract deliberately removes those pairs. Failed retrieval retains its safe error code and body-free receipt, states that inference did not run, and has no answer or provider usage. Nested continuations and direct/background sanitization remain unchanged.
 
-The pre-cleanup integration checkpoint passed 205 core tests, lint/typecheck, 323 native library tests and 19 Jev integration tests; native binary/addon and CLI/MCP builds completed. [Rebuilt CLI/MCP smoke evidence](../.octocode/tmp/jev-integration-smoke/after-live.json) covers recovery, executable continuations and two real-provider successes. Controlled tests inspect outgoing sanitized state and zero inference on failed retrieval. This is the named verification scope, not every monorepo suite.
+The pre-cleanup integration checkpoint passed 205 core tests, lint/typecheck, 323 native library tests and 19 Jev integration tests; native binary/addon and CLI/MCP builds completed. The recorded CLI/MCP smoke checkpoint covered recovery, executable continuations, and two real-provider successes, but its former `.octocode/tmp/jev-integration-smoke/after-live.json` receipt is not present in this checkout. Controlled tests inspect outgoing sanitized state and zero inference on failed retrieval. This is the named verification scope, not every monorepo suite.
 
 Initial regeneration failed on dirty-core provenance and four outdated default-field expectations. The corrected tests preserve rejection of missing operation/URI anchors while accepting intentional defaults. Final regeneration used clean core provenance and passed; the guards were not weakened. Those results describe that checkpoint, not every later working-tree revision.
 
@@ -208,7 +313,7 @@ Initial regeneration failed on dirty-core provenance and four outdated default-f
 
 ### Decision
 
-The pre-rename implementation adds one envelope for a true cross product. The target `semanticAssess` contract preserves this shape:
+The pre-rename implementation adds one envelope for a true cross-product. The following pre-rename example records that checkpoint; it is not the target public input. The target adds the required semantic-query `id`, accepts this object directly or inside `queries[]`, and removes the checkpoint's flat-pair branch.
 
 ```json
 {
@@ -218,7 +323,7 @@ The pre-rename implementation adds one envelope for a true cross product. The ta
 }
 ```
 
-Every question is evaluated against every resource in resource-major order. Result rows expose `resourceId` and `questionId`. IDs are 1–64 ASCII letters, digits, dots, underscores, or hyphens and start alphanumeric. Resource and question IDs must be unique. The matrix admits at most 25 cells, 25 resources, and five questions. Direct input and `queries[]` remain the independent-pair mode; pair rows use their ordered `index` and cannot accept matrix correlation IDs.
+Every question is evaluated against every resource in resource-major order. Result rows expose `resourceId` and `questionId`. IDs are 1–64 ASCII letters, digits, dots, underscores, or hyphens and start alphanumeric. Resource and question IDs must be unique. This checkpoint admits at most 25 cells, 25 resources, and five questions. Its `queries[]` branch contains independent pairs correlated by `index`; S1 deletes that branch and reuses `queries[]` only for complete `SemanticQuery` objects.
 
 ### Runtime flow
 
@@ -231,7 +336,7 @@ Every question is evaluated against every resource in resource-major order. Resu
 
 ### Large-resource pagination
 
-At the pre-rename checkpoint, `jev` does not silently follow a source tool continuation because doing so changes evidence scope, and it does not truncate one oversized state. Callers represent large files, browser bodies, and HAR-derived artifacts as bounded resources. At that checkpoint, the scraping/Chrome bridge supplies the loop: it resolves every manifest part, splits UTF-8-safe byte chunks, submits successive matrices of 1–25 resources, and aggregates only after every chunk returns. Its `--limit` controls matrix page size; the loop tracks the complete discovered resource roster and reports missing or errored rows. The target keeps artifact splitting in the bridge but moves semantic roster paging into `semanticAssess` as specified above.
+At the pre-rename checkpoint, `jev` does not silently follow a source tool continuation because doing so changes evidence scope, and it does not truncate one oversized state. Callers represent large files, browser bodies, and HAR-derived artifacts as bounded resources. At that checkpoint, the scraping/Chrome bridge supplies the loop: it resolves every manifest part, splits UTF-8-safe byte chunks, submits successive matrices of 1–25 resources, and aggregates only after every chunk returns. Its `--limit` controls matrix page size; the loop tracks the complete discovered resource roster and reports missing or errored rows. The target keeps safe extraction, canonical paths, hashes, and resources beyond the 80,000-character logical cap in the bridge; `semanticAssess` owns same-resource acquisition continuations and provider paging.
 
 Aggregation is conservative and exclusive: any relevant chunk routes the candidate to `read`; otherwise partial, insufficient, mention, error, or low-confidence unrelated routes to `consider`; `skip` requires every chunk to be covered and confidently unrelated. Thin browser shells bypass Jev and stay in `consider`. Canonical path containment rejects explicit paths and symlink targets outside the scrape session.
 
@@ -243,10 +348,12 @@ Aggregation is conservative and exclusive: any relevant chunk routes the candida
 - Sending whole HAR/browser dumps makes provider limits and false negatives depend on arbitrary truncation.
 - Returning answer maps instead of rows weakens row isolation, usage attribution, and existing interface rendering.
 
-### Acceptance
+### Pre-rename acceptance record
+
+These checkpoint bullets preserve the earlier matrix scope. The target acceptance contract and S1–S8 above supersede them.
 
 - Core: union schema, matrix refinements, descriptions, prompt budget, JSON Schema export, and correlated output validate.
-- Native: resource-major expansion, 25-cell rejection, duplicate-ID rejection, provider-payload non-leakage, one hidden capture across questions, fresh flat repeated captures, ordered IDs, and isolated failures pass.
+- Native: resource-major expansion, 25-cell rejection, duplicate-ID rejection, provider-payload non-leakage, one background capture across questions, fresh flat repeated captures, ordered IDs, and isolated failures pass.
 - Browser/scrape: multipart and >50 KiB fixtures produce all UTF-8-safe resource pages; no silent drop; path escape rejected; relevant partial rows are not duplicated across routes.
 - Interfaces: rebuilt CLI and MCP advertise the same `semanticAssess` matrix schema and execute one local, one GitHub, and one saved-browser smoke path; live discovery contains no `jev` alias.
 - Release: generated contracts must be regenerated from clean core provenance before publish. Dirty provenance is allowed only for local iteration and remains an explicit failing release gate.
@@ -271,15 +378,15 @@ Aggregation is conservative and exclusive: any relevant chunk routes the candida
 |---|---|---|---|
 | W1 | P0 | Shipped: hidden-read recovery | Preserve failure/continuation regressions when receipts evolve. |
 | W2 | P0/P1 | Shipped: PR `charLength` is explicitly per file patch | Verify multiple patch/page axes and revision drift; any aggregate cap needs a separate ordinary-tool contract decision. |
-| W3 | P1/P2 | Implemented: matrix capture reuse | Each matrix resource is captured once; flat repeated pairs remain fresh. Keep integration tests for both behaviors. |
-| W4 | P1 | Implemented: resource-question matrix | Correlated resource-major rows; 25-cell admission cap; provider grouping splits under size headroom. |
+| W3 | P1/P2 | Implemented at checkpoint: matrix capture reuse | Preserve capture-once behavior while deleting the flat-pair branch; add frozen multi-page source identity. |
+| W4 | P1 | Implemented at checkpoint: resource-question matrix | Promote the matrix to `SemanticQuery`, add query IDs/direct-or-batch envelopes, and replace flat output rows with logical cells plus page results. |
 | W5 | P1 | Shipped: unread-query instructions | Keep real CLI/MCP discovery examples valid; `value` is supplied evidence, not path loading. |
 | W6 | P1 | Proposed: auditable scope receipts | Define bounded deterministic completion/count metadata without claiming global completeness. |
-| W7 | P1 | Partly shipped: scalar wrapping and canonical nested-query guidance | Nonempty instructions and Choice minimum-two admission require an explicit compatibility decision. |
+| W7 | P1 | Target decided: strict question admission | Enforce nonblank strings, explicit criteria, Choice minimum two, scalar wrapping, and indexed diagnostics in S1; provide no compatibility branch. |
 | W8 | P1/P2 | Shipped: independent-answer/conflict guidance | Reproduce the reported live disagreement; automated consistency requires a relation contract and evaluation. |
 | A1 | P0 | Shipped: nested continuation ownership | Preserve outer/nested trace separation and ordinary-tool behavior. |
-| A2 | P0 | Shipped: hidden/direct redaction parity | Keep output policy before provider transmission, hashing and reuse. |
-| A3 | P1/P2 | Implemented for saved browser/scrape files | All parts use UTF-8-safe bounded resources; helper pages matrices, aggregates conservatively, and rejects paths escaping the session. |
+| A2 | P0 | Shipped: background/direct redaction parity | Keep output policy before provider transmission, hashing, and reuse. |
+| A3 | P1/P2 | Implemented at checkpoint for saved browser/scrape files | Keep safe extraction/hashes in helpers; move same-resource and provider paging into `semanticAssess`. |
 | A4 | P1 | Pending: failure/packing accounting | Audit known versus unknown usage on failures and cancellation; measure actionable grouping diagnostics. |
 | A5 | P1 | Unverified: stale discovery/error hints | Reproduce any remaining retired hints in current CLI help/errors, then repair the owning layer. |
 
@@ -297,9 +404,9 @@ PR patch windows and file pages are separate axes. The review recorded 87,419 pa
 
 ### Admission and semantic agreement — W7/W8
 
-Current shape compatibility remains unchanged. A future stricter contract could reject null/blank/empty instructions and require at least two Choice alternatives. This is an Octocode product decision: upstream allows null instruction entries. Preserve useful structured instructions and criteria; avoid keyword bans. Publish migration notes and regenerate contracts if tightening is approved.
+The hard cutover resolves the admission decision: reject null/blank instructions, require the declared criteria in the target schema, and require at least two Choice alternatives. Use nonblank strings for instructions and criterion descriptions; keep structured evidence in `context.value`. Accept strings, nonempty objects, or nonempty arrays for supplied state. Wrap scalars explicitly, for example `context:{value:{observed:false}}`; do not silently transform caller values. Validate background queries through their canonical ordinary-tool schema rather than embedding every read-tool schema in `semanticAssess`.
 
-Current guidance should use strings, objects or arrays for supplied state, wrapping scalars explicitly, for example `context:{value:{observed:false}}`. Do not silently transform caller values. Keep nested queries validated by their canonical tool schema rather than embedding every read-tool schema in Jev.
+Publish the break in the migration note, regenerate contracts, and make invalid examples assert rule IDs plus indexed `queries`, `resources`, and `questions` paths. Do not add keyword bans or provider-specific validation.
 
 The newer review reports a **live semantic disagreement**: 496 input/79 output tokens, with Score assigning 0.96 probability to “no implementation evidence” while Noul/Choice and the function indicated otherwise. Its raw receipt was not located and the claim is not independently reproduced. A different, older Score contradiction was an intentionally malformed mock response whose live smoke passed. The mock result does not dismiss the newer report.
 
@@ -311,17 +418,17 @@ Measure capture, cache, sanitization and inference costs separately. Identical c
 
 A within-call prototype must key eligibility on canonical selection, established source identity, effective availability/path policy, redaction policy, endpoint, credential/session partition and all output-affecting options. Preserve row-specific trace metadata, bound retained bytes, and release on completion/cancellation. Pinned immutable content is a candidate; local size/mtime, moving branches, live searches and LSP state are not immutable identities. Preserve the moving-branch regression unless an explicit snapshot contract is designed. Do not strip freshness metadata merely to force grouping.
 
-Public context handles remain gated on demonstrated cross-call benefit and a lifecycle design: ownership, expiry/eviction, memory limits, policy revalidation, credential/endpoint partitioning, source-version checks, invalidation, restart and stale-handle errors. Keep content reuse separate from judgment caching. A [live design Choice](../.octocode/tmp/jev-improvement-plan/reuse-design.output.json) favored bounded internal reuse; it is decision input, not proof of safety or performance.
+Public context handles remain gated on demonstrated cross-call benefit and a lifecycle design: ownership, expiry/eviction, memory limits, policy revalidation, credential/endpoint partitioning, source-version checks, invalidation, restart and stale-handle errors. Keep content reuse separate from judgment caching. A recorded live design Choice favored bounded internal reuse, but its former `.octocode/tmp/jev-improvement-plan/reuse-design.output.json` receipt is not present in this checkout. Treat the record as unverified decision input, not proof of safety or performance.
 
 **Acceptance:** unchanged or better task quality and coverage, measured capture reduction, no mutable-state or policy cross-contamination, and accurate per-group usage. Audit failed-only/mixed groups, packing fallback, cancellation and duplicate accounting; distinguish unknown usage from zero. Existing completed-usage behavior is not a reason to claim every failure-accounting case is covered. Discard reuse if overhead or changed semantics outweigh its benefit.
 
 ### Artifact workflows and shared acquisition — A3
 
-Use the [tool-by-tool guide](JEV_TOOL_RESEARCH_GUIDE.md) for supported read families; do not duplicate its matrix here. For RFCs, saved articles and browser artifacts, expose a small visible manifest, classify bounded unread sections, then read selected proof. Supplied alternatives can use `value`. Jev can select sections or assess a supplied summary; its primitives do not generate free-form summaries.
+Use the [tool-by-tool guide](JEV_TOOL_RESEARCH_GUIDE.md) for supported read families; do not duplicate its matrix here. For RFCs, saved articles, and browser artifacts, expose a small visible manifest, build background resource descriptors, then read selected proof. Supplied alternatives can use `value`. `semanticAssess` can select sections or assess a supplied summary; its primitives do not generate free-form summaries.
 
-Use the existing [HAR capture guide](../skills/octocode-chrome-devtools/references/har-capture.md) and [ingestion bridge](../skills/octocode-chrome-devtools/scripts/har-ingest-to-scrape.mjs) to produce bounded records or selected response bodies. Skills produce artifacts; the pure CLI/MCP tool judges them through ordinary `localFetch`. Do not create a Jev-only acquisition path.
+Use the existing [HAR capture guide](../skills/octocode-chrome-devtools/references/har-capture.md) and [ingestion bridge](../skills/octocode-chrome-devtools/scripts/har-ingest-to-scrape.mjs) to produce bounded records or selected response bodies. Skills produce hashed artifacts; the pure CLI/MCP tool acquires them in the background through ordinary `localFetch`. Do not create a provider-only acquisition path.
 
-Current `localFetch` has distinct limits: 10 MiB source acquisition, 100 KiB raw full-content preflight and 50,000-byte complete-view cap. It acquires source before extraction; selecting a range does not bypass the source ceiling. Huge single-line HAR files can exceed scanner budgets. Use existing bounded artifact slicing first; shared streaming/structured acquisition needs evidence that those facilities are insufficient.
+The pre-rename `localFetch` contract has distinct limits: 10 MiB source acquisition, 100 KiB raw full-content preflight, and a 50,000-byte complete-view cap. It acquires source before extraction; selecting a range does not bypass the source ceiling. The target reaches an 80,000-character logical resource only through validated same-resource continuations and token-aware provider pages; it does not raise the ordinary one-page limit. Huge single-line HAR files can exceed scanner budgets, so use existing bounded artifact slicing before shared streaming/structured acquisition.
 
 **Acceptance:** representative public/synthetic RFC and HAR tasks complete with cited proof; supported size/format limits are explicit; UTF-8, record boundaries, cancellation and applicable full scanning are preserved. Verify redaction of Authorization/Cookie/Set-Cookie, URLs/query parameters, post bodies, malformed/base64 payloads and split secrets using synthetic fixtures. A locally readable session file is not automatically safe to transmit.
 
@@ -336,7 +443,7 @@ Current `localFetch` has distinct limits: 10 MiB source acquisition, 100 KiB raw
 | Shared output policy and continuation ownership | [Response finalization](../packages/octocode-native/crates/runtime/src/runtime/response.rs) |
 | Ordinary retrieval and cache | [Dispatcher](../packages/octocode-native/crates/runtime/src/runtime/domain_dispatch.rs), [GitHub content provider](../packages/octocode-native/crates/runtime/src/providers/github/content.rs) |
 
-Implement scoped contracts/recovery before measured reuse. Keep larger acquisition, handles and consistency extensions separately gated. For each production slice: change owning sources, regenerate contracts, rebuild native and interfaces, inspect real CLI schema/help and stdio MCP discovery, then exercise changed behavior. Do not hand-edit generated contracts or weaken provenance, security, lint or coverage guards. Fingerprint isolated executables before paid evaluations to avoid shared-build races.
+Implement the `SemanticQuery` and continuation contracts before background acquisition, paging, and measured reuse. Keep public context handles and automatic judgment reduction separately gated. For each production slice: change owning sources, regenerate contracts, rebuild native and interfaces, inspect real CLI schema/help and stdio MCP discovery, then exercise changed behavior. Do not hand-edit generated contracts or weaken provenance, security, lint, or coverage guards. Fingerprint isolated executables before paid evaluations to avoid shared-build races.
 
 ## Measurement and completion
 
@@ -344,6 +451,6 @@ Keep the existing Octocode-only baseline. Do not launch another without a new us
 
 Freeze natural tasks and source oracles covering optional large files, all-relevant controls, cheap exact lookups, repeated questions, mutable sources, recoverable/terminal failures, PR paging axes, RFC/HAR triage, supplied alternatives and conflicting judgments. Reserve unseen artifacts for adoption/quality validation. Keep failures and setup costs; never add a call quota or benchmark-only Jev recipe.
 
-Measure actual host input/cached/output tokens separately from tool-wire proxies and provider usage. Include discovery, preparation, retries, hidden captures, proof reads and verification. Track task quality, citation fidelity, false exclusions, changed next actions, known/unknown cost and recovery. Reading every candidate after screening is not a read-saving success. Reasoning benefit is a separate outcome. Compare equivalent complete workflows against targeted ordinary tools, not only read-all.
+Measure actual host input/cached/output tokens separately from tool-wire proxies and provider usage. Include discovery, preparation, retries, background captures, proof reads, and verification. Track task quality, citation fidelity, false exclusions, changed next actions, known/unknown cost, and recovery. Reading every candidate after screening is not a read-saving success. Reasoning benefit is a separate outcome. Compare equivalent complete workflows against targeted ordinary tools, not only read-all.
 
 Mocks establish contract, policy and scheduling properties; real provider/agent trials establish semantic quality and adoption. The plan is complete when each review item has a verified disposition and equivalent-workflow evidence supports every claimed benefit. The first shipped slice does not imply universal consistency, arbitrary-size ingestion or public context handles are complete.

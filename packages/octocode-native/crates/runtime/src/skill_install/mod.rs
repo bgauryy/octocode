@@ -504,10 +504,8 @@ fn validate_skill(name: &str, source: &str) -> Option<String> {
 }
 
 pub fn resolve_skill_destination(target: &SkillInstallTarget) -> Result<String, String> {
-    let home = node_resolve(target.home_dir.as_deref().unwrap_or_else(|| {
-        // The homedir default is only used from real CLI runs.
-        ""
-    }));
+    // The homedir default is only used from real CLI runs.
+    let home = node_resolve(target.home_dir.as_deref().unwrap_or(""));
     let root = match target.scope {
         SkillScope::Project => match target.project_dir.as_deref() {
             Some(dir) => node_resolve(dir),

@@ -345,6 +345,20 @@ impl GitHubServices {
         context.check()?;
         let query: gh_clone_repo::GhCloneRepoQuery =
             serde_json::from_value(query.clone()).map_err(|_| ExecutionError::WorkerFailed)?;
+        // Validate owner/repo/sparse-path BEFORE any network call. Otherwise a
+        // traversal-shaped owner (e.g. "../x") reaches repository_metadata and
+        // is reported as repositoryNotFound (echoing raw input) instead of the
+        // correct clone.input.invalid (N3).
+        if let Err(error) = gh_clone_repo::validate_query(&query) {
+            return Ok(DomainResult {
+                diagnostics: Default::default(),
+                data: json!({ "error": error.message, "errorCode": error.code }),
+                status: Some("error"),
+                source_digest: None,
+                cache: false,
+                failure: Some(FailureKind::Execution),
+            });
+        }
         let metadata = if query.branch.is_none() {
             match self
                 .provider

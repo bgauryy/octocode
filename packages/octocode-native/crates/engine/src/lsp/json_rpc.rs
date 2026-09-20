@@ -758,9 +758,7 @@ mod tests {
             NOTIFY_BASE_DEADLINE_MS + 3 * NOTIFY_MS_PER_MIB
         );
         // A larger payload yields a strictly larger deadline (monotonic).
-        assert!(
-            notify_write_deadline_ms(8 * 1024 * 1024) > notify_write_deadline_ms(1 * 1024 * 1024)
-        );
+        assert!(notify_write_deadline_ms(8 * 1024 * 1024) > notify_write_deadline_ms(1024 * 1024));
     }
 
     #[test]
@@ -859,7 +857,7 @@ mod tests {
         // Known handled methods still yield their expected results.
         match client_response_for("workspace/workspaceFolders", None, &context) {
             ClientResponse::Result(value) => {
-                assert_eq!(value, context.workspace_folders.clone())
+                assert_eq!(value, context.workspace_folders.clone());
             }
             other => panic!("expected workspaceFolders result, got {other:?}"),
         }

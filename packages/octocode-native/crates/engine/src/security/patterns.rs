@@ -1890,6 +1890,9 @@ static PATTERN_REGEX_CELLS: LazyLock<Vec<OnceLock<Regex>>> =
 
 /// Get (compiling at most once) the Regex for pattern `idx`.
 pub fn pattern_regex(idx: usize) -> &'static Regex {
+    // Built-in pattern strings are constants validated by the pattern tests; a
+    // compile failure is a build-time bug, not a runtime condition.
+    #[allow(clippy::expect_used)]
     PATTERN_REGEX_CELLS[idx]
         .get_or_init(|| Regex::new(PATTERN_STRINGS[idx]).expect(PATTERNS[idx].name))
 }

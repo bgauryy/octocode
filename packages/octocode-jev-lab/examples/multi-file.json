@@ -1,0 +1,45 @@
+{
+  "model": "jev-latest",
+  "resources": [
+    {
+      "id": "implementation_plan",
+      "path": "../../../docs/JEV_IMPROVEMENT_PLAN.md"
+    },
+    {
+      "id": "agent_protocol",
+      "path": "../../../.octocode/JEV.md"
+    },
+    {
+      "id": "reasoning_skill",
+      "path": "../../../skills/octocode-jev-reasoning-loop/SKILL.md"
+    }
+  ],
+  "questions": {
+    "contract_alignment": {
+      "type": "choice",
+      "instructions": "How well do these resources agree on the intended semantic-assessment request contract?",
+      "criteria": {
+        "aligned": "The request shapes and semantics agree.",
+        "partial_drift": "The intent agrees but one or more public shapes or limits differ.",
+        "conflicting": "The resources prescribe incompatible behavior."
+      }
+    },
+    "implementation_readiness": {
+      "type": "score",
+      "instructions": "How ready is this combined specification for implementation?",
+      "criteria": [
+        "Key behavior and boundaries are missing.",
+        "The direction is useful but important contract choices remain open.",
+        "The contract, boundaries, and acceptance checks are implementation-ready."
+      ]
+    },
+    "preserves_native_answers": {
+      "type": "noul",
+      "instructions": "Does the plan require preserving native Noul, Choice, and Score answer fields without semantic rewriting?",
+      "criteria": {
+        "true": "It explicitly preserves provider answer types, distributions, confidence, score, legend, and usage as supplied.",
+        "false": "It renames, thresholds, averages, or otherwise replaces provider answer semantics."
+      }
+    }
+  }
+}

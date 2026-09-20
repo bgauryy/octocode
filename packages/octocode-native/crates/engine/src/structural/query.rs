@@ -103,6 +103,9 @@ impl<'a> StructuralQuery<'a> {
     pub(super) fn parsed_rule(&self) -> Result<&super::octo::RawRule, String> {
         self.parsed_rule
             .get_or_init(|| {
+                // `parsed_rule` is only reached for rule queries, which always
+                // carry `self.rule` — the invariant is upheld by the caller.
+                #[allow(clippy::expect_used)]
                 super::octo::parse_rule(self.rule.expect("only rule queries compile a rule"))
             })
             .as_ref()

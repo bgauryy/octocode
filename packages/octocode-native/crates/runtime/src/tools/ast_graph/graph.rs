@@ -827,8 +827,7 @@ fn resolve_rust(
                 base = dirname(&base).to_owned();
                 index += 1;
             }
-            let resolved = resolve_rust_module_prefix(&base, &segments[index..], known);
-            resolved
+            resolve_rust_module_prefix(&base, &segments[index..], known)
         }
         // Leading `::` names an external crate absolutely (2015-style);
         // nothing to link inside this scan unless cargo metadata knows it.

@@ -85,6 +85,9 @@ fn prepare(tool: &str, query: &Value) -> Result<Value, JevProviderError> {
         .ok_or_else(|| error("invalidJevContext", "Context query is missing."))
 }
 
+// `ContextFailure` carries a sanitized failure envelope; boxing it would ripple
+// through every caller for no runtime benefit on this cold error path.
+#[allow(clippy::result_large_err)]
 pub(super) fn resolve(
     query: &Value,
     dispatcher: &DomainDispatcher,

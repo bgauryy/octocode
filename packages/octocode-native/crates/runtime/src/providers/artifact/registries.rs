@@ -381,7 +381,7 @@ pub(crate) async fn rubygems(
     // honor pageSize by windowing within the fetched page via the cursor
     // offset and advancing to the next API page once it is drained.
     let skip = state.offset.unwrap_or(0) as usize;
-    let size = query.page_size.unwrap_or(10) as usize;
+    let size = query.page_size.unwrap_or(10);
     let artifacts = fetched
         .iter()
         .skip(skip)

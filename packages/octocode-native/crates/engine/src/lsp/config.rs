@@ -66,6 +66,29 @@ pub fn default_server_for_file_with_options(
     options: &LspDiscoveryOptions,
 ) -> Option<JsLanguageServerConfig> {
     let extension = extension_key(&file_path)?;
+
+    // Assembly has no built-in default server (ARCHITECTURE: it requires trusted
+    // custom configuration). An explicit `OCTOCODE_ASM_SERVER_PATH` is that
+    // configuration expressed via env and wins over a config file; without it,
+    // only a user `lsp-servers.json` entry can launch a server — never a default.
+    if matches!(extension.as_str(), ".asm" | ".assembly" | ".s") {
+        if let Some(command) = std::env::var("OCTOCODE_ASM_SERVER_PATH")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+        {
+            return Some(JsLanguageServerConfig {
+                command,
+                args: Some(Vec::new()),
+                workspace_root,
+                language_id: Some("asm".to_owned()),
+                initialization_options: None,
+                env: None,
+                max_memory_mb: None,
+            });
+        }
+        return user_server_for_extension(&extension, &workspace_root, options);
+    }
+
     let spec = spec_for_extension(&extension);
 
     // Explicit env overrides are the top of the resolution ladder for known

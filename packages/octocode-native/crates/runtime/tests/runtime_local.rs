@@ -1,3 +1,6 @@
+// Integration test crate — assertions use unwrap/expect/panic freely.
+#![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
+
 mod support;
 
 use serde_json::json;

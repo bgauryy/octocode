@@ -165,10 +165,11 @@ pub fn resolve_sections(
             }
         }
 
-        if selected.is_none() && field.file {
-            if let Some(raw) = file.and_then(|config| get_path(config, field.path)) {
-                selected = parse_candidate(field, raw, false, None);
-            }
+        if selected.is_none()
+            && field.file
+            && let Some(raw) = file.and_then(|config| get_path(config, field.path))
+        {
+            selected = parse_candidate(field, raw, false, None);
         }
 
         if selected.is_none() {

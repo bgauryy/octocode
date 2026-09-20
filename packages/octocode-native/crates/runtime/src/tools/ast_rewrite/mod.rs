@@ -499,7 +499,7 @@ impl RewriteCoverage {
             || self.skipped_binary > 0
             || self.skipped_errored > 0
     }
-    fn to_json(&self) -> Value {
+    fn to_json(self) -> Value {
         json!({
             "scanTruncated": self.scan_truncated,
             "skippedUnreadable": self.skipped_unreadable,

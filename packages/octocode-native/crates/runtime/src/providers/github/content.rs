@@ -96,6 +96,19 @@ impl<R: CredentialResolver, C: ConditionalCache> GitHubProvider<R, C> {
         } else {
             self.cache.get(&partition, &key).await
         };
+        // A cached large-file entry has no ETag (it came from the blob fallback
+        // below). The cache key includes the resolved commit SHA, so that content
+        // is immutable — serve it directly instead of re-issuing a request that
+        // will 413 again and re-download the whole blob on every read (N2).
+        if let Some(value) = cached.as_ref().filter(|value| value.etag.is_none()) {
+            return Ok(ContentResponse {
+                bytes: value.bytes.clone(),
+                resolved_ref: value.resolved_ref.clone(),
+                etag: None,
+                from_cache: true,
+                raw_response_bytes: 0,
+            });
+        }
         let url = self.transport.endpoint().rest(&[
             "repos",
             &request.owner,

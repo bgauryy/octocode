@@ -9,6 +9,8 @@ pub struct GitHubEndpoint {
 }
 
 impl GitHubEndpoint {
+    // The literal URL and the endpoint built from it are compile-time constants.
+    #[allow(clippy::expect_used)]
     pub fn github_com() -> Self {
         Self::new(Url::parse("https://api.github.com/").expect("static URL"))
             .expect("static endpoint")

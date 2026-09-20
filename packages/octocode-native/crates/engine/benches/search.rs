@@ -1,3 +1,4 @@
+#![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 //! High-hit parallel search benchmark: many matched files across many
 //! directories, so per-file result collection (not regex evaluation) is a
 //! visible share of the runtime. Guards the worker-local collection path in
@@ -50,7 +51,7 @@ fn high_hit_search(criterion: &mut Criterion) {
             })
             .expect("bench search");
             black_box(result)
-        })
+        });
     });
 }
 

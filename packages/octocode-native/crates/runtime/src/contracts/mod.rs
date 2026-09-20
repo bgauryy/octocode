@@ -129,6 +129,9 @@ pub fn prepare_many_and_validate(
         .unwrap_or_default())
 }
 
+// The `expect`s below are guarded by the preceding `validate("jev", …)?`, which
+// guarantees the envelope shape (object with array `resources`/`questions`).
+#[allow(clippy::expect_used)]
 fn prepare_jev_matrix(
     mut envelope: serde_json::Value,
 ) -> Result<Vec<serde_json::Value>, ContractValidationError> {
@@ -190,6 +193,9 @@ fn prepare_jev_matrix(
     Ok(expanded)
 }
 
+// Rows come from `prepare_jev_matrix`, which only emits validated rows carrying
+// a string `id`.
+#[allow(clippy::expect_used)]
 fn validate_unique_matrix_ids(
     rows: &[serde_json::Value],
     field: &str,

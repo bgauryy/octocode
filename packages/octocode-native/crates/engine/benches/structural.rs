@@ -1,3 +1,4 @@
+#![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 //! Micro-benchmarks for the structural (AST) search hot path.
 //!
 //! `structuralSearchDetailed` is the synchronous public entry point that drives

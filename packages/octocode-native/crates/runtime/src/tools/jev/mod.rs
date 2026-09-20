@@ -54,10 +54,10 @@ pub(crate) fn preflight(query: &Value) -> Result<(), JevProviderError> {
     if query.len() != if correlated { 5 } else { 3 }
         || !query.contains_key("context")
         || !query.contains_key("question")
-        || !query
+        || query
             .get("reasoning")
             .and_then(Value::as_str)
-            .is_some_and(|value| !value.trim().is_empty())
+            .is_none_or(|value| value.trim().is_empty())
     {
         return Err(request_error(
             "Supply nonblank reasoning, context and one typed question; correlation IDs must be supplied together.",

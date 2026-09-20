@@ -262,6 +262,8 @@ fn scc_inner(
                 }
                 continue;
             }
+            // Loop invariant: this branch runs only with a frame on the stack.
+            #[allow(clippy::expect_used)]
             let completed = frames.pop().expect("frame exists").node as usize;
             if let Some(parent) = frames.last() {
                 let parent = parent.node as usize;
@@ -270,6 +272,9 @@ fn scc_inner(
             if low[completed] == indices[completed] {
                 let mut component = Vec::new();
                 loop {
+                    // Tarjan invariant: the SCC's members are on the stack until
+                    // its root is popped, so this never underflows.
+                    #[allow(clippy::expect_used)]
                     let member = stack.pop().expect("Tarjan stack contains component");
                     on[member as usize] = false;
                     component.push(member);

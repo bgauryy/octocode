@@ -1259,7 +1259,10 @@ fn dominators(g: &BTreeMap<String, Node>, source: &str) -> BTreeMap<String, Opti
             }
             continue;
         }
-        postorder.push(frames.pop().expect("frame exists").node);
+        // This branch is only reached with a frame on the stack.
+        #[allow(clippy::expect_used)]
+        let node = frames.pop().expect("frame exists").node;
+        postorder.push(node);
     }
     postorder.reverse();
     let order: BTreeMap<String, usize> = postorder

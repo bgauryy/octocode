@@ -2444,6 +2444,14 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@octocodeai/jev-lab@workspace:packages/octocode-jev-lab":
+  version: 0.0.0-use.local
+  resolution: "@octocodeai/jev-lab@workspace:packages/octocode-jev-lab"
+  dependencies:
+    "@octocodeai/config": "workspace:*"
+  languageName: unknown
+  linkType: soft
+
 "@octocodeai/octocode-awareness@workspace:*, @octocodeai/octocode-awareness@workspace:packages/octocode-awareness":
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-awareness@workspace:packages/octocode-awareness"

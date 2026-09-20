@@ -25,6 +25,8 @@ const CHUNK_OVERLAP: usize = 8_192;
 // None means the pattern has no file-context constraint (always applicable).
 // ---------------------------------------------------------------------------
 
+// Built-in patterns are compile-time constants; an invalid one is a build bug.
+#[allow(clippy::panic)]
 static FILE_CONTEXT_REGEXES: LazyLock<Vec<Option<regex::Regex>>> = LazyLock::new(|| {
     PATTERNS
         .iter()
@@ -150,6 +152,8 @@ fn build_prescan() -> Prescan {
             None => fallback.push(idx),
         }
     }
+    // Aho-Corasick over a fixed literal set cannot fail to build.
+    #[allow(clippy::expect_used)]
     let ac = AhoCorasickBuilder::new()
         .ascii_case_insensitive(true)
         .build(&literals)
@@ -460,7 +464,7 @@ fn find_char_boundary(s: &str, pos: usize) -> usize {
 // Helper only used in tests below.
 #[cfg(test)]
 impl DetectResult {
-    fn has_secrets_or(&self, other: &DetectResult) -> bool {
+    fn has_secrets_or(&self, other: &Self) -> bool {
         !self.secrets_detected.is_empty() || !other.secrets_detected.is_empty()
     }
 }

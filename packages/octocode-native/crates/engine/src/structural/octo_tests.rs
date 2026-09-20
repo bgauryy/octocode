@@ -516,7 +516,7 @@ fn one_request_parses_yaml_once_across_planning_and_languages() {
         assert_eq!(matches[0].matched.metavars["X"], ["value"]);
         assert!(run("foo(absent);").unwrap().is_empty());
     }
-    assert_eq!(RULE_PARSE_COUNT.with(|count| count.get()), 1);
+    assert_eq!(RULE_PARSE_COUNT.with(std::cell::Cell::get), 1);
 }
 
 #[test]
@@ -531,7 +531,7 @@ fn malformed_yaml_is_parsed_once_without_changing_compile_errors() {
     }
     assert_eq!(errors[0], errors[1]);
     assert!(errors[0].starts_with("[structural.query.compileFailed] invalid rule YAML:"));
-    assert_eq!(RULE_PARSE_COUNT.with(|count| count.get()), 1);
+    assert_eq!(RULE_PARSE_COUNT.with(std::cell::Cell::get), 1);
 }
 
 #[test]
