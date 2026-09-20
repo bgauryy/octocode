@@ -32,7 +32,10 @@ function costOf(name, args, allowed) {
   if (!object(args)) throw new Error('Tool arguments must be an object');
   const rows = own(args, 'queries') ? args.queries : [args];
   if (!Array.isArray(rows) || rows.length === 0 || rows.some(row => !object(row))) throw new Error('Queries must be a nonempty array of objects');
-  if (name !== 'jev') return { ordinary: rows.length, jev: 0, nestedTools: [] };
+  if (name !== 'jev') {
+    if (rows.some(row => row.materialize === true)) throw new Error('Local materialization is outside benchmark read scope');
+    return { ordinary: rows.length, jev: 0, nestedTools: [] };
+  }
   const nestedTools = [];
   for (const row of rows) {
     const context = row.context;
@@ -41,7 +44,7 @@ function costOf(name, args, allowed) {
       if (Object.keys(context).some(key => key !== 'value')) throw new Error('Inline Jev context cannot include a tool');
     } else {
       if (!READ_TOOLS.includes(context.tool) || !object(context.query) ||
-          own(context.query, 'queries') || Object.keys(context).some(key => !['tool', 'query'].includes(key))) {
+          own(context.query, 'queries') || context.query.materialize === true || Object.keys(context).some(key => !['tool', 'query'].includes(key))) {
         throw new Error('Jev nested context must be one allowed remote read query');
       }
       nestedTools.push(context.tool);

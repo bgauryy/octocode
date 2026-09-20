@@ -39,6 +39,8 @@ try {
   const forbidden = await call(client, 'jev', { queries: [{ context: { tool: 'localFetch', query: {} } }] });
   assert.equal(forbidden.isError, true);
   assert.match(forbidden.content[0].text, /benchmarkScopeRejected/);
+  assert.equal((await call(client, 'ghSearch', { operation: 'tree', materialize: true })).isError, true);
+  assert.equal((await call(client, 'jev', { queries: [{ context: { tool: 'ghSearch', query: { operation: 'tree', materialize: true } } }] })).isError, true);
   const tooMany = await call(client, 'ghSearch', { queries: Array.from({ length: 40 }, () => ({})) });
   assert.match(tooMany.content[0].text, /benchmarkBudgetExceeded/);
   const stillSecond = await call(client, 'ghGetFileContent', {});

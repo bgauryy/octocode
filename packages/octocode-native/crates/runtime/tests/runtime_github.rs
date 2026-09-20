@@ -558,9 +558,13 @@ async fn gh_clone_repo_missing_repository_reports_repo_not_found() {
         ("GITHUB_API_URL", format!("{}/api/v3", server.uri())),
         ("ENABLE_CLONE", "true".into()),
     ]);
-    let outcome = call(&runtime, "ghCloneRepo", json!({"owner":"ghost","repo":"nope"}))
-        .await
-        .expect("clone error row");
+    let outcome = call(
+        &runtime,
+        "ghCloneRepo",
+        json!({"owner":"ghost","repo":"nope"}),
+    )
+    .await
+    .expect("clone error row");
 
     assert_eq!(
         row_status(&outcome),

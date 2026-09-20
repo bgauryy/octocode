@@ -1,6 +1,6 @@
 # Jev CLI contract
 
-Inspect `octocode tools jev --scheme --scheme-view query --json --compact` once. For hidden tool context, inspect `octocode tools <name> --scheme --scheme-view query --json --compact` too. Execute `octocode tools jev --input request.json --json --compact`. In this repository replace `octocode` with `node packages/octocode/out/octocode.js`.
+Inspect `octocode scheme jev --view query --compact` once. For hidden tool context, inspect `octocode scheme <name> --view query --compact` too. Execute `octocode jev --input request.json --compact`. In this repository replace `octocode` with `node packages/octocode/out/octocode.js`.
 
 Each query is `{reasoning: "why this changes the next action", context: {value: ...} | {tool, query}, question: {type, instructions, criteria?}}`. The outer `{queries: [...]}` supports up to five independent queries, one question each. Reasoning is nonblank trace metadata, excluded from provider evidence and grouping identity. Repeat context explicitly for another question. Do not send `state`, `questions`, `sources`, model or workflow fields. A nested `query` is one ordinary query with that tool's required fields, not another bulk envelope.
 

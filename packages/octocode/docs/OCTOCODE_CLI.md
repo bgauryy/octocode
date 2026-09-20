@@ -1,78 +1,80 @@
 # Octocode CLI
 
 The Octocode CLI is the terminal interface over the same research engine used by
-the Octocode MCP server. One binary — `npx octocode` — covers code search, exact
-file reads, directory trees, LSP symbol navigation, GitHub repos, package registries,
-PRs, commits, MCP client setup, and GitHub auth.
+the Octocode MCP server. One binary — `npx octocode` — exposes every research
+tool under its canonical tool name, plus a small set of system commands.
 
 ```text
-octocode CLI tools <name>   ──► same tool runner   ──► the MCP tool catalog
-octocode MCP tool call      ──► same core runners  ──► GitHub, local, npm, LSP
+octocode <toolName> '<json>'   ──► same tool runner   ──► the MCP tool catalog
+octocode MCP tool call         ──► same core runners  ──► GitHub, local, npm, LSP
 ```
 
 CLI and MCP share logic, schemas, security, sanitization, and tool execution.
-They are not separate implementations.
+They are not separate implementations, and the CLI has no per-tool flag
+wrappers or aliases: the tool name and the JSON query are the entire interface.
 
 ## Commands
 
+### Tools — one command per tool
+
+Each tool command takes one positional raw JSON query (or `--input <file>`),
+plus `--compact` for single-line JSON (default output is indented JSON).
+
 | Command | Purpose |
 |---|---|
-| `tools` | List every Octocode MCP tool, read exact tool schemas, and run raw tool calls from the terminal. This is the primary research surface. |
-| `clone` | Clone a GitHub repo or sparse subtree locally for repeated reads, AST search, or LSP work. |
-| `cache` | Fetch remote files, trees, or repos into local Octocode storage; also inspect or clear cached materialization. |
-| `context` | Print agent protocol and tool descriptions. Use `--minimal`, default compact, or `--full` depending on context budget. |
-| `install` | Write or check MCP client configuration for supported IDEs and agent hosts. |
-| `auth` | Manage GitHub auth with `login`, `logout`, `refresh`, and `status` subcommands. |
-| `login` | Top-level shortcut for GitHub login. |
-| `logout` | Top-level shortcut for clearing stored GitHub credentials. |
-| `status` | Show auth, token source, cache, install, and optional MCP sync health. |
-| `lsp-server` | List, inspect, install, uninstall, or clean language servers used by semantic search. |
-| `skill` | List, install, check, inspect, or remove bundled Octocode Agent Skills. |
+| `localSearch` | Text/regex search across local files. |
+| `localFetch` | Read a local file: pagination, line ranges, match filtering, minification. |
+| `astSearch` | Structural (ast-grep) search, declarations, syntax/filesystem trees, import graph. |
+| `astRewrite` | Structural find-and-replace; previews before writing. |
+| `lspSearch` | Definitions, references, hover, call/type hierarchy, diagnostics. |
+| `ghSearch` | GitHub repository, code, and tree search. |
+| `ghGetFileContent` | Read a GitHub file without cloning. |
+| `ghSearchHistory` | Search PRs, issues, and commits. |
+| `ghGetHistoryItem` | Read one PR, issue, commit, or comparison. |
+| `ghCloneRepo` | Clone a repository into the local cache for offline analysis. |
+| `artifactSearch` | Package lookup/discovery across 8 registries. |
+| `jev` | Judgment engine: gate, compare, or audit candidates (requires `OCTOCODE_JEV_KEY`). |
 
-Use `npx octocode <command> --help` for the live command help for any command.
+### System
+
+| Command | Purpose |
+|---|---|
+| `scheme [tool]` | No name: compact catalog of every tool with availability. With a name: the complete tool contract. `--view query` prints the self-contained query schema; `--select FIELD=VALUE` keeps one union branch. |
+| `config` | Show config file paths and set key names — values are never printed. `--check <KEY>` tests one key; `--json`. |
+| `auth` | GitHub auth status (default; `--json`). `auth login` (device flow; `--refresh`, `--force`, `--hostname`), `auth logout`. |
+| `install` | Write or check MCP client configuration for supported IDEs and agent hosts. |
+| `skill` | List, install, check, inspect, or remove bundled Octocode Agent Skills. |
+| `help` | Print help for any command. |
+
+Hidden maintenance commands (still available, not part of the agent surface):
+`cache <status|clear>` and `lsp-server <list|install|uninstall|clean|status|which>`.
+
+Use `npx octocode <command> --help` for the live command help.
 
 ## Quick start
 
 ```bash
 npx octocode --help
-npx octocode status --json
-npx octocode tools
-npx octocode tools localSearch --scheme
-npx octocode tools astSearch --queries '{"operation":"tree","path":"/ABS/repo/src"}'
-npx octocode tools localSearch --queries '{"path":"/ABS/repo/src","searchText":"createServer"}'
-npx octocode tools localFetch --queries '{"path":"./src/index.ts","fullContent":true}'
+npx octocode auth --json
+npx octocode scheme --compact
+npx octocode scheme localSearch
+npx octocode astSearch '{"operation":"tree","path":"/ABS/repo/src","reasoning":"Map the source tree."}'
+npx octocode localSearch '{"path":"/ABS/repo/src","searchText":"createServer","resultView":"matchOnly","reasoning":"Locate the server entry."}'
+npx octocode localFetch '{"path":"./src/index.ts","fullContent":true,"reasoning":"Read the entry file."}'
 npx octocode skill list
 npx octocode skill install octocode-research --platform pi --global
 ```
 
 Replace `npx octocode` with `octocode` when the package is installed globally.
 
----
-
-## `tools` — the research command
-
-`tools` is the unified command for read-only research. Every capability MCP
-clients get — GitHub code/repo/PR/commit search, local text/AST search, file
-reads, directory trees, npm lookup, and LSP semantics — is one named tool away.
+**Always read the schema before an unfamiliar call:**
 
 ```bash
-npx octocode tools
-npx octocode tools --json --compact
-npx octocode tools localSearch --scheme --brief
-npx octocode tools localSearch --scheme
-npx octocode tools localSearch --scheme --json --compact
-npx octocode tools localSearch --scheme --json --compact --pretty
-npx octocode tools localSearch --queries '{"path":"/ABS/repo/src","searchText":"runCLI"}' --compact
+npx octocode scheme <name>
+npx octocode scheme <name> --view query                     # self-contained query schema
+npx octocode scheme ghSearch --view query --select operation=code
 ```
 
-**Always read the schema before a raw call:**
-
-```bash
-npx octocode tools <name> --scheme --brief
-```
-
-Use `--brief` for branch-aware field names and one example. Escalate to
-`--scheme --json --compact` for bounds, defaults, and complete enum values.
 For local tools, use absolute paths in agent or script calls. Relative paths
 resolve from the command cwd, which may differ from the repository root.
 
@@ -89,59 +91,29 @@ map cheaply → search narrowly → read exact evidence → follow symbols or hi
 ```
 
 ```bash
-npx octocode tools astSearch --queries '{"operation":"tree","path":"/ABS/repo/packages/octocode-native/crates/runtime/src"}'
-npx octocode tools localSearch --queries '{"path":"/ABS/repo/packages/octocode-native/crates/runtime/src","searchText":"ToolRuntime","resultView":"discovery"}'
-npx octocode tools localFetch --queries '{"path":"/ABS/repo/packages/octocode-native/crates/runtime/src/runtime/engine.rs","matchString":"ToolRuntime"}'
-npx octocode tools lspSearch --queries '{"uri":"/ABS/repo/packages/octocode-native/crates/runtime/src/runtime/engine.rs","operation":"references","symbolName":"ToolRuntime","lineHint":40}'
+npx octocode astSearch '{"operation":"tree","path":"/ABS/repo/crates/runtime/src","reasoning":"Map the runtime crate."}'
+npx octocode localSearch '{"path":"/ABS/repo/crates/runtime/src","searchText":"ToolRuntime","resultView":"discovery","reasoning":"Find the runtime type."}'
+npx octocode localFetch '{"path":"/ABS/repo/crates/runtime/src/runtime/engine.rs","matchString":"ToolRuntime","reasoning":"Read the definition site."}'
+npx octocode lspSearch '{"uri":"/ABS/repo/crates/runtime/src/runtime/engine.rs","operation":"references","symbolName":"ToolRuntime","lineHint":40,"reasoning":"Trace usages."}'
 ```
 
-### Key flags for `tools`
-
-| Flag | Meaning |
-|---|---|
-| `--scheme --brief` | Cheapest branch-aware field map plus one runnable example. |
-| `--scheme` | Print the tool's input schema: fields, types, bounds, defaults. Read this before any unfamiliar call. |
-| `--scheme --json` | Machine-readable schema. |
-| `--queries '<json>'` | Run the tool. Accepts a single query object or `{"queries":[...]}` for a batch (up to 5). |
-| `--json` | Full `CallToolResult` envelope. |
-| `--compact` | Lean `structuredContent` only — cheapest output for agents. |
-| `--pretty` | Pretty-print compact JSON for humans; useful with `--compact` when reading locally. |
-| `--raw` | Content reads only: bare content without the envelope. |
+Every query requires a `reasoning` string. Queries accept a single object or a
+JSON array for a batch (up to 5). Large queries avoid shell quoting with
+`--input <file>`.
 
 ---
 
 ## `ghCloneRepo` — materialize a GitHub repository
 
 ```bash
-npx octocode tools ghCloneRepo --queries '{"owner":"vercel","repo":"next.js"}'
-npx octocode tools ghCloneRepo --queries '{"owner":"vercel","repo":"next.js","sparsePath":"packages/next"}'
-npx octocode tools ghCloneRepo --queries '{"owner":"vercel","repo":"next.js","branch":"canary","sparsePath":"packages/next"}'
+npx octocode ghCloneRepo '{"owner":"vercel","repo":"next.js","reasoning":"Analyze locally."}'
+npx octocode ghCloneRepo '{"owner":"vercel","repo":"next.js","sparsePath":"packages/next","reasoning":"Analyze one package."}'
 ```
 
 Use `ghCloneRepo` when you need to inspect several files, run structural (AST)
-search, or use LSP on remote code. Cloning is enabled by default in both CLI and MCP unless
-`ENABLE_CLONE=false`. After cloning, run
-`tools localSearch`, `tools localFetch`,
-or `tools lspSearch` on the returned absolute local path.
-
----
-
-## Materialize remote files with `cache`
-
-`cache fetch` defaults to a clone, using a sparse checkout when a path is supplied.
-It does not guess file type from extensions. Choose `--depth file` for one text file
-or `--depth tree` for a bounded directory download. JSON output has one `location`
-object for paths, ref, cache status, and completeness. Partial downloads preserve
-`partialReasons` and executable `next` recovery calls, or `terminalLimit` when
-recovery is unavailable. A cached checkout does not imply fresh verification.
-
-```bash
-npx octocode cache fetch vercel/next.js README.md --depth file
-npx octocode cache fetch vercel/next.js packages/next --depth tree
-npx octocode cache fetch vercel/next.js --depth clone --json
-npx octocode cache status
-npx octocode cache clear --all
-```
+search, or use LSP on remote code. Cloning is enabled by default in both CLI
+and MCP unless `ENABLE_CLONE=false`. After cloning, run `localSearch`,
+`localFetch`, or `lspSearch` on the returned absolute local path.
 
 The CLI and MCP server share cache data under the configured Octocode home:
 
@@ -151,12 +123,9 @@ The CLI and MCP server share cache data under the configured Octocode home:
 | Tree | `tmp/tree/{owner}/{repo}/{commitSha}` | Materialized repository trees |
 | Response | `tmp/response/` | Eligible GitHub and npm response payloads |
 
-Direct CLI tool execution performs the persisted maintenance due-check once per process and does not keep a background timer alive. The check is shared across processes and runs at most once per 24 hours when due. A cleanup failure doesn't make tool startup fail. Help, schema, and context-only commands do not trigger maintenance.
-
-`cache status` reports the total `tmp` size plus clone, tree, and response usage. `cache clear --clone` and `cache clear --tree` are selective. `cache clear --all` removes the entire `tmp` directory. This deletes response entries and maintenance metadata. There is no response-only clear flag. See [Cache storage and lifecycle](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#cache-storage-and-lifecycle) for per-response freshness, the 24-hour cleanup gate, and configuration.
-
-Use the returned absolute local path with `tools localSearch`, `tools localFetch`,
-or `tools lspSearch`.
+`cache status` reports cache location and recent evictions; `cache clear`
+removes cached GitHub responses. See
+[Cache storage and lifecycle](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#cache-storage-and-lifecycle).
 
 ---
 
@@ -173,22 +142,21 @@ Cline/Roo/Continue, OpenCode, Trae, Antigravity, Codex, Gemini CLI, Goose, Kiro.
 
 ---
 
-## `auth` / `login` / `logout` / `status`
+## `auth` — GitHub authentication
 
 ```bash
 npx octocode auth --json
-npx octocode login
-npx octocode login --refresh
-npx octocode logout
-npx octocode status --sync
+npx octocode auth login
+npx octocode auth login --refresh
+npx octocode auth logout
 ```
 
-Humans: run `login` once. Agents and CI: pass `OCTOCODE_TOKEN`, `GH_TOKEN`, or
-`GITHUB_TOKEN` through the environment.
+Humans: run `auth login` once. Agents and CI: pass `OCTOCODE_TOKEN`,
+`GH_TOKEN`, or `GITHUB_TOKEN` through the environment.
 
 ---
 
-## `lsp-server` — language server management
+## `lsp-server` — language server management (maintenance)
 
 ```bash
 npx octocode lsp-server list
@@ -197,7 +165,7 @@ npx octocode lsp-server install rust-analyzer
 npx octocode lsp-server install --all
 ```
 
-Use when `tools lspSearch` reports an LSP server is unavailable.
+Use when `lspSearch` reports an LSP server is unavailable.
 
 `lsp-server list` reports the managed-download servers, the
 toolchain-required servers, and a note naming packaged servers. It does not list
@@ -253,27 +221,14 @@ the canonical command syntax.
 
 ---
 
-## `context` — agent protocol
-
-```bash
-npx octocode context --minimal   # cheapest: protocol + active tool names
-npx octocode context             # compact protocol + short descriptions
-npx octocode context --full      # full MCP prompt + long descriptions
-npx octocode context --json
-```
-
-Prints the research protocol and active tool descriptions. Use `--minimal` for tight agent budgets, default `context` for normal agents, and `--full` only when debugging full guidance.
-
----
-
 ## Recommended workflows
 
 ### Orient in a local codebase
 
 ```bash
-npx octocode tools astSearch --queries '{"operation":"tree","path":"/ABS/repo/src"}'
-npx octocode tools localSearch --queries '{"path":"/ABS/repo/src","searchText":"parseArgs","resultView":"discovery"}'
-npx octocode tools localFetch --queries '{"path":"/ABS/repo/src/cli/parser.ts","matchString":"parseArgs"}'
+npx octocode astSearch '{"operation":"tree","path":"/ABS/repo/src","reasoning":"Map the tree."}'
+npx octocode localSearch '{"path":"/ABS/repo/src","searchText":"parseArgs","resultView":"discovery","reasoning":"Find the parser."}'
+npx octocode localFetch '{"path":"/ABS/repo/src/cli/parser.ts","matchString":"parseArgs","reasoning":"Read the parser."}'
 ```
 
 ### Remote repo to local proof
@@ -282,9 +237,9 @@ GitHub code search can return zero rows when a provider has not indexed a repo.
 Treat that as a provider gap, not proof of absence.
 
 ```bash
-npx octocode tools ghSearch --queries '{"operation":"tree","owner":"vercel","repo":"next.js","path":"packages/next"}'
-npx octocode tools ghCloneRepo --queries '{"owner":"vercel","repo":"next.js","sparsePath":"packages/next"}'
-npx octocode tools localSearch --queries '{"path":"<clone localPath>/src","searchText":"useState"}'
+npx octocode ghSearch '{"operation":"tree","owner":"vercel","repo":"next.js","path":"packages/next","reasoning":"Browse the package."}'
+npx octocode ghCloneRepo '{"owner":"vercel","repo":"next.js","sparsePath":"packages/next","reasoning":"Materialize for search."}'
+npx octocode localSearch '{"path":"<clone localPath>/src","searchText":"useState","resultView":"matchOnly","reasoning":"Prove the usage."}'
 ```
 
 ### Symbols and references
@@ -292,35 +247,33 @@ npx octocode tools localSearch --queries '{"path":"<clone localPath>/src","searc
 Get line anchors first, then trace the symbol:
 
 ```bash
-npx octocode tools lspSearch --queries '{"uri":"/ABS/repo/src/index.ts","operation":"documentSymbols"}'
-npx octocode tools lspSearch --queries '{"uri":"/ABS/repo/src/index.ts","operation":"references","symbolName":"runCLI","lineHint":42}'
+npx octocode lspSearch '{"uri":"/ABS/repo/src/index.ts","operation":"documentSymbols","reasoning":"List anchors."}'
+npx octocode lspSearch '{"uri":"/ABS/repo/src/index.ts","operation":"references","symbolName":"runCLI","lineHint":42,"reasoning":"Trace callers."}'
 ```
 
 ### Package to source
 
 ```bash
-npx octocode tools artifactSearch --queries '{"type":"npm","packageName":"zod"}'
-npx octocode tools ghSearch --queries '{"operation":"code","keywords":["ZodObject"],"owner":"colinhacks","repo":"zod"}'
+npx octocode artifactSearch '{"type":"npm","packageName":"zod","reasoning":"Locate the package."}'
+npx octocode ghSearch '{"operation":"code","keywords":["ZodObject"],"owner":"colinhacks","repo":"zod","reasoning":"Find the source."}'
 ```
 
 ### Pull requests and history
 
 ```bash
-npx octocode tools ghSearchHistory --queries '{"operation":"pullRequests","owner":"bgauryy","repo":"octocode","state":"merged","pageSize":10}'
-npx octocode tools ghGetHistoryItem --queries '{"operation":"pullRequest","owner":"bgauryy","repo":"octocode","number":123,"content":{"patches":{"mode":"all"},"comments":{"discussion":true}}}'
-npx octocode tools ghSearchHistory --queries '{"operation":"commits","owner":"bgauryy","repo":"octocode","path":"packages/octocode/src","since":"2024-01-01T00:00:00Z"}'
-npx octocode tools ghGetHistoryItem --queries '{"operation":"compare","owner":"bgauryy","repo":"octocode","base":"v1.0.0","head":"v2.0.0"}'
+npx octocode ghSearchHistory '{"operation":"pullRequests","owner":"bgauryy","repo":"octocode","state":"merged","pageSize":10,"reasoning":"Survey merged PRs."}'
+npx octocode ghGetHistoryItem '{"operation":"pullRequest","owner":"bgauryy","repo":"octocode","number":123,"content":{"patches":{"mode":"all"},"comments":{"discussion":true}},"reasoning":"Read PR 123."}'
+npx octocode ghSearchHistory '{"operation":"commits","owner":"bgauryy","repo":"octocode","path":"packages/octocode/src","since":"2024-01-01T00:00:00Z","reasoning":"Find recent commits."}'
+npx octocode ghGetHistoryItem '{"operation":"compare","owner":"bgauryy","repo":"octocode","base":"v1.0.0","head":"v2.0.0","reasoning":"Diff releases."}'
 ```
 
 ### Agent or script mode
 
 ```bash
-npx octocode context --minimal
-npx octocode context --json
-npx octocode tools --json --compact
-npx octocode tools localSearch --scheme --json --compact
-npx octocode tools localSearch --scheme --json --compact --pretty
-npx octocode tools localSearch --queries '{"path":"/ABS/repo/src","searchText":"runCLI"}' --json --compact
+npx octocode scheme --compact
+npx octocode scheme localSearch --view query --compact
+npx octocode localSearch '{"path":"/ABS/repo/src","searchText":"runCLI","resultView":"matchOnly","reasoning":"Locate the entry."}' --compact
+npx octocode jev --input request.json
 ```
 
 ---
@@ -333,11 +286,9 @@ npx octocode tools localSearch --queries '{"path":"/ABS/repo/src","searchText":"
 |---|---|
 | `--help` | Show command help. |
 | `--version` | Show CLI version. |
-| `--json` | Structured JSON output. |
-| `--compact` | Leaner output for agents and scripts. |
-| `--pretty` | Pretty-print compact JSON for humans. |
-| `--minimal` | `context` only: cheapest protocol + active tool names. |
-| `--raw` | Bare file content where supported. |
+| `--compact` | Single-line JSON (default is indented JSON). |
+| `--input <file>` | Read a tool's JSON query from a file. |
+| `--json-errors` | Emit `{"success":false,"error":"…"}` on stdout instead of stderr text. |
 | `--no-color` | Disable ANSI color. `NO_COLOR=1` works too. |
 
 ### Exit codes
@@ -345,12 +296,14 @@ npx octocode tools localSearch --queries '{"path":"/ABS/repo/src","searchText":"
 | Code | Meaning |
 |---:|---|
 | `0` | Successful execution, including a typed empty semantic payload. |
-| `1` | General error. |
+| `1` | Empty result / no matches. |
 | `2` | Invalid input or unsupported flags. |
 | `3` | A command or tool execution failed with a classified not-found error. |
 | `4` | Authentication failure. |
 | `5` | Tool or API execution error. |
+| `6` | Partial result — the response carries a re-runnable `next.*` continuation. |
 | `7` | Rate limited. |
+| `130` | Interrupted (Ctrl-C). |
 
 ### Environment variables
 
@@ -376,9 +329,9 @@ client must retain. Removed compatibility names are rejected.
 
 | CLI surface | MCP alignment |
 |---|---|
-| `tools <name>` | Direct terminal access to the same named tools exposed through MCP. |
-| `tools <name> --scheme` | The schema contract for that tool. Do not guess fields. |
-| `context` | The same agent-facing protocol, system prompt, and tool descriptions used to guide MCP/CLI research. |
+| `<toolName> '<json>'` | Direct terminal access to the same named tools exposed through MCP, with identical query contracts. |
+| `scheme <name>` | The schema contract for that tool. Do not guess fields. |
+| `scheme` | The tool catalog with availability — the same tool set MCP clients see. |
 | `install --ide <client>` | Writes MCP client configuration so editors and assistants can call `octocode-mcp`. |
 | `auth` | Manages credentials used by both CLI and MCP flows. |
 | `skill` | Installs bundled Agent Skills locally; no MCP transport required. |
@@ -387,7 +340,7 @@ The code boundary is intentionally thin:
 - `@octocodeai/octocode-native` owns tool schemas, descriptions, and execution logic.
 - `@octocodeai/octocode-core` supplies reusable output types.
 - `@octocodeai/octocode-native/engine` exposes native primitives (minify, structural search, LSP, secret scanning) from the internal engine crate.
-- `octocode` renders commands in a terminal.
+- `octocode` launches the native binary in a terminal.
 - `octocode-mcp` registers the same tools for MCP clients.
 
 ---

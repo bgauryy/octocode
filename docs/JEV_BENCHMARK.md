@@ -1,6 +1,6 @@
 # Jev benchmarks — whole-task results and historical experiments
 
-**Current interface:** `octocode tools jev` is the only Jev tool. Legacy routes and standalone skill runners referenced below are historical and no longer runnable in the current checkout. [Single-tool evaluation](../.octocode/octocode-eval-benchmark/jev-single-tool-2026-09-20/REPORT.md).
+**Current interface:** `octocode jev` is the only Jev tool. Legacy routes and standalone skill runners referenced below are historical and no longer runnable in the current checkout. [Single-tool evaluation](../.octocode/octocode-eval-benchmark/jev-single-tool-2026-09-20/REPORT.md).
 
 These experiments use different protocols and meters and do not establish current whole-task savings. Later five-bug and six-task host-metered evaluations did not show total-token savings. The completed source-path experiment also failed its host-token target. Keep host and provider usage separate and verify patch quality before claiming an efficiency win.
 

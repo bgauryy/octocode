@@ -39,13 +39,13 @@ This reference configures the interfaces and shared runtime of the Octocode agen
 
 ```bash
 # Step 1 — authenticate (opens browser, stores encrypted token)
-npx octocode login
+npx octocode auth login
 
 # Step 2 — (optional) add web search for better results
 echo 'TAVILY_API_KEY=tvly-...' >> ~/.octocode/.env
 
 # Step 3 — verify
-npx octocode status --json
+npx octocode auth --json
 ```
 
 Already have a GitHub token and don't want a browser login? See [Method 2 — Token env var](#method-2--token-env-var).
@@ -63,7 +63,7 @@ Octocode needs a GitHub token to search code, read files, and call the GitHub AP
 **Best for:** individual developers, local use, any time a browser is available.
 
 ```bash
-npx octocode login
+npx octocode auth login
 ```
 
 - Opens GitHub's OAuth Device Flow in your browser.
@@ -72,8 +72,8 @@ npx octocode login
 - Octocode reads it automatically on every request — nothing else to configure.
 
 ```bash
-npx octocode login --force           # replace an existing stored token
-npx octocode logout                  # delete the stored token
+npx octocode auth login --force      # replace an existing stored token
+npx octocode auth logout             # delete the stored token
 ```
 
 ---
@@ -136,7 +136,7 @@ Octocode checks these sources in order and stops at the first non-empty value. T
 | 2 | Env var | `GH_TOKEN` | `export GH_TOKEN=ghp_...` |
 | 3 | Env var | `GITHUB_TOKEN` | `export GITHUB_TOKEN=ghp_...` · auto-set in GitHub Actions |
 | 4 | Env var | `GITHUB_PERSONAL_ACCESS_TOKEN` | `export GITHUB_PERSONAL_ACCESS_TOKEN=ghp_...` |
-| 5 | Octocode OAuth | encrypted storage | `npx octocode login` |
+| 5 | Octocode OAuth | encrypted storage | `npx octocode auth login` |
 | 6 | gh CLI | `gh auth token` | `gh auth login` |
 
 **Env vars always beat stored credentials.** When a token env var is set, Octocode ignores the stored token.
@@ -146,13 +146,14 @@ Octocode checks these sources in order and stops at the first non-empty value. T
 ### Auth commands
 
 ```bash
-npx octocode login                   # OAuth — opens browser, saves encrypted token
-npx octocode login --force           # replace the existing stored token
-npx octocode login --hostname github.mycompany.com  # GitHub Enterprise OAuth
-npx octocode logout                  # delete the stored token
+npx octocode auth login              # OAuth — opens browser, saves encrypted token
+npx octocode auth login --force      # replace the existing stored token
+npx octocode auth login --hostname github.mycompany.com  # GitHub Enterprise OAuth
+npx octocode auth logout             # delete the stored token
 npx octocode auth                    # show token source + GitHub username
 npx octocode auth --json             # machine-readable
-npx octocode status --json           # full status: token + tools + config
+npx octocode scheme                  # tool catalog with availability
+npx octocode config                  # config file paths + which keys are set
 ```
 
 ---
@@ -195,8 +196,8 @@ Set `storage.mode` to `"memory"` when Octocode must not create persistent runtim
 | Expiry | Clone and tree entries use the clone TTL (24 hours by default). Response entries carry their own fresh/stale deadlines; maintenance removes them after the stale deadline. Maintenance also recovers stale clone temp artifacts and locks. |
 | Failure | Maintenance is best-effort. An unavailable or read-only cache home does not prevent CLI tool execution or MCP startup. |
 | Ownership | Automatic maintenance traverses only Octocode-owned `clone`, `tree`, clone-artifact, and `response` roots. It preserves unrelated directories under `tmp/`. |
-| Manual inspection | `octocode cache status` reports total `tmp`, clone, tree, and response sizes. |
-| Manual clear | `octocode cache clear --clone` and `--tree` are selective. `octocode cache clear --all` removes the entire `<octocode-home>/tmp/` directory. This deletes response entries and lifecycle metadata. There is no response-only clear flag. |
+| Manual inspection | `octocode cache status` prints the cache home directory and recent evictions. |
+| Manual clear | `octocode cache clear` deletes all cached GitHub responses. For clone/tree checkouts, remove the corresponding directories under `<octocode-home>/tmp/` directly. |
 
 Response freshness depends on the result type. The 24-hour maintenance interval is a cleanup gate, not a universal freshness period.
 
@@ -629,7 +630,7 @@ export GITHUB_API_URL="https://github.mycompany.com/api/v3"
 export OCTOCODE_GITHUB_CLIENT_ID="your_oauth_app_client_id"
 
 # OAuth login against GHE
-npx octocode login --hostname github.mycompany.com
+npx octocode auth login --hostname github.mycompany.com
 ```
 
 Or set it permanently in `~/.octocode/.octocoderc`:
@@ -647,18 +648,20 @@ Or set it permanently in `~/.octocode/.octocoderc`:
 Always start here:
 
 ```bash
-npx octocode status --json
+npx octocode auth --json     # token source + GitHub identity
+npx octocode scheme          # tool catalog with availability
+npx octocode config          # config file paths + which keys are set
 ```
 
 | Symptom | Fix |
 |---------|-----|
-| No token / 401 | Run `npx octocode login`, or set `GITHUB_TOKEN` in shell or MCP `env` block |
-| Wrong GitHub account | `npx octocode logout` then `login` — or `login --force` |
+| No token / 401 | Run `npx octocode auth login`, or set `GITHUB_TOKEN` in shell or MCP `env` block |
+| Wrong GitHub account | `npx octocode auth logout` then `auth login` — or `auth login --force` |
 | Env token overriding saved token | Env always wins — unset the env var |
-| `ghCloneRepo` unavailable | Check `tools --json` for the effective availability gate. Clone is opt-in: set `ENABLE_CLONE=true` or `local.enableClone: true`. Materialization also requires `OCTOCODE_STORAGE_MODE=persistent`; tool allowlists and disable lists still apply. |
+| `ghCloneRepo` unavailable | Check `npx octocode scheme` for the effective availability gate. Clone is opt-in: set `ENABLE_CLONE=true` or `local.enableClone: true`. Materialization also requires `OCTOCODE_STORAGE_MODE=persistent`; tool allowlists and disable lists still apply. |
 | `astRewrite` apply is disabled | Preview first, then set `ENABLE_AST_REWRITE_APPLY=true` or `local.enableAstRewriteApply: true` and submit every returned absolute-path `beforeHash`. |
 | Local tools turned off | Check that neither `ENABLE_LOCAL` nor `local.enabled` is `false` |
-| A tool is missing | Inspect `tools --json` for registered names and availability. Check `TOOLS_TO_RUN` / `tools.enabled` (strict allowlists) and `DISABLE_TOOLS` / `tools.disabled`. Removed tool names are not aliases. |
+| A tool is missing | Inspect `npx octocode scheme` for registered names and availability. Check `TOOLS_TO_RUN` / `tools.enabled` (strict allowlists) and `DISABLE_TOOLS` / `tools.disabled`. Removed tool names are not aliases. |
 | Slow / timeouts | Raise `REQUEST_TIMEOUT` (max `300000` ms) |
 | A skill's external search is unavailable | Follow that skill's provider and credential instructions. The eleven-tool Octocode catalog does not expose a general web-search tool. |
 | `stats.json` never written | Set `OCTOCODE_ENABLE_STATS=1` in your shell or MCP `env` block (off by default) |

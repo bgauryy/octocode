@@ -7,9 +7,9 @@ Tool descriptions, schema guidance and shared MCP/CLI instructions belong to `@o
 ## CLI contract
 
 ```sh
-node packages/octocode/out/octocode.js tools jev --scheme --scheme-view query --json --compact
-node packages/octocode/out/octocode.js tools localFetch --scheme --scheme-view query --json --compact
-node packages/octocode/out/octocode.js tools jev --input request.json --json --compact
+node packages/octocode/out/octocode.js scheme jev --view query --compact
+node packages/octocode/out/octocode.js scheme localFetch --view query --compact
+node packages/octocode/out/octocode.js jev --input request.json --compact
 ```
 
 Every query has **short nonblank `reasoning`, one `context` and one `question`**. Reasoning states why the judgment changes the next action; it is trace metadata, excluded from provider evidence, question instructions and grouping identity. Use `{reasoning: "...", context: {value: ...}, question: ...}` for supplied evidence, or `{reasoning: "...", context: {tool: "localFetch", query: {...}}, question: ...}` to execute an unread Octocode request inside Jev. Ordinary `{queries: [...]}` batches contain up to five independent queries. Repeat the context explicitly for a different question; dependent questions belong in a later call.

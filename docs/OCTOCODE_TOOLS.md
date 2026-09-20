@@ -5,7 +5,7 @@ This is the field-level reference for the research surface of the Octocode agent
 Use this page when you need field-level guidance, cross-tool workflows, known behavior, or release verification checks. For MCP tool ratings, quality gaps, per-tool improvement backlogs, and the recommended agent workflow, see [`MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md`](https://github.com/bgauryy/octocode/blob/main/docs/MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md). For the exact active schema in a local checkout, run the compact form first; its `relations` list preserves mode-specific required and mutually exclusive fields:
 
 ```bash
-npx octocode tools <toolName> --scheme --json --compact
+npx octocode scheme <toolName> --compact
 ```
 
 ## Tool inventory
@@ -66,13 +66,13 @@ The CLI and MCP server expose the same canonical contracts from `@octocodeai/oct
 
 ```bash
 # Catalog: canonical names and availability
-npx octocode tools --json
+npx octocode scheme
 
 # Compact agent-facing schema: fields plus branch relations
-npx octocode tools localSearch --scheme --json --compact
+npx octocode scheme localSearch --compact
 
 # Full JSON Schema: nested selectors, defaults, limits, and descriptions
-npx octocode tools ghGetHistoryItem --scheme --json
+npx octocode scheme ghGetHistoryItem
 ```
 
 The compact schema includes `variants` (when a branch applies, required fields, and a minimal example) and `relations` (cross-field rules that a flat field list cannot express). Runtime `hints` appear only on empty/error results: at most two distinct hints per result, each up to 160 characters. They offer recovery guidance and never prove absence or success. Successful results omit optional next-tool suggestions; executable pagination and completeness recovery calls remain available in `next`.
@@ -187,7 +187,7 @@ Concise reference for Octocode MCP remote research tools: GitHub code/repo/PR se
 | `ENABLE_LOCAL` | Turns local tools on or off. Defaults to `true` on both CLI and MCP. |
 | `ENABLE_CLONE` | Controls `ghCloneRepo`. Defaults to `false`; set `true` to enable it. Persistent storage and local access are also required. |
 
-Every tool accepts bulk input (`{ "queries": [...] }`), up to 5 queries per call. Page-based tools use `page` and `pageSize`; `limit` is a pre-pagination cap where that distinct control exists. When more results remain, run the matching schema-valid `next.*` call: `nextPage`/`nextMatchPage`, `expandLimit`/`expandScan`, or a content continuation. At an unexpandable public or provider cap, metadata reports `terminalLimitReached` and omits unusable continuations. Numeric page, offset, cursor, and raw `nextQuery` fields are not executable by themselves. `matchString` selects all matching slices; file chunks page that selected view without changing the selector. `ghCloneRepo` is atomic and does not paginate its input. Use `npx octocode tools <toolName> --scheme --json --compact` for the exact active schema and operation scopes.
+Every tool accepts bulk input (`{ "queries": [...] }`), up to 5 queries per call. Page-based tools use `page` and `pageSize`; `limit` is a pre-pagination cap where that distinct control exists. When more results remain, run the matching schema-valid `next.*` call: `nextPage`/`nextMatchPage`, `expandLimit`/`expandScan`, or a content continuation. At an unexpandable public or provider cap, metadata reports `terminalLimitReached` and omits unusable continuations. Numeric page, offset, cursor, and raw `nextQuery` fields are not executable by themselves. `matchString` selects all matching slices; file chunks page that selected view without changing the selector. `ghCloneRepo` is atomic and does not paginate its input. Use `npx octocode scheme <toolName> --compact` for the exact active schema and operation scopes.
 
 Search match values and provider text snippets are evidence previews, not collection pagination. A preview may abbreviate visible text only when it retains exact path/line locators and an executable exact-read route; structural capture reduction is explicitly typed with `capturesTruncated` and an executable `next.expandCaptures` replay.
 
@@ -992,10 +992,10 @@ Preview structural ast-grep rewrites before applying them. Preview is the defaul
 | `postconditions` | Check a required `remainingMatches` count in the staged selected files before commit. |
 
 ```bash
-node packages/octocode/out/octocode.js tools astRewrite --queries '{"path":"/ABS/repo/src","langType":"typescript","ruleKind":"pattern","pattern":"console.log($A)","rewrite":"logger.info($A)"}' --compact
+node packages/octocode/out/octocode.js astRewrite '{"reasoning":"<why>","path":"/ABS/repo/src","langType":"typescript","ruleKind":"pattern","pattern":"console.log($A)","rewrite":"logger.info($A)"}' --compact
 ```
 
-Use the preview's identities and diff to review the change. Inspect `tools astRewrite --scheme --json --compact` for the current operation constraints before applying. A successful preview alone does not verify applied behavior.
+Use the preview's identities and diff to review the change. Inspect `scheme astRewrite --compact` for the current operation constraints before applying. A successful preview alone does not verify applied behavior.
 
 Apply returns the complete selected-match receipt in one page. A committed transaction
 may include cleanup warnings; an error may report incomplete recovery. Inspect those
@@ -1157,7 +1157,7 @@ Supply `rustContext` to select the Rust configuration used for a semantic query:
 For a Rust call found at line 5, query the definition with the `selected` feature:
 
 ```bash
-octocode tools lspSearch --queries '{"uri":"/ABS/repo/src/lib.rs","operation":"definition","symbolName":"selected","lineHint":5,"rustContext":{"features":["selected"]}}' --json
+octocode lspSearch '{"reasoning":"<why>","uri":"/ABS/repo/src/lib.rs","operation":"definition","symbolName":"selected","lineHint":5,"rustContext":{"features":["selected"]}}'
 ```
 
 Replace the path, symbol, and line with an anchor from `localSearch`. An explicit
@@ -1345,7 +1345,7 @@ Workspace-symbol search:
 
 ## Pure Jev reference
 
-Use `octocode tools jev --input request.json --json --compact`; discover `octocode tools jev --scheme --scheme-view query --json --compact` once. Each query has `{reasoning, context, question}`: one typed question and either an inline `{value}` or an unread read-tool request `{tool, query}`. Inspect the nested tool schema and supply one ordinary query with its required fields. Batch up to five independent queries, repeating context for each question.
+Use `octocode jev --input request.json --compact`; discover `octocode scheme jev --view query --compact` once. Each query has `{reasoning, context, question}`: one typed question and either an inline `{value}` or an unread read-tool request `{tool, query}`. Inspect the nested tool schema and supply one ordinary query with its required fields. Batch up to five independent queries, repeating context for each question.
 
 The runtime executes the context tool under its normal policies, sends its sanitized bounded result to Jev, and returns one typed answer plus model, usage and compact coverage metadata. Retrieved bodies stay out of the host response. Use Noul for yes/no probability, Choice for alternatives and Score for 2–10 ordered levels. Context, instructions and criterion descriptions accept structured JSON. Model configuration is internal.
 
@@ -1534,7 +1534,7 @@ Step 4: Find files by metadata
 | **Periodic GC** | CLI tool-runtime bootstrap performs a persisted due-check once per process and exits without a timer. MCP performs the same bootstrap check, then uses an unreferenced deadline timer. Both use one persisted 24-hour marker. A cross-process lock prevents duplicate sweeps; a cleanup failure doesn't block startup. |
 | **Cleanup scope** | Automatic maintenance removes expired entries only from owned clone, tree, response, and managed artifact roots. It preserves unrelated files under `tmp`. |
 | **Response limits** | Response entries also obey configurable per-entry and total-disk limits. See [Response cache](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#response-cache). |
-| **Manual clear** | `octocode cache clear --clone` and `--tree` are selective. `--all` removes the entire Octocode `tmp` directory. This deletes response entries and maintenance metadata. There is no response-only clear flag. |
+| **Manual clear** | `octocode cache clear` deletes all cached responses; `octocode cache status` prints the cache home directory. There are no selective clear flags. |
 
 ---
 

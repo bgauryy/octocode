@@ -41,14 +41,20 @@ function run(args, env = {}) {
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'triage-test-'));
-  // Stub octocode CLI: answers `tools --scheme jev` and `tools jev --input <f>`
+  // Stub octocode CLI: enforces `scheme jev --view query --compact` and `jev --input <f> --compact`
   // with verdicts keyed off each query's file basename.
   stubCli = join(dir, 'stub-cli.mjs');
   writeFileSync(stubCli, `
+import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 const args = process.argv.slice(2);
-if (args[0] === 'tools' && args.includes('--scheme')) { console.log('{"name":"jev"}'); process.exit(0); }
-const input = args[args.indexOf('--input') + 1];
+if (args[0] === 'scheme') {
+  assert.deepEqual(args, ['scheme', 'jev', '--view', 'query', '--compact']);
+  console.log('{"name":"jev"}');
+  process.exit(0);
+}
+const input = args[2];
+assert.deepEqual(args, ['jev', '--input', input, '--compact']);
 const req = JSON.parse(readFileSync(input, 'utf8'));
 const results = req.queries.map((q, index) => {
   if (typeof q.reasoning !== 'string' || !q.reasoning.trim()) throw new Error('Missing nonblank Jev reasoning');
@@ -57,7 +63,8 @@ const results = req.queries.map((q, index) => {
   if (/page-002/.test(p)) { choice = 'unrelated'; confidence = 0.9; }
   if (/page-003/.test(p)) { choice = 'unrelated'; confidence = 0.3; }
   if (/page-004/.test(p)) { choice = 'mention'; confidence = 0.7; }
-  return { index, data: { model: 'stub', answer: { type: 'choice', choice, confidence, probabilities: { [choice]: confidence } }, usage: { input_tokens: 100, output_tokens: 5 } } };
+  const context = { tool: 'localFetch', resultHash: 'a'.repeat(64), coverage: process.env.TEST_JEV_COVERAGE || 'bounded', ...(process.env.TEST_JEV_COVERAGE === 'partial' ? { limitations: ['Only a bounded fragment was available.'] } : {}) };
+  return { index, data: { model: 'stub', answer: { type: 'choice', choice, confidence, probabilities: { [choice]: confidence } }, context, usage: { input_tokens: 100, output_tokens: 5 } } };
 });
 console.log(JSON.stringify({ results }));
 `);
@@ -116,6 +123,20 @@ test('verdict routing: relevant→read, confident unrelated→skip, low-confiden
   assert.ok(existsSync(join(dir, 'reports', 'triage', 'triage.json')));
 });
 
+test('provider partial coverage retains a confident unrelated candidate despite small complete-looking file metadata', () => {
+  writeSession([{ pageId: 'page-002', url: 'https://ex.test/partial', bytes: 5000 }]);
+  const res = run(['--session-dir', dir, '--goal', 'g', '--octocode', `${process.execPath} ${stubCli}`], { TEST_JEV_COVERAGE: 'partial' });
+  assert.equal(res.status, 0, res.stderr);
+  assert.deepEqual(res.parsed.skip, []);
+  assert.deepEqual(res.parsed.consider.map((row) => row.pageId), ['page-002']);
+  assert.equal(res.parsed.consider[0].partialCoverage, true);
+  const report = JSON.parse(readFileSync(res.parsed.report, 'utf8'));
+  assert.deepEqual(report.judgedRows[0].receipt, {
+    coverage: 'partial',
+    limitations: ['Only a bounded fragment was available.'],
+  });
+});
+
 test('unavailable jev returns JEV_UNAVAILABLE with lexical fallback hint', () => {
   writeSession([{ pageId: 'page-001', url: 'https://ex.test/a', bytes: 2000 }]);
   const badCli = join(dir, 'bad-cli.mjs');
@@ -124,6 +145,12 @@ test('unavailable jev returns JEV_UNAVAILABLE with lexical fallback hint', () =>
   assert.equal(res.status, 1);
   assert.equal(res.parsed.code, 'JEV_UNAVAILABLE');
   assert.match(res.parsed.hint, /corpus-find/);
+});
+
+test('schema check uses the current CLI discovery command without judging candidates', () => {
+  const res = run(['--check', '--octocode', `${process.execPath} ${stubCli}`]);
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.parsed.code, 'JEV_SCHEMA_OK');
 });
 
 test('rejects missing args and bad session dir', () => {

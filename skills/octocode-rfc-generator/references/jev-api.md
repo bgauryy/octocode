@@ -4,11 +4,11 @@ Load when checking availability, constructing the judge request, or interpreting
 
 ## Available transport and setup
 
-Use the native Octocode CLI or equivalent discovered MCP tool. Inspect `octocode tools --json`, then the query schema (in this repository substitute `node packages/octocode/out/octocode.js` for `octocode`):
+Use the native Octocode CLI or equivalent discovered MCP tool. Inspect `octocode scheme`, then the query schema (in this repository substitute `node packages/octocode/out/octocode.js` for `octocode`):
 
 ```sh
-octocode tools jev --scheme --scheme-view query --json --compact
-octocode tools jev --input /absolute/review/request.json --json --compact
+octocode scheme jev --view query --compact
+octocode jev --input /absolute/review/request.json --compact
 ```
 
 `--input` takes a JSON file. Jev queries require `state` and `questions` and optionally accept `sources`; the CLI also accepts its standard `queries` envelope. This RFC review uses a source-free query so every judgment sees the same inspected evidence as both workers. The native adapter owns transport and typed response validation. Use the configured Octocode environment for `OCTOCODE_JEV_KEY`; keep credentials out of requests and receipts. Internal configuration selects the model; queries do not supply it. Missing tool/key, denied access, timeout, or invalid output means no usable judgment: continue the unjudged audit and report the actual reason. A catalog or schema read alone never counts as provider validation.

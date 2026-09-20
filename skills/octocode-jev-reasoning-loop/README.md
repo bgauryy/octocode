@@ -1,10 +1,10 @@
 # Jev CLI skill
 
-Optional ten-line entry point for the pure `octocode tools jev` tool. The live query schema owns protocol and primitive guidance; this skill adds CLI discovery and links to optional examples.
+Optional ten-line entry point for the pure `octocode jev` tool. The live query schema owns protocol and primitive guidance; this skill adds CLI discovery and links to optional examples.
 
 ```sh
-octocode tools jev --scheme --scheme-view query --json --compact
-octocode tools jev --input request.json --json --compact
+octocode scheme jev --view query --compact
+octocode jev --input request.json --compact
 ```
 
 Supply `{reasoning, context, question}`: one question over an unread read-tool request `{tool, query}` or supplied `{value}`. Batch up to five independent queries, repeating context explicitly. Runtime configuration supplies the model and credentials. Use a judgment only when it can change an unresolved next action; exact checks and settled decisions need no Jev call.

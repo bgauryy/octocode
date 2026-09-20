@@ -22,20 +22,20 @@ npx octocode --help
 Inspect the available tools and the exact schema before an unfamiliar call:
 
 ```bash
-npx octocode tools --json --compact
-npx octocode tools localSearch --scheme --json --compact
+npx octocode scheme --compact
+npx octocode scheme localSearch --compact
 ```
 
 Common management commands:
 
 - `octocode install` configures supported MCP clients.
-- `octocode auth` manages GitHub authentication.
-- `octocode status` reports authentication, cache, and client health.
+- `octocode auth` shows GitHub authentication; `auth login` / `auth logout` manage it.
+- `octocode config` shows config file paths and set key names (never values).
 - `octocode skill` manages bundled Agent Skills.
-- `octocode lsp-server` manages local language servers.
 
-Research runs through `octocode tools <name>`. Results use structured exit
-codes and expose executable `next` calls whenever more data is reachable.
+Research runs through one command per tool: `octocode <toolName> '<json>'`
+(e.g. `octocode localSearch '{…}'`). Results use structured exit codes and
+expose executable `next` calls whenever more data is reachable.
 
 ## Development
 

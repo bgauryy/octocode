@@ -43,7 +43,10 @@ fn help_lists_only_the_minimal_command_surface() {
         "skill",
         "install",
     ] {
-        assert!(text.contains(&format!("\n  {tool}")), "missing {tool}: {text}");
+        assert!(
+            text.contains(&format!("\n  {tool}")),
+            "missing {tool}: {text}"
+        );
     }
     // Retired wrappers and hidden maintenance commands stay out of the surface.
     for removed in [
@@ -76,10 +79,36 @@ fn help_lists_only_the_minimal_command_surface() {
 fn removed_alias_commands_are_rejected() {
     let workspace = Workspace::new();
     for alias in [
-        "search", "read", "fetch", "tools", "files", "tree", "symbols", "ast", "graph",
-        "rewrite", "def", "refs", "hover", "callers", "callees", "type-def", "implementation",
-        "supertypes", "subtypes", "diagnostics", "repos", "code", "gh-tree", "clone", "package",
-        "history", "context", "status", "login", "logout",
+        "search",
+        "read",
+        "fetch",
+        "tools",
+        "files",
+        "tree",
+        "symbols",
+        "ast",
+        "graph",
+        "rewrite",
+        "def",
+        "refs",
+        "hover",
+        "callers",
+        "callees",
+        "type-def",
+        "implementation",
+        "supertypes",
+        "subtypes",
+        "diagnostics",
+        "repos",
+        "code",
+        "gh-tree",
+        "clone",
+        "package",
+        "history",
+        "context",
+        "status",
+        "login",
+        "logout",
     ] {
         let output = workspace.cli().arg(alias).output().expect("alias");
         assert_eq!(exit_code(&output), Some(2), "{alias} must be rejected");
@@ -95,7 +124,11 @@ fn hidden_maintenance_commands_still_work() {
         .output()
         .expect("cache status");
     assert!(output.status.success(), "{}", stderr(&output));
-    assert!(stdout(&output).contains("cache home:"), "{}", stdout(&output));
+    assert!(
+        stdout(&output).contains("cache home:"),
+        "{}",
+        stdout(&output)
+    );
 }
 
 #[test]
@@ -174,7 +207,11 @@ fn config_check_reports_set_state_without_the_value() {
         .output()
         .expect("config check");
     assert!(set.status.success(), "{}", stderr(&set));
-    assert!(stdout(&set).contains("GITHUB_TOKEN: set"), "{}", stdout(&set));
+    assert!(
+        stdout(&set).contains("GITHUB_TOKEN: set"),
+        "{}",
+        stdout(&set)
+    );
     assert!(
         !stdout(&set).contains("fixture-secret"),
         "value leaked: {}",
@@ -580,7 +617,8 @@ fn localsearch_emits_structured_results() {
         .output()
         .expect("localSearch");
     assert!(output.status.success(), "{}", stderr(&output));
-    let value: serde_json::Value = serde_json::from_str(stdout(&output)).expect("one JSON document");
+    let value: serde_json::Value =
+        serde_json::from_str(stdout(&output)).expect("one JSON document");
     assert_eq!(value["results"][0]["data"]["searchEngine"], "rg");
 }
 

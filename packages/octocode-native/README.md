@@ -134,159 +134,85 @@ yarn workspace @octocodeai/octocode-native platforms:check
 ## Quick examples
 
 ```sh
-# local file read (paginated; exit 6 + a re-runnable continuation command on multi-page files)
-octocode read src/cli/mod.rs --lines 1:50
+# discover the tools, then one tool's contract
+octocode scheme
+octocode scheme localFetch
+octocode scheme ghSearch --view query --select operation=code   # one union branch only
 
-# continue a paginated read: re-run the exact command printed to stderr, e.g.
-# Continue: octocode tools localFetch '{"path":"src/cli/mod.rs","chunkType":"lines","offset":50,...}'
+# local file read (paginated; exit 6 + a re-runnable next.* continuation in the JSON)
+octocode localFetch '{"path":"src/cli/mod.rs","startLine":1,"endLine":50,"reasoning":"Read the dispatch entry."}'
 
-# search for a literal string
-octocode search "ToolRuntime" src/
+# continue a paginated read: re-run results[].data.next.continue.query verbatim
+octocode localFetch '{"path":"src/cli/mod.rs","chunkType":"lines","offset":50,"reasoning":"Continue the read."}'
 
-# regex search with the Rust regex engine
-octocode search 'pub (async )?fn' src/ --regex rust
-
-# one structured JSON document instead of grep-style rows
-octocode search "ToolRuntime" src/ --json
-
-# read a remote GitHub file (no clone required)
-octocode fetch cli/cli/README.md
-octocode fetch cli/cli/pkg/cmd/root.go@main --lines 1:30
-octocode fetch https://github.com/anthropics/anthropic-sdk-python/README.md
-
-# list Rust files
-octocode files . --names '*.rs'
-
-# filesystem tree
-octocode tree src/
-
-# parse + syntax tree for one file
-octocode tree src/main.rs --syntax
-
-# declarations in a file
-octocode symbols src/cli/mod.rs --name dispatch
+# lexical / regex search
+octocode localSearch '{"searchText":"ToolRuntime","path":"src/","resultView":"matchOnly","reasoning":"Locate the runtime entry."}'
 
 # structural AST match
-octocode ast src/ 'pub async fn $NAME' --lang rust
+octocode astSearch '{"operation":"match","path":"src/","pattern":"pub async fn $NAME","langType":"rust","reasoning":"List async entry points."}'
 
-# file-dependency graph
-octocode graph . dependencies --file src/cli/mod.rs
-
-# dead-code analysis
-octocode graph . deadCode
+# structural rewrite (preview first; apply requires snapshot + expectedHashes from the preview)
+octocode astRewrite '{"path":"src/","langType":"rust","ruleKind":"pattern","pattern":"dbg!($X)","rewrite":"$X","reasoning":"Strip debug macros."}'
 
 # LSP — go to definition
-octocode def src/cli/human.rs --symbol has_auth_token --line 344
+octocode lspSearch '{"operation":"definition","uri":"src/cli/mod.rs","symbolName":"dispatch","lineHint":244,"reasoning":"Jump to dispatch."}'
 
-# GitHub repository search
-octocode repos "ast-grep pattern matching" --language rust --stars '>100' --sort stars
+# read a remote GitHub file (no clone required)
+octocode ghGetFileContent '{"owner":"cli","repo":"cli","path":"README.md","reasoning":"Read upstream docs."}'
 
-# GitHub PR search
-octocode history prs --repo octocodeai/octocode --keywords "fix"
+# GitHub repository / code search
+octocode ghSearch '{"operation":"repositories","keywords":["ast-grep"],"reasoning":"Find pattern-matching repos."}'
 
-# read a single PR
-octocode history pr --repo octocodeai/octocode --number 42
-
-# read a single commit or compare two refs
-octocode history commit --repo octocodeai/octocode --ref abc1234
-octocode history compare --repo octocodeai/octocode --base main --head feature
+# PR / issue / commit history
+octocode ghSearchHistory '{"operation":"pullRequests","owner":"octocodeai","repo":"octocode","keywords":["fix"],"reasoning":"Find fix PRs."}'
+octocode ghGetHistoryItem '{"operation":"pullRequest","owner":"octocodeai","repo":"octocode","number":42,"reasoning":"Read PR 42."}'
 
 # package lookup
-octocode package clap --ecosystem crates --info
+octocode artifactSearch '{"type":"crates","packageName":"clap","reasoning":"Confirm the clap crate."}'
 
-# pretty-print JSON output (any research command)
-octocode symbols src/ --pretty
-
-# call a tool directly with raw JSON
-octocode tools localSearch '{"queries":[{"searchText":"fn run","path":"src/"}]}'
-
-# print a tool's complete contract (`--schema` is an alias)
-octocode tools astSearch --scheme
+# large queries from a file instead of shell-quoted JSON
+octocode jev --input query.json
 ```
+
+Exact field names per tool come from `octocode scheme <tool>` — the examples
+above elide required fields for brevity.
 
 ## Commands
 
-### Research — local
+### Tools — one command per tool
 
-| Command | Alias | What it does |
-|---|---|---|
-| `search <text> <path>` | `s` | Lexical or regex search. Emits grep-style rows by default; use `--json` or `--compact` for one JSON document. |
-| `read <path>` | | Read a local file; paginates with exit 6 + `next` token. |
-| `next <token>` | | Continue a paginated `read`. |
-| `files <path>` | | List files; filter with `--names '*.rs,*.ts'`. |
-| `tree <path>` | | Filesystem tree. Add `--syntax` for the parsed syntax tree (single file). |
-| `symbols <path>` | | Declarations — functions, classes, types, etc. Filter with `--name`. |
-| `ast <path> <pattern>` | | Structural AST pattern match (ast-grep syntax). |
-| `graph <path> <analysis>` | | File-topology analysis. `analysis`: `deadCode` \| `cycles` \| `dependencies` \| `dependents` \| `path` \| `reachability`. Use `--file` / `--target` for directed queries. |
-| `rewrite <path> <pattern> --to <template>` | | Preview a structural rewrite. `--apply` previews internally, then applies the returned snapshot and hashes as a guarded transaction. |
-
-### Research — LSP
-
-All LSP commands accept: `--symbol <name>` `--line <n>` `--character <n>` `--operation <op>` `--pretty`.
-
-| Command | Default LSP operation |
-|---|---|
-| `def <uri>` | `definition` |
-| `refs <uri>` | `references` |
-| `callers <uri>` | `callers` |
-| `callees <uri>` | `callees` |
-| `hover <uri>` | `hover` |
-| `type-def <uri>` | `typeDefinition` |
-| `implementation <uri>` | `implementation` |
-| `supertypes <uri>` | `supertypes` |
-| `subtypes <uri>` | `subtypes` |
-| `diagnostics <uri>` | `diagnostic` |
-
-### Research — GitHub
+Each command takes one positional raw JSON query (or `--input <file>`), and
+`--compact` for single-line JSON output (default is indented). The JSON
+contract is identical to the MCP server tool of the same name.
 
 | Command | What it does |
 |---|---|
-| `fetch <owner/repo[/path][@branch]>` | Read a file without cloning. Accepts short references and copied `github.com/OWNER/REPO/blob/REF/PATH` URLs. Use `--all` to drain raw content. |
-| `repos <query>` | Search GitHub repositories. Supports `--owner`, `--language`, `--stars`, and `--sort`. |
-| `clone <owner/repo>` | Clone into the local cache. `--branch`, `--sparse-path`. |
-| `history <op> --repo <owner/repo>` | Search or read PRs, issues, and commits. `compare` requires `--base` and `--head`. |
+| `localSearch` | Text/regex search across local files. |
+| `localFetch` | Read a local file: pagination, ranges, match filtering, minification. |
+| `astSearch` | Structural search (ast-grep), declarations, syntax trees, import graph. |
+| `astRewrite` | Structural find-and-replace; previews before writing. |
+| `lspSearch` | Definitions, references, hover, call/type hierarchy, diagnostics. |
+| `ghSearch` | GitHub repository and code search. |
+| `ghGetFileContent` | Read a GitHub file without cloning. |
+| `ghSearchHistory` | Search PRs, issues, and commits. |
+| `ghGetHistoryItem` | Read one PR, issue, commit, or comparison. |
+| `ghCloneRepo` | Clone into the local cache for offline analysis. |
+| `artifactSearch` | Package lookup/discovery across 8 registries. |
+| `jev` | Judgment engine: gate, compare, or audit candidates. |
 
-### Research — packages
-
-| Command | What it does |
-|---|---|
-| `package <query>` | Keyword discovery or exact lookup (`--info`). `--ecosystem`: `npm` \| `pypi` \| `crates` \| `maven` \| `nuget` \| `go` \| `packagist` \| `rubygems`. |
-
-### Raw tool access
-
-```sh
-octocode tools                          # list enabled tools
-octocode tools <name> --scheme          # print the complete tool contract
-octocode tools <name> '<json>'          # run with a raw JSON query
-octocode <name> '<json>'                # direct tool-name form, including jev
-octocode tools <name> --json --compact  # schema in compact JSON
-```
-
-### Workspace / utility
+### System
 
 | Command | What it does |
 |---|---|
-| `context` | Show the active tool context / project manifest. `--full` for extended detail. |
-| `status` | Runtime status — config, available tools, auth. `--json`. |
-| `config` | Inspect configuration. `--keys` to list key names; `--check <key>` to test. |
-| `auth` | Auth status. `--json`. |
-| `login` | Authenticate (opens browser or reads token). `--refresh` to force re-auth. |
-| `logout` | Remove stored credentials. |
-| `cache <action>` | `action`: `status` \| `clear`. Inspect or purge the native GitHub cache. |
-| `tools [tool]` | Introspect or call a tool. `--scheme` or `--schema` prints the complete contract. |
-| `install` | Install into a JSON-configured IDE. `claude` aliases `claude-desktop`; `vscode` aliases `vscode-cline`. Use Node for Codex or Goose. |
+| `scheme [tool]` | No name: compact catalog of every tool with availability. With a name: the complete contract. `--view query` for the self-contained query schema; `--select FIELD=VALUE` to keep one union branch. |
+| `config` | Show config file paths and set key names — values are never printed. `--check <key>` tests one key; `--json`. |
+| `auth` | Auth status (default). `auth login` (device flow; `--refresh`, `--force`, `--hostname`), `auth logout`. |
+| `install` | Install the MCP server into an IDE. `claude` aliases `claude-desktop`; `vscode` aliases `vscode-cline`. |
 | `skill <args…>` | Pass-through to the `octocode skill` Node CLI. |
+| `help` | Print help. |
 
-### Output flags (research commands)
-
-| Command family | Default | Structured option |
-|---|---|---|
-| `search` | Grep-style rows | `--json` or `--compact` |
-| `read`, `fetch` | Raw content | `fetch --pretty`; raw pagination supports `--all` |
-| Other research commands | Compact JSON | `--pretty` |
-
-`--pretty` is available on `files`, `tree`, `symbols`, `ast`, `graph`, `rewrite`,
-all LSP commands, `repos`, `code`, `gh-tree`, `clone`, `package`, and `history`.
+Hidden maintenance commands (not part of the agent surface, still available):
+`cache <status|clear>` and `lsp-server <list|install|uninstall|clean|status|which>`.
 
 ## Exit codes
 
@@ -311,17 +237,17 @@ all LSP commands, `repos`, `code`, `gh-tree`, `clone`, `package`, and `history`.
 | **Startup (help/auth)** | ~8 ms | ~120 ms |
 | **Startup (tool call)** | ~160 ms | ~330 ms |
 | **Binary size** | ~50 MB release | 1 KB entry + node_modules |
-| **Schema-driven flags** | Hardcoded per-command `#[arg]` fields | Auto-derived from live JSON schema |
-| **Human output** | Grep/raw text or structured `--json`/`--compact`/`--pretty`, depending on command | `--yaml` / `--text` / `--json` / `--compact` |
+| **Query interface** | Raw JSON per tool (`octocode <tool> '<json>'`), schemas via `scheme` | Delegates to the native binary |
+| **Output** | Structured JSON (indented; `--compact` for one line) | Same — the Node CLI is a launcher |
 | **Environments without Node** | ✓ Standalone | ✗ Node required |
 | **Interactive UI** | Plain text | Menus, spinners, colored headers |
 | **Auth flow** | Native GitHub device flow with keychain storage | Native interactive OAuth with keychain |
 
 **Use `octocode-native`** for shell scripts, CI pipelines, environments without
-Node, fast config/status checks, and search with full ripgrep flags.
+Node, and fast config/auth checks.
 
-**Use the Node CLI** for interactive IDE install, schema-aware flag derivation,
-`--yaml` human output, full OAuth flow, and MCP-compatible structured errors.
+**Use the Node CLI** for interactive IDE install and skill materialization —
+every other command delegates to this binary.
 
 ## Test
 

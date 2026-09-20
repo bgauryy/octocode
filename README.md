@@ -53,8 +53,8 @@ npx octocode --help
 **2. Authenticate with GitHub** - optional, but unlocks private repositories and higher API rate limits:
 
 ```bash
-npx octocode login
-npx octocode status       # verify the active token source
+npx octocode auth login
+npx octocode auth         # verify the active token source
 ```
 
 **3. Choose your interface.** Same tools and Rust engine on both. Cloning is
@@ -114,25 +114,34 @@ Run `npx octocode` and agents figure out the rest. The bare command prints built
 
 ```bash
 npx octocode                                         # self-describing usage for agents
-npx octocode tools                                   # list every tool
-npx octocode tools localSearch --scheme              # inspect all local discovery modes
+npx octocode scheme                                  # compact catalog of every tool
+npx octocode scheme localSearch                      # inspect all local discovery modes
 ```
 
-Every MCP tool is also a plain command: JSON in, token-efficient YAML out. Local paths route to local tools; `owner/repo[/path]` routes to GitHub.
+Every MCP tool is also a plain command named after the tool: JSON in, structured JSON out (indented by default, `--compact` for one line).
 
 ```bash
-npx octocode tools localSearch \
-  --queries '{"path":"/absolute/path/to/project","searchText":"authenticate","maxFiles":20}'
+npx octocode localSearch \
+  '{"path":"/absolute/path/to/project","searchText":"authenticate","maxFiles":20,"reasoning":"locate the auth entry point"}'
 ```
-```yaml
-results:
-  - index: 0
-    data:
-      files:
-        - path: src/auth.ts
-          matches:
-            - line: 12
-              value: "export async function authenticate(req: Request) {"
+```json
+{
+  "results": [
+    {
+      "index": 0,
+      "data": {
+        "files": [
+          {
+            "path": "src/auth.ts",
+            "matches": [
+              { "line": 12, "value": "export async function authenticate(req: Request) {" }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
 ```
 
 Learn more at **[octocode.ai](https://octocode.ai)**.
@@ -243,13 +252,13 @@ or trees with its strict `operation` field.
 
 | Tool | What it does |
 |------|--------------|
-| `lspSearch` | Typed semantic navigation: `definition`, `references`, `callers`, `callees`, `callHierarchy`, `hover`, `documentSymbols`, `typeDefinition`, `implementation`, `workspaceSymbol`, `supertypes`, `subtypes`, and `diagnostic`. From the CLI, invoke it directly: `npx octocode tools lspSearch --queries '<json>'`. Navigation runs through installed language servers (see the [LSP tools reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md#lsp-tools-reference)). |
+| `lspSearch` | Typed semantic navigation: `definition`, `references`, `callers`, `callees`, `callHierarchy`, `hover`, `documentSymbols`, `typeDefinition`, `implementation`, `workspaceSymbol`, `supertypes`, `subtypes`, and `diagnostic`. From the CLI, invoke it directly: `npx octocode lspSearch '<json>'`. Navigation runs through installed language servers (see the [LSP tools reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md#lsp-tools-reference)). |
 
 ### Reasoning
 
 | Tool | What it does |
 |------|--------------|
-| `jev` | Evaluates caller-supplied state and typed questions using the internally configured model. It is registered only when the resolved `OCTOCODE_JEV_KEY` is nonblank; the result is never evidence or a fact. The direct CLI form is `npx octocode tools jev --input request.json`. |
+| `jev` | Evaluates caller-supplied state and typed questions using the internally configured model. It is registered only when the resolved `OCTOCODE_JEV_KEY` is nonblank; the result is never evidence or a fact. The direct CLI form is `npx octocode jev --input request.json`. |
 
 Full schemas, fields, and examples for every tool live in [`docs/OCTOCODE_TOOLS.md`](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md) (linked under [Documentation](#documentation)).
 
@@ -283,7 +292,7 @@ Add a GitHub token and options under `env` - see [Authentication](#authenticatio
 
 ## CLI
 
-Same research engine, no MCP client needed. Local paths route to local tools; `owner/repo[/path]` routes to GitHub. Authenticate once with `npx octocode login` (see [Authentication](#authentication-methods)); run `npx octocode --help` for full usage.
+Same research engine, no MCP client needed. Every tool is a plain command named after the tool: `octocode <toolName> '<json>'`. Authenticate once with `npx octocode auth login` (see [Authentication](#authentication-methods)); run `npx octocode --help` for full usage.
 
 ### Commands
 
@@ -291,17 +300,20 @@ Same research engine, no MCP client needed. Local paths route to local tools; `o
 
 | Command | What it does |
 |---------|--------------|
-| `npx octocode tools <name> --scheme` | Show one tool's schema: fields, types, bounds, defaults |
-| `npx octocode tools <name> --queries '<json>'` | Run a tool (same tools as MCP), YAML output |
-| `npx octocode tools <name> --queries '<json>' --json` | Run a tool, full `CallToolResult` JSON |
-| `npx octocode tools` | List every available tool |
+| `npx octocode <toolName> '<json>'` | Run a tool (same tools as MCP), indented JSON output |
+| `npx octocode <toolName> --input <file>` | Run a tool with the JSON query read from a file |
+| `npx octocode <toolName> '<json>' --compact` | Run a tool, one-line JSON output |
+| `npx octocode scheme <toolName>` | Show one tool's full contract: fields, types, bounds, defaults |
+| `npx octocode scheme` | Compact catalog of every tool with availability |
+
+Every tool query requires a `reasoning` string field.
 
 #### More commands
 
-- **Cache and materialize** — `npx octocode cache fetch|status|clear`; use `npx octocode tools ghCloneRepo --scheme` for the clone tool
+- **Auth and config** — `npx octocode auth` (token status, `--json`), `npx octocode auth login|logout`, `npx octocode config` (config file paths + set key names)
 - **Skills** — `npx octocode skill list|install|check|info|remove` for bundled Octocode skills
-- **Language servers** — `npx octocode lsp-server list|install|status|uninstall|clean`
-- **Setup and introspection** — `npx octocode install`, `npx octocode auth`, `npx octocode status`, `npx octocode context`
+- **Setup** — `npx octocode install`, `npx octocode help`
+- **Maintenance (hidden from help, still available)** — `npx octocode cache status|clear`; `npx octocode lsp-server list|install|status|uninstall|clean|which`; use `npx octocode scheme ghCloneRepo` for the clone tool
 
 Full syntax, flags, and exit codes: [Octocode CLI guide](https://github.com/bgauryy/octocode/blob/main/packages/octocode/docs/OCTOCODE_CLI.md)
 
@@ -325,7 +337,7 @@ Remote data is shared by the CLI and MCP under `<octocode-home>/tmp/`: git clone
 
 For memory-only operation, set `storage.mode` to `"memory"` in `.octocoderc` or set `OCTOCODE_STORAGE_MODE=memory`. This prevents persistent runtime cache, materialization, session, stats, and Pi SQLite writes without deleting existing files or credentials.
 
-Set values as MCP `env` entries (per client; these win over `.octocoderc`) or globally in `<octocode-home>/.octocoderc` (JSON with comments). **Tokens never go in `.octocoderc`** — use `env` or `npx octocode login`.
+Set values as MCP `env` entries (per client; these win over `.octocoderc`) or globally in `<octocode-home>/.octocoderc` (JSON with comments). **Tokens never go in `.octocoderc`** — use `env` or `npx octocode auth login`.
 
 ### Common settings
 
@@ -376,8 +388,8 @@ GitHub-backed tools require authentication. Any one method is enough. Full detai
 ### Option 1: Octocode CLI (recommended)
 
 ```bash
-npx octocode login
-npx octocode status       # verify the active token source
+npx octocode auth login
+npx octocode auth         # verify the active token source
 ```
 
 Interactive login lets you choose Octocode browser OAuth or `gh auth login`. Octocode OAuth credentials are stored encrypted on disk.
@@ -422,10 +434,10 @@ Octocode has ten first-class source languages: JavaScript, TypeScript, Rust, Pyt
 
 | Axis | What it does | How to use it |
 |------|--------------|---------------|
-| **Structural AST** | Tree-sitter shape queries (`pattern` or YAML rule documents) over the 25 first-class extensions. | `astSearch operation:"match"` · CLI `tools astSearch --scheme` |
-| **Signature outline** | Body-free skeleton with line numbers from the same grammar registry, no heuristics. | `minify:"symbols"` · CLI `tools localFetch --scheme` |
+| **Structural AST** | Tree-sitter shape queries (`pattern` or YAML rule documents) over the 25 first-class extensions. | `astSearch operation:"match"` · CLI `scheme astSearch` |
+| **Signature outline** | Body-free skeleton with line numbers from the same grammar registry, no heuristics. | `minify:"symbols"` · CLI `scheme localFetch` |
 | **Content minification** | Broader best-effort comment/whitespace processing for code and data formats. A minifier route is not parser support. | `minify:"standard"` (default) |
-| **LSP navigation** | Semantic navigation through installed servers for the ten built-in language families; trusted custom routes can support other extensions. | `lspSearch` · CLI `tools lspSearch --scheme` |
+| **LSP navigation** | Semantic navigation through installed servers for the ten built-in language families; trusted custom routes can support other extensions. | `lspSearch` · CLI `scheme lspSearch` |
 
 Text search, ordinary reads, GitHub/history tools, and artifact lookup remain language-agnostic. YAML ast-grep rule documents do not imply YAML source parsing. Syntax graph facts are candidates; use LSP for semantic proof.
 
@@ -505,7 +517,7 @@ graph LR
 **Request flow** is identical whether a call arrives over MCP or the CLI:
 
 ```text
-client → sanitize inputs (Rust) → run tool (GitHub / FS / LSP) → sanitize + YAML-serialize + paginate (Rust) → result + next-step hints
+client → sanitize inputs (Rust) → run tool (GitHub / FS / LSP) → sanitize + serialize + paginate (Rust) → result + next-step hints
 ```
 
 **One Rust execution path** owns provider calls, secret detection, sanitization, path and command validation, best-effort minification across broad formats, signature extraction for first-class grammars, structural AST search and rewrite, ripgrep parsing, diff filtering, serialization, and LSP. The native package ships prebuilt CLI and N-API artifacts for darwin (arm64/x64), linux (arm64/x64, gnu and musl), and win32-x64; no Rust toolchain is needed at runtime.
@@ -556,8 +568,8 @@ npx node-doctor
 ```
 
 **Common pitfalls:**
-- **GitHub auth failures:** Ensure your Personal Access Token (PAT) has the `repo` and `read:user` scopes. If using the CLI, run `npx octocode login` to refresh.
-- **MCP connection issues:** If your AI assistant (like Cursor or Windsurf) fails to connect, ensure you have run `npx octocode login` in your terminal first, or explicitly pass your `OCTOCODE_TOKEN` in the MCP `env` configuration.
+- **GitHub auth failures:** Ensure your Personal Access Token (PAT) has the `repo` and `read:user` scopes. If using the CLI, run `npx octocode auth login` to refresh.
+- **MCP connection issues:** If your AI assistant (like Cursor or Windsurf) fails to connect, ensure you have run `npx octocode auth login` in your terminal first, or explicitly pass your `OCTOCODE_TOKEN` in the MCP `env` configuration.
 - **Native engine errors:** Octocode uses a prebuilt Rust engine. If it fails to load on Linux, ensure your system has `glibc` or `musl` compatibility. On macOS/Windows, ensure you are on a supported architecture (x64 or arm64).
 
 ---

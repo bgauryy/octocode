@@ -17,6 +17,7 @@ pub mod regex;
 pub mod response;
 pub mod runtime;
 pub mod security;
+pub mod skill_install;
 pub mod tools;
 
 /// Identifies the native boundary independently of generated tool contracts.

@@ -80,16 +80,12 @@ const BOOLEAN_OPTIONS = new Set([
   'global',
 ]);
 
-function shouldConsumeNextValue(args: ParsedArgs, key: string): boolean {
+function shouldConsumeNextValue(_args: ParsedArgs, key: string): boolean {
   if (BOOLEAN_OPTIONS.has(key)) {
     return false;
   }
 
-  if (OPTIONS_WITH_VALUES.has(key)) {
-    return true;
-  }
-
-  return args.command === 'tools';
+  return OPTIONS_WITH_VALUES.has(key);
 }
 
 export function parseArgs(argv: string[] = process.argv.slice(2)): ParsedArgs {

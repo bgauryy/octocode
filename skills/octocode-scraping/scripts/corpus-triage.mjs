@@ -58,7 +58,7 @@ if (!(minSkipConfidence >= 0 && minSkipConfidence <= 1)) usage();
 const cli = octocodeCmd.split(/\s+/).filter(Boolean);
 
 function runJev(inputPath) {
-  const res = spawnSync(cli[0], [...cli.slice(1), 'tools', 'jev', '--input', inputPath, '--json', '--compact'], {
+  const res = spawnSync(cli[0], [...cli.slice(1), 'jev', '--input', inputPath, '--compact'], {
     encoding: 'utf8',
     timeout: 120000,
     maxBuffer: 4 * 1024 * 1024,
@@ -77,7 +77,7 @@ function runJev(inputPath) {
 }
 
 if (checkOnly) {
-  const res = spawnSync(cli[0], [...cli.slice(1), 'tools', '--scheme', 'jev'], { encoding: 'utf8', timeout: 60000 });
+  const res = spawnSync(cli[0], [...cli.slice(1), 'scheme', 'jev', '--view', 'query', '--compact'], { encoding: 'utf8', timeout: 60000 });
   const out = String(res.stdout || '') + String(res.stderr || '');
   const available = res.status === 0 && !/Unknown tool/i.test(out);
   console.log(JSON.stringify({ ok: available, code: available ? 'JEV_SCHEMA_OK' : 'JEV_UNAVAILABLE', cli: octocodeCmd, hint: available ? null : 'fall back to corpus-find.mjs lexical triage' }));
@@ -201,17 +201,18 @@ for (let i = 0; i < candidates.length; i += BATCH_MAX) {
       errors.push({ pageId: c.pageId, file: c.file, error: data?.error || row?.error || 'missing answer', errorCode: data?.errorCode, hint: data?.errorCode === 'jevContextFailed' ? 'nested localFetch failed — check the path is inside the workspace/allowed paths' : undefined });
       return;
     }
+    const receipt = data.context;
     providerIn += data.usage?.input_tokens || 0;
     providerOut += data.usage?.output_tokens || 0;
     judged.push({
       pageId: c.pageId,
       url: c.url,
       file: c.file,
-      partialCoverage: c.parts > 1 || Number(c.bytes || 0) > LOCALFETCH_FULL_BYTES,
+      partialCoverage: receipt?.coverage === 'partial' || c.parts > 1 || Number(c.bytes || 0) > LOCALFETCH_FULL_BYTES,
       choice: data.answer.choice,
       confidence: data.answer.confidence,
       probabilities: data.answer.probabilities,
-      receipt: data.receipt ? { coverage: data.receipt.coverage, limitations: data.receipt.limitations } : undefined,
+      receipt: receipt ? { coverage: receipt.coverage, limitations: receipt.limitations } : undefined,
     });
   });
 }
@@ -242,7 +243,7 @@ const out = {
   requests: reportDir,
   caveats: [
     'A skip verdict is bounded to the judged file, not proof of global absence; verify deciding spans by reading kept files.',
-    'partialCoverage rows were judged on the first chunk only.',
+    'partialCoverage rows have incomplete evidence; inspect receipt limitations and read missing spans.',
   ],
 };
 const reportPath = join(reportDir, 'triage.json');

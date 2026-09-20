@@ -69,14 +69,12 @@ impl DomainDispatcher {
                     .await
                     {
                         Ok(data) => dispatch::value_result(data),
-                        Err(error) => {
-                            dispatch::provider_failure(
-                                error.message,
-                                error.code,
-                                error.hints,
-                                error.status,
-                            )
-                        }
+                        Err(error) => dispatch::provider_failure(
+                            error.message,
+                            error.code,
+                            error.hints,
+                            error.status,
+                        ),
                     },
                 )
             });

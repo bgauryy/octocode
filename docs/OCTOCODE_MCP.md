@@ -6,7 +6,7 @@ Use this page for the MCP mental model, startup lifecycle, client configuration 
 
 ## What MCP adds
 
-MCP gives assistants a stable tool catalog instead of making them shell out by hand. In Octocode, MCP and CLI share the same schemas, runners, security validation, response envelope, pagination, and secret redaction path. A query researched through an assistant and a query run through `npx octocode tools …` exercise the same core implementation.
+MCP gives assistants a stable tool catalog instead of making them shell out by hand. In Octocode, MCP and CLI share the same schemas, runners, security validation, response envelope, pagination, and secret redaction path. A query researched through an assistant and a query run through `npx octocode <toolName> '<json>'` exercise the same core implementation.
 
 | Layer | Responsibility |
 |-------|----------------|
@@ -37,7 +37,7 @@ Otherwise, configure an MCP client directly to run `octocode-mcp`:
 }
 ```
 
-Set tokens through environment variables or run `npx octocode login`. Don't put tokens in `.octocoderc`. For more information, see the [Authentication](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#authentication) section of the configuration reference.
+Set tokens through environment variables or run `npx octocode auth login`. Don't put tokens in `.octocoderc`. For more information, see the [Authentication](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#authentication) section of the configuration reference.
 
 ## Startup lifecycle
 
@@ -72,7 +72,7 @@ is registered only when the resolved `OCTOCODE_JEV_KEY` is nonblank.
 `astRewrite` is preview-first. File mutation is separately opt-in with
 `ENABLE_AST_REWRITE_APPLY=true` and requires the complete set of preview hashes.
 
-To read the live CLI catalog, run `octocode tools --json`.
+To read the live CLI catalog, run `octocode scheme`.
 
 `ghSearch` is the sole GitHub discovery entry point. Its strict
 `operation: "code" | "repositories" | "tree"` branches reject fields from

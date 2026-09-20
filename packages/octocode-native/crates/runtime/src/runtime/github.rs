@@ -673,10 +673,9 @@ fn history_error(error: ProviderError, search: bool) -> DomainResult {
                 None,
             )
         }
-        ProviderErrorKind::Validation if error.status == Some(422) => (
-            "Invalid request parameters",
-            Some("Check parameter values"),
-        ),
+        ProviderErrorKind::Validation if error.status == Some(422) => {
+            ("Invalid request parameters", Some("Check parameter values"))
+        }
         ProviderErrorKind::Server if matches!(error.status, Some(502..=504)) => (
             "GitHub API temporarily unavailable",
             Some("Retry the request after a short delay"),
