@@ -42,7 +42,7 @@ if have npx; then
       const tools = Array.isArray(catalog.tools) ? catalog.tools : [];
       const byName = new Map(tools.map(tool => [tool.name, tool]));
       const available = tools.filter(tool => tool.availability?.enabled === true);
-      const semantic = byName.get("semanticAssess");
+      const semantic = byName.get("clasify");
       const clone = byName.get("ghCloneRepo");
       if (tools.length === 12 && available.length === 10 &&
           semantic?.availability?.enabled === false &&
@@ -52,19 +52,19 @@ if have npx; then
     } catch {}
   ' 2>"$NULL")"
   if [ "$catalog_status" = "OK" ]; then
-    pass "default catalog: 12 discoverable, 10 available; clone and semanticAssess gated"
+    pass "default catalog: 12 discoverable, 10 available; clone and clasify gated"
   else
     bad "default catalog did not expose the expected 12/10 hard-cutover availability"
   fi
 
   missing="$(env -u OCTOCODE_CLASSIFICATION_API -u TOOLS_TO_RUN OCTOCODE_HOME="$probe_home" \
-    npx -y "octocode@$OCTO_VER" semanticAssess \
+    npx -y "octocode@$OCTO_VER" clasify \
     '{"id":"preflight","reasoning":"Verify missing-key behavior.","resources":[{"id":"state","context":{"value":"probe"}}],"questions":[{"id":"binary","question":{"type":"noul","instructions":"Is state present?"}}]}' 2>&1)"
   missing_status=$?
   if [ "$missing_status" -ne 0 ] && printf '%s' "$missing" | grep -q 'OCTOCODE_CLASSIFICATION_API'; then
-    pass "semanticAssess missing-key error names OCTOCODE_CLASSIFICATION_API"
+    pass "clasify missing-key error names OCTOCODE_CLASSIFICATION_API"
   else
-    bad "semanticAssess did not return the expected actionable missing-key error"
+    bad "clasify did not return the expected actionable missing-key error"
   fi
   rm -rf -- "$probe_home"
 else
@@ -132,10 +132,10 @@ else
   bad "arm primers missing in RUNNER_TOOL_CONTEXT.md (need Octocode/gh+RTK/gh+Headroom)"
 fi
 semantic_prim="$PKG_ROOT/skills/octocode-benchmark/references/primer-octocode-jev.md"
-if [ -f "$semantic_prim" ] && grep -q 'semanticAssess' "$semantic_prim" && grep -q 'resources\[\]' "$semantic_prim" && grep -q 'questions\[\]' "$semantic_prim"; then
-  pass "semantic-assessment primer uses semanticAssess matrix guidance"
+if [ -f "$semantic_prim" ] && grep -q 'clasify' "$semantic_prim" && grep -q 'resources\[\]' "$semantic_prim" && grep -q 'questions\[\]' "$semantic_prim"; then
+  pass "semantic-assessment primer uses clasify matrix guidance"
 else
-  bad "semantic-assessment primer is missing semanticAssess resources[] × questions[] guidance"
+  bad "semantic-assessment primer is missing clasify resources[] × questions[] guidance"
 fi
 echo
 

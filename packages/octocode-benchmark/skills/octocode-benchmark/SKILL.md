@@ -112,7 +112,7 @@ layout: `references/run-with-agents.md` → `run-preflight.md` + `run-phases.md`
 | understand the design | `references/BENCHMARK.md` |
 | run a matchup | `references/INSTRUCTIONS.md` then `references/run-with-agents.md`; verify `references/run-preflight.md` before `references/run-phases.md` |
 | brief a runner | `references/RUNNER.md` + `references/RUNNER_TOOL_CONTEXT.md`; choose its arm's `references/primer-octocode.md`, `references/primer-gh.md`, `references/primer-gh-rtk.md`, or `references/primer-gh-headroom.md` |
-| reproduce the historical Jev comparison only | `references/primer-octocode-jev.md`; do not use it as the current `semanticAssess` contract |
+| reproduce the historical Jev comparison only | `references/primer-octocode-jev.md`; do not use it as the current `clasify` contract |
 | judge a question | `references/JUDGING.md` + `references/example-verdict.md` |
 | score + aggregate | `references/SCORING.md` then `references/aggregation-and-stats.md` |
 | write the report | `references/REPORT_TEMPLATE.md` |

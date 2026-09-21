@@ -8,12 +8,12 @@ execution metric; never treat them as free.
 Use the built CLI's single public semantic tool for every provider call:
 
 ```bash
-node packages/octocode/out/octocode.js scheme semanticAssess --view query --compact
-node packages/octocode/out/octocode.js semanticAssess --input request.json --compact
+node packages/octocode/out/octocode.js scheme clasify --view query --compact
+node packages/octocode/out/octocode.js clasify --input request.json --compact
 ```
 
 The operator configures `OCTOCODE_CLASSIFICATION_API` and the model through runtime config.
-Without a nonblank key, the CLI still discovers `semanticAssess` and its schema.
+Without a nonblank key, the CLI still discovers `clasify` and its schema.
 Execution returns an actionable missing-key error, and MCP doesn't register the
 tool.
 
@@ -103,10 +103,10 @@ Every success page preserves the typed provider response plus separate
 `requestedModel` and `resolvedModel`. Context receipts contain hashes and
 coverage without returning resource bodies. Large resources remain visible as
 ordered page-local assessments; retain partial and error pages, and run
-`next.assess` unchanged. The tool executes no action selected by a judgment, and
+`next.clasify` unchanged. The tool executes no action selected by a judgment, and
 its result is not source proof.
 
-Use `semanticAssess` only when a bounded judgment can change the next action
+Use `clasify` only when a bounded judgment can change the next action
 enough to repay preparation and latency. Use one matrix when questions share the
 same resources; use root batching only for independent matrices. Keep dependent
 steps sequential. Use cheap exact checks directly. Verify deciding evidence,
@@ -116,7 +116,7 @@ act.
 Record the build version and repository SHA. For every result, inspect errors
 before counting success. Sum usage fields that are present across success pages;
 batched provider responses attach shared usage once. Report
-`semanticAssessCalls`, `jevInputTokens`, `jevOutputTokens`, wall time, and host
+`clasifyCalls`, `jevInputTokens`, `jevOutputTokens`, wall time, and host
 context tokens per case and across the run. Zero provider calls is valid when no
 useful decision was open. Keep retries, schema discovery, and failed calls
 visible in the cost record.

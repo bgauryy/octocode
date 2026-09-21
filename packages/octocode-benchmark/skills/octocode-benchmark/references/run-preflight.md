@@ -11,7 +11,7 @@ every check and exits non-zero on any failure. What it verifies (or check by han
 | Arm | Confirm | Command |
 |---|---|---|
 | octocode | CLI + live tool call | `npx octocode@<ver> --version` + probe `npx octocode@<ver> ghSearch '{"operation":"repositories","keywords":["is"],"owner":"sindresorhus","pageSize":1,"reasoning":"Verify the release candidate."}'` |
-| octocode catalog | Hard-cutover availability | In an isolated config with clone disabled and no provider key, `scheme --compact` must list 12 discoverable tools and 10 available tools. `semanticAssess` remains discoverable but unavailable, and calling it must fail with an error that names `OCTOCODE_CLASSIFICATION_API`. |
+| octocode catalog | Hard-cutover availability | In an isolated config with clone disabled and no provider key, `scheme --compact` must list 12 discoverable tools and 10 available tools. `clasify` remains discoverable but unavailable, and calling it must fail with an error that names `OCTOCODE_CLASSIFICATION_API`. |
 | rtk | gh authed + rtk | `gh --version` · `gh auth status` · `rtk --version` + probe `rtk gh search repos octocode --limit 1` |
 | headroom | wrapper compresses | `export HR_PY=…; ./compare/bin/preflight.py --warmup` (a `0%` ratio / `router:protected` = compression OFF → invalid) |
 

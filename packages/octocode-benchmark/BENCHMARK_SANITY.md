@@ -60,7 +60,7 @@ cd "$FIX"
 **0.4 — Invocation & PASS.** Use `"$BIN" <name> '<json>'` on the native CLI,
 `node "$NODECLI" <name> '<json>'` on the node CLI, or MCP
 `tools/call {name, arguments:<input>}`. Every query needs a `reasoning` string.
-`semanticAssess` accepts one complete SemanticQuery or
+`clasify` accepts one complete SemanticQuery or
 `{queries:[<SemanticQuery>]}`. **PASS** = structured result with **no**
 `outputContractViolation`, no `Invalid arguments`/`invalidInput`, no crash, and
 the stated content check holds.
@@ -68,7 +68,7 @@ the stated content check holds.
 **0.5 — Availability and automated runners.** `scheme` always discovers 12
 tools. With clone at its default disabled setting and no `OCTOCODE_CLASSIFICATION_API`, 10
 are available. MCP registers only available tools, so it omits
-`semanticAssess`; the CLI keeps `semanticAssess` and its schema discoverable and
+`clasify`; the CLI keeps `clasify` and its schema discoverable and
 reports the missing key when called. This setup opts into clone. Section 13 runs
 the 11 non-provider tools across three surfaces, section 12 checks the gated
 semantic tool, and section 14 covers advanced variants. Use the corresponding
@@ -89,7 +89,7 @@ tool section to diagnose a failure.
 - [ ] 9. `ghSearchHistory` — commits / pullRequests / issues  (incl. **R3**)
 - [ ] 10. `ghGetHistoryItem` — commit / pullRequest / issue / compare  (incl. **R4**)
 - [ ] 11. `ghCloneRepo` — clone (+ branch / sparsePath)
-- [ ] 12. `semanticAssess` — resource-question matrices with typed Noul / Choice / Score answers (gated)
+- [ ] 12. `clasify` — resource-question matrices with typed Noul / Choice / Score answers (gated)
 - [ ] R1. `astSearch` deadCode continuation is contract-valid
 
 ---
@@ -375,9 +375,9 @@ require `uri` + (`symbolName`+`lineHint`) **or** `position`. `documentSymbols`/
 
 ---
 
-## 12. semanticAssess (gated)
+## 12. clasify (gated)
 
-`semanticAssess` is the only public semantic-assessment tool. The CLI always
+`clasify` is the only public semantic-assessment tool. The CLI always
 discovers its command and schema. MCP registers it only when runtime
 configuration resolves a nonblank `OCTOCODE_CLASSIFICATION_API`; live evaluation also
 requires provider access. Model selection belongs to runtime configuration,
@@ -386,8 +386,8 @@ never the request.
 Inspect and execute through the built CLI:
 
 ```bash
-node "$NODECLI" scheme semanticAssess --view query --compact
-node "$NODECLI" semanticAssess --input request.json --compact
+node "$NODECLI" scheme clasify --view query --compact
+node "$NODECLI" clasify --input request.json --compact
 ```
 
 Each SemanticQuery has a stable `id`, `reasoning`, `resources[]`, and
@@ -410,18 +410,18 @@ typed provider answer, token usage, and separate `requestedModel` and
 `resolvedModel`; its body-free context receipt records hash, coverage,
 limitations, and continuation metadata. Large resources remain ordered,
 page-local results—there is no hidden reducer. Retain partial and error pages,
-and run `next.assess` unchanged when present.
+and run `next.clasify` unchanged when present.
 
-- [ ] Without `OCTOCODE_CLASSIFICATION_API`, `scheme semanticAssess` succeeds,
-      `semanticAssess` fails with an error that names the key and setup URL, and
+- [ ] Without `OCTOCODE_CLASSIFICATION_API`, `scheme clasify` succeeds,
+      `clasify` fails with an error that names the key and setup URL, and
       MCP `tools/list` omits the tool.
-- [ ] With the key, MCP `tools/list` includes exactly one `semanticAssess` entry.
+- [ ] With the key, MCP `tools/list` includes exactly one `clasify` entry.
 - [ ] A two-resource × three-question call returns six correlated cells with
       Noul, Choice, and Score answers, model provenance, receipts, and usage.
 - [ ] An independent root `queries[]` batch preserves each query's IDs and
       matrix boundaries.
 - [ ] A resource larger than one provider page exposes every page result in
-      order; partial coverage supplies executable `next.assess` rather than a
+      order; partial coverage supplies executable `next.clasify` rather than a
       hidden aggregate.
 - [ ] Read-tool contexts return receipts without source bodies; unreadable,
       out-of-policy, and over-budget resources fail before provider access.
