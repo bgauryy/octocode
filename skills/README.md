@@ -18,7 +18,7 @@ Canonical Agent Skills for this monorepo. Each skill is a standalone folder whos
 | Discover, create, review, install, or synchronize skills | [octocode-skills](octocode-skills/) |
 | Debug a live page with Chrome DevTools evidence | [octocode-chrome-devtools](octocode-chrome-devtools/) |
 | Turn public pages into a local cited corpus | [octocode-scraping](octocode-scraping/) |
-| Apply typed semantic questions to unread resources when the result can change the next action | [octocode-semantic-assess](octocode-semantic-assess/) |
+| Apply typed semantic questions to unread resources when the result can change the next action | [octocode-clasify](octocode-clasify/) |
 
 ## Install
 

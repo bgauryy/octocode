@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Semantic pre-read triage for saved browser/scrape corpora. Every body part is
-// represented once as a bounded localFetch resource; semanticAssess preserves
+// represented once as a bounded localFetch resource; clasify preserves
 // page-local provider answers while stdout contains only routes and paths.
 import { existsSync } from 'node:fs';
 import { realpath, stat, writeFile } from 'node:fs/promises';
@@ -18,11 +18,11 @@ function usage(code = 2) {
     '  [--pages page-001,page-002] [--files <p1,p2>] [--limit <1..25>=25]\n' +
     '  [--min-skip-confidence <p>=0.6] [--include-mentions]\n' +
     '  [--octocode "<cmd>"] [--dry-run] [--check]\n' +
-    'Judges every resource with one semanticAssess resources[] × questions[] matrix.\n' +
+    'Judges every resource with one clasify resources[] × questions[] matrix.\n' +
     '--limit controls resources per initial matrix; it never drops resources.\n' +
     'Explicit files and manifest parts must resolve inside the session directory.\n' +
     'Thin extractions (<600 clean bytes) and duplicate URLs are routed without semantic assessment.\n' +
-    'If semanticAssess is unavailable, fall back to lexical triage via corpus-find.mjs.'
+    'If clasify is unavailable, fall back to lexical triage via corpus-find.mjs.'
   );
   process.exit(code);
 }
@@ -67,31 +67,31 @@ if (!(minSkipConfidence >= 0 && minSkipConfidence <= 1)) usage();
 const cli = splitCommand(octocodeCmd);
 if (!cli.length) usage();
 
-function runSemanticAssess(inputPath) {
-  const res = spawnSync(cli[0], [...cli.slice(1), 'semanticAssess', '--input', inputPath, '--compact'], {
+function runClasify(inputPath) {
+  const res = spawnSync(cli[0], [...cli.slice(1), 'clasify', '--input', inputPath, '--compact'], {
     encoding: 'utf8',
     timeout: 120_000,
     maxBuffer: 4 * 1024 * 1024,
   });
   const stdout = String(res.stdout || '');
   const stderr = String(res.stderr || '');
-  if (/Unknown tool: semanticAssess|not available|OCTOCODE_CLASSIFICATION_API/i.test(stdout + stderr)) {
+  if (/Unknown tool: clasify|not available|OCTOCODE_CLASSIFICATION_API/i.test(stdout + stderr)) {
     return { unavailable: true, detail: (stderr || stdout).slice(0, 300) };
   }
   if (res.status !== 0 && !stdout.trim()) {
-    return { error: `semanticAssess CLI exit ${res.status}: ${(stderr || stdout).slice(0, 300)}` };
+    return { error: `clasify CLI exit ${res.status}: ${(stderr || stdout).slice(0, 300)}` };
   }
   const jsonLine = stdout.trim().split('\n').findLast((line) => line.trim().startsWith('{'));
-  if (!jsonLine) return { error: `no JSON in semanticAssess output: ${(stderr || stdout).slice(0, 300)}` };
+  if (!jsonLine) return { error: `no JSON in clasify output: ${(stderr || stdout).slice(0, 300)}` };
   try {
     return { parsed: JSON.parse(jsonLine) };
   } catch (error) {
-    return { error: `bad semanticAssess JSON: ${error.message}` };
+    return { error: `bad clasify JSON: ${error.message}` };
   }
 }
 
 if (checkOnly) {
-  const res = spawnSync(cli[0], [...cli.slice(1), 'scheme', 'semanticAssess', '--view', 'query', '--compact'], {
+  const res = spawnSync(cli[0], [...cli.slice(1), 'scheme', 'clasify', '--view', 'query', '--compact'], {
     encoding: 'utf8',
     timeout: 60_000,
   });
@@ -99,7 +99,7 @@ if (checkOnly) {
   const available = res.status === 0 && !/Unknown tool/i.test(out);
   console.log(JSON.stringify({
     ok: available,
-    code: available ? 'SEMANTIC_ASSESS_SCHEMA_OK' : 'SEMANTIC_ASSESS_UNAVAILABLE',
+    code: available ? 'CLASIFY_SCHEMA_OK' : 'CLASIFY_UNAVAILABLE',
     cli: octocodeCmd,
     hint: available ? null : 'fall back to corpus-find.mjs lexical triage',
   }));
@@ -251,7 +251,7 @@ for (let offset = 0; offset < resources.length; offset += matrixPageSize) {
   while (request) {
     const fingerprint = JSON.stringify(request);
     if (seenRequests.has(fingerprint)) {
-      for (const resource of batch) errors.push({ resourceId: resource.id, file: resource.file, error: 'repeated next.assess continuation' });
+      for (const resource of batch) errors.push({ resourceId: resource.id, file: resource.file, error: 'repeated next.clasify continuation' });
       break;
     }
     seenRequests.add(fingerprint);
@@ -259,10 +259,10 @@ for (let offset = 0; offset < resources.length; offset += matrixPageSize) {
     const reqPath = join(reportDir, `request-${String(requestNumber).padStart(2, '0')}.json`);
     await writeFile(reqPath, `${JSON.stringify(request, null, 2)}\n`, { mode: 0o600 });
     if (dryRun) break;
-    const run = runSemanticAssess(reqPath);
+    const run = runClasify(reqPath);
     calls += 1;
     if (run.unavailable) {
-      console.log(JSON.stringify({ ok: false, code: 'SEMANTIC_ASSESS_UNAVAILABLE', cli: octocodeCmd, detail: run.detail, hint: 'fall back to corpus-find.mjs lexical triage', requests: reportDir }));
+      console.log(JSON.stringify({ ok: false, code: 'CLASIFY_UNAVAILABLE', cli: octocodeCmd, detail: run.detail, hint: 'fall back to corpus-find.mjs lexical triage', requests: reportDir }));
       process.exit(1);
     }
     if (run.error) {
@@ -276,16 +276,16 @@ for (let offset = 0; offset < resources.length; offset += matrixPageSize) {
     if (!queryResult) {
       for (const resource of request.resources) {
         const known = resources.find((candidate) => candidate.id === resource.id);
-        errors.push({ resourceId: resource.id, file: known?.file, error: 'missing correlated semanticAssess query result' });
+        errors.push({ resourceId: resource.id, file: known?.file, error: 'missing correlated clasify query result' });
       }
       break;
     }
-    const continuedResourceIds = new Set((queryResult.next?.assess?.resources || []).map((resource) => resource.id));
+    const continuedResourceIds = new Set((queryResult.next?.clasify?.resources || []).map((resource) => resource.id));
     for (const resource of request.resources) {
       const known = resources.find((candidate) => candidate.id === resource.id);
       const cell = queryResult.results?.find((candidate) => candidate.resourceId === resource.id && candidate.questionId === 'relevance');
       if (!cell || !Array.isArray(cell.pages) || !cell.pages.length) {
-        errors.push({ resourceId: resource.id, file: known?.file, error: 'missing semanticAssess result cell or pages' });
+        errors.push({ resourceId: resource.id, file: known?.file, error: 'missing clasify result cell or pages' });
         continue;
       }
       const unresolvedCoverage = cell.coverage !== 'complete' && !continuedResourceIds.has(resource.id);
@@ -293,7 +293,7 @@ for (let offset = 0; offset < resources.length; offset += matrixPageSize) {
       for (const page of cell.pages) {
         assessmentPages.push({ queryId: request.id, resourceId: resource.id, questionId: 'relevance', coverage: cell.coverage, ...page });
         if (page.status !== 'success') {
-          errors.push({ resourceId: resource.id, file: known?.file, error: page.error?.message || 'semanticAssess page error', errorCode: page.error?.code });
+          errors.push({ resourceId: resource.id, file: known?.file, error: page.error?.message || 'clasify page error', errorCode: page.error?.code });
           continue;
         }
         const choice = page.answer?.choice;
@@ -314,7 +314,7 @@ for (let offset = 0; offset < resources.length; offset += matrixPageSize) {
         pageDecisions.set(resource.id, prior);
       }
     }
-    request = queryResult.next?.assess || null;
+    request = queryResult.next?.clasify || null;
   }
 }
 
@@ -423,7 +423,7 @@ const out = {
   errorCount: errors.length,
   errors: publicErrors,
   errorsTruncated: publicErrors.length < errors.length,
-  semanticAssessUsage: dryRun ? null : { calls, providerInputTokens: providerIn, providerOutputTokens: providerOut },
+  clasifyUsage: dryRun ? null : { calls, providerInputTokens: providerIn, providerOutputTokens: providerOut },
   requests: reportDir,
   caveats: [
     'Routes are an explicit reduction over preserved page-local answers, not proof of global absence.',

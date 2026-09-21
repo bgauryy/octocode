@@ -52,12 +52,12 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 const args = process.argv.slice(2);
 if (args[0] === 'scheme') {
-  assert.deepEqual(args, ['scheme', 'semanticAssess', '--view', 'query', '--compact']);
-  console.log('{"name":"semanticAssess"}');
+  assert.deepEqual(args, ['scheme', 'clasify', '--view', 'query', '--compact']);
+  console.log('{"name":"clasify"}');
   process.exit(0);
 }
 const input = args[2];
-assert.deepEqual(args, ['semanticAssess', '--input', input, '--compact']);
+assert.deepEqual(args, ['clasify', '--input', input, '--compact']);
 const req = JSON.parse(readFileSync(input, 'utf8'));
 assert.equal(typeof req.id, 'string');
 assert.equal(typeof req.reasoning, 'string');
@@ -76,7 +76,7 @@ const results = process.env.TEST_SEMANTIC_EMPTY ? [] : req.resources.map((resour
 });
 const query = { queryId: req.id, results };
 if (hasNext) {
-  query.next = { assess: { ...req, resources: req.resources.map((resource) => ({ ...resource, context: { tool: 'localFetch', query: { path: resource.context.query.path, reasoning: resource.context.query.reasoning, chunkType: 'bytes', offset: 50_000, limit: 30_000, minify: 'none' } } })) } };
+  query.next = { clasify: { ...req, resources: req.resources.map((resource) => ({ ...resource, context: { tool: 'localFetch', query: { path: resource.context.query.path, reasoning: resource.context.query.reasoning, chunkType: 'bytes', offset: 50_000, limit: 30_000, minify: 'none' } } })) } };
 }
 console.log(JSON.stringify({ queries: [query] }));
 `);
@@ -84,7 +84,7 @@ console.log(JSON.stringify({ queries: [query] }));
 
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-test('dry-run composes valid semanticAssess matrices; dedups URLs; routes thin pages without assessment', () => {
+test('dry-run composes valid clasify matrices; dedups URLs; routes thin pages without assessment', () => {
   writeSession([
     { pageId: 'page-001', url: 'https://ex.test/guide', bytes: 5000 },
     { pageId: 'page-002', url: 'https://ex.test/guide#section', bytes: 5000 },
@@ -134,7 +134,7 @@ test('verdict routing: relevant→read, confident unrelated→skip, low-confiden
   assert.deepEqual(out.read.map((r) => r.pageId), ['page-001']);
   assert.deepEqual(out.skip.map((r) => r.pageId), ['page-002']);
   assert.deepEqual(out.consider.map((r) => r.pageId).sort(), ['page-003', 'page-004']);
-  assert.equal(out.semanticAssessUsage.providerInputTokens, 400);
+  assert.equal(out.clasifyUsage.providerInputTokens, 400);
   assert.ok(existsSync(join(dir, 'reports', 'triage', 'triage.json')));
 });
 
@@ -152,7 +152,7 @@ test('provider partial coverage retains a confident unrelated candidate despite 
   });
 });
 
-test('large resources follow next.assess and preserve every raw page answer', () => {
+test('large resources follow next.clasify and preserve every raw page answer', () => {
   writeSession([{
     pageId: 'page-002',
     url: 'https://ex.test/large',
@@ -167,7 +167,7 @@ test('large resources follow next.assess and preserve every raw page answer', ()
   assert.equal(res.status, 0, res.stderr);
   assert.equal(res.parsed.resources, 1);
   assert.equal(res.parsed.matrixBatches, 1);
-  assert.equal(res.parsed.semanticAssessUsage.calls, 2);
+  assert.equal(res.parsed.clasifyUsage.calls, 2);
   assert.deepEqual(res.parsed.skip.map((row) => row.pageId), ['page-002']);
   assert.equal(res.parsed.skip[0].resources, 1);
   const report = JSON.parse(readFileSync(res.parsed.report, 'utf8'));
@@ -221,20 +221,20 @@ test('stdout bounds resource errors while the saved report preserves every error
   assert.equal(report.errorsTruncated, false);
 });
 
-test('unavailable semanticAssess returns SEMANTIC_ASSESS_UNAVAILABLE with lexical fallback hint', () => {
+test('unavailable clasify returns CLASIFY_UNAVAILABLE with lexical fallback hint', () => {
   writeSession([{ pageId: 'page-001', url: 'https://ex.test/a', bytes: 2000 }]);
   const badCli = join(dir, 'bad-cli.mjs');
-  writeFileSync(badCli, 'console.error("x Unknown tool: semanticAssess"); process.exit(1);');
+  writeFileSync(badCli, 'console.error("x Unknown tool: clasify"); process.exit(1);');
   const res = run(['--session-dir', dir, '--goal', 'g', '--octocode', `${process.execPath} ${badCli}`]);
   assert.equal(res.status, 1);
-  assert.equal(res.parsed.code, 'SEMANTIC_ASSESS_UNAVAILABLE');
+  assert.equal(res.parsed.code, 'CLASIFY_UNAVAILABLE');
   assert.match(res.parsed.hint, /corpus-find/);
 });
 
 test('schema check uses the current CLI discovery command without judging candidates', () => {
   const res = run(['--check', '--octocode', `${process.execPath} ${stubCli}`]);
   assert.equal(res.status, 0, res.stderr);
-  assert.equal(res.parsed.code, 'SEMANTIC_ASSESS_SCHEMA_OK');
+  assert.equal(res.parsed.code, 'CLASIFY_SCHEMA_OK');
 });
 
 test('rejects missing args and bad session dir', () => {

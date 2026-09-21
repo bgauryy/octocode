@@ -18,6 +18,8 @@ Complete the work in this order:
 
 Do not ship either repository independently. A core catalog that advertises `clasify` cannot work with a native runtime that still dispatches `semanticAssess`.
 
+For ownership and existing behavior, see the [native runtime architecture](../packages/octocode-native/ARCHITECTURE.md), the [public tools reference](OCTOCODE_TOOLS.md), and the completed [`semanticAssess` implementation plan](JEV_IMPROVEMENT_PLAN.md).
+
 ## Scope
 
 The rename includes every active public surface that identifies or resumes this tool:
@@ -138,7 +140,7 @@ Update imports and exports in:
 - `src/toolContract/catalog.ts`
 - native rule modules and fixtures
 
-Keep generic declarations such as `SemanticQuerySchema`, `SemanticQuestionSchema`, `SemanticContextReceiptSchema`, and `SemanticAnswerSchema`. Renaming those declarations would create churn without improving tool discovery.
+Keep generic declarations such as `SemanticQuerySchema`, `SemanticQuestionSchema`, `SemanticContextReceiptSchema`, and `SemanticAnswerSchema`. Renaming those declarations creates churn without improving tool discovery.
 
 ### Rename continuation ownership
 
@@ -357,7 +359,7 @@ Update active benchmark setup, fixtures, and preflight checks under `packages/oc
 - Current primers and runner context name `clasify`.
 - Usage metrics use the new public key when they consume helper output.
 
-Preserve frozen result artifacts that recorded `semanticAssess`. Mark them as pre-rename evidence when readers could mistake them for runnable commands.
+Preserve frozen result artifacts that recorded `semanticAssess`. Mark them as pre-rename evidence when readers might mistake them for runnable commands.
 
 Add a focused routing evaluation for the naming hypothesis. Freeze the baseline before changing the evaluated catalog and include:
 
@@ -476,7 +478,7 @@ Every remaining occurrence must be one of:
 
 - A migration assertion that proves the old name is rejected.
 - A historical record that accurately names the pre-rename interface.
-- A note that maps the historical name to `clasify`.
+- A historical-to-current mapping from the old name to `clasify`.
 
 Unexplained active occurrences block release.
 

@@ -48,9 +48,9 @@ export function validateDebate(request, packet) {
       !object(admission.workerPositions) || !text(admission.workerPositions.A) ||
       !text(admission.workerPositions.B) ||
       admission.willChangeAction !== true || admission.directCheck?.available !== false ||
-      admission.evidenceFresh !== true || admission.semanticAssessCallsAtCrossroad !== 0 ||
+      admission.evidenceFresh !== true || admission.clasifyCallsAtCrossroad !== 0 ||
       admission.workerPositions.A.trim() === admission.workerPositions.B.trim()) {
-    return { valid: false, errors: ['Worker packet needs an unresolved admission gate: workersDisagree:true, distinct A/B positions, remaining disagreement, why evidence/direct checks cannot settle it, current action, distinct support/reject actions, willChangeAction:true, directCheck.available:false, evidenceFresh:true, and semanticAssessCallsAtCrossroad:0.'] };
+    return { valid: false, errors: ['Worker packet needs an unresolved admission gate: workersDisagree:true, distinct A/B positions, remaining disagreement, why evidence/direct checks cannot settle it, current action, distinct support/reject actions, willChangeAction:true, directCheck.available:false, evidenceFresh:true, and clasifyCallsAtCrossroad:0.'] };
   }
   const original = packet?.evidence;
   if (!object(original) || Object.keys(original).length === 0) {
@@ -164,7 +164,7 @@ function selfTest() {
     ifJudgeSupports: 'Advance to owner review with the risk recorded.',
     ifJudgeRejects: 'Collect another compatibility safeguard before owner review.',
     workerPositions: { A: 'The existing safeguard is sufficient.', B: 'The residual risk remains too high.' },
-    willChangeAction: true, directCheck: { available: false }, evidenceFresh: true, semanticAssessCallsAtCrossroad: 0,
+    willChangeAction: true, directCheck: { available: false }, evidenceFresh: true, clasifyCallsAtCrossroad: 0,
   };
   const packet = { review, admission, evidence: { E1: { source: 'fixture:1', observation: 'Current receipt.' } } };
   const request = {
@@ -202,7 +202,7 @@ function selfTest() {
     x => { x.resources[0].context.value.admission.ifJudgeRejects = 'A different action.'; },
     x => { x.resources[0].context.value.admission.willChangeAction = false; },
     x => { x.resources[0].context.value.admission.directCheck = { available: true, action: 'Run the exact check.' }; },
-    x => { x.resources[0].context.value.admission.semanticAssessCallsAtCrossroad = 1; },
+    x => { x.resources[0].context.value.admission.clasifyCallsAtCrossroad = 1; },
     x => { x.resources[0].context.value.admission.evidenceFresh = false; },
     x => { x.questions[0].id = 'Q2'; },
     x => { x.questions[0].question.instructions = 'Select the favored speaker.'; },
@@ -223,7 +223,7 @@ function selfTest() {
     x => { x.admission.willChangeAction = false; },
     x => { x.admission.directCheck.available = true; },
     x => { x.admission.evidenceFresh = false; },
-    x => { x.admission.semanticAssessCallsAtCrossroad = 1; },
+    x => { x.admission.clasifyCallsAtCrossroad = 1; },
     x => { x.review.questions[0].question = 'Untyped question'; },
     x => { x.review.questions[0].question.criteria = {}; },
   ];

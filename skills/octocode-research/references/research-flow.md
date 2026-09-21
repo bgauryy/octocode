@@ -14,7 +14,7 @@ Start with a Surface Plan: local, GitHub, packages, PR/history, web, and reasons
 
 ## Semantic checkpoint
 
-Place the optional `semanticAssess` checkpoint after cheap visible discovery has produced known candidates and before reading a substantial body that may be skipped. Invoke it only when a different answer can eliminate meaningful work; name that read or branch first. Keep exact metadata, known deciding spans, counts, symbol identity, required proof, and completeness-sensitive absence checks on the direct path.
+Place the optional `clasify` checkpoint after cheap visible discovery has produced known candidates and before reading a substantial body that may be skipped. Invoke it only when a different answer can eliminate meaningful work; name that read or branch first. Keep exact metadata, known deciding spans, counts, symbol identity, required proof, and completeness-sensitive absence checks on the direct path.
 
 Retain candidates whose result is relevant, insufficient, partial, or otherwise uncertain, then inspect the deciding source or run the deciding test. A confident exclusion applies only to the returned scope. Put several questions over the same resources in one semantic query; use root `queries[]` only for independent matrices. Shared capture and inference may reduce provider input, but verification remains separate.
 

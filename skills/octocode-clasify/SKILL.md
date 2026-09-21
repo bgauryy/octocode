@@ -1,6 +1,6 @@
 ---
-name: octocode-semantic-assess
-description: "Use when semanticAssess can make a bounded Noul, Choice, or Score judgment over supplied or unread resources that changes the next action; skip exact checks and settled decisions."
+name: octocode-clasify
+description: "Use when clasify can make a bounded Noul, Choice, or Score judgment over supplied or unread resources that changes the next action; skip exact checks and settled decisions."
 ---
 # Semantic assessment
 
@@ -11,7 +11,7 @@ routes: load/run a reference, doc, or script only when it changes the next actio
 
 Flow: `INSPECT → SHAPE → ASSESS → VERIFY`.
 
-Inspect `octocode scheme semanticAssess --view query --compact` once; reuse its description and query schema while current. Run `octocode semanticAssess --input request.json --compact` with one semantic query or `{queries:[...]}` for independent semantic queries. Each semantic query supplies `resources:[{id,context}]` and `questions:[{id,question}]`; every resource is assessed against every question. The runtime captures a resource once, groups its questions into provider requests, automatically evaluates bounded source pages, and returns correlated query/resource/question/page results. Keep each matrix at 25 cells or fewer. Read retained proof for relevant, uncertain, insufficient, partial, and errored results. The runtime selects the provider model and reports requested and resolved model identities separately.
+Inspect `octocode scheme clasify --view query --compact` once; reuse its description and query schema while current. Run `octocode clasify --input request.json --compact` with one semantic query or `{queries:[...]}` for independent semantic queries. Each semantic query supplies `resources:[{id,context}]` and `questions:[{id,question}]`; every resource is assessed against every question. The runtime captures a resource once, groups its questions into provider requests, automatically evaluates bounded source pages, and returns correlated query/resource/question/page results. Keep each matrix at 25 cells or fewer. Read retained proof for relevant, uncertain, insufficient, partial, and errored results. The runtime selects the provider model and reports requested and resolved model identities separately.
 
 Shape only independent matrices together. Assess them once, then verify retained candidates with exact reads or tests.
 

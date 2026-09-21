@@ -20,7 +20,7 @@ function run(script, args) {
 }
 function assert(value, message) { if (!value) throw new Error(message); }
 
-for (const script of ['har-ingest-to-scrape.mjs', 'corpus-run-local.mjs', 'semantic-assess-local.mjs']) {
+for (const script of ['har-ingest-to-scrape.mjs', 'corpus-run-local.mjs', 'clasify-local.mjs']) {
   const help = run(script, ['--help']);
   assert(help.status === 0 && help.stdout.includes('--scraping-skill-dir'), `${script} standalone help failed`);
 }
@@ -46,7 +46,7 @@ for (const [name, expected] of [['har-ingest.mjs', 'finite.har'], ['corpus-run.m
 }
 const ingest = run('har-ingest-to-scrape.mjs', ['--scraping-skill-dir', scraping, har]);
 const corpus = run('corpus-run-local.mjs', ['--scraping-skill-dir', scraping, '--artifact-dir', artifacts, '--regex', 'offerId']);
-const triage = run('semantic-assess-local.mjs', ['--scraping-skill-dir', scraping, '--session-dir', artifacts, '--goal', 'g', '--dry-run']);
+const triage = run('clasify-local.mjs', ['--scraping-skill-dir', scraping, '--session-dir', artifacts, '--goal', 'g', '--dry-run']);
 assert(ingest.status === 0 && ingest.stdout.includes('"ok":true'), 'HAR bridge did not forward finite fixture');
 assert(corpus.status === 0 && corpus.stdout.includes('"ok":true'), 'corpus bridge did not forward finite fixture');
 assert(triage.status === 0 && triage.stdout.includes('"ok":true'), 'triage bridge did not forward finite fixture');
@@ -64,7 +64,7 @@ if (existsSync(join(realScraping, 'scripts', 'har-ingest.mjs'))) {
   mkdirSync(join(triageSession, 'text'), { recursive: true });
   writeFileSync(join(triageSession, 'text', 'page-001.clean.part-001.md'), 'finite fixture body\n');
   writeFileSync(join(triageSession, 'sources.jsonl'), `${JSON.stringify({ pageId: 'page-001', url: 'https://fixture.test/a', status: 200, cleanTextBytes: 5000, textParts: ['text/page-001.clean.part-001.md'] })}\n`);
-  const realTriage = run('semantic-assess-local.mjs', ['--scraping-skill-dir', realScraping, '--session-dir', triageSession, '--goal', 'finite goal', '--dry-run']);
+  const realTriage = run('clasify-local.mjs', ['--scraping-skill-dir', realScraping, '--session-dir', triageSession, '--goal', 'finite goal', '--dry-run']);
   assert(realTriage.status === 0 && realTriage.stdout.includes('"ok": true'), 'real triage dry-run integration failed');
   realIntegration = 'passed';
 }

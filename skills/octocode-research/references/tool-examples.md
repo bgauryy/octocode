@@ -1,6 +1,6 @@
 # Tool examples
 
-Load when translating a question into a raw query. These are input templates, not a required sequence. Inspect the live schema before an unfamiliar call. Replace `/ABS/repo`, file paths, symbol lines, refs, and numbers with observed identities; paths in graph queries are relative to its `path` root. `semanticAssess` requires nonblank `reasoning`; ordinary tools accept it as optional context. When an example includes `<why>`, replace it with one sentence tying the call to the current goal.
+Load when translating a question into a raw query. These are input templates, not a required sequence. Inspect the live schema before an unfamiliar call. Replace `/ABS/repo`, file paths, symbol lines, refs, and numbers with observed identities; paths in graph queries are relative to its `path` root. `clasify` requires nonblank `reasoning`; ordinary tools accept it as optional context. When an example includes `<why>`, replace it with one sentence tying the call to the current goal.
 
 Each JSON item contains a public tool and its query. Pass `query` as the direct
 JSON argument to that tool; wrap independent rows in `{ "queries": [...] }`.

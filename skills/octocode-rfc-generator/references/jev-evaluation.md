@@ -2,7 +2,7 @@
 
 Load before improving this skill or claiming it beats the ordinary RFC flow. Why: more agents and a judge can add cost without changing the outcome.
 
-Freeze the ordinary RFC flow, candidate `semanticAssess` flow, raw case inputs, expected outcomes, rubric, tool schemas, requested model, provider-resolved model, budgets and stopping rule before the scored run. Keep answer keys from executing agents. Give each arm the same cases, evidence access and total resource ceiling, and use fresh contexts. Score the final question dispositions and RFC changes, not the presence of debate vocabulary.
+Freeze the ordinary RFC flow, candidate `clasify` flow, raw case inputs, expected outcomes, rubric, tool schemas, requested model, provider-resolved model, budgets and stopping rule before the scored run. Keep answer keys from executing agents. Give each arm the same cases, evidence access and total resource ceiling, and use fresh contexts. Score the final question dispositions and RFC changes, not the presence of debate vocabulary.
 
 Primary metric: correctly resolved, blocked or deferred consequential questions divided by the predeclared question set. Guardrails: zero unsupported blocker closures, no omitted material counterevidence, no guessed owner decisions, and complete acceptance/dependency/rollback traceability. For workflow amendments, include useful provisional comparison, the next discriminating check, authorized save/edit progress and redundant permission requests in the frozen outcome checks; a safe refusal to do useful authorized work is not a pass. Record useful new questions separately so verbosity cannot inflate the primary denominator.
 

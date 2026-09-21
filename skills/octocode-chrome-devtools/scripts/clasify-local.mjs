@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Thin bridge (chrome-devtools side): semanticAssess pre-read triage over captured
+ * Thin bridge (chrome-devtools side): clasify pre-read triage over captured
  * artifacts before reading them in full. Owner: octocode-scraping/corpus-triage.
  */
 import { spawnSync } from 'node:child_process';
@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
 if (args.includes('--help') || args.includes('-h')) {
-  console.log('Usage: semantic-assess-local.mjs [--scraping-skill-dir <dir>] [corpus-triage options]\n\nAssess captured bodies against a goal before reading them (e.g. --session-dir <scrape session> --goal "<goal>" --files cdp/body-001.txt,cdp/body-002.txt). The delegated helper preserves page-local Noul, Choice, or Score answers and uses Choice for this routing flow.\nOptional dependency: octocode-scraping. Install it beside this skill or pass its folder with --scraping-skill-dir.');
+  console.log('Usage: clasify-local.mjs [--scraping-skill-dir <dir>] [corpus-triage options]\n\nAssess captured bodies against a goal before reading them (e.g. --session-dir <scrape session> --goal "<goal>" --files cdp/body-001.txt,cdp/body-002.txt). The delegated helper preserves page-local Noul, Choice, or Score answers and uses Choice for this routing flow.\nOptional dependency: octocode-scraping. Install it beside this skill or pass its folder with --scraping-skill-dir.');
   process.exit(0);
 }
 const options = args.flatMap((value, index) => value === '--scraping-skill-dir' ? [index] : []);

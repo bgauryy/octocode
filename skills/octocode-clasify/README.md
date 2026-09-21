@@ -1,10 +1,10 @@
 # Semantic assessment skill
 
-Small entry point for the pure `octocode semanticAssess` tool. The live query schema owns the protocol and primitive contract; this skill adds routing guidance and optional examples.
+Small entry point for the pure `octocode clasify` tool. The live query schema owns the protocol and primitive contract; this skill adds routing guidance and optional examples.
 
 ```sh
-octocode scheme semanticAssess --view query --compact
-octocode semanticAssess --input request.json --compact
+octocode scheme clasify --view query --compact
+octocode clasify --input request.json --compact
 ```
 
 Each semantic query is `{reasoning,resources:[{id,context}],questions:[{id,question}]}`: every question sees every resource, results carry correlation IDs, and each resource is captured once. A matrix has at most 25 cells. Root `queries[]` batches independent semantic queries whose cross-products must stay separate. The runtime evaluates bounded pages of large resources without hiding page-local answers. Runtime configuration supplies the Jev model and credentials. Use a judgment only when it can change an unresolved next action; exact checks and settled decisions need no semantic call.

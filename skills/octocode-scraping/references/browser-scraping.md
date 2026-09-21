@@ -19,7 +19,7 @@ Owner for the **cross-skill playbook** (chrome `SKILL.md` only points here). Liv
 5. **Measure** — `performance`/`network`/`storage-measure-check` with `MEASURE_EXISTING=1`.
 6. **Query** — `measure-query --dir|--latest`; HAR → `har-pager`; then deep HAR only if needed.
 7. **Process** — `har-ingest.mjs --session-dir <session> --from-cdp-dir <run>` (chrome alias `har-ingest-to-scrape`).
-8. **Triage** — before opening many saved bodies, run `corpus-triage.mjs`; it captures each part once as a SemanticQuery resource and follows page-local `next.assess` continuations. Partial, insufficient, relevant, or errored pages stay retained, and raw provider answers remain in the report.
+8. **Triage** — before opening many saved bodies, run `corpus-triage.mjs`; it captures each part once as a SemanticQuery resource and follows page-local `next.clasify` continuations. Partial, insufficient, relevant, or errored pages stay retained, and raw provider answers remain in the report.
 9. **Prove** — read deciding spans or run `corpus-run.mjs --roots cdp,extracts --regex …` (alias `corpus-run-local`). No re-browser for the same body; a semantic answer is not proof.
 
 Zero actionability rows → chrome `actionability-diagnostics`. Emit paths/counts — never cookies/tokens.

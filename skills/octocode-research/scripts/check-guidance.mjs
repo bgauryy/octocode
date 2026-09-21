@@ -63,7 +63,7 @@ const cases = [
       /Retrieved bodies stay hidden/,
       /Partial evidence cannot prove global absence/,
       /widen only insufficient (?:evidence|spans)/,
-      /octocode semanticAssess/,
+      /octocode clasify/,
       /cheap deciding checks directly/,
       /never automatically chain/,
       /typed judgments, not missing facts/,
@@ -100,7 +100,7 @@ if (args.includes('--self-test')) {
     ['typed judgment limitation', 'typed judgments, not missing facts'],
   ]) {
     const changed = source.replace(removed, '');
-    selfChecks.push({ name: `semanticAssess: missing ${name} rejected`, pass: changed !== source && !accepts(semantic, changed) });
+    selfChecks.push({ name: `clasify: missing ${name} rejected`, pass: changed !== source && !accepts(semantic, changed) });
   }
 }
 const all = [...checks, ...selfChecks];
