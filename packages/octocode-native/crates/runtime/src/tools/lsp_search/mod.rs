@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::fs;
 use std::path::Path;
+use std::time::Duration;
 
 mod render;
 use render::{as_array, decode_uri_path, flatten_document_symbol, paginate, uri_to_path};
@@ -21,6 +22,7 @@ use render::{as_array, decode_uri_path, flatten_document_symbol, paginate, uri_t
 /// decimal): a document above this is oversize-diagnosed rather than read
 /// uncapped and streamed to the server.
 const MAX_LSP_DIDOPEN_BYTES: u64 = 1_000_000;
+const DEFINITION_ALIAS_SETTLE_MS: u64 = 50;
 
 /// Whether a source of `len` bytes exceeds the didOpen sync cap. Extracted as a
 /// pure seam so the cap decision is unit-testable without touching the fs.
@@ -1146,7 +1148,7 @@ async fn resolve_definition_chain(
         .await
         .map_err(|error| error.to_string())?;
     let mut visited = std::collections::HashSet::new();
-    for _ in 0..4 {
+    for depth in 0..4 {
         let mut next = Vec::new();
         let mut advanced = false;
         for snippet in current.iter().cloned() {
@@ -1159,14 +1161,29 @@ async fn resolve_definition_chain(
             if let Ok(source) = fs::read_to_string(&target) {
                 let _ = client.open_document(target.clone(), source).await;
             }
-            let nested = client
+            let mut nested = client
                 .get_definition(
-                    target,
+                    target.clone(),
                     snippet.range.start.line,
                     snippet.range.start.character,
                 )
                 .await
-                .unwrap_or_default()
+                .unwrap_or_default();
+            let has_distinct_target = nested
+                .iter()
+                .any(|candidate| snippet_identity(candidate) != identity);
+            if should_retry_definition_hop(depth, path, &target, has_distinct_target) {
+                tokio::time::sleep(Duration::from_millis(DEFINITION_ALIAS_SETTLE_MS)).await;
+                nested = client
+                    .get_definition(
+                        target,
+                        snippet.range.start.line,
+                        snippet.range.start.character,
+                    )
+                    .await
+                    .unwrap_or_default();
+            }
+            let nested = nested
                 .into_iter()
                 .filter(|candidate| snippet_identity(candidate) != identity)
                 .collect::<Vec<_>>();
@@ -1185,6 +1202,15 @@ async fn resolve_definition_chain(
         }
     }
     Ok(current)
+}
+
+fn should_retry_definition_hop(
+    depth: usize,
+    source_path: &str,
+    target_path: &str,
+    has_distinct_target: bool,
+) -> bool {
+    depth == 0 && source_path == target_path && !has_distinct_target
 }
 
 async fn recover_aliases(
@@ -1465,6 +1491,34 @@ fn empty(query: &LspSearchQuery, category: &str, reason: &str, server_available:
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn definition_alias_retry_is_limited_to_an_unresolved_first_same_file_hop() {
+        assert!(super::should_retry_definition_hop(
+            0,
+            "/repo/entry.ts",
+            "/repo/entry.ts",
+            false,
+        ));
+        assert!(!super::should_retry_definition_hop(
+            1,
+            "/repo/entry.ts",
+            "/repo/entry.ts",
+            false,
+        ));
+        assert!(!super::should_retry_definition_hop(
+            0,
+            "/repo/entry.ts",
+            "/repo/math.ts",
+            false,
+        ));
+        assert!(!super::should_retry_definition_hop(
+            0,
+            "/repo/entry.ts",
+            "/repo/entry.ts",
+            true,
+        ));
+    }
+
     #[test]
     fn canonical_nested_position_survives_deserialization_and_resolves_exactly() {
         let query: super::LspSearchQuery = serde_json::from_value(serde_json::json!({

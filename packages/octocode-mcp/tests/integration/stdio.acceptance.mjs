@@ -1,6 +1,6 @@
 /** Real built-server acceptance. Run after building CLI + MCP; no mocks or installs. */
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
@@ -48,8 +48,16 @@ const receipt = {
   transportErrors: [],
   stderrBytes: 0,
   stderrTail: '',
+  guidance: {
+    recoveryHints: 0,
+    maxHintChars: 0,
+    continuations: 0,
+    validationErrors: 0,
+  },
 };
 const cliMcpParitySamples = new Map();
+const cliCalls = [];
+const suiteStartedAt = performance.now();
 const transport = new StdioClientTransport({
   command: values.node,
   args: [path.resolve(values.server)],
@@ -71,8 +79,11 @@ const check = async (name, fn) => {
   }
 };
 const invoke = async (name, args) => {
+  const startedAt = performance.now();
   const response = await client.callTool({ name, arguments: args });
-  receipt.calls.push({ name, arguments: args, response });
+  const durationMs = Number((performance.now() - startedAt).toFixed(2));
+  const responseBytes = Buffer.byteLength(JSON.stringify(response));
+  receipt.calls.push({ name, arguments: args, durationMs, responseBytes, response });
   for (const row of response.structuredContent?.results ?? []) {
     const recovery = row.status === 'empty' || row.status === 'error';
     let hintCount = 0;
@@ -84,11 +95,19 @@ const invoke = async (name, args) => {
           assert.ok(recovery, `${name}: hints on a successful result`);
           hintCount += child.length;
           assert.ok(child.every(hint => hint.length <= 160), `${name}: long hint`);
+          receipt.guidance.recoveryHints += child.length;
+          receipt.guidance.maxHintChars = Math.max(
+            receipt.guidance.maxHintChars,
+            ...child.map(hint => hint.length)
+          );
         }
-        if (key === 'next' && !recovery) {
+        if (key === 'next') {
           for (const [nextKey, call] of Object.entries(child)) {
             assert.ok(!['fetch', 'getLines', 'readSite', 'viewTree', 'viewStructure', 'cloneRepo', 'searchRepositoryCode', 'lspDefinition', 'lspReferences'].includes(nextKey), `${name}: unsolicited ${nextKey}`);
-            assert.equal(call.why, undefined, `${name}: success continuation prose`);
+            assert.ok(expectedTools.includes(call?.tool), `${name}: continuation ${nextKey} has no runnable tool`);
+            assert.ok(call?.query && typeof call.query === 'object', `${name}: continuation ${nextKey} has no executable query`);
+            if (!recovery) assert.equal(call.why, undefined, `${name}: success continuation prose`);
+            receipt.guidance.continuations += 1;
           }
         }
         inspect(child);
@@ -131,11 +150,23 @@ const nextCall = async continuation => {
   );
   return call(continuation.tool, continuation.query);
 };
-const executeCliTool = (name, queries) => JSON.parse(execFileSync(
-  values.node,
-  [path.resolve(values.cli), name, JSON.stringify({ queries }), '--compact'],
-  { encoding: 'utf8', timeout: 120_000, maxBuffer: 8 * 1024 * 1024, cwd: acceptanceCwd, env: acceptanceEnv }
-));
+const executeCliTool = (name, queries) => {
+  const startedAt = performance.now();
+  const child = spawnSync(
+    values.node,
+    [path.resolve(values.cli), name, JSON.stringify({ queries }), '--compact'],
+    { encoding: 'utf8', timeout: 120_000, maxBuffer: 8 * 1024 * 1024, cwd: acceptanceCwd, env: acceptanceEnv }
+  );
+  const durationMs = Number((performance.now() - startedAt).toFixed(2));
+  cliCalls.push({ name, durationMs, status: child.status });
+  if (child.error) throw child.error;
+  assert.ok(
+    child.status === 0 || child.status === 6,
+    `${name}: CLI exited ${child.status}: ${child.stderr.trim()}`
+  );
+  assert.ok(child.stdout.trim(), `${name}: CLI returned no JSON`);
+  return JSON.parse(child.stdout);
+};
 const pages = async (first, nextKey, collect) => {
   const rows = [...collect(first)];
   let current = first;
@@ -327,6 +358,17 @@ try {
       assert.ok(data.files[0].matches[0].value.includes('function add'));
     });
   }
+  await check('empty local search returns one concise recovery hint', async () => {
+    const data = await call('localSearch', {
+      path: fixture,
+      searchText: 'octocode-definitely-absent-token',
+      regex: 'literal',
+      resultView: 'files',
+    });
+    assert.equal(data.stats.totalOccurrences, 0);
+    assert.equal(data.hints?.length, 1);
+    assert.match(data.hints[0], /try|shorter|case|regex/i);
+  });
   await check('local file discovery positive', async () => {
     const data = await call('astSearch', {
       operation: 'files',
@@ -553,11 +595,15 @@ try {
       await check(
         `${name} rejects malformed arguments without killing stdio`,
         async () => {
-          const result = await client.callTool({
-            name,
-            arguments: { queries: 'invalid' },
-          });
+          const result = await invoke(name, { queries: 'invalid' });
           assert.equal(result.isError, true);
+          receipt.guidance.validationErrors += 1;
+          const message = result.content
+            .filter(block => block.type === 'text')
+            .map(block => block.text)
+            .join('\n');
+          assert.match(message, /queries|array|invalid/i);
+          assert.ok(message.length > 0 && message.length <= 2_000, `${name}: unusable validation message`);
           assert.equal((await client.listTools()).tools.length, expectedTools.length);
         }
       );
@@ -580,6 +626,50 @@ try {
     );
   }
   if (values.live && !values.quick) {
+    if (expectedTools.includes(STATIC_TOOL_NAMES.SEMANTIC_ASSESS)) {
+      await check('semanticAssess executes Noul, Choice, and Score through the live provider', async () => {
+        const response = await invoke(STATIC_TOOL_NAMES.SEMANTIC_ASSESS, { queries: [{
+          id: 'live-primitives',
+          reasoning: 'Verify every semantic primitive through the built MCP surface.',
+          resources: [{
+            id: 'fixture',
+            context: { value: 'The fixture explicitly states that alpha is enabled.' },
+          }],
+          questions: [
+            {
+              id: 'noul',
+              question: {
+                type: 'noul',
+                instructions: 'Does the fixture state that alpha is enabled?',
+              },
+            },
+            {
+              id: 'choice',
+              question: {
+                type: 'choice',
+                instructions: 'Which state does the fixture assign to alpha?',
+                criteria: { enabled: null, disabled: null },
+              },
+            },
+            {
+              id: 'score',
+              question: {
+                type: 'score',
+                instructions: 'How explicit is the fixture about alpha being enabled?',
+                criteria: ['not stated', 'implied', 'explicitly stated'],
+              },
+            },
+          ],
+        }] });
+        assert.equal(response.isError, false);
+        const cells = response.structuredContent?.queries?.[0]?.results ?? [];
+        assert.deepEqual(
+          cells.map(cell => cell.pages?.[0]?.answer?.type),
+          ['noul', 'choice', 'score']
+        );
+        assert.ok(cells.every(cell => cell.coverage === 'complete'));
+      });
+    }
     const repo = { owner: 'octocat', repo: 'Hello-World' };
     const sha = '7fd1a60b01f91b314f59955a4e4d4e80d8edf11d';
     await check('GitHub full file reads return content without a checkout', async () => {
@@ -698,6 +788,9 @@ try {
         pageSize: 1,
       });
       assert.ok(JSON.stringify(data).includes(sha));
+      assert.ok(data.next?.nextPage);
+      const next = await nextCall(data.next.nextPage);
+      assert.equal(next.pagination.currentPage, 2);
     });
     await check('GitHub exact commit positive', async () => {
       const data = await call('ghGetHistoryItem', {
@@ -741,13 +834,22 @@ try {
       const liveOnlyTools = new Set([...cacheVolatileTools, 'ghCloneRepo']);
       for (const name of expectedTools) {
         if (name === STATIC_TOOL_NAMES.SEMANTIC_ASSESS) {
+          const executionVerified = receipt.calls.some(call =>
+            call.name === name
+            && call.response.isError === false
+            && call.response.structuredContent?.results?.[0]?.status !== 'error'
+          );
           parity.push({
             name,
             status: 'not-applicable',
             comparison: 'exact-structured-results',
-            executionVerified: false,
-            reason: 'Independent probabilistic semantic-assessment responses need not be identical. Successful live schema and semantic checks are required separately; this receipt does not verify execution.',
+            executionVerified,
+            reason: 'Independent probabilistic responses need not be identical; executionVerified records the separate live provider check.',
           });
+          assert.ok(
+            !values.live || executionVerified,
+            'semanticAssess: --live requires one successful provider-backed execution'
+          );
           continue;
         }
         const sample = cliMcpParitySamples.get(name);
@@ -803,7 +905,9 @@ try {
         const cacheOnly = cacheVolatileTools.has(name) && differences.every(field => field === '/0/cache');
         const mcpComparable = cacheOnly ? mcpResults.map(({ cache, ...row }) => row) : mcpResults;
         const cliComparable = cacheOnly ? cliResults.map(({ cache, ...row }) => row) : cliResults;
-        const contractDifferences = differingFields(mcpComparable, cliComparable);
+        const contractDifferences = differingFields(mcpComparable, cliComparable)
+          .filter(field => !field.endsWith('/cursor'));
+        const opaqueCursorDifferences = differences.filter(field => field.endsWith('/cursor'));
         const baseEqual = mcpBase === cliBase;
         parity.push({
           name,
@@ -815,8 +919,13 @@ try {
           baseEqual,
           exact: differences.length === 0,
           rawDifferingFields: differences,
-          comparison: cacheOnly ? 'evidence-and-data-with-cache-excluded' : 'exact-structured-results',
+          comparison: cacheOnly || opaqueCursorDifferences.length
+            ? 'evidence-data-and-executable-query'
+            : 'exact-structured-results',
           cacheExclusionJustification: cacheOnly ? 'provider cache state is cross-process timing metadata; all evidence and data fields remain exact' : undefined,
+          opaqueCursorExclusionJustification: opaqueCursorDifferences.length
+            ? 'opaque cursors may differ across independent processes; the continuation tool and executable query remain exact'
+            : undefined,
           differingFields: contractDifferences,
           passesContract: contractDifferences.length === 0 && baseEqual,
           cloneVerification,
@@ -842,6 +951,42 @@ try {
     receipt.closeError = error.message;
   }
   receipt.shutdownMs = Date.now() - start;
+  const summarizeLatencies = calls => Object.fromEntries(
+    [...new Set(calls.map(call => call.name))].sort().map(name => {
+      const durations = calls
+        .filter(call => call.name === name)
+        .map(call => call.durationMs)
+        .sort((left, right) => left - right);
+      const percentile = fraction =>
+        durations[Math.min(durations.length - 1, Math.ceil(durations.length * fraction) - 1)];
+      return [name, {
+        count: durations.length,
+        p50Ms: percentile(0.5),
+        p95Ms: percentile(0.95),
+        maxMs: durations.at(-1),
+        totalMs: Number(durations.reduce((sum, duration) => sum + duration, 0).toFixed(2)),
+      }];
+    })
+  );
+  receipt.latencyByTool = summarizeLatencies(receipt.calls);
+  receipt.cliLatencyByTool = summarizeLatencies(cliCalls);
+  receipt.responseBytesByTool = Object.fromEntries(
+    [...new Set(receipt.calls.map(call => call.name))].sort().map(name => {
+      const sizes = receipt.calls
+        .filter(call => call.name === name)
+        .map(call => call.responseBytes)
+        .sort((left, right) => left - right);
+      const percentile = fraction =>
+        sizes[Math.min(sizes.length - 1, Math.ceil(sizes.length * fraction) - 1)];
+      return [name, {
+        count: sizes.length,
+        p50Bytes: percentile(0.5),
+        p95Bytes: percentile(0.95),
+        maxBytes: sizes.at(-1),
+      }];
+    })
+  );
+  receipt.totalMs = Number((performance.now() - suiteStartedAt).toFixed(2));
   await check('child shuts down and releases its PID', () => {
     assert.ok(pid);
     assert.throws(() => process.kill(pid, 0));
@@ -860,6 +1005,11 @@ console.log(
     passed: receipt.checks.length - failures.length,
     failures,
     calledTools: [...new Set(receipt.calls.map(call => call.name))],
+    latencyByTool: receipt.latencyByTool,
+    cliLatencyByTool: receipt.cliLatencyByTool,
+    responseBytesByTool: receipt.responseBytesByTool,
+    guidance: receipt.guidance,
+    totalMs: receipt.totalMs,
     receipt: values.receipt,
     shutdownMs: receipt.shutdownMs,
   })
