@@ -260,6 +260,64 @@
     }
   },
   {
+    "id": "clasify.curated-4",
+    "tool": "clasify",
+    "input": {
+      "reasoning": "Deciding whether to read this module next: only a timeout-handling module is relevant.",
+      "id": "handles-timeouts",
+      "resources": [
+        {
+          "id": "http-client",
+          "context": {
+            "tool": "localFetch",
+            "query": {
+              "path": "/ABS/repo/src/httpClient.ts",
+              "reasoning": "Screen this candidate without a host body read.",
+              "fullContent": true
+            }
+          }
+        }
+      ],
+      "questions": [
+        {
+          "id": "retries-on-timeout",
+          "question": {
+            "type": "noul",
+            "instructions": "Does this module retry requests after a timeout error?"
+          }
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "id": "handles-timeouts",
+      "reasoning": "Deciding whether to read this module next: only a timeout-handling module is relevant.",
+      "resources": [
+        {
+          "id": "http-client",
+          "context": {
+            "tool": "localFetch",
+            "query": {
+              "path": "/ABS/repo/src/httpClient.ts",
+              "reasoning": "Screen this candidate without a host body read.",
+              "fullContent": true
+            }
+          },
+          "maxChars": 80000
+        }
+      ],
+      "questions": [
+        {
+          "id": "retries-on-timeout",
+          "question": {
+            "type": "noul",
+            "instructions": "Does this module retry requests after a timeout error?"
+          }
+        }
+      ]
+    }
+  },
+  {
     "id": "ghSearch.curated-1",
     "tool": "ghSearch",
     "input": {
@@ -1005,6 +1063,27 @@
             "validation"
           ],
           "pageSize": 10
+        }
+      ]
+    }
+  },
+  {
+    "id": "artifactSearch.curated-3",
+    "tool": "artifactSearch",
+    "input": {
+      "reasoning": "Use artifactSearch for the PyPI exact lookup (discovery unsupported) example.",
+      "type": "pypi",
+      "packageName": "requests"
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "goal": "Execute artifactSearch via fixture",
+          "reasoning": "Use artifactSearch for the PyPI exact lookup (discovery unsupported) example.",
+          "debug": false,
+          "type": "pypi",
+          "packageName": "requests"
         }
       ]
     }
@@ -2072,6 +2151,31 @@
     "id": "lspSearch.curated-4",
     "tool": "lspSearch",
     "input": {
+      "reasoning": "Use lspSearch for the file diagnostics (compile/type errors) example.",
+      "uri": "/ABS/repo/src/index.ts",
+      "operation": "diagnostic"
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "goal": "Execute lspSearch via fixture",
+          "reasoning": "Use lspSearch for the file diagnostics (compile/type errors) example.",
+          "debug": false,
+          "uri": "/ABS/repo/src/index.ts",
+          "operation": "diagnostic",
+          "orderHint": 0,
+          "includeDeclaration": true,
+          "page": 1,
+          "format": "structured"
+        }
+      ]
+    }
+  },
+  {
+    "id": "lspSearch.curated-5",
+    "tool": "lspSearch",
+    "input": {
       "reasoning": "Use lspSearch for the anchored variant.",
       "uri": "src/index.ts",
       "operation": "definition",
@@ -2098,7 +2202,7 @@
     }
   },
   {
-    "id": "lspSearch.curated-5",
+    "id": "lspSearch.curated-6",
     "tool": "lspSearch",
     "input": {
       "reasoning": "Use lspSearch for the position variant.",
@@ -2131,7 +2235,7 @@
     }
   },
   {
-    "id": "lspSearch.curated-6",
+    "id": "lspSearch.curated-7",
     "tool": "lspSearch",
     "input": {
       "reasoning": "Use lspSearch for the document variant.",
@@ -2156,7 +2260,7 @@
     }
   },
   {
-    "id": "lspSearch.curated-7",
+    "id": "lspSearch.curated-8",
     "tool": "lspSearch",
     "input": {
       "reasoning": "Use lspSearch for the workspace:uri variant.",
@@ -2183,7 +2287,7 @@
     }
   },
   {
-    "id": "lspSearch.curated-8",
+    "id": "lspSearch.curated-9",
     "tool": "lspSearch",
     "input": {
       "reasoning": "Use lspSearch for the workspace:root variant.",

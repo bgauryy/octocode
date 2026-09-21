@@ -205,6 +205,16 @@ fn page_scope(state: &Value) -> Option<Value> {
         .and_then(|rows| rows.first())
         .and_then(|row| row.get("data"))
         .and_then(Value::as_object)?;
+    // localFetch carries pagination on data; ghGetFileContent nests the same
+    // shape (pagination + sourceLineRanges) inside files[0].
+    let data = if data.contains_key("pagination") {
+        data
+    } else {
+        data.get("files")
+            .and_then(Value::as_array)
+            .and_then(|files| files.first())
+            .and_then(Value::as_object)?
+    };
     let pagination = data.get("pagination").and_then(Value::as_object)?;
     let chunk_type = pagination.get("chunkType").and_then(Value::as_str)?;
     match chunk_type {
@@ -684,6 +694,37 @@ mod tests {
                 }}) } else { json!(null) }
             }}]
         })
+    }
+
+    #[test]
+    fn gh_file_nested_pagination_receipt_includes_line_scope() {
+        // ghGetFileContent nests pagination + sourceLineRanges inside files[0].
+        let state = json!({
+            "results": [{"data": {
+                "owner": "o", "repo": "r",
+                "files": [{
+                    "path": "lib/a.js",
+                    "content": "...",
+                    "totalLines": 306,
+                    "isPartial": true,
+                    "pagination": {
+                        "chunkType": "lines",
+                        "offset": 100,
+                        "length": 50,
+                        "limit": 50,
+                        "totalLines": 306,
+                        "totalBytes": 9039,
+                        "hasMore": true,
+                        "nextOffset": 150
+                    },
+                    "sourceLineRanges": [{"start": 101, "end": 150}]
+                }]
+            }}]
+        });
+        let r = receipt("ghGetFileContent", &state);
+        assert_eq!(r["scope"]["startLine"], 101);
+        assert_eq!(r["scope"]["endLine"], 150);
+        assert_eq!(r["scope"]["totalLines"], 306);
     }
 
     #[test]
