@@ -170,7 +170,7 @@ async fn oversized_first_page_is_bounded_partial_without_a_looping_continuation(
 }
 
 #[tokio::test]
-async fn recoverable_full_content_error_follows_exact_pages_and_completes_coverage() {
+async fn max_chars_budgets_sanitized_resource_payload_not_serialized_envelope() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
@@ -179,11 +179,15 @@ async fn recoverable_full_content_error_follows_exact_pages_and_completes_covera
             "answers":{"answer":{"type":"noul","noul":0.8}},
             "usage":{"input_tokens":2,"output_tokens":1}
         })))
-        .expect(4)
+        .expect(5)
         .mount(&server)
         .await;
     let workspace = Workspace::new();
-    let file = workspace.write("large.txt", "x".repeat(60_000));
+    let marker = "FOURTH_PAGE_MARKER";
+    let file = workspace.write(
+        "large.txt",
+        format!("{}{}", "x".repeat(78_377 - marker.len()), marker),
+    );
     let runtime = workspace.runtime(&[
         ("OCTOCODE_JEV_KEY", "secret".into()),
         ("OCTOCODE_JEV_BASE_URL", server.uri()),
@@ -210,11 +214,18 @@ async fn recoverable_full_content_error_follows_exact_pages_and_completes_covera
     let cell = &query["results"][0];
     assert_eq!(cell["coverage"], "complete", "{cell}");
     let pages = cell["pages"].as_array().unwrap();
-    assert_eq!(pages.len(), 4, "{cell}");
+    assert_eq!(pages.len(), 5, "{cell}");
     assert_eq!(pages[0]["status"], "success");
     assert_eq!(pages[0]["context"]["coverage"], "partial");
-    assert_eq!(pages[3]["status"], "success");
-    assert_eq!(pages[3]["context"]["coverage"], "bounded");
+    assert_eq!(pages[4]["status"], "success");
+    assert_eq!(pages[4]["context"]["coverage"], "bounded");
+    let requests = server.received_requests().await.unwrap();
+    assert!(
+        requests
+            .iter()
+            .any(|request| String::from_utf8_lossy(&request.body).contains(marker)),
+        "the terminal source marker must reach semantic assessment"
+    );
     octocode_native::contracts::validate_output("semanticAssess", &outcome.structured_content)
         .expect("recovered semantic output contract");
     runtime.close().await;
@@ -269,5 +280,55 @@ async fn page_budget_continuation_round_trips_through_the_public_contract() {
     .expect("next.assess must execute unchanged");
     octocode_native::contracts::validate_output("semanticAssess", &outcome.structured_content)
         .expect("nested query-cell-page output");
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn payload_over_max_chars_returns_an_executable_assess_continuation() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/systemone"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "model":"resolved",
+            "answers":{"answer":{"type":"noul","noul":0.6}},
+            "usage":{"input_tokens":2,"output_tokens":1}
+        })))
+        .expect(5)
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let file = workspace.write("over-budget.txt", "x".repeat(80_001));
+    let runtime = workspace.runtime(&[
+        ("OCTOCODE_JEV_KEY", "secret".into()),
+        ("OCTOCODE_JEV_BASE_URL", server.uri()),
+        ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
+    ]);
+    let input = json!({
+        "id":"over-budget",
+        "reasoning":"Assess no more than the resource payload budget.",
+        "resources":[{"id":"file","maxChars":80_000,"context":{"tool":"localFetch","query":{
+            "path":file,"reasoning":"Read the complete file.","fullContent":true
+        }}}],
+        "questions":[{"id":"relevant","question":{"type":"noul","instructions":"Relevant?"}}]
+    });
+    let first = runtime
+        .execute("over-budget-first".into(), "semanticAssess".into(), input)
+        .await
+        .unwrap();
+    let assess = first.structured_content["queries"][0]["next"]["assess"].clone();
+    octocode_native::contracts::prepare_many_and_validate(
+        "semanticAssess",
+        assess.clone(),
+        octocode_native::contracts::PrepareOptions::default(),
+    )
+    .expect("next.assess must satisfy the public input contract");
+
+    let resumed = runtime
+        .execute("over-budget-resume".into(), "semanticAssess".into(), assess)
+        .await
+        .expect("next.assess must execute unchanged");
+    let resumed_query = &resumed.structured_content["queries"][0];
+    assert!(resumed_query.get("next").is_none(), "{resumed_query}");
+    assert_eq!(resumed_query["results"][0]["coverage"], "complete");
     runtime.close().await;
 }

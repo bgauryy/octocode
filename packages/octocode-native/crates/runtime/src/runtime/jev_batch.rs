@@ -55,6 +55,84 @@ fn bounded_prefix(state: &Value, context: &mut Value, max_chars: usize) -> Value
     Value::String(prefix)
 }
 
+fn logical_chars(value: &Value) -> usize {
+    match value {
+        Value::Null => 0,
+        Value::Bool(value) => value.to_string().chars().count(),
+        Value::Number(value) => value.to_string().chars().count(),
+        Value::String(value) => value.chars().count(),
+        Value::Array(values) => values.iter().map(logical_chars).sum(),
+        Value::Object(values) => values
+            .iter()
+            .map(|(key, value)| key.chars().count().saturating_add(logical_chars(value)))
+            .sum(),
+    }
+}
+
+fn tool_data_chars(data: &Value) -> usize {
+    let Some(fields) = data.as_object() else {
+        return logical_chars(data);
+    };
+    fields
+        .iter()
+        .filter(|(key, _)| key.as_str() != "next")
+        .map(|(key, value)| key.chars().count().saturating_add(logical_chars(value)))
+        .sum()
+}
+
+fn tool_payload(state: &Value) -> Value {
+    let Some(rows) = state.get("results").and_then(Value::as_array) else {
+        return state.clone();
+    };
+    let mut payload = rows
+        .iter()
+        .filter_map(|row| row.get("data"))
+        .cloned()
+        .collect::<Vec<_>>();
+    for data in &mut payload {
+        if let Some(fields) = data.as_object_mut() {
+            fields.remove("next");
+        }
+    }
+    if payload.len() == 1 {
+        payload.pop().unwrap_or(Value::Null)
+    } else {
+        Value::Array(payload)
+    }
+}
+
+/// Count the sanitized resource payload rather than its transport envelope.
+/// JSON punctuation, escaping, row wrappers, and executable continuations are
+/// control-plane overhead and must not reduce the caller's `maxChars` budget.
+fn assessed_payload_chars(source: &Value, state: &Value) -> usize {
+    if source.get("value").is_some() {
+        return state.to_string().chars().count();
+    }
+    state
+        .get("results")
+        .and_then(Value::as_array)
+        .map(|rows| {
+            rows.iter()
+                .filter_map(|row| row.get("data"))
+                .map(tool_data_chars)
+                .sum()
+        })
+        .unwrap_or_else(|| logical_chars(state))
+}
+
+fn bounded_payload_prefix(
+    source: &Value,
+    state: &Value,
+    context: &mut Value,
+    max_chars: usize,
+) -> Value {
+    if source.get("value").is_some() {
+        bounded_prefix(state, context, max_chars)
+    } else {
+        bounded_prefix(&tool_payload(state), context, max_chars)
+    }
+}
+
 fn capture_resource(
     resource: &Value,
     dispatcher: &DomainDispatcher,
@@ -89,7 +167,7 @@ fn capture_resource(
         }
         match super::jev_context::resolve(&source, dispatcher, execution) {
             Ok((state, receipt)) => {
-                let state_chars = state.to_string().chars().count();
+                let state_chars = assessed_payload_chars(&source, &state);
                 let remaining_chars = max_chars.saturating_sub(captured_chars);
                 if state_chars > remaining_chars && !pages.is_empty() {
                     remaining = Some(source);
@@ -97,7 +175,12 @@ fn capture_resource(
                 }
                 let mut context = receipt.unwrap_or_else(|| fallback_context(&source));
                 if state_chars > remaining_chars {
-                    let state = bounded_prefix(&state, &mut context, remaining_chars.max(1));
+                    let state = bounded_payload_prefix(
+                        &source,
+                        &state,
+                        &mut context,
+                        remaining_chars.max(1),
+                    );
                     pages.push(CapturedPage::Ready { state, context });
                     break;
                 }
@@ -306,6 +389,57 @@ pub(super) fn execute(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn supplied_value_budget_counts_object_keys_and_fields_named_next() {
+        let state = json!({"next":{"this-key-is-evidence":"retained"}});
+        let source = json!({"value":state});
+        assert_eq!(
+            assessed_payload_chars(&source, &state),
+            state.to_string().chars().count()
+        );
+    }
+
+    #[test]
+    fn tool_budget_excludes_only_the_canonical_data_continuation() {
+        let source = json!({"tool":"localFetch","query":{"path":"/tmp/source"}});
+        let first = json!({"results":[{"data":{
+            "content":{"next":"evidence"},
+            "next":{"continue":{"tool":"localFetch","query":{"path":"short"}}}
+        }}]});
+        let second = json!({"results":[{"data":{
+            "content":{"next":"evidence"},
+            "next":{"continue":{"tool":"localFetch","query":{"path":"a".repeat(10_000)}}}
+        }}]});
+        assert_eq!(
+            assessed_payload_chars(&source, &first),
+            assessed_payload_chars(&source, &second),
+            "continuation metadata must not consume the evidence budget"
+        );
+        assert!(
+            assessed_payload_chars(&source, &first) >= "contentnextevidence".chars().count(),
+            "nested evidence named next must still consume the budget"
+        );
+    }
+
+    #[test]
+    fn oversized_tool_page_prefix_uses_sanitized_payload_not_envelope() {
+        let source = json!({"tool":"localFetch","query":{"path":"/tmp/source"}});
+        let state = json!({
+            "results":[{"index":0,"data":{
+                "content":"deciding-marker",
+                "next":{"continue":{"tool":"localFetch","query":{"path":"a".repeat(10_000)}}}
+            }}],
+            "base":"/tmp"
+        });
+        let mut context = json!({"next":{"continue":true}});
+        let prefix = bounded_payload_prefix(&source, &state, &mut context, 100);
+        let prefix = prefix.as_str().expect("bounded prefix string");
+        assert!(prefix.contains("deciding-marker"));
+        assert!(!prefix.contains("results"));
+        assert!(!prefix.contains("continue"));
+        assert!(context.get("next").is_none());
+    }
 
     #[test]
     fn completed_page_chain_is_complete_even_when_intermediate_receipts_are_partial() {

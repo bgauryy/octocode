@@ -121,7 +121,7 @@ For independent matrices, wrap complete query objects in `queries`:
 
 ## Output and pagination
 
-The runtime automatically preserves ordered same-resource pages as separate `pages[]` entries. It does not average, vote, or otherwise reduce page answers. Correlate every result by `queryId`, `resourceId`, `questionId`, and `pageIndex`.
+The runtime automatically preserves ordered same-resource pages as separate `pages[]` entries. `maxChars` budgets sanitized evidence payload, not repeated result-envelope or continuation metadata; supplied `context.value` objects retain full serialized-size accounting. It does not average, vote, or otherwise reduce page answers. Correlate every result by `queryId`, `resourceId`, `questionId`, and `pageIndex`.
 
 Each resource-question result reports `coverage` as `complete`, `partial`, or `error`. Successful pages include `requestedModel` and `resolvedModel` separately, because a requested Jev model alias can resolve to a different provider model. Retain error pages and incomplete coverage; they are part of the result, not noise.
 

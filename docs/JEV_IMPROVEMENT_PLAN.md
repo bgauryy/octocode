@@ -1,6 +1,6 @@
 # `semanticAssess` implementation plan
 
-Status: implemented and integration-verified in the working tree as of 2026-09-21. The public contract, native runtime, CLI, MCP, Pi-facing docs, skills, and provider lab now use the single `semanticAssess` surface. The canonical core was committed at `a169eeb5`; native contracts were regenerated without an override and report `sourceDirty:false` with fingerprint `4fd4e81f2d54…`. The clean-provenance test and contract-sync check pass. The [semantic assessment reference](OCTOCODE_SEMANTIC_ASSESS.md) describes the current public contract, [JEV.md](../.octocode/JEV.md) indexes frozen provider-era experiments, and [GOTCHAS](../.octocode/GOTCHAS.md) records operational lessons.
+Status: implemented and integration-verified as of 2026-09-21. The public contract, native runtime, CLI, MCP, Pi-facing docs, skills, and provider lab use the single `semanticAssess` surface. The canonical core is clean at `beaaf142`; native contracts report `sourceDirty:false` with fingerprint `9043f2839a10…`. Clean-provenance and contract-sync checks pass. The [semantic assessment reference](OCTOCODE_SEMANTIC_ASSESS.md) describes the public contract, [JEV.md](../.octocode/JEV.md) indexes frozen provider-era experiments, and [GOTCHAS](../.octocode/GOTCHAS.md) records operational lessons.
 
 ## Audit Reasoning — fix-and-keep (2026-09-20)
 
@@ -11,13 +11,13 @@ Status: implemented and integration-verified in the working tree as of 2026-09-2
 
 ### Implemented verification snapshot — 2026-09-21
 
-- Canonical core: 189/189 tests passed, including direct and batched SemanticQuery validation, primitive null boundaries, matrix limits, and nested output schemas.
-- Native: focused semantic runtime, CLI, catalog, provider, contract-relation, generated-corpus, identity, and clean-provenance tests passed; `cargo check` and contract sync passed.
-- Built path: native, CLI, and MCP development builds passed. CLI tests passed 109/109; MCP tests passed 181/181.
-- Availability: an isolated real MCP process registered 10 tools without a key and omitted `semanticAssess`; with a nonblank key it registered 11 and included `semanticAssess`. The CLI kept the command discoverable, returned exit 5 without a key, and named `OCTOCODE_JEV_KEY` plus the setup URL. The removed `jev` command returned an unknown-subcommand error.
+- Canonical core: 195/195 tests passed, including direct and batched SemanticQuery validation, primitive null boundaries, matrix limits, complete field descriptions, and selector-deduplicated defaults.
+- Native: 349/349 library tests, 7/7 semantic integration tests, the 641-test engine suite (one intentional ignore), `cargo check`, formatting, clean provenance, and contract sync passed.
+- Built path: native, CLI, and MCP development builds passed. CLI tests passed 109/109; MCP tests passed 182/182.
+- Availability: an isolated real MCP process passed 14/14 checks with 11 tools when the key was absent and omitted `semanticAssess`; with a resolved key it passed 15/15 checks with all 12 tools and included `semanticAssess`. The CLI kept the command discoverable, returned exit 5 without a key, and named `OCTOCODE_JEV_KEY` plus the setup URL. The removed `jev` command returned an unknown-subcommand error.
 - Live provider matrix: two resources × three questions produced six correlated cells. Noul, Choice, and Score all returned native answer objects; the observed requested model was `jev-latest` and the resolved model was `jev-1.13.0`.
 - Live batch: two independent SemanticQuery objects retained their query IDs and produced separate nested results.
-- Live resource pagination: a 95,004-byte local document produced two explicit page-local answers, `coverage:"partial"`, and a schema-valid `next.assess` containing only `{tool,query}` context keys. Running the continuation preserved correlation and leaked no source body; the terminal page returned `coverage:"complete"` with no continuation.
+- Live resource pagination: `maxChars` now charges sanitized evidence payload rather than repeated result-envelope and continuation metadata. A 78,377-character local document produced five explicit page-local answers, reached the deciding final-page marker at Noul 0.98, and returned `coverage:"complete"` with no continuation. A true 80,001-character payload returns a schema-valid `next.assess`; running it unchanged completes the remaining page without leaking the source body.
 - Skills and docs: research, semantic assessment, RFC, Chrome, and scraping skills passed their self-tests and a five-skill review with zero errors or warnings. Documentation verification passed.
 - Benchmark/dev tooling: the Jev lab passed 8/8 tests while preserving raw provider payloads and requested/resolved model provenance. The benchmark package passed 19/19 TypeScript, 67/67 Python, and 97/97 advanced-research tests; its bundled skill passes the zero-error structural gate (remaining notices are advisory cleanup for historical reference length/navigation).
 
