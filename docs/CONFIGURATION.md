@@ -122,13 +122,13 @@ Changes take effect on the **next request** — no restart needed.
 gh auth login     # one-time setup with the gh CLI
 ```
 
-That's it. When Octocode finds no other token, it calls `gh auth token` as a fallback. Nothing to configure in Octocode.
+That's it. When Octocode finds no other token, it calls `gh auth token` as a fallback.
 
 ---
 
 ### Token priority order
 
-Octocode checks these sources in order and stops at the first non-empty value. The following table lists them by priority:
+Octocode checks these sources in order and stops at the first non-empty value:
 
 | # | Type | Source | How to set |
 |---|------|--------|-----------|
@@ -169,8 +169,6 @@ To override it for all products at once, set `OCTOCODE_HOME`:
 ```bash
 export OCTOCODE_HOME=/custom/path
 ```
-
-The following table lists the persistent files and cache directories inside the home directory:
 
 | Path | What it does |
 |------|-------------|
@@ -359,7 +357,7 @@ To write this automatically, run `npx octocode install --ide cursor`. The `--ide
 
 ### Third-party keys
 
-Set these in `~/.octocode/.env` or in your shell. Skills read them; the MCP server and CLI do not. The following table lists each key and its default:
+Set these in `~/.octocode/.env` or in your shell. Skills read them; the MCP server and CLI do not.
 
 | Key | Default | Notes |
 |-----|---------|-------|
@@ -416,7 +414,7 @@ request timeout and retries are configured with `REQUEST_TIMEOUT` /
 
 ### Protected keys — never sourced from `.env`
 
-Octocode **always ignores** these keys when loading `~/.octocode/.env` or a project `.env`, whatever their values. Set them in your shell, CI environment, or the MCP `env` block instead. The following table lists each key and the reason it is protected:
+Octocode **always ignores** these keys when loading `~/.octocode/.env` or a project `.env`, whatever their values. Set them in your shell, CI environment, or the MCP `env` block instead.
 
 | Key | Why protected |
 |-----|---------------|
@@ -433,8 +431,8 @@ Octocode **always ignores** these keys when loading `~/.octocode/.env` or a proj
 | `NODE_OPTIONS` | Node.js runtime flags — a security risk if `.env` could override them |
 | `PYTHON` | Python interpreter path |
 | `GITHUB_API_URL` | GitHub API root — set it in your shell or `.octocoderc` (`github.apiUrl`), never `.env`, so an untrusted project cannot redirect API traffic |
-| `OCTOCODE_CLASSIFICATION_API` | Classification provider credential — set it in your shell or `.octocoderc` (`classification.api`), never `.env` |
-| `OCTOCODE_CLASSIFICATION_API_HOST` | Optional override of the selected vendor's API root — set it in your shell or `.octocoderc` (`classification.apiHost`), never `.env`; controls where the key is sent |
+| `OCTOCODE_CLASSIFICATION_API` (or the jev vendor alias `OCTOCODE_JEV_KEY`) | Classification provider credential — set it in your shell, `.octocoderc` (`classification.api`), or the trusted home `.env` (`~/.octocode/.env`); never a project `.env`. Credential-only; excluded from resolved config |
+| `OCTOCODE_CLASSIFICATION_API_HOST` | Optional override of the selected vendor's API root — set it in your shell, `.octocoderc` (`classification.apiHost`), or the trusted home `.env`; never a project `.env`; controls where the key is sent |
 | `OCTOCODE_CLASSIFICATION_TYPE` | Classification vendor selector (`classification.type`, default `jev`); per-vendor model/host/endpoint defaults are built in |
 
 ---

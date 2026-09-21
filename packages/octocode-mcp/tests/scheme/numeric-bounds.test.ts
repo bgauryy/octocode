@@ -1,9 +1,9 @@
 import { z } from 'zod';
 import { describe, expect, it } from 'vitest';
-import { FileContentQueryBaseLocalSchema } from '@octocodeai/config/schema';
+import { FileContentQueryLocalSchema } from '@octocodeai/config/schema';
 import { GitHubCodeSearchQueryLocalSchema } from '@octocodeai/config/schema';
 import { GitHubReposSearchSingleQueryLocalSchema } from '@octocodeai/config/schema';
-import { GitHubPullRequestSearchQueryLocalSchema } from '@octocodeai/config/schema';
+import { SearchPullRequestsLocalSchema } from '@octocodeai/config/schema';
 import { GitHubViewRepoStructureQueryLocalSchema } from '@octocodeai/config/schema';
 import { ArtifactSearchQueryLocalSchema } from '@octocodeai/config/schema';
 import { LocalFetchContentQuerySchema } from '@octocodeai/config/schema';
@@ -15,10 +15,10 @@ import { LspSearchQuerySchema } from '@octocodeai/config/schema';
 const SENTINEL = 9007199254740991;
 
 const schemas: Record<string, z.ZodTypeAny> = {
-  'fileContent(remote)': FileContentQueryBaseLocalSchema,
+  'fileContent(remote)': FileContentQueryLocalSchema,
   'code(remote)': GitHubCodeSearchQueryLocalSchema,
   'repos(remote)': GitHubReposSearchSingleQueryLocalSchema,
-  'pullRequests(remote)': GitHubPullRequestSearchQueryLocalSchema,
+  'pullRequests(remote)': SearchPullRequestsLocalSchema,
   'viewRepoStructure(remote)': GitHubViewRepoStructureQueryLocalSchema,
   'artifactSearch(remote)': ArtifactSearchQueryLocalSchema,
   'fetchContent(local)': LocalFetchContentQuerySchema,
@@ -77,7 +77,7 @@ describe('numeric schema fields are bounded (#C1)', () => {
   });
 
   it('rejects contextLines above the documented maximum', () => {
-    const r = FileContentQueryBaseLocalSchema.safeParse({
+    const r = FileContentQueryLocalSchema.safeParse({
       owner: 'o',
       repo: 'r',
       path: 'a.ts',
@@ -100,7 +100,8 @@ describe('numeric schema fields are bounded (#C1)', () => {
   it('pullRequests: content.patches.ranges line arrays are bounded (reject above the cap)', () => {
     // The SENTINEL is above the 1e9 line-number cap -> rejected as too_big,
     // and the cap is never the ±MAX_SAFE_INTEGER sentinel.
-    const r = GitHubPullRequestSearchQueryLocalSchema.safeParse({
+    const r = SearchPullRequestsLocalSchema.safeParse({
+      reasoning: 'exercise patch line bounds',
       owner: 'o',
       repo: 'r',
       prNumber: 1,
@@ -128,7 +129,8 @@ describe('numeric schema fields are bounded (#C1)', () => {
     }
 
     // A value exactly at the cap is accepted.
-    const ok = GitHubPullRequestSearchQueryLocalSchema.safeParse({
+    const ok = SearchPullRequestsLocalSchema.safeParse({
+      reasoning: 'exercise patch line bounds',
       owner: 'o',
       repo: 'r',
       prNumber: 1,

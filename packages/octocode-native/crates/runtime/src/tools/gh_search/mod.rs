@@ -240,8 +240,11 @@ pub async fn execute<R: CredentialResolver, C: crate::providers::github::Conditi
             let total = data.total_count.min(1000);
             let pages = total.div_ceil(per);
             let more = current < pages;
+            let provider_incomplete = data.incomplete_results;
+            let provider_capped = data.total_count > 1000;
             let repositories=data.items.into_iter().map(|r| { let (o,n)=r.full_name.split_once('/').unwrap_or(("",&r.name)); json!({"owner":o,"repo":n,"stars":r.stargazers_count,"forks":r.forks_count,"language":r.language,"license":r.license.and_then(|v|v.spdx_id),"description":r.description,"pushedAt":date(r.pushed_at),"createdAt":date(r.created_at),"updatedAt":date(r.updated_at),"topics":r.topics}) }).collect::<Vec<_>>();
-            let mut value = json!({"operation":"repositories","repositories":repositories,"pagination":{"currentPage":current,"totalPages":pages,"perPage":per,"totalMatches":total,"totalMatchesCapped":data.total_count>total,"hasMore":more,"nextPage":more.then_some(current+1)}});
+            let repositories_empty = repositories.is_empty();
+            let mut value = json!({"operation":"repositories","repositories":repositories,"pagination":{"currentPage":current,"totalPages":pages,"perPage":per,"totalMatches":total,"totalMatchesCapped":provider_capped,"hasMore":more,"nextPage":more.then_some(current+1)}});
             if !more && let Some(page) = value.get_mut("pagination").and_then(Value::as_object_mut)
             {
                 page.remove("nextPage");
@@ -255,15 +258,34 @@ pub async fn execute<R: CredentialResolver, C: crate::providers::github::Conditi
             apply_partial(
                 &mut value,
                 query,
-                data.incomplete_results,
-                data.total_count > 1000,
+                provider_incomplete,
+                provider_capped,
                 current,
                 "repositories",
             );
-            Ok(value.into())
+            Ok(repository_output(
+                value,
+                repositories_empty,
+                provider_incomplete,
+                provider_capped,
+            ))
         }
         GhSearchQuery::Tree { .. } => tree::execute(provider, query, context, home).await,
     }
+}
+
+fn repository_output(
+    value: Value,
+    repositories_empty: bool,
+    provider_incomplete: bool,
+    provider_capped: bool,
+) -> ToolData {
+    let mut output = ToolData::from(value);
+    if repositories_empty && !provider_incomplete && !provider_capped {
+        output.status = Some("empty");
+        output.data["hints"] = json!(["Broaden keywords or remove repository filters."]);
+    }
+    output
 }
 
 fn reject_window(page: usize, per: usize) -> Result<(), ProviderError> {
@@ -372,6 +394,29 @@ mod tests {
                 .expect("GitHub search test data should be valid");
         }
     }
+    #[test]
+    fn complete_repository_zero_is_empty_but_partial_zero_is_not() {
+        let complete = repository_output(
+            json!({"operation":"repositories","repositories":[]}),
+            true,
+            false,
+            false,
+        );
+        assert_eq!(complete.status, Some("empty"));
+        assert!(complete.data["hints"][0].is_string());
+
+        for (incomplete, capped) in [(true, false), (false, true)] {
+            let partial = repository_output(
+                json!({"operation":"repositories","repositories":[]}),
+                true,
+                incomplete,
+                capped,
+            );
+            assert_eq!(partial.status, None);
+            assert!(partial.data.get("hints").is_none());
+        }
+    }
+
     #[test]
     fn incomplete_and_cap_are_losslessly_typed() {
         let query = serde_json::from_str::<GhSearchQuery>(

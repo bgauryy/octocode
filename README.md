@@ -14,9 +14,9 @@
 
 **Evidence-first tools, workflows, and runtime infrastructure for coding agents.**
 
-Octocode is an **agentic toolkit** for researching, changing, coordinating, and evaluating software work. It gives coding agents one evidence model across local code, GitHub, and package registries. The toolkit also includes reusable Agent Skills, CLI and MCP interfaces, native runtime primitives, coordination, host integrations, and evaluation infrastructure.
+Octocode is an **agentic toolkit** for researching, changing, coordinating, and evaluating software work. It gives coding agents one evidence model across local code, GitHub, and package registries — plus reusable Agent Skills, CLI and MCP interfaces, native runtime primitives, coordination, host integrations, and evaluation infrastructure.
 
-Start with the **CLI** or **MCP server**. Both use the same tool contracts and Rust-backed research engine, from exact file reads and text search to AST, repository topology, and LSP navigation. Add the other toolkit packages when you need durable skills, multi-agent coordination, a full Pi host, editor setup, or evaluation infrastructure.
+Start with the **CLI** or **MCP server**. Both use the same tool contracts and Rust-backed research engine, from exact file reads and text search to AST, repository topology, and LSP navigation. Reach for the other packages when a task needs them.
 
 ---
 
@@ -165,7 +165,8 @@ The toolkit has five layers:
 The research layer connects **local code** and **external code** on GitHub and package registries. Instead of returning a fixed blob, it lets the agent decide what evidence it needs next:
 
 - **Agent-driven, efficient flows.** Instead of one-shot dumps, Octocode chains cheap steps into an optimized research flow: broad code search, then fetch only the **exact matched lines/region**, with **smart pagination** and **out-of-the-box minification** so the model never over-fetches. Every result carries **next-step hints** to the cheapest follow-up.
-- **Scales to monorepos.** Spot a pattern in one repository, follow the PR that introduced it, then trace it across other repositories and your own files, without leaving the chat. Clone any repository and study it locally.
+- **Judge before you read (`clasify`).** The credential-gated `clasify` tool rates *unread* candidates with typed Noul / Choice / Score judgments and returns **only a verdict — no file bodies** — so the agent screens many files server-side and opens only the few that matter. Measured: **~25× less context** for a routing decision, **zero source bytes** returned, and real semantic reasoning (it caught a mixed-`%s` SQL-injection the surface pattern missed). It is a decision aid that routes reading, never proof. See [Semantic assessment](#semantic-assessment--clasify).
+- **Scales to monorepos.** Spot a pattern in one repository, follow the PR that introduced it, then trace it across other repositories and your own files, without leaving the chat.
 - **Smart GitHub flow.** Parallel bulk queries across code, PRs, commits, issues, and repositories, all with the same search-broad, read-narrow, trace-semantically discipline.
 - **Works without GitHub.** Clone any repository and point the local tools (search, AST, LSP, content) at it, same evidence-first flow.
 - **Reads shape, not noise.** On-the-fly best-effort minification across broad code/data formats, plus grammar-backed outlines for the 25 first-class extensions: a large file becomes focused evidence instead of walls of boilerplate.
@@ -256,11 +257,16 @@ or trees with its strict `operation` field.
 |------|--------------|
 | `lspSearch` | Typed semantic navigation: `definition`, `references`, `callers`, `callees`, `callHierarchy`, `hover`, `documentSymbols`, `typeDefinition`, `implementation`, `workspaceSymbol`, `supertypes`, `subtypes`, and `diagnostic`. From the CLI, invoke it directly: `npx octocode lspSearch '<json>'`. Navigation runs through installed language servers (see the [LSP tools reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md#lsp-tools-reference)). |
 
-### Semantic assessment
+### Semantic assessment — `clasify`
 
-| Tool | What it does |
-|------|--------------|
-| `clasify` | Applies Noul, Choice, or Score questions across `resources[] × questions[]`, or batches independent matrices in `queries[]`. Ordered same-resource pages are preserved without hidden reduction. MCP registers it only for a nonblank `OCTOCODE_JEV_KEY`; the result is a decision aid, never evidence. The direct CLI form is `npx octocode clasify --input request.json`. |
+**Judge before you read.** `clasify` rates *unread* candidates — GitHub or local files wrapped as a `resources[] × questions[]` matrix — and returns typed **Noul** (P(yes)), **Choice** (label + distribution), or **Score** (ordered level) judgments **without returning any file body**. Use it to decide *what* to read before you spend context on it, then read only what it selects.
+
+- **A context multiplier.** In a measured 6-file routing test it cut the decision from ~18,850 to ~760 tokens (**~25× less**): candidates are assessed server-side (21,694 provider tokens) and **zero source bytes** come back — only the typed verdict plus a `resultHash`.
+- **Real semantic judgment, not pattern-matching.** It flagged a mixed `%s` + raw-concat query as still SQL-injectable, recognized an `int()`-guarded f-string as safe, and caught a latent `IndexError` — **23/23** on a labeled + adversarial set, with honest mid-range scores on genuinely debatable cases.
+- **Composes with the read tools.** `context.tool` wraps one unread `ghSearch` / `ghGetFileContent` / `ghSearchHistory` / `ghGetHistoryItem` / `artifactSearch` / `localSearch` / `localFetch` / `astSearch` / `lspSearch` query (9 read tools). Up to 25 cells per matrix; big matrices are far cheaper per judgment and run concurrently.
+- **A decision aid, never evidence.** Its verdict routes reading — it does not prove a claim. Read the bytes it selects to confirm.
+
+MCP registers `clasify` only when `OCTOCODE_CLASSIFICATION_API` (or its `OCTOCODE_JEV_KEY` alias) resolves nonblank; a keyless CLI call explains how to set it. Direct CLI form: `npx octocode clasify --input request.json`.
 
 Full schemas, fields, and examples for every tool live in [`docs/OCTOCODE_TOOLS.md`](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md) (linked under [Documentation](#documentation)).
 
@@ -564,7 +570,7 @@ Website: **[octocode.ai](https://octocode.ai)** · Documentation hub: **[`docs/R
 ## Troubleshooting
 
 **Node.js or environment issues?**
-Run the built-in doctor command to check your environment:
+Run the built-in doctor command:
 
 ```bash
 npx node-doctor

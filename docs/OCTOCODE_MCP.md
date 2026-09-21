@@ -92,8 +92,6 @@ complete response and continuation rules, see the [Octocode tools reference](htt
 
 Use environment variables for per-client or per-project settings. Use `<octocode-home>/.octocoderc` for machine-level defaults. Environment variables win over file values.
 
-The following table lists the settings that matter most for MCP:
-
 | Setting | Default | Why it matters |
 |---------|---------|----------------|
 | `GITHUB_TOKEN` / `GH_TOKEN` / `OCTOCODE_TOKEN` | — | GitHub API auth. |

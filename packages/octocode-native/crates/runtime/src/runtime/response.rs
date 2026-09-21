@@ -172,11 +172,38 @@ fn fallback_hint(tool: &str, query: &Value) -> Option<&'static str> {
     }
 }
 
-fn add_fallback_hint(row: &mut Value, position: usize, tool: &str, queries: &[Value]) {
-    if row.get("status").and_then(Value::as_str) != Some("empty") {
-        return;
+fn error_fallback_hint(tool: &str, query: &Value, row: &Value) -> Option<&'static str> {
+    let code = row
+        .pointer("/data/errorCode")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if code.contains("auth") {
+        return Some("Authenticate or correct credentials; do not broaden the query.");
     }
-    if has_recovery(row) {
+    if code.contains("permission") || code.contains("forbidden") {
+        return Some("Verify access and token scopes; do not treat denial as absence.");
+    }
+    if code.contains("rate") {
+        return Some("Wait for Retry-After or the provider reset before retrying.");
+    }
+    if code.contains("timeout") || code.contains("transport") {
+        return Some("Retry once; if it persists, narrow scope and verify provider availability.");
+    }
+    if code.contains("snapshot") {
+        return Some("Discard prior pages and restart without the stale snapshot.");
+    }
+    if tool == "localFetch" && code.contains("fileaccess") {
+        return Some(
+            "Verify the path with astSearch operation:\"files\", then retry the exact path.",
+        );
+    }
+    fallback_hint(tool, query)
+}
+
+fn add_fallback_hint(row: &mut Value, position: usize, tool: &str, queries: &[Value]) {
+    let status = row.get("status").and_then(Value::as_str);
+    if !matches!(status, Some("empty" | "error")) || has_recovery(row) {
         return;
     }
     let index = row
@@ -184,7 +211,12 @@ fn add_fallback_hint(row: &mut Value, position: usize, tool: &str, queries: &[Va
         .and_then(Value::as_u64)
         .unwrap_or(position as u64) as usize;
     let query = queries.get(index).cloned().unwrap_or(Value::Null);
-    let Some(hint) = fallback_hint(tool, &query) else {
+    let hint = if status == Some("error") {
+        error_fallback_hint(tool, &query, row)
+    } else {
+        fallback_hint(tool, &query)
+    };
+    let Some(hint) = hint else {
         return;
     };
     let Some(data) = row.get_mut("data").and_then(record_mut) else {
@@ -1084,6 +1116,65 @@ mod tests {
         assert_eq!(
             row.pointer("/data/context/next/continue/query/debug"),
             Some(&json!(true))
+        );
+    }
+
+    #[test]
+    fn error_fallbacks_are_failure_class_aware_and_preserve_domain_recovery() {
+        let query = json!({"operation":"repositories","keywords":["octocode"]});
+        let mut timeout = json!({
+            "index": 0,
+            "status": "error",
+            "data": {"error":"timed out","errorCode":"timeout"}
+        });
+        apply_hint_policy(&mut timeout, "ghSearch", &query);
+        let hint = timeout["data"]["hints"][0].as_str().expect("hint");
+        assert!(hint.contains("Retry once"), "{timeout}");
+        assert!(!hint.contains("Broaden keywords"), "{timeout}");
+
+        let mut permission = json!({
+            "index": 0,
+            "status": "error",
+            "data": {"error":"forbidden","errorCode":"permission"}
+        });
+        apply_hint_policy(&mut permission, "ghSearch", &query);
+        assert!(
+            permission["data"]["hints"][0]
+                .as_str()
+                .is_some_and(|hint| hint.contains("token scopes")),
+            "{permission}"
+        );
+
+        let mut owned = json!({
+            "index": 0,
+            "status": "error",
+            "data": {
+                "error":"missing",
+                "errorCode":"notFound",
+                "hints":["Inspect the repository tree."]
+            }
+        });
+        apply_hint_policy(&mut owned, "ghSearch", &query);
+        assert_eq!(
+            owned["data"]["hints"],
+            json!(["Inspect the repository tree."])
+        );
+
+        let mut missing_path = json!({
+            "index": 0,
+            "status": "error",
+            "data": {"error":"missing","errorCode":"fileAccessFailed"}
+        });
+        apply_hint_policy(
+            &mut missing_path,
+            "localFetch",
+            &json!({"path":"/repo/missing.rs"}),
+        );
+        assert!(
+            missing_path["data"]["hints"][0]
+                .as_str()
+                .is_some_and(|hint| hint.contains("astSearch operation:\"files\"")),
+            "{missing_path}"
         );
     }
 

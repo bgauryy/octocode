@@ -113,7 +113,7 @@ pub(super) fn execute_local(
             }
         }
         "astSearch" => match execute_ast(query, paths, security, context) {
-            Ok(data) => Ok(domain_value(data, None)),
+            Ok(data) => Ok(value_result(data)),
             Err(error) => Ok(domain_error(
                 json!({"error":error.message,"errorCode":error.code,"hints":error.hints}),
                 error.next,
@@ -148,10 +148,28 @@ pub(super) fn value_result(data: Value) -> DomainResult {
 pub(super) fn provider_failure(
     message: String,
     code: String,
-    hints: Vec<String>,
+    mut hints: Vec<String>,
     http_status: Option<u16>,
 ) -> DomainResult {
-    let mut data = json!({"error":message,"errorCode":code,"hints":hints});
+    let retryable = matches!(code.as_str(), "timeout" | "provider_error")
+        || http_status.is_some_and(|status| status == 408 || status == 429 || status >= 500);
+    if hints.is_empty() {
+        hints.push(
+            match code.as_str() {
+                "authentication" => "Verify registry credentials and access, then retry.",
+                "rate_limit" => "Wait for the provider rate-limit reset before retrying.",
+                "timeout" => "Retry once; if it persists, verify registry availability.",
+                "invalid_query" => "Correct the package coordinate or query fields.",
+                "unsupported_capability" => {
+                    "Use the exact package lookup supported by this ecosystem."
+                }
+                _ if retryable => "Retry once; if it persists, verify registry availability.",
+                _ => "Verify provider configuration and the requested package coordinate.",
+            }
+            .into(),
+        );
+    }
+    let mut data = json!({"error":message,"errorCode":code,"hints":hints,"retryable":retryable});
     // Structured callers need the upstream HTTP status to distinguish e.g. a
     // registry 404 from a 429 without parsing prose (R8; optional — absence
     // is valid).
@@ -200,7 +218,39 @@ mod provider_failure_tests {
         );
         assert_eq!(with.data["httpStatus"], serde_json::json!(429));
         assert_eq!(with.data["errorCode"], "provider_error");
+        assert_eq!(with.data["retryable"], true);
+        assert!(with.data["hints"][0].is_string());
         let without = provider_failure("client-side".into(), "invalid_query".into(), vec![], None);
         assert!(without.data.get("httpStatus").is_none(), "absence is valid");
+        assert_eq!(without.data["retryable"], false);
+        assert!(
+            without.data["hints"][0]
+                .as_str()
+                .is_some_and(|hint| hint.contains("Correct the package coordinate")),
+            "{}",
+            without.data
+        );
+
+        for (code, status, retryable, hint_fragment) in [
+            ("authentication", Some(401), false, "credentials"),
+            ("rate_limit", Some(429), true, "rate-limit reset"),
+            ("timeout", None, true, "Retry once"),
+            (
+                "unsupported_capability",
+                None,
+                false,
+                "exact package lookup",
+            ),
+        ] {
+            let failure = provider_failure(format!("{code} failure"), code.into(), vec![], status);
+            assert_eq!(failure.data["retryable"], retryable, "{code}");
+            assert!(
+                failure.data["hints"][0]
+                    .as_str()
+                    .is_some_and(|hint| hint.contains(hint_fragment)),
+                "{code}: {}",
+                failure.data
+            );
+        }
     }
 }

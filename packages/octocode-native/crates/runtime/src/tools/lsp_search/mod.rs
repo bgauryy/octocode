@@ -1449,7 +1449,43 @@ fn recovery_next(query: &LspSearchQuery) -> Value {
 }
 
 fn attach_recovery_next(value: &mut Value, query: &LspSearchQuery) {
-    value["next"] = recovery_next(query);
+    value["next"]["readFile"] = recovery_next(query)["readFile"].clone();
+}
+
+fn failure_hint(query: &LspSearchQuery, code: &str) -> &'static str {
+    match code {
+        "lsp.serverUnavailable" => {
+            "Use astSearch symbols/match or localSearch for candidates, then localFetch exact source."
+        }
+        "lsp.capabilityUnavailable"
+            if matches!(query.operation.as_str(), "supertypes" | "subtypes") =>
+        {
+            "This server cannot prove type hierarchy; inspect declarations with astSearch and confirm exact source."
+        }
+        "lsp.capabilityUnavailable" => {
+            "Use the advertised LSP operations, or fall back to astSearch/localSearch and exact source reads."
+        }
+        "lsp.anchorUnresolved" => {
+            "Read the source, then provide an exact position or a unique symbolName with lineHint."
+        }
+        "lsp.timeout" => {
+            "Retry once after indexing settles; narrow workspaceRoot if the timeout persists."
+        }
+        "lsp.documentTooLarge" => {
+            "Use localSearch or astSearch to locate a bounded region, then read that exact source range."
+        }
+        _ => "Use astSearch or localSearch to locate candidates, then localFetch exact source.",
+    }
+}
+
+fn empty_hint(category: &str) -> &'static str {
+    match category {
+        "noLocations" => {
+            "Verify the symbol and anchor; then try references/definition alternatives or exact syntax/text search."
+        }
+        "unsupportedOperation" => "Choose an operation advertised by the lspSearch schema.",
+        _ => "Use astSearch or localSearch to locate candidates, then localFetch exact source.",
+    }
 }
 
 fn failure(
@@ -1465,11 +1501,16 @@ fn failure(
         "error": message,
         "type": query.operation,
         "lsp": { "serverAvailable": server_available },
-        "hints": [
-            "Use localSearch for text or astSearch operation:\"match\" for syntax, then localFetch for surrounding code."
-        ]
+        "hints": [failure_hint(query, code)]
     });
     value["uri"] = json!(canonical_uri);
+    if code == "lsp.timeout" {
+        value["next"]["retry"] = json!({
+            "tool": "lspSearch",
+            "query": serde_json::to_value(query).unwrap_or_else(|_| json!({})),
+            "confidence": "exact"
+        });
+    }
     if query.workspace_root.is_none() {
         attach_recovery_next(&mut value, query);
     }
@@ -1483,9 +1524,7 @@ fn empty(query: &LspSearchQuery, category: &str, reason: &str, server_available:
         "uri": query.uri,
         "lsp": { "serverAvailable": server_available },
         "payload": { "kind": "empty", "category": category, "reason": reason },
-        "hints": [
-            "Use localSearch for text or astSearch operation:\"match\" for syntax, then localFetch for surrounding code."
-        ]
+        "hints": [empty_hint(category)]
     })
 }
 
@@ -1860,6 +1899,12 @@ mod tests {
         let empty = super::with_next(&query, super::empty(&query, "noLocations", "none", true));
         assert_eq!(empty["status"], "empty");
         assert_eq!(empty["next"]["readFile"]["confidence"], "exact");
+        assert!(
+            empty["hints"][0]
+                .as_str()
+                .is_some_and(|hint| hint.contains("Verify the symbol and anchor")),
+            "{empty}"
+        );
         let down = super::failure(
             &query,
             "file:///repo/src/lib.rs",
@@ -1870,6 +1915,22 @@ mod tests {
         assert_eq!(down["status"], "error");
         assert_eq!(down["errorCode"], "lsp.serverUnavailable");
         assert_eq!(down["next"]["readFile"]["tool"], "localFetch");
+        assert!(
+            down["hints"][0]
+                .as_str()
+                .is_some_and(|hint| hint.contains("astSearch symbols/match")),
+            "{down}"
+        );
+
+        let timeout = super::failure(
+            &query,
+            "file:///repo/src/lib.rs",
+            "lsp.timeout",
+            "timed out",
+            false,
+        );
+        assert_eq!(timeout["next"]["retry"]["tool"], "lspSearch");
+        assert_eq!(timeout["next"]["readFile"]["tool"], "localFetch");
     }
 
     #[test]

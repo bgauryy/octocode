@@ -28,6 +28,55 @@ type Store = ChainedCredentialSource<PlatformCredentialStore, GhCliCredentialSou
 /// that had already drifted in punctuation (hyphen vs em dash).
 const PERMISSION_DENIED_MESSAGE: &str = "Access forbidden - insufficient permissions";
 
+fn provider_recovery_hint(kind: ProviderErrorKind) -> &'static str {
+    match kind {
+        ProviderErrorKind::Authentication => "Authenticate with GitHub, then retry.",
+        ProviderErrorKind::Permission => "Verify token scopes and repository access.",
+        ProviderErrorKind::NotFound => "Verify owner/repo/ref and the requested identifier.",
+        ProviderErrorKind::Validation => "Correct the invalid GitHub query fields.",
+        ProviderErrorKind::RateLimited => {
+            "Wait for Retry-After or the rate-limit reset before retrying."
+        }
+        ProviderErrorKind::Transport | ProviderErrorKind::Timeout | ProviderErrorKind::Server => {
+            "Retry the request; if it persists, verify network and GitHub availability."
+        }
+        ProviderErrorKind::Cancelled => "Retry only if the operation is still needed.",
+        ProviderErrorKind::ResponseTooLarge => "Narrow the requested GitHub scope.",
+        ProviderErrorKind::RedirectDenied => {
+            "Use the canonical allowed GitHub host and repository."
+        }
+        ProviderErrorKind::Decode => {
+            "Retry once; report a provider response incompatibility if it persists."
+        }
+        ProviderErrorKind::Configuration | ProviderErrorKind::CredentialStoreUnavailable => {
+            "Correct GitHub authentication and provider configuration."
+        }
+    }
+}
+
+fn apply_provider_error_metadata(data: &mut Value, error: &ProviderError) {
+    data["errorCode"] = serde_json::to_value(error.kind).unwrap_or_else(|_| json!("unknown"));
+    data["retryable"] = json!(error.retryable);
+    if let Some(status) = error.status {
+        data["httpStatus"] = json!(status);
+    }
+    if let Some(request_id) = &error.request_id {
+        data["requestId"] = json!(request_id);
+    }
+    if let Some(documentation_url) = &error.documentation_url {
+        data["documentationUrl"] = json!(documentation_url);
+    }
+    if let Some(rate_limit) = &error.rate_limit {
+        data["rateLimit"] = json!(rate_limit);
+        if let Some(retry_after) = rate_limit.retry_after_seconds {
+            data["retryAfterSeconds"] = json!(retry_after);
+        }
+    }
+    if data.get("hints").is_none() {
+        data["hints"] = json!([provider_recovery_hint(error.kind)]);
+    }
+}
+
 pub(super) struct GitHubServices {
     credentials: Arc<ConfigCredentialResolver<Store>>,
     provider: GitHubProvider<StaticCredentialResolver, GitHubContentCache>,
@@ -524,7 +573,7 @@ fn file_error(error: ProviderError, query: &Value) -> DomainResult {
     if let Some(reference) = query["branch"].as_str().filter(|value| !value.is_empty())
         && error.message.starts_with("No commit found")
     {
-        let data = json!({
+        let mut data = json!({
             "owner": owner,
             "repo": repo,
             "path": query["path"],
@@ -533,6 +582,7 @@ fn file_error(error: ProviderError, query: &Value) -> DomainResult {
                 "Verify the ref \"{reference}\" exists (branch, tag, or full commit SHA), or omit branch to use the default branch."
             )],
         });
+        apply_provider_error_metadata(&mut data, &error);
         return DomainResult {
             diagnostics: Default::default(),
             data,
@@ -593,6 +643,7 @@ fn file_error(error: ProviderError, query: &Value) -> DomainResult {
         }
         data["next"] = json!({ "viewTree": tree });
     }
+    apply_provider_error_metadata(&mut data, &error);
     DomainResult {
         diagnostics: Default::default(),
         data,
@@ -605,9 +656,11 @@ fn file_error(error: ProviderError, query: &Value) -> DomainResult {
 
 pub(super) fn provider_error(error: ProviderError) -> DomainResult {
     let failure = failure_kind(error.kind);
+    let mut data = json!({"error":error.message,"provider":error});
+    apply_provider_error_metadata(&mut data, &error);
     DomainResult {
         diagnostics: Default::default(),
-        data: json!({"error":error.message,"errorCode":error.kind,"provider":error}),
+        data,
         status: Some("error"),
         source_digest: None,
         failure: Some(failure),
@@ -651,8 +704,11 @@ fn search_error(error: ProviderError) -> DomainResult {
     if error.kind == ProviderErrorKind::Authentication {
         data["hints"] = json!(["octocode login, or set GITHUB_TOKEN / GH_TOKEN"]);
     } else if error.kind == ProviderErrorKind::RateLimited {
-        data["hints"] = json!(["Set GITHUB_TOKEN for higher rate limits (5000/hour vs 60/hour)"]);
+        data["hints"] = json!([
+            "Wait for Retry-After or the rate-limit reset; authenticate for a higher quota."
+        ]);
     }
+    apply_provider_error_metadata(&mut data, &error);
     DomainResult {
         diagnostics: Default::default(),
         data,
@@ -744,7 +800,7 @@ fn history_error(error: ProviderError, search: bool) -> DomainResult {
                 .unwrap_or(0)
         );
     }
-    if let Some(rate) = error.rate_limit {
+    if let Some(rate) = &error.rate_limit {
         if let Some(value) = rate.remaining
             && error.kind != ProviderErrorKind::RateLimited
         {
@@ -760,6 +816,7 @@ fn history_error(error: ProviderError, search: bool) -> DomainResult {
     if error.kind == ProviderErrorKind::Authentication {
         data["hints"] = json!(["octocode login, or set GITHUB_TOKEN / GH_TOKEN"]);
     }
+    apply_provider_error_metadata(&mut data, &error);
     DomainResult {
         diagnostics: Default::default(),
         data,
@@ -812,9 +869,13 @@ mod tests {
         );
         // Diagnostic signal is preserved as sibling fields, not nested.
         assert_eq!(data["status"], json!(422));
+        assert_eq!(data["httpStatus"], json!(422));
+        assert_eq!(data["errorCode"], json!("validation"));
+        assert_eq!(data["retryable"], false);
         assert_eq!(data["type"], json!("http"));
         assert!(data["scopesSuggestion"].is_string());
         assert_eq!(data["rateLimitRemaining"], json!(11));
+        assert!(data["hints"][0].is_string());
     }
 
     /// A ghGetFileContent request with an explicit ref that GitHub rejects
@@ -844,6 +905,9 @@ mod tests {
 
         assert_eq!(result.status, Some("error"));
         assert_eq!(result.failure, Some(FailureKind::NotFound));
+        assert_eq!(data["errorCode"], json!("notFound"));
+        assert_eq!(data["httpStatus"], json!(404));
+        assert_eq!(data["retryable"], false);
         assert_eq!(
             data["error"].as_str(),
             Some("Branch, tag, or SHA not found for a/b: \"no-such-branch\"")

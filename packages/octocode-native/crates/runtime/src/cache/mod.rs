@@ -246,7 +246,6 @@ mod tests {
             max_entries: 2,
             max_bytes: 5,
             ttl: Duration::from_secs(60),
-            ..Default::default()
         });
         let now = Instant::now();
         cache.insert(key("a", "x"), 1, 2, 1, now);
@@ -323,7 +322,10 @@ mod tests {
         let snapshot = cache.insert(key("a", "x"), 99, 4, 1, now);
         assert!(snapshot.is_none(), "max_entries=0 must refuse inserts");
         assert!(
-            matches!(cache.get(&key("a", "x"), 1, None, now), CacheLookup::Miss(CacheMiss::Absent)),
+            matches!(
+                cache.get(&key("a", "x"), 1, None, now),
+                CacheLookup::Miss(CacheMiss::Absent)
+            ),
             "refused insert must leave nothing readable"
         );
         assert_eq!(cache.stats().entries, 0);
@@ -338,7 +340,6 @@ mod tests {
             max_entries: 1,
             max_bytes: 100,
             ttl: Duration::from_secs(60),
-            ..Default::default()
         });
         let now = Instant::now();
 
@@ -379,7 +380,6 @@ mod tests {
             max_entries: 2,
             max_bytes: 1000,
             ttl: Duration::from_secs(60),
-            ..Default::default()
         });
         let now = Instant::now();
 
@@ -394,15 +394,24 @@ mod tests {
         cache.insert(key("c", "x"), 3, 4, 1, now);
 
         assert!(
-            matches!(cache.get(&key("a", "x"), 1, None, now), CacheLookup::Hit { .. }),
+            matches!(
+                cache.get(&key("a", "x"), 1, None, now),
+                CacheLookup::Hit { .. }
+            ),
             "touched entry 'a' must survive eviction"
         );
         assert!(
-            matches!(cache.get(&key("b", "x"), 1, None, now), CacheLookup::Miss(CacheMiss::Absent)),
+            matches!(
+                cache.get(&key("b", "x"), 1, None, now),
+                CacheLookup::Miss(CacheMiss::Absent)
+            ),
             "un-touched entry 'b' must be evicted"
         );
         assert!(
-            matches!(cache.get(&key("c", "x"), 1, None, now), CacheLookup::Hit { .. }),
+            matches!(
+                cache.get(&key("c", "x"), 1, None, now),
+                CacheLookup::Hit { .. }
+            ),
             "newest entry 'c' must survive"
         );
     }

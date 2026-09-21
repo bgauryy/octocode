@@ -1,6 +1,6 @@
 # Semantic assessment reference
 
-`clasify` applies bounded, typed semantic questions to supplied state or to an unread Octocode read request. It is a decision aid, not an evidence source: verify claims with the original source, an exact lookup, or a test before relying on them.
+**Judge before you read.** `clasify` rates *unread* candidates — files, search hits, or supplied text — with bounded, typed questions (Noul / Choice / Score) and returns **only a verdict, never file bodies**. An agent screens many resources server-side and opens only the few that matter, so a routing decision costs a fraction of the context that reading every candidate would. It is a decision aid, not an evidence source: verify claims with the original source, an exact lookup, or a test before relying on them.
 
 The public tool and CLI command are both named `clasify`. Jev remains the internal provider/model family and the environment variable remains `OCTOCODE_CLASSIFICATION_API`.
 

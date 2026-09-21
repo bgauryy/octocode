@@ -69,6 +69,7 @@ pub fn execute_match(
     let mut scan_truncated = false;
     let mut scan_diagnostics: Vec<StructuralDiagnostic> = Vec::new();
     let mut scan_skips = (0_u32, 0_u32, 0_u32);
+    let mut skipped_by_prefilter = 0_u32;
     let mut files = if meta.is_file() {
         let bytes = std::fs::read(&p.canonical).map_err(super::io_error)?;
         let s = security
@@ -121,6 +122,7 @@ pub fn execute_match(
         // Preserve the scan-level coverage signals the group projection drops.
         scan_truncated = r.scan_truncated;
         scan_skips = (r.skipped_unsupported, r.skipped_unreadable, r.skipped_large);
+        skipped_by_prefilter = r.skipped_by_pre_filter;
         scan_diagnostics = r.diagnostics;
         r.files
             .into_iter()
@@ -236,8 +238,25 @@ pub fn execute_match(
             groups.push(group);
         }
         if status != "ok" || !diagnostics.is_empty() {
-            all_diagnostics.extend(diagnostics.into_iter().map(diag));
+            // A literal prefilter can skip thousands of files. Preserve the
+            // coverage fact once below instead of returning one identical
+            // diagnostic for every skipped path.
+            all_diagnostics.extend(
+                diagnostics
+                    .into_iter()
+                    .filter(|diagnostic| diagnostic.code != "structural.prefilter.skipped")
+                    .map(diag),
+            );
         }
+    }
+    if skipped_by_prefilter > 0 {
+        all_diagnostics.push(json!({
+            "code":"structural.prefilter.skipped",
+            "severity":"info",
+            "stage":"scan",
+            "message":format!("Literal-anchor prefilter skipped AST parsing for {skipped_by_prefilter} file(s) that cannot contain the anchor."),
+            "recovery":"Use a YAML rule with no safe literal anchor only when every supported candidate must be parsed."
+        }));
     }
     // Surface scan-level coverage signals (skips, unsupported extensions) that
     // the group projection would otherwise discard.
@@ -284,7 +303,7 @@ pub fn execute_match(
             "code":"structural.query.noMatches",
             "severity":"info",
             "stage":"match",
-            "message":"0 structural matches for the requested pattern in this scope. Check the source syntax: a pattern must match a complete node, including relevant bodies (for example `$$$BODY`), return types, and decorators. For partial or relational matches, supply an explicit YAML `rule` instead of `pattern`.",
+            "message":"0 structural matches for the requested pattern in this scope. Patterns must be complete parseable nodes, including punctuation such as trailing semicolons and relevant bodies (`$$$BODY`), return types, or decorators. Confirm the node shape with treeKind:\"syntax\"; use an explicit YAML rule for partial or relational constraints.",
             "path":path
         }]);
     }
@@ -292,6 +311,9 @@ pub fn execute_match(
         scan_truncated || skipped_unsupported > 0 || skipped_unreadable > 0 || skipped_large > 0;
     out["truncated"] = json!(scan_truncated);
     out["complete"] = json!(!more && !incomplete);
+    if groups.is_empty() && !more && !incomplete {
+        out["status"] = json!("empty");
+    }
     if scan_truncated && !more {
         out["terminalLimit"] = json!(true);
     }

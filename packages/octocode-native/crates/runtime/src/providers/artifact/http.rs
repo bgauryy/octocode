@@ -273,14 +273,21 @@ impl RegistryClient<'_> {
             )
             .await?;
         let body = self.status(artifact_type, response, not_found_is_empty)?;
-        if anonymous && self.cache_enabled {
-            if let Some(bytes) = body.as_ref() {
-                let key = cache_key(&url);
-                artifact_cache()
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner())
-                    .insert(key, bytes.clone(), bytes.len(), self.cache_revision, Instant::now());
-            }
+        if anonymous
+            && self.cache_enabled
+            && let Some(bytes) = body.as_ref()
+        {
+            let key = cache_key(&url);
+            artifact_cache()
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .insert(
+                    key,
+                    bytes.clone(),
+                    bytes.len(),
+                    self.cache_revision,
+                    Instant::now(),
+                );
         }
         body.map(|bytes| {
             serde_json::from_slice(&bytes).map_err(|_| invalid_response(artifact_type))
@@ -487,9 +494,7 @@ mod tests {
             .await;
         assert_eq!(calls.load(Ordering::Relaxed), 1, "first call must hit HTTP");
         // Second call with the same URL — must hit HTTP again (nothing written to cache).
-        let _ = client
-            .json(ArtifactType::Npm, url, false, None)
-            .await;
+        let _ = client.json(ArtifactType::Npm, url, false, None).await;
         assert_eq!(
             calls.load(Ordering::Relaxed),
             2,
@@ -525,13 +530,21 @@ mod tests {
         let _ = client_rev1
             .json(ArtifactType::Npm, url.clone(), false, None)
             .await;
-        assert_eq!(calls.load(Ordering::Relaxed), 1, "revision-1 write must hit HTTP");
+        assert_eq!(
+            calls.load(Ordering::Relaxed),
+            1,
+            "revision-1 write must hit HTTP"
+        );
 
         // Read at the same revision — must be a cache hit (HTTP not called again).
         let _ = client_rev1
             .json(ArtifactType::Npm, url.clone(), false, None)
             .await;
-        assert_eq!(calls.load(Ordering::Relaxed), 1, "same-revision read must be a cache hit");
+        assert_eq!(
+            calls.load(Ordering::Relaxed),
+            1,
+            "same-revision read must be a cache hit"
+        );
 
         // Read at a newer revision — the stale entry must be evicted and HTTP called.
         let client_rev2 = RegistryClient {
@@ -540,9 +553,7 @@ mod tests {
             cache_revision: 2,
             cache_enabled: true,
         };
-        let _ = client_rev2
-            .json(ArtifactType::Npm, url, false, None)
-            .await;
+        let _ = client_rev2.json(ArtifactType::Npm, url, false, None).await;
         assert_eq!(
             calls.load(Ordering::Relaxed),
             2,

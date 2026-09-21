@@ -2432,7 +2432,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@octocodeai/config@workspace:packages/octocode-config"
   dependencies:
-    "@octocodeai/octocode-core": "npm:19.1.1"
+    "@octocodeai/octocode-core": "npm:19.1.2"
     "@types/node": "npm:^24.13.4"
     "@vitest/coverage-v8": "npm:^5.0.0"
     ajv: "npm:^8.20.0"
@@ -2485,12 +2485,12 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-core@npm:19.1.1":
-  version: 19.1.1
-  resolution: "@octocodeai/octocode-core@npm:19.1.1"
+"@octocodeai/octocode-core@npm:19.1.2":
+  version: 19.1.2
+  resolution: "@octocodeai/octocode-core@npm:19.1.2"
   dependencies:
     zod: "npm:^4.6.2"
-  checksum: 10c0/40cf96b5ca9764d0be8e9caefb069fab5c1ea46d554b43fb03862a43a43b0f3447d17c6a34a0718a36e5a9ae6c6992558f0490fdaae80880eaa8d37ad363e9b1
+  checksum: 10c0/f83b08c8b5756f55728cdb01898cd84f42be901a6aa81b1cbb45bea6480034b48efdebd925e7a66702ff25338fc073aa28a40806972e619253324350ea80c0a0
   languageName: node
   linkType: hard
 

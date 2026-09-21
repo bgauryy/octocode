@@ -97,6 +97,84 @@ fn descendant_policy_precedes_discovery_totals_and_line_reads() {
     assert!(!matches.to_string().contains("locked.ts"));
 }
 
+#[test]
+fn structural_zero_is_empty_with_actionable_pattern_guidance() {
+    let root = Fixture::new();
+    let source = root.0.join("source.ts");
+    std::fs::write(&source, "const answer = 42;\n").expect("source");
+    let paths = PathPolicy::new(PathPolicyConfig {
+        workspace_root: Some(root.0.clone()),
+        ..Default::default()
+    })
+    .expect("policy");
+    let security = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+
+    let missing = execute_ast(
+        json!({"operation":"match","path":source,"pattern":"const $A = $B"}),
+        &paths,
+        &security,
+        &Active,
+    )
+    .expect("structural zero");
+    assert_eq!(missing["status"], "empty", "{missing}");
+    assert_eq!(missing["complete"], true, "{missing}");
+    let guidance = missing["diagnostics"][0]["message"]
+        .as_str()
+        .expect("no-match guidance");
+    assert!(guidance.contains("trailing semicolons"), "{guidance}");
+    assert!(guidance.contains("treeKind:\"syntax\""), "{guidance}");
+
+    let found = execute_ast(
+        json!({"operation":"match","path":source,"pattern":"const $A = $B;"}),
+        &paths,
+        &security,
+        &Active,
+    )
+    .expect("structural match");
+    assert_eq!(found["stats"]["totalStructuralMatches"], 1, "{found}");
+    assert!(found.get("status").is_none(), "{found}");
+}
+
+#[test]
+fn directory_prefilter_skips_are_aggregated_once() {
+    let root = Fixture::new();
+    for name in ["one.ts", "two.ts", "three.ts"] {
+        std::fs::write(root.0.join(name), "const value = 1;\n").expect("source");
+    }
+    let paths = PathPolicy::new(PathPolicyConfig {
+        workspace_root: Some(root.0.clone()),
+        ..Default::default()
+    })
+    .expect("policy");
+    let security = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+    let result = execute_ast(
+        json!({
+            "operation":"match",
+            "path":root.0,
+            "langType":"typescript",
+            "pattern":"missingCall($A);"
+        }),
+        &paths,
+        &security,
+        &Active,
+    )
+    .expect("structural zero");
+    let prefilter = result["diagnostics"]
+        .as_array()
+        .expect("diagnostics")
+        .iter()
+        .filter(|diagnostic| diagnostic["code"] == "structural.prefilter.skipped")
+        .collect::<Vec<_>>();
+    assert_eq!(prefilter.len(), 1, "{result}");
+    assert!(
+        prefilter[0]["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("3 file(s)")),
+        "{result}"
+    );
+    assert_eq!(result["status"], "empty", "{result}");
+}
+
 #[cfg(unix)]
 #[test]
 fn escaped_links_are_pruned_before_line_counting() {
