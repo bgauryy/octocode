@@ -19,6 +19,7 @@ const {
   writeFileSync,
 } = require('fs');
 const { join } = require('path');
+const { tmpdir } = require('os');
 const { spawnSync } = require('child_process');
 const { getPlatformSuffix } = require('../bin/platform.cjs');
 
@@ -132,8 +133,11 @@ if (
   fail('binary does not embed the current lspSearch contract');
 }
 
+// Sandbox lives in the OS temp dir, never the package dir: a killed prepublish
+// (20s timeout / SIGKILL'd signed binary) must not leak a fixture that a later
+// `git add` could sweep into the committed tree.
 const fixture = realpathSync(
-  mkdtempSync(join(cwd, '.octocode-native-smoke-'))
+  mkdtempSync(join(tmpdir(), 'octocode-native-smoke-'))
 );
 try {
   const home = join(fixture, 'home');

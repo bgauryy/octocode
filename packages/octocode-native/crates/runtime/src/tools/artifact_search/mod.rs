@@ -37,6 +37,11 @@ pub async fn execute(
     cancellation: CancellationToken,
     allow_private_registry: bool,
     octocode_home: Option<&std::path::Path>,
+    /// Config revision forwarded to the in-process registry HTTP cache.
+    cache_revision: u64,
+    /// When `false` the in-process registry HTTP cache is bypassed entirely
+    /// (both reads and writes).  Mirrors `storage.mode == "persistent"`.
+    cache_enabled: bool,
 ) -> Result<Value, ArtifactError> {
     let mut query = query.clone();
     if let Some(object) = query.as_object_mut() {
@@ -87,6 +92,8 @@ pub async fn execute(
             budget: &budget,
             npm_registry: requested_registry.as_ref(),
             allow_private_registry,
+            cache_revision,
+            cache_enabled,
         },
     )
     .await?;

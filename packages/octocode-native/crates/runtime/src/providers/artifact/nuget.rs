@@ -429,6 +429,8 @@ mod tests {
         let client = RegistryClient {
             http: &http,
             budget: &b,
+            cache_revision: 0,
+            cache_enabled: false,
         };
         let q = ArtifactQuery {
             artifact_type: ArtifactType::Nuget,
@@ -489,6 +491,8 @@ mod tests {
         let client = RegistryClient {
             http: &http,
             budget: &b,
+            cache_revision: 0,
+            cache_enabled: false,
         };
         let q = ArtifactQuery {
             artifact_type: ArtifactType::Nuget,

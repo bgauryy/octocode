@@ -314,6 +314,8 @@ mod tests {
         let client = RegistryClient {
             http: &http,
             budget: &b,
+            cache_revision: 0,
+            cache_enabled: false,
         };
         let page = maven(&guava_query(), &ArtifactProviderState::default(), &client)
             .await
@@ -379,6 +381,8 @@ mod tests {
         let client = RegistryClient {
             http: &http,
             budget: &b,
+            cache_revision: 0,
+            cache_enabled: false,
         };
         let q = ArtifactQuery {
             artifact_type: ArtifactType::Maven,
@@ -409,6 +413,8 @@ mod tests {
         let client = RegistryClient {
             http: &http,
             budget: &b,
+            cache_revision: 0,
+            cache_enabled: false,
         };
         let q = ArtifactQuery {
             artifact_type: ArtifactType::Maven,

@@ -529,6 +529,8 @@ mod tests {
         let client = RegistryClient {
             http: &http,
             budget: &b,
+            cache_revision: 0,
+            cache_enabled: false,
         };
         let q = exact_query(ArtifactType::PyPi, "requests");
         let page = pypi(&q, &client).await.expect("pypi");
@@ -559,6 +561,8 @@ mod tests {
         let client = RegistryClient {
             http: &http,
             budget: &b,
+            cache_revision: 0,
+            cache_enabled: false,
         };
         let q = exact_query(ArtifactType::Crates, "serde");
         let page = crates(&q, &ArtifactProviderState::default(), &client)
@@ -586,6 +590,8 @@ mod tests {
         let client = RegistryClient {
             http: &http,
             budget: &b,
+            cache_revision: 0,
+            cache_enabled: false,
         };
         let q = exact_query(ArtifactType::Go, "github.com/gin-gonic/gin");
         let page = go(&q, &ArtifactProviderState::default(), &client)
@@ -621,6 +627,8 @@ mod tests {
         let client = RegistryClient {
             http: &http,
             budget: &b,
+            cache_revision: 0,
+            cache_enabled: false,
         };
         let q = exact_query(ArtifactType::Packagist, "laravel/framework");
         let page = packagist(&q, &ArtifactProviderState::default(), &client)
@@ -650,6 +658,8 @@ mod tests {
         let client = RegistryClient {
             http: &http,
             budget: &b,
+            cache_revision: 0,
+            cache_enabled: false,
         };
         let q = exact_query(ArtifactType::Rubygems, "rails");
         let page = rubygems(&q, &ArtifactProviderState::default(), &client)

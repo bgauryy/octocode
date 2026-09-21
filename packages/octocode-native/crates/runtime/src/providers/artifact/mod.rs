@@ -24,6 +24,13 @@ pub struct ArtifactProviderContext<'a> {
     pub npm_registry: Option<&'a ResolvedNpmRegistry>,
     /// Opt-in escape hatch for the npm registry SSRF guard (see NetworkConfig).
     pub allow_private_registry: bool,
+    /// Config revision forwarded to the in-process registry cache.  A revision
+    /// bump (e.g. after `storage.mode` or token changes) causes stale cache
+    /// entries to be evicted on the next access.
+    pub cache_revision: u64,
+    /// When `false` the in-process registry HTTP cache is bypassed entirely
+    /// (both reads and writes).  Set to `false` when `storage.mode=="memory"`.
+    pub cache_enabled: bool,
 }
 
 pub async fn execute_artifact(
@@ -33,6 +40,8 @@ pub async fn execute_artifact(
     let client = RegistryClient {
         http: context.http,
         budget: context.budget,
+        cache_revision: context.cache_revision,
+        cache_enabled: context.cache_enabled,
     };
     // Cursors are opaque continuation state; a cursor that does not parse is
     // caller-constructed or stale and must fail loudly instead of silently

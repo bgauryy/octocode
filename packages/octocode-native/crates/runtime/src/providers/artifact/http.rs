@@ -383,11 +383,34 @@ mod tests {
         }
     }
 
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// An `ArtifactHttp` impl that records every call and returns a fixed body.
+    struct CountingHttp {
+        calls: Arc<AtomicUsize>,
+        body: Vec<u8>,
+    }
+
+    impl ArtifactHttp for CountingHttp {
+        fn get<'a>(
+            &'a self,
+            _request: ArtifactHttpRequest,
+            _budget: &'a RequestBudget,
+        ) -> ArtifactHttpFuture<'a> {
+            self.calls.fetch_add(1, Ordering::Relaxed);
+            let body = self.body.clone();
+            Box::pin(async move { Ok(ArtifactHttpResponse { status: 200, body }) })
+        }
+    }
+
     fn classify(status: u16) -> Result<Option<Vec<u8>>, ArtifactError> {
         let budget = RequestBudget::with_timeout(Duration::from_secs(10), 10_000_000);
         let client = RegistryClient {
             http: &NoHttp,
             budget: &budget,
+            cache_revision: 0,
+            cache_enabled: false,
         };
         client.status(
             ArtifactType::Npm,
@@ -438,6 +461,93 @@ mod tests {
         let limited = classify(429).expect_err("429");
         assert_eq!(limited.code, "rate_limit");
         assert_eq!(limited.status, Some(429));
+    }
+
+    /// `cache_enabled: false` must bypass the in-process cache on both reads
+    /// and writes: consecutive anonymous calls for the same URL always reach
+    /// the HTTP layer.
+    #[tokio::test]
+    async fn cache_disabled_skips_cache_for_reads_and_writes() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let http = CountingHttp {
+            calls: Arc::clone(&calls),
+            body: b"{\"name\":\"test\"}".to_vec(),
+        };
+        let budget = RequestBudget::with_timeout(Duration::from_secs(10), 10_000_000);
+        let client = RegistryClient {
+            http: &http,
+            budget: &budget,
+            cache_revision: 42,
+            cache_enabled: false, // <-- cache must be skipped
+        };
+        let url = Url::parse("https://cache-disabled-test.invalid/pkg").expect("test URL");
+        // First call — must hit HTTP.
+        let _ = client
+            .json(ArtifactType::Npm, url.clone(), false, None)
+            .await;
+        assert_eq!(calls.load(Ordering::Relaxed), 1, "first call must hit HTTP");
+        // Second call with the same URL — must hit HTTP again (nothing written to cache).
+        let _ = client
+            .json(ArtifactType::Npm, url, false, None)
+            .await;
+        assert_eq!(
+            calls.load(Ordering::Relaxed),
+            2,
+            "second call must hit HTTP when cache_enabled=false"
+        );
+    }
+
+    /// When `cache_revision` advances, entries written under the previous
+    /// revision must not be served — the `BoundedCache` revision check treats
+    /// them as stale and evicts them on the next access.
+    #[tokio::test]
+    async fn cache_revision_change_invalidates_stale_entries() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let http = CountingHttp {
+            calls: Arc::clone(&calls),
+            body: b"{\"name\":\"serde\"}".to_vec(),
+        };
+        let budget = RequestBudget::with_timeout(Duration::from_secs(10), 10_000_000);
+        // Use a URL unlikely to collide with other parallel tests.
+        let url = Url::parse(&format!(
+            "https://cache-revision-test.invalid/pkg-{}",
+            std::process::id()
+        ))
+        .expect("test URL");
+
+        // Populate the cache at revision 1.
+        let client_rev1 = RegistryClient {
+            http: &http,
+            budget: &budget,
+            cache_revision: 1,
+            cache_enabled: true,
+        };
+        let _ = client_rev1
+            .json(ArtifactType::Npm, url.clone(), false, None)
+            .await;
+        assert_eq!(calls.load(Ordering::Relaxed), 1, "revision-1 write must hit HTTP");
+
+        // Read at the same revision — must be a cache hit (HTTP not called again).
+        let _ = client_rev1
+            .json(ArtifactType::Npm, url.clone(), false, None)
+            .await;
+        assert_eq!(calls.load(Ordering::Relaxed), 1, "same-revision read must be a cache hit");
+
+        // Read at a newer revision — the stale entry must be evicted and HTTP called.
+        let client_rev2 = RegistryClient {
+            http: &http,
+            budget: &budget,
+            cache_revision: 2,
+            cache_enabled: true,
+        };
+        let _ = client_rev2
+            .json(ArtifactType::Npm, url, false, None)
+            .await;
+        assert_eq!(
+            calls.load(Ordering::Relaxed),
+            2,
+            "incremented revision must invalidate the cached entry"
+        );
     }
 
     #[tokio::test]
