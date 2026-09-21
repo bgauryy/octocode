@@ -426,7 +426,7 @@ pub fn search_files_detailed_filtered(
                     "structural.prefilter.skipped",
                     "info",
                     "scan",
-                    "Literal anchor was absent, so AST parsing was skipped.",
+                    "File excluded by the text pre-filter (it does not contain the pattern's anchor literal), so AST parsing was skipped.",
                 )
                 .with_recovery("Remove the literal prefilter by using a rule with no safe anchor if every file must be parsed."),
             ));

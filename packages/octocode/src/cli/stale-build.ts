@@ -62,6 +62,9 @@ export function maybeWarnAboutStaleBuild(
 ): void {
   const env = options.env ?? process.env;
   if (warningShown || env.OCTOCODE_NO_STALE_BUILD_WARNING) return;
+  // Piped output (2>&1 pipelines, JSON consumers) must stay clean; the nudge
+  // is for humans at an interactive terminal only.
+  if (!options.warn && !process.stderr.isTTY) return;
   warningShown = true;
   const staleSource = findStaleSourceInput(
     options.currentFile ?? fileURLToPath(import.meta.url)

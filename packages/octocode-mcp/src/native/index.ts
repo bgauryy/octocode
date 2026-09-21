@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
+import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/server';
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 import {
@@ -194,12 +195,31 @@ export function createNativeMcp({
       void runtime.close();
       throw new Error(`Native catalog tool has no contract: ${tool.name}`);
     }
+    // CLI and the native runtime accept a bare single query (the envelope
+    // rule wraps it). Normalize the same convenience here before SDK
+    // validation so one working query ports across surfaces; the advertised
+    // contract stays the canonical queries[] envelope, and clasify keeps its
+    // own bare-or-batch union.
+    const inputSchema =
+      tool.name === 'clasify'
+        ? definition.inputSchema
+        : z.preprocess(
+            input =>
+              input &&
+              typeof input === 'object' &&
+              !Array.isArray(input) &&
+              !('queries' in input) &&
+              Object.keys(input).length > 0
+                ? { queries: [input] }
+                : input,
+            definition.inputSchema
+          );
     registerTool(
       tool.name,
       {
         title: definition.title,
         description: definition.description,
-        inputSchema: definition.inputSchema,
+        inputSchema,
         annotations: definition.annotations,
       },
       async (args, context = {}) => {
