@@ -11,24 +11,24 @@ use octocode_native::config::RuntimeSurface;
 use octocode_native::runtime::{HostOptions, ToolRuntime};
 
 #[tokio::test]
-async fn ordinary_tools_allow_omitted_reasoning_but_reject_blank_values() {
+async fn ordinary_tools_require_nonempty_reasoning() {
     let workspace = Workspace::new();
     let path = workspace.write("reasoning.txt", "ok\n");
     let runtime = workspace.runtime(&[]);
     let path = path.to_string_lossy().into_owned();
-    let outcome = runtime
+
+    // Omitting reasoning entirely is rejected (required since core 19.1.1).
+    let error = runtime
         .execute(
             "reasoning-omitted".into(),
             "localFetch".into(),
             json!({"path":path}),
         )
         .await
-        .expect("ordinary tools allow omitted reasoning");
-    assert_eq!(
-        outcome.structured_content["results"][0]["data"]["content"],
-        "ok\n"
-    );
+        .expect_err("omitted reasoning must be rejected");
+    assert_eq!(error.code, "invalidInput");
 
+    // Blank reasoning (whitespace-only) is also rejected.
     let error = runtime
         .execute(
             "reasoning-blank".into(),
@@ -38,6 +38,20 @@ async fn ordinary_tools_allow_omitted_reasoning_but_reject_blank_values() {
         .await
         .expect_err("blank reasoning must be rejected when supplied");
     assert_eq!(error.code, "invalidInput");
+
+    // Valid reasoning succeeds.
+    let outcome = runtime
+        .execute(
+            "reasoning-valid".into(),
+            "localFetch".into(),
+            json!({"path":path,"reasoning":"Read the fixture."}),
+        )
+        .await
+        .expect("valid reasoning must be accepted");
+    assert_eq!(
+        outcome.structured_content["results"][0]["data"]["content"],
+        "ok\n"
+    );
     runtime.close().await;
 }
 

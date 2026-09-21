@@ -220,6 +220,7 @@ Useful flags:
 | `--upgrade` | Refresh changed bundled content in the canonical store. Managed copies refresh only when they still match the previous canonical content; arbitrary destination drift remains a conflict. |
 | `--dry-run` | Preview actions without writing. |
 | `--fix` | `check` only: repair missing/broken installed locations. |
+| `--workspace` | `check` only: also check the workspace `<cwd>/.agents/skills` directory. |
 | `--no-env` | `check` only: skip skill environment-readiness checks. |
 
 Skill actions use the subcommands above; removed flag forms are rejected with

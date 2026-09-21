@@ -18,6 +18,10 @@ pub static PATTERNS: &[Pattern] = &[
         file_context: None,
     },
     Pattern {
+        name: "openaiApiKeyClassic",
+        file_context: None,
+    },
+    Pattern {
         name: "openaiProjectApiKey",
         file_context: None,
     },
@@ -1256,6 +1260,7 @@ pub static PATTERNS: &[Pattern] = &[
 pub static REFERENCE_REGEX_SET: LazyLock<RegexSet> = LazyLock::new(|| {
     RegexSetBuilder::new([
         r###"\b(sk-[a-zA-Z0-9_-]+T3BlbkFJ[a-zA-Z0-9_-]+)\b"###,
+        r###"\bsk-[a-zA-Z0-9]{40,}\b"###,
         r###"\bsk-proj-[a-zA-Z0-9_-]{20,}\b"###,
         r###"\bsk-svcacct-[a-zA-Z0-9_-]{20,}\b"###,
         r###"\bsk-admin-[a-zA-Z0-9_-]{20,}\b"###,
@@ -1574,6 +1579,7 @@ pub static REFERENCE_REGEX_SET: LazyLock<RegexSet> = LazyLock::new(|| {
 /// Raw regex strings, index-aligned with PATTERNS.
 pub static PATTERN_STRINGS: &[&str] = &[
     r###"\b(sk-[a-zA-Z0-9_-]+T3BlbkFJ[a-zA-Z0-9_-]+)\b"###,
+    r###"\bsk-[a-zA-Z0-9]{40,}\b"###,
     r###"\bsk-proj-[a-zA-Z0-9_-]{20,}\b"###,
     r###"\bsk-svcacct-[a-zA-Z0-9_-]{20,}\b"###,
     r###"\bsk-admin-[a-zA-Z0-9_-]{20,}\b"###,

@@ -4,6 +4,13 @@ Internal guide. When present, prefer each package's `ARCHITECTURE.md` / `AGENTS.
 
 ---
 
+## Git — hard rules
+
+- **NEVER `git commit`.** Leave changes in the working tree; the human (or the checkpoint bot) owns commits. A background process runs `git add -A` continuously, so any `git commit` sweeps unrelated in-flight work into your commit under the wrong message. Never run it.
+- **NEVER `git stash`.** It silently hides other sessions' uncommitted work and races the checkpoint bot. Use targeted reads/edits instead; to compare against a baseline, read from `git show <rev>:<path>` — do not stash.
+
+---
+
 ## Dogfood — always, no exceptions
 
 **This repo ships the tools. Use them on themselves.**

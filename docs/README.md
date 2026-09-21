@@ -33,10 +33,11 @@ Use this page to find the document that owns each topic. The root [README](../RE
 | Acceptance criteria for public tool quality | [Tool quality and agent workflow acceptance](MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md) |
 | Repository-wide contributor rules and package map | [AGENTS.md](../AGENTS.md) |
 | Development and release scripts | [Scripts reference](../scripts/README.md) |
+| Owner-triggered release checklist and gates | [Release checklist](RELEASE.md) |
 
 ## Package guides
 
-The monorepo contains 10 primary workspace packages. Read the package README for its public purpose and its architecture page for ownership, dependencies, and invariants.
+The monorepo contains 10 primary workspace packages. The [package overview](PACKAGES.md) explains the runtime flow and each package's role; read the package README for its public purpose and its architecture page for ownership, dependencies, and invariants.
 
 | Package | Purpose | Guides |
 |---------|---------|--------|
