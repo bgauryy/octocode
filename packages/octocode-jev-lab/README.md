@@ -13,7 +13,7 @@ Add `--repeat 5 --concurrency 2` for a small latency sample, or `--compact` for
 one-line JSON. `--input -` reads a manifest from stdin.
 
 The probe uses the same trusted global Octocode environment loader as the rest
-of the workspace. A shell `OCTOCODE_JEV_KEY` wins; otherwise the key may come
+of the workspace. A shell `OCTOCODE_CLASSIFICATION_API` wins; otherwise the key may come
 from the global Octocode `.env`. Project `.env` files are intentionally ignored.
 
 ## Manifest

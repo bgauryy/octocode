@@ -105,7 +105,7 @@ export const SKILL_ENV_PARAMS: Record<string, EnvParam[]> = {
   'octocode-rfc-generator': [
     ...GITHUB_TOKEN_PARAMS,
     {
-      key: 'OCTOCODE_JEV_KEY',
+      key: 'OCTOCODE_CLASSIFICATION_API',
       description: 'Semantic assessment — optional two-agent RFC review',
       required: 'optional',
       link: 'https://console.typesafe.ai/keys',

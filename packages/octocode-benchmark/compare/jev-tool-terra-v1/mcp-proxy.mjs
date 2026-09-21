@@ -112,7 +112,7 @@ async function main() {
   const allowed = [...READ_TOOLS, ...(config.arm === 'candidate' ? ['jev'] : [])];
   const env = { ...process.env, TOOLS_TO_RUN: allowed.join(','), ENABLE_LOCAL: 'false', ENABLE_CLONE: 'false', ENABLE_AST_REWRITE_APPLY: 'false' };
   delete env.JEV_BENCH_CONFIG;
-  if (config.arm === 'baseline') env.OCTOCODE_JEV_KEY = '';
+  if (config.arm === 'baseline') env.OCTOCODE_CLASSIFICATION_API = '';
   const downstream = new Client({ name: 'jev-tool-terra-proxy', version: '1.0.0' }, { capabilities: {} });
   const transport = new StdioClientTransport({ command: process.execPath, args: [config.entrypoint], cwd: config.cwd, env, stderr: 'pipe' });
   // Downstream stderr is not a credential-safe receipt surface. Drain without recording.

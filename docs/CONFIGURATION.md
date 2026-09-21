@@ -306,7 +306,7 @@ Every setting in `.octocoderc` also has an **env var** — env vars always win. 
 
 Unknown top-level and nested keys emit a warning with their full path. This makes misspellings such as `local.enableLocl` visible instead of silently falling back to a default.
 
-`tools.enabled` / `TOOLS_TO_RUN` is a strict allowlist. Example: ["ghSearch", "localSearch", "artifactSearch"]. `tools.disabled` / `DISABLE_TOOLS` removes names from the default set. An allowlist cannot bypass availability policy: MCP still omits `semanticAssess` unless `OCTOCODE_JEV_KEY` resolves to a nonblank value, and a CLI call without the key returns an actionable setup error.
+`tools.enabled` / `TOOLS_TO_RUN` is a strict allowlist. Example: ["ghSearch", "localSearch", "artifactSearch"]. `tools.disabled` / `DISABLE_TOOLS` removes names from the default set. An allowlist cannot bypass availability policy: MCP still omits `semanticAssess` unless `OCTOCODE_CLASSIFICATION_API` resolves to a nonblank value, and a CLI call without the key returns an actionable setup error.
 
 ---
 
@@ -433,9 +433,9 @@ Octocode **always ignores** these keys when loading `~/.octocode/.env` or a proj
 | `NODE_OPTIONS` | Node.js runtime flags — a security risk if `.env` could override them |
 | `PYTHON` | Python interpreter path |
 | `GITHUB_API_URL` | GitHub API root — set it in your shell or `.octocoderc` (`github.apiUrl`), never `.env`, so an untrusted project cannot redirect API traffic |
-| `OCTOCODE_JEV_KEY` | Jev provider credential — set it in your shell or `.octocoderc` (`jev.key`), never `.env` |
-| `OCTOCODE_JEV_BASE_URL` | Jev API root — set it in your shell or `.octocoderc` (`jev.baseUrl`), never `.env`; controls where the key is sent |
-| `OCTOCODE_JEV_MODEL` | Jev model override — set it in your shell or `.octocoderc` (`jev.model`), never `.env` |
+| `OCTOCODE_CLASSIFICATION_API` | Classification provider credential — set it in your shell or `.octocoderc` (`classification.api`), never `.env` |
+| `OCTOCODE_CLASSIFICATION_API_HOST` | Optional override of the selected vendor's API root — set it in your shell or `.octocoderc` (`classification.apiHost`), never `.env`; controls where the key is sent |
+| `OCTOCODE_CLASSIFICATION_TYPE` | Classification vendor selector (`classification.type`, default `jev`); per-vendor model/host/endpoint defaults are built in |
 
 ---
 

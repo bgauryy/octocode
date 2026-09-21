@@ -130,7 +130,7 @@ export async function prepareExperiment(spec, inputPath, env = process.env) {
     );
   }
 
-  const model = spec.model ?? env.OCTOCODE_JEV_MODEL ?? DEFAULT_MODEL;
+  const model = spec.model ?? env.JEV_LAB_MODEL ?? DEFAULT_MODEL;
   if (typeof model !== 'string' || !model.trim()) fail('model must be non-blank.');
   const resourceMode = hasResources ? (spec.resourceMode ?? 'matrix') : 'direct';
   if (hasResources && !['matrix', 'combined'].includes(resourceMode)) {
@@ -192,13 +192,13 @@ export function resolveEndpoint(baseUrl = DEFAULT_BASE_URL) {
 }
 
 export async function sendJev(body, options = {}) {
-  const key = options.key ?? process.env.OCTOCODE_JEV_KEY;
+  const key = options.key ?? process.env.OCTOCODE_CLASSIFICATION_API;
   if (typeof key !== 'string' || !key.trim()) {
-    fail('OCTOCODE_JEV_KEY is required.');
+    fail('OCTOCODE_CLASSIFICATION_API is required.');
   }
   const timeoutMs = positiveInteger(options.timeoutMs, 'timeoutMs', 60_000);
   const endpoint = resolveEndpoint(
-    options.baseUrl ?? process.env.OCTOCODE_JEV_BASE_URL ?? DEFAULT_BASE_URL,
+    options.baseUrl ?? process.env.OCTOCODE_CLASSIFICATION_API_HOST ?? DEFAULT_BASE_URL,
   );
   const started = performance.now();
   const response = await fetch(endpoint, {

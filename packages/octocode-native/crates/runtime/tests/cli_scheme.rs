@@ -10,7 +10,7 @@ fn scheme_catalog_is_machine_only_with_availability_scoping() {
     let workspace = Workspace::new();
     for enabled in [false, true] {
         let env = if enabled {
-            vec![("OCTOCODE_JEV_KEY", "fixture-key".into())]
+            vec![("OCTOCODE_CLASSIFICATION_API", "fixture-key".into())]
         } else {
             vec![]
         };
@@ -29,7 +29,7 @@ fn scheme_catalog_is_machine_only_with_availability_scoping() {
         let mut command = workspace.cli();
         command.args(["scheme", "--compact"]);
         if enabled {
-            command.env("OCTOCODE_JEV_KEY", "fixture-key");
+            command.env("OCTOCODE_CLASSIFICATION_API", "fixture-key");
         }
         let output = command.output().expect("scheme command");
         assert!(output.status.success(), "{output:?}");

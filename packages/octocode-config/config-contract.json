@@ -290,41 +290,44 @@
         }
       }
     },
-    "jev": {
-      "title": "Jev reasoning",
+    "classification": {
+      "title": "Classification provider",
       "file": true,
-      "resolved": false,
+      "resolved": true,
       "fields": {
-        "key": {
+        "type": {
+          "type": "enum",
+          "typeName": "ClassificationVendor",
+          "enumStyle": "quotedOr",
+          "valuesConstant": "CLASSIFICATION_VENDORS",
+          "values": ["jev"],
+          "description": "Classification vendor. Per-vendor defaults (host, model, endpoint) are built in.",
+          "env": {
+            "OCTOCODE_CLASSIFICATION_TYPE": { "priority": 0, "dotenv": "home", "normalize": "trim", "invalid": "skip" }
+          },
+          "displayDefault": "jev"
+        },
+        "api": {
           "type": "string",
           "default": null,
           "credential": true,
-          "description": "TypeSafe Jev API key fallback.",
+          "description": "Classification provider API key (bearer credential).",
           "env": {
-            "OCTOCODE_JEV_KEY": { "priority": 0, "dotenv": "home", "normalize": "trim" }
+            "OCTOCODE_CLASSIFICATION_API": { "priority": 0, "dotenv": "home", "normalize": "trim" },
+            "OCTOCODE_JEV_KEY": { "priority": 1, "dotenv": "home", "normalize": "trim" }
           },
           "displayDefault": "unset",
-          "notes": "Never appears in ResolvedConfig; shell environment wins over the trusted home config file."
+          "notes": "Never appears in ResolvedConfig; shell environment wins over the trusted home config file. OCTOCODE_JEV_KEY is the vendor-native alias for the jev provider."
         },
-        "model": {
-          "type": "string",
-          "default": null,
-          "credential": true,
-          "description": "Optional Jev model override.",
-          "env": {
-            "OCTOCODE_JEV_MODEL": { "priority": 0, "dotenv": "home", "normalize": "trim" }
-          },
-          "displayDefault": "jev-latest"
-        },
-        "baseUrl": {
+        "apiHost": {
           "type": "url",
           "default": null,
           "credential": true,
-          "description": "Optional trusted Jev API root.",
+          "description": "Optional override of the selected vendor's default API root.",
           "env": {
-            "OCTOCODE_JEV_BASE_URL": { "priority": 0, "dotenv": "home", "normalize": "trim" }
+            "OCTOCODE_CLASSIFICATION_API_HOST": { "priority": 0, "dotenv": "home", "normalize": "trim" }
           },
-          "displayDefault": "https://api.typesafe.ai",
+          "displayDefault": "vendor default (jev: https://api.typesafe.ai)",
           "notes": "Requires HTTP or HTTPS at config validation; provider policy may require HTTPS except loopback."
         }
       }

@@ -23,7 +23,7 @@ node packages/octocode/out/octocode.js scheme ghGetHistoryItem --view query
 ```
 
 The discovery catalog contains 12 tools, with 10 enabled by default when no Jev provider key is resolved and clone is not enabled. Enabled tools depend on local-tool,
-clone, storage, allowlist, and credential-gated `semanticAssess` settings. MCP omits that tool when `OCTOCODE_JEV_KEY` is absent or blank. Record the effective configuration and
+clone, storage, allowlist, and credential-gated `semanticAssess` settings. MCP omits that tool when `OCTOCODE_CLASSIFICATION_API` is absent or blank. Record the effective configuration and
 unavailable capabilities with each acceptance run. Enabling a tool does not
 install its external language server or grant provider access.
 

@@ -55,7 +55,7 @@ patch reviews, frozen manifests and transcripts are retained under
 | `jevReasoning` | Source-path claims that can avoid substantial host reading, or unresolved evidence-based choices | Cheap exact checks; unchanged votes |
 | `jevScout` | Filtering candidate files can avoid expensive irrelevant reads | A known cheap target; using skip to prove absence |
 
-These retired tools required `OCTOCODE_JEV_KEY` and returned provider-billed `usage` per call. A
+These retired tools required `OCTOCODE_CLASSIFICATION_API` and returned provider-billed `usage` per call. A
 `blocked` or `needs_evidence` outcome is a correct result: retrieve what it
 names instead of reframing the packet. Scout verdicts are provisional — reopen
 the returned anchors before asserting anything, and never report absence from a
@@ -113,7 +113,7 @@ polarity-trap miss ("removes the implementation" matched a distractor titled
 ## Reproduce
 
 ```sh
-export OCTOCODE_JEV_KEY=...           # or ~/.octocode/.env
+export OCTOCODE_CLASSIFICATION_API=...           # or ~/.octocode/.env
 cd .octocode/octocode-eval-benchmark/jevpeek-scout
 node heldout-runner.mjs [--native]    # find-the-file suite (JS or native tool)
 node bugbench6-runner.mjs             # 6-issue suite, native, timed

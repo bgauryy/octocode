@@ -25,9 +25,9 @@ Pass arguments as an object. Direct MCP uses `{ "queries": [query] }`; CLI also 
 | Repeated cross-file GitHub analysis | `ghCloneRepo` when enabled |
 | Local text / syntax or topology / structural rewrite / exact content / symbol identity | `localSearch` / `astSearch` / `astRewrite` / `localFetch` / `lspSearch` |
 | Package metadata or capability discovery | `artifactSearch` |
-| Provisional typed judgment at an unresolved evidence fork | `semanticAssess` when a nonblank `OCTOCODE_JEV_KEY` is resolved |
+| Provisional typed judgment at an unresolved evidence fork | `semanticAssess` when a nonblank `OCTOCODE_CLASSIFICATION_API` is resolved |
 
-The default catalog contains 10 tools. The full CLI discovery catalog also includes opt-in `ghCloneRepo` and credential-gated `semanticAssess`. MCP omits `semanticAssess` when the resolved `OCTOCODE_JEV_KEY` is missing or blank; a direct CLI assessment names the missing key. Local access, clone, storage, credentials, and tool filters determine availability. Check the live catalog before using a follow-up. Check auth only when needed. If the current interface is unavailable, state the fallback and its coverage; do not present an unsupported call as an empty result.
+The default catalog contains 10 tools. The full CLI discovery catalog also includes opt-in `ghCloneRepo` and credential-gated `semanticAssess`. MCP omits `semanticAssess` when the resolved `OCTOCODE_CLASSIFICATION_API` is missing or blank; a direct CLI assessment names the missing key. Local access, clone, storage, credentials, and tool filters determine availability. Check the live catalog before using a follow-up. Check auth only when needed. If the current interface is unavailable, state the fallback and its coverage; do not present an unsupported call as an empty result.
 
 ## Output and recovery
 - CLI output is structured JSON (indented by default; `--compact` for one line). MCP returns text plus structured data. Inspect per-row status: error is failure, empty is scoped absence, and exit 0 alone does not establish success for every row.

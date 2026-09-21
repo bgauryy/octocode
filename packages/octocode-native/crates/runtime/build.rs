@@ -66,6 +66,24 @@ fn to_snake(value: &str) -> String {
     to_screaming_snake(value).to_ascii_lowercase()
 }
 
+/// Rust struct-field identifier for a config key, escaping reserved words as
+/// raw identifiers so keys like `type` compile. `#[serde(rename_all = "camelCase")]`
+/// still serializes the raw ident to its JSON key (serde strips the `r#`).
+fn rust_ident(value: &str) -> String {
+    let snake = to_snake(value);
+    const RESERVED: &[&str] = &[
+        "as", "break", "const", "continue", "crate", "dyn", "else", "enum", "extern", "false",
+        "fn", "for", "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub",
+        "ref", "return", "self", "Self", "static", "struct", "super", "trait", "true", "type",
+        "unsafe", "use", "where", "while", "async", "await",
+    ];
+    if RESERVED.contains(&snake.as_str()) {
+        format!("r#{snake}")
+    } else {
+        snake
+    }
+}
+
 fn to_pascal(value: &str) -> String {
     value
         .split('.')
@@ -363,7 +381,7 @@ fn render_structs(
         let mut members = all_fields
             .iter()
             .filter(|field| field.section == section_path && field.resolved)
-            .map(|field| Ok((to_snake(field.key), rust_field_type(field.definition)?)))
+            .map(|field| Ok((rust_ident(field.key), rust_field_type(field.definition)?)))
             .collect::<Result<Vec<_>, Box<dyn Error>>>()?;
         for child_path in direct_children(section_path, sections) {
             let child = object(
@@ -377,7 +395,7 @@ fn render_structs(
                     .rsplit('.')
                     .next()
                     .ok_or_else(|| invalid(format!("invalid child section {child_path}")))?;
-                members.push((to_snake(key), rust_type_name(&child_path, child)?));
+                members.push((rust_ident(key), rust_type_name(&child_path, child)?));
             }
         }
         if let Some(existing) = rendered.get(&type_name) {
@@ -413,7 +431,7 @@ fn render_structs(
         writeln!(
             output,
             "    pub {}: {},",
-            to_snake(field.key),
+            rust_ident(field.key),
             rust_field_type(field.definition)?
         )?;
     }
@@ -428,7 +446,7 @@ fn render_structs(
             writeln!(
                 output,
                 "    pub {}: {},",
-                to_snake(&child_path),
+                rust_ident(&child_path),
                 rust_type_name(&child_path, child)?
             )?;
         }

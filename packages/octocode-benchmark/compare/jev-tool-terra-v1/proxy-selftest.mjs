@@ -17,7 +17,7 @@ async function connect(arm, id) {
   writeFileSync(configPath, JSON.stringify({ version: 1, arm, entrypoint: join(here, 'fixtures/fake-mcp.mjs'),
     runDir: dir, cwd: dir, requestTimeoutMs: 5000 }));
   const env = { PATH: process.env.PATH, HOME: dir, OCTOCODE_HOME: dir,
-    JEV_BENCH_CONFIG: configPath, OCTOCODE_JEV_KEY: 'fixture-key-no-provider' };
+    JEV_BENCH_CONFIG: configPath, OCTOCODE_CLASSIFICATION_API: 'fixture-key-no-provider' };
   const client = new Client({ name: 'proxy-selftest', version: '1' }, { capabilities: {} });
   const transport = new StdioClientTransport({ command: process.execPath, args: [join(here, 'mcp-proxy.mjs')], env, stderr: 'pipe' });
   transport.stderr?.resume();

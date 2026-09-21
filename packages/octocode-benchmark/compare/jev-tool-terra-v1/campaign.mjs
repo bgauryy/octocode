@@ -58,11 +58,11 @@ function runtimeEnv(runDir){
   propagateOctocodeEnv({env,trusted:false,cwd:root});
   // Match native home-tier Jev policy; generic JS propagation still protects these keys.
   const globalConfig=loadOctocodeEnv({home:getOctocodeHome(),trusted:false}).map;
-  for(const key of ['OCTOCODE_JEV_KEY','OCTOCODE_JEV_MODEL','OCTOCODE_JEV_BASE_URL'])if(!env[key]&&globalConfig[key])env[key]=globalConfig[key];
-  if(!env.OCTOCODE_JEV_KEY)throw new Error('Jev credential unavailable before launch');
+  for(const key of ['OCTOCODE_CLASSIFICATION_API','OCTOCODE_CLASSIFICATION_API_HOST'])if(!env[key]&&globalConfig[key])env[key]=globalConfig[key];
+  if(!env.OCTOCODE_CLASSIFICATION_API)throw new Error('Jev credential unavailable before launch');
   // Resolve the already-authorized GitHub CLI credential without writing/logging it.
   if(!env.GITHUB_TOKEN&&!env.GH_TOKEN){try{env.GITHUB_TOKEN=execFileSync('gh',['auth','token'],{encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();}catch{throw new Error('GitHub credential unavailable before launch');}}
-  Object.assign(env,{OCTOCODE_HOME:path.join(runDir,'octocode-home'),OCTOCODE_NATIVE_BINDING:path.join(home,'snapshot/runtime.node'),OCTOCODE_REGEX_WORKER:path.join(home,'snapshot/octocode-regex-worker'),OCTOCODE_JEV_MODEL:'jev-1.13.0',ENABLE_LOCAL:'false',ENABLE_CLONE:'false',MAX_RETRIES:'0',OCTOCODE_ENABLE_STATS:'true',OCTOCODE_STORAGE_MODE:'persistent'});
+  Object.assign(env,{OCTOCODE_HOME:path.join(runDir,'octocode-home'),OCTOCODE_NATIVE_BINDING:path.join(home,'snapshot/runtime.node'),OCTOCODE_REGEX_WORKER:path.join(home,'snapshot/octocode-regex-worker'),ENABLE_LOCAL:'false',ENABLE_CLONE:'false',MAX_RETRIES:'0',OCTOCODE_ENABLE_STATS:'true',OCTOCODE_STORAGE_MODE:'persistent'});
   fs.mkdirSync(env.OCTOCODE_HOME,{recursive:true});
   return env;
 }

@@ -149,7 +149,7 @@ fn fallback_hint(tool: &str, query: &Value) -> Option<&'static str> {
         "ghSearchHistory" => Some("Broaden keywords or remove history filters."),
         "ghGetHistoryItem" => Some("Verify owner/repo and the number, ref, or compare refs."),
         "artifactSearch" => Some("Check packageName, or broaden keywords."),
-        "semanticAssess" => Some("Inspect resources, typed questions, and OCTOCODE_JEV_KEY."),
+        "semanticAssess" => Some("Inspect resources, typed questions, and OCTOCODE_CLASSIFICATION_API."),
         "ghCloneRepo" => Some("Verify owner/repo/branch and sparsePath."),
         "localSearch" => Some("Broaden searchText, path, or filters."),
         "astSearch"

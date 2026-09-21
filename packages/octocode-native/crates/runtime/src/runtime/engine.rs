@@ -254,6 +254,18 @@ impl ToolRuntime {
             .map_err(|error| RuntimeError::new("invalidCursor", format!("{error:?}")))
     }
 
+    /// Resolve the classification credential: the generic
+    /// `OCTOCODE_CLASSIFICATION_API` first, then the selected vendor's native
+    /// key env (e.g. `OCTOCODE_JEV_KEY` for the `jev` vendor).
+    fn classification_key(&self) -> Option<&str> {
+        let vendor = self.config.resolved.classification.r#type.as_str();
+        let provider = crate::providers::classification::provider_for(vendor);
+        self.config
+            .env_value("OCTOCODE_CLASSIFICATION_API")
+            .filter(|value| !value.trim().is_empty())
+            .or_else(|| self.config.env_value(provider.key_env()))
+    }
+
     pub fn is_available(&self, tool: &str) -> bool {
         let local = self.config.resolved.local.enabled;
         let clone = self.config.resolved.local.enable_clone
@@ -264,17 +276,16 @@ impl ToolRuntime {
         let local_tools = local
             && matches!(id, Some(t) if t.is_local())
             && (id != Some(ToolId::AstRewrite) || self.config.resolved.local.enable_ast_rewrite);
-        let jev = matches!(id, Some(t) if t.is_semantic_assess())
+        let classification = matches!(id, Some(t) if t.is_semantic_assess())
             && self
-                .config
-                .env_value("OCTOCODE_JEV_KEY")
+                .classification_key()
                 .map(str::trim)
                 .is_some_and(|value| !value.is_empty());
         (github
             || local_tools
             || (id == Some(ToolId::GhCloneRepo) && clone)
             || id == Some(ToolId::ArtifactSearch)
-            || jev)
+            || classification)
             && self
                 .config
                 .resolved
@@ -393,14 +404,13 @@ impl ToolRuntime {
             if !mcp
                 && tool == "semanticAssess"
                 && self
-                    .config
-                    .env_value("OCTOCODE_JEV_KEY")
+                    .classification_key()
                     .map(str::trim)
                     .is_none_or(str::is_empty)
             {
                 return Err(RuntimeError::new(
                     "missingConfiguration",
-                    "semanticAssess requires OCTOCODE_JEV_KEY. Create a TypeSafe API key at https://docs.typesafe.ai/introduction and set OCTOCODE_JEV_KEY before retrying.",
+                    "semanticAssess requires OCTOCODE_CLASSIFICATION_API (or the jev vendor's OCTOCODE_JEV_KEY). Create a classification provider API key (jev: https://docs.typesafe.ai/introduction) and set OCTOCODE_CLASSIFICATION_API before retrying.",
                 ));
             }
             return Err(RuntimeError::new(
@@ -529,26 +539,23 @@ impl ToolRuntime {
                 .map(|id| id.as_str())
                 .collect(),
         };
+        let classification_provider = crate::providers::classification::provider_for(
+            self.config.resolved.classification.r#type.as_str(),
+        );
         let jev_key = self
-            .config
-            .env_value("OCTOCODE_JEV_KEY")
+            .classification_key()
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(|value| SecretString::from(value.to_owned()));
         let jev_base_url = self
             .config
-            .env_value("OCTOCODE_JEV_BASE_URL")
+            .env_value("OCTOCODE_CLASSIFICATION_API_HOST")
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .unwrap_or("https://api.typesafe.ai")
-            .to_owned();
-        let jev_model = self
-            .config
-            .env_value("OCTOCODE_JEV_MODEL")
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .unwrap_or("jev-latest")
-            .to_owned();
+            .map(str::to_owned)
+            .unwrap_or_else(|| classification_provider.default_host().to_owned());
+        let jev_endpoint_path = classification_provider.endpoint_path().to_owned();
+        let jev_model = classification_provider.default_model().to_owned();
         let jev_timeout = Duration::from_millis(self.config.resolved.network.timeout as u64);
         let jev_retries = self.config.resolved.network.max_retries as u32;
         let stats_enabled = config::is_stats_enabled(&self.config.resolved);
@@ -578,7 +585,9 @@ impl ToolRuntime {
                         super::jev_batch::ProviderConfig {
                             key,
                             base_url: &jev_base_url,
+                            endpoint_path: &jev_endpoint_path,
                             model: &jev_model,
+                            provider: classification_provider,
                             retries: jev_retries,
                         },
                         |usage| {

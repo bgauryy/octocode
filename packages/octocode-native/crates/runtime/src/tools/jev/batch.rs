@@ -41,31 +41,41 @@ fn response_error(message: impl Into<String>) -> JevProviderError {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn execute(
     state: &Value,
     questions: &[(usize, &Value)],
     key: &SecretString,
     base_url: &str,
+    endpoint_path: &str,
     model: &str,
+    provider: &dyn crate::providers::classification::ClassificationProvider,
     budget: &RequestBudget,
     retries: u32,
 ) -> Result<GroupResponse, JevProviderError> {
     check_budget(budget)?;
     if !fits(state, questions, model) {
         return Err(request_error(
-            "Shared Jev request exceeds the batching headroom policy.",
+            "Shared classification request exceeds the batching headroom policy.",
         ));
     }
     if key.expose_secret().chars().any(char::is_control) {
         return Err(JevProviderError {
-            code: "invalidJevConfiguration".into(),
-            message: "OCTOCODE_JEV_KEY contains invalid control characters.".into(),
+            code: "invalidClassificationConfiguration".into(),
+            message: "OCTOCODE_CLASSIFICATION_API contains invalid control characters.".into(),
             hints: vec!["Replace the configured key.".into()],
         });
     }
     let request = request(state, questions, model);
-    let response = post(&request, key, endpoint(base_url)?, budget, retries).await?;
-    project_response(&request, &response, questions, model)
+    let response = post(
+        &request,
+        key,
+        endpoint(base_url, endpoint_path)?,
+        budget,
+        retries,
+    )
+    .await?;
+    project_response(&request, &response, questions, model, provider)
 }
 
 fn project_response(
@@ -73,6 +83,7 @@ fn project_response(
     response: &Value,
     questions: &[(usize, &Value)],
     model: &str,
+    provider: &dyn crate::providers::classification::ClassificationProvider,
 ) -> Result<GroupResponse, JevProviderError> {
     let answers = response["answers"]
         .as_object()
@@ -87,7 +98,8 @@ fn project_response(
     let metadata_request = json!({"questions":{}});
     let mut metadata_response = response.clone();
     metadata_response["answers"] = json!({});
-    octocode_engine::jev::validate_response(&metadata_request, &metadata_response)
+    provider
+        .validate_response(&metadata_request, &metadata_response)
         .map_err(|error| response_error(error.message))?;
     let projected = questions
         .iter()
@@ -99,7 +111,8 @@ fn project_response(
             row_response["answers"] = answers
                 .get(&id)
                 .map_or_else(|| json!({}), |answer| json!({&id:answer}));
-            octocode_engine::jev::validate_response(&row_request, &row_response)
+            provider
+                .validate_response(&row_request, &row_response)
                 .map_err(|error| response_error(error.message))?;
             project(
                 question,
@@ -145,12 +158,13 @@ mod tests {
         let request = request(&Value::Null, &questions, "m");
         let mut response = json!({"model":"provider-model","usage":{"input_tokens":9,"output_tokens":3},
             "answers":{"answer_0":{"type":"noul","noul":0.8},"answer_2":{"type":"noul","noul":2}}});
-        let result = project_response(&request, &response, &questions, "m").unwrap();
+        let provider = &crate::providers::classification::jev::JEV;
+        let result = project_response(&request, &response, &questions, "m", provider).unwrap();
         assert!(result.answers[0].is_ok());
         assert!(result.answers[1].is_err());
         assert!(result.answers[2].is_err());
         assert_eq!(result.usage["input_tokens"], 9);
         response["answers"]["unexpected"] = json!({"type":"noul","noul":0.5});
-        assert!(project_response(&request, &response, &questions, "m").is_err());
+        assert!(project_response(&request, &response, &questions, "m", provider).is_err());
     }
 }

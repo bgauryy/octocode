@@ -4,10 +4,11 @@ import type {
 } from './contract.generated.js';
 
 export type {
+  ClassificationConfigOptions,
+  ClassificationVendor,
   ExtensionConfigOptions,
   ExtensionStorageConfigOptions,
   GitHubConfigOptions,
-  JevConfigOptions,
   LocalConfigOptions,
   LspConfigOptions,
   NetworkConfigOptions,
@@ -15,6 +16,7 @@ export type {
   OutputConfigOptions,
   OutputFormat,
   OutputPaginationConfigOptions,
+  RequiredClassificationConfig,
   RequiredExtensionConfig,
   RequiredExtensionStorageConfig,
   RequiredGitHubConfig,

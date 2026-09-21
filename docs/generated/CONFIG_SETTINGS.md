@@ -50,10 +50,10 @@ This reference is generated from [`packages/octocode-config/config-contract.json
       "mode": "persistent"
     }
   },
-  "jev": {
-    "key": null,
-    "model": null,
-    "baseUrl": null
+  "classification": {
+    "type": "jev",
+    "api": null,
+    "apiHost": null
   }
 }
 ```
@@ -84,9 +84,9 @@ Environment values take precedence over `.octocoderc`. Aliases are listed in pri
 | `output.pagination.defaultCharLength` | `OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH` | `20000` | integer (1000–50000) | Automatic pagination character budget. |
 | `storage.mode` | `OCTOCODE_STORAGE_MODE` | `"persistent"` | `persistent` or `memory` | Whether caches and runtime state may persist on disk. |
 | `extension.storage.mode` | `OCTOCODE_EXTENSION_STORAGE_MODE` | inherits storage.mode | `persistent` or `memory` | Pi extension storage mode override. |
-| `jev.key` | `OCTOCODE_JEV_KEY` | unset | string | TypeSafe Jev API key fallback. Never appears in ResolvedConfig; shell environment wins over the trusted home config file. OCTOCODE_JEV_KEY: shell or trusted home .env Credential-only; excluded from ResolvedConfig. |
-| `jev.model` | `OCTOCODE_JEV_MODEL` | jev-latest | string | Optional Jev model override. OCTOCODE_JEV_MODEL: shell or trusted home .env Credential-only; excluded from ResolvedConfig. |
-| `jev.baseUrl` | `OCTOCODE_JEV_BASE_URL` | https://api.typesafe.ai | url | Optional trusted Jev API root. Requires HTTP or HTTPS at config validation; provider policy may require HTTPS except loopback. OCTOCODE_JEV_BASE_URL: shell or trusted home .env Credential-only; excluded from ResolvedConfig. |
+| `classification.type` | `OCTOCODE_CLASSIFICATION_TYPE` | jev | `jev` | Classification vendor. Per-vendor defaults (host, model, endpoint) are built in. OCTOCODE_CLASSIFICATION_TYPE: shell or trusted home .env |
+| `classification.api` | `OCTOCODE_CLASSIFICATION_API`<br>`OCTOCODE_JEV_KEY` | unset | string | Classification provider API key (bearer credential). Never appears in ResolvedConfig; shell environment wins over the trusted home config file. OCTOCODE_JEV_KEY is the vendor-native alias for the jev provider. OCTOCODE_CLASSIFICATION_API: shell or trusted home .env; OCTOCODE_JEV_KEY: shell or trusted home .env Credential-only; excluded from ResolvedConfig. |
+| `classification.apiHost` | `OCTOCODE_CLASSIFICATION_API_HOST` | vendor default (jev: https://api.typesafe.ai) | url | Optional override of the selected vendor's default API root. Requires HTTP or HTTPS at config validation; provider policy may require HTTPS except loopback. OCTOCODE_CLASSIFICATION_API_HOST: shell or trusted home .env Credential-only; excluded from ResolvedConfig. |
 | — | `OCTOCODE_ENABLE_STATS` | `false` | boolean | Write stats.json on flush; stats remain in memory either way. Environment-only setting. |
 
 ## GitHub token priority

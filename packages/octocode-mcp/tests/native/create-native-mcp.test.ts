@@ -138,12 +138,12 @@ describe('createNativeMcp registration + execution', () => {
     ['missing', undefined, false],
     ['blank', '   ', false],
   ])(
-    'omits semanticAssess from discovery when OCTOCODE_JEV_KEY is %s',
+    'omits semanticAssess from discovery when OCTOCODE_CLASSIFICATION_API is %s',
     async (_label, credential, nativeAvailable) => {
       // Native owns credential resolution. This fixture supplies the catalog
       // availability state that the adapter must honor without reinterpreting it.
       const instance = createNativeMcp({
-        env: { OCTOCODE_JEV_KEY: credential },
+        env: { OCTOCODE_CLASSIFICATION_API: credential },
         binding: bindingFor(() => ({
           fingerprint: getNativeContractFingerprint(),
           tools: [
@@ -172,10 +172,10 @@ describe('createNativeMcp registration + execution', () => {
     }
   );
 
-  it('exposes semanticAssess when OCTOCODE_JEV_KEY is nonblank', async () => {
+  it('exposes semanticAssess when OCTOCODE_CLASSIFICATION_API is nonblank', async () => {
     const instance = createNativeMcp({
       env: {
-        OCTOCODE_JEV_KEY: 'test-key',
+        OCTOCODE_CLASSIFICATION_API: 'test-key',
       },
       binding: bindingFor(() => ({
         fingerprint: getNativeContractFingerprint(),

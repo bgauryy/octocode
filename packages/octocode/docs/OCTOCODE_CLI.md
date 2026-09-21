@@ -33,7 +33,7 @@ plus `--compact` for single-line JSON (default output is indented JSON).
 | `ghGetHistoryItem` | Read one PR, issue, commit, or comparison. |
 | `ghCloneRepo` | Clone a repository into the local cache for offline analysis. |
 | `artifactSearch` | Package lookup/discovery across 8 registries. |
-| `semanticAssess` | Apply Noul, Choice, or Score questions across `resources[] × questions[]`, or batch independent matrices in `queries[]`. Requires `OCTOCODE_JEV_KEY`. |
+| `semanticAssess` | Apply Noul, Choice, or Score questions across `resources[] × questions[]`, or batch independent matrices in `queries[]`. Requires `OCTOCODE_CLASSIFICATION_API`. |
 
 ### System
 
@@ -85,7 +85,7 @@ resolve from the command cwd, which may differ from the repository root.
 | Package | `artifactSearch` |
 
 `ghCloneRepo` is opt-in with `ENABLE_CLONE=true`. `semanticAssess` is available
-when `OCTOCODE_JEV_KEY` is nonblank. Both remain discoverable in the CLI catalog.
+when `OCTOCODE_CLASSIFICATION_API` is nonblank. Both remain discoverable in the CLI catalog.
 
 ### Research loop
 
@@ -283,7 +283,7 @@ npx octocode semanticAssess --input request.json
 ```
 
 The CLI keeps `semanticAssess` discoverable when the provider key is absent. If
-called without a nonblank `OCTOCODE_JEV_KEY`, it exits with an actionable error
+called without a nonblank `OCTOCODE_CLASSIFICATION_API`, it exits with an actionable error
 that names the variable and tells the caller to set it. MCP instead omits the
 tool from discovery until the key is available.
 

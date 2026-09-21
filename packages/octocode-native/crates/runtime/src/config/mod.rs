@@ -381,55 +381,54 @@ mod tests {
         assert_eq!(resolve_config(&input(env, None)).source, ConfigSource::Env);
     }
     #[test]
-    fn jev_key_falls_back_to_config_file_without_leaking() {
-        let file = "{\"jev\":{\"key\":\"jev-secret-from-file\",\"baseUrl\":\"https://jev.example.com\",\"model\":\"custom-model\"}}";
+    fn classification_key_falls_back_to_config_file_without_leaking() {
+        let file = "{\"classification\":{\"api\":\"jev-secret-from-file\",\"apiHost\":\"https://jev.example.com\"}}";
         let out = resolve_config(&input(BTreeMap::new(), Some(file)));
         assert_eq!(
-            out.env_value("OCTOCODE_JEV_KEY"),
+            out.env_value("OCTOCODE_CLASSIFICATION_API"),
             Some("jev-secret-from-file")
         );
         assert_eq!(
-            out.env_value("OCTOCODE_JEV_BASE_URL"),
+            out.env_value("OCTOCODE_CLASSIFICATION_API_HOST"),
             Some("https://jev.example.com")
         );
-        assert_eq!(out.env_value("OCTOCODE_JEV_MODEL"), Some("custom-model"));
-        // Never lands in ResolvedConfig, so `config get jev.key` can't echo it back.
-        assert_eq!(get_config_value(&out.resolved, "jev.key"), None);
+        // Never lands in ResolvedConfig, so `config get classification.api` can't echo it back.
+        assert_eq!(get_config_value(&out.resolved, "classification.api"), None);
         assert!(!format!("{out:?}").contains("jev-secret-from-file"));
         // Real env still wins over the file fallback.
-        let env = BTreeMap::from([("OCTOCODE_JEV_KEY".into(), "jev-secret-from-env".into())]);
+        let env = BTreeMap::from([("OCTOCODE_CLASSIFICATION_API".into(), "jev-secret-from-env".into())]);
         let mixed = resolve_config(&input(env, Some(file)));
         assert_eq!(
-            mixed.env_value("OCTOCODE_JEV_KEY"),
+            mixed.env_value("OCTOCODE_CLASSIFICATION_API"),
             Some("jev-secret-from-env")
         );
-        // `jev` is a recognized section, not an "unknown configuration key".
-        assert!(validate_config(&json!({"jev": {"key": "x"}})).valid);
+        // `classification` is a recognized section, not an "unknown configuration key".
+        assert!(validate_config(&json!({"classification": {"api": "x"}})).valid);
     }
     #[test]
-    fn jev_key_is_honored_from_the_home_env_file_but_not_the_project_env() {
+    fn classification_key_is_honored_from_the_home_env_file_but_not_the_project_env() {
         let mut i = input(BTreeMap::new(), None);
         i.global_env = FileInput::Read {
             path: "/synthetic/home/.env".into(),
-            text: "OCTOCODE_JEV_KEY=jev-secret-from-home-env\nGH_TOKEN=still-protected".into(),
+            text: "OCTOCODE_CLASSIFICATION_API=jev-secret-from-home-env\nGH_TOKEN=still-protected".into(),
         };
         let out = resolve_config(&i);
         assert_eq!(
-            out.env_value("OCTOCODE_JEV_KEY"),
+            out.env_value("OCTOCODE_CLASSIFICATION_API"),
             Some("jev-secret-from-home-env")
         );
         // Other protected keys keep the uniform block even from the home file.
         assert_eq!(out.env_value("GH_TOKEN"), None);
         assert!(!format!("{out:?}").contains("jev-secret-from-home-env"));
 
-        // A (trusted) project `.env` may never supply jev configuration.
+        // A (trusted) project `.env` may never supply classification configuration.
         let mut p = input(BTreeMap::new(), None);
         p.project_env = FileInput::Read {
             path: "/synthetic/cwd/.octocode/.env".into(),
-            text: "OCTOCODE_JEV_KEY=jev-secret-from-project".into(),
+            text: "OCTOCODE_CLASSIFICATION_API=jev-secret-from-project".into(),
         };
         p.trusted_project = true;
-        assert_eq!(resolve_config(&p).env_value("OCTOCODE_JEV_KEY"), None);
+        assert_eq!(resolve_config(&p).env_value("OCTOCODE_CLASSIFICATION_API"), None);
     }
     #[test]
     fn unreadable_config_is_invalid_with_a_stable_diagnostic() {

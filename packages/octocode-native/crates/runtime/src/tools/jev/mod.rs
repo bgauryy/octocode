@@ -181,12 +181,15 @@ fn prepare(state: &Value, question: &Value, model: &str) -> Result<Value, JevPro
     Ok(request)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn execute(
     state: &Value,
     question: &Value,
     key: SecretString,
     base_url: &str,
+    endpoint_path: &str,
     model: &str,
+    provider: &dyn crate::providers::classification::ClassificationProvider,
     budget: RequestBudget,
     retries: u32,
 ) -> Result<Value, JevProviderError> {
@@ -194,19 +197,26 @@ pub async fn execute(
     let request = prepare(state, question, model)?;
     if key.expose_secret().chars().any(char::is_control) {
         return Err(JevProviderError {
-            code: "invalidJevConfiguration".into(),
-            message: "OCTOCODE_JEV_KEY contains invalid control characters.".into(),
+            code: "invalidClassificationConfiguration".into(),
+            message: "OCTOCODE_CLASSIFICATION_API contains invalid control characters.".into(),
             hints: vec!["Replace the configured key.".into()],
         });
     }
-    let response = post(&request, &key, endpoint(base_url)?, &budget, retries).await?;
-    octocode_engine::jev::validate_response(&request, &response).map_err(|error| {
-        JevProviderError {
+    let response = post(
+        &request,
+        &key,
+        endpoint(base_url, endpoint_path)?,
+        &budget,
+        retries,
+    )
+    .await?;
+    provider
+        .validate_response(&request, &response)
+        .map_err(|error| JevProviderError {
             code: error.code.into(),
             message: error.message,
             hints: vec!["Inspect provider compatibility before using the answer.".into()],
-        }
-    })?;
+        })?;
     project(
         question,
         &response["answers"]["answer"],
@@ -447,7 +457,9 @@ mod tests {
                 &question,
                 SecretString::from("test-key"),
                 &server.uri(),
+                "v1/systemone",
                 "m",
+                &crate::providers::classification::jev::JEV,
                 budget(),
                 0,
             )
@@ -474,7 +486,9 @@ mod tests {
                 &json!({}),
                 SecretString::from("test-key"),
                 &server.uri(),
+                "v1/systemone",
                 "m",
+                &crate::providers::classification::jev::JEV,
                 budget(),
                 0
             )
@@ -489,7 +503,9 @@ mod tests {
                 &question(),
                 SecretString::from("test-key"),
                 &server.uri(),
+                "v1/systemone",
                 "m",
+                &crate::providers::classification::jev::JEV,
                 cancelled,
                 0
             )
@@ -514,7 +530,9 @@ mod tests {
                     &question(),
                     SecretString::from("test-key"),
                     &server.uri(),
+                    "v1/systemone",
                     "m",
+                    &crate::providers::classification::jev::JEV,
                     budget(),
                     0
                 )

@@ -96,7 +96,7 @@ fn semantic_assess_missing_key_is_actionable() {
     assert_eq!(exit_code(&output), Some(5));
     let output = stdout(&output);
     assert!(output.contains("missingConfiguration"), "{output}");
-    assert!(output.contains("OCTOCODE_JEV_KEY"), "{output}");
+    assert!(output.contains("OCTOCODE_CLASSIFICATION_API"), "{output}");
     assert!(
         output.contains("https://docs.typesafe.ai/introduction"),
         "{output}"

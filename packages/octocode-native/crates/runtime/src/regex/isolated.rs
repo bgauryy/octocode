@@ -159,7 +159,7 @@ impl IsolatedRegexEngine {
         let mut command = Command::new(&self.worker_path);
         // Start from an empty environment so the worker (which processes
         // untrusted regex input) never inherits octocode's secrets
-        // (GITHUB_TOKEN, OCTOCODE_JEV_KEY, AWS_*, …). Only the two explicit
+        // (GITHUB_TOKEN, OCTOCODE_CLASSIFICATION_API, AWS_*, …). Only the two explicit
         // limit variables below are passed; the worker needs nothing else.
         command
             .env_clear()

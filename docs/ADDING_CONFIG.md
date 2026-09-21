@@ -280,7 +280,7 @@ The section-specific `resolveGitHub`, `resolveOutput`, and similar exports remai
 ```rust
 let timeout_ms = config.resolved.network.timeout as u64;
 let format = &config.resolved.output.format;
-let jev_key = config.env_value("OCTOCODE_JEV_KEY");
+let jev_key = config.env_value("OCTOCODE_CLASSIFICATION_API");
 ```
 
 Rust resolved structs are generated at build time. Native-only builds read and validate both `config-contract.schema.json` and `config-contract.json`; they do not depend on a prior TypeScript generation step or a working-directory-relative path.

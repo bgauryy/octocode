@@ -37,7 +37,7 @@ npx -y octocode skill install octocode-rfc-generator
 
 The `semanticAssess` route is built into this skill. Two agents first provide independent arguments and one rebuttal each. The tool calls the Jev provider only if their positions still differ, evidence/direct checks cannot settle the issue, and different judgments change the next action. It prioritizes bounded risk; it is not presumed to improve accuracy. The host retains responsibility for evidence and the RFC decision.
 
-This step needs host subagents and `OCTOCODE_JEV_KEY` in the Octocode process or MCP environment. The MCP tool is registered only when that key is configured; a direct CLI call without it must report the missing key. Without either capability, use the ordinary evidence-based RFC workflow. Cheap checks and settled plans do not need a debate. See [the review protocol](references/jev-review.md) for limits and result handling.
+This step needs host subagents and `OCTOCODE_CLASSIFICATION_API` in the Octocode process or MCP environment. The MCP tool is registered only when that key is configured; a direct CLI call without it must report the missing key. Without either capability, use the ordinary evidence-based RFC workflow. Cheap checks and settled plans do not need a debate. See [the review protocol](references/jev-review.md) for limits and result handling.
 
 ## Maintainer verification
 

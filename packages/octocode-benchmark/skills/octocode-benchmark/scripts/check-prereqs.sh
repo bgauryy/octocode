@@ -33,7 +33,7 @@ if have npx; then
   printf '%s' "$probe" | grep -qiE 'sindresorhus|repositories' && pass "octocode tools probe returned data" || bad "octocode tools probe failed: $(printf '%s' "$probe" | head -1)"
 
   probe_home="$(mktemp -d "${TMPDIR:-/tmp}/octocode-benchmark-preflight.XXXXXX")"
-  catalog="$(env -u OCTOCODE_JEV_KEY -u ENABLE_CLONE -u TOOLS_TO_RUN \
+  catalog="$(env -u OCTOCODE_CLASSIFICATION_API -u ENABLE_CLONE -u TOOLS_TO_RUN \
     OCTOCODE_HOME="$probe_home" npx -y "octocode@$OCTO_VER" scheme --compact 2>"$NULL")"
   catalog_status="$(printf '%s' "$catalog" | node -e '
     const fs = require("node:fs");
@@ -57,12 +57,12 @@ if have npx; then
     bad "default catalog did not expose the expected 12/10 hard-cutover availability"
   fi
 
-  missing="$(env -u OCTOCODE_JEV_KEY -u TOOLS_TO_RUN OCTOCODE_HOME="$probe_home" \
+  missing="$(env -u OCTOCODE_CLASSIFICATION_API -u TOOLS_TO_RUN OCTOCODE_HOME="$probe_home" \
     npx -y "octocode@$OCTO_VER" semanticAssess \
     '{"id":"preflight","reasoning":"Verify missing-key behavior.","resources":[{"id":"state","context":{"value":"probe"}}],"questions":[{"id":"binary","question":{"type":"noul","instructions":"Is state present?"}}]}' 2>&1)"
   missing_status=$?
-  if [ "$missing_status" -ne 0 ] && printf '%s' "$missing" | grep -q 'OCTOCODE_JEV_KEY'; then
-    pass "semanticAssess missing-key error names OCTOCODE_JEV_KEY"
+  if [ "$missing_status" -ne 0 ] && printf '%s' "$missing" | grep -q 'OCTOCODE_CLASSIFICATION_API'; then
+    pass "semanticAssess missing-key error names OCTOCODE_CLASSIFICATION_API"
   else
     bad "semanticAssess did not return the expected actionable missing-key error"
   fi

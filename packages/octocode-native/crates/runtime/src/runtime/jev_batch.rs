@@ -13,7 +13,9 @@ use std::collections::HashSet;
 pub(super) struct ProviderConfig<'a> {
     pub key: &'a SecretString,
     pub base_url: &'a str,
+    pub endpoint_path: &'a str,
     pub model: &'a str,
+    pub provider: &'a dyn crate::providers::classification::ClassificationProvider,
     pub retries: u32,
 }
 
@@ -256,7 +258,9 @@ async fn assess_page(
             &indexed,
             config.key,
             config.base_url,
+            config.endpoint_path,
             config.model,
+            config.provider,
             budget,
             config.retries,
         )
@@ -282,7 +286,9 @@ async fn assess_page(
             &question["question"],
             config.key.clone(),
             config.base_url,
+            config.endpoint_path,
             config.model,
+            config.provider,
             budget.clone(),
             config.retries,
         )

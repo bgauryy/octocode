@@ -36,6 +36,6 @@ Successful pages preserve both `requestedModel` and `resolvedModel`. Record both
 
 ## Availability
 
-MCP advertises `semanticAssess` only when `OCTOCODE_JEV_KEY` resolves to a nonblank value. The CLI command remains discoverable, but a call without the key fails with a message naming the missing environment variable and the setup action.
+MCP advertises `semanticAssess` only when `OCTOCODE_CLASSIFICATION_API` resolves to a nonblank value. The CLI command remains discoverable, but a call without the key fails with a message naming the missing environment variable and the setup action.
 
 See [Semantic Assessment Reference](OCTOCODE_SEMANTIC_ASSESS.md) for the complete public contract.

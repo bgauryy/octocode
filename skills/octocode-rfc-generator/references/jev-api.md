@@ -11,7 +11,7 @@ octocode scheme semanticAssess --view query --compact
 octocode semanticAssess --input /absolute/review/request.json --compact
 ```
 
-There is no public `jev` command or schema alias. MCP registers `semanticAssess` only when `OCTOCODE_JEV_KEY` is configured in the Octocode process environment. The CLI command remains discoverable, but an invocation without the key must fail with an actionable missing-`OCTOCODE_JEV_KEY` message. Keep credentials out of requests and receipts. A missing tool/key, denied access, timeout, or invalid output means no usable judgment: continue the unjudged audit and report the actual reason. Catalog or schema discovery alone is not provider validation.
+There is no public `jev` command or schema alias. MCP registers `semanticAssess` only when `OCTOCODE_CLASSIFICATION_API` is configured in the Octocode process environment. The CLI command remains discoverable, but an invocation without the key must fail with an actionable missing-`OCTOCODE_CLASSIFICATION_API` message. Keep credentials out of requests and receipts. A missing tool/key, denied access, timeout, or invalid output means no usable judgment: continue the unjudged audit and report the actual reason. Catalog or schema discovery alone is not provider validation.
 
 ## Public request contract
 

@@ -66,7 +66,7 @@ cd "$FIX"
 the stated content check holds.
 
 **0.5 — Availability and automated runners.** `scheme` always discovers 12
-tools. With clone at its default disabled setting and no `OCTOCODE_JEV_KEY`, 10
+tools. With clone at its default disabled setting and no `OCTOCODE_CLASSIFICATION_API`, 10
 are available. MCP registers only available tools, so it omits
 `semanticAssess`; the CLI keeps `semanticAssess` and its schema discoverable and
 reports the missing key when called. This setup opts into clone. Section 13 runs
@@ -379,7 +379,7 @@ require `uri` + (`symbolName`+`lineHint`) **or** `position`. `documentSymbols`/
 
 `semanticAssess` is the only public semantic-assessment tool. The CLI always
 discovers its command and schema. MCP registers it only when runtime
-configuration resolves a nonblank `OCTOCODE_JEV_KEY`; live evaluation also
+configuration resolves a nonblank `OCTOCODE_CLASSIFICATION_API`; live evaluation also
 requires provider access. Model selection belongs to runtime configuration,
 never the request.
 
@@ -412,7 +412,7 @@ limitations, and continuation metadata. Large resources remain ordered,
 page-local results—there is no hidden reducer. Retain partial and error pages,
 and run `next.assess` unchanged when present.
 
-- [ ] Without `OCTOCODE_JEV_KEY`, `scheme semanticAssess` succeeds,
+- [ ] Without `OCTOCODE_CLASSIFICATION_API`, `scheme semanticAssess` succeeds,
       `semanticAssess` fails with an error that names the key and setup URL, and
       MCP `tools/list` omits the tool.
 - [ ] With the key, MCP `tools/list` includes exactly one `semanticAssess` entry.

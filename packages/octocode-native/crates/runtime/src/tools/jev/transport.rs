@@ -27,11 +27,11 @@ impl JevProviderError {
     }
 }
 
-pub(crate) fn endpoint(base_url: &str) -> Result<Url, JevProviderError> {
+pub(crate) fn endpoint(base_url: &str, path: &str) -> Result<Url, JevProviderError> {
     let base = Url::parse(base_url).map_err(|_| {
         JevProviderError::new(
-            "invalidJevConfiguration",
-            "OCTOCODE_JEV_BASE_URL is not a valid URL.",
+            "invalidClassificationConfiguration",
+            "OCTOCODE_CLASSIFICATION_API_HOST is not a valid URL.",
             "Use an HTTPS API root without a path, query, fragment, or credentials.",
         )
     })?;
@@ -47,16 +47,16 @@ pub(crate) fn endpoint(base_url: &str) -> Result<Url, JevProviderError> {
         || base.fragment().is_some()
     {
         return Err(JevProviderError::new(
-            "invalidJevConfiguration",
-            "OCTOCODE_JEV_BASE_URL must be an HTTPS API root; HTTP is allowed only on loopback.",
+            "invalidClassificationConfiguration",
+            "OCTOCODE_CLASSIFICATION_API_HOST must be an HTTPS API root; HTTP is allowed only on loopback.",
             "Remove paths, credentials, query strings, and fragments from the configured API root.",
         ));
     }
-    base.join("v1/systemone").map_err(|_| {
+    base.join(path).map_err(|_| {
         JevProviderError::new(
-            "invalidJevConfiguration",
-            "Cannot construct the Jev System One endpoint.",
-            "Check OCTOCODE_JEV_BASE_URL.",
+            "invalidClassificationConfiguration",
+            "Cannot construct the classification provider endpoint.",
+            "Check OCTOCODE_CLASSIFICATION_API_HOST.",
         )
     })
 }
@@ -165,13 +165,13 @@ pub(crate) async fn post(
         }
         if !status.is_success() {
             let hint = match status.as_u16() {
-                401 | 403 => "Check OCTOCODE_JEV_KEY and account access.",
+                401 | 403 => "Check OCTOCODE_CLASSIFICATION_API and account access.",
                 400 | 422 => {
                     "Check the supplied state, questions, configured model, and request size."
                 }
                 429 | 503 | 529 => "Retry later or reduce request volume.",
-                300..=399 => "Redirects are disabled; check OCTOCODE_JEV_BASE_URL.",
-                _ => "Check provider availability and OCTOCODE_JEV_BASE_URL.",
+                300..=399 => "Redirects are disabled; check OCTOCODE_CLASSIFICATION_API_HOST.",
+                _ => "Check provider availability and OCTOCODE_CLASSIFICATION_API_HOST.",
             };
             return Err(JevProviderError::new(
                 "jevProviderError",
@@ -247,7 +247,7 @@ mod tests {
             let error = post(
                 &json!({}),
                 &SecretString::from("test-key".to_owned()),
-                endpoint(&server.uri()).unwrap(),
+                endpoint(&server.uri(), "v1/systemone").unwrap(),
                 &budget,
                 0,
             )
@@ -268,7 +268,7 @@ mod tests {
         let error = post(
             &json!({}),
             &SecretString::from("test-key".to_owned()),
-            endpoint(&server.uri()).unwrap(),
+            endpoint(&server.uri(), "v1/systemone").unwrap(),
             &budget(Instant::now(), tokio_util::sync::CancellationToken::new()),
             0,
         )
@@ -279,12 +279,12 @@ mod tests {
 
     #[test]
     fn endpoint_accepts_an_https_root_and_appends_the_system_one_path() {
-        let url = endpoint("https://api.typesafe.ai").expect("valid root");
+        let url = endpoint("https://api.typesafe.ai", "v1/systemone").expect("valid root");
         assert_eq!(url.as_str(), "https://api.typesafe.ai/v1/systemone");
         // A trailing slash is also a bare root.
-        assert!(endpoint("https://api.typesafe.ai/").is_ok());
+        assert!(endpoint("https://api.typesafe.ai/", "v1/systemone").is_ok());
         // HTTP is allowed only on loopback.
-        assert!(endpoint("http://127.0.0.1").is_ok());
+        assert!(endpoint("http://127.0.0.1", "v1/systemone").is_ok());
     }
 
     #[test]
@@ -297,7 +297,7 @@ mod tests {
             "https://user:pass@api.typesafe.ai", // has credentials
             "not a url",
         ] {
-            assert!(endpoint(bad).is_err(), "should reject {bad}");
+            assert!(endpoint(bad, "v1/systemone").is_err(), "should reject {bad}");
         }
     }
 

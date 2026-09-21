@@ -12,7 +12,7 @@ node packages/octocode/out/octocode.js scheme semanticAssess --view query --comp
 node packages/octocode/out/octocode.js semanticAssess --input request.json --compact
 ```
 
-The operator configures `OCTOCODE_JEV_KEY` and the model through runtime config.
+The operator configures `OCTOCODE_CLASSIFICATION_API` and the model through runtime config.
 Without a nonblank key, the CLI still discovers `semanticAssess` and its schema.
 Execution returns an actionable missing-key error, and MCP doesn't register the
 tool.

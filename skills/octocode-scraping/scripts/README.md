@@ -9,7 +9,7 @@ Use this catalog to select an existing deterministic helper before writing a new
 | `scrapingant-*.mjs` | Deprecated shims → `fetch` / `provider-*` |
 | `fetch-and-brief.mjs` | Optional fetch + corpus brief |
 | `corpus-inspect` / `corpus-find` / `dom-find` / `resource-list` / `graph-navigate` | Query corpus before raw reads (static; live DOM → chrome-devtools) |
-| `corpus-triage.mjs` | Semantic pre-read gate: every saved part becomes one unread SemanticQuery resource (needs `OCTOCODE_JEV_KEY`); exact `next.assess` continuations preserve page-local answers; exclusive `read`/`consider`/`skip`, bodies stay out of chat; `--files` accepts only session-contained CDP bodies; `--limit` is matrix size, never a drop limit |
+| `corpus-triage.mjs` | Semantic pre-read gate: every saved part becomes one unread SemanticQuery resource (needs `OCTOCODE_CLASSIFICATION_API`); exact `next.assess` continuations preserve page-local answers; exclusive `read`/`consider`/`skip`, bodies stay out of chat; `--files` accepts only session-contained CDP bodies; `--limit` is matrix size, never a drop limit |
 | `har-ingest.mjs` | CDP ↔ scrape bridge; `--export-packet` / `--from-cdp-dir` (chrome aliases exist) |
 | `corpus-run.mjs` | Local `--regex` / `--script` (chrome alias `corpus-run-local`) |
 | `schema-helper.mjs` | Extraction field hints |

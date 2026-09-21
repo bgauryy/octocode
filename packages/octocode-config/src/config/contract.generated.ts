@@ -3,6 +3,7 @@
 
 export type OutputFormat = "yaml" | "json";
 export type StorageMode = "persistent" | "memory";
+export type ClassificationVendor = "jev";
 
 export interface GitHubConfigOptions {
   /** GitHub REST API root. GitHub Enterprise commonly uses /api/v3. */
@@ -89,17 +90,17 @@ export interface ExtensionStorageConfigOptions {
   mode?: StorageMode;
 }
 
-export interface JevConfigOptions {
-  /** TypeSafe Jev API key fallback. */
-  /** Never appears in ResolvedConfig; shell environment wins over the trusted home config file. */
-  key?: string | null;
+export interface ClassificationConfigOptions {
+  /** Classification vendor. Per-vendor defaults (host, model, endpoint) are built in. */
+  type?: ClassificationVendor;
 
-  /** Optional Jev model override. */
-  model?: string | null;
+  /** Classification provider API key (bearer credential). */
+  /** Never appears in ResolvedConfig; shell environment wins over the trusted home config file. OCTOCODE_JEV_KEY is the vendor-native alias for the jev provider. */
+  api?: string | null;
 
-  /** Optional trusted Jev API root. */
+  /** Optional override of the selected vendor's default API root. */
   /** Requires HTTP or HTTPS at config validation; provider policy may require HTTPS except loopback. */
-  baseUrl?: string | null;
+  apiHost?: string | null;
 }
 
 export interface OctocodeConfig {
@@ -124,7 +125,7 @@ export interface OctocodeConfig {
 
   extension?: ExtensionConfigOptions;
 
-  jev?: JevConfigOptions;
+  classification?: ClassificationConfigOptions;
 }
 
 export interface RequiredGitHubConfig {
@@ -178,6 +179,10 @@ export interface RequiredExtensionStorageConfig {
   mode: StorageMode;
 }
 
+export interface RequiredClassificationConfig {
+  type: ClassificationVendor;
+}
+
 export interface RequiredSessionConfig {
   enableStats: boolean;
 }
@@ -192,6 +197,7 @@ export interface ResolvedConfigData {
   output: RequiredOutputConfig;
   storage: RequiredStorageConfig;
   extension: RequiredExtensionConfig;
+  classification: RequiredClassificationConfig;
   session: RequiredSessionConfig;
 }
 
@@ -606,19 +612,49 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "enumStyle": "quotedOr"
   },
   {
-    "path": "jev.key",
-    "section": "jev",
-    "key": "key",
+    "path": "classification.type",
+    "section": "classification",
+    "key": "type",
+    "type": "enum",
+    "file": true,
+    "resolved": true,
+    "credential": false,
+    "description": "Classification vendor. Per-vendor defaults (host, model, endpoint) are built in.",
+    "env": [
+      {
+        "name": "OCTOCODE_CLASSIFICATION_TYPE",
+        "priority": 0,
+        "dotenv": "home",
+        "normalize": "trim",
+        "invalid": "skip"
+      }
+    ],
+    "defaultValue": "jev",
+    "values": [
+      "jev"
+    ],
+    "enumStyle": "quotedOr"
+  },
+  {
+    "path": "classification.api",
+    "section": "classification",
+    "key": "api",
     "type": "string",
     "file": true,
     "resolved": false,
     "credential": true,
-    "description": "TypeSafe Jev API key fallback.",
-    "notes": "Never appears in ResolvedConfig; shell environment wins over the trusted home config file.",
+    "description": "Classification provider API key (bearer credential).",
+    "notes": "Never appears in ResolvedConfig; shell environment wins over the trusted home config file. OCTOCODE_JEV_KEY is the vendor-native alias for the jev provider.",
     "env": [
+      {
+        "name": "OCTOCODE_CLASSIFICATION_API",
+        "priority": 0,
+        "dotenv": "home",
+        "normalize": "trim"
+      },
       {
         "name": "OCTOCODE_JEV_KEY",
-        "priority": 0,
+        "priority": 1,
         "dotenv": "home",
         "normalize": "trim"
       }
@@ -626,37 +662,18 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "defaultValue": null
   },
   {
-    "path": "jev.model",
-    "section": "jev",
-    "key": "model",
-    "type": "string",
-    "file": true,
-    "resolved": false,
-    "credential": true,
-    "description": "Optional Jev model override.",
-    "env": [
-      {
-        "name": "OCTOCODE_JEV_MODEL",
-        "priority": 0,
-        "dotenv": "home",
-        "normalize": "trim"
-      }
-    ],
-    "defaultValue": null
-  },
-  {
-    "path": "jev.baseUrl",
-    "section": "jev",
-    "key": "baseUrl",
+    "path": "classification.apiHost",
+    "section": "classification",
+    "key": "apiHost",
     "type": "url",
     "file": true,
     "resolved": false,
     "credential": true,
-    "description": "Optional trusted Jev API root.",
+    "description": "Optional override of the selected vendor's default API root.",
     "notes": "Requires HTTP or HTTPS at config validation; provider policy may require HTTPS except loopback.",
     "env": [
       {
-        "name": "OCTOCODE_JEV_BASE_URL",
+        "name": "OCTOCODE_CLASSIFICATION_API_HOST",
         "priority": 0,
         "dotenv": "home",
         "normalize": "trim"
@@ -690,11 +707,11 @@ export type RuntimeSurface = (typeof RUNTIME_SURFACES)[number];
 export const DEFAULT_RUNTIME_SURFACE: RuntimeSurface = RUNTIME_SURFACES[0];
 export const ENV_TOKEN_VARS = ["OCTOCODE_TOKEN","GH_TOKEN","GITHUB_TOKEN","GITHUB_PERSONAL_ACCESS_TOKEN"] as const;
 export type EnvTokenVar = (typeof ENV_TOKEN_VARS)[number];
-export const PROTECTED_KEY_NAMES = ["PATH","HOME","SHELL","USER","LOGNAME","PWD","TMPDIR","NODE_OPTIONS","PYTHON","GH_HOST","OCTOCODE_TOKEN","GH_TOKEN","GITHUB_TOKEN","GITHUB_PERSONAL_ACCESS_TOKEN","GITHUB_API_URL","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_JEV_KEY","OCTOCODE_JEV_MODEL","OCTOCODE_JEV_BASE_URL"] as const;
-export const HOME_TRUSTED_ENV_KEYS = ["OCTOCODE_JEV_KEY","OCTOCODE_JEV_MODEL","OCTOCODE_JEV_BASE_URL"] as const;
-export const CONFIG_SOURCE_ENV_KEYS = ["OCTOCODE_GITHUB_CLIENT_ID","GITHUB_API_URL","OCTOCODE_GITHUB_GRAPHQL","ENABLE_LOCAL","OCTOCODE_ENABLE_LOCAL","ENABLE_CLONE","OCTOCODE_ENABLE_CLONE","ENABLE_AST_REWRITE","ENABLE_AST_REWRITE_APPLY","ALLOWED_PATHS","WORKSPACE_ROOT","TOOLS_TO_RUN","DISABLE_TOOLS","REQUEST_TIMEOUT","MAX_RETRIES","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_LSP_CONFIG","OCTOCODE_OUTPUT_FORMAT","OCTOCODE_REDACT_EMAILS","OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH","OCTOCODE_STORAGE_MODE","OCTOCODE_EXTENSION_STORAGE_MODE","OCTOCODE_JEV_KEY","OCTOCODE_JEV_MODEL","OCTOCODE_JEV_BASE_URL","OCTOCODE_ENABLE_STATS"] as const;
+export const PROTECTED_KEY_NAMES = ["PATH","HOME","SHELL","USER","LOGNAME","PWD","TMPDIR","NODE_OPTIONS","PYTHON","GH_HOST","OCTOCODE_TOKEN","GH_TOKEN","GITHUB_TOKEN","GITHUB_PERSONAL_ACCESS_TOKEN","GITHUB_API_URL","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_CLASSIFICATION_TYPE","OCTOCODE_CLASSIFICATION_API","OCTOCODE_JEV_KEY","OCTOCODE_CLASSIFICATION_API_HOST"] as const;
+export const HOME_TRUSTED_ENV_KEYS = ["OCTOCODE_CLASSIFICATION_TYPE","OCTOCODE_CLASSIFICATION_API","OCTOCODE_JEV_KEY","OCTOCODE_CLASSIFICATION_API_HOST"] as const;
+export const CONFIG_SOURCE_ENV_KEYS = ["OCTOCODE_GITHUB_CLIENT_ID","GITHUB_API_URL","OCTOCODE_GITHUB_GRAPHQL","ENABLE_LOCAL","OCTOCODE_ENABLE_LOCAL","ENABLE_CLONE","OCTOCODE_ENABLE_CLONE","ENABLE_AST_REWRITE","ENABLE_AST_REWRITE_APPLY","ALLOWED_PATHS","WORKSPACE_ROOT","TOOLS_TO_RUN","DISABLE_TOOLS","REQUEST_TIMEOUT","MAX_RETRIES","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_LSP_CONFIG","OCTOCODE_OUTPUT_FORMAT","OCTOCODE_REDACT_EMAILS","OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH","OCTOCODE_STORAGE_MODE","OCTOCODE_EXTENSION_STORAGE_MODE","OCTOCODE_CLASSIFICATION_TYPE","OCTOCODE_CLASSIFICATION_API","OCTOCODE_JEV_KEY","OCTOCODE_CLASSIFICATION_API_HOST","OCTOCODE_ENABLE_STATS"] as const;
 export type ConfigSourceEnvKey = (typeof CONFIG_SOURCE_ENV_KEYS)[number];
-export const DEFAULT_CONFIG_VALUE: ResolvedConfigData = { "session": { "enableStats": false }, "storage": { "mode": "persistent" }, "output": { "pagination": { "defaultCharLength": 20000 }, "redactEmails": false, "format": "yaml" }, "lsp": { "configPath": undefined }, "network": { "allowPrivateRegistry": false, "maxRetries": 3, "timeout": 30000 }, "tools": { "disabled": null, "enabled": null }, "local": { "workspaceRoot": undefined, "allowedPaths": [], "enableAstRewriteApply": false, "enableAstRewrite": false, "enableClone": false, "enabled": true }, "github": { "graphqlEnabled": true, "apiUrl": "https://api.github.com" }, "version": 1, "extension": { "storage": { "mode": "persistent" } } };
+export const DEFAULT_CONFIG_VALUE: ResolvedConfigData = { "session": { "enableStats": false }, "classification": { "type": "jev" }, "storage": { "mode": "persistent" }, "output": { "pagination": { "defaultCharLength": 20000 }, "redactEmails": false, "format": "yaml" }, "lsp": { "configPath": undefined }, "network": { "allowPrivateRegistry": false, "maxRetries": 3, "timeout": 30000 }, "tools": { "disabled": null, "enabled": null }, "local": { "workspaceRoot": undefined, "allowedPaths": [], "enableAstRewriteApply": false, "enableAstRewrite": false, "enableClone": false, "enabled": true }, "github": { "graphqlEnabled": true, "apiUrl": "https://api.github.com" }, "version": 1, "extension": { "storage": { "mode": "persistent" } } };
 export const DEFAULT_GITHUB_API_URL = "https://api.github.com" as const;
 export const DEFAULT_GITHUB_GRAPHQL_ENABLED = true as const;
 export const DEFAULT_LOCAL_ENABLED = true as const;
@@ -721,4 +738,6 @@ export const MIN_OUTPUT_DEFAULT_CHAR_LENGTH = 1000;
 export const MAX_OUTPUT_DEFAULT_CHAR_LENGTH = 50000;
 export const DEFAULT_STORAGE_MODE = "persistent" as const;
 export const STORAGE_MODES = ["persistent","memory"] as const;
+export const DEFAULT_CLASSIFICATION_TYPE = "jev" as const;
+export const CLASSIFICATION_VENDORS = ["jev"] as const;
 export const DEFAULT_SESSION_ENABLE_STATS = false as const;

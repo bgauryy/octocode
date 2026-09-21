@@ -24,7 +24,7 @@ metrics or with any other campaign.
   section per public tool (schema, agent task, invocation, pass criterion) that
   an agent runs top to bottom to cover the 12-tool public catalog across native
   CLI, node CLI, and MCP, including availability behavior. With clone disabled
-  and no `OCTOCODE_JEV_KEY`, 10
+  and no `OCTOCODE_CLASSIFICATION_API`, 10
   tools are available: MCP omits `semanticAssess`, while the CLI keeps its
   command and schema discoverable and returns an actionable configuration
   error when called. The suite includes a one-shot matrix runner and

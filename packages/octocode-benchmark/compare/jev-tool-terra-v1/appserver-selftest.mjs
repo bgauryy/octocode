@@ -42,7 +42,7 @@ try {
   const configPath = join(dir, 'proxy.json');
   writeFileSync(configPath, JSON.stringify({ version: 1, arm: 'candidate', entrypoint: join(here, 'fixtures/fake-mcp.mjs'), runDir, cwd: dir, requestTimeoutMs: 5000 }));
   const result = await runAppServer({ cwd: dir, env: { PATH: process.env.PATH, HOME: dir, CODEX_HOME: dir,
-    OCTOCODE_HOME: join(dir, 'octocode'), JEV_BENCH_CONFIG: configPath, OCTOCODE_JEV_KEY: 'fixture-no-provider', BENCH_MOCK_KEY: 'fixture-not-real' },
+    OCTOCODE_HOME: join(dir, 'octocode'), JEV_BENCH_CONFIG: configPath, OCTOCODE_CLASSIFICATION_API: 'fixture-no-provider', BENCH_MOCK_KEY: 'fixture-not-real' },
     model: fixtureModel, effort: 'medium', prompt: 'Use ghSearch once, then return the fixture result.',
     outputSchema: { type: 'object', properties: { answer: { type: 'string' } }, required: ['answer'], additionalProperties: false },
     runDir, proxyPath: join(here, 'mcp-proxy.mjs'), deadlineMs: 15000,

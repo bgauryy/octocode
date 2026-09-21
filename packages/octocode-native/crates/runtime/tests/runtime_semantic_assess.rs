@@ -27,7 +27,7 @@ fn query() -> serde_json::Value {
 #[tokio::test]
 async fn semantic_assess_requires_non_blank_reasoning() {
     let workspace = Workspace::new();
-    let runtime = workspace.runtime(&[("OCTOCODE_JEV_KEY", "secret".into())]);
+    let runtime = workspace.runtime(&[("OCTOCODE_CLASSIFICATION_API", "secret".into())]);
     for reasoning in [None, Some("   ")] {
         let mut input = query();
         match reasoning {
@@ -42,6 +42,16 @@ async fn semantic_assess_requires_non_blank_reasoning() {
             .expect_err("semanticAssess reasoning is required and non-blank");
         assert_eq!(error.code, "invalidInput");
     }
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn jev_vendor_key_alias_enables_semantic_assess() {
+    // The generic OCTOCODE_CLASSIFICATION_API is unset; the jev vendor's native
+    // OCTOCODE_JEV_KEY alias alone must satisfy the availability gate.
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("OCTOCODE_JEV_KEY", "jev-native-secret".into())]);
+    assert!(runtime.is_available("semanticAssess"));
     runtime.close().await;
 }
 
@@ -72,7 +82,7 @@ async fn public_identity_is_a_hard_cutover_and_missing_key_is_actionable() {
         .await
         .unwrap_err();
     assert_eq!(error.code, "missingConfiguration");
-    assert!(error.message.contains("OCTOCODE_JEV_KEY"));
+    assert!(error.message.contains("OCTOCODE_CLASSIFICATION_API"));
     assert!(
         error
             .message
@@ -99,9 +109,8 @@ async fn matrix_is_resource_major_and_reports_requested_and_resolved_models() {
         .await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[
-        ("OCTOCODE_JEV_KEY", "secret".into()),
-        ("OCTOCODE_JEV_MODEL", "caller-requested".into()),
-        ("OCTOCODE_JEV_BASE_URL", server.uri()),
+        ("OCTOCODE_CLASSIFICATION_API", "secret".into()),
+        ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
         ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
     ]);
     let outcome = runtime
@@ -125,7 +134,7 @@ async fn matrix_is_resource_major_and_reports_requested_and_resolved_models() {
             outcome.structured_content
         );
         assert_eq!(cell["pages"].as_array().unwrap().len(), 1);
-        assert_eq!(cell["pages"][0]["requestedModel"], "caller-requested");
+        assert_eq!(cell["pages"][0]["requestedModel"], "jev-latest");
         assert_eq!(cell["pages"][0]["resolvedModel"], "provider-resolved");
     }
     runtime.close().await;
@@ -145,8 +154,8 @@ async fn oversized_first_page_is_bounded_partial_without_a_looping_continuation(
         .await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[
-        ("OCTOCODE_JEV_KEY", "secret".into()),
-        ("OCTOCODE_JEV_BASE_URL", server.uri()),
+        ("OCTOCODE_CLASSIFICATION_API", "secret".into()),
+        ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
         ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
     ]);
     let input = json!({
@@ -189,8 +198,8 @@ async fn max_chars_budgets_sanitized_resource_payload_not_serialized_envelope() 
         format!("{}{}", "x".repeat(78_377 - marker.len()), marker),
     );
     let runtime = workspace.runtime(&[
-        ("OCTOCODE_JEV_KEY", "secret".into()),
-        ("OCTOCODE_JEV_BASE_URL", server.uri()),
+        ("OCTOCODE_CLASSIFICATION_API", "secret".into()),
+        ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
         ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
     ]);
     let input = json!({
@@ -250,8 +259,8 @@ async fn page_budget_continuation_round_trips_through_the_public_contract() {
             .collect::<String>(),
     );
     let runtime = workspace.runtime(&[
-        ("OCTOCODE_JEV_KEY", "secret".into()),
-        ("OCTOCODE_JEV_BASE_URL", server.uri()),
+        ("OCTOCODE_CLASSIFICATION_API", "secret".into()),
+        ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
         ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
     ]);
     let input = json!({
@@ -299,8 +308,8 @@ async fn payload_over_max_chars_returns_an_executable_assess_continuation() {
     let workspace = Workspace::new();
     let file = workspace.write("over-budget.txt", "x".repeat(80_001));
     let runtime = workspace.runtime(&[
-        ("OCTOCODE_JEV_KEY", "secret".into()),
-        ("OCTOCODE_JEV_BASE_URL", server.uri()),
+        ("OCTOCODE_CLASSIFICATION_API", "secret".into()),
+        ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
         ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
     ]);
     let input = json!({

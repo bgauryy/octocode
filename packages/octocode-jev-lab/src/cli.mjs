@@ -14,9 +14,9 @@ Options:
   --help, -h             Show this help
 
 Environment:
-  OCTOCODE_JEV_KEY       Required provider key
-  OCTOCODE_JEV_MODEL     Optional model override (default: jev-latest)
-  OCTOCODE_JEV_BASE_URL  Optional HTTPS API root
+  OCTOCODE_CLASSIFICATION_API       Required provider key
+  JEV_LAB_MODEL                     Optional lab model override (default: jev-latest)
+  OCTOCODE_CLASSIFICATION_API_HOST  Optional HTTPS API root
 `;
 }
 

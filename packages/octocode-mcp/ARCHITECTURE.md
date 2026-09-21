@@ -24,7 +24,7 @@ missing or invalid, startup fails closed.
 
 The native catalog contains twelve tools. MCP registers only the available
 subset: `astRewrite` requires `ENABLE_AST_REWRITE=true`, and `semanticAssess`
-requires a nonblank `OCTOCODE_JEV_KEY`.
+requires a nonblank `OCTOCODE_CLASSIFICATION_API`.
 
 `createNativeMcp()` constructs one `NativeRuntime` and calls `catalog()`. The
 adapter omits tools with `available: false`; this keeps both default-off tools

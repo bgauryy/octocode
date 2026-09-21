@@ -112,7 +112,8 @@ impl ToolId {
         matches!(self.family(), ToolFamily::GitHub)
     }
 
-    /// A semantic assessment tool (gated on a non-blank `OCTOCODE_JEV_KEY`).
+    /// A semantic assessment tool (gated on a non-blank `OCTOCODE_CLASSIFICATION_API`
+    /// or the selected vendor's native key, e.g. `OCTOCODE_JEV_KEY`).
     #[must_use]
     pub const fn is_semantic_assess(self) -> bool {
         matches!(self, ToolId::SemanticAssess)
@@ -126,7 +127,7 @@ impl ToolId {
     pub const fn availability_env_hint(self) -> Option<&'static str> {
         match self {
             ToolId::GhCloneRepo => Some("ENABLE_CLONE|OCTOCODE_STORAGE_MODE"),
-            ToolId::SemanticAssess => Some("OCTOCODE_JEV_KEY"),
+            ToolId::SemanticAssess => Some("OCTOCODE_CLASSIFICATION_API|OCTOCODE_JEV_KEY"),
             ToolId::AstRewrite => Some("ENABLE_AST_REWRITE"),
             ToolId::LocalSearch | ToolId::LocalFetch | ToolId::AstSearch | ToolId::LspSearch => {
                 Some("ENABLE_LOCAL")
@@ -214,7 +215,7 @@ mod tests {
         );
         assert_eq!(
             ToolId::SemanticAssess.availability_env_hint(),
-            Some("OCTOCODE_JEV_KEY")
+            Some("OCTOCODE_CLASSIFICATION_API|OCTOCODE_JEV_KEY")
         );
         for id in [
             ToolId::LocalSearch,

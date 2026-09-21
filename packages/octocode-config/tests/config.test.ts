@@ -138,12 +138,13 @@ describe('PROTECTED_KEYS', () => {
     }
   });
 
-  it('covers the GitHub API URL and Jev provider vars (env-only, mirrors native)', () => {
+  it('covers the GitHub API URL and classification provider vars (env-only, mirrors native)', () => {
     for (const k of [
       'GITHUB_API_URL',
+      'OCTOCODE_CLASSIFICATION_API',
+      'OCTOCODE_CLASSIFICATION_API_HOST',
+      'OCTOCODE_CLASSIFICATION_TYPE',
       'OCTOCODE_JEV_KEY',
-      'OCTOCODE_JEV_BASE_URL',
-      'OCTOCODE_JEV_MODEL',
     ]) {
       expect(PROTECTED_KEYS.has(k), `${k} should be protected`).toBe(true);
     }
@@ -185,9 +186,10 @@ describe('PROTECTED_KEYS', () => {
       'GITHUB_API_URL',
       'GH_HOST',
       'OCTOCODE_ALLOW_PRIVATE_REGISTRY',
+      'OCTOCODE_CLASSIFICATION_API',
+      'OCTOCODE_CLASSIFICATION_API_HOST',
+      'OCTOCODE_CLASSIFICATION_TYPE',
       'OCTOCODE_JEV_KEY',
-      'OCTOCODE_JEV_BASE_URL',
-      'OCTOCODE_JEV_MODEL',
     ];
     expect([...PROTECTED_KEYS].sort()).toEqual([...CANONICAL].sort());
   });
@@ -675,7 +677,7 @@ describe('validateConfig', () => {
       tools: { enabled: null, enableAdditonal: ['artifactSearch'] },
       network: { timeout: 30000, retries: 2 },
       lsp: { configPath: '/tmp/lsp.json', config: 'typo' },
-      jev: { model: 'gpt-5-mini', modle: 'typo' },
+      classification: { type: 'jev', typ: 'typo' },
       output: {
         format: 'yaml',
         formatter: 'typo',
@@ -691,7 +693,7 @@ describe('validateConfig', () => {
         'Unknown configuration key: tools.enableAdditonal',
         'Unknown configuration key: network.retries',
         'Unknown configuration key: lsp.config',
-        'Unknown configuration key: jev.modle',
+        'Unknown configuration key: classification.typ',
         'Unknown configuration key: output.formatter',
         'Unknown configuration key: output.pagination.defaultChars',
       ])
@@ -722,7 +724,7 @@ describe('validateConfig', () => {
       tools: [],
       network: [],
       lsp: [],
-      jev: [],
+      classification: [],
       output: [],
     });
     expect(r.valid).toBe(false);
@@ -733,7 +735,7 @@ describe('validateConfig', () => {
         'tools: Must be an object',
         'network: Must be an object',
         'lsp: Must be an object',
-        'jev: Must be an object',
+        'classification: Must be an object',
         'output: Must be an object',
       ])
     );
@@ -864,34 +866,34 @@ describe('validateConfig', () => {
     ).toContain('output.redactEmails: Must be a boolean');
   });
 
-  it('validates Jev credential fallback values and URL protocols', () => {
+  it('validates classification credential fallback values and URL protocols', () => {
     expect(
       validateConfig({
-        jev: {
-          key: 'secret',
-          model: 'gpt-5-mini',
-          baseUrl: 'https://api.example.test/v1',
+        classification: {
+          type: 'jev',
+          api: 'secret',
+          apiHost: 'https://api.example.test/v1',
         },
       }).valid
     ).toBe(true);
 
     const invalidTypes = validateConfig({
-      jev: { key: 1, model: false, baseUrl: 2 },
+      classification: { api: 1, apiHost: 2 },
     });
     expect(invalidTypes.errors).toEqual(
       expect.arrayContaining([
-        'jev.key: Must be a string',
-        'jev.model: Must be a string',
-        'jev.baseUrl: Must be a string',
+        'classification.api: Must be a string',
+        'classification.apiHost: Must be a string',
       ])
     );
 
     expect(
-      validateConfig({ jev: { baseUrl: 'file:///tmp/provider' } }).errors
-    ).toContain('jev.baseUrl: Only http/https URLs allowed');
+      validateConfig({ classification: { apiHost: 'file:///tmp/provider' } })
+        .errors
+    ).toContain('classification.apiHost: Only http/https URLs allowed');
     expect(
-      validateConfig({ jev: { baseUrl: 'not a URL' } }).errors
-    ).toContain('jev.baseUrl: Invalid URL format');
+      validateConfig({ classification: { apiHost: 'not a URL' } }).errors
+    ).toContain('classification.apiHost: Invalid URL format');
   });
 
   it('accepts Windows absolute local paths', () => {

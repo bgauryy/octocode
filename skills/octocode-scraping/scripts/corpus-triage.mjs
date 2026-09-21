@@ -75,7 +75,7 @@ function runSemanticAssess(inputPath) {
   });
   const stdout = String(res.stdout || '');
   const stderr = String(res.stderr || '');
-  if (/Unknown tool: semanticAssess|not available|OCTOCODE_JEV_KEY/i.test(stdout + stderr)) {
+  if (/Unknown tool: semanticAssess|not available|OCTOCODE_CLASSIFICATION_API/i.test(stdout + stderr)) {
     return { unavailable: true, detail: (stderr || stdout).slice(0, 300) };
   }
   if (res.status !== 0 && !stdout.trim()) {

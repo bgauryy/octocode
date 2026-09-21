@@ -2,12 +2,12 @@
 
 `semanticAssess` applies bounded, typed semantic questions to supplied state or to an unread Octocode read request. It is a decision aid, not an evidence source: verify claims with the original source, an exact lookup, or a test before relying on them.
 
-The public tool and CLI command are both named `semanticAssess`. Jev remains the internal provider/model family and the environment variable remains `OCTOCODE_JEV_KEY`.
+The public tool and CLI command are both named `semanticAssess`. Jev remains the internal provider/model family and the environment variable remains `OCTOCODE_CLASSIFICATION_API`.
 
 ## Availability
 
-- MCP registers `semanticAssess` only when the resolved `OCTOCODE_JEV_KEY` is present and nonblank. When the key is absent or blank, the tool is omitted from MCP discovery.
-- The CLI command remains directly callable even when the available-tool catalog excludes it. Calling it without a nonblank key fails with an actionable error that names `OCTOCODE_JEV_KEY` and tells the caller to set it.
+- MCP registers `semanticAssess` only when the resolved `OCTOCODE_CLASSIFICATION_API` is present and nonblank. When the key is absent or blank, the tool is omitted from MCP discovery.
+- The CLI command remains directly callable even when the available-tool catalog excludes it. Calling it without a nonblank key fails with an actionable error that names `OCTOCODE_CLASSIFICATION_API` and tells the caller to set it.
 - Do not put provider credentials in `.octocoderc` or commit them.
 
 ## Input shape

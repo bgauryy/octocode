@@ -38,7 +38,7 @@ export async function runAppServer({ cwd, env, model, effort = 'medium', prompt,
   const redact = text => secrets.reduce((out, secret) => out.split(secret).join('[REDACTED]'), text);
   const log = (name, value) => appendFileSync(join(runDir, name), redact(JSON.stringify(value)) + '\n', { mode: 0o600 });
   const config = { mcp_servers: { octocode: { command: process.execPath, args: [proxyPath], required: true,
-    env_vars: ['JEV_BENCH_CONFIG', 'OCTOCODE_HOME', 'OCTOCODE_NATIVE_BINDING', 'OCTOCODE_REGEX_WORKER', 'OCTOCODE_JEV_KEY', 'OCTOCODE_JEV_MODEL', 'OCTOCODE_JEV_BASE_URL', 'GITHUB_TOKEN', 'GH_TOKEN', 'ENABLE_LOCAL', 'ENABLE_CLONE', 'MAX_RETRIES', 'OCTOCODE_ENABLE_STATS', 'OCTOCODE_STORAGE_MODE'],
+    env_vars: ['JEV_BENCH_CONFIG', 'OCTOCODE_HOME', 'OCTOCODE_NATIVE_BINDING', 'OCTOCODE_REGEX_WORKER', 'OCTOCODE_CLASSIFICATION_API', 'OCTOCODE_CLASSIFICATION_API_HOST', 'GITHUB_TOKEN', 'GH_TOKEN', 'ENABLE_LOCAL', 'ENABLE_CLONE', 'MAX_RETRIES', 'OCTOCODE_ENABLE_STATS', 'OCTOCODE_STORAGE_MODE'],
     enabled_tools: ALLOWED, default_tools_approval_mode: 'prompt', startup_timeout_sec: 30, tool_timeout_sec: 120 } },
     project_doc_max_bytes: 0, developer_instructions: '', web_search: 'disabled', tool_output_token_limit: 12000,
     features: { ...Object.fromEntries(DISABLED.map(key => [key, false])), skip_host_skill_discovery: true, tool_call_mcp_elicitation: true },

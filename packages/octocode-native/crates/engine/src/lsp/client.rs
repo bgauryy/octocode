@@ -389,7 +389,7 @@ impl NativeLspClient {
         if let Some(cap_bytes) = memory_cap {
             spawn_limits::apply_pre_spawn_cap(&mut command, cap_bytes);
         }
-        // Never leak octocode's own environment (OCTOCODE_JEV_KEY, GITHUB_TOKEN,
+        // Never leak octocode's own environment (OCTOCODE_CLASSIFICATION_API, GITHUB_TOKEN,
         // etc.) into a spawned language server. Start from an empty environment and
         // re-add only a minimal, secret-free allowlist plus any explicitly
         // configured server env. PATH must be preserved so built-in servers
