@@ -1,6 +1,6 @@
 {
   "sourcePackage": "@octocodeai/octocode-core",
-  "sourceRevision": "1bc34ffdb4be7e0166ec1787274a89892eec7f4e",
-  "sourceDirty": false,
-  "contractFingerprint": "c79c7cbb82d442725d262f03d02c83b62e126f7a8531bc9b23173c304c168907"
+  "sourceRevision": "16725628740c65153a2819596e58a84553db5bc9",
+  "sourceDirty": true,
+  "contractFingerprint": "6252e24b18254e3048fc16c49c2b3e291749fe9130ef6c8d3805a00472de5cab"
 }

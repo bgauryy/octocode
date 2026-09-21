@@ -33,6 +33,23 @@ export interface SkillPlatformDescriptor {
   readonly projectRelativePath: string;
 }
 
+/**
+ * Each `*RelativePath` below was verified 2026-09-22 against that platform's
+ * current official documentation (and, for "pi", byte-for-byte against a real
+ * published skills repo's install instructions — no first-party doc exists
+ * for it beyond pi.dev), not inferred or guessed:
+ *  - pi:       pi.dev/docs/latest/skills; confirmed via badlogic/pi-skills'
+ *              README (`git clone ... ~/.pi/agent/skills/<name>` / `.pi/skills/<name>`)
+ *  - cursor:   cursor.com/docs/skills — `~/.cursor/skills/` global, `.cursor/skills/` project
+ *  - claude:   Claude Code skills docs — `~/.claude/skills/` global, `.claude/skills/` project
+ *  - codex:    developers.openai.com/codex/skills — `~/.agents/skills/` personal, `.agents/skills/` repo
+ *  - opencode: opencode.ai/docs/skills — `~/.config/opencode/skills/` global, `.opencode/skills/` project
+ *  - copilot:  docs.github.com (agent skills) — `~/.copilot/skills` personal, `.github/skills` project
+ *  - gemini:   geminicli.com/docs/cli/skills — `~/.gemini/skills/` user, `.gemini/skills/` workspace
+ * A platform changing its convention needs this comment (and the matching
+ * fixed-path assertions in tests/installer.test.ts) updated together — a
+ * silent value edit here would drift from what these tools actually load.
+ */
 export const SKILL_PLATFORMS: readonly SkillPlatformDescriptor[] = [
   {
     platform: 'pi',

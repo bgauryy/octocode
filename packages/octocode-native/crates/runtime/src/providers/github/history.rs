@@ -75,7 +75,19 @@ pub struct PullListRequest {
     pub page: usize,
     pub per_page: usize,
 }
-const MAX_PR_ONLY_PAGES_TO_SKIP: usize = 5;
+// GitHub's /issues endpoint returns issues and pull requests interleaved, so
+// finding a page with real issues can require walking past many PR-only
+// pages. A small budget here pushes that walk onto the *caller*: each
+// exhausted budget returns `hasMore:true` pointing at the next unwalked
+// provider page, so a caller mechanically following `next.nextPage` (the
+// documented usage pattern — see the `page` field's "copy from next.*
+// unchanged" schema description) needs one round trip per skipped page. For
+// repos with a high PR-to-issue ratio that can mean hundreds of external
+// tool calls before `hasMore` ever goes false. Doing more of that walk
+// server-side, inside a single call, cuts the number of external round
+// trips this can take by the same factor while keeping single-call latency
+// bounded (worst case is this many sequential lightweight REST requests).
+pub(crate) const MAX_PR_ONLY_PAGES_TO_SKIP: usize = 25;
 impl<R: CredentialResolver> GitHubTransport<R> {
     pub async fn list_commits(
         &self,

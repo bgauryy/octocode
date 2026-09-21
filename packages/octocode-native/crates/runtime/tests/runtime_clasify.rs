@@ -337,3 +337,48 @@ async fn payload_over_max_chars_returns_an_executable_clasify_continuation() {
     assert_eq!(resumed_query["results"][0]["coverage"], "complete");
     runtime.close().await;
 }
+
+#[tokio::test]
+async fn invalid_inner_query_surfaces_contract_detail_in_page_error() {
+    // A localFetch context missing `reasoning` must fail with `invalidJevContext`
+    // and the page error message must name the offending field — not just say
+    // "does not satisfy the contract". The provider is never reached.
+    let workspace = Workspace::new();
+    let file = workspace.write("dummy.txt", "content");
+    let runtime = workspace.runtime(&[("OCTOCODE_CLASSIFICATION_API", "secret".into())]);
+    let input = json!({
+        "id": "bad-inner-query",
+        "reasoning": "Test that a missing inner reasoning surfaces its field name.",
+        "resources": [{
+            "id": "r1",
+            "context": {
+                "tool": "localFetch",
+                "query": { "path": file }
+            }
+        }],
+        "questions": [{
+            "id": "q1",
+            "question": { "type": "noul", "instructions": "Relevant?" }
+        }]
+    });
+    let outcome = runtime
+        .execute("bad-inner-query".into(), "clasify".into(), input)
+        .await
+        .unwrap();
+    let page = &outcome.structured_content["queries"][0]["results"][0]["pages"][0];
+    assert_eq!(
+        page["status"], "error",
+        "missing inner reasoning must produce a page-level error"
+    );
+    assert_eq!(
+        page["error"]["code"], "invalidJevContext",
+        "error code must be invalidJevContext, got: {}",
+        page["error"]
+    );
+    let message = page["error"]["message"].as_str().unwrap_or("");
+    assert!(
+        message.contains("reasoning"),
+        "error message must name the failing field 'reasoning'; got: {message}"
+    );
+    runtime.close().await;
+}

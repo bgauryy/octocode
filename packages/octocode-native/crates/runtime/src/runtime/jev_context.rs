@@ -68,10 +68,28 @@ fn prepare(tool: &str, query: &Value) -> Result<Value, JevProviderError> {
     }
     let mut queries =
         contracts::prepare_many_and_validate(tool, query.clone(), PrepareOptions::default())
-            .map_err(|_| {
+            .map_err(|validation_error| {
+                let detail = validation_error
+                    .issues
+                    .iter()
+                    .map(|issue| {
+                        if issue.path.is_empty() {
+                            issue.message.clone()
+                        } else {
+                            format!("{}: {}", issue.path.join("."), issue.message)
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("; ");
                 error(
                     "invalidJevContext",
-                    format!("Context query does not satisfy the {tool} input contract."),
+                    if detail.is_empty() {
+                        format!("Context query does not satisfy the {tool} input contract.")
+                    } else {
+                        format!(
+                            "Context query does not satisfy the {tool} input contract: {detail}."
+                        )
+                    },
                 )
             })?;
     if queries.len() != 1 {
@@ -176,6 +194,54 @@ pub(super) fn resolve(
     Ok((state, Some(receipt)))
 }
 
+/// Extracts the line or byte range of this page from a localFetch (or
+/// compatible tool) result. Added to the receipt so callers always know
+/// which chunk a Jev page judgment covers without having to infer it from
+/// the continuation query of the previous page.
+fn page_scope(state: &Value) -> Option<Value> {
+    let data = state
+        .get("results")
+        .and_then(Value::as_array)
+        .and_then(|rows| rows.first())
+        .and_then(|row| row.get("data"))
+        .and_then(Value::as_object)?;
+    let pagination = data.get("pagination").and_then(Value::as_object)?;
+    let chunk_type = pagination.get("chunkType").and_then(Value::as_str)?;
+    match chunk_type {
+        "lines" => {
+            // sourceLineRanges is 1-indexed and already merged across windows;
+            // fall back to offset + length when absent.
+            let (start, end) = data
+                .get("sourceLineRanges")
+                .and_then(Value::as_array)
+                .and_then(|r| r.first())
+                .and_then(Value::as_object)
+                .and_then(|r| Some((r.get("start")?.as_u64()?, r.get("end")?.as_u64()?)))
+                .or_else(|| {
+                    let offset = pagination.get("offset")?.as_u64()?;
+                    let length = pagination.get("length")?.as_u64()?;
+                    Some((offset + 1, offset + length))
+                })?;
+            let total_lines = pagination.get("totalLines")?.as_u64()?;
+            Some(json!({"startLine": start, "endLine": end, "totalLines": total_lines}))
+        }
+        "bytes" => {
+            let byte_offset = pagination.get("offset")?.as_u64()?;
+            let byte_end = pagination
+                .get("nextOffset")
+                .and_then(Value::as_u64)
+                .or_else(|| {
+                    // Final chunk has no nextOffset; compute from offset + length.
+                    let length = pagination.get("length")?.as_u64()?;
+                    Some(byte_offset + length)
+                })?;
+            let total_bytes = pagination.get("totalBytes")?.as_u64()?;
+            Some(json!({"byteOffset": byte_offset, "byteEnd": byte_end, "totalBytes": total_bytes}))
+        }
+        _ => None,
+    }
+}
+
 fn append_limitation(receipt: &mut Value, limitation: &str) {
     match receipt.get_mut("limitations").and_then(Value::as_array_mut) {
         Some(limitations) => limitations.push(json!(limitation)),
@@ -197,6 +263,9 @@ fn receipt_with_evaluation(tool: &str, state: &Value, evaluation_completed: bool
     let mut partial = response::is_partial(state);
     inspect(state, &mut next, &mut partial, &mut terminal);
     let mut receipt = json!({"source":"tool","tool":tool,"resultHash":hex::encode(Sha256::digest(state.to_string().as_bytes())),"coverage":if partial {"partial"}else{"bounded"}});
+    if let Some(scope) = page_scope(state) {
+        receipt["scope"] = scope;
+    }
     if !next.is_empty() {
         receipt["next"] = Value::Object(next);
     }
@@ -383,6 +452,30 @@ mod tests {
         assert!(prepare("localFetch", &json!({"path":"/tmp/f"})).is_err());
     }
     #[test]
+    fn contract_violation_in_nested_context_includes_field_details() {
+        // A path-only query fails because `reasoning` is required.
+        // The error message must name the failing field so the caller can fix
+        // the request without running the tool separately — the original
+        // `.map_err(|_| ...)` discarded all ContractValidationError detail.
+        let err = prepare("localFetch", &json!({"path":"/tmp/f"}))
+            .expect_err("path-only localFetch must be rejected");
+        assert_eq!(err.code, "invalidJevContext");
+        assert!(
+            err.message.contains("reasoning"),
+            "error message must name the failing field; got: {}",
+            err.message
+        );
+        // A completely unknown field must also surface the field name.
+        let err_unknown = prepare("localFetch", &json!({"path":"/tmp/f","reasoning":"r","typo":1}))
+            .expect_err("unknown field must be rejected");
+        assert_eq!(err_unknown.code, "invalidJevContext");
+        assert!(
+            err_unknown.message.contains("typo") || err_unknown.message.contains("localFetch"),
+            "error must surface field or tool context; got: {}",
+            err_unknown.message
+        );
+    }
+    #[test]
     fn artifact_domain_cursors_are_valid_context_and_receipt_continuations() {
         let artifact = json!({"type":"npm","keywords":["parser"],"reasoning":"Find packages","cursor":"provider-cursor","pageSize":2});
         assert!(prepare("artifactSearch", &artifact).is_ok());
@@ -538,5 +631,102 @@ mod tests {
                 .unwrap()
                 .contains("terminal limit")
         );
+    }
+
+    fn line_paginated_state(offset: u64, length: u64, total_lines: u64, next_offset: u64) -> Value {
+        let start = offset + 1;
+        let end = offset + length;
+        json!({
+            "results": [{"data": {
+                "content": "...",
+                "totalLines": total_lines,
+                "returnedLines": length,
+                "isPartial": true,
+                "pagination": {
+                    "chunkType": "lines",
+                    "offset": offset,
+                    "length": length,
+                    "limit": length,
+                    "totalLines": total_lines,
+                    "totalBytes": 17454,
+                    "hasMore": true,
+                    "nextOffset": next_offset
+                },
+                "sourceLineRanges": [{"start": start, "end": end}],
+                "next": {"continue": {"tool": "localFetch",
+                    "query": {"path": "/tmp/f", "reasoning": "R", "offset": next_offset, "limit": length}
+                }}
+            }}]
+        })
+    }
+
+    fn byte_paginated_state(offset: u64, length: u64, total_bytes: u64, has_more: bool) -> Value {
+        let next_offset: Value = if has_more { json!(offset + length) } else { json!(null) };
+        json!({
+            "results": [{"data": {
+                "content": "...",
+                "totalLines": 1,
+                "isPartial": has_more,
+                "pagination": {
+                    "chunkType": "bytes",
+                    "offset": offset,
+                    "length": length,
+                    "limit": length,
+                    "totalLines": 1,
+                    "totalBytes": total_bytes,
+                    "hasMore": has_more,
+                    "nextOffset": next_offset
+                },
+                "sourceLineRanges": [{"start": 1, "end": 1}],
+                "next": if has_more { json!({"continue": {"tool": "localFetch",
+                    "query": {"path": "/tmp/f", "reasoning": "R",
+                        "offset": offset + length, "limit": length}
+                }}) } else { json!(null) }
+            }}]
+        })
+    }
+
+    #[test]
+    fn line_paginated_receipt_includes_scope_start_end_total() {
+        // Page 0: lines 1-30 of 479
+        let r = receipt("localFetch", &line_paginated_state(0, 30, 479, 30));
+        assert_eq!(r["scope"]["startLine"], 1, "page 0 starts at line 1");
+        assert_eq!(r["scope"]["endLine"], 30);
+        assert_eq!(r["scope"]["totalLines"], 479);
+        assert!(r["scope"].get("byteOffset").is_none(), "no byte fields for line scope");
+
+        // Page 1: lines 31-60 of 479
+        let r2 = receipt("localFetch", &line_paginated_state(30, 30, 479, 60));
+        assert_eq!(r2["scope"]["startLine"], 31, "page 1 starts at line 31");
+        assert_eq!(r2["scope"]["endLine"], 60);
+        assert_eq!(r2["scope"]["totalLines"], 479);
+    }
+
+    #[test]
+    fn byte_paginated_receipt_includes_scope_offset_end_total() {
+        // First byte chunk: bytes 0-16384 of 16500
+        let r = receipt("localFetch", &byte_paginated_state(0, 16384, 16500, true));
+        assert_eq!(r["scope"]["byteOffset"], 0);
+        assert_eq!(r["scope"]["byteEnd"], 16384);
+        assert_eq!(r["scope"]["totalBytes"], 16500);
+        assert!(r["scope"].get("startLine").is_none(), "no line fields for byte scope");
+
+        // Second (final) byte chunk: no nextOffset in pagination
+        let r2 = receipt("localFetch", &byte_paginated_state(16384, 116, 16500, false));
+        assert_eq!(r2["scope"]["byteOffset"], 16384);
+        assert_eq!(r2["scope"]["byteEnd"], 16500, "byteEnd falls back to offset+length when no nextOffset");
+        assert_eq!(r2["scope"]["totalBytes"], 16500);
+    }
+
+    #[test]
+    fn complete_and_value_receipts_have_no_scope() {
+        // A result without pagination metadata (complete, all lines fit)
+        let complete = json!({"results": [{"data": {
+            "content": "all here", "totalLines": 5, "returnedLines": 5
+        }}]});
+        assert!(receipt("localFetch", &complete).get("scope").is_none(),
+            "complete result must not have scope");
+        // Value context receipts never have scope
+        assert!(value_receipt(&json!({"key": "val"})).get("scope").is_none());
     }
 }

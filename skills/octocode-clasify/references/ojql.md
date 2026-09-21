@@ -16,4 +16,4 @@ Coverage receipts distinguish bounded query scope from explicitly partial result
 
 The provider request is bounded by native request and response limits, with ordinary tool and shared runtime limits also applying. Retain uncertain candidates and verify deciding evidence before action. Provider answers are preserved; Octocode does not add explanations or expose hidden chain-of-thought.
 
-For choosing a question and request shape, see [prompt recipes](jev-workflows.md); use live `scheme clasify` as the contract authority.
+For choosing a question and request shape, see [prompt recipes](clasify-workflows.md); use live `scheme clasify` as the contract authority.

@@ -2487,12 +2487,12 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-core@npm:19.1.2":
+"@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::locator=octocode-monorepo%40workspace%3A.":
   version: 19.1.2
-  resolution: "@octocodeai/octocode-core@npm:19.1.2"
+  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=d12dd5&locator=octocode-monorepo%40workspace%3A."
   dependencies:
     zod: "npm:^4.6.2"
-  checksum: 10c0/f83b08c8b5756f55728cdb01898cd84f42be901a6aa81b1cbb45bea6480034b48efdebd925e7a66702ff25338fc073aa28a40806972e619253324350ea80c0a0
+  checksum: 10c0/827f8490b4f881af79d0bafedb81f2bc592362ee9219bf500864e07540c22fc0a3f859120aebf99e6ecddb5b76d4f2fedfe5667a9a226e7d1c946ee26649780f
   languageName: node
   linkType: hard
 

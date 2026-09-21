@@ -10,11 +10,13 @@ related-skill: `octocode-chrome-devtools`
 output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
 routes: load/run a reference, doc, or script only when it changes the next action; otherwise keep the rule here.
 
-Flow: `FRAME → POLICY → ROUTE → FETCH → CORPUS → SEARCH → CITE → RECOVER`.
+Flow: `FRAME → POLICY → ROUTE → FETCH → CORPUS → SCREEN → CITE → RECOVER`.
 
 Corpora/runs: `<output>/tmp/scrape/`; reports: `<output>/octocode-scraping/`. Chat answers stay in chat; approved source/config edits keep their paths.
 
 Frame URL/domain, goal, depth, and output before fetching; vague scope → `references/user-inputs.md`. Default to one public URL, `--mode html`, no explicit provider (keyless `cdp`→`direct`), `.octocode/tmp/scrape/{sessionId}`, and compact stdout. Search an existing corpus before refetching. Live interaction belongs to `octocode-chrome-devtools`; process its HAR into the same session.
+
+**Context gate:** After every fetch, the SCREEN step is mandatory — never read corpus pages in full before screening them with `clasify`. This is the primary protection against context bloat. The fallback is `corpus-find.mjs` lexical triage only when `clasify` is unavailable.
 
 For repo, package, or code claims, use `octocode-research`. Keep URL fetching and corpus extraction in this skill.
 
@@ -24,8 +26,8 @@ Ask before auth, hosted spend, crawl expansion, CAPTCHA/MFA, personal-data expor
 
 - When fetching/crawling/extracting, run `scripts/fetch.mjs --url <u> [--mode html] [--crawl --same-domain --max-pages <n>] [--no-raw]`; when a brief is also needed, run `scripts/fetch-and-brief.mjs --url <u>`.
 - Before routing/spend → `scripts/provider-check.mjs [--provider <p>]`; credit status → `scripts/provider-usage.mjs`. Both sanitize secrets.
-- Saved session → `scripts/corpus-inspect.mjs --session-dir <d> [--page <n>]`, then `scripts/corpus-find.mjs --session-dir <d> --query <t>`.
-- Before reading multiple candidate pages in full, screen them with `clasify` directly (never a wrapper script): build one `resources[] × questions[]` SemanticQuery where each saved part is an unread `localFetch` resource, keep the matrix at 1–25 cells, and run `octocode clasify --input <request>.json --compact`. The runtime captures each part once, follows its own bounded `next.clasify` pagination, and returns exclusive `read`/`consider`/`skip` routes while bodies stay out of chat; retain partial, insufficient, relevant, and errored pages. Skip thin extractions and duplicate URLs without assessment, and resolve every file inside the session. If clasify is unavailable, fall back to `corpus-find.mjs` lexical triage. A route is not evidence; read deciding spans from kept files.
+- **SCREEN (mandatory — runs before any page read):** call `clasify` directly (never a wrapper script): build one `resources[] × questions[]` SemanticQuery where each saved corpus part is an unread `localFetch` resource, keep the matrix at 1–25 cells, and run `octocode clasify --input <request>.json --compact`. The runtime captures each part once, follows its own bounded `next.clasify` pagination, and returns exclusive `read`/`consider`/`skip` routes while bodies stay out of chat; retain partial, insufficient, relevant, and errored pages. Skip thin extractions and duplicate URLs without assessment, and resolve every file inside the session. Never read more than one page without first screening via clasify. If clasify is unavailable, fall back to `corpus-find.mjs` lexical triage. A route is not evidence; read deciding spans from kept files.
+- Saved session navigation → `scripts/corpus-inspect.mjs --session-dir <d> [--page <n>]`; bounded text search → `scripts/corpus-find.mjs --session-dir <d> --query <t>`. Use after SCREEN to retrieve only kept pages.
 - For another bounded corpus judgment, call `clasify` directly: one SemanticQuery applies every typed question to every resource; `{queries:[...]}` is only for independent matrices. Use Choice for named alternatives, one Noul for one yes/no proposition, and one Score for one ordered dimension. Leave enormous bodies unread via ordinary tool queries, retain raw answers, skip exact or settled checks, then inspect exact source for proof.
 - When querying static DOM/assets/paths, run `scripts/dom-find.mjs`, `scripts/resource-list.mjs`, or `scripts/graph-navigate.mjs` with `--session-dir <d>`; live DOM stays in chrome-devtools.
 - Local field proof → `scripts/corpus-run.mjs --session-dir <d> --roots cdp,extracts --regex <re>` or `--script <file>`.

@@ -17,4 +17,4 @@ Shape only independent matrices together. Assess them once, then verify retained
 
 Use Choice with explicit `relevant`, `unrelated`, and `insufficient` options to scout. Use one Noul for one affirmative yes/no proposition. Use one Score for one ordered dimension with 2–10 independently described levels. Several aspects are several questions; do not hide a checklist inside one instruction or ask for free-form reasoning. Jev answers are judgments, not proof or permission: follow them with exact reads or tests before claims and changes.
 In this repository replace `octocode` with `node packages/octocode/out/octocode.js`.
-For setup → [ojql.md](references/ojql.md). For optional examples → [jev-workflows.md](references/jev-workflows.md).
+For setup → [ojql.md](references/ojql.md). For optional examples → [clasify-workflows.md](references/clasify-workflows.md).

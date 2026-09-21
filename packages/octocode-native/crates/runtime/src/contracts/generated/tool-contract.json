@@ -1,6 +1,6 @@
 {
   "contractFormatVersion": 2,
-  "fingerprint": "c79c7cbb82d442725d262f03d02c83b62e126f7a8531bc9b23173c304c168907",
+  "fingerprint": "6252e24b18254e3048fc16c49c2b3e291749fe9130ef6c8d3805a00472de5cab",
   "tools": [
     {
       "defaults": [
@@ -151,7 +151,7 @@
                                   "type": "array"
                                 }
                               ],
-                              "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                              "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                             },
                             "type": {
                               "const": "noul",
@@ -230,7 +230,7 @@
                                   "type": "array"
                                 }
                               ],
-                              "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                              "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                             },
                             "type": {
                               "const": "choice",
@@ -299,7 +299,7 @@
                                   "type": "array"
                                 }
                               ],
-                              "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                              "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                             },
                             "type": {
                               "const": "score",
@@ -328,7 +328,7 @@
                 "type": "array"
               },
               "reasoning": {
-                "description": "Why this judgment changes the next action; concise trace metadata, not hidden chain-of-thought.",
+                "description": "Why this judgment changes the next action; trace-only metadata never sent to the provider — put deciding context in question instructions instead.",
                 "minLength": 1,
                 "type": "string"
               },
@@ -571,7 +571,7 @@
                                         "type": "array"
                                       }
                                     ],
-                                    "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                                    "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                                   },
                                   "type": {
                                     "const": "noul",
@@ -650,7 +650,7 @@
                                         "type": "array"
                                       }
                                     ],
-                                    "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                                    "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                                   },
                                   "type": {
                                     "const": "choice",
@@ -719,7 +719,7 @@
                                         "type": "array"
                                       }
                                     ],
-                                    "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                                    "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                                   },
                                   "type": {
                                     "const": "score",
@@ -748,7 +748,7 @@
                       "type": "array"
                     },
                     "reasoning": {
-                      "description": "Why this judgment changes the next action; concise trace metadata, not hidden chain-of-thought.",
+                      "description": "Why this judgment changes the next action; trace-only metadata never sent to the provider — put deciding context in question instructions instead.",
                       "minLength": 1,
                       "type": "string"
                     },
@@ -1017,7 +1017,7 @@
                                                 "type": "array"
                                               }
                                             ],
-                                            "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                                            "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                                           },
                                           "type": {
                                             "const": "noul",
@@ -1096,7 +1096,7 @@
                                                 "type": "array"
                                               }
                                             ],
-                                            "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                                            "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                                           },
                                           "type": {
                                             "const": "choice",
@@ -1165,7 +1165,7 @@
                                                 "type": "array"
                                               }
                                             ],
-                                            "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                                            "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                                           },
                                           "type": {
                                             "const": "score",
@@ -1194,7 +1194,7 @@
                               "type": "array"
                             },
                             "reasoning": {
-                              "description": "Why this judgment changes the next action; concise trace metadata, not hidden chain-of-thought.",
+                              "description": "Why this judgment changes the next action; trace-only metadata never sent to the provider — put deciding context in question instructions instead.",
                               "minLength": 1,
                               "type": "string"
                             },
@@ -1438,7 +1438,7 @@
                                                       "type": "array"
                                                     }
                                                   ],
-                                                  "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                                                  "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                                                 },
                                                 "type": {
                                                   "const": "noul",
@@ -1517,7 +1517,7 @@
                                                       "type": "array"
                                                     }
                                                   ],
-                                                  "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                                                  "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                                                 },
                                                 "type": {
                                                   "const": "choice",
@@ -1586,7 +1586,7 @@
                                                       "type": "array"
                                                     }
                                                   ],
-                                                  "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                                                  "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                                                 },
                                                 "type": {
                                                   "const": "score",
@@ -1615,7 +1615,7 @@
                                     "type": "array"
                                   },
                                   "reasoning": {
-                                    "description": "Why this judgment changes the next action; concise trace metadata, not hidden chain-of-thought.",
+                                    "description": "Why this judgment changes the next action; trace-only metadata never sent to the provider — put deciding context in question instructions instead.",
                                     "minLength": 1,
                                     "type": "string"
                                   },
@@ -2385,7 +2385,7 @@
                               "type": "array"
                             }
                           ],
-                          "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                          "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                         },
                         "type": {
                           "const": "noul",
@@ -2464,7 +2464,7 @@
                               "type": "array"
                             }
                           ],
-                          "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                          "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                         },
                         "type": {
                           "const": "choice",
@@ -2533,7 +2533,7 @@
                               "type": "array"
                             }
                           ],
-                          "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                          "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                         },
                         "type": {
                           "const": "score",
@@ -2562,7 +2562,7 @@
             "type": "array"
           },
           "reasoning": {
-            "description": "Why this judgment changes the next action; concise trace metadata, not hidden chain-of-thought.",
+            "description": "Why this judgment changes the next action; trace-only metadata never sent to the provider — put deciding context in question instructions instead.",
             "minLength": 1,
             "type": "string"
           },
@@ -3686,7 +3686,7 @@
                                           "type": "array"
                                         }
                                       ],
-                                      "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                                      "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                                     },
                                     "type": {
                                       "const": "noul",
@@ -3765,7 +3765,7 @@
                                           "type": "array"
                                         }
                                       ],
-                                      "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                                      "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                                     },
                                     "type": {
                                       "const": "choice",
@@ -3834,7 +3834,7 @@
                                           "type": "array"
                                         }
                                       ],
-                                      "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                                      "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                                     },
                                     "type": {
                                       "const": "score",
@@ -3863,7 +3863,7 @@
                         "type": "array"
                       },
                       "reasoning": {
-                        "description": "Why this judgment changes the next action; concise trace metadata, not hidden chain-of-thought.",
+                        "description": "Why this judgment changes the next action; trace-only metadata never sent to the provider — put deciding context in question instructions instead.",
                         "minLength": 1,
                         "type": "string"
                       },
@@ -12055,7 +12055,7 @@
                                           "type": "array"
                                         }
                                       ],
-                                      "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                                      "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                                     },
                                     "type": {
                                       "const": "noul",
@@ -12134,7 +12134,7 @@
                                           "type": "array"
                                         }
                                       ],
-                                      "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                                      "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                                     },
                                     "type": {
                                       "const": "choice",
@@ -12203,7 +12203,7 @@
                                           "type": "array"
                                         }
                                       ],
-                                      "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                                      "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                                     },
                                     "type": {
                                       "const": "score",
@@ -12232,7 +12232,7 @@
                         "type": "array"
                       },
                       "reasoning": {
-                        "description": "Why this judgment changes the next action; concise trace metadata, not hidden chain-of-thought.",
+                        "description": "Why this judgment changes the next action; trace-only metadata never sent to the provider — put deciding context in question instructions instead.",
                         "minLength": 1,
                         "type": "string"
                       },
@@ -20112,7 +20112,7 @@
                                           "type": "array"
                                         }
                                       ],
-                                      "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                                      "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                                     },
                                     "type": {
                                       "const": "noul",
@@ -20191,7 +20191,7 @@
                                           "type": "array"
                                         }
                                       ],
-                                      "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                                      "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                                     },
                                     "type": {
                                       "const": "choice",
@@ -20260,7 +20260,7 @@
                                           "type": "array"
                                         }
                                       ],
-                                      "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                                      "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                                     },
                                     "type": {
                                       "const": "score",
@@ -20289,7 +20289,7 @@
                         "type": "array"
                       },
                       "reasoning": {
-                        "description": "Why this judgment changes the next action; concise trace metadata, not hidden chain-of-thought.",
+                        "description": "Why this judgment changes the next action; trace-only metadata never sent to the provider — put deciding context in question instructions instead.",
                         "minLength": 1,
                         "type": "string"
                       },
@@ -29023,7 +29023,7 @@
                                           "type": "array"
                                         }
                                       ],
-                                      "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                                      "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                                     },
                                     "type": {
                                       "const": "noul",
@@ -29102,7 +29102,7 @@
                                           "type": "array"
                                         }
                                       ],
-                                      "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                                      "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                                     },
                                     "type": {
                                       "const": "choice",
@@ -29171,7 +29171,7 @@
                                           "type": "array"
                                         }
                                       ],
-                                      "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                                      "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                                     },
                                     "type": {
                                       "const": "score",
@@ -29200,7 +29200,7 @@
                         "type": "array"
                       },
                       "reasoning": {
-                        "description": "Why this judgment changes the next action; concise trace metadata, not hidden chain-of-thought.",
+                        "description": "Why this judgment changes the next action; trace-only metadata never sent to the provider — put deciding context in question instructions instead.",
                         "minLength": 1,
                         "type": "string"
                       },
@@ -38578,7 +38578,7 @@
                                           "type": "array"
                                         }
                                       ],
-                                      "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                                      "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                                     },
                                     "type": {
                                       "const": "noul",
@@ -38657,7 +38657,7 @@
                                           "type": "array"
                                         }
                                       ],
-                                      "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                                      "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                                     },
                                     "type": {
                                       "const": "choice",
@@ -38726,7 +38726,7 @@
                                           "type": "array"
                                         }
                                       ],
-                                      "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                                      "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                                     },
                                     "type": {
                                       "const": "score",
@@ -38755,7 +38755,7 @@
                         "type": "array"
                       },
                       "reasoning": {
-                        "description": "Why this judgment changes the next action; concise trace metadata, not hidden chain-of-thought.",
+                        "description": "Why this judgment changes the next action; trace-only metadata never sent to the provider — put deciding context in question instructions instead.",
                         "minLength": 1,
                         "type": "string"
                       },
@@ -45893,7 +45893,7 @@
                                           "type": "array"
                                         }
                                       ],
-                                      "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                                      "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                                     },
                                     "type": {
                                       "const": "noul",
@@ -45972,7 +45972,7 @@
                                           "type": "array"
                                         }
                                       ],
-                                      "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                                      "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                                     },
                                     "type": {
                                       "const": "choice",
@@ -46041,7 +46041,7 @@
                                           "type": "array"
                                         }
                                       ],
-                                      "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                                      "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                                     },
                                     "type": {
                                       "const": "score",
@@ -46070,7 +46070,7 @@
                         "type": "array"
                       },
                       "reasoning": {
-                        "description": "Why this judgment changes the next action; concise trace metadata, not hidden chain-of-thought.",
+                        "description": "Why this judgment changes the next action; trace-only metadata never sent to the provider — put deciding context in question instructions instead.",
                         "minLength": 1,
                         "type": "string"
                       },
@@ -53397,7 +53397,7 @@
                                           "type": "array"
                                         }
                                       ],
-                                      "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                                      "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                                     },
                                     "type": {
                                       "const": "noul",
@@ -53476,7 +53476,7 @@
                                           "type": "array"
                                         }
                                       ],
-                                      "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                                      "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                                     },
                                     "type": {
                                       "const": "choice",
@@ -53545,7 +53545,7 @@
                                           "type": "array"
                                         }
                                       ],
-                                      "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                                      "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                                     },
                                     "type": {
                                       "const": "score",
@@ -53574,7 +53574,7 @@
                         "type": "array"
                       },
                       "reasoning": {
-                        "description": "Why this judgment changes the next action; concise trace metadata, not hidden chain-of-thought.",
+                        "description": "Why this judgment changes the next action; trace-only metadata never sent to the provider — put deciding context in question instructions instead.",
                         "minLength": 1,
                         "type": "string"
                       },
@@ -63331,7 +63331,7 @@
                                           "type": "array"
                                         }
                                       ],
-                                      "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                                      "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                                     },
                                     "type": {
                                       "const": "noul",
@@ -63410,7 +63410,7 @@
                                           "type": "array"
                                         }
                                       ],
-                                      "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                                      "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                                     },
                                     "type": {
                                       "const": "choice",
@@ -63479,7 +63479,7 @@
                                           "type": "array"
                                         }
                                       ],
-                                      "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                                      "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                                     },
                                     "type": {
                                       "const": "score",
@@ -63508,7 +63508,7 @@
                         "type": "array"
                       },
                       "reasoning": {
-                        "description": "Why this judgment changes the next action; concise trace metadata, not hidden chain-of-thought.",
+                        "description": "Why this judgment changes the next action; trace-only metadata never sent to the provider — put deciding context in question instructions instead.",
                         "minLength": 1,
                         "type": "string"
                       },
@@ -75452,7 +75452,7 @@
                                           "type": "array"
                                         }
                                       ],
-                                      "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                                      "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                                     },
                                     "type": {
                                       "const": "noul",
@@ -75531,7 +75531,7 @@
                                           "type": "array"
                                         }
                                       ],
-                                      "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                                      "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                                     },
                                     "type": {
                                       "const": "choice",
@@ -75600,7 +75600,7 @@
                                           "type": "array"
                                         }
                                       ],
-                                      "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                                      "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                                     },
                                     "type": {
                                       "const": "score",
@@ -75629,7 +75629,7 @@
                         "type": "array"
                       },
                       "reasoning": {
-                        "description": "Why this judgment changes the next action; concise trace metadata, not hidden chain-of-thought.",
+                        "description": "Why this judgment changes the next action; trace-only metadata never sent to the provider — put deciding context in question instructions instead.",
                         "minLength": 1,
                         "type": "string"
                       },
@@ -84834,7 +84834,7 @@
                                           "type": "array"
                                         }
                                       ],
-                                      "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                                      "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                                     },
                                     "type": {
                                       "const": "noul",
@@ -84913,7 +84913,7 @@
                                           "type": "array"
                                         }
                                       ],
-                                      "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                                      "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                                     },
                                     "type": {
                                       "const": "choice",
@@ -84982,7 +84982,7 @@
                                           "type": "array"
                                         }
                                       ],
-                                      "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                                      "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                                     },
                                     "type": {
                                       "const": "score",
@@ -85011,7 +85011,7 @@
                         "type": "array"
                       },
                       "reasoning": {
-                        "description": "Why this judgment changes the next action; concise trace metadata, not hidden chain-of-thought.",
+                        "description": "Why this judgment changes the next action; trace-only metadata never sent to the provider — put deciding context in question instructions instead.",
                         "minLength": 1,
                         "type": "string"
                       },
@@ -93629,7 +93629,7 @@
                                           "type": "array"
                                         }
                                       ],
-                                      "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                                      "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                                     },
                                     "type": {
                                       "const": "noul",
@@ -93708,7 +93708,7 @@
                                           "type": "array"
                                         }
                                       ],
-                                      "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                                      "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                                     },
                                     "type": {
                                       "const": "choice",
@@ -93777,7 +93777,7 @@
                                           "type": "array"
                                         }
                                       ],
-                                      "description": "Ask one decision-linked judgment; do not hide a checklist or request free-form analysis."
+                                      "description": "Ask one decision-linked judgment and front-load the deciding context from your current analysis (hypothesis, constraint, decision at stake) — the provider sees only state, instructions, and criteria; do not hide a checklist or request free-form analysis."
                                     },
                                     "type": {
                                       "const": "score",
@@ -93806,7 +93806,7 @@
                         "type": "array"
                       },
                       "reasoning": {
-                        "description": "Why this judgment changes the next action; concise trace metadata, not hidden chain-of-thought.",
+                        "description": "Why this judgment changes the next action; trace-only metadata never sent to the provider — put deciding context in question instructions instead.",
                         "minLength": 1,
                         "type": "string"
                       },

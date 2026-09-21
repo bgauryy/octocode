@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { listSkills } from '../registry.js';
+import { isValidSkillName, listSkills } from '../registry.js';
 import { getSkillsHome } from '../home.js';
 import {
   ALL_PLATFORMS,
@@ -103,6 +103,20 @@ export function runRemove(skillNames: string[], opts: RemoveOptions): void {
   }
 
   const records = names.map(name => {
+    if (!isValidSkillName(name)) {
+      return {
+        name,
+        nothingFound: false,
+        targets: [
+          {
+            target: 'home',
+            path: '',
+            status: 'failed' as const,
+            error: `Invalid skill name: "${name}".`,
+          },
+        ],
+      };
+    }
     const targets = platforms
       ? platforms.map(platform => ({
           target: platform,

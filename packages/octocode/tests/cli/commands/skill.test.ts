@@ -429,6 +429,52 @@ describe('skill command', () => {
     expect(parsed.summary.failed).toBe(0);
   });
 
+  it('rejects path-traversal skill names on remove instead of resolving them', () => {
+    run(['remove', '../../canary'], { json: true });
+    expect(process.exitCode).toBe(EXIT.GENERAL);
+    const parsed = loggedJson<{
+      success: boolean;
+      skills: Array<{
+        name: string;
+        targets: Array<{ path: string; status: string; error?: string }>;
+      }>;
+      summary: { removed: number; failed: number };
+    }>();
+    expect(parsed.success).toBe(false);
+    expect(parsed.summary.removed).toBe(0);
+    expect(parsed.summary.failed).toBe(1);
+    const [target] = parsed.skills[0]?.targets ?? [];
+    expect(target?.status).toBe('failed');
+    expect(target?.error).toContain('Invalid skill name');
+    // No traversal-derived filesystem path should ever be constructed for the
+    // rejected name — it must never reach fs.rmSync/unlinkSync.
+    expect(target?.path).toBe('');
+  });
+
+  it('rejects path-traversal skill names on remove even when scoped with --platform', () => {
+    run(['remove', '../../canary'], { platform: 'claude', json: true });
+    expect(process.exitCode).toBe(EXIT.GENERAL);
+    const parsed = loggedJson<{
+      success: boolean;
+      skills: Array<{ targets: Array<{ path: string; status: string }> }>;
+    }>();
+    expect(parsed.success).toBe(false);
+    expect(parsed.skills[0]?.targets[0]?.status).toBe('failed');
+    expect(parsed.skills[0]?.targets[0]?.path).toBe('');
+  });
+
+  it('rejects an absolute-path skill name on remove', () => {
+    run(['remove', '/etc/passwd'], { json: true });
+    expect(process.exitCode).toBe(EXIT.GENERAL);
+    const parsed = loggedJson<{
+      success: boolean;
+      skills: Array<{ targets: Array<{ status: string; error?: string }> }>;
+    }>();
+    expect(parsed.success).toBe(false);
+    expect(parsed.skills[0]?.targets[0]?.status).toBe('failed');
+    expect(parsed.skills[0]?.targets[0]?.error).toContain('Invalid skill name');
+  });
+
   it('renders concise human output for each retained skill operation', () => {
     run(['list']);
     expect(console.log).toHaveBeenCalledWith(

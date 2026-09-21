@@ -28,6 +28,8 @@ pub use content::{
 pub use dates::{quote_search_keyword, resolve_date_window};
 pub use endpoint::GitHubEndpoint;
 pub use error::{ProviderError, ProviderErrorKind, RateLimit};
+#[cfg(test)]
+pub(crate) use history::MAX_PR_ONLY_PAGES_TO_SKIP;
 pub use history::{
     CommitListRequest, HistoryPage, HistoryRequest, IssueListRequest, PullListRequest,
 };

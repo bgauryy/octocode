@@ -80,6 +80,32 @@ impl Respond for SecondaryThenOk {
         }
     }
 }
+#[derive(Clone)]
+struct AlwaysPrOnlyWithNext(String);
+impl Respond for AlwaysPrOnlyWithNext {
+    fn respond(&self, req: &Request) -> ResponseTemplate {
+        let page: u64 = req
+            .url
+            .query_pairs()
+            .find(|(k, _)| k == "page")
+            .and_then(|(_, v)| v.parse().ok())
+            .unwrap_or(1);
+        ResponseTemplate::new(200)
+            .insert_header(
+                "link",
+                &format!(
+                    "<{}/api/v3/repos/acme/repo/issues?page={}>; rel=\"next\"",
+                    self.0,
+                    page + 1
+                ),
+            )
+            .set_body_json(serde_json::json!([{
+                "number": page,
+                "title": "pr",
+                "pull_request": {"url": "https://example.test"}
+            }]))
+    }
+}
 impl ConditionalCache for MemoryCache {
     fn get<'a>(
         &'a self,
@@ -421,6 +447,69 @@ async fn lists_issues_skipping_pull_request_only_pages() {
     assert_eq!(page.skipped_pull_request_pages, 1);
     assert_eq!(page.provider_page, 2);
     assert_eq!(page.items[0]["number"], 2);
+}
+
+/// A repo where issues never turn up before the skip budget runs out (e.g. a
+/// very high PR-to-issue ratio) must still return promptly with a clear
+/// signal instead of an agent having to make one external tool call per
+/// skipped page. `has_more` staying `true` here is correct — GitHub really
+/// does have more pages — but the walk should absorb `MAX_PR_ONLY_PAGES_TO_SKIP`
+/// of that work in a single call, not force the caller into it one page at a
+/// time.
+#[tokio::test]
+async fn list_issues_stops_at_skip_budget_and_reports_has_more() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/acme/repo/issues"))
+        .respond_with(AlwaysPrOnlyWithNext(server.uri()))
+        .mount(&server)
+        .await;
+    let endpoint =
+        GitHubEndpoint::new(url::Url::parse(&format!("{}/api/v3", server.uri())).expect("URL"))
+            .expect("endpoint");
+    let transport = GitHubTransport::new(
+        endpoint,
+        Arc::new(StaticCredentialResolver::anonymous()),
+        RetryPolicy {
+            max_attempts: 2,
+            base_delay: Duration::from_millis(1),
+            max_retry_after: Duration::from_secs(1),
+        },
+    )
+    .expect("transport");
+    let page = transport
+        .list_issues(
+            &IssueListRequest {
+                owner: "acme".into(),
+                repo: "repo".into(),
+                state: None,
+                assignee: None,
+                author: None,
+                mentions: None,
+                labels: None,
+                sort: None,
+                order: None,
+                page: 1,
+                per_page: 30,
+            },
+            &RequestContext::with_timeout(Duration::from_secs(5), 16 * 1024),
+        )
+        .await
+        .expect("list");
+    assert!(page.items.is_empty());
+    assert_eq!(page.skipped_pull_request_pages, MAX_PR_ONLY_PAGES_TO_SKIP);
+    assert_eq!(page.provider_page, 1 + MAX_PR_ONLY_PAGES_TO_SKIP);
+    assert!(
+        page.has_more,
+        "GitHub genuinely reports more pages; hasMore must stay true"
+    );
+    assert!(
+        page.warnings
+            .iter()
+            .any(|w| w.contains(&format!("{MAX_PR_ONLY_PAGES_TO_SKIP}-page skip budget"))),
+        "warnings should explain why the scan stopped: {:?}",
+        page.warnings
+    );
 }
 
 #[tokio::test]

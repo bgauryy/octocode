@@ -6,6 +6,7 @@ Load when a bounded semantic judgment can change the next action and the questio
 |---|---|---|
 | Scout an unread file | localFetch request; Choice relevant/unrelated/insufficient for one direction | Retain uncertain candidates; read deciding spans |
 | Scout search results | localSearch or ghSearch request; one question about the returned page | Narrow/continue relevant or incomplete pages |
+| **Screen scraped corpus** (dogfood) | Each `text/*.clean.part-*.md` as unread localFetch; Choice relevant/unrelated/insufficient for research goal | Read only kept pages — bodies never enter chat context; skip or revisit unresolved |
 | Check behavior | Implementation context; Noul for one scoped affirmative claim | Apply host uncertainty policy and verify the branch |
 | Check evidence support | Inline claim and evidence; Choice supported/contradicted/insufficient/conflicting | Inspect deciding anchors or obtain missing evidence |
 | Compare explanations | Supplied observations, hypotheses and predictions; Choice plus insufficient | Run a discriminating test |

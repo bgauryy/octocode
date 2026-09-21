@@ -85,6 +85,16 @@ export function discoverSkillCandidates(cwd: string, piSkills?: SkillInfo[], hom
     if (file) {
       const resolved = path.resolve(file);
       // Host metadata must not reintroduce Pi defaults into Octocode's skill catalog.
+      // Pi's own host already loads skills under `~/.pi/agent/skills` and
+      // `<project>/.pi/skills` natively (the same paths the CLI's `skill
+      // install --platform pi` writes to — see SKILL_PLATFORMS in
+      // @octocodeai/octocode-skill-installer) and reports them here via
+      // `piSkills`. `defaultAgentSkillSources` deliberately never disk-scans
+      // those directories itself (see agent-skills.ts's `relativeRoots`) —
+      // this check is the other half of that split: even when the host
+      // *reports* one of its own native skills through `piSkills`, it must
+      // not be re-added as a second, extension-owned source, or a skill Pi
+      // already surfaces would show up twice under two different sourceIds.
       if (piDefaults.some(root => { const relative = path.relative(root, resolved); return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative)); })) continue;
       if (hasDiscoveryOwner(resolved, discoveryOwners)) continue;
       sources.push({ id: `pi:runtime:${resolved}`, vendor: 'pi', scope, root: path.dirname(resolved), file: resolved, precedence: sources.length, defaultEnabled: true });
