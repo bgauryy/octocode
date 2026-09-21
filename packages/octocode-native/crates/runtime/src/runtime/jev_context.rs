@@ -379,7 +379,8 @@ mod tests {
             assert!(prepare("localFetch", &query).is_err(), "{query}");
         }
         assert!(prepare("localFetch", &json!({"path":"/tmp/f","reasoning":"Read"})).is_ok());
-        assert!(prepare("localFetch", &json!({"path":"/tmp/f"})).is_ok());
+        // reasoning is mandatory on every tool, so a path-only query is rejected.
+        assert!(prepare("localFetch", &json!({"path":"/tmp/f"})).is_err());
     }
     #[test]
     fn artifact_domain_cursors_are_valid_context_and_receipt_continuations() {

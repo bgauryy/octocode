@@ -507,7 +507,7 @@ mod contract_owner_tests {
                         response.push(max);
                     }
                     if map.get("description").and_then(serde_json::Value::as_str)
-                        == Some("Tree recursion depth.")
+                        == Some("Maximum depth from the root; 0 inspects only the root.")
                         && let Some(max) = map.get("maximum").and_then(serde_json::Value::as_u64)
                     {
                         tree_depth.push(max);
@@ -544,8 +544,8 @@ mod contract_owner_tests {
             "expected the tree-recursion maxDepth bound in the contract"
         );
         assert!(
-            tree_depth_maxima.iter().all(|max| *max == 20),
-            "tree recursion maxDepth drifted from 20: {tree_depth_maxima:?}"
+            tree_depth_maxima.iter().all(|max| *max == 100),
+            "tree recursion maxDepth drifted from 100: {tree_depth_maxima:?}"
         );
     }
 

@@ -314,20 +314,15 @@ async fn artifactsearch_memory_storage_mode_bypasses_in_process_cache() {
     // Use a unique package name so this test doesn't share state with the
     // process-global artifact cache from other tests.
     let pkg = format!("cache-bypass-test-{}", std::process::id());
+    // The npm `exact` code fetches `/{name}/{spec}` where spec defaults to
+    // "latest".  The response must be a single-version object (not the full
+    // registry envelope) containing at minimum `name` and `version`.
     Mock::given(method("GET"))
-        .and(path(format!("/{pkg}")))
+        .and(path(format!("/{pkg}/latest")))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "name": pkg,
-            "dist-tags": {"latest": "1.0.0"},
-            "versions": {
-                "1.0.0": {
-                    "name": pkg,
-                    "version": "1.0.0",
-                    "description": "cache bypass fixture",
-                    "dist": {"tarball": "https://example.com/pkg.tgz"},
-                    "_id": format!("{pkg}@1.0.0"),
-                }
-            }
+            "version": "1.0.0",
+            "description": "cache bypass fixture",
         })))
         .expect(2) // memory mode must not serve the second call from cache
         .mount(&server)
@@ -337,7 +332,7 @@ async fn artifactsearch_memory_storage_mode_bypasses_in_process_cache() {
     let registry = server.uri();
     let settings = [
         ("OCTOCODE_STORAGE_MODE", "memory".into()),
-        ("ALLOW_PRIVATE_REGISTRY", "true".into()),
+        ("OCTOCODE_ALLOW_PRIVATE_REGISTRY", "true".into()),
         ("MAX_RETRIES", "0".into()),
     ];
     let runtime = workspace.runtime(&settings);

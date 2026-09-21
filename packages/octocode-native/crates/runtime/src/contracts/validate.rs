@@ -1159,14 +1159,16 @@ mod tests {
             json!({"queries":[{"path":"/tmp/a","fullContent":true,"limit":2,"reasoning":"Read the complete fixture."}]}),
         )
         .expect_err("invalid relation");
+        // `limit` is now a valid chunk control, mutually exclusive with
+        // fullContent, so the relation is rejected as a field conflict rather
+        // than an unknown field.
         assert_eq!(
             format_input_error("localFetch", &relation),
             json!({
                 "kind":"octocode.toolError", "version":1, "tool":"localFetch",
-                "error":"Unknown field(s): limit",
+                "error":"Check the query fields.",
                 "details":[
-                    "Remove unknown field(s) from query 1: limit",
-                    "Run scheme localFetch --view query --compact to see valid fields."
+                    "queries.0.fullContent: Choose fullContent or chunk controls."
                 ]
             })
         );
