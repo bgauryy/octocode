@@ -19,5 +19,8 @@
     "test": "node ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts && python3 -m unittest discover -s compare/bin -p 'test_*.py' && python3 -m unittest discover -s compare/advanced-research-v1 -p 'test_*.py'",
     "verify": "yarn lint && yarn typecheck && yarn test"
   },
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "@octocodeai/config": "workspace:*"
+  }
 }

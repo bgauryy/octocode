@@ -125,14 +125,9 @@ async fn memory_storage_mode_does_not_persist_github_content_to_disk() {
 
     // Second runtime: empty memory cache, no disk fallback — must re-fetch.
     let second = workspace.runtime(&settings);
-    let outcome = call(&second, "ghGetFileContent", query)
-        .await
-        .unwrap();
+    let outcome = call(&second, "ghGetFileContent", query).await.unwrap();
     assert_eq!(row_status(&outcome), "success");
-    assert_eq!(
-        row_data(&outcome)["files"][0]["content"],
-        "mem-only body\n"
-    );
+    assert_eq!(row_data(&outcome)["files"][0]["content"], "mem-only body\n");
     // Verify neither request sent If-None-Match (no cached ETag from disk).
     let requests = server.received_requests().await.unwrap();
     let content_requests: Vec<_> = requests

@@ -1454,6 +1454,9 @@ fn attach_recovery_next(value: &mut Value, query: &LspSearchQuery) {
 
 fn failure_hint(query: &LspSearchQuery, code: &str) -> &'static str {
     match code {
+        "lsp.serverUnavailable" if query.operation == "workspaceSymbol" && query.uri.is_none() => {
+            "Provide uri for a representative workspace source file so Octocode can select its language server."
+        }
         "lsp.serverUnavailable" => {
             "Use astSearch symbols/match or localSearch for candidates, then localFetch exact source."
         }
@@ -1511,7 +1514,7 @@ fn failure(
             "confidence": "exact"
         });
     }
-    if query.workspace_root.is_none() {
+    if query.uri.is_some() {
         attach_recovery_next(&mut value, query);
     }
     value
@@ -1931,6 +1934,17 @@ mod tests {
         );
         assert_eq!(timeout["next"]["retry"]["tool"], "lspSearch");
         assert_eq!(timeout["next"]["readFile"]["tool"], "localFetch");
+
+        let mut explicitly_scoped = query.clone();
+        explicitly_scoped.workspace_root = Some("/repo".into());
+        let scoped = super::failure(
+            &explicitly_scoped,
+            "file:///repo/src/lib.rs",
+            "lsp.capabilityUnavailable",
+            "unsupported",
+            true,
+        );
+        assert_eq!(scoped["next"]["readFile"]["tool"], "localFetch");
     }
 
     #[test]
@@ -1953,6 +1967,12 @@ mod tests {
         assert!(down["uri"].is_string(), "{down}");
         assert_ne!(down["uri"], serde_json::Value::Null, "{down}");
         assert!(down.get("next").is_none(), "{down}");
+        assert!(
+            down["hints"][0]
+                .as_str()
+                .is_some_and(|hint| hint.contains("Provide uri")),
+            "{down}"
+        );
         crate::contracts::validate_output(
             "lspSearch",
             &serde_json::json!({"results":[{"index":0,"data":down}]}),

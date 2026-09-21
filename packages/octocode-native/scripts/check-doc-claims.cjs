@@ -12,7 +12,7 @@
 //   1. README exit-code table ↔ EXIT CODES block in cli/mod.rs long_about
 //   2. Root-README tool count ↔ the ToolId enum in tools/id.rs
 //   3. docs/CONFIGURATION.md env-var names ↔ config sources (both ways for
-//      resolver SOURCE_KEYS)
+//      config-contract.json source keys)
 //   4. Active source/docs/examples contain no retired pre-v20 CLI grammar
 
 const fs = require('node:fs');
@@ -23,10 +23,14 @@ const repoRoot = path.resolve(nativeRoot, '..', '..');
 
 const read = (p) => fs.readFileSync(p, 'utf8');
 const cliSource = read(path.join(nativeRoot, 'crates/runtime/src/cli/mod.rs'));
-const resolverSource = read(path.join(nativeRoot, 'crates/runtime/src/config/resolver.rs'));
+const configContract = JSON.parse(
+  read(path.join(repoRoot, 'packages/octocode-config/config-contract.json'))
+);
 const nativeReadme = read(path.join(nativeRoot, 'README.md'));
 const rootReadme = read(path.join(repoRoot, 'README.md'));
 const configDoc = read(path.join(repoRoot, 'docs/CONFIGURATION.md'));
+const generatedConfigDoc = read(path.join(repoRoot, 'docs/generated/CONFIG_SETTINGS.md'));
+const completeConfigDocs = `${configDoc}\n${generatedConfigDoc}`;
 
 const failures = [];
 const fail = (claim, detail) => failures.push(`- ${claim}\n    ${detail}`);
@@ -117,16 +121,20 @@ for (const key of documentedKeys) {
     fail('env names', `docs/CONFIGURATION.md documents ${key} but crates/runtime/src never reads it`);
   }
 }
-// Code → docs: every resolver SOURCE_KEYS entry must be mentioned in
-// CONFIGURATION.md (table row or prose) so no config key ships undocumented.
-const sourceKeys = resolverSource.match(/const SOURCE_KEYS[^=]*= \[(.*?)\];/s);
-if (!sourceKeys) {
-  fail('env names', 'SOURCE_KEYS array not found in config/resolver.rs');
-} else {
-  for (const m of sourceKeys[1].matchAll(/"([A-Z][A-Z0-9_]+)"/g)) {
-    if (!configDoc.includes(m[1])) {
-      fail('env names', `resolver SOURCE_KEYS contains ${m[1]} but docs/CONFIGURATION.md never mentions it`);
-    }
+// Code → docs: every configuration-source environment key in the canonical
+// config contract must be mentioned in the guide or its generated reference.
+const sourceKeys = new Set();
+for (const [name, definition] of Object.entries(configContract.environment ?? {})) {
+  if (definition.configSource === true) sourceKeys.add(name);
+}
+for (const section of Object.values(configContract.sections ?? {})) {
+  for (const field of Object.values(section.fields ?? {})) {
+    for (const name of Object.keys(field.env ?? {})) sourceKeys.add(name);
+  }
+}
+for (const key of sourceKeys) {
+  if (!completeConfigDocs.includes(key)) {
+    fail('env names', `config-contract.json contains source key ${key} but configuration docs never mention it`);
   }
 }
 

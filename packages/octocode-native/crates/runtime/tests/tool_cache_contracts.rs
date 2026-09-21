@@ -81,9 +81,15 @@ async fn ghgetfilecontent_second_call_sets_cache_flag() {
     let runtime = workspace.runtime(&settings);
 
     // First call: cache miss — result must NOT carry cache:1.
-    let first = call(&runtime, "ghGetFileContent", query.clone()).await.unwrap();
+    let first = call(&runtime, "ghGetFileContent", query.clone())
+        .await
+        .unwrap();
     assert_eq!(row_status(&first), "success");
-    assert_eq!(row_cache_flag(&first), 0, "first call must not be a cache hit");
+    assert_eq!(
+        row_cache_flag(&first),
+        0,
+        "first call must not be a cache hit"
+    );
 
     // Second call: cache hit — result MUST carry cache:1.
     let second = call(&runtime, "ghGetFileContent", query).await.unwrap();
@@ -93,10 +99,7 @@ async fn ghgetfilecontent_second_call_sets_cache_flag() {
         1,
         "second call must be served from cache (cache:1)"
     );
-    assert_eq!(
-        row_data(&second)["files"][0]["content"],
-        "hello cache\n"
-    );
+    assert_eq!(row_data(&second)["files"][0]["content"], "hello cache\n");
     runtime.close().await;
 }
 
@@ -344,7 +347,9 @@ async fn artifactsearch_memory_storage_mode_bypasses_in_process_cache() {
     });
 
     for call_n in 1..=2u32 {
-        let outcome = call(&runtime, "artifactSearch", query.clone()).await.unwrap();
+        let outcome = call(&runtime, "artifactSearch", query.clone())
+            .await
+            .unwrap();
         assert_eq!(
             row_status(&outcome),
             "success",
@@ -384,13 +389,9 @@ async fn local_tools_never_set_cache_flag() {
         );
 
         // localFetch
-        let fetch = call(
-            &runtime,
-            "localFetch",
-            json!({"path": target}),
-        )
-        .await
-        .unwrap();
+        let fetch = call(&runtime, "localFetch", json!({"path": target}))
+            .await
+            .unwrap();
         assert_eq!(
             row_cache_flag(&fetch),
             0,

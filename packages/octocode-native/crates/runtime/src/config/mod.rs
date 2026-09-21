@@ -396,7 +396,10 @@ mod tests {
         assert_eq!(get_config_value(&out.resolved, "classification.api"), None);
         assert!(!format!("{out:?}").contains("jev-secret-from-file"));
         // Real env still wins over the file fallback.
-        let env = BTreeMap::from([("OCTOCODE_CLASSIFICATION_API".into(), "jev-secret-from-env".into())]);
+        let env = BTreeMap::from([(
+            "OCTOCODE_CLASSIFICATION_API".into(),
+            "jev-secret-from-env".into(),
+        )]);
         let mixed = resolve_config(&input(env, Some(file)));
         assert_eq!(
             mixed.env_value("OCTOCODE_CLASSIFICATION_API"),
@@ -410,7 +413,8 @@ mod tests {
         let mut i = input(BTreeMap::new(), None);
         i.global_env = FileInput::Read {
             path: "/synthetic/home/.env".into(),
-            text: "OCTOCODE_CLASSIFICATION_API=jev-secret-from-home-env\nGH_TOKEN=still-protected".into(),
+            text: "OCTOCODE_CLASSIFICATION_API=jev-secret-from-home-env\nGH_TOKEN=still-protected"
+                .into(),
         };
         let out = resolve_config(&i);
         assert_eq!(
@@ -428,7 +432,10 @@ mod tests {
             text: "OCTOCODE_CLASSIFICATION_API=jev-secret-from-project".into(),
         };
         p.trusted_project = true;
-        assert_eq!(resolve_config(&p).env_value("OCTOCODE_CLASSIFICATION_API"), None);
+        assert_eq!(
+            resolve_config(&p).env_value("OCTOCODE_CLASSIFICATION_API"),
+            None
+        );
     }
     #[test]
     fn unreadable_config_is_invalid_with_a_stable_diagnostic() {
