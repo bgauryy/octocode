@@ -122,10 +122,8 @@ export async function runScheme(args: ParsedArgs): Promise<number> {
     return EXIT.TOOL;
   }
 
-  const { getPublicToolCatalog } =
-    await import('@octocodeai/octocode-core/schema');
-  const { buildMcpInstructions } =
-    await import('@octocodeai/octocode-core/mcp');
+  const { getPublicToolCatalog } = await import('@octocodeai/config/schema');
+  const { buildMcpInstructions } = await import('@octocodeai/config/mcp');
   const catalog = getPublicToolCatalog();
 
   // Discovery content comes from core while validation runs against the

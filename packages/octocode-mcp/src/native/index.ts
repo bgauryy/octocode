@@ -5,8 +5,8 @@ import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 import {
   DIRECT_TOOL_DEFINITIONS,
   getNativeContractFingerprint,
-} from '@octocodeai/octocode-core/schema';
-import { buildMcpInstructions } from '@octocodeai/octocode-core/mcp';
+} from '@octocodeai/config/schema';
+import { buildMcpInstructions } from '@octocodeai/config/mcp';
 import { NATIVE_ABI_VERSION } from '@octocodeai/octocode-native/runtime';
 
 /**

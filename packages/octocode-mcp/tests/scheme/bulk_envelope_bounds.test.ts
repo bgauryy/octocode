@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import { DIRECT_TOOL_DEFINITIONS } from '@octocodeai/octocode-core/schema';
+import { DIRECT_TOOL_DEFINITIONS } from '@octocodeai/config/schema';
 
 const ALL_BULK_SCHEMAS = DIRECT_TOOL_DEFINITIONS.map(
   tool => [tool.name, tool.inputSchema] as const

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { buildMcpInstructions } from '@octocodeai/octocode-core/mcp';
+import { buildMcpInstructions } from '@octocodeai/config/mcp';
 
 const [referenceServer, nativeServer, addon, regexWorker] = process.argv.slice(2);
 assert.ok(referenceServer && nativeServer && addon && regexWorker,

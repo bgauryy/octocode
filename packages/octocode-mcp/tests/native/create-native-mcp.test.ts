@@ -5,7 +5,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/server';
 import {
   getNativeContractFingerprint,
   TOOL_NAMES,
-} from '@octocodeai/octocode-core/schema';
+} from '@octocodeai/config/schema';
 
 // startNativeMcp constructs a real StdioServerTransport (reads process.stdin and
 // writes process.stdout). Stub it so the transport lifecycle is exercised without

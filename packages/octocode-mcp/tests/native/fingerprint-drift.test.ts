@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getNativeContractFingerprint } from '@octocodeai/octocode-core/schema';
+import { getNativeContractFingerprint } from '@octocodeai/config/schema';
 import { createNativeMcp } from '../../src/native/index.js';
 
 class FakeRuntime {

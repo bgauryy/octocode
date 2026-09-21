@@ -5,7 +5,7 @@ import {
   DIRECT_TOOL_DEFINITIONS,
   buildDirectToolCommandPatterns,
   prepareDirectToolInput,
-} from '@octocodeai/octocode-core/schema';
+} from '@octocodeai/config/schema';
 
 describe('canonical union repair through the real MCP SDK', () => {
   it('returns actionable validation errors before execution for all four opaque unions', async () => {
@@ -32,27 +32,37 @@ describe('canonical union repair through the real MCP SDK', () => {
       client.connect(clientTransport),
     ]);
     try {
+      const reasoning = 'exercise union validation';
       const cases = [
         {
           name: 'artifactSearch',
-          query: { type: 'npm' },
+          query: { reasoning, type: 'npm' },
           expected: /packageName.*keywords/,
         },
         {
           name: 'artifactSearch',
-          query: { type: 'npm', name: 'zod' },
+          query: { reasoning, type: 'npm', name: 'zod' },
           expected: /name/,
         },
         {
           name: 'artifactSearch',
-          query: { type: 'pypi', packageName: 'httpx', keywords: ['http'] },
+          query: {
+            reasoning,
+            type: 'pypi',
+            packageName: 'httpx',
+            keywords: ['http'],
+          },
           expected: /keywords/,
         },
-        { name: 'ghGetFileContent', query: {}, expected: /owner|repo|path/ },
-        { name: 'localFetch', query: {}, expected: /path/ },
+        {
+          name: 'ghGetFileContent',
+          query: { reasoning },
+          expected: /owner|repo|path/,
+        },
+        { name: 'localFetch', query: { reasoning }, expected: /path/ },
         {
           name: 'astSearch',
-          query: { operation: 'tree', treeKind: 'syntax' },
+          query: { reasoning, operation: 'tree', treeKind: 'syntax' },
           expected: /path/,
         },
       ];

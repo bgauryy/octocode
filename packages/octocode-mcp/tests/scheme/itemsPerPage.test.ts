@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { GitHubSearchBulkQuerySchema } from '@octocodeai/octocode-core/schema';
-import { LocalSearchBulkQuerySchema } from '@octocodeai/octocode-core/schema';
-import { AstSearchBulkQuerySchema } from '@octocodeai/octocode-core/schema';
-import { ArtifactSearchBulkQueryLocalSchema } from '@octocodeai/octocode-core/schema';
+import { GitHubSearchBulkQuerySchema } from '@octocodeai/config/schema';
+import { LocalSearchBulkQuerySchema } from '@octocodeai/config/schema';
+import { AstSearchBulkQuerySchema } from '@octocodeai/config/schema';
+import { ArtifactSearchBulkQueryLocalSchema } from '@octocodeai/config/schema';
 
 const q0 = (
   schema: { parse: (value: unknown) => { queries: unknown[] } },
@@ -12,6 +12,7 @@ const q0 = (
 describe('Unified public pagination fields', () => {
   it('ghSearch uses pageSize per page and does not expose a total limit', () => {
     const query = q0(GitHubSearchBulkQuerySchema, {
+      reasoning: 'exercise pagination fields',
       operation: 'repositories',
       keywords: ['x'],
       page: 3,
@@ -20,18 +21,31 @@ describe('Unified public pagination fields', () => {
     expect(query).toMatchObject({ page: 3, pageSize: 25 });
     expect(
       GitHubSearchBulkQuerySchema.safeParse({
-        queries: [{ operation: 'repositories', limit: 10 }],
+        queries: [
+          {
+            reasoning: 'exercise pagination fields',
+            operation: 'repositories',
+            limit: 10,
+          },
+        ],
       }).success
     ).toBe(false);
     expect(
       GitHubSearchBulkQuerySchema.safeParse({
-        queries: [{ operation: 'repositories', itemsPerPage: 10 }],
+        queries: [
+          {
+            reasoning: 'exercise pagination fields',
+            operation: 'repositories',
+            itemsPerPage: 10,
+          },
+        ],
       }).success
     ).toBe(false);
   });
 
   it('astSearch files uses limit as the total cap and pageSize per page', () => {
     const query = q0(AstSearchBulkQuerySchema, {
+      reasoning: 'exercise pagination fields',
       operation: 'files',
       path: '.',
       names: ['*.ts'],
@@ -45,6 +59,7 @@ describe('Unified public pagination fields', () => {
 
   it('localSearch text uses maxFiles as its total cap, not limit', () => {
     const query = q0(LocalSearchBulkQuerySchema, {
+      reasoning: 'exercise pagination fields',
       path: '.',
       searchText: 'needle',
       regex: 'literal',
@@ -56,7 +71,13 @@ describe('Unified public pagination fields', () => {
     expect(
       LocalSearchBulkQuerySchema.safeParse({
         queries: [
-          { path: '.', searchText: 'needle', regex: 'literal', limit: 40 },
+          {
+            reasoning: 'exercise pagination fields',
+            path: '.',
+            searchText: 'needle',
+            regex: 'literal',
+            limit: 40,
+          },
         ],
       }).success
     ).toBe(false);
@@ -64,6 +85,7 @@ describe('Unified public pagination fields', () => {
 
   it('astSearch topology distinguishes limit from pageSize', () => {
     const query = q0(AstSearchBulkQuerySchema, {
+      reasoning: 'exercise pagination fields',
       operation: 'topology',
       analysis: 'cycles',
       path: '.',
@@ -76,6 +98,7 @@ describe('Unified public pagination fields', () => {
 
   it('artifactSearch exposes cursor and pageSize only for keyword discovery', () => {
     const keywordQuery = q0(ArtifactSearchBulkQueryLocalSchema, {
+      reasoning: 'exercise pagination fields',
       type: 'npm',
       keywords: ['hono'],
       cursor: 'opaque',
@@ -87,6 +110,7 @@ describe('Unified public pagination fields', () => {
     }
 
     const exactQuery = q0(ArtifactSearchBulkQueryLocalSchema, {
+      reasoning: 'exercise pagination fields',
       type: 'npm',
       packageName: 'hono',
     });

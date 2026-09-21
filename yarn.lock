@@ -2432,6 +2432,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@octocodeai/config@workspace:packages/octocode-config"
   dependencies:
+    "@octocodeai/octocode-core": "npm:19.1.1"
     "@types/node": "npm:^24.13.4"
     "@vitest/coverage-v8": "npm:^5.0.0"
     ajv: "npm:^8.20.0"
@@ -2486,10 +2487,10 @@ __metadata:
 
 "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::locator=octocode-monorepo%40workspace%3A.":
   version: 19.1.1
-  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=cd070d&locator=octocode-monorepo%40workspace%3A."
+  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=20e8b6&locator=octocode-monorepo%40workspace%3A."
   dependencies:
     zod: "npm:^4.6.2"
-  checksum: 10c0/2b98a6856ed9011f2ba186f52ef5216dc7f70119b6e8a83303ad887e7253192ee13659fdd7c30f69a2dfee379a5e43994d56818bd6dc0fe379911060265137ed
+  checksum: 10c0/91e03d1fd1b740aa547686612087c30990303febce0c171a53c2e08b13eaa62e6cc29d65019c83793ba56e4002fefaed1cdfecf3d863610271d4bab87afee9dd
   languageName: node
   linkType: hard
 
@@ -6044,7 +6045,7 @@ __metadata:
   dependencies:
     "@modelcontextprotocol/sdk": "npm:^1.30.0"
     "@modelcontextprotocol/server": "npm:^2.0.0"
-    "@octocodeai/octocode-core": "npm:19.1.1"
+    "@octocodeai/config": "npm:20.0.0"
     "@octocodeai/octocode-native": "npm:20.0.0"
     "@types/node": "npm:^24.13.4"
     "@vitest/coverage-v8": "npm:^5.0.0"
@@ -6083,7 +6084,6 @@ __metadata:
   dependencies:
     "@inquirer/prompts": "npm:^8.7.2"
     "@octocodeai/config": "npm:20.0.0"
-    "@octocodeai/octocode-core": "npm:19.1.1"
     "@octocodeai/octocode-native": "npm:20.0.0"
     "@octocodeai/octocode-skill-installer": "workspace:*"
     "@types/node": "npm:^24.13.4"

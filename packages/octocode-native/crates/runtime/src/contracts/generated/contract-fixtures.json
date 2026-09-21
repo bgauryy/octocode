@@ -148,6 +148,118 @@
     }
   },
   {
+    "id": "semanticAssess.curated-3",
+    "tool": "semanticAssess",
+    "input": {
+      "reasoning": "Find overclaiming before finalizing, without treating the judgment as verification.",
+      "id": "draft-evidence-review",
+      "resources": [
+        {
+          "id": "draft",
+          "context": {
+            "value": {
+              "draft": {
+                "claim": "The changed function preserves retry behavior."
+              },
+              "rationale": "Existing retry tests suggest the common path is preserved.",
+              "evidence": [
+                "Existing retry tests pass."
+              ],
+              "assumptions": [
+                "The terminal branch follows the common path."
+              ],
+              "uncertainties": [
+                "The terminal error branch has not been read."
+              ]
+            }
+          }
+        }
+      ],
+      "questions": [
+        {
+          "id": "support",
+          "question": {
+            "type": "choice",
+            "instructions": "Classify how the supplied evidence bears on this exact claim.",
+            "criteria": {
+              "supported": "Evidence covers the complete claim.",
+              "contradicted": "Evidence conflicts with the claim.",
+              "conflicting": "Evidence supports and conflicts with the claim.",
+              "insufficient": "A deciding branch or check is missing."
+            }
+          }
+        },
+        {
+          "id": "overclaim-risk",
+          "question": {
+            "type": "score",
+            "instructions": "Rate only how far the claim extends beyond the supplied evidence.",
+            "criteria": [
+              "No extension beyond the evidence.",
+              "A bounded inference remains to verify.",
+              "A deciding behavior is unsupported."
+            ]
+          }
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "id": "draft-evidence-review",
+      "reasoning": "Find overclaiming before finalizing, without treating the judgment as verification.",
+      "resources": [
+        {
+          "id": "draft",
+          "context": {
+            "value": {
+              "draft": {
+                "claim": "The changed function preserves retry behavior."
+              },
+              "rationale": "Existing retry tests suggest the common path is preserved.",
+              "evidence": [
+                "Existing retry tests pass."
+              ],
+              "assumptions": [
+                "The terminal branch follows the common path."
+              ],
+              "uncertainties": [
+                "The terminal error branch has not been read."
+              ]
+            }
+          },
+          "maxChars": 80000
+        }
+      ],
+      "questions": [
+        {
+          "id": "support",
+          "question": {
+            "type": "choice",
+            "instructions": "Classify how the supplied evidence bears on this exact claim.",
+            "criteria": {
+              "supported": "Evidence covers the complete claim.",
+              "contradicted": "Evidence conflicts with the claim.",
+              "conflicting": "Evidence supports and conflicts with the claim.",
+              "insufficient": "A deciding branch or check is missing."
+            }
+          }
+        },
+        {
+          "id": "overclaim-risk",
+          "question": {
+            "type": "score",
+            "instructions": "Rate only how far the claim extends beyond the supplied evidence.",
+            "criteria": [
+              "No extension beyond the evidence.",
+              "A bounded inference remains to verify.",
+              "A deciding behavior is unsupported."
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
     "id": "ghSearch.curated-1",
     "tool": "ghSearch",
     "input": {
@@ -352,8 +464,8 @@
           "owner": "bgauryy",
           "repo": "octocode",
           "path": "packages/octocode-native/src/runtime/engine.rs",
-          "contextLines": 5,
-          "matchString": "pub fn new"
+          "matchString": "pub fn new",
+          "contextLines": 5
         }
       ]
     }
@@ -966,9 +1078,10 @@
           "multiline": "off",
           "sort": "relevance",
           "rankingProfile": "auto",
-          "unique": "off",
+          "matchPage": 1,
           "page": 1,
           "regex": "literal",
+          "unique": "off",
           "resultView": "paginated"
         }
       ]
@@ -996,9 +1109,10 @@
           "multiline": "off",
           "sort": "relevance",
           "rankingProfile": "auto",
-          "unique": "off",
+          "matchPage": 1,
           "page": 1,
           "regex": "rust",
+          "unique": "off",
           "resultView": "paginated"
         }
       ]
@@ -1216,6 +1330,7 @@
           "sort": "relevance",
           "rankingProfile": "auto",
           "langType": "typescript",
+          "matchPage": 1,
           "page": 1,
           "operation": "match",
           "resultView": "content",
@@ -1327,6 +1442,7 @@
           "sort": "relevance",
           "rankingProfile": "auto",
           "langType": "typescript",
+          "matchPage": 1,
           "page": 1,
           "operation": "match",
           "resultView": "content",
@@ -1794,9 +1910,9 @@
           "reasoning": "Use localFetch for the exact line range example.",
           "debug": false,
           "path": "/ABS/repo/packages/octocode-native/Cargo.toml",
-          "minify": "none",
           "startLine": 1,
-          "endLine": 30
+          "endLine": 30,
+          "minify": "none"
         }
       ]
     }
@@ -1819,9 +1935,9 @@
           "reasoning": "Use localFetch for the matched slice example.",
           "debug": false,
           "path": "/ABS/repo/src/index.ts",
+          "matchString": "export",
           "contextLines": 5,
-          "minify": "none",
-          "matchString": "export"
+          "minify": "none"
         }
       ]
     }
@@ -2113,23 +2229,6 @@
     }
   },
   {
-    "id": "reasoning.optional",
-    "tool": "localFetch",
-    "input": {
-      "path": "/fixture/a.ts"
-    },
-    "accepted": true,
-    "normalized": {
-      "queries": [
-        {
-          "goal": "Execute localFetch via fixture",
-          "debug": false,
-          "path": "/fixture/a.ts"
-        }
-      ]
-    }
-  },
-  {
     "id": "local-fetch.blank-meta",
     "tool": "localFetch",
     "input": {
@@ -2202,9 +2301,9 @@
           "reasoning": "Exercise the local-fetch.match native parity fixture.",
           "debug": false,
           "path": "/fixture/a.ts",
-          "chunkType": "bytes",
           "matchString": "needle",
-          "contextBytes": 10
+          "contextBytes": 10,
+          "chunkType": "bytes"
         }
       ]
     }
@@ -2477,10 +2576,11 @@
           "multiline": "off",
           "sort": "relevance",
           "rankingProfile": "auto",
-          "unique": "off",
-          "matchWindow": 2,
+          "matchPage": 1,
           "page": 1,
           "regex": "rust",
+          "unique": "off",
+          "matchWindow": 2,
           "resultView": "matchOnly"
         }
       ]
@@ -2510,9 +2610,10 @@
           "multiline": "off",
           "sort": "relevance",
           "rankingProfile": "auto",
-          "unique": "list",
+          "matchPage": 1,
           "page": 1,
           "regex": "rust",
+          "unique": "list",
           "resultView": "matchOnly"
         }
       ]
@@ -2542,9 +2643,10 @@
           "multiline": "off",
           "sort": "relevance",
           "rankingProfile": "auto",
-          "unique": "count",
+          "matchPage": 1,
           "page": 1,
           "regex": "rust",
+          "unique": "count",
           "resultView": "matchOnly"
         }
       ]
@@ -2573,9 +2675,10 @@
           "multiline": "off",
           "sort": "traversal",
           "rankingProfile": "auto",
-          "unique": "off",
+          "matchPage": 1,
           "page": 1,
           "regex": "rust",
+          "unique": "off",
           "resultView": "paginated"
         }
       ]

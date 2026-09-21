@@ -7,7 +7,7 @@
   "bugs": "https://github.com/bgauryy/octocode/issues",
   "dependencies": {
     "@modelcontextprotocol/server": "^2.0.0",
-    "@octocodeai/octocode-core": "19.1.1",
+    "@octocodeai/config": "20.0.0",
     "@octocodeai/octocode-native": "20.0.0"
   },
   "devDependencies": {

@@ -7,7 +7,7 @@ import {repairRequest} from './transport.mjs';
 const root = process.argv[2] ? path.resolve(process.argv[2]) : undefined;
 const schema = root
   ? await import(pathToFileURL(path.join(root,'baseline/core-dist/schema.js')))
-  : await import('@octocodeai/octocode-core/schema');
+  : await import('@octocodeai/config/schema');
 // Root mode intentionally accepts immutable pre-split benchmark snapshots.
 const specs = schema.DIRECT_TOOL_DEFINITIONS ?? (root ? schema.DIRECT_TOOL_SPECIFICATIONS : undefined);
 if (!Array.isArray(specs)) throw Error('Tool definitions are unavailable');

@@ -5,7 +5,7 @@ import {
   LOCAL_MAX_DEPTH,
   LOCAL_MAX_LIMIT,
   LspSearchQuerySchema,
-} from '@octocodeai/octocode-core/schema';
+} from '@octocodeai/config/schema';
 
 describe.each([
   ['files', AstFilesQuerySchema],
@@ -14,14 +14,20 @@ describe.each([
   it.each([-5, LOCAL_MAX_LIMIT + 1])(
     'rejects out-of-range limit %s without clamping',
     limit => {
-      expect(schema.safeParse({ operation, path: '.', limit }).success).toBe(
-        false
-      );
+      expect(
+        schema.safeParse({
+          reasoning: 'exercise limit bounds',
+          operation,
+          path: '.',
+          limit,
+        }).success
+      ).toBe(false);
     }
   );
 
   it('accepts limit at the maximum', () => {
     const result = schema.safeParse({
+      reasoning: 'exercise limit bounds',
       operation,
       path: '.',
       limit: LOCAL_MAX_LIMIT,
@@ -31,7 +37,13 @@ describe.each([
   });
 
   it('accepts an omitted limit', () => {
-    expect(schema.safeParse({ operation, path: '.' }).success).toBe(true);
+    expect(
+      schema.safeParse({
+        reasoning: 'exercise limit bounds',
+        operation,
+        path: '.',
+      }).success
+    ).toBe(true);
   });
 });
 
@@ -41,6 +53,7 @@ describe('astSearch filesystem tree depth bounds', () => {
     maxDepth => {
       expect(
         AstFilesystemTreeQuerySchema.safeParse({
+          reasoning: 'exercise depth bounds',
           operation: 'tree',
           path: '.',
           maxDepth,
@@ -53,6 +66,7 @@ describe('astSearch filesystem tree depth bounds', () => {
     'accepts depth at the boundary %s',
     maxDepth => {
       const result = AstFilesystemTreeQuerySchema.safeParse({
+        reasoning: 'exercise depth bounds',
         operation: 'tree',
         path: '.',
         maxDepth,
@@ -65,6 +79,7 @@ describe('astSearch filesystem tree depth bounds', () => {
 
 describe('LspSearchQuerySchema depth bound', () => {
   const base = {
+    reasoning: 'exercise depth bounds',
     uri: '/tmp/x.ts',
     operation: 'callers',
     symbolName: 'x',

@@ -227,29 +227,31 @@ mod contract_owner_tests {
     }
 
     #[test]
-    fn public_queries_accept_optional_but_nonblank_reasoning() {
-        // Omitting reasoning is accepted: it is optional across every tool.
+    fn public_queries_require_nonblank_reasoning() {
+        // Reasoning is mandatory on every tool: omitting it is rejected.
         let omitted = prepare_and_validate(
             "localFetch",
             json!({"path":"/tmp/source.rs"}),
             PrepareOptions::default(),
         );
-        assert!(omitted.is_ok(), "reasoning must be optional: {omitted:?}");
-        assert!(
-            omitted.unwrap().get("reasoning").is_none(),
-            "omitted reasoning must never be fabricated"
-        );
+        assert!(omitted.is_err(), "reasoning must be required: {omitted:?}");
 
-        // A supplied-but-blank reasoning is still rejected.
+        // A supplied-but-blank reasoning is likewise rejected.
         let blank = prepare_and_validate(
             "localFetch",
             json!({"path":"/tmp/source.rs","reasoning":"   "}),
             PrepareOptions::default(),
         );
-        assert!(
-            blank.is_err(),
-            "reasoning, when supplied, must be nonblank: {blank:?}"
-        );
+        assert!(blank.is_err(), "blank reasoning must be rejected: {blank:?}");
+
+        // A supplied non-blank reasoning is accepted and preserved verbatim.
+        let ok = prepare_and_validate(
+            "localFetch",
+            json!({"path":"/tmp/source.rs","reasoning":"Read the source."}),
+            PrepareOptions::default(),
+        )
+        .expect("non-blank reasoning must be accepted");
+        assert_eq!(ok["reasoning"], "Read the source.");
     }
 
     #[test]
@@ -621,7 +623,14 @@ mod contract_owner_tests {
         // Continuation validation applies query defaults on a clone, so
         // page/pageSize/debug may be omitted. The operation discriminator is
         // genuinely required and keeps the follow-up executable.
-        let data = |query: serde_json::Value| {
+        let data = |mut query: serde_json::Value| {
+            // Real continuations inherit the caller's now-mandatory reasoning via
+            // preserve_continuation_metadata; mirror that here.
+            query
+                .as_object_mut()
+                .unwrap()
+                .entry("reasoning")
+                .or_insert_with(|| json!("Continue the paged read."));
             json!({"results":[{"index":0,"data":{
                 "operation":"tree",
                 "next":{"viewStructure":{"tool":"ghSearch","query":query,
@@ -648,7 +657,12 @@ mod contract_owner_tests {
     fn deadcode_verify_references_accepts_defaults_but_requires_anchor() {
         // orderHint/page/format/debug are defaulted during validation. The URI
         // remains a real anchored-reference requirement.
-        let data = |query: serde_json::Value| {
+        let data = |mut query: serde_json::Value| {
+            query
+                .as_object_mut()
+                .unwrap()
+                .entry("reasoning")
+                .or_insert_with(|| json!("Verify the candidate before deletion."));
             json!({"results":[{"index":0,"data":{
                 "operation":"topology",
                 "analysis":"deadCode",
@@ -680,7 +694,12 @@ mod contract_owner_tests {
     fn filecontent_viewtree_accepts_defaults_but_requires_operation() {
         // Tree pagination/debug fields are defaulted during validation; the
         // operation discriminator is still required.
-        let data = |query: serde_json::Value| {
+        let data = |mut query: serde_json::Value| {
+            query
+                .as_object_mut()
+                .unwrap()
+                .entry("reasoning")
+                .or_insert_with(|| json!("Continue the paged read."));
             json!({"results":[{"index":0,"data":{
                 "owner":"o","repo":"r","path":"missing.md","error":"not found",
                 "next":{"viewTree":{"tool":"ghSearch","query":query,
@@ -710,7 +729,12 @@ mod contract_owner_tests {
     fn ghsearchhistory_nextpage_accepts_defaults_but_requires_operation() {
         // pageSize/debug are defaulted during validation; operation remains the
         // required discriminator for an executable history continuation.
-        let data = |query: serde_json::Value| {
+        let data = |mut query: serde_json::Value| {
+            query
+                .as_object_mut()
+                .unwrap()
+                .entry("reasoning")
+                .or_insert_with(|| json!("Read the next history page."));
             json!({"results":[{"index":0,"data":{
                 "type":"pullRequests","owner":"o","repo":"r","pullRequests":[],
                 "next":{"nextPage":{"tool":"ghSearchHistory","query":query,"confidence":"exact"}}

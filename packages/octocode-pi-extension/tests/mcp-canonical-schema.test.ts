@@ -4,7 +4,7 @@ import {
   DIRECT_TOOL_DEFINITIONS,
   buildDirectToolCommandPatterns,
   prepareDirectToolInput,
-} from '@octocodeai/octocode-core/schema';
+} from '@octocodeai/config/schema';
 import { compileMcpSchemaValidator } from '../src/tools/mcp/schema-validator.js';
 
 describe('canonical research schemas through the Pi MCP gateway validator', () => {

@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
 
-import { LocalSearchQuerySchema } from '@octocodeai/octocode-core/schema';
-import { AstSearchQuerySchema } from '@octocodeai/octocode-core/schema';
+import { LocalSearchQuerySchema } from '@octocodeai/config/schema';
+import { AstSearchQuerySchema } from '@octocodeai/config/schema';
 
 describe('canonical localSearch lexical contract', () => {
-  const base = { searchText: 'foo', path: 'src' };
+  const base = { reasoning: 'exercise lexical contract', searchText: 'foo', path: 'src' };
 
   it('accepts the explicit regex modes', () => {
     for (const regex of ['literal', 'rust', 'pcre2']) {
@@ -37,6 +37,7 @@ describe('canonical astSearch filesystem contract', () => {
   it('accepts file discovery and filesystem tree operations', () => {
     expect(
       AstSearchQuerySchema.safeParse({
+        reasoning: 'exercise filesystem contract',
         operation: 'files',
         path: 'src',
         names: ['*.ts'],
@@ -46,6 +47,7 @@ describe('canonical astSearch filesystem contract', () => {
     ).toBe(true);
     expect(
       AstSearchQuerySchema.safeParse({
+        reasoning: 'exercise filesystem contract',
         operation: 'tree',
         treeKind: 'filesystem',
         path: 'src',

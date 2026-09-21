@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-import { DIRECT_TOOL_DEFINITIONS } from '@octocodeai/octocode-core/schema';
+import { DIRECT_TOOL_DEFINITIONS } from '@octocodeai/config/schema';
 
 type Fixture = {
   kpiContract: {

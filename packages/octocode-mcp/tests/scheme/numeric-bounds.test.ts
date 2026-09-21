@@ -1,16 +1,16 @@
 import { z } from 'zod';
 import { describe, expect, it } from 'vitest';
-import { FileContentQueryBaseLocalSchema } from '@octocodeai/octocode-core/schema';
-import { GitHubCodeSearchQueryLocalSchema } from '@octocodeai/octocode-core/schema';
-import { GitHubReposSearchSingleQueryLocalSchema } from '@octocodeai/octocode-core/schema';
-import { GitHubPullRequestSearchQueryLocalSchema } from '@octocodeai/octocode-core/schema';
-import { GitHubViewRepoStructureQueryLocalSchema } from '@octocodeai/octocode-core/schema';
-import { ArtifactSearchQueryLocalSchema } from '@octocodeai/octocode-core/schema';
-import { LocalFetchContentQuerySchema } from '@octocodeai/octocode-core/schema';
-import { AstFilesQuerySchema } from '@octocodeai/octocode-core/schema';
-import { LocalRipgrepQuerySchema } from '@octocodeai/octocode-core/schema';
-import { AstFilesystemTreeQuerySchema } from '@octocodeai/octocode-core/schema';
-import { LspSearchQuerySchema } from '@octocodeai/octocode-core/schema';
+import { FileContentQueryBaseLocalSchema } from '@octocodeai/config/schema';
+import { GitHubCodeSearchQueryLocalSchema } from '@octocodeai/config/schema';
+import { GitHubReposSearchSingleQueryLocalSchema } from '@octocodeai/config/schema';
+import { GitHubPullRequestSearchQueryLocalSchema } from '@octocodeai/config/schema';
+import { GitHubViewRepoStructureQueryLocalSchema } from '@octocodeai/config/schema';
+import { ArtifactSearchQueryLocalSchema } from '@octocodeai/config/schema';
+import { LocalFetchContentQuerySchema } from '@octocodeai/config/schema';
+import { AstFilesQuerySchema } from '@octocodeai/config/schema';
+import { LocalRipgrepQuerySchema } from '@octocodeai/config/schema';
+import { AstFilesystemTreeQuerySchema } from '@octocodeai/config/schema';
+import { LspSearchQuerySchema } from '@octocodeai/config/schema';
 
 const SENTINEL = 9007199254740991;
 
@@ -52,7 +52,11 @@ describe('numeric schema fields are bounded (#C1)', () => {
   }
 
   it('local view offsets accept safe integers and reject fractional or unsafe values', () => {
-    const query = { path: '/fixture.txt', chunkType: 'bytes' as const };
+    const query = {
+      reasoning: 'exercise offset bounds',
+      path: '/fixture.txt',
+      chunkType: 'bytes' as const,
+    };
     expect(
       LocalFetchContentQuerySchema.safeParse({ ...query, offset: SENTINEL })
         .success

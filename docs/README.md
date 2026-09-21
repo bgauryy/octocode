@@ -32,6 +32,7 @@ Use this page to find the document that owns each topic. The root [README](../RE
 | Topic | Document |
 |-------|----------|
 | Acceptance criteria for public tool quality | [Tool quality and agent workflow acceptance](MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md) |
+| Rename `semanticAssess` to `clasify` across core and Octocode | [`clasify` rename implementation plan](CLASIFY_RENAME_IMPLEMENTATION_PLAN.md) |
 | Repository-wide contributor rules and package map | [AGENTS.md](../AGENTS.md) |
 | Development and release scripts | [Scripts reference](../scripts/README.md) |
 

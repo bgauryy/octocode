@@ -51,7 +51,7 @@ Note friction, gaps, or wrong defaults and log them (comment/issue) instead of s
 
 **Flow:** A tool call arrives at MCP or CLI → the native Rust runtime validates, executes, secures, and shapes it → the interface registers or renders the result. Interfaces contain no tool business logic and have no TypeScript execution fallback.
 
-**Contracts:** Public schemas, descriptions, and instructions live in `@octocodeai/octocode-core` (sibling repo `../octocode-mcp-host/packages/octocode-core`). Import from `…/schema` for names/schemas/relations and `…/mcp` for `buildMcpInstructions` / `buildCliToolContext`. Never hand-write tool guidance in interface packages.
+**Contracts:** Public schemas, descriptions, and instructions are **authored** in `@octocodeai/octocode-core` (sibling repo `../octocode-mcp-host/packages/octocode-core`) — the source of truth. In-repo surfaces do **not** import core directly; they go through the `@octocodeai/config` hub — `@octocodeai/config/schema` for names/schemas/relations and `@octocodeai/config/mcp` for `buildMcpInstructions` / `buildCliToolContext`. Those two subpaths thinly re-export core (`export * from "@octocodeai/octocode-core/…"`), so authoring stays in the sibling repo while every interface imports contracts from one place. Native regenerates its enforcement embed from core via `yarn contracts:regen`. Never hand-write tool guidance in interface packages.
 
 **Config:** Everything flows through `@octocodeai/config`. Never reimplement `getOctocodeHome`, `propagateOctocodeEnv`, or `.env` parsing. Skills use injected `octocode-config.mjs`; packages import from `@octocodeai/config`.
 
@@ -65,7 +65,7 @@ Note friction, gaps, or wrong defaults and log them (comment/issue) instead of s
 
 | Package | npm name | Role |
 |---|---|---|
-| [`octocode-config`](packages/octocode-config) | `@octocodeai/config` | Zero-dep env/config loader. Single source for home, env, protected keys. Used by everything. |
+| [`octocode-config`](packages/octocode-config) | `@octocodeai/config` | **Content/context layer.** Zero-dep env/config loader (`.` entry; single source for home, env, protected keys) **plus the shared tool-contract hub** (`./schema`, `./mcp`) that re-exports `@octocodeai/octocode-core`. Every interface imports contracts from here. Used by everything. |
 | [`octocode-native`](packages/octocode-native) | `@octocodeai/octocode-native` | **Brain and distribution owner.** Two Rust crates: runtime policy/CLI/N-API plus reusable engine primitives. Publishes runtime at `.`/`./runtime` and primitives at `./engine` through one six-platform family. |
 | [`octocode-extension-rust`](packages/octocode-extension-rust) | `@octocodeai/octocode-extension-rust` | Rust primitives for the Pi extension: filesystem snapshots, mutations, durability, line diff. Separate from the research engine. |
 | `@octocodeai/octocode-core` *(external)* | sibling repo | All public tool contracts, schemas, descriptions, examples. Source of truth for what tools exist and how they're described. |

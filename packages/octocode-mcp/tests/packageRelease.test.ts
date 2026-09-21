@@ -52,7 +52,7 @@ describe('published package release contract', () => {
 
   it('advertises canonical MCP tool names without client prefixes', async () => {
     const { DIRECT_TOOL_DEFINITIONS } =
-      await import('@octocodeai/octocode-core/schema');
+      await import('@octocodeai/config/schema');
     expect(dxtManifest.tools.map(tool => tool.name).sort()).toEqual(
       DIRECT_TOOL_DEFINITIONS.map(tool => tool.name).sort()
     );

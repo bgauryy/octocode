@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   DIRECT_TOOL_DEFINITIONS,
   formatDirectToolSchemaText,
-} from '@octocodeai/octocode-core/schema';
+} from '@octocodeai/config/schema';
 
 const LOSS_LANGUAGE: RegExp[] = [
   /may be truncated/i,

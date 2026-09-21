@@ -36,7 +36,7 @@ const acceptanceEnv = {
   ENABLE_AST_REWRITE_APPLY: 'true',
   OCTOCODE_STORAGE_MODE: 'persistent',
 };
-const { DIRECT_TOOL_DEFINITIONS, TOOL_NAMES } = await import('@octocodeai/octocode-core/schema');
+const { DIRECT_TOOL_DEFINITIONS, TOOL_NAMES } = await import('@octocodeai/config/schema');
 const canonicalTools = DIRECT_TOOL_DEFINITIONS.map(tool => tool.name);
 let expectedTools = [];
 const receipt = {

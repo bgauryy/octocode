@@ -49,6 +49,17 @@ await esbuild.build({
   outfile: 'dist/cli.js',
 });
 
+// Contract hub entries: thin re-exports of @octocodeai/octocode-core so every
+// surface imports contracts from "@octocodeai/config/{schema,mcp}". Core (and
+// its Zod dependency) are marked external — never bundled here — so the source
+// of truth stays in octocode-core and the zero-dep dist/index.js is untouched.
+await esbuild.build({
+  ...shared,
+  external: [...shared.external, '@octocodeai/octocode-core', '@octocodeai/octocode-core/*', 'zod'],
+  entryPoints: ['src/contracts/schema.ts', 'src/contracts/mcp.ts'],
+  outdir: 'dist/contracts',
+});
+
 // Generate TypeScript declarations (uses workspace tsc, not global PATH).
 execSync(`${tscBin} --emitDeclarationOnly --outDir dist -p tsconfig.build.json`, { stdio: 'inherit', cwd: __dirname });
 

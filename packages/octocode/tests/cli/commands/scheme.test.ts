@@ -8,8 +8,8 @@ import type { JsonObject } from '../../../src/cli/commands/scheme-projection.js'
 import {
   getPublicToolCatalog,
   getNativeContractFingerprint,
-} from '@octocodeai/octocode-core/schema';
-import { buildMcpInstructions } from '@octocodeai/octocode-core/mcp';
+} from '@octocodeai/config/schema';
+import { buildMcpInstructions } from '@octocodeai/config/mcp';
 
 const catalog = getPublicToolCatalog();
 const tools = catalog.tools as unknown as readonly JsonObject[];

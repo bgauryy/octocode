@@ -1,12 +1,15 @@
 {
   "name": "@octocodeai/config",
-  "description": "Octocode unified env + config loader — zero deps, shared by MCP, CLI, extension, agent, and standalone skills.",
+  "description": "Octocode unified env + config loader (zero-dep '.' entry) plus the shared tool-contract hub ('./schema', './mcp', re-exporting @octocodeai/octocode-core). Shared by MCP, CLI, extension, agent, and standalone skills.",
   "version": "20.0.0",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
   "bin": {
     "octocode-config": "./dist/cli.js"
   },
   "bugs": "https://github.com/bgauryy/octocode/issues",
+  "dependencies": {
+    "@octocodeai/octocode-core": "19.1.1"
+  },
   "devDependencies": {
     "@types/node": "^24.13.4",
     "@vitest/coverage-v8": "^5.0.0",
@@ -24,6 +27,14 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./schema": {
+      "types": "./dist/contracts/schema.d.ts",
+      "import": "./dist/contracts/schema.js"
+    },
+    "./mcp": {
+      "types": "./dist/contracts/mcp.d.ts",
+      "import": "./dist/contracts/mcp.js"
     }
   },
   "files": [

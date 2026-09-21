@@ -1,20 +1,20 @@
 import { describe, it, expect } from 'vitest';
-import { LocalFetchContentBulkQuerySchema } from '@octocodeai/octocode-core/schema';
-import { AstSearchBulkQuerySchema } from '@octocodeai/octocode-core/schema';
-import { FileContentBulkQueryLocalSchema } from '@octocodeai/octocode-core/schema';
+import { LocalFetchContentBulkQuerySchema } from '@octocodeai/config/schema';
+import { AstSearchBulkQuerySchema } from '@octocodeai/config/schema';
+import { FileContentBulkQueryLocalSchema } from '@octocodeai/config/schema';
 
 describe('bulk schema cross-field validation', () => {
   it('localFetch rejects a mutex-violating row in a mixed batch', () => {
     const r = LocalFetchContentBulkQuerySchema.safeParse({
       queries: [
-        { path: 'a.ts', fullContent: true, matchString: 'x' },
-        { path: 'b.ts', startLine: 1, endLine: 5 },
+        { reasoning: 'exercise bulk validation', path: 'a.ts', fullContent: true, matchString: 'x' },
+        { reasoning: 'exercise bulk validation', path: 'b.ts', startLine: 1, endLine: 5 },
       ],
     });
     expect(r.success).toBe(false);
     expect(
       LocalFetchContentBulkQuerySchema.safeParse({
-        queries: [{ path: 'b.ts', startLine: 1, endLine: 5 }],
+        queries: [{ reasoning: 'exercise bulk validation', path: 'b.ts', startLine: 1, endLine: 5 }],
       }).success
     ).toBe(true);
   });
@@ -23,13 +23,14 @@ describe('bulk schema cross-field validation', () => {
     const r = AstSearchBulkQuerySchema.safeParse({
       queries: [
         {
+          reasoning: 'exercise bulk validation',
           operation: 'match',
           path: '/r',
           langType: 'ts',
           pattern: 'call($A)',
           rule: 'kind: call_expression',
         },
-        { operation: 'files', path: '/r' },
+        { reasoning: 'exercise bulk validation', operation: 'files', path: '/r' },
       ],
     });
     expect(r.success).toBe(false);
@@ -42,6 +43,7 @@ describe('bulk schema cross-field validation', () => {
       AstSearchBulkQuerySchema.safeParse({
         queries: [
           {
+            reasoning: 'exercise bulk validation',
             operation: 'match',
             path: '/r',
             langType: 'ts',
@@ -56,20 +58,21 @@ describe('bulk schema cross-field validation', () => {
     const r = FileContentBulkQueryLocalSchema.safeParse({
       queries: [
         {
+          reasoning: 'exercise bulk validation',
           owner: 'o',
           repo: 'r',
           path: 'a.ts',
           fullContent: true,
           matchString: 'x',
         },
-        { owner: 'o', repo: 'r', path: 'b.ts', startLine: 1, endLine: 5 },
+        { reasoning: 'exercise bulk validation', owner: 'o', repo: 'r', path: 'b.ts', startLine: 1, endLine: 5 },
       ],
     });
     expect(r.success).toBe(false);
     expect(
       FileContentBulkQueryLocalSchema.safeParse({
         queries: [
-          { owner: 'o', repo: 'r', path: 'b.ts', startLine: 1, endLine: 5 },
+          { reasoning: 'exercise bulk validation', owner: 'o', repo: 'r', path: 'b.ts', startLine: 1, endLine: 5 },
         ],
       }).success
     ).toBe(true);
