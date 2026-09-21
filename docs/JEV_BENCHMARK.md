@@ -1,6 +1,6 @@
 # Jev benchmarks — whole-task results and historical experiments
 
-**Current interface:** `octocode clasify` is the only public semantic-assessment command. Jev remains the provider/model family. Legacy routes and standalone skill runners referenced below are historical and no longer runnable in the current checkout. See the [current contract](OCTOCODE_CLASIFY.md) and the [frozen real-provider evaluation](../.octocode/octocode-eval-benchmark/jev-real-api-2026-09-21/REPORT.md).
+**Current interface:** `octocode clasify` is the only public semantic-assessment command. Jev remains the provider/model family. Legacy routes and standalone skill runners referenced below are historical and no longer runnable in the current checkout. See the [current contract](OCTOCODE_CLASIFY.md). Historical receipts cite a frozen real-provider evaluation at `.octocode/octocode-eval-benchmark/jev-real-api-2026-09-21/REPORT.md`, but that artifact is not present in this checkout.
 
 These experiments use different protocols and meters and do not establish current whole-task savings. Later five-bug and six-task host-metered evaluations did not show total-token savings. The completed source-path experiment also failed its host-token target. Keep host and provider usage separate and verify patch quality before claiming an efficiency win.
 

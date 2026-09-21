@@ -3,8 +3,8 @@
   "resourceMode": "matrix",
   "resources": [
     {
-      "id": "implementation_plan",
-      "path": "../../../docs/JEV_IMPROVEMENT_PLAN.md"
+      "id": "semantic_contract",
+      "path": "../../../docs/OCTOCODE_CLASIFY.md"
     },
     {
       "id": "agent_protocol",

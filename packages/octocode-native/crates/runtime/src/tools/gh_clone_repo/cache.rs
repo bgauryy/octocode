@@ -27,6 +27,11 @@ pub(super) struct CacheMeta {
     pub source: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub size_bytes: Option<u64>,
+    /// Whether the checkout was integrity-verified when it was created. Persisted
+    /// so a cache hit reports the state it was created with instead of a bare
+    /// `false`. Defaults to `false` for caches written before this field existed.
+    #[serde(default)]
+    pub verified: bool,
 }
 
 impl CacheMeta {
@@ -49,6 +54,9 @@ impl CacheMeta {
             sparse_path: sparse_path.map(str::to_owned),
             source: "clone".into(),
             size_bytes: None,
+            // new() is only called on the fresh-clone path, which verifies the
+            // checkout before reporting success.
+            verified: true,
         }
     }
 }

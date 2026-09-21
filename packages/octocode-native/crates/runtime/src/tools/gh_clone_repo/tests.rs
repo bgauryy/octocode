@@ -259,7 +259,10 @@ fn clones_caches_refreshes_sparse_tag_and_commit_without_token_argv() {
     assert!(fresh.total_size > 0);
     let cached = execute_clone(&query(), &context).expect("cached clone");
     assert!(cached.location.cached);
-    assert!(!cached.location.verified);
+    // A cache hit reports the verification state persisted at clone time, not a
+    // bare false: this checkout was verified when created, so the warm read
+    // surfaces verified:true rather than a false negative.
+    assert!(cached.location.verified);
     assert_eq!(cached.location.local_path, fresh.location.local_path);
     let defaulted = execute_clone(
         &GhCloneRepoQuery {

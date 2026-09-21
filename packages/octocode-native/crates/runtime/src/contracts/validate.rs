@@ -966,6 +966,17 @@ fn validate_github_search_queries(input: &Value) -> Result<(), ContractValidatio
                 ),
             ));
         }
+        // Code search must be scoped to an owner: the public contract states code
+        // "cannot wildcard repositories", so an unscoped code query (which the
+        // provider would run across all of GitHub) is rejected here rather than
+        // silently returning global noise.
+        if operation == Some("code") && !has_text("owner") {
+            return Err(issue(
+                "gh-search.code-scope",
+                vec!["queries".into(), index.to_string(), "owner".into()],
+                "code search requires an owner (optionally with repo); it cannot wildcard across all of GitHub".to_owned(),
+            ));
+        }
     }
     Ok(())
 }
@@ -1198,6 +1209,36 @@ mod tests {
             }]}),
         )
         .expect("path is an explicit code-search narrowing filter");
+    }
+
+    #[test]
+    fn rejects_unscoped_code_search_that_would_wildcard_all_of_github() {
+        let error = validate(
+            "ghSearch",
+            json!({"queries":[{
+                "operation":"code",
+                "keywords":["isEmptyArray"],
+                "reasoning":"A keyword-only code search must not run globally."
+            }]}),
+        )
+        .expect_err("code search without an owner is a global wildcard");
+        assert!(
+            error
+                .issues
+                .iter()
+                .any(|issue| issue.rule_id == "gh-search.code-scope")
+        );
+        // owner alone (no repo) is a legitimate org-wide code search.
+        validate(
+            "ghSearch",
+            json!({"queries":[{
+                "operation":"code",
+                "owner":"sindresorhus",
+                "keywords":["isEmptyArray"],
+                "reasoning":"Owner-scoped code search is allowed."
+            }]}),
+        )
+        .expect("owner-scoped code search is runnable");
     }
 
     #[test]

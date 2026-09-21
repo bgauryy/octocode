@@ -489,18 +489,38 @@ pub(super) async fn execute(runtime: &ToolRuntime, tool: &str, input: Value, com
                 Some(octocode_native::runtime::FailureKind::Execution) => 5,
                 None => 0,
             };
-            if !outcome.all_failed {
+            if outcome.all_failed {
+                // A whole-call failure that carries no runtime FailureKind (e.g. a
+                // config/gate refusal or admission-time validation) must not read
+                // as success — classify it as a usage/input error rather than 0.
+                if exit == 0 {
+                    exit = 2;
+                }
+            } else {
                 // A bulk result where some rows succeeded is not a total
                 // failure, but a partial source read or an available
                 // continuation is still exit 6. A nested/informational partial
                 // with no continuation and no source content (e.g. a reasoning
                 // tool's coverage `truncated`) stays 0.
-                let has_continuation = value["results"]
+                let rows: Vec<&Value> = value["results"]
                     .as_array()
-                    .into_iter()
-                    .flatten()
-                    .any(has_cli_continuation);
-                exit = if has_continuation { 6 } else { 0 };
+                    .map(|array| array.iter().collect())
+                    .unwrap_or_default();
+                let all_empty = !rows.is_empty()
+                    && rows
+                        .iter()
+                        .all(|row| row.get("status").and_then(Value::as_str) == Some("empty"));
+                let has_continuation = rows.iter().any(|row| has_cli_continuation(row));
+                // Empty (exit 1) takes precedence over a corrective continuation:
+                // an empty result with a recovery next.* is still "empty", not
+                // "more pages" (exit 6, reserved for results + continuation).
+                exit = if all_empty {
+                    1
+                } else if has_continuation {
+                    6
+                } else {
+                    0
+                };
             }
             let code = write_json(&value, compact);
             if code != 0 {

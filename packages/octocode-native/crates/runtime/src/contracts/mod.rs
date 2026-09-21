@@ -123,6 +123,25 @@ pub fn prepare_many_and_validate(
         .cloned()
         .unwrap_or_default();
     if tool_name == "clasify" {
+        // Batch query ids must be unique so every result cell stays correlatable
+        // to its query. The core SemanticBatch schema refines this; mirror it in
+        // the native executor rather than returning two results under one id.
+        let mut seen = std::collections::HashSet::new();
+        for (index, query) in queries.iter().enumerate() {
+            if let Some(id) = query.get("id").and_then(serde_json::Value::as_str)
+                && !seen.insert(id.to_owned())
+            {
+                return Err(ContractValidationError {
+                    issues: vec![ValidationIssue {
+                        rule_id: "clasify.unique-query-ids".into(),
+                        path: vec!["queries".into(), index.to_string(), "id".into()],
+                        message: format!("Duplicate query id: {id}"),
+                        schema: None,
+                        received: None,
+                    }],
+                });
+            }
+        }
         for query in &queries {
             validate_semantic_relations(query)?;
         }
@@ -341,6 +360,24 @@ mod contract_owner_tests {
         .expect_err("matrix cell limit must fail");
         assert_eq!(oversized.issues[0].rule_id, "clasify.cell-limit");
         assert!(oversized.issues[0].message.contains("maximum is 25"));
+    }
+
+    #[test]
+    fn clasify_rejects_duplicate_batch_query_ids() {
+        let query = json!({
+            "id":"qa",
+            "reasoning":"Classify resources.",
+            "resources":[{"id":"r","context":{"value":"one"}}],
+            "questions":[{"id":"q1","question":{"type":"noul","instructions":"Relevant?"}}]
+        });
+        let error = prepare_many_and_validate(
+            "clasify",
+            json!({"queries":[query.clone(), query]}),
+            PrepareOptions::default(),
+        )
+        .expect_err("duplicate batch query ids must fail before provider spend");
+        assert_eq!(error.issues[0].rule_id, "clasify.unique-query-ids");
+        assert_eq!(error.issues[0].path, ["queries", "1", "id"]);
     }
 
     #[test]

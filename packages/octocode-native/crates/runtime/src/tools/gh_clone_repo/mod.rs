@@ -180,7 +180,7 @@ pub fn execute_clone(
             .path_policy
             .validate(&clone_dir)
             .map_err(|error| CloneError::new("clone.policy.denied", error.message))?;
-        return result(query, branch, &clone_dir, commit_sha, true, false);
+        return result(query, branch, &clone_dir, commit_sha, true, meta.verified);
     }
 
     cache::cleanup_stale_artifacts(&context.config.cache_home);

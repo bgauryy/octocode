@@ -25,14 +25,12 @@ Use this page to find the document that owns each topic. The root [README](../RE
 | Scout, assess, then verify source evidence | [Semantic assessment research guide](CLASIFY_RESEARCH_GUIDE.md) | How-to |
 | Historical Jev provider measurements | [Jev benchmark](JEV_BENCHMARK.md) | Explanation |
 | The broader research-driven development philosophy | [Research-driven development manifest](../MANIFEST.md) | Explanation |
-| The retrieval and routing model behind the toolkit | [Evidence-graded retrieval position paper](ROUTING_EVIDENCE_POSITION_PAPER.md) | Explanation |
 
 ## Contributor and quality guides
 
 | Topic | Document |
 |-------|----------|
 | Acceptance criteria for public tool quality | [Tool quality and agent workflow acceptance](MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md) |
-| Rename `clasify` to `clasify` across core and Octocode | [`clasify` rename implementation plan](CLASIFY_RENAME_IMPLEMENTATION_PLAN.md) |
 | Repository-wide contributor rules and package map | [AGENTS.md](../AGENTS.md) |
 | Development and release scripts | [Scripts reference](../scripts/README.md) |
 
