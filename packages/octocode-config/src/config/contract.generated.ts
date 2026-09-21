@@ -24,7 +24,7 @@ export interface LocalConfigOptions {
   /** Enable the astRewrite tool. Preview and apply are unavailable while false. */
   enableAstRewrite?: boolean;
 
-  /** Permit hash-guarded astRewrite apply; preview remains available. */
+  /** Permit hash-guarded astRewrite apply when astRewrite is enabled; preview remains available. */
   enableAstRewriteApply?: boolean;
 
   /** Extra absolute or home-relative roots added to the allowed home directory. */
@@ -342,7 +342,7 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "file": true,
     "resolved": true,
     "credential": false,
-    "description": "Permit hash-guarded astRewrite apply; preview remains available.",
+    "description": "Permit hash-guarded astRewrite apply when astRewrite is enabled; preview remains available.",
     "env": [
       {
         "name": "ENABLE_AST_REWRITE_APPLY",

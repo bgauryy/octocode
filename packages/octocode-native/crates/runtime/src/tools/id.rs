@@ -128,10 +128,9 @@ impl ToolId {
             ToolId::GhCloneRepo => Some("ENABLE_CLONE|OCTOCODE_STORAGE_MODE"),
             ToolId::SemanticAssess => Some("OCTOCODE_JEV_KEY"),
             ToolId::AstRewrite => Some("ENABLE_AST_REWRITE"),
-            ToolId::LocalSearch
-            | ToolId::LocalFetch
-            | ToolId::AstSearch
-            | ToolId::LspSearch => Some("ENABLE_LOCAL"),
+            ToolId::LocalSearch | ToolId::LocalFetch | ToolId::AstSearch | ToolId::LspSearch => {
+                Some("ENABLE_LOCAL")
+            }
             _ => None,
         }
     }

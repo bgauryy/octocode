@@ -120,12 +120,12 @@ Keep continuation tokens scoped to their surface: operation-level `snapshot` val
 | `ghCloneRepo` | Hybrid | Uses provider credentials/network access, then atomically materializes a full or sparse repository under managed local storage. Disabled unless cloning and local storage are enabled. |
 | `localSearch` | Internal/local | Runs bounded lexical text/regex search against allowed local paths. |
 | `astSearch` | Internal/local | Runs structural AST, filesystem, tree, symbol, and topology queries against allowed local paths. |
-| `astRewrite` | Internal/local | Previews structural ast-grep rewrites and performs serialized, snapshot-bound, hash-guarded applies with journal recovery. Apply is separately opt-in; inspect the commit or recovery receipt. Cross-file changes are not simultaneously visible. |
+| `astRewrite` | Internal/local | Opt-in with `ENABLE_AST_REWRITE=true`. Previews structural ast-grep rewrites and performs serialized, snapshot-bound, hash-guarded applies with journal recovery. Apply has its own gate; inspect the commit or recovery receipt. Cross-file changes are not simultaneously visible. |
 | `localFetch` | Internal/local | Reads a known allowed path with full, match, line-range, minified, or symbol-outline views and exact continuations. |
 | `lspSearch` | Internal/local with a language-server process | Resolves an anchored symbol and asks a real language server for definitions, references, calls, types, symbols, hierarchy, or diagnostics. It reports unavailable capabilities instead of returning a syntactic approximation as semantic proof. |
 | `semanticAssess` | External Jev provider | Executes unread read-tool requests or accepts supplied state, applies Noul, Choice, or Score questions across a resource-question matrix, and returns correlated typed pages without retrieved bodies. |
 
-Remote GitHub tools require provider runtime and credentials. `artifactSearch` uses official registry APIs; `type:"npm"` honors the effective npm registry configuration. Local tools require `ENABLE_LOCAL`; clone/materialization additionally requires `ENABLE_CLONE` and persistent storage. LSP availability also depends on a compatible server for the file language. `semanticAssess` requires a nonblank resolved `OCTOCODE_JEV_KEY`; without one, MCP omits it and a CLI call returns an actionable missing-key error.
+Remote GitHub tools require provider runtime and credentials. `artifactSearch` uses official registry APIs; `type:"npm"` honors the effective npm registry configuration. Local tools require `ENABLE_LOCAL`; clone/materialization additionally requires `ENABLE_CLONE` and persistent storage. `astRewrite` additionally requires `ENABLE_AST_REWRITE=true`, and apply requires `ENABLE_AST_REWRITE_APPLY=true`. LSP availability also depends on a compatible server for the file language. `semanticAssess` requires a nonblank resolved `OCTOCODE_JEV_KEY`; without one, MCP omits it and a CLI call returns an actionable missing-key error.
 
 ## Text, AST, graph, and LSP: choose the evidence you need
 
@@ -977,6 +977,10 @@ localSearch( path=".", searchText="TODO|FIXME", regex="rust")
 ### `astRewrite`
 
 Preview structural ast-grep rewrites before applying them. Preview is the default and does not apply proposed edits, but it may recover an interrupted transaction. Structural matching distinguishes executable syntax from matching text in comments and strings.
+
+The entire tool is disabled by default. Set `ENABLE_AST_REWRITE=true` (or
+`local.enableAstRewrite: true`) before previewing. Applying still requires the
+separate `ENABLE_AST_REWRITE_APPLY=true` gate.
 
 | Field | Meaning |
 | --- | --- |

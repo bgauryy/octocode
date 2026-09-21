@@ -56,8 +56,7 @@ fn scheme_catalog_is_machine_only_with_availability_scoping() {
             .expect("astRewrite entry");
         assert_eq!(ast_rewrite["availability"]["enabled"], false, "{catalog}");
         assert_eq!(
-            ast_rewrite["availability"]["envVar"],
-            "ENABLE_AST_REWRITE",
+            ast_rewrite["availability"]["envVar"], "ENABLE_AST_REWRITE",
             "{catalog}"
         );
     }

@@ -4,7 +4,11 @@
 mod support;
 
 use serde_json::json;
+use std::collections::BTreeMap;
 use support::{Workspace, call, query_path, row_data, row_status};
+
+use octocode_native::config::RuntimeSurface;
+use octocode_native::runtime::{HostOptions, ToolRuntime};
 
 #[tokio::test]
 async fn ordinary_tools_allow_omitted_reasoning_but_reject_blank_values() {
@@ -260,6 +264,23 @@ async fn ast_rewrite_requires_its_separate_opt_in() {
     let enabled = workspace.runtime(&[("ENABLE_AST_REWRITE", "true".into())]);
     assert!(enabled.is_available("astRewrite"));
     enabled.close().await;
+}
+
+#[tokio::test]
+async fn host_options_environment_controls_embedded_tool_availability() {
+    let workspace = Workspace::new();
+    let runtime = ToolRuntime::from_host(HostOptions {
+        cwd: Some(workspace.workspace.clone()),
+        env: Some(BTreeMap::from([
+            ("ENABLE_LOCAL".into(), "true".into()),
+            ("ENABLE_AST_REWRITE".into(), "true".into()),
+        ])),
+        surface: RuntimeSurface::Mcp,
+        ..HostOptions::default()
+    })
+    .expect("embedded runtime with explicit environment");
+    assert!(runtime.is_available("astRewrite"));
+    runtime.close().await;
 }
 
 #[tokio::test]

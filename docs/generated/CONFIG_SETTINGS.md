@@ -70,7 +70,7 @@ Environment values take precedence over `.octocoderc`. Aliases are listed in pri
 | `local.enabled` | `ENABLE_LOCAL`<br>`OCTOCODE_ENABLE_LOCAL` | `true` | boolean | Enable local filesystem tools on every runtime surface. ENABLE_LOCAL is canonical; OCTOCODE_ENABLE_LOCAL is an alias. |
 | `local.enableClone` | `ENABLE_CLONE`<br>`OCTOCODE_ENABLE_CLONE` | `false` | boolean | Enable ghCloneRepo and directory materialization. Opt-in and requires persistent storage. ENABLE_CLONE is canonical. |
 | `local.enableAstRewrite` | `ENABLE_AST_REWRITE` | `false` | boolean | Enable the astRewrite tool. Preview and apply are unavailable while false. |
-| `local.enableAstRewriteApply` | `ENABLE_AST_REWRITE_APPLY` | `false` | boolean | Permit hash-guarded astRewrite apply; preview remains available. |
+| `local.enableAstRewriteApply` | `ENABLE_AST_REWRITE_APPLY` | `false` | boolean | Permit hash-guarded astRewrite apply when astRewrite is enabled; preview remains available. |
 | `local.allowedPaths` | `ALLOWED_PATHS` | `[]` | string array | Extra absolute or home-relative roots added to the allowed home directory. The environment value is a comma-separated list. |
 | `local.workspaceRoot` | `WORKSPACE_ROOT` | process.cwd() | path | Optional absolute or home-relative workspace root. |
 | `tools.enabled` | `TOOLS_TO_RUN` | unset | string array | Strict tool allowlist replacing the default tool set. |

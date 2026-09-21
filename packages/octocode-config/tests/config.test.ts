@@ -1160,6 +1160,7 @@ describe('resolveLocal', () => {
       resolveLocal({
         enabled: false,
         enableClone: false,
+        enableAstRewrite: false,
         enableAstRewriteApply: false,
         allowedPaths: ['/tmp'],
         workspaceRoot: '/tmp',
@@ -1167,6 +1168,7 @@ describe('resolveLocal', () => {
     ).toEqual({
       enabled: false,
       enableClone: false,
+      enableAstRewrite: false,
       enableAstRewriteApply: false,
       allowedPaths: ['/tmp'],
       workspaceRoot: '/tmp',

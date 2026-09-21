@@ -22,13 +22,14 @@ missing or invalid, startup fails closed.
 
 ## Tool registration
 
-The twelve-tool public catalog is `ghSearch`, `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem`, `ghCloneRepo`, `artifactSearch`, `localSearch`, `localFetch`, `astSearch`, `astRewrite`, `lspSearch`, and the credential-gated `semanticAssess` tool.
+The native catalog contains twelve tools. MCP registers only the available
+subset: `astRewrite` requires `ENABLE_AST_REWRITE=true`, and `semanticAssess`
+requires a nonblank `OCTOCODE_JEV_KEY`.
 
 `createNativeMcp()` constructs one `NativeRuntime` and calls `catalog()`. The
-adapter omits tools with `available: false`; `semanticAssess` is
-therefore registered only when the native runtime resolves a nonblank
-`OCTOCODE_JEV_KEY`. An absent or whitespace-only key therefore leaves the tool
-out of MCP discovery. For every available tool, it:
+adapter omits tools with `available: false`; this keeps both default-off tools
+out of MCP discovery rather than advertising unusable contracts. For every
+available tool, it:
 
 1. looks up the matching core-owned Standard Schema definition;
 2. registers its title, description, input schema, and annotations; MCP discovery

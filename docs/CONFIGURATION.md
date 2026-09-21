@@ -479,11 +479,12 @@ npx octocode config          # config file paths + which keys are set
 | Wrong GitHub account | `npx octocode auth logout` then `auth login` — or `auth login --force` |
 | Env token overriding saved token | Env always wins — unset the env var |
 | `ghCloneRepo` unavailable | Check `npx octocode scheme` for the effective availability gate. Clone is opt-in: set `ENABLE_CLONE=true` or `local.enableClone: true`. Materialization also requires `OCTOCODE_STORAGE_MODE=persistent`; tool allowlists and disable lists still apply. |
+| `astRewrite` unavailable | Set `ENABLE_AST_REWRITE=true` or `local.enableAstRewrite: true`. MCP registers the tool only when this gate and local tools are enabled. |
 | `astRewrite` apply is disabled | Preview first, then set `ENABLE_AST_REWRITE_APPLY=true` or `local.enableAstRewriteApply: true` and submit every returned absolute-path `beforeHash`. |
 | Local tools turned off | Check that neither `ENABLE_LOCAL` nor `local.enabled` is `false` |
 | A tool is missing | Inspect `npx octocode scheme` for registered names and availability. Check `TOOLS_TO_RUN` / `tools.enabled` (strict allowlists) and `DISABLE_TOOLS` / `tools.disabled`. Removed tool names are not aliases. |
 | Slow / timeouts | Raise `REQUEST_TIMEOUT` (max `300000` ms) |
-| A skill's external search is unavailable | Follow that skill's provider and credential instructions. The eleven-tool Octocode catalog does not expose a general web-search tool. |
+| A skill's external search is unavailable | Follow that skill's provider and credential instructions. The Octocode catalog does not expose a general web-search tool. |
 | `stats.json` never written | Set `OCTOCODE_ENABLE_STATS=1` in your shell or MCP `env` block (off by default) |
 | `.env` key ignored | Octocode blocks token vars in `.env` — use your shell or the MCP `env` block |
 | `.env` key not loading | Confirm the agent session restarted and the project is trusted |

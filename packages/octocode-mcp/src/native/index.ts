@@ -39,6 +39,7 @@ export interface NativeRuntimeOptions {
   surface: string;
   regexWorkerPath?: string | undefined;
   timeoutSecs?: number | undefined;
+  env?: Record<string, string> | undefined;
 }
 
 export interface NativeRuntimeBinding {
@@ -98,9 +99,15 @@ export function createNativeMcp({
   binding,
 }: NativeMcpOptions = {}): NativeMcp {
   const { NativeRuntime } = binding ?? loadNativeBinding(env);
+  const runtimeEnv = Object.fromEntries(
+    Object.entries(env).filter(
+      (entry): entry is [string, string] => typeof entry[1] === 'string'
+    )
+  );
   const runtime = new NativeRuntime({
     surface: 'mcp',
     regexWorkerPath: env.OCTOCODE_REGEX_WORKER,
+    env: runtimeEnv,
     // Match the CLI budget and exceed cold start plus one logical LSP request:
     // initialize, Java readiness, retries, delays, and transport overhead.
     timeoutSecs: 300,

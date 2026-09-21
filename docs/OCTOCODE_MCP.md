@@ -70,7 +70,8 @@ or whitespace-only key omits the tool from MCP discovery.
 | Package | `artifactSearch` |
 | Semantic assessment | `semanticAssess` |
 
-`astRewrite` is preview-first. File mutation is separately opt-in with
+`astRewrite` is omitted from MCP discovery unless `ENABLE_AST_REWRITE=true`.
+Once enabled it is preview-first; file mutation is separately opt-in with
 `ENABLE_AST_REWRITE_APPLY=true` and requires the complete set of preview hashes.
 
 To read the live CLI catalog, run `octocode scheme`.

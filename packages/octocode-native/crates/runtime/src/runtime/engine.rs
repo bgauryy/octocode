@@ -14,6 +14,7 @@ use crate::tools::local_fetch::{CancellationCheck, LocalFetchRegex};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -23,6 +24,9 @@ use std::time::{Duration, Instant};
 pub struct HostOptions {
     pub cwd: Option<PathBuf>,
     pub regex_worker_path: Option<PathBuf>,
+    /// Explicit host environment. Embedders use this to keep configuration
+    /// injection deterministic; standalone surfaces fall back to process env.
+    pub env: Option<BTreeMap<String, String>>,
     #[serde(default)]
     pub trusted_project: bool,
     #[serde(default)]
@@ -97,7 +101,7 @@ impl ToolRuntime {
         let home = std::env::home_dir()
             .ok_or_else(|| RuntimeError::new("config", "Cannot resolve home directory"))?;
         let input = config::acquire_config_input(
-            std::env::vars().collect(),
+            options.env.unwrap_or_else(|| std::env::vars().collect()),
             cwd,
             home,
             options.trusted_project,
@@ -259,8 +263,7 @@ impl ToolRuntime {
         let github = matches!(id, Some(t) if t.is_github() && t != ToolId::GhCloneRepo);
         let local_tools = local
             && matches!(id, Some(t) if t.is_local())
-            && (id != Some(ToolId::AstRewrite)
-                || self.config.resolved.local.enable_ast_rewrite);
+            && (id != Some(ToolId::AstRewrite) || self.config.resolved.local.enable_ast_rewrite);
         let jev = matches!(id, Some(t) if t.is_semantic_assess())
             && self
                 .config
@@ -381,10 +384,7 @@ impl ToolRuntime {
         mcp: bool,
     ) -> Result<ToolOutcome, RuntimeError> {
         if !self.is_available(&tool) {
-            if !mcp
-                && tool == "astRewrite"
-                && !self.config.resolved.local.enable_ast_rewrite
-            {
+            if !mcp && tool == "astRewrite" && !self.config.resolved.local.enable_ast_rewrite {
                 return Err(RuntimeError::new(
                     "missingConfiguration",
                     "astRewrite is disabled by default. Set ENABLE_AST_REWRITE=true or local.enableAstRewrite:true before retrying.",

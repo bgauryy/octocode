@@ -128,6 +128,7 @@ describe('createNativeMcp registration + execution', () => {
     expect(FakeRuntime.last?.options).toMatchObject({
       surface: 'mcp',
       timeoutSecs: 300,
+      env: {},
     });
 
     await instance.close();

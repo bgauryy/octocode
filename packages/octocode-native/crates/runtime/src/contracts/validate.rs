@@ -1324,8 +1324,9 @@ mod tests {
     fn suggests_reasoning_for_a_typo_across_every_tool_shape() {
         // The enforcement IR carries no presentation examples; the accepted
         // parity fixtures are the generated per-tool query corpus instead.
-        let fixtures: Value = serde_json::from_str(include_str!("generated/contract-fixtures.json"))
-            .expect("generated fixtures");
+        let fixtures: Value =
+            serde_json::from_str(include_str!("generated/contract-fixtures.json"))
+                .expect("generated fixtures");
         let contract = crate::contracts::parsed_contract().expect("generated contract");
         for tool in contract["tools"].as_array().expect("tool array") {
             let name = tool["name"].as_str().expect("tool name");

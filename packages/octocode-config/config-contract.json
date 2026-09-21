@@ -95,7 +95,7 @@
         "enableAstRewriteApply": {
           "type": "boolean",
           "default": false,
-          "description": "Permit hash-guarded astRewrite apply; preview remains available.",
+          "description": "Permit hash-guarded astRewrite apply when astRewrite is enabled; preview remains available.",
           "env": {
             "ENABLE_AST_REWRITE_APPLY": { "priority": 0 }
           }
