@@ -306,7 +306,7 @@ Every setting in `.octocoderc` also has an **env var** — env vars always win. 
 
 Unknown top-level and nested keys emit a warning with their full path. This makes misspellings such as `local.enableLocl` visible instead of silently falling back to a default.
 
-`tools.enabled` / `TOOLS_TO_RUN` is a strict allowlist. Example: ["ghSearch", "localSearch", "artifactSearch"]. `tools.disabled` / `DISABLE_TOOLS` removes names from the default set. An allowlist cannot bypass availability policy: MCP still omits `semanticAssess` unless `OCTOCODE_CLASSIFICATION_API` resolves to a nonblank value, and a CLI call without the key returns an actionable setup error.
+`tools.enabled` / `TOOLS_TO_RUN` is a strict allowlist. Example: ["ghSearch", "localSearch", "artifactSearch"]. `tools.disabled` / `DISABLE_TOOLS` removes names from the default set. An allowlist cannot bypass availability policy: MCP still omits `clasify` unless `OCTOCODE_CLASSIFICATION_API` resolves to a nonblank value, and a CLI call without the key returns an actionable setup error.
 
 ---
 

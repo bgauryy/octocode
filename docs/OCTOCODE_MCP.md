@@ -59,7 +59,7 @@ At startup, the Node adapter loads the platform-specific Rust N-API addon (`@oct
 
 The full discovery catalog contains 12 tools. With the default settings and no
 Jev provider key, the MCP server registers 10. `ghCloneRepo` execution is opt-in and requires
-`ENABLE_CLONE=true` plus persistent storage, while `semanticAssess`
+`ENABLE_CLONE=true` plus persistent storage, while `clasify`
 is registered only when the resolved `OCTOCODE_CLASSIFICATION_API` is nonblank. An absent
 or whitespace-only key omits the tool from MCP discovery.
 
@@ -68,7 +68,7 @@ or whitespace-only key omits the tool from MCP discovery.
 | GitHub | `ghSearch`, `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem`, `ghCloneRepo` |
 | Local | `localSearch`, `localFetch`, `astSearch`, `astRewrite`, `lspSearch` |
 | Package | `artifactSearch` |
-| Semantic assessment | `semanticAssess` |
+| Semantic assessment | `clasify` |
 
 `astRewrite` is omitted from MCP discovery unless `ENABLE_AST_REWRITE=true`.
 Once enabled it is preview-first; file mutation is separately opt-in with
@@ -109,7 +109,7 @@ The following table lists the settings that matter most for MCP:
 | `OCTOCODE_OUTPUT_FORMAT` | `yaml` | Tool response format: `yaml` or `json`. |
 | `OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH` | `20000` | Default response size budget (1 000 – 50 000). |
 | `OCTOCODE_LSP_CONFIG` | unset | Path to a custom `lsp-servers.json`. |
-| `OCTOCODE_CLASSIFICATION_API` | unset | Classification provider API key (jev default: TypeSafe). A nonblank resolved value registers `semanticAssess`; keep it in the environment or a protected secret source. |
+| `OCTOCODE_CLASSIFICATION_API` | unset | Classification provider API key (jev default: TypeSafe). A nonblank resolved value registers `clasify`; keep it in the environment or a protected secret source. |
 | `OCTOCODE_CLASSIFICATION_TYPE` | `jev` | Classification vendor selector; per-vendor model/host/endpoint defaults are built in (jev → model `jev-latest`). Results preserve both requested and resolved model names. |
 | `OCTOCODE_CLASSIFICATION_API_HOST` | vendor default (jev: `https://api.typesafe.ai`) | Optional override of the selected vendor's trusted API root. |
 

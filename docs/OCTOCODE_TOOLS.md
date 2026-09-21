@@ -16,7 +16,7 @@ npx octocode scheme <toolName> --compact
 | Packages | `artifactSearch` |
 | Local | `localSearch`, `localFetch`, `astSearch`, `astRewrite` |
 | LSP | `lspSearch` |
-| Semantic assessment | `semanticAssess` |
+| Semantic assessment | `clasify` |
 
 ## Contents
 
@@ -33,7 +33,7 @@ npx octocode scheme <toolName> --compact
 
 ## How every tool call works
 
-The CLI and MCP server expose the same canonical contracts from `@octocodeai/octocode-core` and execute through `@octocodeai/octocode-native`. Ordinary tools validate a strict `queries[]` envelope, run independent queries with bounded concurrency, and return one row for every input position. `semanticAssess` instead accepts one complete `SemanticQuery` directly or a batch of complete queries; see [Semantic assessment reference](#semantic-assessment-reference). A failure in one row or assessment page does not erase successful siblings.
+The CLI and MCP server expose the same canonical contracts from `@octocodeai/octocode-core` and execute through `@octocodeai/octocode-native`. Ordinary tools validate a strict `queries[]` envelope, run independent queries with bounded concurrency, and return one row for every input position. `clasify` instead accepts one complete `SemanticQuery` directly or a batch of complete queries; see [Semantic assessment reference](#semantic-assessment-reference). A failure in one row or assessment page does not erase successful siblings.
 
 ### Base call envelope
 
@@ -59,7 +59,7 @@ The CLI and MCP server expose the same canonical contracts from `@octocodeai/oct
 | `responseCharLength` | Optional outer field | Limits the rendered whole-response text window to 1–50,000 characters. It does not replace a tool's own result pagination. |
 | `responseCharOffset` | Optional outer field | Continues a whole-response text window. Copy the returned executable `responsePagination.next` call instead of constructing an offset by hand. |
 
-For ordinary tools, `goal` and `reasoning` are the shared query fields. All other fields belong to a specific tool variant. The schemas are strict: fields from different `operation` branches cannot be mixed, selector pairs such as `startLine`/`endLine` must be complete, and mutually exclusive selectors must not be combined. `semanticAssess` has its own matrix contract and required query-level `reasoning` field.
+For ordinary tools, `goal` and `reasoning` are the shared query fields. All other fields belong to a specific tool variant. The schemas are strict: fields from different `operation` branches cannot be mixed, selector pairs such as `startLine`/`endLine` must be complete, and mutually exclusive selectors must not be combined. `clasify` has its own matrix contract and required query-level `reasoning` field.
 
 ### Schema discovery, variants, relations, and hints
 
@@ -123,9 +123,9 @@ Keep continuation tokens scoped to their surface: operation-level `snapshot` val
 | `astRewrite` | Internal/local | Opt-in with `ENABLE_AST_REWRITE=true`. Previews structural ast-grep rewrites and performs serialized, snapshot-bound, hash-guarded applies with journal recovery. Apply has its own gate; inspect the commit or recovery receipt. Cross-file changes are not simultaneously visible. |
 | `localFetch` | Internal/local | Reads a known allowed path with full, match, line-range, minified, or symbol-outline views and exact continuations. |
 | `lspSearch` | Internal/local with a language-server process | Resolves an anchored symbol and asks a real language server for definitions, references, calls, types, symbols, hierarchy, or diagnostics. It reports unavailable capabilities instead of returning a syntactic approximation as semantic proof. |
-| `semanticAssess` | External Jev provider | Executes unread read-tool requests or accepts supplied state, applies Noul, Choice, or Score questions across a resource-question matrix, and returns correlated typed pages without retrieved bodies. |
+| `clasify` | External Jev provider | Executes unread read-tool requests or accepts supplied state, applies Noul, Choice, or Score questions across a resource-question matrix, and returns correlated typed pages without retrieved bodies. |
 
-Remote GitHub tools require provider runtime and credentials. `artifactSearch` uses official registry APIs; `type:"npm"` honors the effective npm registry configuration. Local tools require `ENABLE_LOCAL`; clone/materialization additionally requires `ENABLE_CLONE` and persistent storage. `astRewrite` additionally requires `ENABLE_AST_REWRITE=true`, and apply requires `ENABLE_AST_REWRITE_APPLY=true`. LSP availability also depends on a compatible server for the file language. `semanticAssess` requires a nonblank resolved `OCTOCODE_CLASSIFICATION_API`; without one, MCP omits it and a CLI call returns an actionable missing-key error.
+Remote GitHub tools require provider runtime and credentials. `artifactSearch` uses official registry APIs; `type:"npm"` honors the effective npm registry configuration. Local tools require `ENABLE_LOCAL`; clone/materialization additionally requires `ENABLE_CLONE` and persistent storage. `astRewrite` additionally requires `ENABLE_AST_REWRITE=true`, and apply requires `ENABLE_AST_REWRITE_APPLY=true`. LSP availability also depends on a compatible server for the file language. `clasify` requires a nonblank resolved `OCTOCODE_CLASSIFICATION_API`; without one, MCP omits it and a CLI call returns an actionable missing-key error.
 
 ## Text, AST, graph, and LSP: choose the evidence you need
 
@@ -1348,11 +1348,11 @@ Workspace-symbol search:
 
 ## Semantic assessment reference
 
-Use `octocode semanticAssess --input request.json`; inspect `octocode scheme semanticAssess --compact` before hand-authoring a call. Pass one complete `SemanticQuery` directly or batch one to five complete matrices in `queries[]`. Within a query, every question sees every resource, each resource is captured once, and every result carries `queryId`, `resourceId`, and `questionId`. Keep a matrix at 25 cells or fewer and the batch at 50 cells or fewer.
+Use `octocode clasify --input request.json`; inspect `octocode scheme clasify --compact` before hand-authoring a call. Pass one complete `SemanticQuery` directly or batch one to five complete matrices in `queries[]`. Within a query, every question sees every resource, each resource is captured once, and every result carries `queryId`, `resourceId`, and `questionId`. Keep a matrix at 25 cells or fewer and the batch at 50 cells or fewer.
 
 Context is supplied non-empty `{value}` state or one unread `{tool,query}` request. `instructions` is always a non-null, non-empty string, object, or array. Noul criteria are optional; when present, both `true` and `false` are required and their descriptions may be null. Choice requires 2–255 labels whose descriptions may be null. Score requires 2–10 ordered, non-null, non-empty string/object/array levels.
 
-The runtime executes supported read requests under normal policy and automatically retains ordered same-resource results in `pages[]`; it never silently averages or reduces them. Successful pages report `requestedModel` and `resolvedModel` separately. Follow an executable `next.assess` unchanged, retain error pages, and never use partial coverage to establish global absence. See the [complete contract and examples](OCTOCODE_SEMANTIC_ASSESS.md) and the [research workflow](SEMANTIC_ASSESS_RESEARCH_GUIDE.md).
+The runtime executes supported read requests under normal policy and automatically retains ordered same-resource results in `pages[]`; it never silently averages or reduces them. Successful pages report `requestedModel` and `resolvedModel` separately. Follow an executable `next.clasify` unchanged, retain error pages, and never use partial coverage to establish global absence. See the [complete contract and examples](OCTOCODE_CLASIFY.md) and the [research workflow](CLASIFY_RESEARCH_GUIDE.md).
 
 ---
 

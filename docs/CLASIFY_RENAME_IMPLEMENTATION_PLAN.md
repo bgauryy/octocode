@@ -33,7 +33,7 @@ The rename includes every active public surface that identifies or resumes this 
 | Native identity `ToolId::SemanticAssess` | `ToolId::Clasify` |
 | Native CLI variant `SemanticAssess` | `Clasify` |
 | Continuation `next.assess` | `next.clasify` |
-| Skill `octocode-semantic-assess` | `octocode-clasify` |
+| Skill `octocode-clasify` | `octocode-clasify` |
 | Public usage key `semanticAssessUsage` | `clasifyUsage` |
 | Public unavailable code `SEMANTIC_ASSESS_UNAVAILABLE` | `CLASIFY_UNAVAILABLE` |
 | Active semantic-assessment document names | `CLASIFY` document names |
@@ -327,7 +327,7 @@ Verify:
 
 The canonical skill source is the repository root `skills/` directory. Rename:
 
-- `skills/octocode-semantic-assess/` to `skills/octocode-clasify/`
+- `skills/octocode-clasify/` to `skills/octocode-clasify/`
 - the frontmatter name to `octocode-clasify`
 - active commands and examples to `octocode clasify`
 - helper names such as `semantic-assess-local.mjs` to `clasify-local.mjs`
@@ -373,8 +373,8 @@ The rename is behaviorally successful only if correct first-tool selection impro
 
 Rename active documents:
 
-- `docs/OCTOCODE_SEMANTIC_ASSESS.md` to `docs/OCTOCODE_CLASIFY.md`
-- `docs/SEMANTIC_ASSESS_RESEARCH_GUIDE.md` to `docs/CLASIFY_RESEARCH_GUIDE.md`
+- `docs/OCTOCODE_CLASIFY.md` to `docs/OCTOCODE_CLASIFY.md`
+- `docs/CLASIFY_RESEARCH_GUIDE.md` to `docs/CLASIFY_RESEARCH_GUIDE.md`
 
 Update active references in:
 
@@ -397,7 +397,7 @@ Add a concise migration note:
 | `octocode semanticAssess` | `octocode clasify` |
 | `scheme semanticAssess` | `scheme clasify` |
 | `next.assess` | `next.clasify` |
-| `octocode-semantic-assess` | `octocode-clasify` |
+| `octocode-clasify` | `octocode-clasify` |
 
 Historical documents such as provider-era benchmark reports and completed implementation receipts can retain `semanticAssess` when that was the observed interface. Add a current-name note where needed, but do not rewrite commands or measurements that were historically executed under the old name.
 

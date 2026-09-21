@@ -1,13 +1,13 @@
 # Semantic assessment research guide
 
-Use `semanticAssess` to rank or classify ambiguous evidence, then prove the selected claim with an ordinary source read, exact lookup, or test. The tool compresses a decision; it does not create evidence.
+Use `clasify` to rank or classify ambiguous evidence, then prove the selected claim with an ordinary source read, exact lookup, or test. The tool compresses a decision; it does not create evidence.
 
 ## Recommended loop
 
 1. **Frame the decision.** State the next action that can change and choose Noul, Choice, or Score.
 2. **Scout candidates.** Use search, AST, LSP, history, or package discovery to identify bounded candidate resources.
 3. **Assess the matrix.** Put shared candidates in `resources[]` and shared typed questions in `questions[]`. The runtime captures each resource once and evaluates the cross-product.
-4. **Follow coverage.** Keep every ordered page result. If `next.assess` is returned, execute it unchanged. `partial` coverage cannot support a global absence claim.
+4. **Follow coverage.** Keep every ordered page result. If `next.clasify` is returned, execute it unchanged. `partial` coverage cannot support a global absence claim.
 5. **Verify the winner.** Fetch the decisive lines, inspect the symbol/reference, or run the focused test. Cite that evidence, not the semantic result.
 
 Do not automatically turn every scouting step into a semantic call. Skip it when the answer is already known, an exact operation can decide it, or every candidate must be read anyway.
@@ -36,6 +36,6 @@ Successful pages preserve both `requestedModel` and `resolvedModel`. Record both
 
 ## Availability
 
-MCP advertises `semanticAssess` only when `OCTOCODE_CLASSIFICATION_API` resolves to a nonblank value. The CLI command remains discoverable, but a call without the key fails with a message naming the missing environment variable and the setup action.
+MCP advertises `clasify` only when `OCTOCODE_CLASSIFICATION_API` resolves to a nonblank value. The CLI command remains discoverable, but a call without the key fails with a message naming the missing environment variable and the setup action.
 
-See [Semantic Assessment Reference](OCTOCODE_SEMANTIC_ASSESS.md) for the complete public contract.
+See [Semantic Assessment Reference](OCTOCODE_CLASIFY.md) for the complete public contract.

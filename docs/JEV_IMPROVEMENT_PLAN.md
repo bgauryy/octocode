@@ -1,6 +1,8 @@
 # `semanticAssess` implementation plan
 
-Status: implemented and integration-verified as of 2026-09-21. The public contract, native runtime, CLI, MCP, Pi-facing docs, skills, and provider lab use the single `semanticAssess` surface. The canonical core is clean at `7b0ede1a`; native contracts report `sourceDirty:false` with fingerprint `99c6eab576c8…`. Clean-provenance and contract-sync checks pass. The [semantic assessment reference](OCTOCODE_SEMANTIC_ASSESS.md) describes the public contract, [JEV.md](../.octocode/JEV.md) indexes frozen provider-era experiments, and [GOTCHAS](../.octocode/GOTCHAS.md) records operational lessons.
+> **Historical record.** This is the completed receipt for the tool that shipped as `semanticAssess`. The public tool and CLI command were later renamed to `clasify` (hard cutover, no alias) — see [`CLASIFY_RENAME_IMPLEMENTATION_PLAN.md`](CLASIFY_RENAME_IMPLEMENTATION_PLAN.md) and the current [`OCTOCODE_CLASIFY.md`](OCTOCODE_CLASIFY.md). Occurrences of `semanticAssess` below accurately name the pre-rename interface and are preserved as history; today the runnable surface is `clasify`.
+
+Status: implemented and integration-verified as of 2026-09-21. The public contract, native runtime, CLI, MCP, Pi-facing docs, skills, and provider lab use the single `semanticAssess` surface. The canonical core is clean at `7b0ede1a`; native contracts report `sourceDirty:false` with fingerprint `99c6eab576c8…`. Clean-provenance and contract-sync checks pass. The [semantic assessment reference](OCTOCODE_CLASIFY.md) describes the public contract, [JEV.md](../.octocode/JEV.md) indexes frozen provider-era experiments, and [GOTCHAS](../.octocode/GOTCHAS.md) records operational lessons.
 
 ## Audit Reasoning — fix-and-keep (2026-09-20)
 
@@ -90,7 +92,7 @@ The cutover is intentionally hard: do not register a public `jev` alias, compati
 | Public schema/types | `SemanticAssess*` | No exported `Jev*` contract aliases after the cutover. |
 | Native public dispatch | `SemanticAssess` / `semanticAssess` | Owns public identity and validation handoff; runtime orchestration owns capture, paging, batching, and output shaping. |
 | Provider adapter | Jev-specific internal module | Retains endpoint, model, credential, retry, and transport concerns. Native Noul/Choice/Score primitives remain public because changing them alters answer semantics. |
-| Active skill | `octocode-semantic-assess` | Replaces `octocode-jev-reasoning-loop`; no forwarding skill. |
+| Active skill | `octocode-clasify` | Replaces `octocode-jev-reasoning-loop`; no forwarding skill. |
 | Active docs | Semantic-assessment names | Rename current guides and links; preserve historical artifact paths. |
 
 ### Public schema cleanup
@@ -513,7 +515,7 @@ Public context handles remain gated on demonstrated cross-call benefit and a lif
 
 ### Artifact workflows and shared acquisition — A3
 
-Use the [semantic assessment research guide](SEMANTIC_ASSESS_RESEARCH_GUIDE.md) for supported read families; do not duplicate its matrix here. For RFCs, saved articles, and browser artifacts, expose a small visible manifest, build background resource descriptors, then read selected proof. Supplied alternatives can use `value`. `semanticAssess` can select sections or assess a supplied summary; its primitives do not generate free-form summaries.
+Use the [semantic assessment research guide](CLASIFY_RESEARCH_GUIDE.md) for supported read families; do not duplicate its matrix here. For RFCs, saved articles, and browser artifacts, expose a small visible manifest, build background resource descriptors, then read selected proof. Supplied alternatives can use `value`. `semanticAssess` can select sections or assess a supplied summary; its primitives do not generate free-form summaries.
 
 Use the existing [HAR capture guide](../skills/octocode-chrome-devtools/references/har-capture.md) and [ingestion bridge](../skills/octocode-chrome-devtools/scripts/har-ingest-to-scrape.mjs) to produce bounded records or selected response bodies. Skills produce hashed artifacts; the pure CLI/MCP tool acquires them in the background through ordinary `localFetch`. Do not create a provider-only acquisition path.
 
@@ -525,7 +527,7 @@ The pre-rename `localFetch` contract has distinct limits: 10 MiB source acquisit
 
 | Area | Owning source |
 |---|---|
-| Input descriptions and validation | [Core semantic assessment schema](../../octocode-mcp-host/packages/octocode-core/src/toolContract/validation/semanticAssess.ts) |
+| Input descriptions and validation | [Core semantic assessment schema](../../octocode-mcp-host/packages/octocode-core/src/toolContract/validation/clasify.ts) |
 | Agent guidance and descriptions | [Core instructions](../../octocode-mcp-host/packages/octocode-core/src/toolContract/instructions.ts), [tool descriptions](../../octocode-mcp-host/packages/octocode-core/src/toolContract/descriptions.ts) |
 | Output contract | [Core output schemas](../../octocode-mcp-host/packages/octocode-core/src/toolContract/outputSchemas.ts) |
 | Capture, failure receipts and grouping | [Context execution](../packages/octocode-native/crates/runtime/src/runtime/jev_context.rs), [batch execution](../packages/octocode-native/crates/runtime/src/runtime/jev_batch.rs) |

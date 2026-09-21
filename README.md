@@ -206,14 +206,14 @@ than `gh`+Headroom, and ~3.2× fewer than `gh`+RTK** in the local-build headline
 
 **12 tools in the full discovery catalog.** MCP advertises ten by default when
 no Jev provider key is resolved. Repository cloning is opt-in, and MCP registers
-`semanticAssess` only with a nonblank `OCTOCODE_JEV_KEY`. The CLI keeps the
+`clasify` only with a nonblank `OCTOCODE_JEV_KEY`. The CLI keeps the
 command discoverable and returns an actionable `OCTOCODE_JEV_KEY` setup error
 if it is called without the key:
 
 | Surface | Registers | What that set is |
 |---|---:|---|
-| MCP, no flags | 10 | Credential-gated `semanticAssess` and opt-in `ghCloneRepo` are omitted. |
-| CLI, no flags | 10 | Twelve commands remain discoverable; `semanticAssess` explains the missing key and `ghCloneRepo` explains its opt-in gate when called. |
+| MCP, no flags | 10 | Credential-gated `clasify` and opt-in `ghCloneRepo` are omitted. |
+| CLI, no flags | 10 | Twelve commands remain discoverable; `clasify` explains the missing key and `ghCloneRepo` explains its opt-in gate when called. |
 
 Use `TOOLS_TO_RUN` for a strict allowlist or `DISABLE_TOOLS` to remove tools from
 the default set. `ENABLE_LOCAL=false` disables local, graph, and LSP tools;
@@ -260,7 +260,7 @@ or trees with its strict `operation` field.
 
 | Tool | What it does |
 |------|--------------|
-| `semanticAssess` | Applies Noul, Choice, or Score questions across `resources[] × questions[]`, or batches independent matrices in `queries[]`. Ordered same-resource pages are preserved without hidden reduction. MCP registers it only for a nonblank `OCTOCODE_JEV_KEY`; the result is a decision aid, never evidence. The direct CLI form is `npx octocode semanticAssess --input request.json`. |
+| `clasify` | Applies Noul, Choice, or Score questions across `resources[] × questions[]`, or batches independent matrices in `queries[]`. Ordered same-resource pages are preserved without hidden reduction. MCP registers it only for a nonblank `OCTOCODE_JEV_KEY`; the result is a decision aid, never evidence. The direct CLI form is `npx octocode clasify --input request.json`. |
 
 Full schemas, fields, and examples for every tool live in [`docs/OCTOCODE_TOOLS.md`](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md) (linked under [Documentation](#documentation)).
 
@@ -308,7 +308,7 @@ Same research engine, no MCP client needed. Every tool is a plain command named 
 | `npx octocode scheme <toolName>` | Show one tool's public input contract: fields, types, bounds, defaults |
 | `npx octocode scheme` | Compact catalog of every tool with availability |
 
-`semanticAssess` requires a nonblank `reasoning` field because the judgment must
+`clasify` requires a nonblank `reasoning` field because the judgment must
 change the next action. Other tools accept `reasoning` as optional context.
 
 #### More commands
@@ -355,7 +355,7 @@ Most-used settings (both CLI and MCP unless noted):
 | `ALLOWED_PATHS` | `local.allowedPaths` | `[]` | Extra path allowlist for local access. |
 | `OCTOCODE_OUTPUT_FORMAT` | `output.format` | `yaml` | Response format: `yaml` or `json`. |
 | `OCTOCODE_STORAGE_MODE` | `storage.mode` | `persistent` | Set `memory` to prevent persistent runtime state and materialization. |
-| `OCTOCODE_JEV_KEY` | env only | unset | TypeSafe Jev API key. A nonblank resolved value exposes `semanticAssess` through MCP; CLI calls without it explain how to enable the command. Never commit it. |
+| `OCTOCODE_JEV_KEY` | env only | unset | TypeSafe Jev API key. A nonblank resolved value exposes `clasify` through MCP; CLI calls without it explain how to enable the command. Never commit it. |
 
 `OCTOCODE_HOME`, GitHub Enterprise (`GITHUB_API_URL`), MCP tool filtering (`TOOLS_TO_RUN`/`DISABLE_TOOLS`), and network timeouts/retries: see the [Configuration Reference](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md).
 

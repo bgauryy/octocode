@@ -1,12 +1,23 @@
 # Semantic assessment reference
 
-`semanticAssess` applies bounded, typed semantic questions to supplied state or to an unread Octocode read request. It is a decision aid, not an evidence source: verify claims with the original source, an exact lookup, or a test before relying on them.
+`clasify` applies bounded, typed semantic questions to supplied state or to an unread Octocode read request. It is a decision aid, not an evidence source: verify claims with the original source, an exact lookup, or a test before relying on them.
 
-The public tool and CLI command are both named `semanticAssess`. Jev remains the internal provider/model family and the environment variable remains `OCTOCODE_CLASSIFICATION_API`.
+The public tool and CLI command are both named `clasify`. Jev remains the internal provider/model family and the environment variable remains `OCTOCODE_CLASSIFICATION_API`.
+
+## Migration from `semanticAssess`
+
+`clasify` replaces the former `semanticAssess` tool in a hard cutover — there is no `semanticAssess` alias, and calling the old name fails as unknown. Update any first-party callers and operator allowlists (`tools.enabled`, `tools.disabled`, `TOOLS_TO_RUN`, `DISABLE_TOOLS`) that named `semanticAssess` to `clasify`. This is a tool-name change only; the configuration schema, provider-key resolution, and environment variables are unchanged.
+
+| Before | After |
+|---|---|
+| `octocode semanticAssess` | `octocode clasify` |
+| `scheme semanticAssess` | `scheme clasify` |
+| `next.assess` | `next.clasify` |
+| `octocode-semantic-assess` | `octocode-clasify` |
 
 ## Availability
 
-- MCP registers `semanticAssess` only when the resolved `OCTOCODE_CLASSIFICATION_API` is present and nonblank. When the key is absent or blank, the tool is omitted from MCP discovery.
+- MCP registers `clasify` only when the resolved `OCTOCODE_CLASSIFICATION_API` is present and nonblank. When the key is absent or blank, the tool is omitted from MCP discovery.
 - The CLI command remains directly callable even when the available-tool catalog excludes it. Calling it without a nonblank key fails with an actionable error that names `OCTOCODE_CLASSIFICATION_API` and tells the caller to set it.
 - Do not put provider credentials in `.octocoderc` or commit them.
 
@@ -87,7 +98,7 @@ Choice and Score confidence measures distribution concentration. It is not the w
 Run a saved request with:
 
 ```bash
-npx octocode semanticAssess --input request.json
+npx octocode clasify --input request.json
 ```
 
 For independent matrices, wrap complete query objects in `queries`:
@@ -125,20 +136,20 @@ The runtime automatically preserves ordered same-resource pages as separate `pag
 
 Each resource-question result reports `coverage` as `complete`, `partial`, or `error`. Successful pages include `requestedModel` and `resolvedModel` separately, because a requested Jev model alias can resolve to a different provider model. Retain error pages and incomplete coverage; they are part of the result, not noise.
 
-If a query-level `next.assess` continuation is present, execute it unchanged and append its page results. A partial result cannot establish global absence. Do not silently collapse pages or treat the first page as the whole resource.
+If a query-level `next.clasify` continuation is present, execute it unchanged and append its page results. A partial result cannot establish global absence. Do not silently collapse pages or treat the first page as the whole resource.
 
 ## Workflow boundary
 
-Use `semanticAssess` only when a bounded semantic judgment changes the next action. Exact presence, counts, symbols, references, diagnostics, and deterministic assertions belong to ordinary search, AST/LSP, or tests.
+Use `clasify` only when a bounded semantic judgment changes the next action. Exact presence, counts, symbols, references, diagnostics, and deterministic assertions belong to ordinary search, AST/LSP, or tests.
 
-For research, scout broadly enough to identify candidates, assess only the ambiguous candidates, then verify the winning claims against source evidence. Do not cite a semantic answer as proof. See [Semantic Assessment Research Guide](SEMANTIC_ASSESS_RESEARCH_GUIDE.md).
+For research, scout broadly enough to identify candidates, assess only the ambiguous candidates, then verify the winning claims against source evidence. Do not cite a semantic answer as proof. See [Semantic Assessment Research Guide](CLASIFY_RESEARCH_GUIDE.md).
 
 ## Source of truth
 
 Inspect the installed contract before hand-authoring calls:
 
 ```bash
-npx octocode scheme semanticAssess --compact
+npx octocode scheme clasify --compact
 ```
 
 The live schema is authoritative for limits, supported read tools, and output fields. Provider primitive semantics are documented by TypeSafe: [Noul](https://docs.typesafe.ai/primitives/noul), [Choice](https://docs.typesafe.ai/primitives/choice), [Score](https://docs.typesafe.ai/primitives/score), and [advanced usage](https://docs.typesafe.ai/primitives/advanced).
