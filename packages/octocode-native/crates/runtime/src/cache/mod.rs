@@ -17,17 +17,11 @@ pub struct CacheKey {
     pub partition: CachePartition,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum CacheStorageMode {
-    MemoryOnly,
-}
-
 #[derive(Clone, Debug)]
 pub struct CacheConfig {
     pub max_entries: usize,
     pub max_bytes: usize,
     pub ttl: Duration,
-    pub storage: CacheStorageMode,
 }
 
 impl Default for CacheConfig {
@@ -36,7 +30,6 @@ impl Default for CacheConfig {
             max_entries: 1_000,
             max_bytes: 32 * 1024 * 1024,
             ttl: Duration::from_secs(300),
-            storage: CacheStorageMode::MemoryOnly,
         }
     }
 }
@@ -253,7 +246,7 @@ mod tests {
             max_entries: 2,
             max_bytes: 5,
             ttl: Duration::from_secs(60),
-            storage: CacheStorageMode::MemoryOnly,
+            ..Default::default()
         });
         let now = Instant::now();
         cache.insert(key("a", "x"), 1, 2, 1, now);

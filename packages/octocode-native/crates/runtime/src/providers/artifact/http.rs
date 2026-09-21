@@ -216,6 +216,15 @@ fn transport_error(_error: impl fmt::Display) -> ArtifactError {
 pub(crate) struct RegistryClient<'a> {
     pub http: &'a dyn ArtifactHttp,
     pub budget: &'a RequestBudget,
+    /// Config revision used to key the in-process cache.  Changing this value
+    /// (e.g. when `storage.mode` or other settings change) causes the
+    /// `BoundedCache` to treat every existing entry as stale and evict it on
+    /// the next access.
+    pub cache_revision: u64,
+    /// When `false` the in-process registry cache is bypassed for both reads
+    /// and writes.  Set to `false` when `storage.mode == "memory"` so that
+    /// an operator can disable all caching without restarting the process.
+    pub cache_enabled: bool,
 }
 
 impl RegistryClient<'_> {
@@ -239,12 +248,12 @@ impl RegistryClient<'_> {
         dns_pin: Option<DnsPin>,
     ) -> Result<Option<serde_json::Value>, ArtifactError> {
         let anonymous = authorization.is_none();
-        if anonymous {
+        if anonymous && self.cache_enabled {
             let key = cache_key(&url);
             let hit = artifact_cache()
                 .lock()
                 .unwrap_or_else(|error| error.into_inner())
-                .get(&key, 0, None, Instant::now());
+                .get(&key, self.cache_revision, None, Instant::now());
             if let CacheLookup::Hit { value, .. } = hit {
                 return serde_json::from_slice(value.as_ref())
                     .map(Some)
@@ -264,12 +273,14 @@ impl RegistryClient<'_> {
             )
             .await?;
         let body = self.status(artifact_type, response, not_found_is_empty)?;
-        if anonymous && let Some(bytes) = body.as_ref() {
-            let key = cache_key(&url);
-            artifact_cache()
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .insert(key, bytes.clone(), bytes.len(), 0, Instant::now());
+        if anonymous && self.cache_enabled {
+            if let Some(bytes) = body.as_ref() {
+                let key = cache_key(&url);
+                artifact_cache()
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .insert(key, bytes.clone(), bytes.len(), self.cache_revision, Instant::now());
+            }
         }
         body.map(|bytes| {
             serde_json::from_slice(&bytes).map_err(|_| invalid_response(artifact_type))
