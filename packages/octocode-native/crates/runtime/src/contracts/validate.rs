@@ -1095,9 +1095,8 @@ mod tests {
         let query = json!({"id":"decision","reasoning":"Decide the next evidence read.","resources":[{"id":"source","context": {"value": {"observation": true}},"maxChars":80000}], "questions":[{"id":"answer","question": {
             "type": "noul", "instructions": {"prompt":"Assess supplied state"}, "criteria":{"true":null,"false":null}
         }}]});
-        let prepared =
-            prepare_and_validate("clasify", query.clone(), PrepareOptions::default())
-                .expect("pure semantic query needs no workflow fields");
+        let prepared = prepare_and_validate("clasify", query.clone(), PrepareOptions::default())
+            .expect("pure semantic query needs no workflow fields");
         assert_eq!(prepared, query);
         let validated = validate("clasify", json!({"queries": [query.clone()]}))
             .expect("pure semantic envelope");
@@ -1127,8 +1126,7 @@ mod tests {
         let mut blank_reasoning = query.clone();
         blank_reasoning["reasoning"] = json!("");
         assert!(
-            prepare_and_validate("clasify", blank_reasoning, PrepareOptions::default())
-                .is_err(),
+            prepare_and_validate("clasify", blank_reasoning, PrepareOptions::default()).is_err(),
             "blank semantic reasoning"
         );
     }

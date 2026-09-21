@@ -211,11 +211,7 @@ async fn max_chars_budgets_sanitized_resource_payload_not_serialized_envelope() 
         "questions":[{"id":"relevant","question":{"type":"noul","instructions":"Relevant?"}}]
     });
     let outcome = runtime
-        .execute(
-            "recover-full-content".into(),
-            "clasify".into(),
-            input,
-        )
+        .execute("recover-full-content".into(), "clasify".into(), input)
         .await
         .unwrap();
     let query = &outcome.structured_content["queries"][0];

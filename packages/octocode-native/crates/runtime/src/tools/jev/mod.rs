@@ -353,13 +353,7 @@ mod tests {
                 preflight(&semantic_query(json!({"tool":tool,"query":{}}), question())).is_ok()
             );
         }
-        for tool in [
-            "jev",
-            "clasify",
-            "astRewrite",
-            "ghCloneRepo",
-            "unknown",
-        ] {
+        for tool in ["jev", "clasify", "astRewrite", "ghCloneRepo", "unknown"] {
             assert!(
                 preflight(&semantic_query(json!({"tool":tool,"query":{}}), question())).is_err()
             );

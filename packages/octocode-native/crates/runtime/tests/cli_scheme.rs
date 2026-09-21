@@ -44,10 +44,7 @@ fn scheme_catalog_is_machine_only_with_availability_scoping() {
             .iter()
             .find(|tool| tool["name"] == "clasify")
             .expect("clasify entry");
-        assert_eq!(
-            clasify["availability"]["enabled"], enabled,
-            "{catalog}"
-        );
+        assert_eq!(clasify["availability"]["enabled"], enabled, "{catalog}");
         let ast_rewrite = catalog["tools"]
             .as_array()
             .expect("tools array")

@@ -242,9 +242,7 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
         Command::ArtifactSearch(args) => {
             run_tool(runtime, "artifactSearch", args, json_errors).await
         }
-        Command::Clasify(args) => {
-            run_tool(runtime, "clasify", args, json_errors).await
-        }
+        Command::Clasify(args) => run_tool(runtime, "clasify", args, json_errors).await,
         Command::Scheme {
             tool,
             view,

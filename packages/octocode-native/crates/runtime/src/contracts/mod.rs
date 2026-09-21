@@ -242,7 +242,10 @@ mod contract_owner_tests {
             json!({"path":"/tmp/source.rs","reasoning":"   "}),
             PrepareOptions::default(),
         );
-        assert!(blank.is_err(), "blank reasoning must be rejected: {blank:?}");
+        assert!(
+            blank.is_err(),
+            "blank reasoning must be rejected: {blank:?}"
+        );
 
         // A supplied non-blank reasoning is accepted and preserved verbatim.
         let ok = prepare_and_validate(

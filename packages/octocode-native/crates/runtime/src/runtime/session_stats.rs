@@ -87,11 +87,7 @@ mod tests {
             stats["stats"]["clasify"],
             json!({"calls": 1, "input_tokens": 10, "output_tokens": 2})
         );
-        assert!(
-            stats["stats"]["clasify"]
-                .get("gates_skipped")
-                .is_none()
-        );
+        assert!(stats["stats"]["clasify"].get("gates_skipped").is_none());
     }
 
     #[test]
