@@ -1,4 +1,4 @@
-use crate::minify::config::{indentation_sensitive_names, minify_config, FileTypeConfig};
+use crate::minify::config::{FileTypeConfig, indentation_sensitive_names, minify_config};
 use crate::minify::strategies::{
     minify_aggressive, minify_conservative, minify_css_quality, minify_general_core,
     minify_html_core, minify_html_quality, minify_javascript_core, minify_js_oxc,

@@ -11,13 +11,13 @@ use ast_grep_core::{
     replacer::Replacer,
     tree_sitter::{LanguageExt, StrDoc, TSLanguage},
 };
-use serde::{de, Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, de};
 use serde_json::Value;
 
 use crate::signatures::extractor::AST_EXECUTION_TIMEOUT;
-use crate::signatures::languages::{all_entries, LanguageEntry};
+use crate::signatures::languages::{LanguageEntry, all_entries};
 
-use super::language::{primary_expando_for_ext, AgLanguage};
+use super::language::{AgLanguage, primary_expando_for_ext};
 use super::octo::parse_tree_with_deadline;
 
 pub const MAX_REWRITE_CONTENT_BYTES: usize = 1_000_000;

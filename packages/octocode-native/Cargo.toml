@@ -3,6 +3,70 @@ members = ["crates/engine", "crates/runtime"]
 default-members = ["crates/runtime"]
 resolver = "2"
 
+# ── Shared package metadata ───────────────────────────────────────────────────
+# Inherited by each crate via `edition.workspace = true`, etc. Centralizing here
+# guarantees the two crates never drift on edition or MSRV — a real hazard when
+# they compile against one shared N-API ABI.
+#
+# `version` is intentionally NOT centralized here: the release tooling
+# (scripts/sync-versions.cjs and scripts/check-version-consistency.cjs) reads and
+# rewrites a literal `version = "…"` line in each crate manifest and cross-checks
+# it against the npm release line. Moving the version into `[workspace.package]`
+# is a valid follow-up but requires teaching those two scripts about the root
+# manifest first.
+[workspace.package]
+edition = "2024"
+# MSRV floor: highest stable API in use is File::try_lock/unlock (Rust 1.89).
+# Enforced in CI by `clippy::incompatible_msrv` (in `clippy::all`, denied, run
+# with `-D warnings`), which flags any std/core API newer than this floor.
+rust-version = "1.89"
+license = "MIT"
+repository = "https://github.com/bgauryy/octocode.git"
+
+# ── Shared dependency versions ────────────────────────────────────────────────
+# Only dependencies used by BOTH crates, or that are ABI/security-critical, are
+# centralized. The napi / napi-derive / napi-build trio is the important one:
+# both crates compile against one N-API ABI, so a version skew between them would
+# be a silent breakage. Crate-local single-consumer deps stay in their own
+# manifest — a single-use version has no second place to drift to.
+#
+# `optional` is a per-crate concern and cannot live here, so members write
+# `napi = { workspace = true, optional = true }`. Per-crate `features = [...]`
+# are additive on top of the baseline declared here (see tokio / windows-sys).
+[workspace.dependencies]
+napi = { version = "3", default-features = false, features = ["napi4", "tokio_rt", "serde-json"] }
+napi-derive = { version = "3" }
+napi-build = { version = "2" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["arbitrary_precision", "preserve_order"] }
+serde_yaml_ng = "0.10"
+regex = "1"
+url = "2"
+tokio = { version = "1" }
+libc = "0.2"
+windows-sys = { version = "0.61" }
+
+# ── Shared lint policy ────────────────────────────────────────────────────────
+# The common floor both crates enforce. `crates/runtime` inherits this verbatim
+# (`[lints] workspace = true`). `crates/engine` keeps its own stricter inline
+# block: as a pure library it additionally denies stdout/stderr printing and
+# enables extra style lints that would be noise in the CLI-owning runtime.
+[workspace.lints.rust]
+dead_code = "deny"
+unused_imports = "deny"
+unused_variables = "deny"
+unused_mut = "deny"
+let_underscore_drop = "allow"   # allow intentional best-effort `let _ = result;` patterns
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+# Correctness / safety
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
 
 [profile.release]
 # Thin LTO recovers nearly all of fat LTO's cross-crate optimization at a
@@ -14,6 +78,17 @@ lto = "thin"
 codegen-units = 1
 opt-level = 3
 strip = "symbols"
+
+# ── Profiling / benchmarking build ────────────────────────────────────────────
+# Inherits the optimized release profile but keeps full debuginfo and drops LTO,
+# so criterion runs and perf/flamegraph traces stay usable without paying the
+# release link cost. Precedent: ruff `[profile.profiling]`, uv, oxc
+# `[profile.release-with-debug]`. Build with `--profile profiling`.
+[profile.profiling]
+inherits = "release"
+debug = true
+strip = false
+lto = false
 
 [profile.dev.package."regex-automata"]
 opt-level = 3

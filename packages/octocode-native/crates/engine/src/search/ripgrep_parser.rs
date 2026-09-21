@@ -4,7 +4,7 @@
 /// ran `JSON.parse` + Zod `safeParse` per line and a `[...value]` UTF-16 spread
 /// per match snippet. This module does a single streaming pass with `serde_json`,
 /// grouping match/context lines by file and assembling context windows in one go.
-use std::collections::{hash_map::Entry, HashMap};
+use std::collections::{HashMap, hash_map::Entry};
 
 use serde::Deserialize;
 

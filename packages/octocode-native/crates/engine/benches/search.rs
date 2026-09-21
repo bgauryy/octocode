@@ -4,7 +4,7 @@
 //! visible share of the runtime. Guards the worker-local collection path in
 //! `search/ripgrep_search.rs::collect`.
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use std::fs;
 use std::hint::black_box;
 use std::path::PathBuf;

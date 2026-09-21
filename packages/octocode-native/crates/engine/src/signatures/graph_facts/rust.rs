@@ -74,10 +74,10 @@ pub(super) fn rust_module_scope(node: Node<'_>, content: &str) -> Vec<String> {
     let mut names = Vec::new();
     let mut parent = node.parent();
     while let Some(scope) = parent {
-        if scope.kind() == "mod_item" {
-            if let Some(name) = declaration_name(scope, content) {
-                names.push(name);
-            }
+        if scope.kind() == "mod_item"
+            && let Some(name) = declaration_name(scope, content)
+        {
+            names.push(name);
         }
         parent = scope.parent();
     }
@@ -87,7 +87,8 @@ pub(super) fn rust_module_scope(node: Node<'_>, content: &str) -> Vec<String> {
 
 pub(super) fn rust_inner_unsupported(node: Node<'_>, content: &str) -> bool {
     let mut cursor = node.walk();
-    let unsupported = node.named_children(&mut cursor).any(|child| {
+
+    node.named_children(&mut cursor).any(|child| {
         if child.kind() != "inner_attribute_item" {
             return false;
         }
@@ -110,8 +111,7 @@ pub(super) fn rust_inner_unsupported(node: Node<'_>, content: &str) -> bool {
                 | "deprecated"
                 | "no_implicit_prelude"
         )
-    });
-    unsupported
+    })
 }
 
 pub(super) fn rust_unsupported_context(node: Node<'_>, content: &str) -> bool {

@@ -20,7 +20,7 @@ use std::path::Path;
 use std::time::Instant;
 use tree_sitter::Node;
 
-use crate::signatures::extractor::{parse_before, AST_EXECUTION_TIMEOUT};
+use crate::signatures::extractor::{AST_EXECUTION_TIMEOUT, parse_before};
 use crate::signatures::languages::find_entry;
 use crate::types::{RipgrepFile, RipgrepMatch};
 

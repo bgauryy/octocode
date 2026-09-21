@@ -2,10 +2,10 @@ use std::collections::VecDeque;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use super::store::{read_source_bytes, CapturedSource};
+use super::store::{CapturedSource, read_source_bytes};
 use super::{
-    query_documents, FreshnessReport, GenerationSpec, IndexConfig, IndexError, IndexQuery,
-    IndexQueryKind, IndexQueryMatch, IndexStore, Result, RootIdentity, SymbolRecord,
+    FreshnessReport, GenerationSpec, IndexConfig, IndexError, IndexQuery, IndexQueryKind,
+    IndexQueryMatch, IndexStore, Result, RootIdentity, SymbolRecord, query_documents,
 };
 
 #[derive(Clone, Debug)]
@@ -265,13 +265,13 @@ pub fn query_index(options: IndexQueryOptions) -> Result<IndexQueryRuntimeResult
         options.access.config,
     )?;
     let reader = store.open_active(&options.access.root)?;
-    if let Some(expected) = options.expected_generation {
-        if expected != reader.generation() {
-            return Err(IndexError::GenerationMismatch {
-                expected,
-                actual: reader.generation(),
-            });
-        }
+    if let Some(expected) = options.expected_generation
+        && expected != reader.generation()
+    {
+        return Err(IndexError::GenerationMismatch {
+            expected,
+            actual: reader.generation(),
+        });
     }
     let freshness = reader.verify_strict_bounded(
         &options.access.root.canonical_root,
@@ -348,7 +348,7 @@ pub fn index_status(options: IndexStatusOptions) -> Result<IndexStatus> {
                 exclusions: Vec::new(),
                 freshness: None,
                 diagnostic: Some("index.absent".to_owned()),
-            })
+            });
         }
         Err(error) => return Err(error),
     };

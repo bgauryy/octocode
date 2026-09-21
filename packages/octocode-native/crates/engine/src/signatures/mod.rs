@@ -32,7 +32,7 @@ pub mod languages;
 pub mod renderer;
 
 use crate::text::file_extension::get_extension_internal;
-use extractor::{extract, LangExtractConfig};
+use extractor::{LangExtractConfig, extract};
 
 pub const SIGNATURES_ONLY_HINT: &str = concat!(
     "Signatures/outline only — bodies and comments omitted; ",
@@ -108,15 +108,14 @@ fn strip_leading_modifiers(mut text: &str) -> &str {
     loop {
         let before = text;
         for modifier in MODIFIERS {
-            if let Some(rest) = text.strip_prefix(modifier) {
-                if rest
+            if let Some(rest) = text.strip_prefix(modifier)
+                && rest
                     .chars()
                     .next()
                     .is_some_and(|ch| ch.is_ascii_whitespace())
-                {
-                    text = rest.trim_start();
-                    break;
-                }
+            {
+                text = rest.trim_start();
+                break;
             }
         }
         if text == before {
@@ -575,21 +574,34 @@ mod tests {
                 name: "Go",
                 path: "fixture.go",
                 source: "package main\n\ntype Server struct {\n    Port int\n}\n\nfunc NewServer() *Server {\n    return &Server{}\n}\n\nfunc (s *Server) Start() error {\n    return nil\n}\n",
-                markers: &["type Server struct", "func NewServer", "func (s *Server) Start"],
+                markers: &[
+                    "type Server struct",
+                    "func NewServer",
+                    "func (s *Server) Start",
+                ],
                 excluded_markers: &["    Port int"],
             },
             BoundaryFixture {
                 name: "Rust",
                 path: "fixture.rs",
                 source: "pub struct Config {\n    pub port: u16,\n}\n\nimpl Config {\n    pub fn new(port: u16) -> Self {\n        Self { port }\n    }\n}\n\npub fn run(config: Config) {\n    let _ = config;\n}\n",
-                markers: &["pub struct Config", "impl Config", "    pub fn new", "pub fn run"],
+                markers: &[
+                    "pub struct Config",
+                    "impl Config",
+                    "    pub fn new",
+                    "pub fn run",
+                ],
                 excluded_markers: &["    pub port"],
             },
             BoundaryFixture {
                 name: "Java",
                 path: "Fixture.java",
                 source: "public class Fixture {\n    public Fixture() {\n    }\n\n    public void handle() {\n        System.out.println(\"ok\");\n    }\n}\n",
-                markers: &["public class Fixture", "    public Fixture", "    public void handle"],
+                markers: &[
+                    "public class Fixture",
+                    "    public Fixture",
+                    "    public void handle",
+                ],
                 excluded_markers: &[],
             },
             #[cfg(feature = "tree-sitter-c-sharp")]

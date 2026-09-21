@@ -302,11 +302,13 @@ mod tests {
         );
         assert_eq!(result.status, "ok");
         assert!(result.nodes.iter().all(|node| node.named));
-        assert!(result
-            .nodes
-            .iter()
-            .skip(1)
-            .all(|node| node.parent_id.is_some()));
+        assert!(
+            result
+                .nodes
+                .iter()
+                .skip(1)
+                .all(|node| node.parent_id.is_some())
+        );
     }
 
     #[test]

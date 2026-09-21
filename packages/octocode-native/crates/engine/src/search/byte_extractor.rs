@@ -27,13 +27,13 @@ pub(crate) fn extract_matching_bytes(
     for (i, record) in content.split_inclusive('\n').enumerate() {
         starts.push(offset);
         let line = record.trim_end_matches('\n').trim_end_matches('\r');
-        if !pattern.is_empty() {
-            if let Ok(re) = &regex {
-                hits.extend(
-                    re.find_iter(line)
-                        .map(|m| (offset + m.start(), offset + m.end(), i + 1)),
-                );
-            }
+        if !pattern.is_empty()
+            && let Ok(re) = &regex
+        {
+            hits.extend(
+                re.find_iter(line)
+                    .map(|m| (offset + m.start(), offset + m.end(), i + 1)),
+            );
         }
         offset += record.len();
     }
@@ -77,11 +77,11 @@ pub(crate) fn extract_matching_bytes(
         while !content.is_char_boundary(end) {
             end += 1;
         }
-        if let Some(last) = windows.last_mut() {
-            if start <= last.1 {
-                last.1 = last.1.max(end);
-                continue;
-            }
+        if let Some(last) = windows.last_mut()
+            && start <= last.1
+        {
+            last.1 = last.1.max(end);
+            continue;
         }
         windows.push((start, end));
     }

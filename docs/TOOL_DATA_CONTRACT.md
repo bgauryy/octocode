@@ -21,6 +21,12 @@ The CLI discovery catalog includes disabled tools: 12 tools are discoverable and
 | Response shaping and pagination | [native response module](../packages/octocode-native/crates/runtime/src/response/mod.rs) | Row status, evidence, presentation, and executable continuations. |
 | MCP registration | [public adapter](../packages/octocode-mcp/src/public.ts) | Publishes Standard Schema definitions and forwards execution to the native runtime. |
 
+The contract path is one-way: core authors the accepted shape, generation embeds
+that shape and its preparation rules in native, and interfaces only publish or
+forward it. Input preparation may add documented defaults or normalize explicit
+text fields such as trimmed search terms. Numeric bounds reject invalid caller
+values; no interface silently clamps them or drops unknown fields.
+
 MCP publishes each enabled tool's input schema, description, annotations, and
 availability. It deliberately omits `outputSchema` from discovery to avoid
 spending agent context on runtime-validation metadata. Core and the native

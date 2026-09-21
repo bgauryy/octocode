@@ -4,8 +4,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  DIRECT_TOOL_DISCOVERY_DEFINITIONS,
-  STATIC_TOOL_NAMES,
+  DIRECT_TOOL_DEFINITIONS,
+  TOOL_NAMES,
   prepareDirectToolInput,
 } from '@octocodeai/octocode-core/schema';
 import { DEFAULT_CONFIG } from '@octocodeai/config';
@@ -14,13 +14,13 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT = path.resolve(__dirname, '..');
 const REPO_BLOB_PREFIXES = ['octocode', 'octocode-mcp'].map(repo => `https://github.com/bgauryy/${repo}/blob/main/`);
-const PUBLIC_TOOL_NAMES = DIRECT_TOOL_DISCOVERY_DEFINITIONS.map(
+const PUBLIC_TOOL_NAMES = DIRECT_TOOL_DEFINITIONS.map(
   definition => definition.name
 );
 const DISCOVERABLE_TOOL_COUNT = PUBLIC_TOOL_NAMES.length;
 const DEFAULT_TOOL_NAMES = PUBLIC_TOOL_NAMES.filter(name => {
   if (
-    name === STATIC_TOOL_NAMES.SEMANTIC_ASSESS
+    name === TOOL_NAMES.SEMANTIC_ASSESS
   )
     return false;
   return name === 'ghCloneRepo' ? DEFAULT_CONFIG.local.enableClone : true;

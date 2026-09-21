@@ -10,9 +10,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use super::digest::sha256;
 use super::traversal::collect_current_paths_bounded;
 use super::types::{
-    validate_root_id, ContentRecord, FreshnessReport, GenerationManifest, GenerationSpec,
-    GraphFactEnvelope, GraphFactSidecarRef, IndexConfig, RootIdentity, SourceFileIdentity,
-    SymbolRecord, INDEX_LAYOUT_VERSION,
+    ContentRecord, FreshnessReport, GenerationManifest, GenerationSpec, GraphFactEnvelope,
+    GraphFactSidecarRef, INDEX_LAYOUT_VERSION, IndexConfig, RootIdentity, SourceFileIdentity,
+    SymbolRecord, validate_root_id,
 };
 
 pub type Result<T> = std::result::Result<T, IndexError>;
@@ -422,14 +422,14 @@ impl IndexStore {
         let value = match fs::read_to_string(&pointer) {
             Ok(value) => value,
             Err(source) if source.kind() == std::io::ErrorKind::NotFound => {
-                return Err(IndexError::NoActiveGeneration)
+                return Err(IndexError::NoActiveGeneration);
             }
             Err(source) => {
                 return Err(IndexError::Io {
                     operation: "read active generation pointer",
                     path: pointer,
                     source,
-                })
+                });
             }
         };
         value
@@ -922,7 +922,7 @@ impl GenerationReader {
                         .map(|document| document.path.clone())
                         .collect(),
                     ..FreshnessReport::default()
-                }
+                };
             }
         };
         let mut report = FreshnessReport {

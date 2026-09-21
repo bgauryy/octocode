@@ -5,7 +5,7 @@ use tree_sitter::Node;
 
 use crate::signatures::nodes::node_text;
 
-use super::{push_language_import, GraphAccumulator, LineIndex};
+use super::{GraphAccumulator, LineIndex, push_language_import};
 
 pub(super) fn collect_python_imports(
     node: Node<'_>,
@@ -61,21 +61,21 @@ pub(super) fn collect_python_imports(
         });
         binding.local_range = Some(li.range(local_node));
     }
-    if names.is_empty() {
-        if let Some(module) = module {
-            push_language_import(
-                acc,
-                module.to_owned(),
-                line,
-                "value",
-                Some("*".to_owned()),
-                Some("*".to_owned()),
-                if module.starts_with('.') {
-                    "python-relative"
-                } else {
-                    "python-absolute"
-                },
-            );
-        }
+    if names.is_empty()
+        && let Some(module) = module
+    {
+        push_language_import(
+            acc,
+            module.to_owned(),
+            line,
+            "value",
+            Some("*".to_owned()),
+            Some("*".to_owned()),
+            if module.starts_with('.') {
+                "python-relative"
+            } else {
+                "python-absolute"
+            },
+        );
     }
 }

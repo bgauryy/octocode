@@ -1,8 +1,8 @@
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 
 use octocode_engine::graph::{
-    reachable_files, shortest_file_path, strongly_connected_components, CodeGraphBuilder,
-    FileGraphNode,
+    CodeGraphBuilder, FileGraphNode, reachable_files, shortest_file_path,
+    strongly_connected_components,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Instant;

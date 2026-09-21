@@ -34,8 +34,8 @@ use super::{
     js_oxc_calls::collect_program_calls,
     js_oxc_commonjs as commonjs,
     js_oxc_shared::{
-        module_export_name, property_key_name, GraphCall, GraphCommonJsLoad, LineIndex, Position,
-        Range,
+        GraphCall, GraphCommonJsLoad, LineIndex, Position, Range, module_export_name,
+        property_key_name,
     },
 };
 
@@ -1009,11 +1009,13 @@ mod graph_occurrence_tests {
             )
             .unwrap();
             assert_eq!(value["diagnostics"], serde_json::json!([]), "{path}");
-            assert!(value["declarations"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|declaration| declaration["name"] == "value"));
+            assert!(
+                value["declarations"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|declaration| declaration["name"] == "value")
+            );
         }
         let value: serde_json::Value = serde_json::from_str(
             &extract_graph_facts("export const value: string;", "index.ts").unwrap(),

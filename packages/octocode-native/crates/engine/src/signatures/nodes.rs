@@ -169,10 +169,10 @@ pub(super) fn call_callee_name(node: Node<'_>, content: &str) -> Option<String> 
             if let Some(name) = node_text(child, content).and_then(compact_identifier) {
                 return Some(name);
             }
-            if let Some(descendant) = first_name_descendant(child, 3) {
-                if let Some(name) = node_text(descendant, content).and_then(compact_identifier) {
-                    return Some(name);
-                }
+            if let Some(descendant) = first_name_descendant(child, 3)
+                && let Some(name) = node_text(descendant, content).and_then(compact_identifier)
+            {
+                return Some(name);
             }
         }
     }

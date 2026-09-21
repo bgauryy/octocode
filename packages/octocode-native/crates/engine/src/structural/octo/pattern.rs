@@ -5,17 +5,17 @@ use tree_sitter::{Language, Node, Tree};
 
 use crate::structural::language::{AgLanguage, Expando};
 use crate::structural::metavars::{
-    ambiguous_function_body_capture, html_tag_name_capture, key_value_pair_capture, meta_from_node,
-    minimum_candidate_nodes, MetaVar,
+    MetaVar, ambiguous_function_body_capture, html_tag_name_capture, key_value_pair_capture,
+    meta_from_node, minimum_candidate_nodes,
 };
 use crate::structural::types::StructuralMatch;
 
 use super::line_index_support::{
-    structural_match_from_byte_range_with_index, to_structural_match_with_index, LineIndex,
+    LineIndex, structural_match_from_byte_range_with_index, to_structural_match_with_index,
 };
 use super::matching::{
-    children, named_children, node_text, parse_tree, parse_tree_with_deadline, raw_range,
-    visit_named, CandidatePlan, CaptureEnv, ExecutionError, MatchWithKind,
+    CandidatePlan, CaptureEnv, ExecutionError, MatchWithKind, children, named_children, node_text,
+    parse_tree, parse_tree_with_deadline, raw_range, visit_named,
 };
 
 /// Native recursion guard for pattern matching; AST traversal is iterative.
@@ -95,17 +95,17 @@ impl CompiledPattern {
         // every nested YAML pattern. A grammar-checked terminator supplies
         // statement/declaration context without depending on source matches.
         // Complete constructs and unrelated shapes retain their original tree.
-        if let Some(kind) = lang.terminated_fragment_kind() {
-            if !source.trim_end().ends_with([';', '}']) {
-                let contextual_source = format!("{source};");
-                let contextual_tree =
-                    parse_tree(&language, &contextual_source).map_err(|err| err.to_string())?;
-                let contextual_root =
-                    effective_pattern_root(contextual_tree.root_node(), &contextual_source);
-                if contextual_root.kind() == kind && !contextual_root.has_error() {
-                    source = contextual_source;
-                    tree = contextual_tree;
-                }
+        if let Some(kind) = lang.terminated_fragment_kind()
+            && !source.trim_end().ends_with([';', '}'])
+        {
+            let contextual_source = format!("{source};");
+            let contextual_tree =
+                parse_tree(&language, &contextual_source).map_err(|err| err.to_string())?;
+            let contextual_root =
+                effective_pattern_root(contextual_tree.root_node(), &contextual_source);
+            if contextual_root.kind() == kind && !contextual_root.has_error() {
+                source = contextual_source;
+                tree = contextual_tree;
             }
         }
         if let Some(offset) = ambiguous_function_body_capture(
@@ -558,13 +558,11 @@ pub(super) fn effective_pattern_root<'a>(mut node: Node<'a>, source: &str) -> No
             let is_wrapper = node
                 .child_by_field_name("name")
                 .is_some_and(|n| node_text(n, source) == CSHARP_WRAP_MARKER);
-            if is_wrapper {
-                if let Some(body) = node.child_by_field_name("body") {
-                    let body_named = named_children(body);
-                    if body_named.len() == 1 {
-                        node = body_named[0];
-                        continue;
-                    }
+            if is_wrapper && let Some(body) = node.child_by_field_name("body") {
+                let body_named = named_children(body);
+                if body_named.len() == 1 {
+                    node = body_named[0];
+                    continue;
                 }
             }
         }

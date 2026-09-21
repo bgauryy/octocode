@@ -1,5 +1,5 @@
 use crate::minify::comment_remover::remove_comments;
-use crate::minify::minifier::{get_file_config, MAX_SIZE};
+use crate::minify::minifier::{MAX_SIZE, get_file_config};
 use crate::minify::strategies::{
     minify_code_core, minify_css_quality, minify_embedded_web, minify_general_core, minify_js_oxc,
     minify_json_readable_inner, minify_markdown_core,
@@ -48,12 +48,12 @@ pub fn apply_content_view_minification_inner(content: &str, file_path: &str) -> 
 
         // JS/TS: compact code generation preserves declarations and identifier
         // uses; optimizing minification is reserved for the full-minify API.
-        if crate::text::file_extension::is_js_ts_extension(&ext) {
-            if let Some(oxc_out) = minify_js_oxc(content, file_path, false) {
-                return oxc_out;
-            }
-            // OXC failed — fall through to comment-strip + code-core
+        if crate::text::file_extension::is_js_ts_extension(&ext)
+            && let Some(oxc_out) = minify_js_oxc(content, file_path, false)
+        {
+            return oxc_out;
         }
+        // OXC failed — fall through to comment-strip + code-core
 
         let stripped = if let Some(c) = cfg {
             if let Some(groups) = c.comments {

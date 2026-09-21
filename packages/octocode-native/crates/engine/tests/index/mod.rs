@@ -206,9 +206,11 @@ fn stale_crashed_writer_lock_is_reclaimed_but_live_owner_is_not() {
             .expect("parse ownership record");
     assert_eq!(ownership["pid"], serde_json::json!(std::process::id()));
     assert!(ownership["processIdentity"].is_string());
-    assert!(ownership["nonce"]
-        .as_str()
-        .is_some_and(|nonce| !nonce.is_empty()));
+    assert!(
+        ownership["nonce"]
+            .as_str()
+            .is_some_and(|nonce| !nonce.is_empty())
+    );
     assert!(matches!(
         store.begin_generation(generation(&root, 1)),
         Err(IndexError::WriterLocked { .. })

@@ -17,16 +17,16 @@ mod syntax_tree;
 mod types;
 
 #[cfg(feature = "embedded-ast-grep-rewrite")]
-pub use files::{rewrite_files, StructuralRewriteFileResult, StructuralRewriteFilesResult};
+pub use files::{StructuralRewriteFileResult, StructuralRewriteFilesResult, rewrite_files};
 pub use files::{search_files, search_files_detailed, search_files_detailed_filtered};
 #[cfg(feature = "embedded-ast-grep-rewrite")]
 pub use rewrite::{
-    count_syntax_errors, rewrite as structural_rewrite, StructuralRewriteCapture,
-    StructuralRewriteMatch, StructuralRewritePosition, StructuralRewriteRange,
-    MAX_REWRITE_CONTENT_BYTES,
+    MAX_REWRITE_CONTENT_BYTES, StructuralRewriteCapture, StructuralRewriteMatch,
+    StructuralRewritePosition, StructuralRewriteRange, count_syntax_errors,
+    rewrite as structural_rewrite,
 };
 pub use syntax_tree::{
-    inspect as inspect_syntax_tree, SyntaxTreeInspectOptions, SyntaxTreeInspectResult,
+    SyntaxTreeInspectOptions, SyntaxTreeInspectResult, inspect as inspect_syntax_tree,
 };
 #[cfg(feature = "embedded-ast-grep-rewrite")]
 pub use types::StructuralRewriteFilesOptions;
@@ -37,9 +37,9 @@ pub use types::{
 
 use crate::signatures::languages;
 use language::AgLanguage;
-use octo::{compile_matcher, ExecutionError};
-use query::{invalid_query_explanation, StructuralQuery};
-use types::{structural_query_fingerprint, STRUCTURAL_ANALYZER, STRUCTURAL_ANALYZER_VERSION};
+use octo::{ExecutionError, compile_matcher};
+use query::{StructuralQuery, invalid_query_explanation};
+use types::{STRUCTURAL_ANALYZER, STRUCTURAL_ANALYZER_VERSION, structural_query_fingerprint};
 
 /// Defense-in-depth cap on content handed to the single-content structural
 /// entry points (`search`, `search_detailed`). The file walker already bounds

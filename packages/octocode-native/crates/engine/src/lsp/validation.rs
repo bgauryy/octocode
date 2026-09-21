@@ -219,10 +219,12 @@ mod tests {
     fn safe_read_file_rejects_relative_path() {
         let result = safe_read_file("relative/path.txt".to_owned());
         assert!(result.is_err());
-        assert!(result
-            .expect_err("relative path must be rejected")
-            .reason
-            .contains("must be absolute"));
+        assert!(
+            result
+                .expect_err("relative path must be rejected")
+                .reason
+                .contains("must be absolute")
+        );
     }
 
     #[test]
@@ -239,10 +241,12 @@ mod tests {
         let result = safe_read_file(dir.to_string_lossy().into_owned());
         let _ = fs::remove_dir(&dir);
         assert!(result.is_err());
-        assert!(result
-            .expect_err("directory must be rejected")
-            .reason
-            .contains("not a regular file"));
+        assert!(
+            result
+                .expect_err("directory must be rejected")
+                .reason
+                .contains("not a regular file")
+        );
     }
 
     #[test]
@@ -262,10 +266,12 @@ mod tests {
         let result = safe_read_file(path.to_string_lossy().into_owned());
         let _ = fs::remove_file(&path);
         assert!(result.is_err());
-        assert!(result
-            .expect_err("oversized file must be rejected")
-            .reason
-            .contains("too large"));
+        assert!(
+            result
+                .expect_err("oversized file must be rejected")
+                .reason
+                .contains("too large")
+        );
     }
 
     #[test]
@@ -292,10 +298,12 @@ mod tests {
         let result = safe_read_line_window(path.to_string_lossy().into_owned(), 0, 0);
         let _ = fs::remove_file(&path);
         assert!(result.is_err());
-        assert!(result
-            .expect_err("oversized file must be rejected")
-            .reason
-            .contains("too large"));
+        assert!(
+            result
+                .expect_err("oversized file must be rejected")
+                .reason
+                .contains("too large")
+        );
     }
 
     // ── validate_lsp_server_path ──────────────────────────────────────────────
@@ -334,10 +342,12 @@ mod tests {
         let result = validate_lsp_server_path(path.to_string_lossy().into_owned());
         let _ = fs::remove_file(&path);
         assert!(result.is_err());
-        assert!(result
-            .expect_err("non-executable file must be rejected")
-            .reason
-            .contains("not executable"));
+        assert!(
+            result
+                .expect_err("non-executable file must be rejected")
+                .reason
+                .contains("not executable")
+        );
     }
 
     #[cfg(unix)]
@@ -365,7 +375,7 @@ mod tests {
         // `rust-analyzer`). Canonicalizing here would resolve the symlink to
         // `.../rustup` and silently break that dispatch — the validated path
         // must keep the original (symlink) filename, not the resolved target.
-        use std::os::unix::fs::{symlink, PermissionsExt};
+        use std::os::unix::fs::{PermissionsExt, symlink};
         let target = temp_path("proxy_target");
         fs::write(&target, b"#!/bin/sh\necho ok\n").expect("write target");
         fs::set_permissions(&target, fs::Permissions::from_mode(0o755)).expect("chmod");

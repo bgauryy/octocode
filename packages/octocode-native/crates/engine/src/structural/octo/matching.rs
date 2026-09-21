@@ -8,7 +8,7 @@ use tree_sitter::{Language, Node, ParseOptions, Parser, Tree};
 use crate::signatures::extractor::AST_EXECUTION_TIMEOUT;
 use crate::structural::types::StructuralMatch;
 
-use super::line_index_support::{to_structural_match_with_index, LineIndex};
+use super::line_index_support::{LineIndex, to_structural_match_with_index};
 
 #[derive(Debug, Clone)]
 pub(in crate::structural) struct ExecutionError {

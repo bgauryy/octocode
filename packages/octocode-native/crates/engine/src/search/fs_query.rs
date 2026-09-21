@@ -6,7 +6,7 @@ use regex::Regex;
 
 use crate::text::file_extension::get_extension_internal;
 use crate::types::{
-    default_excluded_directories, FileSystemEntry, FileSystemQueryOptions, FileSystemQueryResult,
+    FileSystemEntry, FileSystemQueryOptions, FileSystemQueryResult, default_excluded_directories,
 };
 
 const DEFAULT_LIMIT: usize = 10_000;
@@ -300,15 +300,16 @@ fn matches_query(path: &Path, metadata: &fs::Metadata, query: &CompiledQuery) ->
     if !query.name_globs.is_empty() && !query.name_globs.iter().any(|re| re.is_match(&name)) {
         return false;
     }
-    if let Some(path_glob) = &query.path_glob {
-        if !path_glob.is_match(&relative_path) && !path_glob.is_match(&normalized_path) {
-            return false;
-        }
+    if let Some(path_glob) = &query.path_glob
+        && !path_glob.is_match(&relative_path)
+        && !path_glob.is_match(&normalized_path)
+    {
+        return false;
     }
-    if let Some(regex) = &query.regex {
-        if !regex.is_match(&name) {
-            return false;
-        }
+    if let Some(regex) = &query.regex
+        && !regex.is_match(&name)
+    {
+        return false;
     }
     if !query.extensions.is_empty() && !matches_extension(path, metadata, &query.extensions) {
         return false;
@@ -327,15 +328,15 @@ fn matches_query(path: &Path, metadata: &fs::Metadata, query: &CompiledQuery) ->
     if query.empty && !is_empty(path, metadata) {
         return false;
     }
-    if let Some(min_size) = query.size_greater {
-        if metadata.len() <= min_size {
-            return false;
-        }
+    if let Some(min_size) = query.size_greater
+        && metadata.len() <= min_size
+    {
+        return false;
     }
-    if let Some(max_size) = query.size_less {
-        if metadata.len() >= max_size {
-            return false;
-        }
+    if let Some(max_size) = query.size_less
+        && metadata.len() >= max_size
+    {
+        return false;
     }
     if !matches_time_filters(metadata, query) {
         return false;
@@ -362,20 +363,20 @@ fn matches_extension(path: &Path, metadata: &fs::Metadata, extensions: &[String]
 }
 
 fn matches_time_filters(metadata: &fs::Metadata, query: &CompiledQuery) -> bool {
-    if let Some(duration) = query.modified_within_secs {
-        if !system_time_within(metadata.modified().ok(), duration) {
-            return false;
-        }
+    if let Some(duration) = query.modified_within_secs
+        && !system_time_within(metadata.modified().ok(), duration)
+    {
+        return false;
     }
-    if let Some(duration) = query.modified_before_secs {
-        if !system_time_before(metadata.modified().ok(), duration) {
-            return false;
-        }
+    if let Some(duration) = query.modified_before_secs
+        && !system_time_before(metadata.modified().ok(), duration)
+    {
+        return false;
     }
-    if let Some(duration) = query.accessed_within_secs {
-        if !system_time_within(metadata.accessed().ok(), duration) {
-            return false;
-        }
+    if let Some(duration) = query.accessed_within_secs
+        && !system_time_within(metadata.accessed().ok(), duration)
+    {
+        return false;
     }
     true
 }
@@ -983,9 +984,11 @@ mod tests {
 
         assert_eq!(result.entries.len(), 1);
         assert_eq!(result.entries[0].name, "scheme.ts");
-        assert!(result.entries[0]
-            .path
-            .contains("packages/a/src/tools/scheme.ts"));
+        assert!(
+            result.entries[0]
+                .path
+                .contains("packages/a/src/tools/scheme.ts")
+        );
         fs::remove_dir_all(root).expect("cleanup");
     }
 

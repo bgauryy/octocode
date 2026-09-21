@@ -1,12 +1,12 @@
 use crate::error::{Error, Result, Status};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 
 use super::push_diagnostics::PushDiagnosticsStore;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
-use tokio::sync::{oneshot, watch, Mutex};
+use tokio::sync::{Mutex, oneshot, watch};
 use tokio::time::{Duration, Instant};
 
 type PendingMap = Arc<Mutex<HashMap<u64, oneshot::Sender<Result<Value>>>>>;
@@ -505,10 +505,10 @@ async fn read_loop<R, W>(
             if method == "$/progress" {
                 handle_progress_notification(&value, &progress, &partial_results).await;
             }
-            if method == "textDocument/publishDiagnostics" {
-                if let Some(params) = value.get("params") {
-                    push_diagnostics.record(params);
-                }
+            if method == "textDocument/publishDiagnostics"
+                && let Some(params) = value.get("params")
+            {
+                push_diagnostics.record(params);
             }
             if let Some(id) = value.get("id").cloned() {
                 let response = match client_response_for(method, value.get("params"), &context) {
@@ -710,10 +710,10 @@ where
         }
         // LSP headers are case-insensitive (per the base protocol, which mirrors
         // HTTP); match the field name without regard to case.
-        if let Some((name, value)) = trimmed.split_once(':') {
-            if name.trim().eq_ignore_ascii_case("Content-Length") {
-                content_length = value.trim().parse::<usize>().ok();
-            }
+        if let Some((name, value)) = trimmed.split_once(':')
+            && name.trim().eq_ignore_ascii_case("Content-Length")
+        {
+            content_length = value.trim().parse::<usize>().ok();
         }
     }
 }
@@ -1006,10 +1006,11 @@ mod tests {
             assert_eq!(report["items"][0]["message"], "broken");
 
             conn.clear_push_diagnostics("file:///workspace/a.ts");
-            assert!(conn
-                .wait_for_push_diagnostics("file:///workspace/a.ts", 1, Some(3))
-                .await
-                .is_none());
+            assert!(
+                conn.wait_for_push_diagnostics("file:///workspace/a.ts", 1, Some(3))
+                    .await
+                    .is_none()
+            );
         });
     }
 
@@ -1229,10 +1230,12 @@ mod tests {
             )
             .await
             .expect("request deadline must include writes");
-            assert!(result
-                .expect_err("write timed out")
-                .reason
-                .contains("timed out"));
+            assert!(
+                result
+                    .expect_err("write timed out")
+                    .reason
+                    .contains("timed out")
+            );
             assert!(conn.pending.lock().await.is_empty());
             assert!(!conn.is_alive(), "a partial frame cannot be safely reused");
         });
@@ -1264,10 +1267,12 @@ mod tests {
             )
             .await
             .expect("cancellation must not hold a timed-out request open");
-            assert!(result
-                .expect_err("response timed out")
-                .reason
-                .contains("timed out"));
+            assert!(
+                result
+                    .expect_err("response timed out")
+                    .reason
+                    .contains("timed out")
+            );
             assert!(conn.pending.lock().await.is_empty());
             assert!(
                 !conn.is_alive(),

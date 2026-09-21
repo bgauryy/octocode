@@ -4,15 +4,14 @@ mod model;
 mod policy;
 
 pub use algorithms::{
-    condense as condense_file_graph, cycle_witness, reachable as reachable_files,
-    reverse as reverse_file_graph, scc as strongly_connected_components,
-    scc_unsorted as strongly_connected_components_unsorted, shortest_path as shortest_file_path,
-    transitive_edges, traverse as traverse_file_graph, Condensed as CondensedFileGraph,
-    Node as FileGraphNode,
+    Condensed as CondensedFileGraph, Node as FileGraphNode, condense as condense_file_graph,
+    cycle_witness, reachable as reachable_files, reverse as reverse_file_graph,
+    scc as strongly_connected_components, scc_unsorted as strongly_connected_components_unsorted,
+    shortest_path as shortest_file_path, transitive_edges, traverse as traverse_file_graph,
 };
 pub use diff::{
-    diff_graphs, BoolChange, CompletenessDelta, CycleDelta, DiffIncompatibility, EvidenceDelta,
-    FileDelta, GraphDiff, MetricDelta, NodeDelta, RelationDelta, RelationKey, StaticDynamicShift,
+    BoolChange, CompletenessDelta, CycleDelta, DiffIncompatibility, EvidenceDelta, FileDelta,
+    GraphDiff, MetricDelta, NodeDelta, RelationDelta, RelationKey, StaticDynamicShift, diff_graphs,
 };
 pub use model::{
     CodeEdge, CodeGraphBuilder, CodeGraphDiagnostic, CodeGraphSnapshot, CodeNode, EdgeKind,
@@ -24,8 +23,8 @@ pub use model::{
     ServerReceipt, SnapshotMetadata, SymbolAnchor,
 };
 pub use policy::{
-    classify as classify_component, compare_to_baseline, evaluate as evaluate_boundary_rules,
     BaselineReport, BoundaryRule, BoundaryViolation, ComponentRule, Severity,
+    classify as classify_component, compare_to_baseline, evaluate as evaluate_boundary_rules,
 };
 
 use std::{fs, io::Read, path::Path};
@@ -391,16 +390,20 @@ mod tests {
         let entry = result.entries.first().expect("entry");
         assert_eq!(entry.facts.file, "lib.rs");
         assert!(!entry.content_digest.is_empty());
-        assert!(entry
-            .facts
-            .declarations
-            .iter()
-            .all(|decl| !decl.id.is_empty()));
-        assert!(entry
-            .facts
-            .declarations
-            .iter()
-            .all(|decl| decl.range.end >= decl.range.start));
+        assert!(
+            entry
+                .facts
+                .declarations
+                .iter()
+                .all(|decl| !decl.id.is_empty())
+        );
+        assert!(
+            entry
+                .facts
+                .declarations
+                .iter()
+                .all(|decl| decl.range.end >= decl.range.start)
+        );
         assert!(entry.facts.edges.iter().all(|edge| !edge.id.is_empty()));
         fs::remove_dir_all(root).expect("cleanup fixture");
     }

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  DIRECT_TOOL_DISCOVERY_DEFINITIONS,
+  DIRECT_TOOL_DEFINITIONS,
   formatDirectToolSchemaText,
 } from '@octocodeai/octocode-core/schema';
 
@@ -51,7 +51,7 @@ const TOTAL_CAP_TOOLS = new Set(['astSearch']);
 describe('all-tools pagination contract', () => {
   it('covers every tool in the live catalog', () => {
     expect(Object.keys(TOOL_PAGINATION_CONTRACT).sort()).toEqual(
-      DIRECT_TOOL_DISCOVERY_DEFINITIONS.map(tool => tool.name).sort()
+      DIRECT_TOOL_DEFINITIONS.map(tool => tool.name).sort()
     );
   });
 

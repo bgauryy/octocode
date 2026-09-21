@@ -9,7 +9,9 @@ import { hasHelpFlag, hasVersionFlag, parseArgs } from './parser.js';
 /**
  * The npm CLI is a launcher, not a second implementation. The native Rust
  * binary owns every command — parsing, help, version, validation, execution.
- * Node retains exactly two responsibilities:
+ * Node retains exactly three responsibilities:
+ *  - `scheme`: joins core-owned presentation with the native machine catalog
+ *    after a fail-closed fingerprint check,
  *  - `skill`: bundled-skill materialization (the native `skill` command
  *    shells back to this CLI; delegating it would recurse), and
  *  - the TTY client picker for a bare `install` (selection only — every

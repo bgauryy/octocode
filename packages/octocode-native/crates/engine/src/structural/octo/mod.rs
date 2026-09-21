@@ -11,19 +11,19 @@ mod matching;
 mod pattern;
 mod rule;
 
-pub(super) use matching::{named_children, node_text, parse_tree_with_deadline, ExecutionError};
-pub(super) use rule::{parse_rule, RawRule};
+pub(super) use matching::{ExecutionError, named_children, node_text, parse_tree_with_deadline};
+pub(super) use rule::{RawRule, parse_rule};
 
 #[cfg(test)]
 pub(super) use matching::INTERRUPT_NEXT_COMPILE_PARSE;
 
-use line_index_support::{to_structural_match, to_structural_match_with_index, LineIndex};
-use matching::{collect_kind_matches, visit_named, CaptureEnv, MatchWithKind};
+use line_index_support::{LineIndex, to_structural_match, to_structural_match_with_index};
+use matching::{CaptureEnv, MatchWithKind, collect_kind_matches, visit_named};
 use pattern::CompiledPattern;
 use rule::{CompiledRule, Document};
 
 #[cfg(test)]
-use matching::{parse_tree, SECONDARY_CAPTURE};
+use matching::{SECONDARY_CAPTURE, parse_tree};
 #[cfg(test)]
 use rule::RULE_PARSE_COUNT;
 

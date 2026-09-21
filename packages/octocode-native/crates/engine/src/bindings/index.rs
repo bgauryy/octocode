@@ -99,7 +99,7 @@ pub(crate) fn query_index_inner(options: IndexQueryRequest) -> Result<IndexQuery
             return Err(Error::new(
                 Status::InvalidArg,
                 "index query kind must be content or symbol",
-            ))
+            ));
         }
     };
     let expected_generation = optional_generation(options.expected_generation)?;
@@ -191,7 +191,7 @@ fn access(options: IndexStoreOptions) -> Result<IndexAccess> {
             return Err(Error::new(
                 Status::InvalidArg,
                 "sourceCommit and sourceTree must be provided together",
-            ))
+            ));
         }
     }
     .map_err(index_error)?;

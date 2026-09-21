@@ -77,9 +77,11 @@ fn removed_languages_have_no_analysis_minifier_or_builtin_server_route() {
         let file = format!("fixture.{ext}");
         assert!(crate::signatures::extract_signatures_inner("target(value);", &file).is_none());
         assert!(crate::signatures::extract_graph_facts_inner("target(value);", &file).is_none());
-        assert!(!crate::signatures::graph_facts::graph_fact_extensions()
-            .iter()
-            .any(|item| item == ext));
+        assert!(
+            !crate::signatures::graph_facts::graph_fact_extensions()
+                .iter()
+                .any(|item| item == ext)
+        );
         assert!(!crate::minify::config::minify_config().contains_key(ext));
         assert!(crate::lsp::config::detect_language_id(file).is_none());
     }

@@ -3,7 +3,7 @@
 //! in each language. Adding a configured extension automatically adds cases.
 use super::apply::apply_content_view_minification_inner;
 use super::comment_remover::rules_for;
-use super::config::{indentation_sensitive_names, minify_config, FileTypeConfig};
+use super::config::{FileTypeConfig, indentation_sensitive_names, minify_config};
 use super::minifier::{get_file_config, minify_content_result_inner};
 
 const MARKER: &str = "octocodeKeepMarker";

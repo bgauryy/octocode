@@ -90,7 +90,7 @@ pub fn minify_aggressive(content: &str, comments: Option<&[&str]>) -> String {
 /// single literal-range scan covers every quote/regex convention active for
 /// this language (e.g. `["hash", "template"]`-style multi-group configs).
 pub(super) fn merge_comment_rules(groups: &[&str]) -> crate::minify::comment_remover::CommentRules {
-    use crate::minify::comment_remover::{rules_for, CommentRules};
+    use crate::minify::comment_remover::{CommentRules, rules_for};
     let mut merged = CommentRules::default();
     for &group in groups {
         if let Some(rules) = rules_for(group) {

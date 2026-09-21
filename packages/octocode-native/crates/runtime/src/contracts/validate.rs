@@ -241,7 +241,6 @@ fn apply_normalization_rules(
     for rule in rules.iter().filter(|rule| rule["phase"] == "normalize") {
         match rule["opcode"].as_str() {
             Some("trim_fields") => trim_fields(input, &rule["args"]),
-            Some("clamp_fields") => clamp_fields(input, &rule["args"]),
             Some(opcode) => {
                 return Err(issue(
                     "contract.unsupported-normalizer",
@@ -257,31 +256,6 @@ fn apply_normalization_rules(
         }
     }
     Ok(())
-}
-
-fn clamp_fields(input: &mut Value, args: &Value) {
-    let Some(fields) = args["fields"].as_array() else {
-        return;
-    };
-    for spec in fields {
-        let (Some(field), Some(minimum), Some(maximum)) = (
-            spec["field"].as_str(),
-            spec["min"].as_f64(),
-            spec["max"].as_f64(),
-        ) else {
-            continue;
-        };
-        if spec["scope"] == "envelope" {
-            clamp_field(input, field, minimum, maximum);
-        }
-        if spec["scope"] == "query"
-            && let Some(queries) = input.get_mut("queries").and_then(Value::as_array_mut)
-        {
-            for query in queries {
-                clamp_field(query, field, minimum, maximum);
-            }
-        }
-    }
 }
 
 fn trim_fields(input: &mut Value, args: &Value) {
@@ -326,7 +300,6 @@ fn apply_validation_rules(rules: &Value, input: &Value) -> Result<(), ContractVa
             Some("github_search_runnable") => validate_github_search_queries(input),
             Some("ast_rewrite_apply") => validate_ast_rewrite_queries(input),
             Some("local_search_mode") => validate_local_search_queries(input),
-            Some("disabled_field") => validate_disabled_field(input, &rule["args"], &rule["id"]),
             Some("ast_topology") => validate_topology_queries(input),
             Some("history_keyword_scope") => validate_history_keyword_scope(input),
             Some("lsp_rust_context") => validate_lsp_queries(input),
@@ -486,26 +459,6 @@ fn query_values(input: &Value) -> impl Iterator<Item = (usize, &Value)> {
         .into_iter()
         .flatten()
         .enumerate()
-}
-
-fn validate_disabled_field(
-    input: &Value,
-    args: &Value,
-    rule_id: &Value,
-) -> Result<(), ContractValidationError> {
-    let Some(field) = args["field"].as_str() else {
-        return Err(internal("disabled_field requires field".into()));
-    };
-    for (index, query) in query_values(input) {
-        if query.get(field).is_some() {
-            return Err(issue(
-                rule_id.as_str().unwrap_or("disabled-field"),
-                vec!["queries".into(), index.to_string(), field.into()],
-                format!("{field} is disabled in this build"),
-            ));
-        }
-    }
-    Ok(())
 }
 
 fn validate_history_keyword_scope(input: &Value) -> Result<(), ContractValidationError> {
@@ -880,24 +833,6 @@ fn insert_default(target: &mut Value, path: &[&str], value: &Value) {
     if let Some(child) = object.get_mut(*head) {
         insert_default(child, tail, value);
     }
-}
-
-fn clamp_field(value: &mut Value, field: &str, minimum: f64, maximum: f64) {
-    let Some(number) = value.get(field).and_then(Value::as_f64) else {
-        return;
-    };
-    if !number.is_finite() {
-        return;
-    }
-    let clamped = number.clamp(minimum, maximum);
-    let result = if clamped.fract() == 0.0 && clamped <= i64::MAX as f64 {
-        serde_json::Number::from(clamped as i64)
-    } else if let Some(number) = serde_json::Number::from_f64(clamped) {
-        number
-    } else {
-        return;
-    };
-    value[field] = Value::Number(result);
 }
 
 fn validate_artifact_queries(input: &Value) -> Result<(), ContractValidationError> {

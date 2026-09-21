@@ -7,16 +7,15 @@ mod types;
 
 pub use digest::sha256 as content_digest;
 pub use runtime::{
-    build_index, index_status, query_index, IndexAccess, IndexBuildOptions, IndexBuildResult,
-    IndexQueryOptions, IndexQueryRuntimeResult, IndexRuntimeLimits, IndexStatus,
-    IndexStatusOptions,
+    IndexAccess, IndexBuildOptions, IndexBuildResult, IndexQueryOptions, IndexQueryRuntimeResult,
+    IndexRuntimeLimits, IndexStatus, IndexStatusOptions, build_index, index_status, query_index,
 };
-pub use search::{query_documents, IndexQuery, IndexQueryKind, IndexQueryMatch, IndexQueryResult};
+pub use search::{IndexQuery, IndexQueryKind, IndexQueryMatch, IndexQueryResult, query_documents};
 pub use store::{GenerationReader, GenerationWriter, IndexError, IndexStore, Result};
 pub use types::{
     ContentRecord, FreshnessReport, GenerationManifest, GenerationSpec, GraphFactSidecarRef,
-    IndexConfig, RootIdentity, SourceFileIdentity, SourceIdentity, SymbolRecord,
-    INDEX_LAYOUT_VERSION,
+    INDEX_LAYOUT_VERSION, IndexConfig, RootIdentity, SourceFileIdentity, SourceIdentity,
+    SymbolRecord,
 };
 
 #[cfg(test)]

@@ -1,4 +1,4 @@
-use super::patterns::{pattern_regex, PATTERNS, PATTERN_STRINGS};
+use super::patterns::{PATTERN_STRINGS, PATTERNS, pattern_regex};
 use aho_corasick::{AhoCorasick, AhoCorasickBuilder};
 use std::sync::LazyLock;
 
@@ -89,12 +89,12 @@ static PRESCAN: LazyLock<Prescan> = LazyLock::new(build_prescan);
 /// generator only ever emits whole-pattern leading flags (JS regex semantics).
 /// Case-insensitivity is instead honored by the automaton itself.
 fn strip_leading_flags(pattern: &str) -> &str {
-    if let Some(rest) = pattern.strip_prefix("(?") {
-        if let Some(close) = rest.find(')') {
-            let flags = &rest[..close];
-            if !flags.is_empty() && flags.chars().all(|c| matches!(c, 'i' | 'm' | 's')) {
-                return &rest[close + 1..];
-            }
+    if let Some(rest) = pattern.strip_prefix("(?")
+        && let Some(close) = rest.find(')')
+    {
+        let flags = &rest[..close];
+        if !flags.is_empty() && flags.chars().all(|c| matches!(c, 'i' | 'm' | 's')) {
+            return &rest[close + 1..];
         }
     }
     pattern
@@ -736,9 +736,11 @@ mod tests {
             "expected redaction, got: {}",
             result.sanitized
         );
-        assert!(result
-            .secrets_detected
-            .contains(&"awsAccessKeyId".to_string()));
+        assert!(
+            result
+                .secrets_detected
+                .contains(&"awsAccessKeyId".to_string())
+        );
     }
 
     #[test]
@@ -829,9 +831,11 @@ mod tests {
             "oversized straddling key must be redacted"
         );
         assert!(result.sanitized.contains("[REDACTED-RSAPRIVATEKEY]"));
-        assert!(result
-            .secrets_detected
-            .contains(&"rsaPrivateKey".to_string()));
+        assert!(
+            result
+                .secrets_detected
+                .contains(&"rsaPrivateKey".to_string())
+        );
         assert_no_pattern_matches(&result);
     }
 

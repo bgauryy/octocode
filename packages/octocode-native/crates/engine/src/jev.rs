@@ -225,7 +225,7 @@ pub fn validate_response(request: &Value, response: &Value) -> Result<(), JevErr
 #[cfg(test)]
 mod tests {
     use super::validate_response;
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     fn request() -> Value {
         json!({"model":"jev-test","state":null,"questions":{

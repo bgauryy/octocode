@@ -134,8 +134,7 @@ fn extracts_string_literal_dynamic_import_as_a_dynamic_import_call() {
     // captured so the dead-code graph can treat the target as reachable —
     // previously invisible, causing a false-positive "dead" verdict on files
     // reached only through a dynamic import.
-    let src =
-        "export async function loadPlugin() {\n  const mod = await import('./plugin.js');\n  return mod;\n}\n";
+    let src = "export async function loadPlugin() {\n  const mod = await import('./plugin.js');\n  return mod;\n}\n";
     let v = graph(src, "loader.ts");
     let calls = v["calls"].as_array().unwrap();
     let dynamic_import = calls
@@ -186,8 +185,7 @@ fn captures_calls_inside_a_destructured_dynamic_import_declarator() {
     // walker has no single owner name for it. It must still walk the init
     // expression rather than skip the whole declarator, or the dynamic-import
     // fact (and file-level reachability of its target) is lost entirely.
-    let src =
-        "export async function main() {\n  const { run } = await import('./plugin.js');\n  run();\n}\n";
+    let src = "export async function main() {\n  const { run } = await import('./plugin.js');\n  run();\n}\n";
     let v = graph(src, "entry.ts");
     let calls = v["calls"].as_array().unwrap();
     assert!(

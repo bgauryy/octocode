@@ -36,8 +36,8 @@ const acceptanceEnv = {
   ENABLE_AST_REWRITE_APPLY: 'true',
   OCTOCODE_STORAGE_MODE: 'persistent',
 };
-const { DIRECT_TOOL_DISCOVERY_DEFINITIONS, STATIC_TOOL_NAMES } = await import('@octocodeai/octocode-core/schema');
-const canonicalTools = DIRECT_TOOL_DISCOVERY_DEFINITIONS.map(tool => tool.name);
+const { DIRECT_TOOL_DEFINITIONS, TOOL_NAMES } = await import('@octocodeai/octocode-core/schema');
+const canonicalTools = DIRECT_TOOL_DEFINITIONS.map(tool => tool.name);
 let expectedTools = [];
 const receipt = {
   server: path.resolve(values.server),
@@ -204,8 +204,8 @@ try {
   receipt.catalogBytes = Buffer.byteLength(JSON.stringify(receipt.catalog));
   await check('initialize and list every available canonical direct tool', () =>
     assert.deepEqual(
-      expectedTools.filter(name => name !== STATIC_TOOL_NAMES.SEMANTIC_ASSESS).sort(),
-      canonicalTools.filter(name => name !== STATIC_TOOL_NAMES.SEMANTIC_ASSESS).sort()
+      expectedTools.filter(name => name !== TOOL_NAMES.SEMANTIC_ASSESS).sort(),
+      canonicalTools.filter(name => name !== TOOL_NAMES.SEMANTIC_ASSESS).sort()
     )
   );
   await check('MCP tool catalog stays below the production transport budget', () =>
@@ -220,9 +220,9 @@ try {
       'tools/list exposed an outputSchema'
     )
   );
-  if (expectedTools.includes(STATIC_TOOL_NAMES.SEMANTIC_ASSESS)) {
+  if (expectedTools.includes(TOOL_NAMES.SEMANTIC_ASSESS)) {
     await check('semanticAssess rejects caller model selection before provider access', async () => {
-      const response = await invoke(STATIC_TOOL_NAMES.SEMANTIC_ASSESS, {
+      const response = await invoke(TOOL_NAMES.SEMANTIC_ASSESS, {
         id: 'caller-model-rejected',
         reasoning: 'Verify that provider model selection remains runtime-owned.',
         resources: [{ id: 'evidence', context: { value: 'Supplied evidence.' } }],
@@ -626,9 +626,9 @@ try {
     );
   }
   if (values.live && !values.quick) {
-    if (expectedTools.includes(STATIC_TOOL_NAMES.SEMANTIC_ASSESS)) {
+    if (expectedTools.includes(TOOL_NAMES.SEMANTIC_ASSESS)) {
       await check('semanticAssess executes Noul, Choice, and Score through the live provider', async () => {
-        const response = await invoke(STATIC_TOOL_NAMES.SEMANTIC_ASSESS, { queries: [{
+        const response = await invoke(TOOL_NAMES.SEMANTIC_ASSESS, { queries: [{
           id: 'live-primitives',
           reasoning: 'Verify every semantic primitive through the built MCP surface.',
           resources: [{
@@ -833,7 +833,7 @@ try {
       ]);
       const liveOnlyTools = new Set([...cacheVolatileTools, 'ghCloneRepo']);
       for (const name of expectedTools) {
-        if (name === STATIC_TOOL_NAMES.SEMANTIC_ASSESS) {
+        if (name === TOOL_NAMES.SEMANTIC_ASSESS) {
           const executionVerified = receipt.calls.some(call =>
             call.name === name
             && call.response.isError === false

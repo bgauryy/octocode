@@ -2140,54 +2140,28 @@
     "accepted": false
   },
   {
-    "id": "local-fetch.clamp-low",
+    "id": "local-fetch.reject-low",
     "tool": "localFetch",
     "input": {
-      "reasoning": "Exercise the local-fetch.clamp-low native parity fixture.",
+      "reasoning": "Exercise the local-fetch.reject-low native parity fixture.",
       "path": "/fixture/a.ts",
       "startLine": -4,
       "endLine": 0,
       "contextLines": -2
     },
-    "accepted": true,
-    "normalized": {
-      "queries": [
-        {
-          "goal": "Execute localFetch via fixture",
-          "reasoning": "Exercise the local-fetch.clamp-low native parity fixture.",
-          "debug": false,
-          "path": "/fixture/a.ts",
-          "contextLines": 0,
-          "startLine": 1,
-          "endLine": 1
-        }
-      ]
-    }
+    "accepted": false
   },
   {
-    "id": "local-fetch.clamp-high",
+    "id": "local-fetch.reject-high",
     "tool": "localFetch",
     "input": {
-      "reasoning": "Exercise the local-fetch.clamp-high native parity fixture.",
+      "reasoning": "Exercise the local-fetch.reject-high native parity fixture.",
       "path": "/fixture/a.ts",
       "startLine": 2000000000,
       "endLine": 2000000001,
       "contextLines": 101
     },
-    "accepted": true,
-    "normalized": {
-      "queries": [
-        {
-          "goal": "Execute localFetch via fixture",
-          "reasoning": "Exercise the local-fetch.clamp-high native parity fixture.",
-          "debug": false,
-          "path": "/fixture/a.ts",
-          "contextLines": 100,
-          "startLine": 1000000000,
-          "endLine": 1000000000
-        }
-      ]
-    }
+    "accepted": false
   },
   {
     "id": "local-fetch.full",
@@ -2741,17 +2715,6 @@
       "path": "/r",
       "mode": "structural",
       "pattern": " "
-    },
-    "accepted": false
-  },
-  {
-    "id": "local-search.disabled-semantic",
-    "tool": "localSearch",
-    "input": {
-      "reasoning": "Exercise the local-search.disabled-semantic native parity fixture.",
-      "path": "/r",
-      "searchText": "x",
-      "semanticRanking": true
     },
     "accepted": false
   },

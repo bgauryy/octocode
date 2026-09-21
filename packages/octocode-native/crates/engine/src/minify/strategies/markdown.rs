@@ -74,11 +74,11 @@ pub fn minify_markdown_core(content: &str) -> String {
             continue;
         }
         // Setext heading conversion
-        if let Some(level) = setext_level(line) {
-            if convert_setext(&mut out, level) {
-                i += 1;
-                continue;
-            }
+        if let Some(level) = setext_level(line)
+            && convert_setext(&mut out, level)
+        {
+            i += 1;
+            continue;
         }
         // Thematic break
         if is_thematic_break(line) {
@@ -294,21 +294,21 @@ fn is_image_only_line(line: &str) -> bool {
 }
 
 fn strip_one_markdown_image(line: &str) -> String {
-    if let Some(start) = line.find("[![") {
-        if let Some(end) = linked_image_end(line, start) {
-            let mut output = String::with_capacity(line.len());
-            output.push_str(&line[..start]);
-            output.push_str(&line[end..]);
-            return output;
-        }
+    if let Some(start) = line.find("[![")
+        && let Some(end) = linked_image_end(line, start)
+    {
+        let mut output = String::with_capacity(line.len());
+        output.push_str(&line[..start]);
+        output.push_str(&line[end..]);
+        return output;
     }
-    if let Some(start) = line.find("![") {
-        if let Some(end) = markdown_image_end(line, start) {
-            let mut output = String::with_capacity(line.len());
-            output.push_str(&line[..start]);
-            output.push_str(&line[end..]);
-            return output;
-        }
+    if let Some(start) = line.find("![")
+        && let Some(end) = markdown_image_end(line, start)
+    {
+        let mut output = String::with_capacity(line.len());
+        output.push_str(&line[..start]);
+        output.push_str(&line[end..]);
+        return output;
     }
     line.to_owned()
 }
@@ -405,14 +405,14 @@ fn strip_md_emoji_shortcodes(line: &str) -> String {
     let mut out = String::with_capacity(line.len());
     let mut i = 0usize;
     while i < line.len() {
-        if line.as_bytes()[i] == b':' {
-            if let Some(end_offset) = line[i + 1..].find(':') {
-                let end = i + 1 + end_offset;
-                let label = &line[i + 1..end];
-                if is_emoji_shortcode_label(label) {
-                    i = end + 1;
-                    continue;
-                }
+        if line.as_bytes()[i] == b':'
+            && let Some(end_offset) = line[i + 1..].find(':')
+        {
+            let end = i + 1 + end_offset;
+            let label = &line[i + 1..end];
+            if is_emoji_shortcode_label(label) {
+                i = end + 1;
+                continue;
             }
         }
         i = super::copy_seq(line, i, &mut out);
@@ -489,12 +489,13 @@ fn compact_markdown_newlines(lines: Vec<String>) -> Vec<String> {
             continue;
         }
 
-        if let Some(prev) = out.last_mut() {
-            if is_markdown_paragraph_line(prev) && is_markdown_paragraph_line(&line) {
-                prev.push(' ');
-                prev.push_str(line.trim());
-                continue;
-            }
+        if let Some(prev) = out.last_mut()
+            && is_markdown_paragraph_line(prev)
+            && is_markdown_paragraph_line(&line)
+        {
+            prev.push(' ');
+            prev.push_str(line.trim());
+            continue;
         }
 
         out.push(line);

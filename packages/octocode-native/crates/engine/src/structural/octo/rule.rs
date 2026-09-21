@@ -7,8 +7,8 @@ use tree_sitter::Node;
 use crate::structural::language::AgLanguage;
 
 use super::matching::{
-    named_children, node_text, raw_range, CandidatePlan, CaptureEnv, ExecutionError,
-    SECONDARY_CAPTURE,
+    CandidatePlan, CaptureEnv, ExecutionError, SECONDARY_CAPTURE, named_children, node_text,
+    raw_range,
 };
 use super::pattern::CompiledPattern;
 
@@ -236,20 +236,20 @@ impl CompiledRule {
         if !self.matches_candidate(candidate) {
             return Ok(false);
         }
-        if let Some(kind) = &self.kind {
-            if candidate.kind() != kind {
-                return Ok(false);
-            }
+        if let Some(kind) = &self.kind
+            && candidate.kind() != kind
+        {
+            return Ok(false);
         }
-        if let Some(pattern) = &self.pattern {
-            if !pattern.matches(candidate, document.content, captures, document.deadline)? {
-                return Ok(false);
-            }
+        if let Some(pattern) = &self.pattern
+            && !pattern.matches(candidate, document.content, captures, document.deadline)?
+        {
+            return Ok(false);
         }
-        if let Some(regex) = &self.regex {
-            if !regex.is_match(node_text(candidate, document.content)) {
-                return Ok(false);
-            }
+        if let Some(regex) = &self.regex
+            && !regex.is_match(node_text(candidate, document.content))
+        {
+            return Ok(false);
         }
         if let Some(rule) = &self.has {
             let mut branch = captures.clone();

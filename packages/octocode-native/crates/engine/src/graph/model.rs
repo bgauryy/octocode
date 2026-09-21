@@ -975,10 +975,12 @@ mod tests {
         let snapshot = builder.finish();
 
         assert!(!snapshot.completeness.semantic_complete);
-        assert!(snapshot
-            .completeness
-            .reasons
-            .contains("definitionProvider unavailable"));
+        assert!(
+            snapshot
+                .completeness
+                .reasons
+                .contains("definitionProvider unavailable")
+        );
     }
 
     #[test]
@@ -1083,10 +1085,12 @@ mod tests {
         builder.mark_semantic_scope_complete("deadCode");
         let snapshot = builder.finish();
 
-        assert!(snapshot
-            .completeness
-            .semantic_scopes_complete
-            .contains("deadCode"));
+        assert!(
+            snapshot
+                .completeness
+                .semantic_scopes_complete
+                .contains("deadCode")
+        );
         assert!(!snapshot.completeness.semantic_complete);
     }
 
@@ -1098,14 +1102,18 @@ mod tests {
         builder
             .add_semantic_relation(semantic(builder.generation()))
             .expect("semantic relation");
-        assert!(builder
-            .add_file("src/late.rs", "ccc")
-            .expect_err("late source mutation")
-            .contains("after semantic enrichment"));
-        assert!(builder
-            .add_file_relation("src/main.rs", "src/late.rs", "rust-use", 1)
-            .expect_err("late syntax mutation")
-            .contains("after semantic enrichment"));
+        assert!(
+            builder
+                .add_file("src/late.rs", "ccc")
+                .expect_err("late source mutation")
+                .contains("after semantic enrichment")
+        );
+        assert!(
+            builder
+                .add_file_relation("src/main.rs", "src/late.rs", "rust-use", 1)
+                .expect_err("late syntax mutation")
+                .contains("after semantic enrichment")
+        );
     }
 
     #[test]

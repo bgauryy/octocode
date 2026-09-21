@@ -1,34 +1,47 @@
 # Development build acceleration for octocode-native.
 #
-# Uncomment each section after installing the required tool:
+# Everything here is OPT-IN and left commented on purpose: a committed, enabled
+# linker path (or rustc-wrapper) breaks any machine that lacks the exact tool at
+# the exact path — Linux devs, Intel Macs, and CI. CI wires its own acceleration
+# in .github/workflows/rust-tools-core.yml (sccache + mold). Enable the blocks
+# below locally after installing the tool.
 #
-#   sccache  : cargo install sccache   OR  brew install sccache
-#   lld (macOS): brew install llvm
-#   mold (Linux): apt install mold
-#
-# These are opt-in: nothing here is active until you install + uncomment.
+# Install:
+#   sccache : brew install sccache            (cross-branch compile cache)
+#   lld     : brew install lld                (fast linker on macOS)
+#   mold    : apt install mold                (fast linker on Linux)
 
+# ── sccache: cache rustc invocations across branches / clean builds ───────────
+# 60–80% faster on a warm cache. Tradeoff: sccache disables incremental
+# compilation, so it HELPS clean builds and branch switches but can HURT a tight
+# single-file edit loop. Prefer enabling it per-shell via env rather than here:
+#   export RUSTC_WRAPPER=sccache
+#   cargo build            # then: sccache --show-stats
+#
 # [build]
-# rustc-wrapper = "sccache"   # cross-branch compile cache; 60-80% CI speedup
+# rustc-wrapper = "sccache"
 
-# ── macOS: lld from LLVM (brew install llvm) ──────────────────────────────────
-# lld is significantly faster than Apple ld for incremental + linking-heavy builds.
-
+# ── macOS (Apple Silicon): lld from `brew install lld` ────────────────────────
+# lld links large Rust binaries faster than Apple ld; pure win (no incremental
+# tradeoff). Path is the standalone `lld` formula's ld64.lld. Adjust for Intel
+# (/usr/local) or a MacPorts/nonstandard install.
+#
 # [target.aarch64-apple-darwin]
 # linker = "clang"
-# rustflags = ["-C", "link-arg=-fuse-ld=/opt/homebrew/opt/llvm/bin/ld64.lld"]
-
+# rustflags = ["-C", "link-arg=-fuse-ld=/opt/homebrew/opt/lld/bin/ld64.lld"]
+#
 # [target.x86_64-apple-darwin]
 # linker = "clang"
-# rustflags = ["-C", "link-arg=-fuse-ld=/opt/homebrew/opt/llvm/bin/ld64.lld"]
+# rustflags = ["-C", "link-arg=-fuse-ld=/usr/local/opt/lld/bin/ld64.lld"]
 
-# ── Linux CI: mold (apt install mold) ──────────────────────────────────────
-# mold is 5–10× faster than GNU BFD at linking large Rust binaries.
-
+# ── Linux: mold (apt install mold) ────────────────────────────────────────────
+# mold is 5–10× faster than GNU BFD at linking large Rust binaries. CI already
+# uses mold via `rui314/setup-mold` in the workflow.
+#
 # [target.x86_64-unknown-linux-gnu]
 # linker = "clang"
 # rustflags = ["-C", "link-arg=-fuse-ld=mold"]
-
+#
 # [target.aarch64-unknown-linux-gnu]
 # linker = "clang"
 # rustflags = ["-C", "link-arg=-fuse-ld=mold"]

@@ -4,7 +4,7 @@ use tree_sitter::Node;
 
 use crate::structural::types::{MetavarRange, StructuralMatch};
 
-use super::matching::{node_text, RawRange};
+use super::matching::{RawRange, node_text};
 
 /// Thin wrapper over the shared `text::utf8_offsets::LineIndex` — see that
 /// type for the actual line-start/UTF-16 counting logic. Keeps this module's

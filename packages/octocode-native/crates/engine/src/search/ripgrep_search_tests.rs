@@ -81,11 +81,13 @@ fn collection_errors_do_not_report_complete_absence() {
     let result = search(opts(missing, "needle")).expect("partial search");
     assert!(result.files.is_empty());
     assert_eq!(result.stats.error_count, Some(1));
-    assert!(result
-        .stats
-        .first_error
-        .as_ref()
-        .is_some_and(|e| !e.is_empty()));
+    assert!(
+        result
+            .stats
+            .first_error
+            .as_ref()
+            .is_some_and(|e| !e.is_empty())
+    );
     assert_eq!(result.stats.capped, Some(false));
 }
 
@@ -110,11 +112,13 @@ fn collection_errors_preserve_successful_files() {
     assert_eq!(result.files.len(), 1);
     assert!(result.files[0].path.ends_with("good.txt"));
     assert_eq!(result.stats.error_count, Some(1));
-    assert!(result
-        .stats
-        .first_error
-        .as_ref()
-        .is_some_and(|e| e.contains("denied.txt")));
+    assert!(
+        result
+            .stats
+            .first_error
+            .as_ref()
+            .is_some_and(|e| e.contains("denied.txt"))
+    );
 }
 
 #[test]
@@ -132,11 +136,12 @@ fn finds_matches_with_line_and_column() {
     assert_eq!(r.stats.match_count, Some(2));
     assert_eq!(r.stats.files_matched, Some(1));
     assert!(r.stats.bytes_searched.unwrap_or_default() > 0);
-    assert!(r
-        .stats
-        .search_time
-        .as_deref()
-        .is_some_and(|s| s.ends_with('s')));
+    assert!(
+        r.stats
+            .search_time
+            .as_deref()
+            .is_some_and(|s| s.ends_with('s'))
+    );
 }
 
 #[test]
@@ -457,11 +462,12 @@ fn oversize_file_is_skipped_with_diagnostic_and_normal_file_still_matches() {
     assert_eq!(r.files.len(), 1);
     assert!(r.files[0].path.ends_with("small.txt"));
     assert_eq!(r.stats.capped, Some(true));
-    assert!(r
-        .stats
-        .cap_reason
-        .as_deref()
-        .is_some_and(|reason| reason.contains("maxFileSize")));
+    assert!(
+        r.stats
+            .cap_reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("maxFileSize"))
+    );
     // The skipped file is not counted as covered (no overstated filesSearched).
     assert_eq!(r.stats.files_searched, Some(1));
 }
@@ -476,11 +482,12 @@ fn binary_quit_file_is_flagged_not_silently_absent() {
     let r = search(opts(t.path(), "needle")).expect("ok");
     assert!(r.files.iter().any(|f| f.path.ends_with("text.txt")));
     assert_eq!(r.stats.capped, Some(true));
-    assert!(r
-        .stats
-        .cap_reason
-        .as_deref()
-        .is_some_and(|reason| reason.contains("binaryQuit")));
+    assert!(
+        r.stats
+            .cap_reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("binaryQuit"))
+    );
 }
 
 #[cfg(feature = "pcre2")]

@@ -3,10 +3,10 @@
 
 use std::collections::{HashMap, HashSet};
 
-use oxc_ast::{ast::*, AstKind};
+use oxc_ast::{AstKind, ast::*};
 use oxc_semantic::SemanticBuilder;
 
-use super::js_oxc_shared::{module_export_name, GraphCommonJsLoad, LineIndex};
+use super::js_oxc_shared::{GraphCommonJsLoad, LineIndex, module_export_name};
 
 /// Skip scope construction only when OXC's tokens rule out every supported
 /// loader spelling. Comments, regexes, and ordinary prose strings cannot create
@@ -59,10 +59,9 @@ pub(super) fn collect_common_js_loads(program: &Program, li: &LineIndex) -> Vec<
             };
             if module_export_name(&specifier.imported).as_deref() == Some("createRequire")
                 && specifier.import_kind != ImportOrExportKind::Type
+                && let Some(symbol) = specifier.local.symbol_id.get()
             {
-                if let Some(symbol) = specifier.local.symbol_id.get() {
-                    factories.insert(symbol);
-                }
+                factories.insert(symbol);
             }
         }
     }
@@ -101,17 +100,17 @@ pub(super) fn collect_common_js_loads(program: &Program, li: &LineIndex) -> Vec<
             }
             _ => {}
         }
-        if let AstKind::IdentifierReference(identifier) = node.kind() {
-            if let Some(id) = identifier.reference_id.get() {
-                let reference = scoping.get_reference(id);
-                if reference.symbol_id().is_none() && reference.is_write() {
-                    global_writes.insert(identifier.name.as_str());
-                }
-                if reference.is_write() {
-                    if let Some(symbol) = reference.symbol_id() {
-                        symbol_writes.insert(symbol);
-                    }
-                }
+        if let AstKind::IdentifierReference(identifier) = node.kind()
+            && let Some(id) = identifier.reference_id.get()
+        {
+            let reference = scoping.get_reference(id);
+            if reference.symbol_id().is_none() && reference.is_write() {
+                global_writes.insert(identifier.name.as_str());
+            }
+            if reference.is_write()
+                && let Some(symbol) = reference.symbol_id()
+            {
+                symbol_writes.insert(symbol);
             }
         }
     }

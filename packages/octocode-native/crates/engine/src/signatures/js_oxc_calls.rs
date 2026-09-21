@@ -4,7 +4,7 @@
 //! site to its enclosing owner. Only `collect_program_calls` is public to the
 //! parent module; everything else is an internal walker.
 
-use super::js_oxc_shared::{property_key_name, GraphCall, LineIndex};
+use super::js_oxc_shared::{GraphCall, LineIndex, property_key_name};
 use oxc_ast::ast::*;
 use oxc_span::Span;
 
@@ -67,10 +67,10 @@ fn collect_declaration_calls(decl: &Declaration, li: &LineIndex, calls: &mut Vec
 
 fn collect_class_calls(class: &Class, li: &LineIndex, calls: &mut Vec<GraphCall>) {
     for element in &class.body.body {
-        if let ClassElement::MethodDefinition(method) = element {
-            if let Some((name, _span)) = property_key_name(&method.key) {
-                collect_function_calls(&name, &method.value, li, calls);
-            }
+        if let ClassElement::MethodDefinition(method) = element
+            && let Some((name, _span)) = property_key_name(&method.key)
+        {
+            collect_function_calls(&name, &method.value, li, calls);
         }
     }
 }

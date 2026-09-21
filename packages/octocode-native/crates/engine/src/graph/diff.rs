@@ -18,7 +18,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::algorithms::{scc, Node};
+use super::algorithms::{Node, scc};
 use super::model::{CodeGraphSnapshot, EdgeKind, NodeId};
 
 /// A structural relation identity. Deliberately excludes evidence and ranges.
@@ -361,10 +361,10 @@ fn file_graph(snapshot: &CodeGraphSnapshot) -> BTreeMap<String, Node> {
         if is_dynamic_import(&edge.kind) {
             continue;
         }
-        if let (Some(from), Some(to)) = (file_of(&edge.from), file_of(&edge.to)) {
-            if let Some(node) = graph.get_mut(&from) {
-                node.dynamic_only.remove(&to);
-            }
+        if let (Some(from), Some(to)) = (file_of(&edge.from), file_of(&edge.to))
+            && let Some(node) = graph.get_mut(&from)
+        {
+            node.dynamic_only.remove(&to);
         }
     }
     graph
@@ -505,10 +505,11 @@ mod tests {
 
         let diff = diff_graphs(&base, &head);
         assert!(diff.comparable, "completeness difference only downgrades");
-        assert!(diff
-            .incompatibilities
-            .iter()
-            .any(|item| matches!(item, DiffIncompatibility::ScanCompletenessDiffers { .. })));
+        assert!(
+            diff.incompatibilities
+                .iter()
+                .any(|item| matches!(item, DiffIncompatibility::ScanCompletenessDiffers { .. }))
+        );
     }
 
     #[test]

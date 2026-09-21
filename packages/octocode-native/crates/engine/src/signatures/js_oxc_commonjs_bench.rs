@@ -60,9 +60,11 @@ fn corpus() -> Vec<(&'static str, &'static str, String, usize, &'static str)> {
 fn commonjs_graph_benchmark() {
     let split = std::env::var("OCTOCODE_BENCH_SPLIT").unwrap_or_else(|_| "train".to_owned());
     let label = std::env::var("OCTOCODE_BENCH_LABEL").unwrap_or_else(|_| "baseline".to_owned());
-    assert!(label
-        .chars()
-        .all(|character| character.is_ascii_alphanumeric() || character == '-'));
+    assert!(
+        label
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || character == '-')
+    );
     let mut rows = Vec::new();
     for (name, file, source, expected_loads, case_split) in corpus() {
         if split != "all" && split != case_split {

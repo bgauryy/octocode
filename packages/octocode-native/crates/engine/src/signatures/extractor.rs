@@ -78,10 +78,10 @@ fn cached_query(language: &Language, body_query: &'static str) -> Option<Arc<Que
     let cache = QUERY_CACHE.get_or_init(|| RwLock::new(HashMap::new()));
     let key = (language.clone(), body_query);
 
-    if let Ok(cache) = cache.read() {
-        if let Some(query) = cache.get(&key) {
-            return Some(Arc::clone(query));
-        }
+    if let Ok(cache) = cache.read()
+        && let Some(query) = cache.get(&key)
+    {
+        return Some(Arc::clone(query));
     }
 
     let query = Arc::new(Query::new(language, body_query).ok()?);
@@ -194,7 +194,7 @@ fn extract_with_limits(
     let result: Vec<(usize, String)> = keep
         .iter()
         .enumerate()
-        .filter(|(_, &k)| k)
+        .filter(|&(_, &keep)| keep)
         .map(|(i, _)| (i + 1, lines[i].trim_end().to_string()))
         .collect();
 
@@ -264,9 +264,19 @@ mod tests {
             let language = tree_sitter_python::LANGUAGE.into();
             let query = cached_query(&language, query_src).expect("valid built-in predicate");
             assert!(query.general_predicates(0).is_empty());
-            let lines = extract(source, &LangExtractConfig { language, body_query: query_src })
-                .expect("outline");
-            let outline = lines.into_iter().map(|(_, text)| text).collect::<Vec<_>>().join("\n");
+            let lines = extract(
+                source,
+                &LangExtractConfig {
+                    language,
+                    body_query: query_src,
+                },
+            )
+            .expect("outline");
+            let outline = lines
+                .into_iter()
+                .map(|(_, text)| text)
+                .collect::<Vec<_>>()
+                .join("\n");
             assert!(outline.contains("def strip"));
             assert!(!outline.contains("removed"), "{query_src}: {outline}");
             assert!(outline.contains("preserved"), "{query_src}: {outline}");

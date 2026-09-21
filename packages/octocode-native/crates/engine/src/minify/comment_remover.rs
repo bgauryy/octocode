@@ -312,12 +312,12 @@ pub fn strip_string_aware_comments(content: &str, rules: &CommentRules) -> Strin
             // ── outside strings ───────────────────────────────────────────
             QuoteState::Outside => {
                 // 1. PowerShell here-string
-                if rules.powershell_here_strings {
-                    if let Some(end_pos) = find_powershell_here_string(content, pos) {
-                        result.push_str(&content[pos..end_pos]);
-                        pos = end_pos;
-                        continue;
-                    }
+                if rules.powershell_here_strings
+                    && let Some(end_pos) = find_powershell_here_string(content, pos)
+                {
+                    result.push_str(&content[pos..end_pos]);
+                    pos = end_pos;
+                    continue;
                 }
 
                 // 2. Rust raw string  r##"..."##
@@ -335,12 +335,12 @@ pub fn strip_string_aware_comments(content: &str, rules: &CommentRules) -> Strin
                 }
 
                 // 4. JS/TS regex literal
-                if rules.regex {
-                    if let Some(end_pos) = find_regex_literal(content, pos) {
-                        result.push_str(&content[pos..end_pos]);
-                        pos = end_pos;
-                        continue;
-                    }
+                if rules.regex
+                    && let Some(end_pos) = find_regex_literal(content, pos)
+                {
+                    result.push_str(&content[pos..end_pos]);
+                    pos = end_pos;
+                    continue;
                 }
 
                 // 5. String-start delimiter (longest match first)
@@ -446,12 +446,12 @@ pub fn literal_ranges(content: &str, rules: &CommentRules) -> Vec<(usize, usize)
                 }
             }
             QuoteState::Outside => {
-                if rules.powershell_here_strings {
-                    if let Some(end_pos) = find_powershell_here_string(content, pos) {
-                        ranges.push((pos, end_pos));
-                        pos = end_pos;
-                        continue;
-                    }
+                if rules.powershell_here_strings
+                    && let Some(end_pos) = find_powershell_here_string(content, pos)
+                {
+                    ranges.push((pos, end_pos));
+                    pos = end_pos;
+                    continue;
                 }
                 if let Some(end_pos) = find_rust_raw_string(content, pos) {
                     ranges.push((pos, end_pos));
@@ -463,12 +463,12 @@ pub fn literal_ranges(content: &str, rules: &CommentRules) -> Vec<(usize, usize)
                     pos = end_pos;
                     continue;
                 }
-                if rules.regex {
-                    if let Some(end_pos) = find_regex_literal(content, pos) {
-                        ranges.push((pos, end_pos));
-                        pos = end_pos;
-                        continue;
-                    }
+                if rules.regex
+                    && let Some(end_pos) = find_regex_literal(content, pos)
+                {
+                    ranges.push((pos, end_pos));
+                    pos = end_pos;
+                    continue;
                 }
                 if let Some(&delim) = sorted_delims
                     .iter()

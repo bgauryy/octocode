@@ -61,12 +61,12 @@ pub use bindings::ripgrep::{parse_ripgrep_json, search_ripgrep, validate_ripgrep
 pub use bindings::security::{mask_sensitive_data, sanitize_content};
 #[cfg(feature = "napi-addon")]
 pub use bindings::signatures::{
-    extract_graph_facts, extract_js_symbols, extract_signatures, find_in_file_references,
-    get_grammar_capabilities, get_graph_fact_capabilities, get_semantic_boundary_offsets,
-    get_supported_graph_fact_extensions, get_supported_js_ts_extensions,
-    get_supported_signature_extensions, get_supported_structural_extensions, inspect_syntax_tree,
-    structural_search, structural_search_detailed, structural_search_files,
-    structural_search_files_detailed, SIGNATURES_ONLY_HINT,
+    SIGNATURES_ONLY_HINT, extract_graph_facts, extract_js_symbols, extract_signatures,
+    find_in_file_references, get_grammar_capabilities, get_graph_fact_capabilities,
+    get_semantic_boundary_offsets, get_supported_graph_fact_extensions,
+    get_supported_js_ts_extensions, get_supported_signature_extensions,
+    get_supported_structural_extensions, inspect_syntax_tree, structural_search,
+    structural_search_detailed, structural_search_files, structural_search_files_detailed,
 };
 #[cfg(all(feature = "napi-addon", feature = "embedded-ast-grep-rewrite"))]
 pub use bindings::signatures::{structural_rewrite_content, structural_rewrite_files};

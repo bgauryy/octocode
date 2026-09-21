@@ -423,13 +423,12 @@ fn resolve_server_invocation_with_environment(
         workspace_root,
         current_dir,
         command_available_on_path,
-    ) {
-        if let Some(node_command) = current_node_command() {
-            let mut resolved_args = Vec::with_capacity(args.len() + 1);
-            resolved_args.push(cli_path.to_string_lossy().into_owned());
-            resolved_args.extend(args);
-            return (node_command, resolved_args);
-        }
+    ) && let Some(node_command) = current_node_command()
+    {
+        let mut resolved_args = Vec::with_capacity(args.len() + 1);
+        resolved_args.push(cli_path.to_string_lossy().into_owned());
+        resolved_args.extend(args);
+        return (node_command, resolved_args);
     }
 
     (resolve_known_server_command(command), args)
@@ -552,11 +551,11 @@ fn find_python_user_script(script_name: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        command_is_tsgo, command_resolves_to_executable, current_node_command,
+        LspDiscoveryOptions, command_is_tsgo, command_resolves_to_executable, current_node_command,
         default_server_for_file, default_server_for_file_with_options, detect_language_id,
         is_command_available, is_node_executable, is_rust_analyzer_command,
         resolve_known_server_command, resolve_server_invocation,
-        resolve_server_invocation_with_environment, LspDiscoveryOptions,
+        resolve_server_invocation_with_environment,
     };
     use std::path::PathBuf;
 
@@ -923,17 +922,24 @@ mod tests {
     impl EnvGuard {
         fn set(key: &'static str, value: &str) -> Self {
             let previous = std::env::var(key).ok();
-            std::env::set_var(key, value);
+            // SAFETY: test-only guard. Process-env mutation is unsafe in a
+            // multithreaded program because it races concurrent env readers;
+            // these LSP-config tests mutate env only through this guard and do
+            // not run alongside other env access, and the guard restores the
+            // prior value on drop.
+            unsafe { std::env::set_var(key, value) };
             Self { key, previous }
         }
     }
 
     impl Drop for EnvGuard {
         fn drop(&mut self) {
+            // SAFETY: see `EnvGuard::set` — the same test-only, no-concurrent-env
+            // invariant holds for the restore path.
             if let Some(previous) = &self.previous {
-                std::env::set_var(self.key, previous);
+                unsafe { std::env::set_var(self.key, previous) };
             } else {
-                std::env::remove_var(self.key);
+                unsafe { std::env::remove_var(self.key) };
             }
         }
     }

@@ -4,7 +4,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/server';
 import {
   getNativeContractFingerprint,
-  STATIC_TOOL_NAMES,
+  TOOL_NAMES,
 } from '@octocodeai/octocode-core/schema';
 
 // startNativeMcp constructs a real StdioServerTransport (reads process.stdin and
@@ -148,7 +148,7 @@ describe('createNativeMcp registration + execution', () => {
           fingerprint: getNativeContractFingerprint(),
           tools: [
             tool('localFetch', true),
-            tool(STATIC_TOOL_NAMES.SEMANTIC_ASSESS, nativeAvailable),
+            tool(TOOL_NAMES.SEMANTIC_ASSESS, nativeAvailable),
           ],
         })),
       });
@@ -181,7 +181,7 @@ describe('createNativeMcp registration + execution', () => {
         fingerprint: getNativeContractFingerprint(),
         tools: [
           tool('localFetch', true),
-          tool(STATIC_TOOL_NAMES.SEMANTIC_ASSESS, true),
+          tool(TOOL_NAMES.SEMANTIC_ASSESS, true),
         ],
       })),
     });
@@ -197,7 +197,7 @@ describe('createNativeMcp registration + execution', () => {
     const list = await client.listTools();
     expect(list.tools.map(t => t.name)).toEqual([
       'localFetch',
-      STATIC_TOOL_NAMES.SEMANTIC_ASSESS,
+      TOOL_NAMES.SEMANTIC_ASSESS,
     ]);
     expect(list.tools.every(t => !Object.hasOwn(t, 'outputSchema'))).toBe(true);
 

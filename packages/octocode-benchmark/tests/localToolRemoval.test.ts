@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-import { DIRECT_TOOL_DISCOVERY_DEFINITIONS } from '@octocodeai/octocode-core/schema';
+import { DIRECT_TOOL_DEFINITIONS } from '@octocodeai/octocode-core/schema';
 
 type Fixture = {
   kpiContract: {
@@ -51,7 +51,7 @@ const fixture = JSON.parse(
 
 describe('held-out local tool removal contract', () => {
   it('publishes exactly the four local tools', () => {
-    const actual = DIRECT_TOOL_DISCOVERY_DEFINITIONS.map(
+    const actual = DIRECT_TOOL_DEFINITIONS.map(
       tool => tool.name
     ).filter(name => fixture.publicSurface.tools.includes(name));
     expect(actual).toEqual(fixture.publicSurface.tools);
@@ -61,7 +61,7 @@ describe('held-out local tool removal contract', () => {
   });
 
   it('keeps retired names as negative rejection fixtures only', () => {
-    const publicNames = DIRECT_TOOL_DISCOVERY_DEFINITIONS.map(
+    const publicNames = DIRECT_TOOL_DEFINITIONS.map(
       tool => tool.name
     );
     const retiredNames = fixture.retiredSurface.tools.map(tool => tool.name);
@@ -75,7 +75,7 @@ describe('held-out local tool removal contract', () => {
 
   it.each(fixture.cases)('$id has a valid post-migration route', testCase => {
     expect(testCase.heldOut).toBe(true);
-    const tool = DIRECT_TOOL_DISCOVERY_DEFINITIONS.find(
+    const tool = DIRECT_TOOL_DEFINITIONS.find(
       item => item.name === testCase.after.tool
     );
     expect(tool).toBeDefined();

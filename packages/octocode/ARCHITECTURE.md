@@ -4,7 +4,7 @@
 
 ## Runtime boundary
 
-`src/cli/index.ts` is a three-branch launcher: `skill` runs in Node, a bare TTY `install` opens the client picker, and every other argv is forwarded verbatim — parsing, help, version, and validation included — to the native binary. `src/cli/native-delegate.ts` resolves `@octocodeai/octocode-native/bin/octocode.cjs` and delegates with inherited stdio and environment. There is no TypeScript command registry, help renderer, or option validation for native-owned commands.
+`src/cli/index.ts` has three explicit Node-owned paths: `scheme` composes core presentation with native availability, `skill` materializes bundled skills, and a bare TTY `install` opens the client picker. Every other argv is forwarded verbatim—parsing, help, version, and validation included—to the native binary. `src/cli/native-delegate.ts` resolves `@octocodeai/octocode-native/bin/octocode.cjs` and delegates with inherited stdio and environment. There is no TypeScript execution registry or fallback for native-owned commands.
 
 ```text
 npx octocode → Node launcher → native CLI → Rust ToolRuntime
@@ -16,10 +16,13 @@ The native path is mandatory for public tools. If its platform package cannot be
 
 TypeScript remains only for:
 
+- `scheme`, which joins the core public catalog with native availability after
+  a fail-closed contract-fingerprint check; it presents contracts but does not
+  validate or execute tool requests;
 - `skill`, backed by the shared skill installer;
 - the TTY picker for `install` without `--ide`, which discovers client ids from `native install --list --json` and delegates the selected id back to native.
 
-Everything else — `scheme`, `config`, `auth`, `lsp-server`, tool invocations (`<toolName> '<json>'`), and `install` — is delegated to the native CLI. Interactive installation is a transport adapter, not a second installer. The native `skill` command shells back to this launcher; `OCTOCODE_SKILL_DELEGATED` guards that hop so a native binary on PATH cannot recurse.
+Everything else—`config`, `auth`, `lsp-server`, tool invocations (`<toolName> '<json>'`), and non-interactive `install`—is delegated to the native CLI. Interactive installation is a transport adapter, not a second installer. The native `skill` command shells back to this launcher; `OCTOCODE_SKILL_DELEGATED` guards that hop so a native binary on PATH cannot recurse.
 
 ## Build and packaging
 
@@ -34,6 +37,8 @@ Publish native platform packages, the native root, contract/config prerequisites
 ## Rules
 
 - Public tool behavior belongs in Rust.
+- Public contract presentation belongs in core; `scheme` only reconciles it
+  with native availability and the enforcement fingerprint.
 - The Node launcher delegates or fails closed; it has no TypeScript tool fallback.
 - Keep management-only TypeScript paths explicit and small.
 - Do not add Node-side query batching, provider behavior, security policy, response shaping, or tool-specific error recovery.

@@ -5,18 +5,18 @@ use crate::lsp::types::{JsCodeSnippet, JsExactPosition, JsLanguageServerConfig, 
 use crate::lsp::uri::{path_to_uri, uri_to_path};
 #[cfg(feature = "napi-addon")]
 use napi_derive::napi;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::process::Stdio;
 use std::sync::{
-    atomic::{AtomicUsize, Ordering},
     Arc, Mutex as StdMutex,
+    atomic::{AtomicUsize, Ordering},
 };
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, ChildStderr, ChildStdin};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
-use tokio::time::{timeout, Duration};
+use tokio::time::{Duration, timeout};
 
 pub(super) const REQUEST_TIMEOUT_MS: u32 = 30_000;
 pub(super) const CONTENT_MODIFIED_RETRIES: u8 = 3;
@@ -469,17 +469,17 @@ impl NativeLspClient {
         // Positions are UTF-16 throughout the tool contract. A server that
         // ignores our advertised encoding cannot supply trustworthy locations.
         let negotiated_encoding = extract_position_encoding(&initialize_result);
-        if let Some(encoding) = negotiated_encoding.as_deref() {
-            if encoding != "utf-16" {
-                cleanup_failed_start(&mut child, stderr_task).await;
-                return Err(Error::new(
-                    Status::GenericFailure,
-                    format!(
-                        "Unsupported language server positionEncoding '{encoding}': \
+        if let Some(encoding) = negotiated_encoding.as_deref()
+            && encoding != "utf-16"
+        {
+            cleanup_failed_start(&mut child, stderr_task).await;
+            return Err(Error::new(
+                Status::GenericFailure,
+                format!(
+                    "Unsupported language server positionEncoding '{encoding}': \
                          octocode advertises utf-16; semantic positions cannot be resolved safely"
-                    ),
-                ));
-            }
+                ),
+            ));
         }
         if let Ok(mut capabilities) = self.inner.capabilities.lock() {
             *capabilities = initialize_result.get("capabilities").cloned();
@@ -728,10 +728,10 @@ impl NativeLspClient {
             });
             connection.notify("textDocument/didChange", params).await
         };
-        if notification.is_err() {
-            if let Ok(mut open_docs) = self.inner.open_docs.lock() {
-                open_docs.rollback(&uri, next_version);
-            }
+        if notification.is_err()
+            && let Ok(mut open_docs) = self.inner.open_docs.lock()
+        {
+            open_docs.rollback(&uri, next_version);
         }
         // Close the document the cap evicted (if any) so both our bookkeeping
         // and the server's document set stay bounded. Best-effort: a stopped or

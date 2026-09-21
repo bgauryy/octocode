@@ -128,13 +128,15 @@ pub(super) fn invalid_query_explanation(
         literal_anchor: None,
         pre_filter: "unavailable".to_owned(),
         unsafe_reason: None,
-        diagnostics: vec![StructuralDiagnostic::new(
-            "structural.query.invalid",
-            "error",
-            "match",
-            message.to_owned(),
-        )
-        .with_recovery("Provide exactly one non-empty structural pattern or YAML rule.")],
+        diagnostics: vec![
+            StructuralDiagnostic::new(
+                "structural.query.invalid",
+                "error",
+                "match",
+                message.to_owned(),
+            )
+            .with_recovery("Provide exactly one non-empty structural pattern or YAML rule."),
+        ],
     }
 }
 
@@ -253,10 +255,10 @@ fn rule_anchors(rule: &super::octo::RawRule) -> Option<Vec<String>> {
             required.push(anchors);
         }
     }
-    if let Some(any) = rule.any.as_ref().filter(|rules| !rules.is_empty()) {
-        if let Some(branches) = any.iter().map(rule_anchors).collect::<Option<Vec<_>>>() {
-            required.push(branches.into_iter().flatten().collect());
-        }
+    if let Some(any) = rule.any.as_ref().filter(|rules| !rules.is_empty())
+        && let Some(branches) = any.iter().map(rule_anchors).collect::<Option<Vec<_>>>()
+    {
+        required.push(branches.into_iter().flatten().collect());
     }
     required.into_iter().min_by_key(Vec::len)
 }

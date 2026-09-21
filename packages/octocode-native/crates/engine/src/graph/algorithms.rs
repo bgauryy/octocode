@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
@@ -83,11 +83,11 @@ pub fn reachable(
     let mut stack = Vec::new();
     for root in roots {
         out.insert(root.clone());
-        if let Some(&id) = indexed.ids.get(root.as_str()) {
-            if !seen[id as usize] {
-                seen[id as usize] = true;
-                stack.push(id);
-            }
+        if let Some(&id) = indexed.ids.get(root.as_str())
+            && !seen[id as usize]
+        {
+            seen[id as usize] = true;
+            stack.push(id);
         }
     }
     while let Some(id) = stack.pop() {

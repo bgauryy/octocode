@@ -2,14 +2,12 @@
 name = "octocode-native"
 version = "20.0.0"
 publish = false
-edition = "2024"
-# MSRV floor shared with octocode-engine (File::try_lock/unlock, Rust 1.89).
-# Enforced in CI by `clippy::incompatible_msrv` (in `clippy::all`, denied, run
-# with `-D warnings`), which flags any std/core API newer than this floor.
-rust-version = "1.89"
+edition.workspace = true
+rust-version.workspace = true
 autobins = false
 autoexamples = false
-license = "MIT"
+license.workspace = true
+repository.workspace = true
 description = "Native Octocode tool runtime and command-line interface"
 
 [lib]
@@ -28,13 +26,13 @@ default = []
 napi-addon = ["dep:napi", "dep:napi-derive", "dep:napi-build"]
 
 [dependencies]
-serde = { version = "1", features = ["derive"] }
-serde_json = { version = "1", features = ["arbitrary_precision", "preserve_order"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
 toml = { version = "0.9", features = ["preserve_order"] }
-serde_yaml_ng = "0.10"
-regex = "1"
+serde_yaml_ng = { workspace = true }
+regex = { workspace = true }
 regress = "0.12"
-url = "2"
+url = { workspace = true }
 clap = { version = "4", features = ["derive"] }
 base64 = "0.23"
 sha2 = "0.11"
@@ -49,22 +47,22 @@ secrecy = "0.10"
 keyring-core = "1"
 hex = "0.4"
 octocode-engine = { path = "../engine", default-features = false, features = ["portable-default", "embedded-ast-grep-rewrite"] }
-tokio = { version = "1", features = ["fs", "rt-multi-thread", "macros", "sync", "time", "signal"] }
+tokio = { workspace = true, features = ["fs", "rt-multi-thread", "macros", "sync", "time", "signal"] }
 tokio-util = { version = "0.7", features = ["rt"] }
-napi = { version = "3", default-features = false, features = ["napi4", "tokio_rt", "serde-json"], optional = true }
-napi-derive = { version = "3", optional = true }
+napi = { workspace = true, optional = true }
+napi-derive = { workspace = true, optional = true }
 
 [build-dependencies]
-napi-build = { version = "2", optional = true }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+napi-build = { workspace = true, optional = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"
 wiremock = "0.6"
 
 [target.'cfg(unix)'.dependencies]
-libc = "0.2"
+libc = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 apple-native-keyring-store = { version = "1", features = ["keychain"] }
@@ -73,23 +71,12 @@ apple-native-keyring-store = { version = "1", features = ["keychain"] }
 zbus-secret-service-keyring-store = { version = "1", features = ["rt-tokio-crypto-rust"] }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Security"] }
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Security"] }
 windows-native-keyring-store = "1"
 
-[lints.rust]
-dead_code = "deny"
-unused_imports = "deny"
-unused_variables = "deny"
-unused_mut = "deny"
-let_underscore_drop = "allow"   # allow intentional best-effort let _ = result; patterns
-
-[lints.clippy]
-all = { level = "deny", priority = -1 }
-# Correctness / safety
-unwrap_used = "deny"
-expect_used = "deny"
-panic = "deny"
-todo = "deny"
-unimplemented = "deny"
-dbg_macro = "deny"
-# print_stdout/print_stderr intentionally NOT denied — runtime is a CLI binary
+# Inherits the shared floor from [workspace.lints] (root Cargo.toml). The runtime
+# is the CLI-owning binary, so it deliberately does NOT deny print_stdout /
+# print_stderr — that stricter policy lives only in the engine library's inline
+# lint block.
+[lints]
+workspace = true

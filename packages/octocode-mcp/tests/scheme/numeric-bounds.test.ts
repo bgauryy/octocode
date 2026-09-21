@@ -64,16 +64,15 @@ describe('numeric schema fields are bounded (#C1)', () => {
     }
   });
 
-  it('github.code clamps page 0 to page 1 (relaxed page field)', () => {
+  it('github.code rejects page 0 instead of rewriting caller input', () => {
     const r = GitHubCodeSearchQueryLocalSchema.safeParse({
       keywords: ['x'],
       page: 0,
     });
-    expect(r.success).toBe(true);
-    if (r.success) expect(r.data.page).toBe(1);
+    expect(r.success).toBe(false);
   });
 
-  it('clamps contextLines:120 to 100 instead of rejecting (FC-2)', () => {
+  it('rejects contextLines above the documented maximum', () => {
     const r = FileContentQueryBaseLocalSchema.safeParse({
       owner: 'o',
       repo: 'r',
@@ -81,10 +80,7 @@ describe('numeric schema fields are bounded (#C1)', () => {
       matchString: 'foo',
       contextLines: 120,
     });
-    expect(r.success).toBe(true);
-    if (r.success) {
-      expect((r.data as { contextLines?: number }).contextLines).toBe(100);
-    }
+    expect(r.success).toBe(false);
   });
 
   it('rejects a negative LSP line without changing the observed anchor', () => {

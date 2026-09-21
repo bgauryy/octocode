@@ -8,8 +8,8 @@ use std::path::{Component, Path, PathBuf};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
-use tokio::sync::{oneshot, Mutex, Notify};
-use tokio::time::{sleep, Duration};
+use tokio::sync::{Mutex, Notify, oneshot};
+use tokio::time::{Duration, sleep};
 
 type ClientFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 pub const MAX_READINESS_TIMEOUT_MS: u64 = 120_000;
@@ -78,21 +78,21 @@ impl<C: Clone> InFlight<C> {
     }
 
     fn complete(&self, result: SharedResult<C>) {
-        if let Ok(mut slot) = self.result.lock() {
-            if slot.is_none() {
-                *slot = Some(result);
-                self.notify.notify_waiters();
-            }
+        if let Ok(mut slot) = self.result.lock()
+            && slot.is_none()
+        {
+            *slot = Some(result);
+            self.notify.notify_waiters();
         }
     }
 
     async fn wait(&self) -> SharedResult<C> {
         loop {
             let notified = self.notify.notified();
-            if let Ok(slot) = self.result.lock() {
-                if let Some(result) = slot.clone() {
-                    return result;
-                }
+            if let Ok(slot) = self.result.lock()
+                && let Some(result) = slot.clone()
+            {
+                return result;
             }
             notified.await;
         }
@@ -396,10 +396,10 @@ impl<C: PoolClient, M: Clone + Send + Sync + 'static> GenericPool<C, M> {
                             let Some(oldest) = state.lru.pop_front() else {
                                 break;
                             };
-                            if oldest != key {
-                                if let Some(entry) = state.entries.remove(&oldest) {
-                                    evicted.push(entry.client);
-                                }
+                            if oldest != key
+                                && let Some(entry) = state.entries.remove(&oldest)
+                            {
+                                evicted.push(entry.client);
                             }
                         }
                         self.count.store(state.entries.len(), Ordering::SeqCst);
@@ -591,12 +591,12 @@ impl LspClientPool {
                     return Err(error.to_string());
                 }
                 let mut cleanup = StopOnDrop::new(client.clone());
-                if let Some(timeout_ms) = readiness_timeout(factory_config.language_id.as_deref()) {
-                    if let Err(error) = client.wait_for_ready(Some(timeout_ms)).await {
-                        let _ = client.stop().await;
-                        cleanup.disarm();
-                        return Err(error.to_string());
-                    }
+                if let Some(timeout_ms) = readiness_timeout(factory_config.language_id.as_deref())
+                    && let Err(error) = client.wait_for_ready(Some(timeout_ms)).await
+                {
+                    let _ = client.stop().await;
+                    cleanup.disarm();
+                    return Err(error.to_string());
                 }
                 cleanup.disarm();
                 Ok(Some(client))

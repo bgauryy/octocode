@@ -16,8 +16,8 @@ use std::path::Path;
 #[cfg(feature = "pcre2")]
 use std::sync::atomic::AtomicUsize;
 use std::sync::{
-    atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
     Arc, Mutex,
+    atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
 };
 use std::time::{Duration, Instant, SystemTime};
 
@@ -32,7 +32,7 @@ use ignore::types::TypesBuilder;
 use ignore::{WalkBuilder, WalkState};
 
 use crate::search::classify;
-use crate::search::ripgrep_parser::{assemble_file, strip_trailing_newline, FileEntry, RawMatch};
+use crate::search::ripgrep_parser::{FileEntry, RawMatch, assemble_file, strip_trailing_newline};
 use crate::text::utf8_offsets::byte_to_char_offset_inner;
 use crate::types::{
     RipgrepFile, RipgrepMatch, RipgrepParseResult, RipgrepSearchOptions, RipgrepStats,
@@ -287,10 +287,10 @@ struct CollectResult {
 
 fn record_collection_error(count: &AtomicU32, first: &Mutex<Option<String>>, message: String) {
     count.fetch_add(1, Ordering::Relaxed);
-    if let Ok(mut detail) = first.lock() {
-        if detail.is_none() {
-            *detail = Some(message.chars().take(512).collect());
-        }
+    if let Ok(mut detail) = first.lock()
+        && detail.is_none()
+    {
+        *detail = Some(message.chars().take(512).collect());
     }
 }
 
@@ -326,11 +326,11 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
         // Cooperative deadline: stop searching this file *before* doing more
         // per-line work. Returning Ok(false) ends the search cleanly and keeps
         // whatever partial matches were already collected.
-        if let Some(deadline) = self.deadline {
-            if Instant::now() >= deadline {
-                self.deadline_hit = true;
-                return Ok(false);
-            }
+        if let Some(deadline) = self.deadline
+            && Instant::now() >= deadline
+        {
+            self.deadline_hit = true;
+            return Ok(false);
         }
         let line_number = mat.line_number().unwrap_or(0) as u32;
         let bytes = mat.bytes();
@@ -622,11 +622,11 @@ fn collect<M: Matcher + Sync>(
         Box::new(move |dent| {
             // Cooperative deadline between files: abandon the rest of the walk
             // once the wall-clock ceiling is reached, reporting partial coverage.
-            if let Some(deadline) = deadline {
-                if Instant::now() >= deadline {
-                    timed_out.store(true, Ordering::Relaxed);
-                    return WalkState::Quit;
-                }
+            if let Some(deadline) = deadline
+                && Instant::now() >= deadline
+            {
+                timed_out.store(true, Ordering::Relaxed);
+                return WalkState::Quit;
             }
             let dent = match dent {
                 Ok(d) => d,
@@ -757,11 +757,10 @@ fn sort_and_cap(opts: &RipgrepSearchOptions, recs: &mut Vec<FileRec>) -> bool {
         .max_collected_files
         .map(|n| n as usize)
         .filter(|n| *n > 0)
+        && recs.len() > max
     {
-        if recs.len() > max {
-            recs.truncate(max);
-            return true;
-        }
+        recs.truncate(max);
+        return true;
     }
     false
 }

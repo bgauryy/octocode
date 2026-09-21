@@ -2,21 +2,21 @@ use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use ignore::overrides::{Override, OverrideBuilder};
 use ignore::WalkBuilder;
+use ignore::overrides::{Override, OverrideBuilder};
 use rayon::prelude::*;
 
 use super::language::AgLanguage;
-use super::octo::{compile_matcher, ExecutionError};
-use super::query::{invalid_query_explanation, Prefilter, StructuralQuery};
+use super::octo::{ExecutionError, compile_matcher};
+use super::query::{Prefilter, StructuralQuery, invalid_query_explanation};
 use super::types::{
-    structural_query_fingerprint, StructuralDetailedMatch, StructuralDiagnostic,
-    StructuralSearchDetailedFileResult, StructuralSearchFileResult,
+    STRUCTURAL_ANALYZER, STRUCTURAL_ANALYZER_VERSION, StructuralDetailedMatch,
+    StructuralDiagnostic, StructuralSearchDetailedFileResult, StructuralSearchFileResult,
     StructuralSearchFilesDetailedResult, StructuralSearchFilesOptions, StructuralSearchFilesResult,
-    STRUCTURAL_ANALYZER, STRUCTURAL_ANALYZER_VERSION,
+    structural_query_fingerprint,
 };
 use crate::signatures::languages;
-use crate::types::{default_excluded_directories, RipgrepFile, RipgrepSearchOptions};
+use crate::types::{RipgrepFile, RipgrepSearchOptions, default_excluded_directories};
 
 pub fn search_files(
     options: StructuralSearchFilesOptions,

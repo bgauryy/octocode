@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import {
-  DIRECT_TOOL_DISCOVERY_DEFINITIONS,
+  DIRECT_TOOL_DEFINITIONS,
   buildDirectToolCommandPatterns,
   prepareDirectToolInput,
 } from '@octocodeai/octocode-core/schema';
 import { compileMcpSchemaValidator } from '../src/tools/mcp/schema-validator.js';
 
 describe('canonical research schemas through the Pi MCP gateway validator', () => {
-  it.each(DIRECT_TOOL_DISCOVERY_DEFINITIONS)(
+  it.each(DIRECT_TOOL_DEFINITIONS)(
     '$name accepts its executable examples and rejects unknown query fields',
     tool => {
       const validator = compileMcpSchemaValidator(

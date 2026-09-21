@@ -1,7 +1,7 @@
 use super::*;
 use crate::index::{
-    build_index, index_status, query_index, IndexAccess, IndexBuildOptions, IndexQueryOptions,
-    IndexRuntimeLimits, IndexStatusOptions,
+    IndexAccess, IndexBuildOptions, IndexQueryOptions, IndexRuntimeLimits, IndexStatusOptions,
+    build_index, index_status, query_index,
 };
 
 fn access(temp: &TestDir, root: &std::path::Path) -> IndexAccess {
@@ -60,14 +60,18 @@ fn mutation_after_capture_cannot_pair_old_symbols_with_fresh_content() {
         document.identity.content_digest,
         content_digest(original.as_bytes())
     );
-    assert!(document
-        .symbols
-        .iter()
-        .any(|symbol| symbol.name == "BeforeMutation"));
-    assert!(!document
-        .symbols
-        .iter()
-        .any(|symbol| symbol.name == "AfterMutation"));
+    assert!(
+        document
+            .symbols
+            .iter()
+            .any(|symbol| symbol.name == "BeforeMutation")
+    );
+    assert!(
+        !document
+            .symbols
+            .iter()
+            .any(|symbol| symbol.name == "AfterMutation")
+    );
     assert_eq!(built.indexed_source_bytes, original.len() as u64);
     assert!(!built.usable);
     assert_eq!(built.freshness.dirty, vec!["source.ts"]);

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
-import { DIRECT_TOOL_DISCOVERY_DEFINITIONS } from '@octocodeai/octocode-core/schema';
+import { DIRECT_TOOL_DEFINITIONS } from '@octocodeai/octocode-core/schema';
 
 type RoutingCase = {
   id: string;
@@ -52,7 +52,7 @@ describe('held-out unified routing correctness', () => {
   it.each(fixture.cases)('$id stays correct on both surfaces', testCase => {
     expect(testCase.heldOut).toBe(true);
 
-    const unified = DIRECT_TOOL_DISCOVERY_DEFINITIONS.find(
+    const unified = DIRECT_TOOL_DEFINITIONS.find(
       tool => tool.name === testCase.unified.tool
     );
     expect(
@@ -77,12 +77,12 @@ describe('held-out unified routing correctness', () => {
 
 describe('unified routing keep/revert gate', () => {
   const unifiedNames = ['ghSearch', 'ghSearchHistory', 'localSearch'];
-  const unifiedTools = DIRECT_TOOL_DISCOVERY_DEFINITIONS.filter(tool =>
+  const unifiedTools = DIRECT_TOOL_DEFINITIONS.filter(tool =>
     unifiedNames.includes(tool.name)
   );
 
   it('does not reintroduce any retired public runtime alias', () => {
-    const publicNames = DIRECT_TOOL_DISCOVERY_DEFINITIONS.map(
+    const publicNames = DIRECT_TOOL_DEFINITIONS.map(
       tool => tool.name
     );
     const retiredNames = fixture.retiredSurface.tools.map(tool => tool.name);

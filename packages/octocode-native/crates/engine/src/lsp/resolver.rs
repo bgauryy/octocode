@@ -661,10 +661,12 @@ mod tests {
             &mut candidates,
             std::time::Instant::now(),
         );
-        assert!(result
-            .expect_err("walk budget must fail")
-            .reason
-            .contains("[lspPositionTimeout]"));
+        assert!(
+            result
+                .expect_err("walk budget must fail")
+                .reason
+                .contains("[lspPositionTimeout]")
+        );
         assert!(candidates.is_empty());
     }
 

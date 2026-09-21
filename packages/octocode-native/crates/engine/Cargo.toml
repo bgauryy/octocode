@@ -1,16 +1,13 @@
 [package]
 name = "octocode-engine"
 version = "20.0.0"
-edition = "2021"
-# MSRV floor: highest stable API in use is File::try_lock/unlock (Rust 1.89).
-# Enforced in CI by `clippy::incompatible_msrv` (in `clippy::all`, denied, run
-# with `-D warnings`), which flags any std/core API newer than this floor.
-rust-version = "1.89"
+edition.workspace = true
+rust-version.workspace = true
 build = "build.rs"
 publish = false
 description = "Rust native Octocode engine for context compression, structural search, and LSP semantic navigation"
-license = "MIT"
-repository = "https://github.com/bgauryy/octocode-mcp"
+license.workspace = true
+repository.workspace = true
 keywords = ["napi", "llm", "context", "lsp", "nodejs"]
 categories = ["development-tools", "text-processing"]
 
@@ -51,8 +48,8 @@ grep-pcre2 = { version = "0.1.10", optional = true }
 grep-regex = "0.1.14"
 grep-searcher = "0.1.17"
 ignore = "0.4"
-napi = { version = "3", default-features = false, features = ["napi4", "tokio_rt", "serde-json"], optional = true }
-napi-derive = { version = "3", optional = true }
+napi = { workspace = true, optional = true }
+napi-derive = { workspace = true, optional = true }
 oxc_allocator = "=0.150.0"
 oxc_ast = "=0.150.0"
 oxc_codegen = { version = "=0.150.0", default-features = false }
@@ -61,12 +58,12 @@ oxc_parser = "=0.150.0"
 oxc_semantic = "=0.150.0"
 oxc_span = "=0.150.0"
 rayon = "1"
-regex = "1"
+regex = { workspace = true }
 regex-syntax = "0.8"
-serde = { version = "1", features = ["derive"] }
-serde_json = { version = "1", features = ["arbitrary_precision", "preserve_order"] }
-serde_yaml_ng = "0.10"
-tokio = { version = "1", features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "sync", "time"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml_ng = { workspace = true }
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "sync", "time"] }
 tree-sitter = "0.27"
 tree-sitter-asm = { version = "0.24", optional = true }
 tree-sitter-c = "0.24"
@@ -80,19 +77,19 @@ tree-sitter-python = "0.25"
 tree-sitter-rust = "0.24.2"
 tree-sitter-scala = { version = "0.26", optional = true }
 tree-sitter-typescript = "0.23"
-url = "2"
+url = { workspace = true }
 which = "8"
 
 [target.'cfg(unix)'.dependencies]
-libc = "0.2"
+libc = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_JobObjects"] }
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_JobObjects"] }
 
 [dev-dependencies]
 criterion = { version = "0.8" }
 proptest = "1"
-tokio = { version = "1", features = ["test-util"] }
+tokio = { workspace = true, features = ["test-util"] }
 
 [[bench]]
 name = "structural"
@@ -121,5 +118,5 @@ tree-sitter-large-grammars = ["tree-sitter-cpp", "tree-sitter-c-sharp", "tree-si
 tree-sitter-scala = ["dep:tree-sitter-scala"]
 
 [build-dependencies]
-napi-build = { version = "2", optional = true }
+napi-build = { workspace = true, optional = true }
 

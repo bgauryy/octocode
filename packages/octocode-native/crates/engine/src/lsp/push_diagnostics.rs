@@ -8,14 +8,14 @@
 //! store and the parent's tests share a single source of truth.
 
 use super::json_rpc::{
-    MAX_PUSH_DIAGNOSTICS_PER_DOCUMENT, MAX_PUSH_DIAGNOSTIC_BYTES_PER_DOCUMENT,
-    MAX_PUSH_DIAGNOSTIC_DOCUMENTS,
+    MAX_PUSH_DIAGNOSTIC_BYTES_PER_DOCUMENT, MAX_PUSH_DIAGNOSTIC_DOCUMENTS,
+    MAX_PUSH_DIAGNOSTICS_PER_DOCUMENT,
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex as StdMutex};
 use tokio::sync::Notify;
-use tokio::time::{timeout, Duration, Instant};
+use tokio::time::{Duration, Instant, timeout};
 
 #[derive(Clone)]
 struct PushDiagnosticsRecord {
@@ -73,11 +73,11 @@ impl PushDiagnosticsStore {
             return;
         };
         state.order.retain(|existing| existing != uri);
-        if !state.records.contains_key(uri) && state.records.len() >= MAX_PUSH_DIAGNOSTIC_DOCUMENTS
+        if !state.records.contains_key(uri)
+            && state.records.len() >= MAX_PUSH_DIAGNOSTIC_DOCUMENTS
+            && let Some(oldest) = state.order.pop_front()
         {
-            if let Some(oldest) = state.order.pop_front() {
-                state.records.remove(&oldest);
-            }
+            state.records.remove(&oldest);
         }
         state.order.push_back(uri.to_owned());
         state
