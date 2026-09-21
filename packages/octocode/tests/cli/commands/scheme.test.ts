@@ -54,7 +54,9 @@ describe('scheme command admission', () => {
         options: { [option]: true },
       })
     ).resolves.toBe(0);
-    expect(output).toHaveBeenCalledWith(expect.stringContaining('octocode scheme'));
+    expect(output).toHaveBeenCalledWith(
+      expect.stringContaining('octocode scheme')
+    );
   });
 
   it('rejects an invalid view on the text error channel', async () => {
@@ -66,7 +68,9 @@ describe('scheme command admission', () => {
         options: { view: 'invalid' },
       })
     ).resolves.toBe(2);
-    expect(error).toHaveBeenCalledWith('--view expects full|query, got: invalid');
+    expect(error).toHaveBeenCalledWith(
+      '--view expects full|query, got: invalid'
+    );
   });
 
   it('rejects an invalid view on the JSON error channel', async () => {
