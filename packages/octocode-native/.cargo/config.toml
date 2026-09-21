@@ -10,6 +10,15 @@
 #   sccache : brew install sccache            (cross-branch compile cache)
 #   lld     : brew install lld                (fast linker on macOS)
 #   mold    : apt install mold                (fast linker on Linux)
+#
+# ── Disk hygiene (target/ grows unbounded) ────────────────────────────────────
+# `target/debug/incremental` alone reached 78 GB here (163 GB across all
+# incremental dirs). Incremental caches are regenerable scratch — safe to delete;
+# `deps/` (the compiled dependency crates) stays, so builds stay warm.
+#   yarn clean:cache          # portable: rm every target/**/incremental, print size
+#   yarn clean:cache:sweep    # + `cargo sweep --maxsize 30` (needs cargo-sweep)
+# Make it periodic without a daemon, e.g. weekly cron:
+#   0 9 * * 1  cd <repo>/packages/octocode-native && yarn clean:cache
 
 # ── sccache: cache rustc invocations across branches / clean builds ───────────
 # 60–80% faster on a warm cache. Tradeoff: sccache disables incremental
