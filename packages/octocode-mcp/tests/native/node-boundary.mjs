@@ -61,6 +61,7 @@ assert.deepEqual(
   ['localFetch']
 );
 assert.equal(typeof list.tools[0].description, 'string');
+assert.equal(Object.hasOwn(list.tools[0], 'outputSchema'), false);
 
 const result = await client.callTool({
   name: 'localFetch',

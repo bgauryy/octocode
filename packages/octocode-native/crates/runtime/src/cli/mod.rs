@@ -10,6 +10,8 @@ use octocode_native::config::RuntimeSurface;
 use octocode_native::runtime::{HostOptions, ToolRuntime};
 use octocode_native::tools::id::ToolId;
 use serde_json::{Value, json};
+
+const INTERACTIVE_EXECUTION_TIMEOUT_SECS: u64 = 300;
 use std::io::{self, Write};
 
 #[derive(Parser)]
@@ -206,9 +208,9 @@ pub async fn run(args: Args) -> u8 {
     }
     let runtime = match ToolRuntime::from_host(HostOptions {
         surface: RuntimeSurface::Cli,
-        // Use 120 s instead of the default 60 s so LSP cold-start initialisation
-        // (which can take ~60 s on the first invocation) completes without a timeout.
-        timeout_secs: Some(120),
+        // Keep the outer execution budget above the worst configured cold start
+        // plus one logical request: initialize, readiness, retries, and delays.
+        timeout_secs: Some(INTERACTIVE_EXECUTION_TIMEOUT_SECS),
         ..HostOptions::default()
     }) {
         Ok(runtime) => runtime,
@@ -265,7 +267,6 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
                     compact,
                 );
             };
-            let instructions = catalog["mcpInstructions"].clone();
             let value = catalog["tools"]
                 .as_array()
                 .and_then(|tools| tools.iter().find(|tool| tool["name"] == *name))
@@ -286,7 +287,6 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
             };
             match schema::project_selected(value, view.unwrap_or_default(), select.as_deref()) {
                 Ok(mut value) => {
-                    value["instructions"] = instructions;
                     // The compact catalog carries a generic `run` hint; the
                     // per-tool view echoes the concrete invocation so an agent
                     // inspecting one contract sees exactly how to execute it.
@@ -491,18 +491,11 @@ pub(super) async fn execute(runtime: &ToolRuntime, tool: &str, input: Value, com
                 // continuation is still exit 6. A nested/informational partial
                 // with no continuation and no source content (e.g. a reasoning
                 // tool's coverage `truncated`) stays 0.
-                let has_continuation =
-                    value["results"]
-                        .as_array()
-                        .into_iter()
-                        .flatten()
-                        .any(|row| {
-                            row.pointer("/data/next").is_some()
-                                || (octocode_native::runtime::response::is_partial(&row["data"])
-                                    && row["data"]["content"]
-                                        .as_str()
-                                        .is_some_and(|text| !text.is_empty()))
-                        });
+                let has_continuation = value["results"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .any(has_cli_continuation);
                 exit = if has_continuation { 6 } else { 0 };
             }
             let code = write_json(&value, compact);
@@ -539,6 +532,34 @@ pub(super) async fn execute(runtime: &ToolRuntime, tool: &str, input: Value, com
     }
 }
 
+fn has_cli_continuation(row: &Value) -> bool {
+    row.pointer("/data/next").is_some()
+        || has_nested_executable_next(&row["data"], false)
+        || (octocode_native::runtime::response::is_partial(&row["data"])
+            && row["data"]["content"]
+                .as_str()
+                .is_some_and(|text| !text.is_empty()))
+}
+
+fn has_nested_executable_next(value: &Value, inside_next: bool) -> bool {
+    match value {
+        Value::Object(map) => {
+            if inside_next
+                && map.get("tool").is_some_and(Value::is_string)
+                && map.get("query").is_some_and(Value::is_object)
+            {
+                return true;
+            }
+            map.iter()
+                .any(|(key, child)| has_nested_executable_next(child, inside_next || key == "next"))
+        }
+        Value::Array(values) => values
+            .iter()
+            .any(|child| has_nested_executable_next(child, inside_next)),
+        _ => false,
+    }
+}
+
 pub(super) fn write_json(value: &Value, compact: bool) -> u8 {
     let text = if compact {
         serde_json::to_string(value)
@@ -552,5 +573,50 @@ pub(super) fn write_json(value: &Value, compact: bool) -> u8 {
             Err(_) => 5,
         },
         Err(_) => 5,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{INTERACTIVE_EXECUTION_TIMEOUT_SECS, has_cli_continuation};
+    use serde_json::json;
+
+    #[test]
+    fn nested_executable_continuation_is_classified_as_partial_cli_output() {
+        let row = json!({
+            "data": {
+                "files": [{
+                    "path": "src/lib.rs",
+                    "isPartial": true,
+                    "next": {
+                        "continue": {
+                            "tool": "ghGetFileContent",
+                            "query": {"owner":"a","repo":"b","path":"src/lib.rs","charOffset":64}
+                        }
+                    }
+                }]
+            }
+        });
+
+        assert!(has_cli_continuation(&row));
+    }
+
+    #[test]
+    fn informational_nested_partial_without_executable_next_stays_success() {
+        let row = json!({
+            "data": {
+                "pages": [{"isPartial": true, "coverage": "partial"}]
+            }
+        });
+
+        assert!(!has_cli_continuation(&row));
+    }
+
+    #[test]
+    fn execution_deadline_exceeds_the_worst_cold_lsp_budget() {
+        assert!(
+            INTERACTIVE_EXECUTION_TIMEOUT_SECS * 1_000
+                > octocode_engine::lsp::MAX_COLD_LSP_EXECUTION_BUDGET_MS
+        );
     }
 }

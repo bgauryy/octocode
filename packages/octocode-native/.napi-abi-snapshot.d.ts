@@ -264,6 +264,11 @@ export interface FileSystemQueryOptions {
   executable?: boolean
   readable?: boolean
   writable?: boolean
+  /**
+   * Directory names pruned from recursive traversal. Omission uses the
+   * canonical generated-directory list; an explicit empty list includes all
+   * directories.
+   */
   excludeDir?: Array<string>
   /**
    * Stop walking after `limit` returned entries. Default true for interactive

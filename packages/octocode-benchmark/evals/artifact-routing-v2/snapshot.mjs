@@ -16,7 +16,7 @@ export async function snapshot(subject, root, core) {
   cpSync(path.join(source,'dist'),path.join(destination,'core-dist'),{recursive:true});
   mkdirSync(path.join(destination,'core-dist/node_modules'),{recursive:true});
   cpSync(path.dirname(zodPath),path.join(destination,'core-dist/node_modules/zod'),{recursive:true});
-  const tools = schemas.DIRECT_TOOL_SPECIFICATIONS.map(tool => ({name:tool.name,description:tool.description,
+  const tools = schemas.DIRECT_TOOL_DEFINITIONS.map(tool => ({name:tool.name,description:tool.description,
     parameters:z.toJSONSchema(tool.inputSchema,{io:'input',unrepresentable:'any'}),
     querySchema:z.toJSONSchema(tool.schema,{io:'input',unrepresentable:'any'})}));
   const metadata = {capturedAt:new Date().toISOString(),node:process.version,platform:process.platform,arch:process.arch,

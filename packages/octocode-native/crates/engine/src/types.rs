@@ -319,6 +319,22 @@ pub struct RipgrepSearchOptions {
 
 // ── filesystem query types ───────────────────────────────────────────────────
 
+pub(crate) fn default_excluded_directories() -> Vec<String> {
+    [
+        "node_modules",
+        "dist",
+        ".git",
+        "build",
+        "coverage",
+        ".next",
+        "out",
+        "target",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect()
+}
+
 #[cfg_attr(feature = "napi-addon", napi(object))]
 #[derive(Debug, Clone, Default)]
 pub struct FileSystemQueryOptions {
@@ -361,6 +377,9 @@ pub struct FileSystemQueryOptions {
     pub executable: Option<bool>,
     pub readable: Option<bool>,
     pub writable: Option<bool>,
+    /// Directory names pruned from recursive traversal. Omission uses the
+    /// canonical generated-directory list; an explicit empty list includes all
+    /// directories.
     pub exclude_dir: Option<Vec<String>>,
     /// Stop walking after `limit` returned entries. Default true for interactive
     /// tools; set false when exact total_discovered is more important than

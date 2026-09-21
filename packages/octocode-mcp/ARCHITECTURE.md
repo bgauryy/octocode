@@ -31,7 +31,8 @@ therefore registered only when the native runtime resolves a nonblank
 out of MCP discovery. For every available tool, it:
 
 1. looks up the matching core-owned Standard Schema definition;
-2. registers its title, description, input/output schemas, and annotations;
+2. registers its title, description, input schema, and annotations; MCP discovery
+   intentionally omits output schemas while tool results remain structured;
 3. forwards the unchanged MCP arguments to `NativeRuntime.executeMcp()`;
 4. forwards MCP cancellation to `NativeRuntime.cancel()`.
 
@@ -43,7 +44,11 @@ prevents the advertised native catalog and the MCP surface from drifting.
 `startNativeMcp()` connects `StdioServerTransport`. Its returned `close()` method
 is idempotent and closes the transport before the native runtime. The native
 runtime owns request admission, cancellation, worker cleanup, caches, LSP
-clients, and other execution resources.
+clients, and other execution resources. MCP constructs that runtime with a
+300-second execution deadline, matching CLI and staying strictly above the
+configured cold-start-plus-one-request budget: initialize, Java's 120-second
+readiness wait, request retries, retry delays, and transport overhead. The same
+outer cap still bounds multi-request hierarchy traversals.
 
 ## Distribution
 

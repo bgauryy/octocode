@@ -10,4 +10,5 @@ Verify both halves of the history contract:
 Run list searches for all three plural operations, then fetch one result through
 the matching singular operation. For `compare`, verify that both `base` and
 `head` are required. Confirm the real MCP catalog contains both descriptors in
-canonical order and both descriptors expose their canonical `outputSchema`.
+canonical order, preserve their input schemas and annotations, and do not expose
+an `outputSchema` on either descriptor.

@@ -2484,12 +2484,12 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-core@npm:19.1.0":
-  version: 19.1.0
-  resolution: "@octocodeai/octocode-core@npm:19.1.0"
+"@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::locator=octocode-monorepo%40workspace%3A.":
+  version: 19.1.1
+  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=0de51a&locator=octocode-monorepo%40workspace%3A."
   dependencies:
     zod: "npm:^4.6.2"
-  checksum: 10c0/da6949f595c70420ebfafcd8fd19c5c5eeb66a54a1be03a91481b7af8ca9080d1db8da63bec1d875560f1af122048947ff21546c4e8c53e9de58c67260f08007
+  checksum: 10c0/7f1cf9383260cc6d9cd4d4d3b07856803642819a1190d70223dc47ee893945d713698dba61968520ad862ab5ee2f9eb5d289d5e452a6aa3244ab1c96cb1fd888
   languageName: node
   linkType: hard
 
@@ -6044,7 +6044,7 @@ __metadata:
   dependencies:
     "@modelcontextprotocol/sdk": "npm:^1.30.0"
     "@modelcontextprotocol/server": "npm:^2.0.0"
-    "@octocodeai/octocode-core": "npm:19.1.0"
+    "@octocodeai/octocode-core": "npm:19.1.1"
     "@octocodeai/octocode-native": "npm:20.0.0"
     "@types/node": "npm:^24.13.4"
     "@vitest/coverage-v8": "npm:^5.0.0"

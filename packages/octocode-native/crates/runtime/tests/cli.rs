@@ -80,6 +80,30 @@ fn help_lists_only_the_minimal_command_surface() {
 }
 
 #[test]
+fn semantic_assess_missing_key_is_actionable() {
+    let workspace = Workspace::new();
+    let query = serde_json::json!({
+        "id":"decision",
+        "reasoning":"Choose the next inspection.",
+        "resources":[{"id":"observed","context":{"value":{"fact":"present"}}}],
+        "questions":[{"id":"relevant","question":{"type":"noul","instructions":"Is it relevant?"}}]
+    });
+    let output = workspace
+        .cli()
+        .args(["semanticAssess", &query.to_string(), "--compact"])
+        .output()
+        .expect("missing-key execution");
+    assert_eq!(exit_code(&output), Some(5));
+    let output = stdout(&output);
+    assert!(output.contains("missingConfiguration"), "{output}");
+    assert!(output.contains("OCTOCODE_JEV_KEY"), "{output}");
+    assert!(
+        output.contains("https://docs.typesafe.ai/introduction"),
+        "{output}"
+    );
+}
+
+#[test]
 fn tool_help_uses_canonical_core_short_descriptions() {
     let workspace = Workspace::new();
     let contract = octocode_native::contracts::parsed_contract().expect("embedded contract");
@@ -217,6 +241,28 @@ fn auth_status_honors_personal_access_token_alias() {
         assert_eq!(value["authenticated"], true, "{argv:?}");
         assert_eq!(value["tokenSource"], "env", "{argv:?}");
     }
+}
+
+/// A whitespace-only env token must NOT be reported as an `env` credential:
+/// the request path resolves tokens through `resolve_env_token`, which trims
+/// and drops empty values, and `auth status` now shares that same selection
+/// (`config.token`). Before the flows were unified the diagnostic re-read the
+/// raw var and reported `env` for a token the request path would never send.
+#[test]
+fn auth_status_ignores_whitespace_only_env_token() {
+    let workspace = Workspace::new();
+    let output = workspace
+        .cli()
+        .env("GH_TOKEN", "   ")
+        .args(["auth", "status", "--json"])
+        .output()
+        .expect("auth status");
+    assert!(output.status.success() || output.status.code() == Some(1));
+    let value: serde_json::Value = serde_json::from_str(stdout(&output)).expect("auth json");
+    assert_ne!(
+        value["tokenSource"], "env",
+        "whitespace-only token must not resolve as an env credential: {value}"
+    );
 }
 
 #[test]
@@ -657,8 +703,18 @@ fn scheme_lists_the_compact_discovery_catalog() {
 }
 
 #[test]
-fn scheme_prints_the_complete_tool_contract() {
+fn scheme_prints_the_public_tool_contract_without_output_schema() {
     let workspace = Workspace::new();
+    let help = workspace
+        .cli()
+        .args(["scheme", "--help"])
+        .output()
+        .expect("scheme help");
+    assert!(help.status.success(), "{}", stderr(&help));
+    let help = stdout(&help);
+    assert!(help.contains("public tool contract"), "{help}");
+    assert!(!help.contains("full contract"), "{help}");
+
     let output = workspace
         .cli()
         .args(["scheme", "localSearch", "--compact"])
@@ -677,9 +733,19 @@ fn scheme_prints_the_complete_tool_contract() {
             .is_some_and(|instructions| instructions.contains("Workflows:"))
     );
     assert!(value["inputSchema"].is_object());
-    assert!(value["outputSchema"].is_object());
+    assert!(!value.to_string().contains("\"outputSchema\""));
     // The per-tool view echoes the concrete run command for the inspected tool.
     assert_eq!(value["run"], "octocode localSearch '<json>'");
+
+    let full = workspace
+        .cli()
+        .args(["scheme", "localSearch", "--view", "full", "--compact"])
+        .output()
+        .expect("scheme localSearch full");
+    assert!(full.status.success(), "{}", stderr(&full));
+    let full: serde_json::Value = serde_json::from_str(stdout(&full)).expect("full contract JSON");
+    assert!(full["inputSchema"].is_object());
+    assert!(!full.to_string().contains("\"outputSchema\""));
 }
 
 #[test]
@@ -724,7 +790,7 @@ fn scheme_query_view_selects_a_single_union_branch() {
         value["querySchema"]["oneOf"].as_array().map(Vec::len),
         Some(1)
     );
-    assert!(value.get("outputSchema").is_none());
+    assert!(!value.to_string().contains("\"outputSchema\""));
 }
 
 #[test]

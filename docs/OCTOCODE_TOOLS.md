@@ -1546,7 +1546,7 @@ Local tools validate all paths against allowed roots. Cloned repositories are ac
 3. **Workspace root resolution**: Local tools validate paths against allowed roots, and LSP tools automatically choose project context from the target file path. If a cloned file is inside `WORKSPACE_ROOT`, Octocode keeps that root; otherwise it walks up from the file to the nearest project marker (`package.json`, `tsconfig.json`, `.git`, `Cargo.toml`, `go.mod`, `pyproject.toml`, etc.)
 4. **Result**: The `location.localPath` returned by `ghCloneRepo` is automatically valid for all local + LSP tools, even when the cloned repository lives outside your current shell workspace
 
-For MCP, set `ENABLE_CLONE=true` and leave local tools enabled. The CLI defaults both local and clone support on unless explicitly disabled.
+For CLI or MCP, set `ENABLE_CLONE=true` and leave local tools enabled. Local tools default on; clone support defaults off on both surfaces.
 
 For TypeScript/JavaScript LSP:
 

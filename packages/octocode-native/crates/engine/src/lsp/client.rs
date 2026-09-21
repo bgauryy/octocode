@@ -18,9 +18,9 @@ use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio::time::{timeout, Duration};
 
-const REQUEST_TIMEOUT_MS: u32 = 30_000;
-const CONTENT_MODIFIED_RETRIES: u8 = 3;
-const CONTENT_MODIFIED_RETRY_DELAY_MS: u64 = 500;
+pub(super) const REQUEST_TIMEOUT_MS: u32 = 30_000;
+pub(super) const CONTENT_MODIFIED_RETRIES: u8 = 3;
+pub(super) const CONTENT_MODIFIED_RETRY_DELAY_MS: u64 = 500;
 const STDERR_RING_CAPACITY: usize = 100;
 const STDERR_LINE_MAX_CHARS: usize = 2_000;
 const MAX_SNIPPET_SOURCE_BYTES: u64 = 1_000_000;

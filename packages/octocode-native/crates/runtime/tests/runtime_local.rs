@@ -7,18 +7,33 @@ use serde_json::json;
 use support::{Workspace, call, query_path, row_data, row_status};
 
 #[tokio::test]
-async fn runtime_requires_explicit_non_blank_reasoning() {
+async fn ordinary_tools_allow_omitted_reasoning_but_reject_blank_values() {
     let workspace = Workspace::new();
     let path = workspace.write("reasoning.txt", "ok\n");
     let runtime = workspace.runtime(&[]);
     let path = path.to_string_lossy().into_owned();
-    for query in [json!({"path":path}), json!({"path":path,"reasoning":"   "})] {
-        let error = runtime
-            .execute("reasoning-test".into(), "localFetch".into(), query)
-            .await
-            .expect_err("reasoning is required");
-        assert_eq!(error.code, "invalidInput");
-    }
+    let outcome = runtime
+        .execute(
+            "reasoning-omitted".into(),
+            "localFetch".into(),
+            json!({"path":path}),
+        )
+        .await
+        .expect("ordinary tools allow omitted reasoning");
+    assert_eq!(
+        outcome.structured_content["results"][0]["data"]["content"],
+        "ok\n"
+    );
+
+    let error = runtime
+        .execute(
+            "reasoning-blank".into(),
+            "localFetch".into(),
+            json!({"path":path,"reasoning":"   "}),
+        )
+        .await
+        .expect_err("blank reasoning must be rejected when supplied");
+    assert_eq!(error.code, "invalidInput");
     runtime.close().await;
 }
 
@@ -224,7 +239,29 @@ async fn disabled_local_family_is_unavailable() {
 async fn runtime_catalog_lists_available_tools() {
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[]);
+    let internal = octocode_native::contracts::parsed_contract().expect("embedded contract");
+    assert!(
+        internal["tools"]
+            .as_array()
+            .expect("internal tools")
+            .iter()
+            .all(|tool| tool["outputSchema"].is_object()),
+        "internal output schemas must remain available for runtime validation"
+    );
     let catalog = runtime.catalog().expect("catalog");
+    assert_eq!(catalog["fingerprint"], internal["fingerprint"]);
+    assert!(
+        !catalog.to_string().contains("\"outputSchema\""),
+        "public runtime catalog must not expose output schemas"
+    );
+    assert!(
+        catalog["tools"]
+            .as_array()
+            .expect("public tools")
+            .iter()
+            .all(|tool| tool["inputSchema"].is_object() && tool["querySchema"].is_object()),
+        "public input and query schemas must remain available"
+    );
     let names: Vec<_> = catalog["tools"]
         .as_array()
         .expect("tools")

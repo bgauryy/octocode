@@ -69,7 +69,10 @@ pub(super) fn validate(
         .collect::<Vec<_>>();
     if non_aborted.len() == 1 {
         return Err(ContractValidationError {
-            issues: group_unknown_fields(non_aborted[0].clone()),
+            // Preserve the original unknown-field path and knownFields schema.
+            // The stable error projector uses both to produce an actionable
+            // spelling suggestion; grouping them here discards that context.
+            issues: non_aborted[0].clone(),
         });
     }
     let Some(selected) = failures
@@ -82,13 +85,9 @@ pub(super) fn validate(
             "Input matches multiple exclusive schema branches",
         ));
     };
-    let mut issues = group_unknown_fields(selected);
-    for issue in &mut issues {
-        if issue.rule_id == "schema.union-keys" {
-            issue.rule_id = "schema.union-selected-keys".into();
-        }
-    }
-    Err(ContractValidationError { issues })
+    // Branch scoring may group key errors for parity, but the selected branch
+    // must retain individual paths and schemas for precise diagnostics.
+    Err(ContractValidationError { issues: selected })
 }
 
 fn score(issues: &[ValidationIssue], depth: usize) -> [usize; 4] {

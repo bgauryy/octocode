@@ -1,15 +1,15 @@
 import { describe, it, expect } from 'vitest';
 
-import { DIRECT_TOOL_SPECIFICATIONS } from '@octocodeai/octocode-core/schema';
+import { DIRECT_TOOL_DEFINITIONS } from '@octocodeai/octocode-core/schema';
 
-const ALL_BULK_SCHEMAS = DIRECT_TOOL_SPECIFICATIONS.map(
+const ALL_BULK_SCHEMAS = DIRECT_TOOL_DEFINITIONS.map(
   tool => [tool.name, tool.inputSchema] as const
 );
 
 const DEFAULT_MAX_QUERIES = 5;
 
 describe('bulk envelope numeric bounds', () => {
-  describe.each(ALL_BULK_SCHEMAS)('%s', (name, schema) => {
+  describe.each(ALL_BULK_SCHEMAS)('%s', (_name, schema) => {
     const maxQueries = DEFAULT_MAX_QUERIES;
     const baseQueries = [{ id: 'q1' }];
 

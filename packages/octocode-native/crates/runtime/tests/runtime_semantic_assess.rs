@@ -7,6 +7,11 @@ use support::Workspace;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+// Match the production default for HTTP-backed provider fixtures. The shared
+// test workspace uses 5 seconds to keep unrelated timeout tests fast, which is
+// too narrow during a cold/full native build with several mock servers active.
+const MOCK_PROVIDER_TIMEOUT_MS: &str = "30000";
+
 fn query() -> serde_json::Value {
     json!({
         "id":"decision",
@@ -19,27 +24,25 @@ fn query() -> serde_json::Value {
     })
 }
 
-#[test]
-fn cli_lists_semantic_assess_without_legacy_alias_and_explains_key_setup() {
+#[tokio::test]
+async fn semantic_assess_requires_non_blank_reasoning() {
     let workspace = Workspace::new();
-    let help = workspace.cli().arg("--help").output().expect("CLI help");
-    let help = String::from_utf8_lossy(&help.stdout);
-    assert!(help.contains("\n  semanticAssess"));
-    assert!(!help.contains("\n  jev"));
-
-    let output = workspace
-        .cli()
-        .args(["semanticAssess", &query().to_string(), "--compact"])
-        .output()
-        .expect("missing-key execution");
-    assert_eq!(output.status.code(), Some(5));
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("missingConfiguration"), "{stdout}");
-    assert!(stdout.contains("OCTOCODE_JEV_KEY"), "{stdout}");
-    assert!(
-        stdout.contains("https://docs.typesafe.ai/introduction"),
-        "{stdout}"
-    );
+    let runtime = workspace.runtime(&[("OCTOCODE_JEV_KEY", "secret".into())]);
+    for reasoning in [None, Some("   ")] {
+        let mut input = query();
+        match reasoning {
+            Some(reasoning) => input["reasoning"] = json!(reasoning),
+            None => {
+                input.as_object_mut().unwrap().remove("reasoning");
+            }
+        }
+        let error = runtime
+            .execute("semantic-reasoning".into(), "semanticAssess".into(), input)
+            .await
+            .expect_err("semanticAssess reasoning is required and non-blank");
+        assert_eq!(error.code, "invalidInput");
+    }
+    runtime.close().await;
 }
 
 #[tokio::test]
@@ -99,6 +102,7 @@ async fn matrix_is_resource_major_and_reports_requested_and_resolved_models() {
         ("OCTOCODE_JEV_KEY", "secret".into()),
         ("OCTOCODE_JEV_MODEL", "caller-requested".into()),
         ("OCTOCODE_JEV_BASE_URL", server.uri()),
+        ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
     ]);
     let outcome = runtime
         .execute("matrix".into(), "semanticAssess".into(), query())
@@ -143,6 +147,7 @@ async fn oversized_first_page_is_bounded_partial_without_a_looping_continuation(
     let runtime = workspace.runtime(&[
         ("OCTOCODE_JEV_KEY", "secret".into()),
         ("OCTOCODE_JEV_BASE_URL", server.uri()),
+        ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
     ]);
     let input = json!({
         "id":"bounded",
@@ -182,7 +187,7 @@ async fn recoverable_full_content_error_follows_exact_pages_and_completes_covera
     let runtime = workspace.runtime(&[
         ("OCTOCODE_JEV_KEY", "secret".into()),
         ("OCTOCODE_JEV_BASE_URL", server.uri()),
-        ("REQUEST_TIMEOUT", "20000".into()),
+        ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
     ]);
     let input = json!({
         "id":"recover-full-content",
@@ -236,6 +241,7 @@ async fn page_budget_continuation_round_trips_through_the_public_contract() {
     let runtime = workspace.runtime(&[
         ("OCTOCODE_JEV_KEY", "secret".into()),
         ("OCTOCODE_JEV_BASE_URL", server.uri()),
+        ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
     ]);
     let input = json!({
         "id":"paged",

@@ -157,6 +157,7 @@ pub async fn execute(
         _ => {
             return Ok(failure(
                 &query,
+                &canonical_uri,
                 "lsp.workspaceRootInvalid",
                 "workspaceRoot is not an authorized directory.",
                 false,
@@ -182,6 +183,7 @@ pub async fn execute(
     else {
         return Ok(failure(
             &query,
+            &canonical_uri,
             "lsp.serverUnavailable",
             "No language server is configured for this file.",
             false,
@@ -194,6 +196,7 @@ pub async fn execute(
         Ok(None) => {
             return Ok(failure(
                 &query,
+                &canonical_uri,
                 "lsp.serverUnavailable",
                 "Language server failed to start.",
                 false,
@@ -202,6 +205,7 @@ pub async fn execute(
         Err(error) => {
             return Ok(failure(
                 &query,
+                &canonical_uri,
                 "lsp.serverUnavailable",
                 &error.to_string(),
                 false,
@@ -211,6 +215,7 @@ pub async fn execute(
     if client.readiness().as_deref() == Some("timeout") {
         return Ok(failure(
             &query,
+            &canonical_uri,
             "lsp.timeout",
             "Timed out waiting for the language server to become ready.",
             false,
@@ -221,6 +226,7 @@ pub async fn execute(
     {
         return Ok(failure(
             &query,
+            &canonical_uri,
             "lsp.capabilityUnavailable",
             &format!("The language server does not advertise {capability}."),
             true,
@@ -234,6 +240,7 @@ pub async fn execute(
             Ok(metadata) if didopen_exceeds_cap(metadata.len()) => {
                 return Ok(failure(
                     &query,
+                    &canonical_uri,
                     "lsp.documentTooLarge",
                     &format!(
                         "The source document is too large to synchronize with the language server ({} bytes > {MAX_LSP_DIDOPEN_BYTES} bytes).",
@@ -246,6 +253,7 @@ pub async fn execute(
             Err(error) => {
                 return Ok(failure(
                     &query,
+                    &canonical_uri,
                     "lsp.documentReadFailed",
                     &format!("The source document could not be read: {error}"),
                     false,
@@ -257,6 +265,7 @@ pub async fn execute(
             Err(error) => {
                 return Ok(failure(
                     &query,
+                    &canonical_uri,
                     "lsp.documentReadFailed",
                     &format!("The source document could not be read: {error}"),
                     false,
@@ -266,6 +275,7 @@ pub async fn execute(
         if let Err(error) = client.open_document(path.clone(), content).await {
             return Ok(failure(
                 &query,
+                &canonical_uri,
                 "lsp.documentSyncFailed",
                 &format!("The source document could not be synchronized: {error}"),
                 true,
@@ -275,7 +285,13 @@ pub async fn execute(
     let (line, character) = match resolve_anchor(&query, &path) {
         Ok(anchor) => anchor,
         Err(error) => {
-            return Ok(failure(&query, "lsp.anchorUnresolved", &error, true));
+            return Ok(failure(
+                &query,
+                &canonical_uri,
+                "lsp.anchorUnresolved",
+                &error,
+                true,
+            ));
         }
     };
     let resolved_symbol = present_resolved_symbol(&query, &path, &canonical_uri);
@@ -1393,12 +1409,7 @@ fn items_payload(query: &LspSearchQuery, kind: &str, value: Value) -> Value {
 }
 
 fn recovery_next(query: &LspSearchQuery) -> Value {
-    let path = query
-        .uri
-        .as_deref()
-        .map(uri_to_path)
-        .or_else(|| query.workspace_root.clone())
-        .unwrap_or_default();
+    let path = query.uri.as_deref().map(uri_to_path).unwrap_or_default();
     json!({
         "readFile": {
             "tool": "localFetch",
@@ -1415,19 +1426,27 @@ fn attach_recovery_next(value: &mut Value, query: &LspSearchQuery) {
     value["next"] = recovery_next(query);
 }
 
-fn failure(query: &LspSearchQuery, code: &str, message: &str, server_available: bool) -> Value {
+fn failure(
+    query: &LspSearchQuery,
+    canonical_uri: &str,
+    code: &str,
+    message: &str,
+    server_available: bool,
+) -> Value {
     let mut value = json!({
         "status": "error",
         "errorCode": code,
         "error": message,
         "type": query.operation,
-        "uri": query.uri,
         "lsp": { "serverAvailable": server_available },
         "hints": [
             "Use localSearch for text or astSearch operation:\"match\" for syntax, then localFetch for surrounding code."
         ]
     });
-    attach_recovery_next(&mut value, query);
+    value["uri"] = json!(canonical_uri);
+    if query.workspace_root.is_none() {
+        attach_recovery_next(&mut value, query);
+    }
     value
 }
 
@@ -1787,10 +1806,43 @@ mod tests {
         let empty = super::with_next(&query, super::empty(&query, "noLocations", "none", true));
         assert_eq!(empty["status"], "empty");
         assert_eq!(empty["next"]["readFile"]["confidence"], "exact");
-        let down = super::failure(&query, "lsp.serverUnavailable", "missing", false);
+        let down = super::failure(
+            &query,
+            "file:///repo/src/lib.rs",
+            "lsp.serverUnavailable",
+            "missing",
+            false,
+        );
         assert_eq!(down["status"], "error");
         assert_eq!(down["errorCode"], "lsp.serverUnavailable");
         assert_eq!(down["next"]["readFile"]["tool"], "localFetch");
+    }
+
+    #[test]
+    fn workspace_root_failures_emit_a_string_uri_without_directory_read_recovery() {
+        let query: super::LspSearchQuery = serde_json::from_value(serde_json::json!({
+            "operation": "workspaceSymbol",
+            "workspaceRoot": "/repo",
+            "symbolName": "execute"
+        }))
+        .expect("workspace-symbol query");
+
+        let down = super::failure(
+            &query,
+            "file:///repo",
+            "lsp.serverUnavailable",
+            "missing",
+            false,
+        );
+
+        assert!(down["uri"].is_string(), "{down}");
+        assert_ne!(down["uri"], serde_json::Value::Null, "{down}");
+        assert!(down.get("next").is_none(), "{down}");
+        crate::contracts::validate_output(
+            "lspSearch",
+            &serde_json::json!({"results":[{"index":0,"data":down}]}),
+        )
+        .expect("workspace-root failure must satisfy the internal output contract");
     }
 
     #[test]

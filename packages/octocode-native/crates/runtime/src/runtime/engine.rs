@@ -28,7 +28,7 @@ pub struct HostOptions {
     #[serde(default)]
     pub surface: RuntimeSurface,
     /// Override the per-request execution timeout in seconds (default: 60).
-    /// CLI sets 120 to accommodate LSP cold-start initialization.
+    /// Interactive surfaces set 300 to exceed cold start plus one LSP request.
     #[serde(default)]
     pub timeout_secs: Option<u64>,
 }
@@ -108,8 +108,8 @@ impl ToolRuntime {
         super::maintenance::run_if_due(&runtime.inspect_config().home);
         if let Some(secs) = options.timeout_secs {
             // Replace the default 60-second runtime with the caller-specified timeout.
-            // The CLI uses 120 s so LSP cold-start initialisation (which can take ~60 s)
-            // completes before the execution context deadline fires.
+            // Interactive surfaces use 300 s so initialize, Java readiness,
+            // request retries, and cleanup fit below the outer deadline.
             runtime.requests = RequestRuntime::new(RuntimeLimits {
                 timeout: std::time::Duration::from_secs(secs),
                 ..RuntimeLimits::default()
@@ -303,6 +303,9 @@ impl ToolRuntime {
         catalog["mcpInstructions"] = Value::String(instructions);
         if let Some(tools) = catalog.get_mut("tools").and_then(Value::as_array_mut) {
             for tool in tools {
+                if let Some(object) = tool.as_object_mut() {
+                    object.remove("outputSchema");
+                }
                 let available = tool
                     .get("name")
                     .and_then(Value::as_str)

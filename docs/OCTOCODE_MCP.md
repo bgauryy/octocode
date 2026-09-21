@@ -80,8 +80,10 @@ To read the live CLI catalog, run `octocode scheme`.
 other operations and removed compatibility names cannot be re-enabled.
 
 Every tool accepts bulk input through `queries`, with up to 5 items per call. MCP
-publishes executable input and output schemas, descriptions, and availability
-metadata. Runtime results use the shared structured bulk envelope with per-query success, empty, and error states, plus
+publishes executable input schemas, descriptions, and availability metadata. It
+does not publish output schemas; core and the native runtime retain them for
+internal result validation and drift detection. Runtime results use the shared
+structured bulk envelope with per-query success, empty, and error states, plus
 typed evidence and pagination data when more content is available. For the
 complete response and continuation rules, see the [Octocode tools reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md).
 

@@ -6,7 +6,7 @@ repository topology, language-server results, and provider records. A successful
 search locates a candidate. It does not by itself establish identity, completeness,
 or behavior.
 
-This page explains how to choose and combine the ten public tools. Use the
+This page explains how to choose and combine the 12 public tools. Use the
 [tool reference](OCTOCODE_TOOLS.md) for parameters, the
 [research skill](https://github.com/bgauryy/octocode/blob/main/skills/octocode-research/SKILL.md) for executable workflows,
 and the [contributor acceptance guide](MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md)

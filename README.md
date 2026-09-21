@@ -204,7 +204,7 @@ than `gh`+Headroom, and ~3.2× fewer than `gh`+RTK** in the local-build headline
 
 ## Tools
 
-**12 tools in the full discovery catalog.** MCP advertises eleven by default when
+**12 tools in the full discovery catalog.** MCP advertises ten by default when
 no Jev provider key is resolved. Repository cloning is opt-in, and MCP registers
 `semanticAssess` only with a nonblank `OCTOCODE_JEV_KEY`. The CLI keeps the
 command discoverable and returns an actionable `OCTOCODE_JEV_KEY` setup error
@@ -305,10 +305,11 @@ Same research engine, no MCP client needed. Every tool is a plain command named 
 | `npx octocode <toolName> '<json>'` | Run a tool (same tools as MCP), indented JSON output |
 | `npx octocode <toolName> --input <file>` | Run a tool with the JSON query read from a file |
 | `npx octocode <toolName> '<json>' --compact` | Run a tool, one-line JSON output |
-| `npx octocode scheme <toolName>` | Show one tool's full contract: fields, types, bounds, defaults |
+| `npx octocode scheme <toolName>` | Show one tool's public input contract: fields, types, bounds, defaults |
 | `npx octocode scheme` | Compact catalog of every tool with availability |
 
-Every tool query requires a `reasoning` string field.
+`semanticAssess` requires a nonblank `reasoning` field because the judgment must
+change the next action. Other tools accept `reasoning` as optional context.
 
 #### More commands
 

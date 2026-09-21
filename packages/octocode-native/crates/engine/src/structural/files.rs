@@ -16,7 +16,7 @@ use super::types::{
     STRUCTURAL_ANALYZER, STRUCTURAL_ANALYZER_VERSION,
 };
 use crate::signatures::languages;
-use crate::types::{RipgrepFile, RipgrepSearchOptions};
+use crate::types::{default_excluded_directories, RipgrepFile, RipgrepSearchOptions};
 
 pub fn search_files(
     options: StructuralSearchFilesOptions,
@@ -33,7 +33,9 @@ pub fn search_files(
 
     let include = options.include.unwrap_or_default();
     let exclude = options.exclude.unwrap_or_default();
-    let exclude_dir = options.exclude_dir.unwrap_or_else(default_exclude_dirs);
+    let exclude_dir = options
+        .exclude_dir
+        .unwrap_or_else(default_excluded_directories);
     let hidden = options.hidden;
     let no_ignore = options.no_ignore;
     let max_depth = options.max_depth;
@@ -374,7 +376,7 @@ pub fn search_files_detailed_filtered(
     check_root_exists(&root)?;
     let include = include.unwrap_or_default();
     let exclude = exclude.unwrap_or_default();
-    let exclude_dir = exclude_dir.unwrap_or_else(default_exclude_dirs);
+    let exclude_dir = exclude_dir.unwrap_or_else(default_excluded_directories);
     let max_files = max_files.map(|n| n as usize).unwrap_or(2_000);
     let max_file_bytes = max_file_bytes.map(|n| n as u64).unwrap_or(1_000_000);
     let prefilter = query.prefilter();
@@ -899,22 +901,6 @@ fn anchor_search_include_globs(include: &[String], supported_only: bool) -> Vec<
         .collect()
 }
 
-fn default_exclude_dirs() -> Vec<String> {
-    [
-        "node_modules",
-        "dist",
-        ".git",
-        "build",
-        "coverage",
-        ".next",
-        "out",
-        "target",
-    ]
-    .into_iter()
-    .map(str::to_owned)
-    .collect()
-}
-
 /// Compile `include` + `exclude` into a gitignore-style override set, rooted at
 /// the search path so relative globs like `src/**/*.ts` resolve as users expect.
 /// `exclude` globs are added negated (`!glob`) so they drop files that `include`
@@ -1145,7 +1131,9 @@ pub fn rewrite_files(
 
     let include = options.include.unwrap_or_default();
     let exclude = options.exclude.unwrap_or_default();
-    let exclude_dir = options.exclude_dir.unwrap_or_else(default_exclude_dirs);
+    let exclude_dir = options
+        .exclude_dir
+        .unwrap_or_else(default_excluded_directories);
     let max_files = options.max_files.map(|n| n as usize).unwrap_or(2_000);
     let max_file_bytes = u64::from(options.max_file_bytes.unwrap_or(1_000_000));
 

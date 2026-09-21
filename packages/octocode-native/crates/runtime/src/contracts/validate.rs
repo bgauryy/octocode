@@ -1219,8 +1219,11 @@ mod tests {
             format_input_error("localFetch", &relation),
             json!({
                 "kind":"octocode.toolError", "version":1, "tool":"localFetch",
-                "error":"Check the query fields.",
-                "details":["queries.0: Unrecognized key: \"limit\""]
+                "error":"Unknown field(s): limit",
+                "details":[
+                    "Remove unknown field(s) from query 1: limit",
+                    "Run scheme localFetch --view query --compact to see valid fields."
+                ]
             })
         );
         assert!(
@@ -1315,6 +1318,25 @@ mod tests {
                 "details":["Remove unknown field(s) from query 1: madeUp", "Run scheme localFetch --view query --compact to see valid fields."]
             })
         );
+    }
+
+    #[test]
+    fn suggests_reasoning_for_a_typo_across_every_tool_shape() {
+        let contract = crate::contracts::parsed_contract().expect("generated contract");
+        for tool in contract["tools"].as_array().expect("tool array") {
+            let name = tool["name"].as_str().expect("tool name");
+            let mut query = tool["examples"][0].clone();
+            let object = query.as_object_mut().expect("query example");
+            object.remove("reasoning");
+            object.insert("reasonng".into(), json!("Exercise typo recovery."));
+            let error =
+                validate(name, json!({"queries":[query]})).expect_err("typo must be rejected");
+            let formatted = format_input_error(name, &error).to_string();
+            assert!(
+                formatted.contains("did you mean 'reasoning'?"),
+                "{name}: {formatted}"
+            );
+        }
     }
 
     #[test]

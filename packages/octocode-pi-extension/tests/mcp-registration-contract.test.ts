@@ -1,5 +1,6 @@
 import { afterEach, expect, test, vi } from 'vitest';
 import { validateToolArguments } from '@earendil-works/pi-ai';
+import { ENV_TOKEN_VARS } from '@octocodeai/config';
 import { buildServerEnv } from '../src/tools/mcp/config.js';
 import { mcpGatewayItemSchema } from '../src/tools/mcp/gateway-contract.js';
 import { preflightMcpQuery } from '../src/tools/mcp-tool.js';
@@ -29,6 +30,17 @@ test('built-in MCP receives supported GitHub credentials without exposing them t
   const config = { command: 'fixture-server' };
   expect(buildServerEnv('octocode', config).GITHUB_PERSONAL_ACCESS_TOKEN).toBe('fixture-token');
   expect(buildServerEnv('third-party', config).GITHUB_PERSONAL_ACCESS_TOKEN).toBeUndefined();
+});
+
+test('built-in MCP forwards every canonical token var so the passthrough cannot drift from ENV_TOKEN_VARS', () => {
+  const config = { command: 'fixture-server' };
+  for (const envVar of ENV_TOKEN_VARS) {
+    vi.stubEnv(envVar, `fixture-${envVar}`);
+  }
+  const env = buildServerEnv('octocode', config);
+  for (const envVar of ENV_TOKEN_VARS) {
+    expect(env[envVar], `${envVar} must be forwarded to the built-in server`).toBe(`fixture-${envVar}`);
+  }
 });
 
 test('registered MCP envelope defaults research calls to Octocode and preserves nested arguments', () => {

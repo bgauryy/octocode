@@ -1,6 +1,6 @@
 # Tool quality and agent workflow acceptance
 
-This contributor reference defines how to evaluate the ten public research tools in the Octocode agentic toolkit.
+This contributor reference defines how to evaluate the 12 public research tools in the Octocode agentic toolkit.
 It separates implemented contracts from the tests needed to establish quality.
 For routing decisions, read the [research manifest](OCTOCODE_RESEARCH_MANIFEST.md).
 For parameters and defaults, use the [tool reference](OCTOCODE_TOOLS.md) and live
@@ -38,8 +38,9 @@ registration, schema projection, output formatting, or continuation rendering.
 
 - Exercise each operation's required fields, defaults, valid selectors, and
   rejected cross-operation fields through the public validation path.
-- Compare compact `relations` and variants with the full schema. Nested selectors
-  may need the full schema; abbreviation must not imply unsupported behavior.
+- Compare compact `relations` and variants with the public input schema. Nested
+  selectors may need the default public view; abbreviation must not imply
+  unsupported behavior.
 - Execute documented examples after substituting observed paths and identities.
   A schema-valid example alone does not establish runtime correctness.
 - Remove renamed public aliases and duplicated interface guidance when replacing
@@ -72,9 +73,10 @@ an already-truncated prompt.
 
 - Check row-local `meta.evidence` and `meta.diagnostics` after public response
   shaping. Do not document a separate invented evidence or warning envelope.
-- Inspect the registered descriptor as well as TypeScript interfaces. MCP
-  publishes an `outputSchema` for every direct tool; exercise real structured
-  results against it rather than treating static output types as validation.
+- Inspect the registered descriptor as well as TypeScript interfaces. MCP must
+  not publish `outputSchema`. Exercise real structured results against the
+  internal core/native validator rather than treating static output types or a
+  discovery descriptor as validation.
 - Check `kind` and `confidence`, then the operation's actual completeness fields.
   Do not require nonexistent universal `answerReady` or `complete` metadata.
 - Verify `none` views against selected source after expected security redaction.

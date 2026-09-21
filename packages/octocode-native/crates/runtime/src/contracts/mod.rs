@@ -414,7 +414,7 @@ mod contract_owner_tests {
         use sha2::{Digest, Sha256};
         let digest = hex::encode(Sha256::digest(contract_json().as_bytes()));
         assert_eq!(
-            digest, "5a7dd0231d4d8d704115ea4cbfdacf3c70fca59e9628dc5715169f066d8da811",
+            digest, "8f76375619219f780c87edad9cfe67e9329db1470365507087a8821021e67428",
             "generated contract body changed without regeneration from core"
         );
     }

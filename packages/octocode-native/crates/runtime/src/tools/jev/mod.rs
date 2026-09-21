@@ -161,7 +161,7 @@ fn validate_question(question: &Value) -> Result<(), JevProviderError> {
     };
     if !valid {
         return Err(request_error(
-            "Use noul with optional true/false criteria, choice with 1..255 labeled criteria, or score with 2..10 ordered criteria.",
+            "Use noul with optional true/false criteria, choice with 2..255 labeled criteria, or score with 2..10 ordered criteria.",
         ));
     }
     Ok(())
@@ -170,7 +170,7 @@ fn validate_question(question: &Value) -> Result<(), JevProviderError> {
 fn prepare(state: &Value, question: &Value, model: &str) -> Result<Value, JevProviderError> {
     if !entry(state) {
         return Err(request_error(
-            "Context value must be a string, object, array, or null.",
+            "Context value must be a non-empty string, object, or array.",
         ));
     }
     validate_question(question)?;
@@ -401,6 +401,22 @@ mod tests {
         ] {
             assert!(validate_question(&invalid).is_err());
         }
+        assert_eq!(
+            validate_question(&json!({
+                "type":"choice",
+                "instructions":"Pick",
+                "criteria":{"only":null}
+            }))
+            .expect_err("one choice is invalid")
+            .message,
+            "Use noul with optional true/false criteria, choice with 2..255 labeled criteria, or score with 2..10 ordered criteria."
+        );
+        assert_eq!(
+            prepare(&Value::Null, &question(), "m")
+                .expect_err("null context is invalid")
+                .message,
+            "Context value must be a non-empty string, object, or array."
+        );
         assert_eq!(
             prepare(&json!({"x":1}), &question(), "m").unwrap(),
             json!({"model":"m","state":{"x":1},"questions":{"answer":question()}})

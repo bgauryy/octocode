@@ -10,8 +10,8 @@ import { NATIVE_ABI_VERSION } from '@octocodeai/octocode-native/runtime';
 
 /**
  * A tool as embedded in the native runtime catalog. MCP registration
- * intentionally sources `title`/`description`/`inputSchema`/`outputSchema`/
- * `annotations` from `@octocodeai/octocode-core` (Zod / Standard Schema, the only
+ * intentionally sources `title`/`description`/`inputSchema`/`annotations` from
+ * `@octocodeai/octocode-core` (Zod / Standard Schema, the only
  * shapes the MCP SDK's `registerTool` accepts). The JSON-Schema fields below back
  * the native runtime's own validation and the CLI `scheme` catalog; registration
  * consumes only `name` and `available`.
@@ -22,7 +22,6 @@ export interface NativeCatalogTool {
   description?: string;
   available: boolean;
   inputSchema?: unknown;
-  outputSchema?: unknown;
   annotations?: unknown;
 }
 
@@ -43,6 +42,7 @@ export interface NativeRuntime {
 export interface NativeRuntimeOptions {
   surface: string;
   regexWorkerPath?: string | undefined;
+  timeoutSecs?: number | undefined;
 }
 
 export interface NativeRuntimeBinding {
@@ -89,7 +89,6 @@ type RegisterTool = (
     title?: string;
     description?: string;
     inputSchema?: unknown;
-    outputSchema?: unknown;
     annotations?: unknown;
   },
   callback: (
@@ -106,6 +105,9 @@ export function createNativeMcp({
   const runtime = new NativeRuntime({
     surface: 'mcp',
     regexWorkerPath: env.OCTOCODE_REGEX_WORKER,
+    // Match the CLI budget and exceed cold start plus one logical LSP request:
+    // initialize, Java readiness, retries, delays, and transport overhead.
+    timeoutSecs: 300,
   });
   if (runtime.abiVersion !== NATIVE_ABI_VERSION) {
     const actual = runtime.abiVersion;
@@ -182,7 +184,6 @@ export function createNativeMcp({
         title: definition.title,
         description: definition.description,
         inputSchema: definition.inputSchema,
-        outputSchema: definition.outputSchema,
         annotations: definition.annotations,
       },
       async (args, context = {}) => {

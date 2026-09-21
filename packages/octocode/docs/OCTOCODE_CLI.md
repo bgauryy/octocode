@@ -39,7 +39,7 @@ plus `--compact` for single-line JSON (default output is indented JSON).
 
 | Command | Purpose |
 |---|---|
-| `scheme [tool]` | No name: compact catalog of every tool with availability. With a name: the complete tool contract. `--view query` prints the self-contained query schema; `--select FIELD=VALUE` keeps one union branch. |
+| `scheme [tool]` | No name: compact catalog of every tool with availability. With a name: the public input contract. `--view query` prints the self-contained query schema; `--select FIELD=VALUE` keeps one union branch. Output validation schemas remain internal. |
 | `config` | Show config file paths and set key names — values are never printed. `--check <KEY>` tests one key; `--json`. |
 | `auth` | GitHub auth status (default; `--json`). `auth login` (device flow; `--refresh`, `--force`, `--hostname`), `auth logout`. |
 | `install` | Write or check MCP client configuration for supported IDEs and agent hosts. |
@@ -80,9 +80,12 @@ resolve from the command cwd, which may differ from the repository root.
 
 | Category | Default enabled tools |
 |---|---|
-| GitHub | `ghSearch` · `ghGetFileContent` · `ghSearchHistory` · `ghGetHistoryItem` · `ghCloneRepo` |
-| Local Code | `localSearch` · `astSearch` · `localFetch` · `lspSearch` |
+| GitHub | `ghSearch` · `ghGetFileContent` · `ghSearchHistory` · `ghGetHistoryItem` |
+| Local Code | `localSearch` · `astSearch` · `astRewrite` · `localFetch` · `lspSearch` |
 | Package | `artifactSearch` |
+
+`ghCloneRepo` is opt-in with `ENABLE_CLONE=true`. `semanticAssess` is available
+when `OCTOCODE_JEV_KEY` is nonblank. Both remain discoverable in the CLI catalog.
 
 ### Research loop
 
@@ -97,9 +100,10 @@ npx octocode localFetch '{"path":"/ABS/repo/crates/runtime/src/runtime/engine.rs
 npx octocode lspSearch '{"uri":"/ABS/repo/crates/runtime/src/runtime/engine.rs","operation":"references","symbolName":"ToolRuntime","lineHint":40,"reasoning":"Trace usages."}'
 ```
 
-Every query requires a `reasoning` string. Queries accept a single object or a
-JSON array for a batch (up to 5). Large queries avoid shell quoting with
-`--input <file>`.
+`semanticAssess` requires a nonblank `reasoning` string. Ordinary tools accept
+it as optional context and reject a supplied blank value. Queries accept a
+single object or a JSON array for a batch (up to 5). Large queries avoid shell
+quoting with `--input <file>`.
 
 ---
 
@@ -111,8 +115,8 @@ npx octocode ghCloneRepo '{"owner":"vercel","repo":"next.js","sparsePath":"packa
 ```
 
 Use `ghCloneRepo` when you need to inspect several files, run structural (AST)
-search, or use LSP on remote code. Cloning is enabled by default in both CLI
-and MCP unless `ENABLE_CLONE=false`. After cloning, run `localSearch`,
+search, or use LSP on remote code. Cloning is opt-in in both CLI and MCP with
+`ENABLE_CLONE=true`. After cloning, run `localSearch`,
 `localFetch`, or `lspSearch` on the returned absolute local path.
 
 The CLI and MCP server share cache data under the configured Octocode home:
@@ -321,7 +325,7 @@ tool from discovery until the key is available.
 | `GITHUB_TOKEN` | GitHub token fallback. |
 | `OCTOCODE_HOME` | Override Octocode data and cache location. |
 | `ENABLE_LOCAL` | Enable local filesystem tools. Defaults to `true`. |
-| `ENABLE_CLONE` | Enable clone/materialization. Defaults to `true` on CLI and MCP; set `false` to disable it. |
+| `ENABLE_CLONE` | Enable clone/materialization. Defaults to `false` on CLI and MCP. |
 | `TOOLS_TO_RUN` | Strict allowlist for CLI and MCP tools. |
 | `DISABLE_TOOLS` | Remove named tools from the default set when `TOOLS_TO_RUN` is unset. |
 | `NO_COLOR` | Disable terminal color. |

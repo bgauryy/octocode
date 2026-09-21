@@ -92,7 +92,7 @@ pub(super) enum Command {
     Scheme {
         /// Tool name, e.g. `localSearch`. Omit to list all tools with availability.
         tool: Option<String>,
-        /// Schema view: the full contract (default) or the self-contained query schema.
+        /// Schema view: the public tool contract (default) or the self-contained query schema.
         #[arg(long, value_enum, requires = "tool")]
         view: Option<super::schema::SchemeView>,
         /// Select one union branch by a const field, e.g. `operation=code`. Requires `--view query`.

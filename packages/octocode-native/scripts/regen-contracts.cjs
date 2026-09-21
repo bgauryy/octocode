@@ -29,9 +29,24 @@ function corePackageDir() {
     }
     return realpathSync(explicit);
   }
+  // Yarn 4 node-modules linker copies file: packages instead of symlinking them,
+  // so realpathSync on the node_modules entry returns the copy, not the source.
+  // Check the root package.json resolutions for a local file: entry first.
+  const rootPkgPath = join(nativeRoot, '..', '..', 'package.json');
+  if (existsSync(rootPkgPath)) {
+    const rootPkg = JSON.parse(readFileSync(rootPkgPath, 'utf8'));
+    const resolution = (rootPkg.resolutions || {})['@octocodeai/octocode-core'];
+    if (typeof resolution === 'string' && /^(?:file:|link:)/.test(resolution)) {
+      // Strip file:// or file: prefix to get the filesystem path.
+      const dir = resolution.replace(/^file:(\/\/)?/, '').replace(/^link:/, '');
+      if (existsSync(join(dir, 'scripts', 'generate-native-contracts.ts'))) {
+        return realpathSync(dir);
+      }
+    }
+  }
   const linked = join(nativeRoot, '..', '..', 'node_modules', '@octocodeai', 'octocode-core');
   if (!existsSync(linked)) {
-    throw new Error('Cannot locate @octocodeai/octocode-core; set OCTOCODE_CORE_DIR.');
+    throw new Error('Cannot locate @octocodeai/octocode-core; set OCTOCODE_CORE_DIR or add a file: resolution in root package.json.');
   }
   return realpathSync(linked);
 }

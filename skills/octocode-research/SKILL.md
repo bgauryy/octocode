@@ -46,7 +46,7 @@ For query templates across tools, load `references/tool-examples.md` and substit
 
 ## Tools and output
 
-Prefer exposed Octocode MCP tools. Otherwise use `node packages/octocode/out/octocode.js` in this monorepo or `npx -y octocode` from an installed skill. Use `scheme` to discover enabled tools. Grammar/language coverage lives in the live tool schemas (`langType` enums). Before an unfamiliar hand-authored call, use `scheme <name> --view query --compact` for the self-contained query schema; omit `--view query` when auditing the full contract. Reuse the schema, batch independent queries within its limit, sequence dependent calls, and copy relevant `next.*` continuations unchanged.
+Prefer exposed Octocode MCP tools. Otherwise use `node packages/octocode/out/octocode.js` in this monorepo or `npx -y octocode` from an installed skill. Use `scheme` to discover enabled tools. Grammar/language coverage lives in the live tool schemas (`langType` enums). Before an unfamiliar hand-authored call, use `scheme <name> --view query --compact` for the self-contained query schema; use the default view when auditing public metadata, variants, and relations. Neither CLI view exposes internal output-validation schemas. Reuse the schema, batch independent queries within its limit, sequence dependent calls, and copy relevant `next.*` continuations unchanged.
 
 Return `Route · Finding · Evidence · Confidence · Next`; decisions add verdict, risks, exact anchors, verification, and the smallest safe fix. Related: `octocode-brainstorming`, `octocode-rfc-generator`, `octocode-eval-benchmark`, `octocode-documentation`, `octocode-skills`, `octocode-subagent`, `octocode-roast`.
 

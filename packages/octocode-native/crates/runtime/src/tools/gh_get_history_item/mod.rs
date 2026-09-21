@@ -4,7 +4,10 @@ use crate::providers::github::{
 use crate::tools::local_fetch::ContentScan;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
-use std::{collections::HashMap, path::Path};
+use std::{
+    collections::{HashMap, HashSet},
+    path::Path,
+};
 
 mod graphql;
 mod util;
@@ -1493,6 +1496,19 @@ fn continuation(q: Value) -> Value {
 }
 
 fn promote_pr_continuations(out: &mut Value, q: &GhGetHistoryItemQuery) {
+    let unresolved_selected_paths = selected_patch_paths(q).map(|requested| {
+        let returned = out
+            .pointer("/pullRequests/0/changedFiles")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|file| file.get("path").and_then(Value::as_str))
+            .collect::<HashSet<_>>();
+        requested
+            .into_iter()
+            .filter(|path| !returned.contains(path.as_str()))
+            .collect::<Vec<_>>()
+    });
     let Some(pages) = out
         .pointer_mut("/pullRequests/0/contentPagination")
         .and_then(Value::as_object_mut)
@@ -1503,6 +1519,18 @@ fn promote_pr_continuations(out: &mut Value, q: &GhGetHistoryItemQuery) {
     let mut partial = false;
     for (axis, entry) in pages.iter_mut() {
         if entry.get("hasMore").and_then(Value::as_bool) != Some(true) {
+            continue;
+        }
+        if axis == "changedFiles"
+            && unresolved_selected_paths
+                .as_ref()
+                .is_some_and(Vec::is_empty)
+        {
+            if let Some(entry) = entry.as_object_mut() {
+                entry.insert("hasMore".into(), json!(false));
+                entry.remove("nextPage");
+                entry.remove("nextCollectionPages");
+            }
             continue;
         }
         partial = true;
@@ -1534,6 +1562,12 @@ fn promote_pr_continuations(out: &mut Value, q: &GhGetHistoryItemQuery) {
         };
         if let Some((key, value)) = cursor {
             nq[key] = value;
+            if axis == "changedFiles"
+                && let Some(unresolved) = unresolved_selected_paths.as_deref()
+            {
+                retain_unresolved_patch_selection(&mut nq, unresolved);
+                nq["filePage"] = json!(1);
+            }
             if (axis == "changedFiles" || axis == "filePaths" || axis == "reviews")
                 && let Some(nq) = nq.as_object_mut()
             {
@@ -1568,6 +1602,61 @@ fn promote_pr_continuations(out: &mut Value, q: &GhGetHistoryItemQuery) {
         if !next.is_empty() {
             out["next"] = Value::Object(next);
         }
+    }
+}
+
+fn selected_patch_paths(query: &GhGetHistoryItemQuery) -> Option<Vec<String>> {
+    let patches = query.content.as_ref()?.get("patches")?;
+    if patches.get("mode").and_then(Value::as_str) != Some("selected") {
+        return None;
+    }
+    let mut paths = Vec::new();
+    for path in patches
+        .get("files")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+    {
+        if !paths.iter().any(|existing| existing == path) {
+            paths.push(path.to_owned());
+        }
+    }
+    for path in patches
+        .get("ranges")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|range| range.get("file").and_then(Value::as_str))
+    {
+        if !paths.iter().any(|existing| existing == path) {
+            paths.push(path.to_owned());
+        }
+    }
+    Some(paths)
+}
+
+fn retain_unresolved_patch_selection(query: &mut Value, unresolved: &[String]) {
+    let unresolved = unresolved
+        .iter()
+        .map(String::as_str)
+        .collect::<HashSet<_>>();
+    let Some(patches) = query
+        .pointer_mut("/content/patches")
+        .and_then(Value::as_object_mut)
+    else {
+        return;
+    };
+    if let Some(files) = patches.get_mut("files").and_then(Value::as_array_mut) {
+        files.retain(|file| file.as_str().is_some_and(|path| unresolved.contains(path)));
+    }
+    if let Some(ranges) = patches.get_mut("ranges").and_then(Value::as_array_mut) {
+        ranges.retain(|range| {
+            range
+                .get("file")
+                .and_then(Value::as_str)
+                .is_some_and(|path| unresolved.contains(path))
+        });
     }
 }
 
@@ -1937,6 +2026,100 @@ mod tests {
             output["hints"]
                 .as_array()
                 .is_some_and(|hints| !hints.is_empty())
+        );
+    }
+
+    #[test]
+    fn selected_patch_continuation_stops_after_every_requested_path_is_returned() {
+        let query: GhGetHistoryItemQuery = serde_json::from_value(json!({
+            "operation":"pullRequest","owner":"a","repo":"b","number":1,
+            "content":{"patches":{"mode":"selected","files":["src/lib.rs"]}}
+        }))
+        .expect("selected patch query");
+        let mut output = json!({
+            "type":"pullRequests",
+            "pullRequests":[{
+                "changedFiles":[{"path":"src/lib.rs","patch":"diff"}],
+                "contentPagination":{"changedFiles":{
+                    "hasMore":true,
+                    "nextPage":1,
+                    "nextCollectionPages":{"changedFiles":2}
+                }}
+            }]
+        });
+
+        promote_pr_continuations(&mut output, &query);
+
+        assert_eq!(
+            output["pullRequests"][0]["contentPagination"]["changedFiles"]["hasMore"], false,
+            "{output}"
+        );
+        assert!(
+            output.pointer("/next/nextChangedFilesPage").is_none(),
+            "{output}"
+        );
+    }
+
+    #[test]
+    fn selected_patch_continuation_carries_only_unresolved_paths() {
+        let query: GhGetHistoryItemQuery = serde_json::from_value(json!({
+            "operation":"pullRequest","owner":"a","repo":"b","number":1,
+            "content":{"patches":{"mode":"selected","files":["src/a.rs","src/b.rs"]}}
+        }))
+        .expect("selected patch query");
+        let mut output = json!({
+            "type":"pullRequests",
+            "pullRequests":[{
+                "changedFiles":[{"path":"src/a.rs","patch":"diff"}],
+                "contentPagination":{"changedFiles":{
+                    "hasMore":true,
+                    "nextPage":1,
+                    "nextCollectionPages":{"changedFiles":2}
+                }}
+            }]
+        });
+
+        promote_pr_continuations(&mut output, &query);
+
+        let next_query = &output["next"]["nextChangedFilesPage"]["query"];
+        assert_eq!(
+            next_query["content"]["patches"]["files"],
+            json!(["src/b.rs"]),
+            "{output}"
+        );
+        assert_eq!(next_query["filePage"], 1, "{output}");
+    }
+
+    #[test]
+    fn selected_patch_continuation_filters_resolved_range_selectors() {
+        let query: GhGetHistoryItemQuery = serde_json::from_value(json!({
+            "operation":"pullRequest","owner":"a","repo":"b","number":1,
+            "content":{"patches":{"mode":"selected","ranges":[
+                {"file":"src/a.rs","additions":[1]},
+                {"file":"src/b.rs","deletions":[2]}
+            ]}}
+        }))
+        .expect("selected patch range query");
+        let mut output = json!({
+            "type":"pullRequests",
+            "pullRequests":[{
+                "changedFiles":[{"path":"src/a.rs","patch":"diff"}],
+                "contentPagination":{"changedFiles":{
+                    "hasMore":true,
+                    "nextPage":1,
+                    "nextCollectionPages":{"changedFiles":2}
+                }}
+            }]
+        });
+
+        promote_pr_continuations(&mut output, &query);
+
+        let ranges =
+            &output["next"]["nextChangedFilesPage"]["query"]["content"]["patches"]["ranges"];
+        assert_eq!(
+            ranges,
+            &json!([{"file":"src/b.rs","deletions":[2]}]),
+            "{output}"
         );
     }
 

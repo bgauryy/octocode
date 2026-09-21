@@ -5,9 +5,12 @@ import {cases} from './cases.mjs';
 import {normalize,evaluate} from './grader.mjs';
 import {repairRequest} from './transport.mjs';
 const root = process.argv[2] ? path.resolve(process.argv[2]) : undefined;
-const {DIRECT_TOOL_SPECIFICATIONS:specs} = root
+const schema = root
   ? await import(pathToFileURL(path.join(root,'baseline/core-dist/schema.js')))
   : await import('@octocodeai/octocode-core/schema');
+// Root mode intentionally accepts immutable pre-split benchmark snapshots.
+const specs = schema.DIRECT_TOOL_DEFINITIONS ?? (root ? schema.DIRECT_TOOL_SPECIFICATIONS : undefined);
+if (!Array.isArray(specs)) throw Error('Tool definitions are unavailable');
 const normalized = output => ({sensor:true,transport:true,output});
 const caseById = id => cases.find(test => test.id===id);
 const check = (id,output) => evaluate(caseById(id),normalized(output),specs);

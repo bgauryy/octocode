@@ -77,7 +77,7 @@ try {
   const localFetch = nativeTools.tools.find(tool => tool.name === 'localFetch');
   assert.ok(localFetch, 'native catalog must advertise localFetch');
   assert.ok(localFetch.title);
-  assert.ok(localFetch.outputSchema);
+  assert.equal(Object.hasOwn(localFetch, 'outputSchema'), false);
   assert.deepEqual(localFetch.annotations, {
     title: localFetch.title,
     readOnlyHint: true,

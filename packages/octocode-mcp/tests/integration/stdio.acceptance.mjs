@@ -167,11 +167,7 @@ try {
     receipt.stderrTail = `${receipt.stderrTail}${chunk.toString('utf8')}`.slice(-65_536);
   });
   const list = await client.listTools();
-  receipt.catalog = list.tools.map(tool => ({
-    name: tool.name,
-    inputSchema: tool.inputSchema,
-    outputSchema: tool.outputSchema ?? null,
-  }));
+  receipt.catalog = list.tools;
   expectedTools = list.tools.map(tool => tool.name);
   receipt.catalogBytes = Buffer.byteLength(JSON.stringify(receipt.catalog));
   await check('initialize and list every available canonical direct tool', () =>
@@ -182,8 +178,14 @@ try {
   );
   await check('MCP tool catalog stays below the production transport budget', () =>
     assert.ok(
-      receipt.catalogBytes < 2_000_000,
+      receipt.catalogBytes <= 200_000,
       `serialized MCP catalog is ${receipt.catalogBytes} bytes`
+    )
+  );
+  await check('MCP tool catalog omits output schemas', () =>
+    assert.ok(
+      list.tools.every(tool => !Object.hasOwn(tool, 'outputSchema')),
+      'tools/list exposed an outputSchema'
     )
   );
   if (expectedTools.includes(STATIC_TOOL_NAMES.SEMANTIC_ASSESS)) {

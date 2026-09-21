@@ -6,12 +6,13 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::future::Future;
 use std::path::{Component, Path, PathBuf};
 use std::pin::Pin;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
-use tokio::sync::{Mutex, Notify};
+use tokio::sync::{oneshot, Mutex, Notify};
 use tokio::time::{sleep, Duration};
 
 type ClientFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
+pub const MAX_READINESS_TIMEOUT_MS: u64 = 120_000;
 
 trait PoolClient: Clone + Send + Sync + 'static {
     fn alive(&self) -> ClientFuture<bool>;
@@ -64,6 +65,7 @@ type SharedResult<C> = std::result::Result<Option<C>, String>;
 struct InFlight<C> {
     result: StdMutex<Option<SharedResult<C>>>,
     notify: Notify,
+    cancelled: AtomicBool,
 }
 
 impl<C: Clone> InFlight<C> {
@@ -71,6 +73,7 @@ impl<C: Clone> InFlight<C> {
         Self {
             result: StdMutex::new(None),
             notify: Notify::new(),
+            cancelled: AtomicBool::new(false),
         }
     }
 
@@ -93,6 +96,17 @@ impl<C: Clone> InFlight<C> {
             }
             notified.await;
         }
+    }
+
+    fn cancel(&self) {
+        // Wake current waiters immediately. A later acquire also observes this
+        // bit and replaces the registration without racing async Drop cleanup.
+        self.cancelled.store(true, Ordering::SeqCst);
+        self.complete(Err("LSP client startup was cancelled".into()));
+    }
+
+    fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::SeqCst)
     }
 }
 
@@ -120,6 +134,115 @@ struct GenericPool<C, M> {
     options: LspPoolOptions,
     state: Arc<Mutex<State<C, M>>>,
     count: Arc<AtomicUsize>,
+}
+
+struct StartCancellationGuard<C: PoolClient, M: Send + 'static> {
+    key: String,
+    state: Arc<Mutex<State<C, M>>>,
+    inflight: Arc<InFlight<C>>,
+    client: Option<C>,
+    armed: bool,
+}
+
+impl<C: PoolClient, M: Send + 'static> StartCancellationGuard<C, M> {
+    fn new(key: String, state: Arc<Mutex<State<C, M>>>, inflight: Arc<InFlight<C>>) -> Self {
+        Self {
+            key,
+            state,
+            inflight,
+            client: None,
+            armed: true,
+        }
+    }
+
+    fn track_client(&mut self, client: C) {
+        self.client = Some(client);
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+        self.client = None;
+    }
+}
+
+impl<C: PoolClient, M: Send + 'static> Drop for StartCancellationGuard<C, M> {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        self.inflight.cancel();
+        let key = self.key.clone();
+        let state = Arc::clone(&self.state);
+        let inflight = Arc::clone(&self.inflight);
+        let client = self.client.take();
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+        runtime.spawn(async move {
+            // Never remove a replacement installed by a retry for the same key.
+            {
+                let mut state = state.lock().await;
+                if inflight_is_current(&state, &key, &inflight) {
+                    state.inflight.remove(&key);
+                }
+            }
+            if let Some(client) = client {
+                client.stop().await;
+            }
+        });
+    }
+}
+
+struct StopOnDrop<C: PoolClient> {
+    client: Option<C>,
+}
+
+impl<C: PoolClient> StopOnDrop<C> {
+    fn new(client: C) -> Self {
+        Self {
+            client: Some(client),
+        }
+    }
+
+    fn disarm(&mut self) {
+        self.client = None;
+    }
+}
+
+impl<C: PoolClient> Drop for StopOnDrop<C> {
+    fn drop(&mut self) {
+        let Some(client) = self.client.take() else {
+            return;
+        };
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+        runtime.spawn(async move {
+            client.stop().await;
+        });
+    }
+}
+
+async fn run_cancellation_safe_start<C, T, Fut>(
+    client: C,
+    future: Fut,
+) -> std::result::Result<T, oneshot::error::RecvError>
+where
+    C: PoolClient,
+    T: Send + 'static,
+    Fut: Future<Output = T> + Send + 'static,
+{
+    // Dropping a raw start future can strand a spawned process before the
+    // client publishes its child handle. Let startup finish in its supervisor;
+    // a closed receiver then takes the normal full-client shutdown path.
+    let (send, receive) = oneshot::channel();
+    tokio::spawn(async move {
+        let result = future.await;
+        if send.send(result).is_err() {
+            client.stop().await;
+        }
+    });
+    receive.await
 }
 
 impl<C: PoolClient, M: Clone + Send + Sync + 'static> GenericPool<C, M> {
@@ -150,9 +273,11 @@ impl<C: PoolClient, M: Clone + Send + Sync + 'static> GenericPool<C, M> {
 
         let action = {
             let mut state = self.state.lock().await;
-            if let Some(inflight) = state.inflight.get(&key) {
-                Action::Wait(Arc::clone(inflight))
+            let current = state.inflight.get(&key).cloned();
+            if let Some(inflight) = current.filter(|inflight| !inflight.is_cancelled()) {
+                Action::Wait(inflight)
             } else {
+                state.inflight.remove(&key);
                 let inflight = Arc::new(InFlight::new());
                 state.inflight.insert(key.clone(), Arc::clone(&inflight));
                 match state.entries.get(&key) {
@@ -173,6 +298,11 @@ impl<C: PoolClient, M: Clone + Send + Sync + 'static> GenericPool<C, M> {
                 client,
                 entry_id,
             } => {
+                let mut cancellation = StartCancellationGuard::new(
+                    key.clone(),
+                    Arc::clone(&self.state),
+                    Arc::clone(&inflight),
+                );
                 if client.alive().await {
                     let timer = {
                         let mut state = self.state.lock().await;
@@ -188,9 +318,11 @@ impl<C: PoolClient, M: Clone + Send + Sync + 'static> GenericPool<C, M> {
                         }
                     };
                     if let Some(generation) = timer {
+                        cancellation.disarm();
                         self.spawn_idle_timer(key, entry_id, generation);
                         return Ok(Some(client));
                     }
+                    cancellation.disarm();
                     return inflight.wait().await;
                 }
 
@@ -208,9 +340,12 @@ impl<C: PoolClient, M: Clone + Send + Sync + 'static> GenericPool<C, M> {
                     }
                 };
                 if !should_start {
+                    cancellation.disarm();
                     return inflight.wait().await;
                 }
+                cancellation.track_client(client.clone());
                 client.stop().await;
+                cancellation.disarm();
                 self.finish_start(key, metadata, inflight, factory()).await
             }
             Action::Start(inflight) => self.finish_start(key, metadata, inflight, factory()).await,
@@ -227,9 +362,15 @@ impl<C: PoolClient, M: Clone + Send + Sync + 'static> GenericPool<C, M> {
     where
         Fut: Future<Output = SharedResult<C>> + Send,
     {
+        let mut cancellation = StartCancellationGuard::new(
+            key.clone(),
+            Arc::clone(&self.state),
+            Arc::clone(&inflight),
+        );
         let result = future.await;
         match result {
             Ok(Some(client)) => {
+                cancellation.track_client(client.clone());
                 let mut evicted = Vec::new();
                 let installed = {
                     let mut state = self.state.lock().await;
@@ -268,6 +409,9 @@ impl<C: PoolClient, M: Clone + Send + Sync + 'static> GenericPool<C, M> {
                         true
                     }
                 };
+                if installed {
+                    cancellation.disarm();
+                }
                 for stale in evicted {
                     stale.stop().await;
                 }
@@ -275,6 +419,7 @@ impl<C: PoolClient, M: Clone + Send + Sync + 'static> GenericPool<C, M> {
                     Ok(Some(client))
                 } else {
                     client.stop().await;
+                    cancellation.disarm();
                     inflight.wait().await
                 }
             }
@@ -285,6 +430,7 @@ impl<C: PoolClient, M: Clone + Send + Sync + 'static> GenericPool<C, M> {
                     inflight.complete(Ok(None));
                 }
                 drop(state);
+                cancellation.disarm();
                 inflight.wait().await
             }
             Err(error) => {
@@ -294,6 +440,7 @@ impl<C: PoolClient, M: Clone + Send + Sync + 'static> GenericPool<C, M> {
                     inflight.complete(Err(error));
                 }
                 drop(state);
+                cancellation.disarm();
                 inflight.wait().await
             }
         }
@@ -434,16 +581,24 @@ impl LspClientPool {
         self.inner
             .acquire(key, config, || async move {
                 let client = NativeLspClient::new(factory_config.clone());
-                if let Err(error) = client.start().await {
-                    let _ = client.stop().await;
+                let starting_client = client.clone();
+                let start = run_cancellation_safe_start(client.clone(), async move {
+                    starting_client.start().await
+                })
+                .await
+                .map_err(|error| format!("LSP client startup task failed: {error}"))?;
+                if let Err(error) = start {
                     return Err(error.to_string());
                 }
+                let mut cleanup = StopOnDrop::new(client.clone());
                 if let Some(timeout_ms) = readiness_timeout(factory_config.language_id.as_deref()) {
                     if let Err(error) = client.wait_for_ready(Some(timeout_ms)).await {
                         let _ = client.stop().await;
+                        cleanup.disarm();
                         return Err(error.to_string());
                     }
                 }
+                cleanup.disarm();
                 Ok(Some(client))
             })
             .await
@@ -576,6 +731,7 @@ mod tests {
         id: usize,
         alive: Arc<AtomicBool>,
         health_gate: Arc<Mutex<Option<oneshot::Receiver<()>>>>,
+        health_checks: Arc<AtomicUsize>,
         stops: Arc<AtomicUsize>,
         busy: Arc<AtomicBool>,
     }
@@ -586,6 +742,7 @@ mod tests {
                 id,
                 alive: Arc::new(AtomicBool::new(true)),
                 health_gate: Arc::new(Mutex::new(None)),
+                health_checks: Arc::new(AtomicUsize::new(0)),
                 stops: Arc::new(AtomicUsize::new(0)),
                 busy: Arc::new(AtomicBool::new(false)),
             }
@@ -596,7 +753,9 @@ mod tests {
         fn alive(&self) -> ClientFuture<bool> {
             let alive = Arc::clone(&self.alive);
             let gate = Arc::clone(&self.health_gate);
+            let checks = Arc::clone(&self.health_checks);
             Box::pin(async move {
+                checks.fetch_add(1, Ordering::SeqCst);
                 if let Some(receiver) = gate.lock().await.take() {
                     let _ = receiver.await;
                 }
@@ -667,6 +826,161 @@ mod tests {
             .expect("client");
         assert_eq!(starts.load(Ordering::SeqCst), 1);
         assert_eq!(first_client.id, second_client.id);
+    }
+
+    #[tokio::test]
+    async fn cancelled_start_does_not_strand_inflight_or_block_retry() {
+        let pool = Arc::new(pool(4, 60_000));
+        let (entered_send, entered_receive) = oneshot::channel();
+        let (_release_send, release_receive) = oneshot::channel::<()>();
+        let first = {
+            let pool = Arc::clone(&pool);
+            tokio::spawn(async move {
+                pool.acquire("k".into(), 1, || async move {
+                    let _ = entered_send.send(());
+                    let _ = release_receive.await;
+                    Ok(Some(FakeClient::new(1)))
+                })
+                .await
+            })
+        };
+
+        entered_receive.await.expect("startup entered");
+        first.abort();
+        let cancelled = first.await;
+        assert!(matches!(cancelled, Err(error) if error.is_cancelled()));
+
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while pool.state.lock().await.inflight.contains_key("k") {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("cancelled startup registration must be removed");
+
+        let retried = tokio::time::timeout(
+            Duration::from_secs(1),
+            pool.acquire("k".into(), 2, || async { Ok(Some(FakeClient::new(2))) }),
+        )
+        .await
+        .expect("cancelled startup must not block a retry")
+        .expect("retry")
+        .expect("client");
+        assert_eq!(retried.id, 2);
+        assert!(pool.state.lock().await.inflight.is_empty());
+    }
+
+    #[tokio::test]
+    async fn cancelled_install_stops_the_uninstalled_client_and_allows_retry() {
+        let pool = Arc::new(pool(4, 60_000));
+        let uninstalled = FakeClient::new(1);
+        let uninstalled_check = uninstalled.clone();
+        let (entered_send, entered_receive) = oneshot::channel();
+        let (release_send, release_receive) = oneshot::channel::<()>();
+        let first = {
+            let pool = Arc::clone(&pool);
+            tokio::spawn(async move {
+                pool.acquire("k".into(), 1, || async move {
+                    let _ = entered_send.send(());
+                    let _ = release_receive.await;
+                    Ok(Some(uninstalled))
+                })
+                .await
+            })
+        };
+
+        entered_receive.await.expect("startup entered");
+        let state = pool.state.lock().await;
+        let _ = release_send.send(());
+        tokio::task::yield_now().await;
+        first.abort();
+        let cancelled = first.await;
+        assert!(matches!(cancelled, Err(error) if error.is_cancelled()));
+        drop(state);
+
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while uninstalled_check.stops.load(Ordering::SeqCst) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("cancelled install must stop its client");
+        assert_eq!(uninstalled_check.stops.load(Ordering::SeqCst), 1);
+
+        let retried = tokio::time::timeout(
+            Duration::from_secs(1),
+            pool.acquire("k".into(), 2, || async { Ok(Some(FakeClient::new(2))) }),
+        )
+        .await
+        .expect("cancelled install must not block a retry")
+        .expect("retry")
+        .expect("client");
+        assert_eq!(retried.id, 2);
+    }
+
+    #[tokio::test]
+    async fn cancelled_health_check_does_not_strand_inflight_or_stop_live_client() {
+        let pool = Arc::new(pool(4, 60_000));
+        let client = pool
+            .acquire("k".into(), 1, || async { Ok(Some(FakeClient::new(1))) })
+            .await
+            .expect("install")
+            .expect("client");
+        let (_release_send, release_receive) = oneshot::channel();
+        *client.health_gate.lock().await = Some(release_receive);
+        let checking = {
+            let pool = Arc::clone(&pool);
+            tokio::spawn(async move {
+                pool.acquire("k".into(), 1, || async { Ok(Some(FakeClient::new(2))) })
+                    .await
+            })
+        };
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while client.health_checks.load(Ordering::SeqCst) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("health check must enter its gate");
+        checking.abort();
+        let cancelled = checking.await;
+        assert!(matches!(cancelled, Err(error) if error.is_cancelled()));
+
+        let reused = tokio::time::timeout(
+            Duration::from_secs(1),
+            pool.acquire("k".into(), 1, || async { Ok(Some(FakeClient::new(2))) }),
+        )
+        .await
+        .expect("cancelled health check must not block reuse")
+        .expect("reuse")
+        .expect("client");
+        assert_eq!(reused.id, 1);
+        assert_eq!(client.stops.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn cancelled_supervised_start_stops_client_after_start_finishes() {
+        let client = FakeClient::new(1);
+        let check = client.clone();
+        let (entered_send, entered_receive) = oneshot::channel();
+        let (release_send, release_receive) = oneshot::channel::<()>();
+        let startup = tokio::spawn(run_cancellation_safe_start(client, async move {
+            let _ = entered_send.send(());
+            let _ = release_receive.await;
+        }));
+        entered_receive.await.expect("startup entered");
+        startup.abort();
+        let cancelled = startup.await;
+        assert!(matches!(cancelled, Err(error) if error.is_cancelled()));
+        let _ = release_send.send(());
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while check.stops.load(Ordering::SeqCst) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("orphaned startup must stop its client after it finishes");
+        assert_eq!(check.stops.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]

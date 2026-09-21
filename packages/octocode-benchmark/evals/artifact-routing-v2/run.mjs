@@ -41,9 +41,13 @@ const settings = {model:'gemma4:latest',think:false,stream:false,truncate:false,
 const receipts = {};
 for (const subject of subjects) {
   const subjectRoot = path.join(root,subject);
+  const frozenSchema = await import(pathToFileURL(path.join(subjectRoot,'core-dist/schema.js')));
+  // A frozen baseline can predate the public/internal catalog split. Keep that
+  // compatibility inside the immutable benchmark reader, never in live core.
+  const specs = frozenSchema.DIRECT_TOOL_DEFINITIONS ?? frozenSchema.DIRECT_TOOL_SPECIFICATIONS;
+  if (!Array.isArray(specs)) throw Error(`${subject}: frozen core has no tool definitions`);
   receipts[subject] = {snapshot:JSON.parse(readFileSync(path.join(subjectRoot,'snapshot.json'),'utf8')),
-    metadata:JSON.parse(readFileSync(path.join(subjectRoot,'metadata.json'),'utf8')),
-    specs:(await import(pathToFileURL(path.join(subjectRoot,'core-dist/schema.js')))).DIRECT_TOOL_SPECIFICATIONS};
+    metadata:JSON.parse(readFileSync(path.join(subjectRoot,'metadata.json'),'utf8')),specs};
   for (const test of cases) {
     const reference = evaluate(test,{sensor:true,transport:true,output:test.reference},receipts[subject].specs);
     if (!reference.success) throw Error(`${subject}/${test.id}: reference rejected by preserved validator: ${JSON.stringify(reference)}`);

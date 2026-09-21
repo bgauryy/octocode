@@ -10,9 +10,14 @@ pub(super) enum SchemeView {
     Query,
 }
 
-pub(super) fn project(tool: Value, view: SchemeView) -> Value {
+pub(super) fn project(mut tool: Value, view: SchemeView) -> Value {
     match view {
-        SchemeView::Full => tool,
+        SchemeView::Full => {
+            if let Some(object) = tool.as_object_mut() {
+                object.remove("outputSchema");
+            }
+            tool
+        }
         // Keep the complete schema subtree: its local refs resolve against its
         // own root, including all core-owned $defs and validation constraints.
         SchemeView::Query => {
@@ -257,10 +262,9 @@ mod tests {
         assert_eq!(result["queryEnvelope"]["queries"]["maxItems"], 5);
         assert_eq!(result["querySchema"]["$defs"].as_object().unwrap().len(), 2);
         assert_local_refs_resolve(&result["querySchema"], &result["querySchema"]);
-        assert_eq!(
-            project_selected(tool.clone(), SchemeView::Full, None).unwrap(),
-            tool
-        );
+        let full = project_selected(tool.clone(), SchemeView::Full, None).unwrap();
+        assert!(!full.to_string().contains("\"outputSchema\""));
+        assert_eq!(full["inputSchema"], tool["inputSchema"]);
         for selection in ["kind=unknown", "missing=a", "bad", "=a", "kind="] {
             assert!(project_selected(tool.clone(), SchemeView::Query, Some(selection)).is_err());
         }
@@ -414,9 +418,19 @@ mod tests {
     fn scheme_view_preserves_real_core_schema_and_references() {
         let contract = octocode_native::contracts::parsed_contract().unwrap();
         for tool in contract["tools"].as_array().unwrap() {
-            assert_eq!(project(tool.clone(), SchemeView::Full), *tool);
+            assert!(tool["outputSchema"].is_object());
+            let full = project(tool.clone(), SchemeView::Full);
+            assert!(!full.to_string().contains("\"outputSchema\""));
+            assert_eq!(full["inputSchema"], tool["inputSchema"]);
             let query = project(tool.clone(), SchemeView::Query);
-            assert_eq!(query.as_object().unwrap().len(), 4);
+            assert!(
+                query.as_object().unwrap().keys().all(|key| matches!(
+                    key.as_str(),
+                    "name" | "querySchema" | "description" | "queryEnvelope"
+                )),
+                "unexpected public query field: {query}"
+            );
+            assert!(!query.to_string().contains("\"outputSchema\""));
             assert_eq!(query["name"], tool["name"]);
             assert_eq!(query["querySchema"], tool["querySchema"]);
             assert_local_refs_resolve(&query["querySchema"], &query["querySchema"]);

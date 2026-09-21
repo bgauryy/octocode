@@ -51,16 +51,12 @@ fn resolve_auth(
         load_stored_credentials,
     };
     use secrecy::ExposeSecret;
-    // 1. Environment variables (fast, no I/O)
-    for key in [
-        "OCTOCODE_TOKEN",
-        "GH_TOKEN",
-        "GITHUB_TOKEN",
-        "GITHUB_PERSONAL_ACCESS_TOKEN",
-    ] {
-        if let Some(v) = runtime.config().env_value(key).filter(|v| !v.is_empty()) {
-            return (true, None, "env", Some(v.to_owned()));
-        }
+    // 1. Environment token — reuse the single selection the request path
+    // resolves (`config.token` = `resolve_env_token` over the contract-generated
+    // ENV_TOKEN_VARS, already trimmed and priority-ordered). Sharing it keeps
+    // this diagnostic and the actual credential used on requests from drifting.
+    if let Some(selection) = runtime.config().token.as_ref() {
+        return (true, None, "env", Some(selection.token().to_owned()));
     }
     // 2. OS platform keychain — username comes from keychain metadata directly
     if matches!(PlatformCredentialStore.load_blocking(host), Ok(Some(_))) {
@@ -238,21 +234,15 @@ pub async fn login(
 
     // Warn when an environment token is set: it takes priority over the stored
     // OAuth credential this flow writes, so the new login won't be used until
-    // the variable is unset. Non-fatal.
-    let env_token_var = [
-        "OCTOCODE_TOKEN",
-        "GH_TOKEN",
-        "GITHUB_TOKEN",
-        "GITHUB_PERSONAL_ACCESS_TOKEN",
-    ]
-    .into_iter()
-    .find(|key| {
-        runtime
-            .config()
-            .env_value(key)
-            .map(str::trim)
-            .is_some_and(|value| !value.is_empty())
-    });
+    // the variable is unset. Non-fatal. The variable name comes from the same
+    // resolved selection the request path uses (`config.token`, source
+    // `env:<VAR>`) so it names the token that would actually win.
+    let env_token_var = runtime
+        .config()
+        .token
+        .as_ref()
+        .map(octocode_native::config::PrivateTokenSelection::source)
+        .and_then(|source| source.strip_prefix("env:"));
     if let Some(var) = env_token_var
         && !json_out
     {
@@ -321,20 +311,9 @@ pub async fn login(
 
 pub fn logout(runtime: &ToolRuntime) -> u8 {
     let view = runtime.inspect_config();
-    let host = runtime
-        .config()
-        .resolved
-        .github
-        .api_url
-        .parse::<url::Url>()
-        .ok()
-        .and_then(|url| url.host_str().map(str::to_owned))
-        .unwrap_or_else(|| "github.com".into());
-    let host = if host == "api.github.com" {
-        "github.com".into()
-    } else {
-        host
-    };
+    // Same host derivation as auth status / login so all three target the
+    // identical credential-store host (api.github.com → github.com).
+    let host = configured_github_host(runtime);
     match octocode_native::providers::github::delete_platform_credential(&host) {
         Ok(()) => {
             eprintln!(

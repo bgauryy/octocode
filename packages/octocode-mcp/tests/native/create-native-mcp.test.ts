@@ -25,6 +25,7 @@ import {
   type NativeCatalog,
   type NativeCatalogTool,
   type NativeRuntime,
+  type NativeRuntimeOptions,
 } from '../../src/native/index.js';
 
 const fixture = (name: string) =>
@@ -51,13 +52,18 @@ const FAKE_ABI_VERSION = 2;
 
 class FakeRuntime implements NativeRuntime {
   static last: FakeRuntime | undefined;
-  readonly abiVersion = FAKE_ABI_VERSION;
+  readonly abiVersion: number = FAKE_ABI_VERSION;
   readonly executions: RecordedExecution[] = [];
+  readonly options: NativeRuntimeOptions | undefined;
   closed = false;
   closeCount = 0;
 
-  constructor(private readonly makeCatalog: () => NativeCatalog) {
+  constructor(
+    private readonly makeCatalog: () => NativeCatalog,
+    options?: NativeRuntimeOptions
+  ) {
     FakeRuntime.last = this;
+    this.options = options;
   }
 
   catalog(): NativeCatalog {
@@ -74,7 +80,11 @@ class FakeRuntime implements NativeRuntime {
     input: unknown
   ): Promise<unknown> {
     this.executions.push({ requestId, tool, input });
-    return { content: [{ type: 'text', text: 'ok' }], isError: false };
+    return {
+      content: [{ type: 'text', text: 'ok' }],
+      structuredContent: { results: [{ index: 0, data: { ok: true } }] },
+      isError: false,
+    };
   }
 
   async close(): Promise<void> {
@@ -85,8 +95,8 @@ class FakeRuntime implements NativeRuntime {
 
 const bindingFor = (makeCatalog: () => NativeCatalog) => ({
   NativeRuntime: class extends FakeRuntime {
-    constructor() {
-      super(makeCatalog);
+    constructor(options?: NativeRuntimeOptions) {
+      super(makeCatalog, options);
     }
   },
 });
@@ -99,7 +109,6 @@ const tool = (
   name,
   available,
   inputSchema: { type: 'object', additionalProperties: true },
-  outputSchema: { type: 'object', additionalProperties: true },
   ...extra,
 });
 
@@ -108,6 +117,23 @@ afterEach(() => {
 });
 
 describe('createNativeMcp registration + execution', () => {
+  it('gives MCP executions headroom beyond the worst cold LSP budget', async () => {
+    const instance = createNativeMcp({
+      env: {},
+      binding: bindingFor(() => ({
+        fingerprint: getNativeContractFingerprint(),
+        tools: [tool('localFetch', true)],
+      })),
+    });
+
+    expect(FakeRuntime.last?.options).toMatchObject({
+      surface: 'mcp',
+      timeoutSecs: 300,
+    });
+
+    await instance.close();
+  });
+
   it.each([
     ['missing', undefined, false],
     ['blank', '   ', false],
@@ -137,6 +163,9 @@ describe('createNativeMcp registration + execution', () => {
 
       const list = await client.listTools();
       expect(list.tools.map(t => t.name)).toEqual(['localFetch']);
+      expect(list.tools.every(t => !Object.hasOwn(t, 'outputSchema'))).toBe(
+        true
+      );
 
       await client.close();
       await instance.close();
@@ -170,6 +199,7 @@ describe('createNativeMcp registration + execution', () => {
       'localFetch',
       STATIC_TOOL_NAMES.SEMANTIC_ASSESS,
     ]);
+    expect(list.tools.every(t => !Object.hasOwn(t, 'outputSchema'))).toBe(true);
 
     await client.close();
     await instance.close();
@@ -196,16 +226,19 @@ describe('createNativeMcp registration + execution', () => {
     // Only the available tool is advertised (ghSearch.available === false).
     const list = await client.listTools();
     expect(list.tools.map(t => t.name)).toEqual(['localFetch']);
+    expect(list.tools.every(t => !Object.hasOwn(t, 'outputSchema'))).toBe(true);
 
     // Calling the tool drives the registered async callback → runtime.executeMcp.
-    // (The SDK post-validates output against the core outputSchema; we assert on
-    // the recorded execution, which proves the callback ran, rather than on the
-    // SDK's post-processed envelope.)
-    await client.callTool({
+    // The adapter does not advertise an output schema, so assert on the recorded
+    // execution and returned envelope to prove structured results remain intact.
+    const response = await client.callTool({
       name: 'localFetch',
       arguments: {
         queries: [{ reasoning: 'boundary test', path: '.', fullContent: true }],
       },
+    });
+    expect(response.structuredContent).toEqual({
+      results: [{ index: 0, data: { ok: true } }],
     });
 
     const runtime = FakeRuntime.last!;

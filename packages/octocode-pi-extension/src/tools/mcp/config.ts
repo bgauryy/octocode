@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getDefaultEnvironment } from '@modelcontextprotocol/client/stdio';
+import { ENV_TOKEN_VARS } from '@octocodeai/config';
 import { getMcpEnablement } from '../../contracts/mcp-state.js';
 import { readMcpConfigText } from '../../contracts/agent-skills.js';
 import { capabilitySourcePaths, type CapabilityPathOptions } from '../../contracts/capability-sources.js';
@@ -178,9 +179,14 @@ export function buildServerEnv(name: string, config: McpServerConfig): Record<st
     if (value) base[key] = value;
   }
   if (name === DEFAULT_OCTOCODE_MCP_SERVER_NAME) {
+    // Forward the canonical GitHub token vars from the contract-generated
+    // ENV_TOKEN_VARS (same source the native runtime resolves from) so this
+    // passthrough can never drift from the discovery order. OCTOCODE_* config
+    // vars — including OCTOCODE_TOKEN — are forwarded by prefix.
+    const tokenVars = new Set<string>(ENV_TOKEN_VARS);
     for (const [key, value] of Object.entries(process.env)) {
       if (!value) continue;
-      if (key.startsWith('OCTOCODE_') || key === 'GITHUB_TOKEN' || key === 'GH_TOKEN' || key === 'GITHUB_PERSONAL_ACCESS_TOKEN') base[key] = value;
+      if (key.startsWith('OCTOCODE_') || tokenVars.has(key)) base[key] = value;
     }
   }
   const referenced: Record<string, string> = {};
