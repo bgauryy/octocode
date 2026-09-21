@@ -39,8 +39,10 @@ describe('core public catalog', () => {
       tools.map(tool => String(tool.name))
     );
     expect(instructions).toContain('Route each unresolved question');
-    expect(instructions).toContain('semanticAssess');
+    expect(instructions).toContain('clasify');
+    // Hard cutover: the pre-rename public name never appears in instructions.
     expect(buildMcpInstructions([])).not.toContain('semanticAssess');
+    expect(instructions).not.toContain('semanticAssess');
   });
 });
 

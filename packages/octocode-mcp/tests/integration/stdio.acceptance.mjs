@@ -120,7 +120,7 @@ const invoke = async (name, args) => {
 };
 const call = async (name, query) => {
   const publicQuery = {
-    ...(name === 'semanticAssess' ? {} : {
+    ...(name === 'clasify' ? {} : {
       reasoning: `Exercise ${name} through built stdio acceptance.`,
       debug: false,
     }),
@@ -204,8 +204,8 @@ try {
   receipt.catalogBytes = Buffer.byteLength(JSON.stringify(receipt.catalog));
   await check('initialize and list every available canonical direct tool', () =>
     assert.deepEqual(
-      expectedTools.filter(name => name !== TOOL_NAMES.SEMANTIC_ASSESS).sort(),
-      canonicalTools.filter(name => name !== TOOL_NAMES.SEMANTIC_ASSESS).sort()
+      expectedTools.filter(name => name !== TOOL_NAMES.CLASIFY).sort(),
+      canonicalTools.filter(name => name !== TOOL_NAMES.CLASIFY).sort()
     )
   );
   await check('MCP tool catalog stays below the production transport budget', () =>
@@ -220,9 +220,9 @@ try {
       'tools/list exposed an outputSchema'
     )
   );
-  if (expectedTools.includes(TOOL_NAMES.SEMANTIC_ASSESS)) {
-    await check('semanticAssess rejects caller model selection before provider access', async () => {
-      const response = await invoke(TOOL_NAMES.SEMANTIC_ASSESS, {
+  if (expectedTools.includes(TOOL_NAMES.CLASIFY)) {
+    await check('clasify rejects caller model selection before provider access', async () => {
+      const response = await invoke(TOOL_NAMES.CLASIFY, {
         id: 'caller-model-rejected',
         reasoning: 'Verify that provider model selection remains runtime-owned.',
         resources: [{ id: 'evidence', context: { value: 'Supplied evidence.' } }],
@@ -626,9 +626,9 @@ try {
     );
   }
   if (values.live && !values.quick) {
-    if (expectedTools.includes(TOOL_NAMES.SEMANTIC_ASSESS)) {
-      await check('semanticAssess executes Noul, Choice, and Score through the live provider', async () => {
-        const response = await invoke(TOOL_NAMES.SEMANTIC_ASSESS, { queries: [{
+    if (expectedTools.includes(TOOL_NAMES.CLASIFY)) {
+      await check('clasify executes Noul, Choice, and Score through the live provider', async () => {
+        const response = await invoke(TOOL_NAMES.CLASIFY, { queries: [{
           id: 'live-primitives',
           reasoning: 'Verify every semantic primitive through the built MCP surface.',
           resources: [{
@@ -833,7 +833,7 @@ try {
       ]);
       const liveOnlyTools = new Set([...cacheVolatileTools, 'ghCloneRepo']);
       for (const name of expectedTools) {
-        if (name === TOOL_NAMES.SEMANTIC_ASSESS) {
+        if (name === TOOL_NAMES.CLASIFY) {
           const executionVerified = receipt.calls.some(call =>
             call.name === name
             && call.response.isError === false
@@ -848,7 +848,7 @@ try {
           });
           assert.ok(
             !values.live || executionVerified,
-            'semanticAssess: --live requires one successful provider-backed execution'
+            'clasify: --live requires one successful provider-backed execution'
           );
           continue;
         }

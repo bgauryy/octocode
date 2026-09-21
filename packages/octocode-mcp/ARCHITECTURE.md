@@ -23,7 +23,7 @@ missing or invalid, startup fails closed.
 ## Tool registration
 
 The native catalog contains twelve tools. MCP registers only the available
-subset: `astRewrite` requires `ENABLE_AST_REWRITE=true`, and `semanticAssess`
+subset: `astRewrite` requires `ENABLE_AST_REWRITE=true`, and `clasify`
 requires a nonblank `OCTOCODE_CLASSIFICATION_API`.
 
 `createNativeMcp()` constructs one `NativeRuntime` and calls `catalog()`. The

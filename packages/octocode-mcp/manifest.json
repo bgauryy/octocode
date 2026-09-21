@@ -79,7 +79,7 @@
       "description": "Run LSP semantic navigation over local files"
     },
     {
-      "name": "semanticAssess",
+      "name": "clasify",
       "description": "Apply typed questions to unread resources without returning their bodies."
     }
   ],

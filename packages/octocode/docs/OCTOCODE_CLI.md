@@ -33,7 +33,7 @@ plus `--compact` for single-line JSON (default output is indented JSON).
 | `ghGetHistoryItem` | Read one PR, issue, commit, or comparison. |
 | `ghCloneRepo` | Clone a repository into the local cache for offline analysis. |
 | `artifactSearch` | Package lookup/discovery across 8 registries. |
-| `semanticAssess` | Apply Noul, Choice, or Score questions across `resources[] × questions[]`, or batch independent matrices in `queries[]`. Requires `OCTOCODE_CLASSIFICATION_API`. |
+| `clasify` | Apply Noul, Choice, or Score questions across `resources[] × questions[]`, or batch independent matrices in `queries[]`. Requires `OCTOCODE_CLASSIFICATION_API`. |
 
 ### System
 
@@ -84,7 +84,7 @@ resolve from the command cwd, which may differ from the repository root.
 | Local Code | `localSearch` · `astSearch` · `astRewrite` · `localFetch` · `lspSearch` |
 | Package | `artifactSearch` |
 
-`ghCloneRepo` is opt-in with `ENABLE_CLONE=true`. `semanticAssess` is available
+`ghCloneRepo` is opt-in with `ENABLE_CLONE=true`. `clasify` is available
 when `OCTOCODE_CLASSIFICATION_API` is nonblank. Both remain discoverable in the CLI catalog.
 
 ### Research loop
@@ -100,7 +100,7 @@ npx octocode localFetch '{"path":"/ABS/repo/crates/runtime/src/runtime/engine.rs
 npx octocode lspSearch '{"uri":"/ABS/repo/crates/runtime/src/runtime/engine.rs","operation":"references","symbolName":"ToolRuntime","lineHint":40,"reasoning":"Trace usages."}'
 ```
 
-`semanticAssess` requires a nonblank `reasoning` string. Ordinary tools accept
+`clasify` requires a nonblank `reasoning` string. Ordinary tools accept
 it as optional context and reject a supplied blank value. Queries accept a
 single object or a JSON array for a batch (up to 5). Large queries avoid shell
 quoting with `--input <file>`.
@@ -279,10 +279,10 @@ npx octocode ghGetHistoryItem '{"operation":"compare","owner":"bgauryy","repo":"
 npx octocode scheme --compact
 npx octocode scheme localSearch --view query --compact
 npx octocode localSearch '{"path":"/ABS/repo/src","searchText":"runCLI","resultView":"matchOnly","reasoning":"Locate the entry."}' --compact
-npx octocode semanticAssess --input request.json
+npx octocode clasify --input request.json
 ```
 
-The CLI keeps `semanticAssess` discoverable when the provider key is absent. If
+The CLI keeps `clasify` discoverable when the provider key is absent. If
 called without a nonblank `OCTOCODE_CLASSIFICATION_API`, it exits with an actionable error
 that names the variable and tells the caller to set it. MCP instead omits the
 tool from discovery until the key is available.

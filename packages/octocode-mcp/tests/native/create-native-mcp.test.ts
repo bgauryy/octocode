@@ -138,7 +138,7 @@ describe('createNativeMcp registration + execution', () => {
     ['missing', undefined, false],
     ['blank', '   ', false],
   ])(
-    'omits semanticAssess from discovery when OCTOCODE_CLASSIFICATION_API is %s',
+    'omits clasify from discovery when OCTOCODE_CLASSIFICATION_API is %s',
     async (_label, credential, nativeAvailable) => {
       // Native owns credential resolution. This fixture supplies the catalog
       // availability state that the adapter must honor without reinterpreting it.
@@ -148,7 +148,7 @@ describe('createNativeMcp registration + execution', () => {
           fingerprint: getNativeContractFingerprint(),
           tools: [
             tool('localFetch', true),
-            tool(TOOL_NAMES.SEMANTIC_ASSESS, nativeAvailable),
+            tool(TOOL_NAMES.CLASIFY, nativeAvailable),
           ],
         })),
       });
@@ -172,7 +172,7 @@ describe('createNativeMcp registration + execution', () => {
     }
   );
 
-  it('exposes semanticAssess when OCTOCODE_CLASSIFICATION_API is nonblank', async () => {
+  it('exposes clasify when OCTOCODE_CLASSIFICATION_API is nonblank', async () => {
     const instance = createNativeMcp({
       env: {
         OCTOCODE_CLASSIFICATION_API: 'test-key',
@@ -181,7 +181,7 @@ describe('createNativeMcp registration + execution', () => {
         fingerprint: getNativeContractFingerprint(),
         tools: [
           tool('localFetch', true),
-          tool(TOOL_NAMES.SEMANTIC_ASSESS, true),
+          tool(TOOL_NAMES.CLASIFY, true),
         ],
       })),
     });
@@ -197,7 +197,7 @@ describe('createNativeMcp registration + execution', () => {
     const list = await client.listTools();
     expect(list.tools.map(t => t.name)).toEqual([
       'localFetch',
-      TOOL_NAMES.SEMANTIC_ASSESS,
+      TOOL_NAMES.CLASIFY,
     ]);
     expect(list.tools.every(t => !Object.hasOwn(t, 'outputSchema'))).toBe(true);
 
