@@ -219,14 +219,8 @@ function validateDocumentationContracts() {
     path.join(ROOT, 'docs', 'CONFIGURATION.md'),
     'utf8'
   );
-  const architecturePaths = [
-    path.join(ROOT, 'packages', 'octocode-native', 'ARCHITECTURE.md'),
-    path.join(ROOT, 'packages', 'octocode-mcp', 'ARCHITECTURE.md'),
-  ];
-  const architectures = architecturePaths.map(filePath => ({
-    filePath,
-    content: fs.readFileSync(filePath, 'utf8'),
-  }));
+  const toolReferencePath = path.join(ROOT, 'docs', 'OCTOCODE_TOOLS.md');
+  const toolReference = fs.readFileSync(toolReferencePath, 'utf8');
   const agentsGuide = fs.readFileSync(path.join(ROOT, 'AGENTS.md'), 'utf8');
   const cliArchitecture = fs.readFileSync(
     path.join(ROOT, 'packages', 'octocode', 'ARCHITECTURE.md'),
@@ -243,13 +237,11 @@ function validateDocumentationContracts() {
     );
   }
 
-  for (const { filePath, content } of architectures) {
-    for (const toolName of PUBLIC_TOOL_NAMES) {
-      if (!content.includes(`\`${toolName}\``)) {
-        failures.push(
-          `${path.relative(ROOT, filePath)} is missing public tool \"${toolName}\"`
-        );
-      }
+  for (const toolName of PUBLIC_TOOL_NAMES) {
+    if (!toolReference.includes(`\`${toolName}\``)) {
+      failures.push(
+        `${path.relative(ROOT, toolReferencePath)} is missing public tool \"${toolName}\"`
+      );
     }
   }
 

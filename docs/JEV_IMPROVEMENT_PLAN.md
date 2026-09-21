@@ -1,6 +1,6 @@
 # `semanticAssess` implementation plan
 
-Status: implemented and integration-verified as of 2026-09-21. The public contract, native runtime, CLI, MCP, Pi-facing docs, skills, and provider lab use the single `semanticAssess` surface. The canonical core is clean at `beaaf142`; native contracts report `sourceDirty:false` with fingerprint `9043f2839a10…`. Clean-provenance and contract-sync checks pass. The [semantic assessment reference](OCTOCODE_SEMANTIC_ASSESS.md) describes the public contract, [JEV.md](../.octocode/JEV.md) indexes frozen provider-era experiments, and [GOTCHAS](../.octocode/GOTCHAS.md) records operational lessons.
+Status: implemented and integration-verified as of 2026-09-21. The public contract, native runtime, CLI, MCP, Pi-facing docs, skills, and provider lab use the single `semanticAssess` surface. The canonical core is clean at `7b0ede1a`; native contracts report `sourceDirty:false` with fingerprint `99c6eab576c8…`. Clean-provenance and contract-sync checks pass. The [semantic assessment reference](OCTOCODE_SEMANTIC_ASSESS.md) describes the public contract, [JEV.md](../.octocode/JEV.md) indexes frozen provider-era experiments, and [GOTCHAS](../.octocode/GOTCHAS.md) records operational lessons.
 
 ## Audit Reasoning — fix-and-keep (2026-09-20)
 
@@ -11,15 +11,47 @@ Status: implemented and integration-verified as of 2026-09-21. The public contra
 
 ### Implemented verification snapshot — 2026-09-21
 
-- Canonical core: 195/195 tests passed, including direct and batched SemanticQuery validation, primitive null boundaries, matrix limits, complete field descriptions, and selector-deduplicated defaults.
-- Native: 349/349 library tests, 7/7 semantic integration tests, the 641-test engine suite (one intentional ignore), `cargo check`, formatting, clean provenance, and contract sync passed.
-- Built path: native, CLI, and MCP development builds passed. CLI tests passed 109/109; MCP tests passed 182/182.
+- Canonical core: 199/199 tests passed, including direct and batched SemanticQuery validation, primitive null boundaries, matrix limits, complete field descriptions, selector-deduplicated defaults, description budgets, schema budgets, and the shared 100-item security ceiling.
+- Native: runtime, CLI integration, cache/local/semantic integration, and the 642-test engine suite passed (641 passed, one intentional ignore). Formatting, clean provenance, and contract sync passed.
+- Built path: native runtime, both add-ons, CLI, and MCP development builds passed. CLI tests passed 123/123 and MCP tests passed 182/182. Full built stdio acceptance plus deterministic CLI/MCP parity passed 39/39.
 - Availability: an isolated real MCP process passed 14/14 checks with 11 tools when the key was absent and omitted `semanticAssess`; with a resolved key it passed 15/15 checks with all 12 tools and included `semanticAssess`. The CLI kept the command discoverable, returned exit 5 without a key, and named `OCTOCODE_JEV_KEY` plus the setup URL. The removed `jev` command returned an unknown-subcommand error.
 - Live provider matrix: two resources × three questions produced six correlated cells. Noul, Choice, and Score all returned native answer objects; the observed requested model was `jev-latest` and the resolved model was `jev-1.13.0`.
 - Live batch: two independent SemanticQuery objects retained their query IDs and produced separate nested results.
 - Live resource pagination: `maxChars` now charges sanitized evidence payload rather than repeated result-envelope and continuation metadata. A 78,377-character local document produced five explicit page-local answers, reached the deciding final-page marker at Noul 0.98, and returned `coverage:"complete"` with no continuation. A true 80,001-character payload returns a schema-valid `next.assess`; running it unchanged completes the remaining page without leaking the source body.
 - Skills and docs: research, semantic assessment, RFC, Chrome, and scraping skills passed their self-tests and a five-skill review with zero errors or warnings. Documentation verification passed.
 - Benchmark/dev tooling: the Jev lab passed 8/8 tests while preserving raw provider payloads and requested/resolved model provenance. The benchmark package passed 19/19 TypeScript, 67/67 Python, and 97/97 advanced-research tests; its bundled skill passes the zero-error structural gate (remaining notices are advisory cleanup for historical reference length/navigation).
+
+### Public tool-contract optimization and scorecard — 2026-09-21
+
+The final public catalog has 12 tools. Descriptions now state the positive trigger, negative boundary, and evidence handoff instead of repeating fields. `astRewrite` explicitly says it is not a research tool. Known/unknown path, ref, package, and symbol routing is consistent across tools. MCP instructions retain only cross-tool workflow, evidence, pagination, availability, and security rules; tool-local rules live in each description/schema.
+
+Measured prompt surface after regeneration:
+
+- Global instructions: **2,503 bytes**, down from 3,866.
+- Full descriptions: **3,697 characters total**; every tool is below 400 characters.
+- Default input schemas: **97,277 bytes**. Enabling default-off `astRewrite` raises the total to 119,391 bytes.
+- Built MCP `tools/list`: **103,104 bytes** by default and 125,698 with rewrite enabled; neither MCP nor CLI advertises output schemas.
+- `semanticAssess` input schema: **5,931 bytes**, reduced from 12,428 by reusable `$defs` without changing its accepted grammar.
+- Every public input array is bounded by the native 100-item security ceiling. Contract tests ratchet description length, total default schema size, and array bounds.
+
+The live provider evaluated the final descriptions as 24 complete cells: selection **3.085/4**, density **3.434/4**, combined **3.260/4 = 8.15/10**. This improved the earlier 7.85/10 pass. A separate schema-only semantic pass scored apparent simplicity at 2.021/4; that is retained as a friction signal, not treated as proof that precise discriminated unions should be weakened. The largest schemas are `astSearch` (23,724 bytes) and default-off `astRewrite` (22,114 bytes). They encode materially different operations and safety states; deleting those constraints would save tokens by making invalid calls easier. The next safe lever, if measurements justify it, is an operation-selected compact view—not a looser runtime contract or another public tool.
+
+| Tool | Description | Schema | Implementation | Current judgment |
+|---|---:|---:|---:|---|
+| `semanticAssess` | 7.7 | 8.8 | 9.3 | Matrix, batch, typed primitives, raw answers, background acquisition, and recovery are live; description intentionally keeps the proof boundary. |
+| `ghSearch` | 8.3 | 8.6 | 8.8 | Clear discovery boundary and bounded result modes; remote-index coverage remains inherently partial. |
+| `ghGetFileContent` | 8.2 | 8.8 | 9.1 | Exact known-repo/ref/path reader with executable pagination and immutable-ref guidance. |
+| `ghSearchHistory` | 8.2 | 8.5 | 8.8 | Discovery-only history surface; routes known identities to the item reader. |
+| `ghGetHistoryItem` | 8.1 | 8.4 | 8.9 | Richest GitHub read schema; patch and independent expansion axes remain explicit instead of being flattened. |
+| `artifactSearch` | 7.8 | 8.7 | 8.5 | Concise package/version/source discovery; registry facts are correctly separated from source proof. |
+| `ghCloneRepo` | 8.1 | 9.0 | 8.7 | Smallest schema and a clear handoff to local tools; mutation/auth policy remains runtime-owned. |
+| `localSearch` | 8.4 | 8.3 | 9.0 | Strong lexical discovery contract. Its two schema branches make `matchOnly` constraints executable rather than prose-only. |
+| `astSearch` | 8.2 | 7.9 | 9.0 | Broadest read-only syntax/topology surface and largest default schema. Keep topology as candidate evidence and confirm identity with LSP. |
+| `astRewrite` | 8.2 | 8.2 | 8.9 | Default-off, explicitly non-research, preview/apply states guarded by snapshot and hashes. Large schema is excluded from the default prompt budget. |
+| `localFetch` | 8.3 | 9.0 | 9.2 | Small, exact, and recoverable; whole-file, range, match-window, minified, and continuation semantics are aligned. |
+| `lspSearch` | 8.4 | 8.5 | 9.2 | Strongest routing description and precise anchor alternatives. TypeScript progress-request compatibility, cold-start budgets, cancellation cleanup, and CLI/MCP parity are regression-covered. |
+
+Scores are ten-point engineering ratings. Description scores are the live semantic selection/density averages scaled to ten; schema and implementation scores combine contract inspection with the tests and real interface paths above. They are comparative maintenance signals, not release assertions by themselves.
 
 ### Agent-readiness scorecard before this amendment
 

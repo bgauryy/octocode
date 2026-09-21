@@ -1,5 +1,9 @@
-import { describe, it, expect } from 'vitest';
-import { project, projectSelected } from '../../../src/cli/commands/scheme.js';
+import { describe, it, expect, vi } from 'vitest';
+import {
+  project,
+  projectSelected,
+  runScheme,
+} from '../../../src/cli/commands/scheme.js';
 import type { JsonObject } from '../../../src/cli/commands/scheme-projection.js';
 import {
   getPublicToolCatalog,
@@ -34,9 +38,50 @@ describe('core public catalog', () => {
     const instructions = buildMcpInstructions(
       tools.map(tool => String(tool.name))
     );
-    expect(instructions).toContain('Choose a tool');
+    expect(instructions).toContain('Route each unresolved question');
     expect(instructions).toContain('semanticAssess');
     expect(buildMcpInstructions([])).not.toContain('semanticAssess');
+  });
+});
+
+describe('scheme command admission', () => {
+  it.each(['help', 'h'])('prints usage for --%s', async option => {
+    const output = vi.spyOn(console, 'log').mockImplementation(() => {});
+    await expect(
+      runScheme({
+        command: 'scheme',
+        args: [],
+        options: { [option]: true },
+      })
+    ).resolves.toBe(0);
+    expect(output).toHaveBeenCalledWith(expect.stringContaining('octocode scheme'));
+  });
+
+  it('rejects an invalid view on the text error channel', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await expect(
+      runScheme({
+        command: 'scheme',
+        args: [],
+        options: { view: 'invalid' },
+      })
+    ).resolves.toBe(2);
+    expect(error).toHaveBeenCalledWith('--view expects full|query, got: invalid');
+  });
+
+  it('rejects an invalid view on the JSON error channel', async () => {
+    const output = vi.spyOn(console, 'log').mockImplementation(() => {});
+    await expect(
+      runScheme({
+        command: 'scheme',
+        args: [],
+        options: { view: 'invalid', 'json-errors': true },
+      })
+    ).resolves.toBe(2);
+    expect(JSON.parse(String(output.mock.calls[0]?.[0]))).toEqual({
+      success: false,
+      error: '--view expects full|query, got: invalid',
+    });
   });
 });
 

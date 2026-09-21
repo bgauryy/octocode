@@ -650,7 +650,7 @@ fn client_response_for(
         "client/registerCapability"
         | "client/unregisterCapability"
         | "window/showMessageRequest"
-        | "workDoneProgress/create" => ClientResponse::Result(Value::Null),
+        | "window/workDoneProgress/create" => ClientResponse::Result(Value::Null),
         other => ClientResponse::Error {
             code: -32601,
             message: format!("Method not found: {other}"),
@@ -869,6 +869,10 @@ mod tests {
         match client_response_for("client/registerCapability", None, &context) {
             ClientResponse::Result(Value::Null) => {}
             other => panic!("registerCapability must stay a null result, got {other:?}"),
+        }
+        match client_response_for("window/workDoneProgress/create", None, &context) {
+            ClientResponse::Result(Value::Null) => {}
+            other => panic!("workDoneProgress/create must return a null result, got {other:?}"),
         }
     }
 
