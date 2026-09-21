@@ -155,7 +155,10 @@ export function createNativeMcp({
       `${coreFingerprint} (@octocodeai/octocode-core) != native ` +
       `${nativeFingerprint}. Realign the core package and the native generated ` +
       'contract, or set OCTOCODE_ALLOW_CONTRACT_DRIFT=1 to override.';
-    if (env.OCTOCODE_ALLOW_CONTRACT_DRIFT === '1' && env.NODE_ENV !== 'production') {
+    if (
+      env.OCTOCODE_ALLOW_CONTRACT_DRIFT === '1' &&
+      env.NODE_ENV !== 'production'
+    ) {
       // stderr, not stdout: stdout is reserved for the MCP stdio protocol.
       // The override is a local-iteration aid only; in production a fingerprint
       // mismatch always fails closed so clients never see a rejected contract.
@@ -220,7 +223,8 @@ export function createNativeMcp({
             `[octocode-mcp] ${tool.name} execution error: ${detail}\n`
           );
           throw new Error(
-            `Tool ${tool.name} failed to execute; see the server logs for detail.`
+            `Tool ${tool.name} failed to execute; see the server logs for detail.`,
+            { cause: error }
           );
         } finally {
           signal?.removeEventListener('abort', cancel);

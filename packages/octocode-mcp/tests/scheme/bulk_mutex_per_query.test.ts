@@ -7,14 +7,31 @@ describe('bulk schema cross-field validation', () => {
   it('localFetch rejects a mutex-violating row in a mixed batch', () => {
     const r = LocalFetchContentBulkQuerySchema.safeParse({
       queries: [
-        { reasoning: 'exercise bulk validation', path: 'a.ts', fullContent: true, matchString: 'x' },
-        { reasoning: 'exercise bulk validation', path: 'b.ts', startLine: 1, endLine: 5 },
+        {
+          reasoning: 'exercise bulk validation',
+          path: 'a.ts',
+          fullContent: true,
+          matchString: 'x',
+        },
+        {
+          reasoning: 'exercise bulk validation',
+          path: 'b.ts',
+          startLine: 1,
+          endLine: 5,
+        },
       ],
     });
     expect(r.success).toBe(false);
     expect(
       LocalFetchContentBulkQuerySchema.safeParse({
-        queries: [{ reasoning: 'exercise bulk validation', path: 'b.ts', startLine: 1, endLine: 5 }],
+        queries: [
+          {
+            reasoning: 'exercise bulk validation',
+            path: 'b.ts',
+            startLine: 1,
+            endLine: 5,
+          },
+        ],
       }).success
     ).toBe(true);
   });
@@ -30,7 +47,11 @@ describe('bulk schema cross-field validation', () => {
           pattern: 'call($A)',
           rule: 'kind: call_expression',
         },
-        { reasoning: 'exercise bulk validation', operation: 'files', path: '/r' },
+        {
+          reasoning: 'exercise bulk validation',
+          operation: 'files',
+          path: '/r',
+        },
       ],
     });
     expect(r.success).toBe(false);
@@ -65,14 +86,28 @@ describe('bulk schema cross-field validation', () => {
           fullContent: true,
           matchString: 'x',
         },
-        { reasoning: 'exercise bulk validation', owner: 'o', repo: 'r', path: 'b.ts', startLine: 1, endLine: 5 },
+        {
+          reasoning: 'exercise bulk validation',
+          owner: 'o',
+          repo: 'r',
+          path: 'b.ts',
+          startLine: 1,
+          endLine: 5,
+        },
       ],
     });
     expect(r.success).toBe(false);
     expect(
       FileContentBulkQueryLocalSchema.safeParse({
         queries: [
-          { reasoning: 'exercise bulk validation', owner: 'o', repo: 'r', path: 'b.ts', startLine: 1, endLine: 5 },
+          {
+            reasoning: 'exercise bulk validation',
+            owner: 'o',
+            repo: 'r',
+            path: 'b.ts',
+            startLine: 1,
+            endLine: 5,
+          },
         ],
       }).success
     ).toBe(true);

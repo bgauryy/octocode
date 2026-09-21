@@ -105,9 +105,7 @@ describe('runCLI native boundary', () => {
   it('fails closed with exit 5 when the native runtime is unavailable', async () => {
     mocks.resolve.mockReturnValue(null);
     const { runCLI } = await import('../../src/cli/index.js');
-    const stderr = vi
-      .spyOn(process.stderr, 'write')
-      .mockReturnValue(true);
+    const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
     const previousExit = process.exitCode;
     try {
       const result = await runCLI(['tools']);

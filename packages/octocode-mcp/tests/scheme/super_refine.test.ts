@@ -6,7 +6,10 @@ import { FileContentQueryLocalSchema } from '@octocodeai/config/schema';
 import { ArtifactSearchBulkQueryLocalSchema } from '@octocodeai/config/schema';
 
 describe('LocalFetchContentQuerySchema mutual-exclusion', () => {
-  const baseQuery = { reasoning: 'exercise mutex validation', path: 'src/foo.ts' };
+  const baseQuery = {
+    reasoning: 'exercise mutex validation',
+    path: 'src/foo.ts',
+  };
 
   it('rejects fullContent=true together with matchString', () => {
     const result = LocalFetchContentQuerySchema.safeParse({
@@ -236,7 +239,11 @@ describe('ArtifactSearch schema', () => {
   it('accepts an exact packageName with ecosystem type', () => {
     const result = ArtifactSearchBulkQueryLocalSchema.safeParse({
       queries: [
-        { reasoning: 'exercise artifact lookup', type: 'npm', packageName: 'react' },
+        {
+          reasoning: 'exercise artifact lookup',
+          type: 'npm',
+          packageName: 'react',
+        },
       ],
     });
     expect(result.success).toBe(true);

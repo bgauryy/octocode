@@ -4,7 +4,11 @@ import { LocalSearchQuerySchema } from '@octocodeai/config/schema';
 import { AstSearchQuerySchema } from '@octocodeai/config/schema';
 
 describe('canonical localSearch lexical contract', () => {
-  const base = { reasoning: 'exercise lexical contract', searchText: 'foo', path: 'src' };
+  const base = {
+    reasoning: 'exercise lexical contract',
+    searchText: 'foo',
+    path: 'src',
+  };
 
   it('accepts the explicit regex modes', () => {
     for (const regex of ['literal', 'rust', 'pcre2']) {

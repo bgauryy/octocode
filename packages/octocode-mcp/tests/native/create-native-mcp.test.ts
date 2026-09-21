@@ -179,10 +179,7 @@ describe('createNativeMcp registration + execution', () => {
       },
       binding: bindingFor(() => ({
         fingerprint: getNativeContractFingerprint(),
-        tools: [
-          tool('localFetch', true),
-          tool(TOOL_NAMES.CLASIFY, true),
-        ],
+        tools: [tool('localFetch', true), tool(TOOL_NAMES.CLASIFY, true)],
       })),
     });
 
