@@ -32,6 +32,7 @@ const acceptanceEnv = {
   ...process.env,
   ENABLE_LOCAL: 'true',
   ENABLE_CLONE: 'true',
+  ENABLE_AST_REWRITE: 'true',
   ENABLE_AST_REWRITE_APPLY: 'true',
   OCTOCODE_STORAGE_MODE: 'persistent',
 };

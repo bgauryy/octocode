@@ -48,5 +48,17 @@ fn scheme_catalog_is_machine_only_with_availability_scoping() {
             semantic_assess["availability"]["enabled"], enabled,
             "{catalog}"
         );
+        let ast_rewrite = catalog["tools"]
+            .as_array()
+            .expect("tools array")
+            .iter()
+            .find(|tool| tool["name"] == "astRewrite")
+            .expect("astRewrite entry");
+        assert_eq!(ast_rewrite["availability"]["enabled"], false, "{catalog}");
+        assert_eq!(
+            ast_rewrite["availability"]["envVar"],
+            "ENABLE_AST_REWRITE",
+            "{catalog}"
+        );
     }
 }

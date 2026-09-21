@@ -1,7 +1,7 @@
 //! Generic JSON-schema validation.
 //!
 //! Tool-agnostic structural validation of a value against a (sub)schema:
-//! `$ref`/`not`/`oneOf`/`anyOf` resolution, `const`/`enum`, and the
+//! `$ref`/`not`/`allOf`/`oneOf`/`anyOf` resolution, `const`/`enum`, and the
 //! object/array/string/number/size checks. Per-tool rule logic lives in the
 //! parent module; union-branch selection lives in `super::union`.
 
@@ -37,6 +37,18 @@ pub(super) fn validate_schema(
                 )
             })?;
         return validate_schema(root, target, value, path);
+    }
+    if let Some(branches) = schema.get("allOf").and_then(Value::as_array) {
+        let mut issues = Vec::new();
+        for branch in branches {
+            if let Err(error) = validate_schema(root, branch, value, path) {
+                issues.extend(error.issues);
+            }
+        }
+        if !issues.is_empty() {
+            issues.dedup();
+            return Err(ContractValidationError { issues });
+        }
     }
     let union = schema
         .get("oneOf")

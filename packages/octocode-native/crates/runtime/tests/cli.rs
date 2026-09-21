@@ -870,6 +870,7 @@ fn astrewrite_previews_then_applies_with_hash_guards() {
     });
     let preview = workspace
         .cli()
+        .env("ENABLE_AST_REWRITE", "true")
         .args(["astRewrite", &query.to_string(), "--compact"])
         .output()
         .expect("astRewrite preview");
@@ -899,6 +900,7 @@ fn astrewrite_previews_then_applies_with_hash_guards() {
     query["snapshot"] = data["snapshot"].clone();
     let output = workspace
         .cli()
+        .env("ENABLE_AST_REWRITE", "true")
         .env("ENABLE_AST_REWRITE_APPLY", "true")
         .args(["astRewrite", &query.to_string(), "--compact"])
         .output()

@@ -18,6 +18,7 @@ This reference is generated from [`packages/octocode-config/config-contract.json
   "local": {
     "enabled": true,
     "enableClone": false,
+    "enableAstRewrite": false,
     "enableAstRewriteApply": false,
     "allowedPaths": [],
     "workspaceRoot": null
@@ -68,6 +69,7 @@ Environment values take precedence over `.octocoderc`. Aliases are listed in pri
 | `github.graphqlEnabled` | `OCTOCODE_GITHUB_GRAPHQL` | `true` | boolean | Use GitHub GraphQL where supported; false forces REST-only access. |
 | `local.enabled` | `ENABLE_LOCAL`<br>`OCTOCODE_ENABLE_LOCAL` | `true` | boolean | Enable local filesystem tools on every runtime surface. ENABLE_LOCAL is canonical; OCTOCODE_ENABLE_LOCAL is an alias. |
 | `local.enableClone` | `ENABLE_CLONE`<br>`OCTOCODE_ENABLE_CLONE` | `false` | boolean | Enable ghCloneRepo and directory materialization. Opt-in and requires persistent storage. ENABLE_CLONE is canonical. |
+| `local.enableAstRewrite` | `ENABLE_AST_REWRITE` | `false` | boolean | Enable the astRewrite tool. Preview and apply are unavailable while false. |
 | `local.enableAstRewriteApply` | `ENABLE_AST_REWRITE_APPLY` | `false` | boolean | Permit hash-guarded astRewrite apply; preview remains available. |
 | `local.allowedPaths` | `ALLOWED_PATHS` | `[]` | string array | Extra absolute or home-relative roots added to the allowed home directory. The environment value is a comma-separated list. |
 | `local.workspaceRoot` | `WORKSPACE_ROOT` | process.cwd() | path | Optional absolute or home-relative workspace root. |

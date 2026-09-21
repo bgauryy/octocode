@@ -127,10 +127,10 @@ impl ToolId {
         match self {
             ToolId::GhCloneRepo => Some("ENABLE_CLONE|OCTOCODE_STORAGE_MODE"),
             ToolId::SemanticAssess => Some("OCTOCODE_JEV_KEY"),
+            ToolId::AstRewrite => Some("ENABLE_AST_REWRITE"),
             ToolId::LocalSearch
             | ToolId::LocalFetch
             | ToolId::AstSearch
-            | ToolId::AstRewrite
             | ToolId::LspSearch => Some("ENABLE_LOCAL"),
             _ => None,
         }
@@ -221,11 +221,14 @@ mod tests {
             ToolId::LocalSearch,
             ToolId::LocalFetch,
             ToolId::AstSearch,
-            ToolId::AstRewrite,
             ToolId::LspSearch,
         ] {
             assert_eq!(id.availability_env_hint(), Some("ENABLE_LOCAL"), "{id}");
         }
+        assert_eq!(
+            ToolId::AstRewrite.availability_env_hint(),
+            Some("ENABLE_AST_REWRITE")
+        );
     }
 
     #[test]

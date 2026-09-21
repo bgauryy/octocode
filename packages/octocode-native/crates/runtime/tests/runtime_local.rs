@@ -236,6 +236,33 @@ async fn disabled_local_family_is_unavailable() {
 }
 
 #[tokio::test]
+async fn ast_rewrite_requires_its_separate_opt_in() {
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[]);
+    assert!(!runtime.is_available("astRewrite"));
+    let error = call(
+        &runtime,
+        "astRewrite",
+        json!({
+            "path": workspace.workspace,
+            "langType": "typescript",
+            "ruleKind": "pattern",
+            "pattern": "console.log($A)",
+            "rewrite": "logger.info($A)"
+        }),
+    )
+    .await
+    .expect_err("astRewrite must be opt-in");
+    assert_eq!(error.code, "missingConfiguration");
+    assert!(error.message.contains("ENABLE_AST_REWRITE"));
+    runtime.close().await;
+
+    let enabled = workspace.runtime(&[("ENABLE_AST_REWRITE", "true".into())]);
+    assert!(enabled.is_available("astRewrite"));
+    enabled.close().await;
+}
+
+#[tokio::test]
 async fn runtime_catalog_lists_available_tools() {
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[]);

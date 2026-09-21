@@ -578,6 +578,7 @@ describe('DEFAULT_CONFIG', () => {
     expect(DEFAULT_CONFIG.github.apiUrl).toBe('https://api.github.com');
     expect(DEFAULT_CONFIG.local.enabled).toBe(true);
     expect(DEFAULT_CONFIG.local.enableClone).toBe(false);
+    expect(DEFAULT_CONFIG.local.enableAstRewrite).toBe(false);
     expect(DEFAULT_CONFIG.local.enableAstRewriteApply).toBe(false);
     expect(DEFAULT_NETWORK_CONFIG.timeout).toBe(30000);
     expect(DEFAULT_NETWORK_CONFIG.allowPrivateRegistry).toBe(false);
@@ -1175,6 +1176,7 @@ describe('resolveLocal', () => {
   it('env overrides local file config', () => {
     process.env['ENABLE_LOCAL'] = 'false';
     process.env['ENABLE_CLONE'] = 'true';
+    process.env['ENABLE_AST_REWRITE'] = 'true';
     process.env['ENABLE_AST_REWRITE_APPLY'] = 'true';
     process.env['ALLOWED_PATHS'] = ' /a, /b ,, ';
     process.env['WORKSPACE_ROOT'] = ' /workspace ';
@@ -1189,6 +1191,7 @@ describe('resolveLocal', () => {
     ).toEqual({
       enabled: false,
       enableClone: true,
+      enableAstRewrite: true,
       enableAstRewriteApply: true,
       allowedPaths: ['/a', '/b'],
       workspaceRoot: '/workspace',

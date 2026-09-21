@@ -1,15 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { project, projectSelected } from '../../../src/cli/commands/scheme.js';
+import type { JsonObject } from '../../../src/cli/commands/scheme-projection.js';
 import {
   getPublicToolCatalog,
   getNativeContractFingerprint,
 } from '@octocodeai/octocode-core/schema';
 import { buildMcpInstructions } from '@octocodeai/octocode-core/mcp';
 
-type JsonObject = Record<string, unknown>;
-
 const catalog = getPublicToolCatalog();
-const tools = catalog.tools as readonly JsonObject[];
+const tools = catalog.tools as unknown as readonly JsonObject[];
 const toolNamed = (name: string): JsonObject => {
   const tool = tools.find(candidate => candidate.name === name);
   if (!tool) throw new Error(`missing tool ${name}`);
@@ -33,7 +32,7 @@ describe('core public catalog', () => {
 
   it('builds availability-scoped instructions without a native instruction table', () => {
     const instructions = buildMcpInstructions(
-      tools.map(tool => String(tool.name)),
+      tools.map(tool => String(tool.name))
     );
     expect(instructions).toContain('Choose a tool');
     expect(instructions).toContain('semanticAssess');
@@ -53,31 +52,34 @@ describe('project', () => {
   it('query view is self-contained with envelope bounds', () => {
     const query = project(toolNamed('localSearch'), 'query');
     expect(Object.keys(query).sort()).toEqual(
-      expect.arrayContaining(['name', 'querySchema']),
+      expect.arrayContaining(['name', 'querySchema'])
     );
     expect(query.name).toBe('localSearch');
     const envelope = query.queryEnvelope as
-      | { queries?: Record<string, unknown> }
-      | undefined;
+      { queries?: Record<string, unknown> } | undefined;
     expect(envelope?.queries).toBeDefined();
   });
 });
 
 describe('projectSelected', () => {
   it('passes through when no selection is given', () => {
-    const projected = projectSelected(toolNamed('ghSearch'), 'query', undefined);
+    const projected = projectSelected(
+      toolNamed('ghSearch'),
+      'query',
+      undefined
+    );
     expect(projected.name).toBe('ghSearch');
   });
 
   it('rejects selection outside query view', () => {
     expect(() =>
-      projectSelected(toolNamed('ghSearch'), 'full', 'operation=code'),
+      projectSelected(toolNamed('ghSearch'), 'full', 'operation=code')
     ).toThrow('--select requires --view query');
   });
 
   it('rejects malformed selections', () => {
     expect(() =>
-      projectSelected(toolNamed('ghSearch'), 'query', 'operation'),
+      projectSelected(toolNamed('ghSearch'), 'query', 'operation')
     ).toThrow('FIELD=VALUE');
   });
 
@@ -85,7 +87,7 @@ describe('projectSelected', () => {
     const projected = projectSelected(
       toolNamed('ghSearch'),
       'query',
-      'operation=code',
+      'operation=code'
     );
     const schema = projected.querySchema as JsonObject;
     const union = (schema.oneOf ?? schema.anyOf) as unknown[];
@@ -99,7 +101,7 @@ describe('projectSelected', () => {
 
   it('rejects selections matching no branch', () => {
     expect(() =>
-      projectSelected(toolNamed('ghSearch'), 'query', 'operation=nope'),
+      projectSelected(toolNamed('ghSearch'), 'query', 'operation=nope')
     ).toThrow('matched 0');
   });
 });

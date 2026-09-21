@@ -257,7 +257,10 @@ impl ToolRuntime {
         let id = ToolId::from_name(tool);
         // GitHub read tools are always enabled; cloning has an extra gate below.
         let github = matches!(id, Some(t) if t.is_github() && t != ToolId::GhCloneRepo);
-        let local_tools = local && matches!(id, Some(t) if t.is_local());
+        let local_tools = local
+            && matches!(id, Some(t) if t.is_local())
+            && (id != Some(ToolId::AstRewrite)
+                || self.config.resolved.local.enable_ast_rewrite);
         let jev = matches!(id, Some(t) if t.is_semantic_assess())
             && self
                 .config
@@ -378,6 +381,15 @@ impl ToolRuntime {
         mcp: bool,
     ) -> Result<ToolOutcome, RuntimeError> {
         if !self.is_available(&tool) {
+            if !mcp
+                && tool == "astRewrite"
+                && !self.config.resolved.local.enable_ast_rewrite
+            {
+                return Err(RuntimeError::new(
+                    "missingConfiguration",
+                    "astRewrite is disabled by default. Set ENABLE_AST_REWRITE=true or local.enableAstRewrite:true before retrying.",
+                ));
+            }
             if !mcp
                 && tool == "semanticAssess"
                 && self

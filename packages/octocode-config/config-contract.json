@@ -84,6 +84,14 @@
           },
           "notes": "Opt-in and requires persistent storage. ENABLE_CLONE is canonical."
         },
+        "enableAstRewrite": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable the astRewrite tool. Preview and apply are unavailable while false.",
+          "env": {
+            "ENABLE_AST_REWRITE": { "priority": 0 }
+          }
+        },
         "enableAstRewriteApply": {
           "type": "boolean",
           "default": false,
