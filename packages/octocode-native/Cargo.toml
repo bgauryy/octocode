@@ -79,6 +79,16 @@ codegen-units = 1
 opt-level = 3
 strip = "symbols"
 
+# ── Selective codegen-units (build-speed lever, ruff pattern) ─────────────────
+# `codegen-units = 1` (above) maximizes runtime perf but SERIALIZES a crate's
+# codegen — measured as ~107s of the ~154s release critical path for the runtime
+# crate alone. The runtime is orchestration/IO, not a hot CPU loop, so it pays
+# no meaningful perf cost from parallel codegen; bump it to 16. The engine holds
+# the perf-critical algorithms (structural search / minify / LSP) and stays at
+# the global `codegen-units = 1`.
+[profile.release.package.octocode-native]
+codegen-units = 16
+
 # ── Profiling / benchmarking build ────────────────────────────────────────────
 # Inherits the optimized release profile but keeps full debuginfo and drops LTO,
 # so criterion runs and perf/flamegraph traces stay usable without paying the
