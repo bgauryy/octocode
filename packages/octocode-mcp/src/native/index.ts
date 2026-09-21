@@ -8,13 +8,14 @@ import {
 } from '@octocodeai/config/schema';
 import { buildMcpInstructions } from '@octocodeai/config/mcp';
 import { NATIVE_ABI_VERSION } from '@octocodeai/octocode-native/runtime';
+import packageJson from '../../package.json';
 
 /**
  * A tool as reported by the native runtime catalog: runtime truth only —
  * names, availability, and the enforcement contract fingerprint. Everything
  * agent-facing (`title`/`description`/`inputSchema`/`annotations` for
- * `registerTool`, server instructions) is sourced from
- * `@octocodeai/octocode-core`; the native embed carries no presentation.
+ * `registerTool`, server instructions) is sourced from core through the
+ * `@octocodeai/config` contract hub; the native embed carries no presentation.
  */
 export interface NativeCatalogTool {
   name: string;
@@ -63,9 +64,14 @@ const require = createRequire(import.meta.url);
 export function loadNativeBinding(
   env: NodeJS.ProcessEnv = process.env
 ): NativeRuntimeBinding {
+  // `OCTOCODE_NATIVE_BINDING` require()s an arbitrary path (candidate-addon dev
+  // aid). Honor it only outside production so a leaked/hostile env value cannot
+  // load arbitrary code into a shipped server; production always resolves the
+  // packaged addon.
+  const override =
+    env.NODE_ENV === 'production' ? undefined : env.OCTOCODE_NATIVE_BINDING;
   const bindingPath =
-    env.OCTOCODE_NATIVE_BINDING ??
-    require.resolve('@octocodeai/octocode-native/runtime');
+    override ?? require.resolve('@octocodeai/octocode-native/runtime');
   const binding = require(bindingPath) as Partial<NativeRuntimeBinding>;
   if (typeof binding.NativeRuntime !== 'function') {
     throw new Error('The candidate addon does not export NativeRuntime');
@@ -149,8 +155,10 @@ export function createNativeMcp({
       `${coreFingerprint} (@octocodeai/octocode-core) != native ` +
       `${nativeFingerprint}. Realign the core package and the native generated ` +
       'contract, or set OCTOCODE_ALLOW_CONTRACT_DRIFT=1 to override.';
-    if (env.OCTOCODE_ALLOW_CONTRACT_DRIFT === '1') {
+    if (env.OCTOCODE_ALLOW_CONTRACT_DRIFT === '1' && env.NODE_ENV !== 'production') {
       // stderr, not stdout: stdout is reserved for the MCP stdio protocol.
+      // The override is a local-iteration aid only; in production a fingerprint
+      // mismatch always fails closed so clients never see a rejected contract.
       process.stderr.write(`WARNING (override active): ${message}\n`);
     } else {
       void runtime.close();
@@ -161,9 +169,9 @@ export function createNativeMcp({
   // Server identity is interface-owned: the native contract carries tool
   // guidance, not the MCP server's name/title/version.
   const implementation = {
-    name: 'octocode-mcp_native-candidate',
+    name: 'octocode-mcp',
     title: 'Octocode MCP',
-    version: '0.1.0',
+    version: packageJson.version,
   };
   const server = new McpServer(implementation, {
     capabilities: { tools: { listChanged: false } },
@@ -199,6 +207,21 @@ export function createNativeMcp({
         signal?.addEventListener('abort', cancel, { once: true });
         try {
           return await runtime.executeMcp(requestId, tool.name, args);
+        } catch (error) {
+          // A thrown rejection here is an internal/native failure (not a normal
+          // tool error, which is returned in the result envelope). The SDK would
+          // surface its raw message verbatim to the client, so backstop it:
+          // cancellations propagate unchanged; everything else is logged to
+          // stderr and replaced with a generic client-facing message so paths,
+          // ids, or token fragments in native error text never leak.
+          if (signal?.aborted) throw error;
+          const detail = error instanceof Error ? error.message : String(error);
+          process.stderr.write(
+            `[octocode-mcp] ${tool.name} execution error: ${detail}\n`
+          );
+          throw new Error(
+            `Tool ${tool.name} failed to execute; see the server logs for detail.`
+          );
         } finally {
           signal?.removeEventListener('abort', cancel);
         }
@@ -221,9 +244,18 @@ export async function startNativeMcp(
   const instance = createNativeMcp(options);
   // Drain in-flight requests (runtime.close awaits active_requests==0) and close
   // the server before exiting, rather than fire-and-forget, so shutdown does not
-  // truncate a request mid-flight.
+  // truncate a request mid-flight — but bound the drain so a stuck request cannot
+  // hang the process past an orchestrator's grace window (which then SIGKILLs and
+  // truncates anyway). Whichever of {drain complete, grace elapsed} comes first
+  // exits cleanly.
+  const SHUTDOWN_GRACE_MS = 10_000;
   const shutdown = (): void => {
-    void instance.close().finally(() => process.exit(0));
+    const forceExit = setTimeout(() => process.exit(0), SHUTDOWN_GRACE_MS);
+    forceExit.unref?.();
+    void instance.close().finally(() => {
+      clearTimeout(forceExit);
+      process.exit(0);
+    });
   };
   process.once('SIGINT', shutdown);
   process.once('SIGTERM', shutdown);

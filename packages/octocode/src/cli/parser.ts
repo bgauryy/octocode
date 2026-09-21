@@ -38,13 +38,22 @@ export function parseArgs(argv: string[] = process.argv.slice(2)): ParsedArgs {
     }
 
     if (arg.startsWith('--')) {
-      const [key, value] = arg.slice(2).split('=');
+      // Split on the FIRST '=' only, so values that themselves contain '='
+      // (e.g. --select=operation=code) survive intact instead of being
+      // truncated at the second '='.
+      const body = arg.slice(2);
+      const eq = body.indexOf('=');
+      const key = eq < 0 ? body : body.slice(0, eq);
+      const value = eq < 0 ? undefined : body.slice(eq + 1);
       if (value !== undefined) {
         result.options[key] = value;
       } else if (
         shouldConsumeNextValue(result, key) &&
         i + 1 < argv.length &&
-        !argv[i + 1].startsWith('-')
+        // A following token is a value unless it is itself a long flag ("--x").
+        // This lets legitimate single-dash values (e.g. "--path -weird") be
+        // consumed while still not swallowing the next "--flag".
+        !argv[i + 1].startsWith('--')
       ) {
         result.options[key] = argv[i + 1];
         i++;

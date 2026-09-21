@@ -17,6 +17,18 @@ use std::path::{Path, PathBuf};
 
 const NATIVE_SUBCOMMANDS: [&str; 5] = ["list", "install", "remove", "check", "info"];
 
+/// A skill name must be a single path segment safe to `join` under the store.
+/// Mirrors the npm registry guard (`^[A-Za-z0-9][A-Za-z0-9._-]*$`) so the
+/// native path cannot escape the skill directory via `..`, `/`, or `\`.
+fn valid_skill_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(first) if first.is_ascii_alphanumeric() => {}
+        _ => return false,
+    }
+    chars.all(|character| character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-'))
+}
+
 struct Flags {
     names: Vec<String>,
     platform: Option<String>,
@@ -75,7 +87,12 @@ fn parse_flags(args: &[String]) -> Result<Flags, String> {
             other if other.starts_with('-') => {
                 return Err(format!("Unknown flag: {other}"));
             }
-            name => flags.names.push(name.to_owned()),
+            name if valid_skill_name(name) => flags.names.push(name.to_owned()),
+            name => {
+                return Err(format!(
+                    "Invalid skill name {name:?}: use only letters, digits, '.', '_', '-' and start with a letter or digit."
+                ));
+            }
         }
         index += 1;
     }
@@ -388,22 +405,40 @@ fn remove(canonical_dir: &Path, flags: &Flags) -> u8 {
                 }));
                 continue;
             }
-            let outcome = if meta.file_type().is_symlink() {
+            let outcome = if flags.dry_run {
+                Ok(())
+            } else if meta.file_type().is_symlink() {
                 fs::remove_file(&destination)
             } else {
                 fs::remove_dir_all(&destination)
             };
             removed.push(json!({
                 "path": destination.to_string_lossy(),
-                "status": if outcome.is_ok() { "removed" } else { "failed" },
+                "status": if flags.dry_run {
+                    "would-remove"
+                } else if outcome.is_ok() {
+                    "removed"
+                } else {
+                    "failed"
+                },
             }));
             failed |= outcome.is_err();
         }
         if flags.purge && canonical.exists() {
-            let outcome = fs::remove_dir_all(&canonical);
+            let outcome = if flags.dry_run {
+                Ok(())
+            } else {
+                fs::remove_dir_all(&canonical)
+            };
             removed.push(json!({
                 "path": canonical.to_string_lossy(),
-                "status": if outcome.is_ok() { "removed" } else { "failed" },
+                "status": if flags.dry_run {
+                    "would-remove"
+                } else if outcome.is_ok() {
+                    "removed"
+                } else {
+                    "failed"
+                },
             }));
             failed |= outcome.is_err();
         }
@@ -529,5 +564,40 @@ fn info(canonical_dir: &Path, flags: &Flags) -> u8 {
             eprintln!("Materialize bundled skills first: npx -y octocode skill install --all");
             3
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_flags, valid_skill_name};
+
+    #[test]
+    fn skill_names_reject_path_traversal_and_separators() {
+        for good in ["octocode-research", "a", "a.b_c-1", "Skill2"] {
+            assert!(valid_skill_name(good), "should accept {good:?}");
+        }
+        for bad in [
+            "",
+            "..",
+            "../../../.ssh",
+            "a/b",
+            "a\\b",
+            ".hidden",
+            "-leading-dash",
+            "with space",
+            "n\0ul",
+        ] {
+            assert!(!valid_skill_name(bad), "should reject {bad:?}");
+        }
+    }
+
+    #[test]
+    fn parse_flags_rejects_a_traversal_name_before_any_filesystem_touch() {
+        let args = vec![
+            "../../../.ssh".to_owned(),
+            "--force".to_owned(),
+            "--purge".to_owned(),
+        ];
+        assert!(parse_flags(&args).is_err());
     }
 }

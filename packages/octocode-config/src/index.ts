@@ -2,7 +2,9 @@
 //
 // Surfaces: MCP server · CLI · VS Code extension · Pi extension · agent · standalone skills
 //
-// Zero dependencies (Node builtins only). Cross-platform.
+// The `.` entry is zero-dependency (Node builtins only); the `./schema` and
+// `./mcp` subpaths re-export `@octocodeai/octocode-core` (esbuild-external).
+// Cross-platform.
 //
 // Precedence:
 //   explicit process.env  >  <project>/.octocode/.env  >  <home>/.env  >  <home>/.octocoderc  >  defaults
@@ -114,6 +116,22 @@ import { loadConfigSync } from './config/loader.js';
 /** Keys a project/global .env must never override — infrastructure + all auth tokens. */
 export const PROTECTED_KEYS: ReadonlySet<string> = new Set(PROTECTED_KEY_NAMES);
 
+/** Upper-cased protected keys for case-insensitive matching on Windows. */
+const PROTECTED_KEYS_CI: ReadonlySet<string> = new Set(
+  PROTECTED_KEY_NAMES.map(name => name.toUpperCase())
+);
+
+/**
+ * Windows environment variables are case-insensitive, so a `.env` line like
+ * `Gh_Token=…` would dodge an exact-case protected check and then fold into
+ * `GH_TOKEN`. Match case-insensitively on win32 to keep the "auth tokens never
+ * come from .env" guarantee; POSIX keeps exact-case semantics.
+ */
+export function isProtectedKey(key: string): boolean {
+  if (PROTECTED_KEYS.has(key)) return true;
+  return process.platform === 'win32' && PROTECTED_KEYS_CI.has(key.toUpperCase());
+}
+
 /**
  * Parse dotenv text into a { KEY: VALUE } map. Strict KEY=VALUE, `#` comments,
  * optional `export ` prefix, surrounding quotes stripped. No shell expansion.
@@ -219,7 +237,7 @@ export function applyOctocodeEnv(
     const trustedHomeKey =
       sources[key] === 'global' &&
       HOME_TRUSTED_ENV_KEYS.some(name => name === key);
-    if (PROTECTED_KEYS.has(key) && !trustedHomeKey) {
+    if (isProtectedKey(key) && !trustedHomeKey) {
       skippedProtected.push(key);
       continue;
     }
@@ -264,11 +282,11 @@ export function propagateOctocodeEnv({
  * Keeping it off (the default) eliminates one write per 60-second flush cycle.
  */
 export function isStatsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  if (
-    env['OCTOCODE_STORAGE_MODE']?.trim().toLowerCase() === 'memory' ||
-    (env === process.env && !isPersistentStorageEnabled())
-  )
-    return false;
+  // Stats persistence requires persistent storage. Route through the same
+  // storage-mode resolver for ANY env (it reads the given env then .octocoderc),
+  // so `storage.mode=memory` in .octocoderc disables disk stats even when called
+  // with a custom env object — previously that gate only applied to process.env.
+  if (!isPersistentStorageEnabled(env)) return false;
   return parseBooleanEnv(env['OCTOCODE_ENABLE_STATS']) ?? false;
 }
 

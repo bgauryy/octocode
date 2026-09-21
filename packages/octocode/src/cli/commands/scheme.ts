@@ -45,9 +45,19 @@ function writeJson(value: unknown, compact: boolean): number {
 
 /** Availability + enforcement fingerprint are runtime truth: ask the binary. */
 async function readMachineCatalog(bin: string): Promise<MachineCatalog> {
-  const { stdout } = await execFileAsync(bin, ['scheme', '--compact'], {
-    maxBuffer: 4 * 1024 * 1024,
-  });
+  // Match delegateToNative: a `.cjs`/`.js` resolved bin is a Node launcher and
+  // must run through `process.execPath`, not be exec'd directly (which fails).
+  const isLauncher = bin.endsWith('.cjs') || bin.endsWith('.js');
+  const [command, prefixArgs] = isLauncher
+    ? [process.execPath, [bin]]
+    : [bin, [] as string[]];
+  const { stdout } = await execFileAsync(
+    command,
+    [...prefixArgs, 'scheme', '--compact'],
+    {
+      maxBuffer: 4 * 1024 * 1024,
+    }
+  );
   const catalog = JSON.parse(stdout) as {
     fingerprint?: unknown;
     tools?: unknown;

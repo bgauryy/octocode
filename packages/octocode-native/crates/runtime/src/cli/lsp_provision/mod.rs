@@ -485,11 +485,29 @@ async fn fetch_allowlisted(url: &str) -> Result<Vec<u8>, String> {
         if !status.is_success() {
             return Err(format!("Download failed: HTTP {}", status.as_u16()));
         }
-        let bytes = response
-            .bytes()
-            .await
-            .map_err(|e| format!("Download failed: {e}"))?;
-        return Ok(bytes.to_vec());
+        // Cap the download so a mis-redirected HTML page or a hostile/oversized
+        // asset cannot OOM the process before the checksum is ever computed.
+        const MAX_DOWNLOAD_BYTES: usize = 256 * 1024 * 1024;
+        if let Some(len) = response.content_length()
+            && len > MAX_DOWNLOAD_BYTES as u64
+        {
+            return Err(format!(
+                "Download exceeds the {MAX_DOWNLOAD_BYTES}-byte limit (Content-Length {len})"
+            ));
+        }
+        use futures_util::StreamExt;
+        let mut buffer: Vec<u8> = Vec::new();
+        let mut stream = response.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|e| format!("Download failed: {e}"))?;
+            if buffer.len().saturating_add(chunk.len()) > MAX_DOWNLOAD_BYTES {
+                return Err(format!(
+                    "Download exceeds the {MAX_DOWNLOAD_BYTES}-byte limit"
+                ));
+            }
+            buffer.extend_from_slice(&chunk);
+        }
+        return Ok(buffer);
     }
     Err("Too many redirects".to_string())
 }

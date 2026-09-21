@@ -190,6 +190,8 @@ describe('PROTECTED_KEYS', () => {
       'OCTOCODE_CLASSIFICATION_API_HOST',
       'OCTOCODE_CLASSIFICATION_TYPE',
       'OCTOCODE_JEV_KEY',
+      // A trusted-project .env must not relocate a child's config home.
+      'OCTOCODE_HOME',
     ];
     expect([...PROTECTED_KEYS].sort()).toEqual([...CANONICAL].sort());
   });

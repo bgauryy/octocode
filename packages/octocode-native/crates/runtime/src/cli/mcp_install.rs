@@ -215,8 +215,10 @@ fn install(ide: &str, config_path: &Path, args: &InstallArgs) -> Result<u8, Stri
         }
         return Ok(0);
     }
-    // Write a backup before overwriting if requested
-    let backed_up = if args.backup && config_path.exists() {
+    // Rewriting reserializes the client's entire config file (for clients like
+    // claude-code that is ~/.claude.json, holding unrelated app state), so back
+    // up any existing target by default — not only when --backup is passed.
+    let backed_up = if config_path.exists() {
         let bak = config_path.with_extension("json.bak");
         std::fs::copy(config_path, &bak).ok().map(|_| bak)
     } else {

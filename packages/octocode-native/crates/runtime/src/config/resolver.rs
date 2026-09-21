@@ -86,7 +86,11 @@ fn parse_candidate(
             let value = if from_environment {
                 parse_int_env(raw.as_str()).map(|value| value as f64)
             } else {
-                raw.as_f64()
+                // Truncate file-sourced numbers toward zero to match the JS
+                // resolver's `Math.trunc`; config number fields are integers, so
+                // `.octocoderc` `maxRetries: 2.5` must resolve to 2 on both
+                // engines, not 2 (JS) vs 2.5 (Rust).
+                raw.as_f64().map(f64::trunc)
             }?;
             let clamped = value.max(field.minimum?).min(field.maximum?);
             Number::from_f64(clamped).map(Value::Number)

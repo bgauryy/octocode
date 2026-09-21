@@ -21,7 +21,7 @@
     "GITHUB_TOKEN": { "dotenv": "never", "tokenPriority": 2, "description": "GitHub Actions token" },
     "GITHUB_PERSONAL_ACCESS_TOKEN": { "dotenv": "never", "tokenPriority": 3, "description": "GitHub personal access token" },
     "OCTOCODE_GITHUB_CLIENT_ID": { "configSource": true, "description": "GitHub OAuth client override" },
-    "OCTOCODE_HOME": { "documentation": true, "description": "Overrides the Octocode configuration directory (default: <os-home>/.octocode)" }
+    "OCTOCODE_HOME": { "documentation": true, "dotenv": "never", "description": "Overrides the Octocode configuration directory (default: <os-home>/.octocode)" }
   },
   "sections": {
     "": {

@@ -102,11 +102,25 @@ describe('runCLI native boundary', () => {
     expect(mocks.delegate).not.toHaveBeenCalled();
   });
 
-  it('fails closed when the native runtime is unavailable', async () => {
+  it('fails closed with exit 5 when the native runtime is unavailable', async () => {
     mocks.resolve.mockReturnValue(null);
     const { runCLI } = await import('../../src/cli/index.js');
-    await expect(runCLI(['tools'])).rejects.toThrow(
-      'native Octocode runtime is unavailable'
-    );
+    const stderr = vi
+      .spyOn(process.stderr, 'write')
+      .mockReturnValue(true);
+    const previousExit = process.exitCode;
+    try {
+      const result = await runCLI(['tools']);
+      // Execution failure (exit 5), matching the native exit-code table and the
+      // `scheme` path — not a thrown generic exit 1.
+      expect(result).toBe(false);
+      expect(process.exitCode).toBe(5);
+      expect(stderr).toHaveBeenCalledWith(
+        expect.stringContaining('native Octocode runtime is unavailable')
+      );
+    } finally {
+      process.exitCode = previousExit;
+      stderr.mockRestore();
+    }
   });
 });

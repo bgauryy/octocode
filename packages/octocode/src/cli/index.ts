@@ -5,6 +5,7 @@ import {
   shouldDelegateToNative,
 } from './native-delegate.js';
 import { hasHelpFlag, hasVersionFlag, parseArgs } from './parser.js';
+import { EXIT } from './exit-codes.js';
 
 /**
  * The npm CLI is a launcher, not a second implementation. The native Rust
@@ -24,7 +25,7 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
 
   const rawArgv = argv ?? process.argv.slice(2);
   const args = parseArgs(rawArgv);
-  if (args.options['no-color'] === true) process.env.NO_COLOR = '1';
+  if (args.options['no-color']) process.env.NO_COLOR = '1';
 
   if (!shouldDelegateToNative(args.command)) {
     if (args.command === 'scheme') {
@@ -39,9 +40,14 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
 
   const bin = resolveNativeBin();
   if (!bin) {
-    throw new Error(
-      'The native Octocode runtime is unavailable for this platform or installation.'
+    // Runtime-unavailable is an execution failure (exit 5), matching the native
+    // exit-code table and the `scheme` path; do not throw into main().catch,
+    // which would report a generic exit 1 for the same condition.
+    process.stderr.write(
+      'The native Octocode runtime is unavailable for this platform or installation.\n'
     );
+    process.exitCode = EXIT.TOOL;
+    return false;
   }
 
   const hasExplicitIde = rawArgv.some(

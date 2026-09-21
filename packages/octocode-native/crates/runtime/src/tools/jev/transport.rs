@@ -5,10 +5,27 @@ use futures_util::StreamExt;
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::Value;
 use std::future::Future;
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 use url::Url;
 
 const MAX_BODY_BYTES: usize = 4 * 1024 * 1024;
+
+/// One process-wide client so classification pages reuse the connection pool
+/// (HTTP keep-alive) instead of paying a fresh TLS handshake per `post`. The
+/// only client config is `redirect::none`; auth and endpoint are per-request.
+fn shared_client() -> Result<&'static reqwest::Client, JevProviderError> {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    if let Some(client) = CLIENT.get() {
+        return Ok(client);
+    }
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|_| transport_error())?;
+    // A lost init race just drops a spare client; the stored one is reused.
+    Ok(CLIENT.get_or_init(|| client))
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct JevProviderError {
@@ -132,10 +149,7 @@ pub(crate) async fn post(
     budget: &RequestBudget,
     retries: u32,
 ) -> Result<Value, JevProviderError> {
-    let client = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|_| transport_error())?;
+    let client = shared_client()?;
     for attempt in 0..=retries {
         check_budget(budget)?;
         let response = wait(

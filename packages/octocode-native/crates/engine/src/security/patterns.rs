@@ -1884,9 +1884,20 @@ pub static PATTERN_STRINGS: &[&str] = &[
     r###"\bATCTT3[a-zA-Z0-9]{24}\b"###,
 ];
 
+/// The three per-pattern tables must stay the same length; a mismatch would let
+/// a valid `matching_pattern_indices` result index a shorter table and panic in
+/// the redaction hot path. Enforced at compile time so adding a pattern to one
+/// table but not the others fails the build, not a live sanitize call.
+const _: () = assert!(PATTERN_STRINGS.len() == PATTERNS.len());
+
 /// Lazily-compiled per-pattern Regex instances (compile on first use per index).
-static PATTERN_REGEX_CELLS: LazyLock<Vec<OnceLock<Regex>>> =
-    LazyLock::new(|| (0..309).map(|_| OnceLock::new()).collect());
+/// Sized from `PATTERN_STRINGS.len()` — never a hardcoded count — so the cell
+/// table can never be shorter than the pattern set it indexes.
+static PATTERN_REGEX_CELLS: LazyLock<Vec<OnceLock<Regex>>> = LazyLock::new(|| {
+    (0..PATTERN_STRINGS.len())
+        .map(|_| OnceLock::new())
+        .collect()
+});
 
 /// Get (compiling at most once) the Regex for pattern `idx`.
 pub fn pattern_regex(idx: usize) -> &'static Regex {

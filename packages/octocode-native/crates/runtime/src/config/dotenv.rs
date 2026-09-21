@@ -20,10 +20,17 @@ pub fn parse_env(text: Option<&str>) -> BTreeMap<String, String> {
         if key.is_empty() {
             continue;
         }
-        let value = normalized[eq + 1..]
-            .trim()
-            .trim_start_matches(['"', '\''])
-            .trim_end_matches(['"', '\'']);
+        // Strip at most ONE leading and ONE trailing quote, independently, to
+        // match the JS resolver's `/^["']|["']$/g`. `trim_*_matches` stripped
+        // all/mismatched quotes and corrupted values like `"'v'"` differently
+        // from JS (Rust -> `v`, JS -> `'v'`).
+        let trimmed_value = normalized[eq + 1..].trim();
+        let trimmed_value = trimmed_value
+            .strip_prefix(['"', '\''])
+            .unwrap_or(trimmed_value);
+        let value = trimmed_value
+            .strip_suffix(['"', '\''])
+            .unwrap_or(trimmed_value);
         out.insert(key.to_owned(), value.to_owned());
     }
     out
@@ -42,7 +49,15 @@ pub fn apply_env(
     for (key, value) in map {
         let home_trusted = HOME_TRUSTED_ENV_KEYS.contains(&key.as_str())
             && report.sources.get(key).map(String::as_str) == Some("global");
-        if PROTECTED_KEYS.contains(&key.as_str()) && !home_trusted {
+        // Windows env vars are case-insensitive: match protected keys the same
+        // way there so a `.env` `Gh_Token=…` cannot dodge the exact-case check
+        // and fold into `GH_TOKEN`. POSIX keeps exact-case semantics.
+        let protected_key = PROTECTED_KEYS.contains(&key.as_str())
+            || (cfg!(windows)
+                && PROTECTED_KEYS
+                    .iter()
+                    .any(|protected| protected.eq_ignore_ascii_case(key)));
+        if protected_key && !home_trusted {
             report.skipped_protected.push(key.clone());
         } else if target.get(key).is_some_and(|v| !v.is_empty()) {
             report.skipped_existing.push(key.clone());
