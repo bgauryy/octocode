@@ -1,11 +1,9 @@
 //! Generated public tool contracts and transport-neutral input preparation.
 
 pub mod generated;
-mod instructions;
 mod prepare;
 mod validate;
 
-pub use instructions::mcp_instructions;
 pub use prepare::{ContractInputError, PrepareOptions, prepare};
 pub use validate::{
     ContractValidationError, ValidationIssue, format_input_error, validate, validate_output,
@@ -386,6 +384,32 @@ mod contract_owner_tests {
     }
 
     #[test]
+    fn generated_contract_is_enforcement_only() {
+        // Presentation and MCP instructions are core-delivered by the JS
+        // layers; the embed carries machine-enforced surfaces exclusively.
+        let contract = super::parsed_contract().expect("generated contract");
+        let top = contract.as_object().expect("contract object");
+        for forbidden in ["mcpInstructions", "mcpInstructionTable"] {
+            assert!(!top.contains_key(forbidden), "top-level {forbidden}");
+        }
+        for tool in contract["tools"].as_array().expect("tool array") {
+            let name = tool["name"].as_str().expect("tool name");
+            let object = tool.as_object().expect("tool object");
+            for forbidden in ["title", "description", "examples", "annotations"] {
+                assert!(!object.contains_key(forbidden), "{name}.{forbidden}");
+            }
+            assert!(
+                object.contains_key("shortDescription")
+                    && object.contains_key("querySchema")
+                    && object.contains_key("inputSchema")
+                    && object.contains_key("outputSchema")
+                    && object.contains_key("rules"),
+                "{name} enforcement fields"
+            );
+        }
+    }
+
+    #[test]
     fn generated_contract_has_clean_matching_provenance() {
         let provenance: serde_json::Value =
             serde_json::from_str(contract_provenance_json()).expect("provenance JSON");
@@ -414,7 +438,7 @@ mod contract_owner_tests {
         use sha2::{Digest, Sha256};
         let digest = hex::encode(Sha256::digest(contract_json().as_bytes()));
         assert_eq!(
-            digest, "9e3b53f4a378bafaf0cb9534b9b8b8a4307a5cc9ebac490537b03d65c904aac4",
+            digest, "e898c35616c51659b7303b24fca646472a21da05b28db5426f922c0a9fc7ee92",
             "generated contract body changed without regeneration from core"
         );
     }

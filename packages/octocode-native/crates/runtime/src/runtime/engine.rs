@@ -285,35 +285,30 @@ impl ToolRuntime {
                 .is_some_and(|names| names.iter().any(|name| name == tool))
     }
 
+    /// Runtime truth only: tool names, availability, and the enforcement
+    /// contract fingerprint. Presentation and MCP instructions are delivered
+    /// to agents by the JS layers directly from `@octocodeai/octocode-core`.
     pub fn catalog(&self) -> Result<Value, RuntimeError> {
         let contract = contracts::parsed_contract()
             .map_err(|_| RuntimeError::new("contract", "Embedded contract is invalid"))?;
-        let instructions = contracts::mcp_instructions(contract, |name| self.is_available(name))
-            .map_err(|message| RuntimeError::new("contract", message))?;
-        let fields = contract
-            .as_object()
-            .ok_or_else(|| RuntimeError::new("contract", "Embedded catalog is invalid"))?;
-        let mut catalog = Value::Object(
-            fields
-                .iter()
-                .filter(|(key, _)| key.as_str() != "mcpInstructionTable")
-                .map(|(key, value)| (key.clone(), value.clone()))
-                .collect(),
-        );
-        catalog["mcpInstructions"] = Value::String(instructions);
-        if let Some(tools) = catalog.get_mut("tools").and_then(Value::as_array_mut) {
-            for tool in tools {
-                if let Some(object) = tool.as_object_mut() {
-                    object.remove("outputSchema");
-                }
-                let available = tool
-                    .get("name")
-                    .and_then(Value::as_str)
-                    .is_some_and(|name| self.is_available(name));
-                tool["available"] = json!(available);
-            }
-        }
-        Ok(catalog)
+        let tools = contract["tools"]
+            .as_array()
+            .ok_or_else(|| RuntimeError::new("contract", "Embedded catalog is invalid"))?
+            .iter()
+            .map(|tool| {
+                let name = tool.get("name").and_then(Value::as_str).unwrap_or_default();
+                json!({
+                    "name": name,
+                    "shortDescription": tool["shortDescription"],
+                    "available": self.is_available(name),
+                })
+            })
+            .collect::<Vec<_>>();
+        Ok(json!({
+            "contractFormatVersion": contract["contractFormatVersion"],
+            "fingerprint": contract["fingerprint"],
+            "tools": tools,
+        }))
     }
 
     pub async fn execute(

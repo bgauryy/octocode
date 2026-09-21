@@ -25,7 +25,7 @@ use std::io::{self, Write};
 Every tool is called by its canonical name with a raw JSON query:\n\
   octocode <toolName> '<json>'      execute a tool\n\
   octocode scheme <toolName>        print the tool's contract\n\
-  octocode scheme                   list every tool, availability, and agent instructions\n\n\
+  octocode scheme                   list every tool and its availability\n\n\
 EXIT CODES:\n\
   0    Success\n\
   1    Empty result / no matches\n\
@@ -67,14 +67,6 @@ fn emit_error(msg: &str, json_errors: bool) {
     } else {
         eprintln!("{msg}");
     }
-}
-
-/// Group tool names into catalog families.
-/// Delegates to `ToolId::display_category` — tool names are not re-spelled here.
-fn tool_family(name: &str) -> &'static str {
-    ToolId::from_name(name)
-        .map(ToolId::display_category)
-        .unwrap_or("Other")
 }
 
 fn compact_fields(tool: &Value) -> String {
@@ -143,8 +135,10 @@ fn dropped_key_hint(
 
 fn compact_tool_catalog(
     catalog: &Value,
+    contract: &Value,
     dotenv: &octocode_native::config::EnvApplyReport,
 ) -> Value {
+    let contract_tools = contract.get("tools").and_then(Value::as_array);
     let tools = catalog
         .get("tools")
         .and_then(Value::as_array)
@@ -173,11 +167,14 @@ fn compact_tool_catalog(
                                 Value::String("tools.enabled/tools.disabled".to_owned());
                         }
                     }
+                    let fields = contract_tools
+                        .and_then(|tools| tools.iter().find(|candidate| candidate["name"] == name))
+                        .map(compact_fields)
+                        .unwrap_or_else(|| "[]".to_owned());
                     json!({
                         "name": name,
-                        "category": tool_family(name),
                         "description": short_description,
-                        "fields": compact_fields(tool),
+                        "fields": fields,
                         "availability": availability
                     })
                 })
@@ -188,13 +185,13 @@ fn compact_tool_catalog(
         "kind": "octocode.toolCatalog",
         "version": 1,
         "toolCount": tools.len(),
-        "output": "Compact discovery catalog with availability-scoped agent instructions. Inspect one tool before execution.",
+        "output": "Machine tool catalog. Descriptions, examples, and workflow instructions ship with the octocode npm launcher and MCP server.",
         "commands": {
             "schema": "scheme <name>",
             "querySchema": "scheme <name> --view query",
             "run": "<name> '<json>'"
         },
-        "instructions": catalog["mcpInstructions"],
+        "fingerprint": catalog["fingerprint"],
         "tools": tools
     })
 }
@@ -261,18 +258,27 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
                     return 5;
                 }
             };
+            // Availability comes from the runtime catalog; schemas come from
+            // the embedded enforcement contract (the catalog carries neither).
+            let contract = match octocode_native::contracts::parsed_contract() {
+                Ok(contract) => contract,
+                Err(_) => {
+                    emit_error("Embedded contract is invalid", json_errors);
+                    return 5;
+                }
+            };
             let Some(name) = tool else {
                 return write_json(
-                    &compact_tool_catalog(&catalog, &runtime.config().dotenv),
+                    &compact_tool_catalog(&catalog, contract, &runtime.config().dotenv),
                     compact,
                 );
             };
-            let value = catalog["tools"]
+            let value = contract["tools"]
                 .as_array()
                 .and_then(|tools| tools.iter().find(|tool| tool["name"] == *name))
                 .cloned();
             let Some(value) = value else {
-                let known = catalog["tools"]
+                let known = contract["tools"]
                     .as_array()
                     .into_iter()
                     .flatten()
@@ -614,9 +620,11 @@ mod tests {
 
     #[test]
     fn execution_deadline_exceeds_the_worst_cold_lsp_budget() {
-        assert!(
-            INTERACTIVE_EXECUTION_TIMEOUT_SECS * 1_000
-                > octocode_engine::lsp::MAX_COLD_LSP_EXECUTION_BUDGET_MS
-        );
+        const {
+            assert!(
+                INTERACTIVE_EXECUTION_TIMEOUT_SECS * 1_000
+                    > octocode_engine::lsp::MAX_COLD_LSP_EXECUTION_BUDGET_MS
+            );
+        }
     }
 }

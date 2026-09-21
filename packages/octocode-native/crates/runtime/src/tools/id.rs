@@ -118,26 +118,6 @@ impl ToolId {
         matches!(self, ToolId::SemanticAssess)
     }
 
-    /// Human-readable category label used in the CLI `scheme` catalog.
-    /// Canonical grouping: the CLI must not spell tool names a second time.
-    #[must_use]
-    pub const fn display_category(self) -> &'static str {
-        match self {
-            ToolId::GhSearch
-            | ToolId::GhGetFileContent
-            | ToolId::GhSearchHistory
-            | ToolId::GhGetHistoryItem
-            | ToolId::GhCloneRepo => "GitHub",
-            ToolId::LocalSearch
-            | ToolId::LocalFetch
-            | ToolId::AstSearch
-            | ToolId::AstRewrite
-            | ToolId::LspSearch => "Local Code",
-            ToolId::ArtifactSearch => "Package",
-            ToolId::SemanticAssess => "Reasoning",
-        }
-    }
-
     /// Env-var hint shown in the CLI `scheme` catalog when a tool is disabled.
     /// `None` means availability is controlled via `tools.enabled`/`disabled`.
     /// `ENABLE_CLONE` and `OCTOCODE_ENABLE_CLONE` are accepted aliases
@@ -188,13 +168,7 @@ mod tests {
     }
 
     #[test]
-    fn display_category_covers_every_tool_and_matches_family() {
-        let categories: std::collections::HashSet<_> =
-            ToolId::ALL.iter().map(|id| id.display_category()).collect();
-        assert!(categories.contains("GitHub"));
-        assert!(categories.contains("Local Code"));
-        assert!(categories.contains("Package"));
-        assert!(categories.contains("Reasoning"));
+    fn family_covers_every_tool() {
         // GitHub tools
         for id in [
             ToolId::GhSearch,
@@ -203,7 +177,7 @@ mod tests {
             ToolId::GhGetHistoryItem,
             ToolId::GhCloneRepo,
         ] {
-            assert_eq!(id.display_category(), "GitHub", "{id}");
+            assert!(id.is_github(), "{id}");
         }
         // Local tools
         for id in [
@@ -213,10 +187,9 @@ mod tests {
             ToolId::AstRewrite,
             ToolId::LspSearch,
         ] {
-            assert_eq!(id.display_category(), "Local Code", "{id}");
+            assert!(id.is_local(), "{id}");
         }
-        assert_eq!(ToolId::ArtifactSearch.display_category(), "Package");
-        assert_eq!(ToolId::SemanticAssess.display_category(), "Reasoning");
+        assert!(ToolId::SemanticAssess.is_semantic_assess());
         assert_eq!(ToolId::from_name("jev"), None);
     }
 
