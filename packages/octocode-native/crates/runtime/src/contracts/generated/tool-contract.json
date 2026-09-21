@@ -1,6 +1,6 @@
 {
   "contractFormatVersion": 2,
-  "fingerprint": "81379c2f1ade770ed3849c92d8afa1e62a5fe8ab87e8455dbce31840e11591cf",
+  "fingerprint": "8a0b225cf480c09d45f18471f91c4649aa5498f300b7fd07b0f2a8bbba80a073",
   "tools": [
     {
       "defaults": [
@@ -877,7 +877,7 @@
         "description": "Accepts one matrix or independent matrices; the runtime pages bounded resources automatically and preserves query, resource, question, and page IDs.",
         "type": "object"
       },
-      "name": "semanticAssess",
+      "name": "clasify",
       "outputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
@@ -889,9 +889,9 @@
               "properties": {
                 "next": {
                   "additionalProperties": false,
-                  "description": "Executable semantic continuation; run assess unchanged. A capped partial resource may have no continuation and needs a smaller targeted query.",
+                  "description": "Executable semantic continuation; run clasify unchanged. A capped partial resource may have no continuation and needs a smaller targeted query.",
                   "properties": {
-                    "assess": {
+                    "clasify": {
                       "anyOf": [
                         {
                           "additionalProperties": false,
@@ -1747,7 +1747,7 @@
                     }
                   },
                   "required": [
-                    "assess"
+                    "clasify"
                   ],
                   "type": "object"
                 },
@@ -1763,7 +1763,7 @@
                     "additionalProperties": false,
                     "properties": {
                       "coverage": {
-                        "description": "Aggregate cell coverage. Partial/error are not negative: run query next.assess when returned; otherwise replace a partial resource with a smaller targeted query.",
+                        "description": "Aggregate cell coverage. Partial/error are not negative: run query next.clasify when returned; otherwise replace a partial resource with a smaller targeted query.",
                         "enum": [
                           "complete",
                           "partial",
@@ -2702,12 +2702,12 @@
           "phase": "normalize"
         },
         {
-          "id": "semantic-assess.schema",
+          "id": "clasify.schema",
           "opcode": "json_schema",
           "phase": "validate"
         }
       ],
-      "shortDescription": "Scout unread files or self-review supplied work with Noul, Choice, or Score.",
+      "shortDescription": "Bounded Noul, Choice, or Score judgment over unread resources or supplied work.",
       "variants": []
     },
     {
@@ -3980,7 +3980,7 @@
                     "type": "object"
                   },
                   "tool": {
-                    "const": "semanticAssess",
+                    "const": "clasify",
                     "type": "string"
                   }
                 },
@@ -12349,7 +12349,7 @@
                     "type": "object"
                   },
                   "tool": {
-                    "const": "semanticAssess",
+                    "const": "clasify",
                     "type": "string"
                   }
                 },
@@ -20406,7 +20406,7 @@
                     "type": "object"
                   },
                   "tool": {
-                    "const": "semanticAssess",
+                    "const": "clasify",
                     "type": "string"
                   }
                 },
@@ -29317,7 +29317,7 @@
                     "type": "object"
                   },
                   "tool": {
-                    "const": "semanticAssess",
+                    "const": "clasify",
                     "type": "string"
                   }
                 },
@@ -38872,7 +38872,7 @@
                     "type": "object"
                   },
                   "tool": {
-                    "const": "semanticAssess",
+                    "const": "clasify",
                     "type": "string"
                   }
                 },
@@ -46187,7 +46187,7 @@
                     "type": "object"
                   },
                   "tool": {
-                    "const": "semanticAssess",
+                    "const": "clasify",
                     "type": "string"
                   }
                 },
@@ -53691,7 +53691,7 @@
                     "type": "object"
                   },
                   "tool": {
-                    "const": "semanticAssess",
+                    "const": "clasify",
                     "type": "string"
                   }
                 },
@@ -63625,7 +63625,7 @@
                     "type": "object"
                   },
                   "tool": {
-                    "const": "semanticAssess",
+                    "const": "clasify",
                     "type": "string"
                   }
                 },
@@ -75746,7 +75746,7 @@
                     "type": "object"
                   },
                   "tool": {
-                    "const": "semanticAssess",
+                    "const": "clasify",
                     "type": "string"
                   }
                 },
@@ -85128,7 +85128,7 @@
                     "type": "object"
                   },
                   "tool": {
-                    "const": "semanticAssess",
+                    "const": "clasify",
                     "type": "string"
                   }
                 },
@@ -93923,7 +93923,7 @@
                     "type": "object"
                   },
                   "tool": {
-                    "const": "semanticAssess",
+                    "const": "clasify",
                     "type": "string"
                   }
                 },

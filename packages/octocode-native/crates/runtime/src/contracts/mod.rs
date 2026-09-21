@@ -77,7 +77,7 @@ pub fn prepare_and_validate(
     // Delegate to validate_query which handles the wrap/unwrap internally
     // and strips the "queries.0." prefix from any validation error paths.
     let query = validate_query(tool_name, serde_json::Value::Object(prepared.query))?;
-    if tool_name == "semanticAssess" {
+    if tool_name == "clasify" {
         validate_semantic_relations(&query)?;
     }
     Ok(query)
@@ -122,7 +122,7 @@ pub fn prepare_many_and_validate(
         .and_then(serde_json::Value::as_array)
         .cloned()
         .unwrap_or_default();
-    if tool_name == "semanticAssess" {
+    if tool_name == "clasify" {
         for query in &queries {
             validate_semantic_relations(query)?;
         }
@@ -141,7 +141,7 @@ fn validate_semantic_relations(query: &serde_json::Value) -> Result<(), Contract
             {
                 return Err(ContractValidationError {
                     issues: vec![ValidationIssue {
-                        rule_id: "semantic-assess.unique-ids".into(),
+                        rule_id: "clasify.unique-ids".into(),
                         path: vec![field.into(), index.to_string(), "id".into()],
                         message: format!("Duplicate {field} id: {id}"),
                         schema: None,
@@ -155,7 +155,7 @@ fn validate_semantic_relations(query: &serde_json::Value) -> Result<(), Contract
     if cells > 25 {
         return Err(ContractValidationError {
             issues: vec![ValidationIssue {
-                rule_id: "semantic-assess.cell-limit".into(),
+                rule_id: "clasify.cell-limit".into(),
                 path: Vec::new(),
                 message: format!("resources × questions produces {cells} cells; maximum is 25."),
                 schema: None,
@@ -276,7 +276,7 @@ mod contract_owner_tests {
     fn semantic_matrix_stays_one_query_for_resource_major_runtime_execution() {
         let question = json!({"type":"noul","instructions":"Is it relevant?"});
         let queries = prepare_many_and_validate(
-            "semanticAssess",
+            "clasify",
             json!({
                 "id":"matrix",
                 "reasoning":"  Classify every resource.  ",
@@ -304,7 +304,7 @@ mod contract_owner_tests {
     fn semantic_matrix_rejects_duplicate_ids_and_more_than_twenty_five_cells() {
         let question = json!({"type":"noul","instructions":"Is it relevant?"});
         let duplicate = prepare_many_and_validate(
-            "semanticAssess",
+            "clasify",
             json!({
                 "id":"duplicates",
                 "reasoning":"Classify resources.",
@@ -326,7 +326,7 @@ mod contract_owner_tests {
             .map(|index| json!({"id":format!("q{index}"),"question":question.clone()}))
             .collect();
         let oversized = prepare_many_and_validate(
-            "semanticAssess",
+            "clasify",
             json!({
                 "id":"oversized",
                 "reasoning":"Classify resources.",
@@ -336,7 +336,7 @@ mod contract_owner_tests {
             PrepareOptions::default(),
         )
         .expect_err("matrix cell limit must fail");
-        assert_eq!(oversized.issues[0].rule_id, "semantic-assess.cell-limit");
+        assert_eq!(oversized.issues[0].rule_id, "clasify.cell-limit");
         assert!(oversized.issues[0].message.contains("maximum is 25"));
     }
 

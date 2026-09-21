@@ -380,7 +380,7 @@ pub(super) fn execute(
 
         let mut output = json!({"queryId":query["id"],"results":results});
         if !continuation_resources.is_empty() {
-            output["next"] = json!({"assess":{
+            output["next"] = json!({"clasify":{
                 "id":query["id"],
                 "reasoning":query["reasoning"],
                 "resources":continuation_resources,

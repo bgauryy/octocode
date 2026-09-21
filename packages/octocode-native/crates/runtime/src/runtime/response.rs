@@ -149,7 +149,7 @@ fn fallback_hint(tool: &str, query: &Value) -> Option<&'static str> {
         "ghSearchHistory" => Some("Broaden keywords or remove history filters."),
         "ghGetHistoryItem" => Some("Verify owner/repo and the number, ref, or compare refs."),
         "artifactSearch" => Some("Check packageName, or broaden keywords."),
-        "semanticAssess" => Some("Inspect resources, typed questions, and OCTOCODE_CLASSIFICATION_API."),
+        "clasify" => Some("Inspect resources, typed questions, and OCTOCODE_CLASSIFICATION_API."),
         "ghCloneRepo" => Some("Verify owner/repo/branch and sparsePath."),
         "localSearch" => Some("Broaden searchText, path, or filters."),
         "astSearch"
@@ -389,10 +389,10 @@ pub fn result_row(
     mut data: Value,
     status: Option<&str>,
 ) -> Value {
-    // semanticAssess shapes its own query-level `next.assess`. Any tool/query
+    // clasify shapes its own query-level `next.clasify`. Any tool/query
     // pairs inside page receipts belong to the already-finalized hidden read
     // and retain that nested invocation's rationale and debug setting.
-    if tool != "semanticAssess" {
+    if tool != "clasify" {
         preserve_continuation_metadata(&mut data, query);
     }
     if let Some(object) = data.as_object_mut() {
@@ -487,7 +487,7 @@ fn evidence_kind<'a>(tool: &'a str, query: &Value, data: &Value) -> &'a str {
             _ => "semantic",
         },
         "localSearch" => "lexical",
-        "artifactSearch" | "semanticAssess" => "provider",
+        "artifactSearch" | "clasify" => "provider",
         name if name.starts_with("gh") => "provider",
         _ => "exact",
     }
@@ -1055,9 +1055,9 @@ mod tests {
     }
 
     #[test]
-    fn outer_semantic_assess_metadata_does_not_overwrite_nested_continuation_ownership() {
+    fn outer_clasify_metadata_does_not_overwrite_nested_continuation_ownership() {
         let row = result_row(
-            "semanticAssess",
+            "clasify",
             0,
             &json!({"reasoning":"Evaluate captured evidence.","debug":false}),
             json!({

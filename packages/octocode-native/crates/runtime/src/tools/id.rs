@@ -36,7 +36,7 @@ pub enum ToolId {
     AstSearch,
     AstRewrite,
     LspSearch,
-    SemanticAssess,
+    Clasify,
 }
 
 impl ToolId {
@@ -53,7 +53,7 @@ impl ToolId {
         ToolId::AstSearch,
         ToolId::AstRewrite,
         ToolId::LspSearch,
-        ToolId::SemanticAssess,
+        ToolId::Clasify,
     ];
 
     /// The wire name exactly as it appears in the generated contract and in
@@ -72,7 +72,7 @@ impl ToolId {
             ToolId::AstSearch => "astSearch",
             ToolId::AstRewrite => "astRewrite",
             ToolId::LspSearch => "lspSearch",
-            ToolId::SemanticAssess => "semanticAssess",
+            ToolId::Clasify => "clasify",
         }
     }
 
@@ -96,7 +96,7 @@ impl ToolId {
             | ToolId::GhSearchHistory
             | ToolId::GhGetHistoryItem
             | ToolId::GhCloneRepo => ToolFamily::GitHub,
-            ToolId::ArtifactSearch | ToolId::SemanticAssess => ToolFamily::Remote,
+            ToolId::ArtifactSearch | ToolId::Clasify => ToolFamily::Remote,
         }
     }
 
@@ -115,8 +115,8 @@ impl ToolId {
     /// A semantic assessment tool (gated on a non-blank `OCTOCODE_CLASSIFICATION_API`
     /// or the selected vendor's native key, e.g. `OCTOCODE_JEV_KEY`).
     #[must_use]
-    pub const fn is_semantic_assess(self) -> bool {
-        matches!(self, ToolId::SemanticAssess)
+    pub const fn is_clasify(self) -> bool {
+        matches!(self, ToolId::Clasify)
     }
 
     /// Env-var hint shown in the CLI `scheme` catalog when a tool is disabled.
@@ -127,7 +127,7 @@ impl ToolId {
     pub const fn availability_env_hint(self) -> Option<&'static str> {
         match self {
             ToolId::GhCloneRepo => Some("ENABLE_CLONE|OCTOCODE_STORAGE_MODE"),
-            ToolId::SemanticAssess => Some("OCTOCODE_CLASSIFICATION_API|OCTOCODE_JEV_KEY"),
+            ToolId::Clasify => Some("OCTOCODE_CLASSIFICATION_API|OCTOCODE_JEV_KEY"),
             ToolId::AstRewrite => Some("ENABLE_AST_REWRITE"),
             ToolId::LocalSearch | ToolId::LocalFetch | ToolId::AstSearch | ToolId::LspSearch => {
                 Some("ENABLE_LOCAL")
@@ -165,6 +165,9 @@ mod tests {
         }
         assert_eq!(ToolId::from_name("nope"), None);
         assert!("nope".parse::<ToolId>().is_err());
+        // Hard cutover: the pre-rename public name no longer resolves to a tool.
+        assert_eq!(ToolId::from_name("semanticAssess"), None);
+        assert!("semanticAssess".parse::<ToolId>().is_err());
     }
 
     #[test]
@@ -189,7 +192,7 @@ mod tests {
         ] {
             assert!(id.is_local(), "{id}");
         }
-        assert!(ToolId::SemanticAssess.is_semantic_assess());
+        assert!(ToolId::Clasify.is_clasify());
         assert_eq!(ToolId::from_name("jev"), None);
     }
 
@@ -214,7 +217,7 @@ mod tests {
             Some("ENABLE_CLONE|OCTOCODE_STORAGE_MODE")
         );
         assert_eq!(
-            ToolId::SemanticAssess.availability_env_hint(),
+            ToolId::Clasify.availability_env_hint(),
             Some("OCTOCODE_CLASSIFICATION_API|OCTOCODE_JEV_KEY")
         );
         for id in [
@@ -234,13 +237,13 @@ mod tests {
     #[test]
     fn every_tool_has_exactly_one_family() {
         for id in ToolId::ALL {
-            let count = [id.is_local(), id.is_github(), id.is_semantic_assess()]
+            let count = [id.is_local(), id.is_github(), id.is_clasify()]
                 .into_iter()
                 .filter(|flag| *flag)
                 .count();
             // Jev tools are Remote family, so is_jev is orthogonal; assert the
             // Local/GitHub families are mutually exclusive and cover no jev tool.
-            if id.is_semantic_assess() {
+            if id.is_clasify() {
                 assert!(!id.is_local() && !id.is_github());
                 assert_eq!(id.family(), ToolFamily::Remote);
             } else {

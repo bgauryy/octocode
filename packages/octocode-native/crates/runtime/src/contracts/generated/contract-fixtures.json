@@ -1,7 +1,7 @@
 [
   {
-    "id": "semanticAssess.curated-1",
-    "tool": "semanticAssess",
+    "id": "clasify.curated-1",
+    "tool": "clasify",
     "input": {
       "reasoning": "Choose which candidate implements interceptor ordering.",
       "id": "interceptor-candidate",
@@ -72,8 +72,8 @@
     }
   },
   {
-    "id": "semanticAssess.curated-2",
-    "tool": "semanticAssess",
+    "id": "clasify.curated-2",
+    "tool": "clasify",
     "input": {
       "reasoning": "Choose the next investigation without fetching the same facts again.",
       "id": "next-investigation",
@@ -148,8 +148,8 @@
     }
   },
   {
-    "id": "semanticAssess.curated-3",
-    "tool": "semanticAssess",
+    "id": "clasify.curated-3",
+    "tool": "clasify",
     "input": {
       "reasoning": "Find overclaiming before finalizing, without treating the judgment as verification.",
       "id": "draft-evidence-review",

@@ -82,7 +82,7 @@ pub fn prepare(
             return Err(ContractInputError::new("tool input must be an object"));
         }
     };
-    if tool_name != "semanticAssess" {
+    if tool_name != "clasify" {
         default_blank(
             &mut object,
             "goal",
@@ -128,7 +128,7 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn pure_semantic_assess_preparation_preserves_exactly_the_supplied_values() {
+    fn pure_clasify_preparation_preserves_exactly_the_supplied_values() {
         let query = json!({"id":"decision","reasoning":"Decide the next evidence read.","resources":[{"id":"source","context": {"value": {"goal": "source data", "debug": true}}}], "questions":[{"id":"relevant","question": {
             "type": "noul", "instructions": "Assess supplied state"
         }}]});
@@ -138,7 +138,7 @@ mod tests {
             json!({"queries": [query.clone()]}),
         ] {
             let prepared =
-                prepare("semanticAssess", input, PrepareOptions::default()).expect("pure input");
+                prepare("clasify", input, PrepareOptions::default()).expect("pure input");
             assert_eq!(serde_json::Value::Object(prepared.query), query);
         }
     }

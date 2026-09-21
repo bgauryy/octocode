@@ -51,7 +51,7 @@ pub fn record_jev(home: &Path, enabled: bool, payload: &Value) {
     let jev = stats
         .as_object_mut()
         .expect("stats normalized to object")
-        .entry("semanticAssess")
+        .entry("clasify")
         .or_insert_with(|| json!({}));
     if !jev.is_object() {
         *jev = json!({});
@@ -84,11 +84,11 @@ mod tests {
             serde_json::from_str(&fs::read_to_string(dir.path().join("stats.json")).unwrap())
                 .unwrap();
         assert_eq!(
-            stats["stats"]["semanticAssess"],
+            stats["stats"]["clasify"],
             json!({"calls": 1, "input_tokens": 10, "output_tokens": 2})
         );
         assert!(
-            stats["stats"]["semanticAssess"]
+            stats["stats"]["clasify"]
                 .get("gates_skipped")
                 .is_none()
         );
@@ -111,8 +111,8 @@ mod tests {
             serde_json::from_str(&fs::read_to_string(dir.path().join("stats.json")).unwrap())
                 .unwrap();
         assert_eq!(stats["stats"]["toolCalls"], 4);
-        assert_eq!(stats["stats"]["semanticAssess"]["calls"], 1);
-        assert_eq!(stats["stats"]["semanticAssess"]["input_tokens"], 9);
+        assert_eq!(stats["stats"]["clasify"]["calls"], 1);
+        assert_eq!(stats["stats"]["clasify"]["input_tokens"], 9);
     }
 
     #[test]

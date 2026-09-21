@@ -39,7 +39,7 @@ fn help_lists_only_the_minimal_command_surface() {
         "ghGetHistoryItem",
         "ghCloneRepo",
         "artifactSearch",
-        "semanticAssess",
+        "clasify",
         "scheme",
         "config",
         "auth",
@@ -80,7 +80,7 @@ fn help_lists_only_the_minimal_command_surface() {
 }
 
 #[test]
-fn semantic_assess_missing_key_is_actionable() {
+fn clasify_missing_key_is_actionable() {
     let workspace = Workspace::new();
     let query = serde_json::json!({
         "id":"decision",
@@ -90,7 +90,7 @@ fn semantic_assess_missing_key_is_actionable() {
     });
     let output = workspace
         .cli()
-        .args(["semanticAssess", &query.to_string(), "--compact"])
+        .args(["clasify", &query.to_string(), "--compact"])
         .output()
         .expect("missing-key execution");
     assert_eq!(exit_code(&output), Some(5));

@@ -84,8 +84,8 @@ pub(super) enum Command {
     GhCloneRepo(ToolArgs),
     #[command(name = "artifactSearch")]
     ArtifactSearch(ToolArgs),
-    #[command(name = "semanticAssess")]
-    SemanticAssess(ToolArgs),
+    #[command(name = "clasify")]
+    Clasify(ToolArgs),
 
     // ── System commands ──────────────────────────────────────────────────────
     /// Print a tool contract; without a name, list tools, availability, and canonical agent instructions.

@@ -38,14 +38,14 @@ fn scheme_catalog_is_machine_only_with_availability_scoping() {
         assert!(catalog.get("instructions").is_none(), "{catalog}");
         assert!(catalog.get("guidance").is_none(), "{catalog}");
         assert_eq!(catalog["fingerprint"], expected_fingerprint, "{catalog}");
-        let semantic_assess = catalog["tools"]
+        let clasify = catalog["tools"]
             .as_array()
             .expect("tools array")
             .iter()
-            .find(|tool| tool["name"] == "semanticAssess")
-            .expect("semanticAssess entry");
+            .find(|tool| tool["name"] == "clasify")
+            .expect("clasify entry");
         assert_eq!(
-            semantic_assess["availability"]["enabled"], enabled,
+            clasify["availability"]["enabled"], enabled,
             "{catalog}"
         );
         let ast_rewrite = catalog["tools"]

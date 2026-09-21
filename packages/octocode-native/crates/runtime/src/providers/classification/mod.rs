@@ -1,6 +1,6 @@
 //! Classification provider abstraction.
 //!
-//! `semanticAssess` sends evidence to a classification vendor for a typed
+//! `clasify` sends evidence to a classification vendor for a typed
 //! judgment. Each vendor's built-in defaults (API host, model, endpoint path)
 //! and response contract live behind [`ClassificationProvider`], keyed by the
 //! vendor-neutral `classification.type` config selector. Adding a vendor is a

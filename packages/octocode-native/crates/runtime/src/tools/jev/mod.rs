@@ -355,7 +355,7 @@ mod tests {
         }
         for tool in [
             "jev",
-            "semanticAssess",
+            "clasify",
             "astRewrite",
             "ghCloneRepo",
             "unknown",

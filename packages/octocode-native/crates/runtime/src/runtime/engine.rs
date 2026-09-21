@@ -276,7 +276,7 @@ impl ToolRuntime {
         let local_tools = local
             && matches!(id, Some(t) if t.is_local())
             && (id != Some(ToolId::AstRewrite) || self.config.resolved.local.enable_ast_rewrite);
-        let classification = matches!(id, Some(t) if t.is_semantic_assess())
+        let classification = matches!(id, Some(t) if t.is_clasify())
             && self
                 .classification_key()
                 .map(str::trim)
@@ -402,7 +402,7 @@ impl ToolRuntime {
                 ));
             }
             if !mcp
-                && tool == "semanticAssess"
+                && tool == "clasify"
                 && self
                     .classification_key()
                     .map(str::trim)
@@ -410,7 +410,7 @@ impl ToolRuntime {
             {
                 return Err(RuntimeError::new(
                     "missingConfiguration",
-                    "semanticAssess requires OCTOCODE_CLASSIFICATION_API (or the jev vendor's OCTOCODE_JEV_KEY). Create a classification provider API key (jev: https://docs.typesafe.ai/introduction) and set OCTOCODE_CLASSIFICATION_API before retrying.",
+                    "clasify requires OCTOCODE_CLASSIFICATION_API (or the jev vendor's OCTOCODE_JEV_KEY). Create a classification provider API key (jev: https://docs.typesafe.ai/introduction) and set OCTOCODE_CLASSIFICATION_API before retrying.",
                 ));
             }
             return Err(RuntimeError::new(
@@ -457,7 +457,7 @@ impl ToolRuntime {
         };
         // Semantic assessment is nondeterministic and billed per evaluation. Query replay cannot
         // serve a page of the original judgment, including authenticated cursors.
-        if tool == "semanticAssess"
+        if tool == "clasify"
             && [
                 "responseCharOffset",
                 "responseCharLength",
@@ -468,7 +468,7 @@ impl ToolRuntime {
         {
             return Err(RuntimeError::new(
                 "unsupportedResponsePagination",
-                "semanticAssess response pagination is unsupported: replay would repeat context execution and inference. Use the page-level results and next.assess continuation instead.",
+                "clasify response pagination is unsupported: replay would repeat context execution and inference. Use the page-level results and next.clasify continuation instead.",
             ));
         }
         // Parse response-paging options before contract validation.
@@ -569,7 +569,7 @@ impl ToolRuntime {
                 let mut source_digest = None;
                 let mut source_digests = Vec::with_capacity(queries.len());
                 let mut failure = None;
-                let mut jev_rows = if tool == "semanticAssess" {
+                let mut jev_rows = if tool == "clasify" {
                     let _enter = handle.enter();
                     let Some(key) = jev_key.as_ref() else {
                         return Err(ExecutionError::WorkerFailed);
@@ -615,7 +615,7 @@ impl ToolRuntime {
                     }
                     source_digests.push(row_source_digest);
                     failure = failure.or(result.failure);
-                    if tool == "semanticAssess" {
+                    if tool == "clasify" {
                         rows.push(result.data);
                         continue;
                     }
@@ -633,7 +633,7 @@ impl ToolRuntime {
                 });
                 // Jev receipts and caller-authored rubric values are opaque JSON:
                 // path compaction would mutate their identity and meaning.
-                let mut structured = if tool == "semanticAssess" {
+                let mut structured = if tool == "clasify" {
                     json!({"queries": rows})
                 } else {
                     response::envelope(rows)
@@ -663,7 +663,7 @@ impl ToolRuntime {
                 let rendered_text =
                     render.then(|| super::render::render_tool(&tool, &structured, &response_query));
                 context.check()?;
-                let jev_output = tool == "semanticAssess";
+                let jev_output = tool == "clasify";
                 let prepared = ResponsePager::new(ResponsePagerConfig::default())
                     .prepare(
                         ResponseInput {

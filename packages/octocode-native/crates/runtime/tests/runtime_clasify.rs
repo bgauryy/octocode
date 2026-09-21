@@ -25,7 +25,7 @@ fn query() -> serde_json::Value {
 }
 
 #[tokio::test]
-async fn semantic_assess_requires_non_blank_reasoning() {
+async fn clasify_requires_non_blank_reasoning() {
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("OCTOCODE_CLASSIFICATION_API", "secret".into())]);
     for reasoning in [None, Some("   ")] {
@@ -37,21 +37,21 @@ async fn semantic_assess_requires_non_blank_reasoning() {
             }
         }
         let error = runtime
-            .execute("semantic-reasoning".into(), "semanticAssess".into(), input)
+            .execute("semantic-reasoning".into(), "clasify".into(), input)
             .await
-            .expect_err("semanticAssess reasoning is required and non-blank");
+            .expect_err("clasify reasoning is required and non-blank");
         assert_eq!(error.code, "invalidInput");
     }
     runtime.close().await;
 }
 
 #[tokio::test]
-async fn jev_vendor_key_alias_enables_semantic_assess() {
+async fn jev_vendor_key_alias_enables_clasify() {
     // The generic OCTOCODE_CLASSIFICATION_API is unset; the jev vendor's native
     // OCTOCODE_JEV_KEY alias alone must satisfy the availability gate.
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("OCTOCODE_JEV_KEY", "jev-native-secret".into())]);
-    assert!(runtime.is_available("semanticAssess"));
+    assert!(runtime.is_available("clasify"));
     runtime.close().await;
 }
 
@@ -59,7 +59,7 @@ async fn jev_vendor_key_alias_enables_semantic_assess() {
 async fn public_identity_is_a_hard_cutover_and_missing_key_is_actionable() {
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[]);
-    assert!(!runtime.is_available("semanticAssess"));
+    assert!(!runtime.is_available("clasify"));
     assert!(!runtime.is_available("jev"));
     let catalog = runtime.catalog().unwrap();
     assert!(
@@ -67,7 +67,7 @@ async fn public_identity_is_a_hard_cutover_and_missing_key_is_actionable() {
             .as_array()
             .unwrap()
             .iter()
-            .any(|tool| { tool["name"] == "semanticAssess" && tool["available"] == false })
+            .any(|tool| { tool["name"] == "clasify" && tool["available"] == false })
     );
     assert!(
         !catalog["tools"]
@@ -78,7 +78,7 @@ async fn public_identity_is_a_hard_cutover_and_missing_key_is_actionable() {
     );
 
     let error = runtime
-        .execute("missing-key".into(), "semanticAssess".into(), query())
+        .execute("missing-key".into(), "clasify".into(), query())
         .await
         .unwrap_err();
     assert_eq!(error.code, "missingConfiguration");
@@ -114,10 +114,10 @@ async fn matrix_is_resource_major_and_reports_requested_and_resolved_models() {
         ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
     ]);
     let outcome = runtime
-        .execute("matrix".into(), "semanticAssess".into(), query())
+        .execute("matrix".into(), "clasify".into(), query())
         .await
         .unwrap();
-    octocode_native::contracts::validate_output("semanticAssess", &outcome.structured_content)
+    octocode_native::contracts::validate_output("clasify", &outcome.structured_content)
         .expect("nested output contract");
     let queries = outcome.structured_content["queries"].as_array().unwrap();
     assert_eq!(queries.len(), 1);
@@ -165,7 +165,7 @@ async fn oversized_first_page_is_bounded_partial_without_a_looping_continuation(
         "questions":[{"id":"relevant","question":{"type":"noul","instructions":"Relevant?"}}]
     });
     let outcome = runtime
-        .execute("bounded".into(), "semanticAssess".into(), input)
+        .execute("bounded".into(), "clasify".into(), input)
         .await
         .unwrap();
     let query = &outcome.structured_content["queries"][0];
@@ -213,7 +213,7 @@ async fn max_chars_budgets_sanitized_resource_payload_not_serialized_envelope() 
     let outcome = runtime
         .execute(
             "recover-full-content".into(),
-            "semanticAssess".into(),
+            "clasify".into(),
             input,
         )
         .await
@@ -235,7 +235,7 @@ async fn max_chars_budgets_sanitized_resource_payload_not_serialized_envelope() 
             .any(|request| String::from_utf8_lossy(&request.body).contains(marker)),
         "the terminal source marker must reach semantic assessment"
     );
-    octocode_native::contracts::validate_output("semanticAssess", &outcome.structured_content)
+    octocode_native::contracts::validate_output("clasify", &outcome.structured_content)
         .expect("recovered semantic output contract");
     runtime.close().await;
 }
@@ -272,28 +272,28 @@ async fn page_budget_continuation_round_trips_through_the_public_contract() {
         "questions":[{"id":"relevant","question":{"type":"noul","instructions":"Relevant?"}}]
     });
     let outcome = runtime
-        .execute("paged".into(), "semanticAssess".into(), input)
+        .execute("paged".into(), "clasify".into(), input)
         .await
         .unwrap();
-    let assess = outcome.structured_content["queries"][0]["next"]["assess"].clone();
+    let assess = outcome.structured_content["queries"][0]["next"]["clasify"].clone();
     assert!(assess.is_object(), "{}", outcome.structured_content);
     let context = &assess["resources"][0]["context"];
     assert_eq!(context.as_object().unwrap().len(), 2);
     assert!(context.get("tool").is_some());
     assert!(context.get("query").is_some());
     octocode_native::contracts::prepare_many_and_validate(
-        "semanticAssess",
+        "clasify",
         assess,
         octocode_native::contracts::PrepareOptions::default(),
     )
-    .expect("next.assess must execute unchanged");
-    octocode_native::contracts::validate_output("semanticAssess", &outcome.structured_content)
+    .expect("next.clasify must execute unchanged");
+    octocode_native::contracts::validate_output("clasify", &outcome.structured_content)
         .expect("nested query-cell-page output");
     runtime.close().await;
 }
 
 #[tokio::test]
-async fn payload_over_max_chars_returns_an_executable_assess_continuation() {
+async fn payload_over_max_chars_returns_an_executable_clasify_continuation() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
@@ -321,21 +321,21 @@ async fn payload_over_max_chars_returns_an_executable_assess_continuation() {
         "questions":[{"id":"relevant","question":{"type":"noul","instructions":"Relevant?"}}]
     });
     let first = runtime
-        .execute("over-budget-first".into(), "semanticAssess".into(), input)
+        .execute("over-budget-first".into(), "clasify".into(), input)
         .await
         .unwrap();
-    let assess = first.structured_content["queries"][0]["next"]["assess"].clone();
+    let assess = first.structured_content["queries"][0]["next"]["clasify"].clone();
     octocode_native::contracts::prepare_many_and_validate(
-        "semanticAssess",
+        "clasify",
         assess.clone(),
         octocode_native::contracts::PrepareOptions::default(),
     )
-    .expect("next.assess must satisfy the public input contract");
+    .expect("next.clasify must satisfy the public input contract");
 
     let resumed = runtime
-        .execute("over-budget-resume".into(), "semanticAssess".into(), assess)
+        .execute("over-budget-resume".into(), "clasify".into(), assess)
         .await
-        .expect("next.assess must execute unchanged");
+        .expect("next.clasify must execute unchanged");
     let resumed_query = &resumed.structured_content["queries"][0];
     assert!(resumed_query.get("next").is_none(), "{resumed_query}");
     assert_eq!(resumed_query["results"][0]["coverage"], "complete");
