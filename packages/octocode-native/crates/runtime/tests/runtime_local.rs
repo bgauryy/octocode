@@ -259,8 +259,11 @@ async fn runtime_catalog_lists_available_tools() {
             .as_array()
             .expect("public tools")
             .iter()
-            .all(|tool| tool["inputSchema"].is_object() && tool["querySchema"].is_object()),
-        "public input and query schemas must remain available"
+            .all(|tool| tool["available"].is_boolean()
+                && tool["shortDescription"].is_string()
+                && tool.get("inputSchema").is_none()
+                && tool.get("querySchema").is_none()),
+        "runtime catalog is names + availability only; schemas ship via core and `scheme`"
     );
     let names: Vec<_> = catalog["tools"]
         .as_array()

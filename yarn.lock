@@ -2486,10 +2486,10 @@ __metadata:
 
 "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::locator=octocode-monorepo%40workspace%3A.":
   version: 19.1.1
-  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=ef3d4e&locator=octocode-monorepo%40workspace%3A."
+  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=9e2d50&locator=octocode-monorepo%40workspace%3A."
   dependencies:
     zod: "npm:^4.6.2"
-  checksum: 10c0/1bfe307bcf53c902813d1d228734ea663d788fc5e2c36c9f8f90ab15457a1f9e90b32855cba54e4e2082d552b3d52b0403c5cdf7c0f34ca43c9eb3201fd49c38
+  checksum: 10c0/44eb3ef8ef8725736a9f26fc38720f8e3605c2ca81f7335a22df35deb997704d96ea2f395c5010ce612770bff9c068a3b7f6e809b21ff0f5c596646b2421d824
   languageName: node
   linkType: hard
 
@@ -6083,6 +6083,7 @@ __metadata:
   dependencies:
     "@inquirer/prompts": "npm:^8.7.2"
     "@octocodeai/config": "npm:20.0.0"
+    "@octocodeai/octocode-core": "npm:19.1.1"
     "@octocodeai/octocode-native": "npm:20.0.0"
     "@octocodeai/octocode-skill-installer": "workspace:*"
     "@types/node": "npm:^24.13.4"

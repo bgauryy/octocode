@@ -25,6 +25,11 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
   if (args.options['no-color'] === true) process.env.NO_COLOR = '1';
 
   if (!shouldDelegateToNative(args.command)) {
+    if (args.command === 'scheme') {
+      const { schemeCommand } = await import('./commands/scheme.js');
+      await schemeCommand.handler(args);
+      return true;
+    }
     const { skillCommand } = await import('./commands/skill.js');
     await skillCommand.handler(args);
     return true;

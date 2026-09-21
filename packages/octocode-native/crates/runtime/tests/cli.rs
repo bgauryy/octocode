@@ -663,10 +663,14 @@ fn scheme_lists_the_compact_discovery_catalog() {
     assert_eq!(value["commands"]["schema"], "scheme <name>");
     assert_eq!(value["commands"]["run"], "<name> '<json>'");
     assert!(
-        value["instructions"]
+        value.get("instructions").is_none(),
+        "instructions are core-delivered by the JS layers, not the binary: {value}"
+    );
+    assert!(
+        value["fingerprint"]
             .as_str()
-            .is_some_and(|instructions| instructions.contains("Workflows:")),
-        "catalog must expose the availability-scoped core instructions: {value}"
+            .is_some_and(|fingerprint| fingerprint.len() == 64),
+        "machine catalog must carry the enforcement fingerprint: {value}"
     );
     let first = &value["tools"][0];
     assert!(first["name"].is_string());

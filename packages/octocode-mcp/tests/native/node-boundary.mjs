@@ -17,17 +17,9 @@ class FakeRuntime {
   catalog() {
     return {
       fingerprint: getNativeContractFingerprint(),
-      mcpInstructions: 'local-only',
       tools: [
-        {
-          name: 'localFetch',
-          title: 'Local',
-          available: true,
-          inputSchema: { type: 'object', additionalProperties: true },
-          outputSchema: { type: 'object', additionalProperties: true },
-          annotations: {},
-        },
-        { name: 'ghSearch', available: false, inputSchema: {} },
+        { name: 'localFetch', available: true },
+        { name: 'ghSearch', available: false },
       ],
     };
   }

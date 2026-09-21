@@ -6,28 +6,24 @@ import {
   DIRECT_TOOL_DEFINITIONS,
   getNativeContractFingerprint,
 } from '@octocodeai/octocode-core/schema';
+import { buildMcpInstructions } from '@octocodeai/octocode-core/mcp';
 import { NATIVE_ABI_VERSION } from '@octocodeai/octocode-native/runtime';
 
 /**
- * A tool as embedded in the native runtime catalog. MCP registration
- * intentionally sources `title`/`description`/`inputSchema`/`annotations` from
- * `@octocodeai/octocode-core` (Zod / Standard Schema, the only
- * shapes the MCP SDK's `registerTool` accepts). The JSON-Schema fields below back
- * the native runtime's own validation and the CLI `scheme` catalog; registration
- * consumes only `name` and `available`.
+ * A tool as reported by the native runtime catalog: runtime truth only —
+ * names, availability, and the enforcement contract fingerprint. Everything
+ * agent-facing (`title`/`description`/`inputSchema`/`annotations` for
+ * `registerTool`, server instructions) is sourced from
+ * `@octocodeai/octocode-core`; the native embed carries no presentation.
  */
 export interface NativeCatalogTool {
   name: string;
-  title?: string;
-  description?: string;
+  shortDescription?: string;
   available: boolean;
-  inputSchema?: unknown;
-  annotations?: unknown;
 }
 
 export interface NativeCatalog {
   fingerprint: string;
-  mcpInstructions?: string;
   tools: NativeCatalogTool[];
 }
 
@@ -164,7 +160,9 @@ export function createNativeMcp({
   };
   const server = new McpServer(implementation, {
     capabilities: { tools: { listChanged: false } },
-    instructions: catalog.mcpInstructions,
+    // Availability-scoped instructions, built by core from the tools the
+    // native runtime actually enables — the native catalog carries none.
+    instructions: buildMcpInstructions(availableTools.map(tool => tool.name)),
   });
   const registerTool = server.registerTool.bind(server) as RegisterTool;
 

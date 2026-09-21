@@ -11,15 +11,7 @@ class FakeRuntime {
   catalog() {
     return {
       fingerprint: this.fingerprint,
-      mcpInstructions: 'test instructions',
-      tools: [
-        {
-          name: 'localFetch',
-          available: true,
-          inputSchema: { type: 'object' },
-          outputSchema: { type: 'object' },
-        },
-      ],
+      tools: [{ name: 'localFetch', available: true }],
     };
   }
 

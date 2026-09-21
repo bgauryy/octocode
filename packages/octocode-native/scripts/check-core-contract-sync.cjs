@@ -75,7 +75,7 @@ async function checkAgainst(coreDir, label) {
     process.exit(1);
   }
   const core = await import(pathToFileURL(builderPath).href);
-  const current = core.buildNativeContractIr().fingerprint;
+  const current = core.buildEnforcementContractIr().fingerprint;
   if (current !== provenance.contractFingerprint) {
     console.error('contract-sync: FINGERPRINT MISMATCH');
     console.error(`  embedded (native binary): ${provenance.contractFingerprint}`);

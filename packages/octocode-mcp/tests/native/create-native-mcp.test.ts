@@ -108,7 +108,6 @@ const tool = (
 ): NativeCatalogTool => ({
   name,
   available,
-  inputSchema: { type: 'object', additionalProperties: true },
   ...extra,
 });
 
@@ -210,7 +209,6 @@ describe('createNativeMcp registration + execution', () => {
       env: {},
       binding: bindingFor(() => ({
         fingerprint: getNativeContractFingerprint(),
-        mcpInstructions: 'test',
         tools: [tool('localFetch', true), tool('ghSearch', false)],
       })),
     });

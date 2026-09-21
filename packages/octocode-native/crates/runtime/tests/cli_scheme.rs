@@ -6,7 +6,7 @@ mod support;
 use support::Workspace;
 
 #[test]
-fn scheme_catalog_carries_availability_scoped_core_instructions() {
+fn scheme_catalog_is_machine_only_with_availability_scoping() {
     let workspace = Workspace::new();
     for enabled in [false, true] {
         let env = if enabled {
@@ -15,9 +15,14 @@ fn scheme_catalog_carries_availability_scoped_core_instructions() {
             vec![]
         };
         let runtime = workspace.runtime(&env);
-        let expected = runtime.catalog().expect("native catalog")["mcpInstructions"]
+        let native_catalog = runtime.catalog().expect("native catalog");
+        assert!(
+            native_catalog.get("mcpInstructions").is_none(),
+            "instructions are core-delivered by the JS layers: {native_catalog}"
+        );
+        let expected_fingerprint = native_catalog["fingerprint"]
             .as_str()
-            .expect("core-authored instructions")
+            .expect("enforcement fingerprint")
             .to_owned();
         drop(runtime);
 
@@ -30,9 +35,9 @@ fn scheme_catalog_carries_availability_scoped_core_instructions() {
         assert!(output.status.success(), "{output:?}");
         let catalog: serde_json::Value =
             serde_json::from_slice(&output.stdout).expect("catalog JSON");
-        assert_eq!(catalog["instructions"], expected, "{catalog}");
+        assert!(catalog.get("instructions").is_none(), "{catalog}");
         assert!(catalog.get("guidance").is_none(), "{catalog}");
-        assert_eq!(expected.contains("semanticAssess"), enabled, "{catalog}");
+        assert_eq!(catalog["fingerprint"], expected_fingerprint, "{catalog}");
         let semantic_assess = catalog["tools"]
             .as_array()
             .expect("tools array")
