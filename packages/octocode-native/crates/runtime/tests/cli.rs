@@ -727,11 +727,8 @@ fn scheme_prints_the_public_tool_contract_without_output_schema() {
         value["shortDescription"],
         "Find literal or regex matches in local files."
     );
-    assert!(
-        value["instructions"]
-            .as_str()
-            .is_some_and(|instructions| instructions.contains("Workflows:"))
-    );
+    // instructions live at catalog level (scheme with no args), not per-tool.
+    assert!(value["instructions"].is_null());
     assert!(value["inputSchema"].is_object());
     assert!(!value.to_string().contains("\"outputSchema\""));
     // The per-tool view echoes the concrete run command for the inspected tool.
@@ -781,11 +778,8 @@ fn scheme_query_view_selects_a_single_union_branch() {
     assert!(output.status.success(), "{}", stderr(&output));
     let value: serde_json::Value = serde_json::from_str(stdout(&output)).expect("schema JSON");
     assert_eq!(value["name"], "ghSearch");
-    assert!(
-        value["instructions"]
-            .as_str()
-            .is_some_and(|instructions| instructions.contains("Workflows:"))
-    );
+    // instructions live at catalog level (scheme with no args), not per-tool.
+    assert!(value["instructions"].is_null());
     assert_eq!(
         value["querySchema"]["oneOf"].as_array().map(Vec::len),
         Some(1)
