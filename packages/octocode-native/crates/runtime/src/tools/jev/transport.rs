@@ -297,7 +297,10 @@ mod tests {
             "https://user:pass@api.typesafe.ai", // has credentials
             "not a url",
         ] {
-            assert!(endpoint(bad, "v1/systemone").is_err(), "should reject {bad}");
+            assert!(
+                endpoint(bad, "v1/systemone").is_err(),
+                "should reject {bad}"
+            );
         }
     }
 
