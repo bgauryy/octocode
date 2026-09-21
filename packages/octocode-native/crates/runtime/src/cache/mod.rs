@@ -310,4 +310,100 @@ mod tests {
             CacheLookup::Hit { .. }
         ));
     }
+
+    /// `max_entries: 0` is the programmatic "cache disabled" signal.
+    /// `insert` must return `None` (refused) and every `get` must be `Absent`.
+    #[test]
+    fn max_entries_zero_disables_all_inserts_and_reads() {
+        let mut cache = BoundedCache::<u32>::new(CacheConfig {
+            max_entries: 0,
+            ..Default::default()
+        });
+        let now = Instant::now();
+        let snapshot = cache.insert(key("a", "x"), 99, 4, 1, now);
+        assert!(snapshot.is_none(), "max_entries=0 must refuse inserts");
+        assert!(
+            matches!(cache.get(&key("a", "x"), 1, None, now), CacheLookup::Miss(CacheMiss::Absent)),
+            "refused insert must leave nothing readable"
+        );
+        assert_eq!(cache.stats().entries, 0);
+        assert_eq!(cache.stats().bytes, 0);
+    }
+
+    /// Hits, misses, expirations, and evictions must each increment only their
+    /// own counter; no counter should bleed into another.
+    #[test]
+    fn stats_counters_increment_independently() {
+        let mut cache = BoundedCache::<u32>::new(CacheConfig {
+            max_entries: 1,
+            max_bytes: 100,
+            ttl: Duration::from_secs(60),
+            ..Default::default()
+        });
+        let now = Instant::now();
+
+        // Miss on empty cache.
+        let _ = cache.get(&key("missing", "x"), 1, None, now);
+        assert_eq!(cache.stats().misses, 1);
+        assert_eq!(cache.stats().hits, 0);
+
+        // Insert and hit.
+        cache.insert(key("a", "x"), 1, 4, 1, now);
+        let _ = cache.get(&key("a", "x"), 1, None, now);
+        assert_eq!(cache.stats().hits, 1);
+        assert_eq!(cache.stats().misses, 1); // unchanged
+
+        // Revision change → miss + invalidation (not expiration).
+        let _ = cache.get(&key("a", "x"), 2, None, now);
+        assert_eq!(cache.stats().invalidations, 1);
+        assert_eq!(cache.stats().expirations, 0);
+
+        // Expired entry → miss + expiration counter.
+        cache.insert(key("b", "x"), 2, 4, 1, now);
+        let future = now + Duration::from_secs(400);
+        let _ = cache.get(&key("b", "x"), 1, None, future);
+        assert_eq!(cache.stats().expirations, 1);
+
+        // Eviction: new insert exceeds max_entries=1, oldest is evicted.
+        cache.insert(key("c", "x"), 3, 4, 1, now);
+        cache.insert(key("d", "x"), 4, 4, 1, now);
+        assert_eq!(cache.stats().evictions, 1);
+    }
+
+    /// A `get()` call re-orders the accessed entry to the back of the LRU queue.
+    /// After a hit, filling the budget must evict the un-touched entry, not the
+    /// recently accessed one.
+    #[test]
+    fn lru_touch_on_hit_protects_accessed_entry_from_eviction() {
+        let mut cache = BoundedCache::<u32>::new(CacheConfig {
+            max_entries: 2,
+            max_bytes: 1000,
+            ttl: Duration::from_secs(60),
+            ..Default::default()
+        });
+        let now = Instant::now();
+
+        // Insert two entries; "a" is older (front of LRU queue).
+        cache.insert(key("a", "x"), 1, 4, 1, now);
+        cache.insert(key("b", "x"), 2, 4, 1, now);
+
+        // Touch "a" → moves it to the back; "b" is now the eviction candidate.
+        let _ = cache.get(&key("a", "x"), 1, None, now);
+
+        // Insert "c" → budget exceeded, LRU entry ("b") is evicted.
+        cache.insert(key("c", "x"), 3, 4, 1, now);
+
+        assert!(
+            matches!(cache.get(&key("a", "x"), 1, None, now), CacheLookup::Hit { .. }),
+            "touched entry 'a' must survive eviction"
+        );
+        assert!(
+            matches!(cache.get(&key("b", "x"), 1, None, now), CacheLookup::Miss(CacheMiss::Absent)),
+            "un-touched entry 'b' must be evicted"
+        );
+        assert!(
+            matches!(cache.get(&key("c", "x"), 1, None, now), CacheLookup::Hit { .. }),
+            "newest entry 'c' must survive"
+        );
+    }
 }

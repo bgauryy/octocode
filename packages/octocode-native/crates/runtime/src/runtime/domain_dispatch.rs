@@ -65,6 +65,8 @@ impl DomainDispatcher {
                         context.cancellation.clone(),
                         self.config.resolved.network.allow_private_registry,
                         Some(&self.home),
+                        self.config.revision,
+                        self.config.resolved.storage.mode == "persistent",
                     )
                     .await
                     {

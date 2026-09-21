@@ -37,10 +37,10 @@ pub async fn execute(
     cancellation: CancellationToken,
     allow_private_registry: bool,
     octocode_home: Option<&std::path::Path>,
-    /// Config revision forwarded to the in-process registry HTTP cache.
+    // Config revision forwarded to the in-process registry HTTP cache.
     cache_revision: u64,
-    /// When `false` the in-process registry HTTP cache is bypassed entirely
-    /// (both reads and writes).  Mirrors `storage.mode == "persistent"`.
+    // When `false` the in-process registry HTTP cache is bypassed entirely
+    // (both reads and writes).  Mirrors `storage.mode == "persistent"`.
     cache_enabled: bool,
 ) -> Result<Value, ArtifactError> {
     let mut query = query.clone();
@@ -212,7 +212,7 @@ mod cursor_signing_tests {
                 "cursor": cursor_value,
             });
             async move {
-                execute(&query, dead, CancellationToken::new(), false, None)
+                execute(&query, dead, CancellationToken::new(), false, None, 0, true)
                     .await
                     .expect_err("dead budget or rejection")
             }
@@ -230,7 +230,7 @@ mod cursor_signing_tests {
         let scope = cursor_scope(&typed).expect("scope");
         let token = cursor::sign_state(key, &scope, br#"{"offset":30,"page":2}"#).expect("sign");
         let query = json!({"type": "npm", "keywords": ["http"], "cursor": token});
-        let issued = execute(&query, dead, CancellationToken::new(), false, None)
+        let issued = execute(&query, dead, CancellationToken::new(), false, None, 0, true)
             .await
             .expect_err("dead budget");
         assert_ne!(issued.code, "invalid_query");

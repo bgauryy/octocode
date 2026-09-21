@@ -1,3 +1,12 @@
+//! GitHub history *item fetch* — a single pull request, issue, commit, or
+//! comparison by number / ref.
+//!
+//! **Cache bypass is intentional.**  Like `gh_search_history`, this tool calls
+//! `transport` directly instead of going through the `GitHubProvider` cache
+//! wrapper.  History items are mutable (comments are added, reviews change,
+//! commits land): serving a cached snapshot would produce incorrect data.  The
+//! GitHub API's own rate-limit and conditional-request machinery is used
+//! implicitly through the transport layer.
 use crate::providers::github::{
     CredentialResolver, GitHubTransport, ProviderError, ProviderErrorKind, RequestContext,
 };

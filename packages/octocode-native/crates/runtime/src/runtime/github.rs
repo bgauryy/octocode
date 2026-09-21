@@ -252,6 +252,8 @@ impl GitHubServices {
         context.check()?;
         let query: gh_get_history_item::GhGetHistoryItemQuery =
             serde_json::from_value(query.clone()).map_err(|_| ExecutionError::WorkerFailed)?;
+        // History items are mutable; bypass ConditionalCache intentionally.
+        // See gh_get_history_item module-level doc for the full rationale.
         let result = gh_get_history_item::execute(
             &self.provider.transport,
             &query,
@@ -319,6 +321,8 @@ impl GitHubServices {
         context.check()?;
         let query: gh_search_history::GhSearchHistoryQuery =
             serde_json::from_value(query.clone()).map_err(|_| ExecutionError::WorkerFailed)?;
+        // History search results are mutable; bypass ConditionalCache intentionally.
+        // See gh_search_history module-level doc for the full rationale.
         let result =
             gh_search_history::execute(&self.provider.transport, &query, request_context, security)
                 .await;

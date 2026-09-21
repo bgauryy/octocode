@@ -1,3 +1,11 @@
+//! GitHub history *search* — pull requests, issues, and commits.
+//!
+//! **Cache bypass is intentional.**  This tool uses `&provider.transport`
+//! directly rather than the `GitHubProvider<_, GitHubContentCache>` wrapper, so
+//! none of the `ConditionalCache` ETag / disk-tier machinery applies.  History
+//! search results are inherently mutable (new PRs/issues appear, existing ones
+//! are updated, merged, or closed), so caching them would serve stale state;
+//! the GitHub API's own rate-limit budget is the right throttle here.
 use crate::providers::github::{
     CommitListRequest, CredentialResolver, GitHubTransport, HistoryRequest, IssueListRequest,
     ProviderError, ProviderErrorKind, PullListRequest, RequestContext, quote_search_keyword,

@@ -1,6 +1,6 @@
 {
   "contractFormatVersion": 2,
-  "fingerprint": "8a0b225cf480c09d45f18471f91c4649aa5498f300b7fd07b0f2a8bbba80a073",
+  "fingerprint": "c79c7cbb82d442725d262f03d02c83b62e126f7a8531bc9b23173c304c168907",
   "tools": [
     {
       "defaults": [
@@ -2707,7 +2707,7 @@
           "phase": "validate"
         }
       ],
-      "shortDescription": "Bounded Noul, Choice, or Score judgment over unread resources or supplied work.",
+      "shortDescription": "Judge candidates cheaply before reading them to save context (Noul, Choice, Score).",
       "variants": []
     },
     {
