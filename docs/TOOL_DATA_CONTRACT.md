@@ -99,7 +99,7 @@ The CLI accepts the returned query or envelope through `<next.tool> '<next.query
 | Pagination layer | Typical controls | Identity and stopping rule |
 |---|---|---|
 | Collection | `page`, `pageSize`, `matchPage`, or operation-specific cursors | Follow the emitted next call until that collection is complete. Mutable provider searches do not all offer snapshot isolation. |
-| Selected content | File readers: `chunkType`/`offset`/`limit`; history text: `charOffset`/`charLength` | Use returned offsets and selectors. Do not recompute them from displayed text or byte lengths. |
+| Selected content | File readers: `chunkType`/`offset`/`chunkSize`; history text: `charOffset`/`charLength` | Use returned offsets and selectors. Do not recompute them from displayed text or byte lengths. |
 | Snapshot-aware operation | An operation's `snapshot` token, where supported | Preserve it in that operation's continuation. On a changed-result restart, discard its prior pages and rerun the returned restart query. |
 | Whole-response text | Outer `responseCharOffset`, `responseCharLength`, `responseSnapshot` | Preserve the response token. `responsePagination.restart:true` requires discarding the prior text pages and executing its offset-zero continuation. |
 

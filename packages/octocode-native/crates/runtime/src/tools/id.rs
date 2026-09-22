@@ -128,7 +128,7 @@ impl ToolId {
         match self {
             ToolId::GhCloneRepo => Some("ENABLE_CLONE|OCTOCODE_STORAGE_MODE"),
             ToolId::Clasify => Some("OCTOCODE_CLASSIFICATION_API|OCTOCODE_JEV_KEY"),
-            ToolId::AstRewrite => Some("ENABLE_AST_REWRITE"),
+            ToolId::AstRewrite => Some("OCTOCODE_BETA"),
             ToolId::LocalSearch | ToolId::LocalFetch | ToolId::AstSearch | ToolId::LspSearch => {
                 Some("ENABLE_LOCAL")
             }
@@ -230,7 +230,7 @@ mod tests {
         }
         assert_eq!(
             ToolId::AstRewrite.availability_env_hint(),
-            Some("ENABLE_AST_REWRITE")
+            Some("OCTOCODE_BETA")
         );
     }
 

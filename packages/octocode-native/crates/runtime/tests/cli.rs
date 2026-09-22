@@ -547,7 +547,7 @@ fn localfetch_pages_expose_a_rerunnable_continuation() {
     let query = serde_json::json!({
         "path": path,
         "chunkType": "lines",
-        "limit": 3,
+        "chunkSize": 3,
         "reasoning": "Verify paginated native reads."
     })
     .to_string();
@@ -870,7 +870,7 @@ fn astrewrite_previews_then_applies_with_hash_guards() {
     });
     let preview = workspace
         .cli()
-        .env("ENABLE_AST_REWRITE", "true")
+        .env("OCTOCODE_BETA", "true")
         .args(["astRewrite", &query.to_string(), "--compact"])
         .output()
         .expect("astRewrite preview");
@@ -900,8 +900,7 @@ fn astrewrite_previews_then_applies_with_hash_guards() {
     query["snapshot"] = data["snapshot"].clone();
     let output = workspace
         .cli()
-        .env("ENABLE_AST_REWRITE", "true")
-        .env("ENABLE_AST_REWRITE_APPLY", "true")
+        .env("OCTOCODE_BETA", "true")
         .args(["astRewrite", &query.to_string(), "--compact"])
         .output()
         .expect("astRewrite apply");

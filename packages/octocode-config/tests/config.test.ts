@@ -582,8 +582,7 @@ describe('DEFAULT_CONFIG', () => {
     expect(DEFAULT_CONFIG.github.apiUrl).toBe('https://api.github.com');
     expect(DEFAULT_CONFIG.local.enabled).toBe(true);
     expect(DEFAULT_CONFIG.local.enableClone).toBe(false);
-    expect(DEFAULT_CONFIG.local.enableAstRewrite).toBe(false);
-    expect(DEFAULT_CONFIG.local.enableAstRewriteApply).toBe(false);
+    expect(DEFAULT_CONFIG.local.beta).toBe(false);
     expect(DEFAULT_NETWORK_CONFIG.timeout).toBe(30000);
     expect(DEFAULT_NETWORK_CONFIG.allowPrivateRegistry).toBe(false);
     expect(DEFAULT_CONFIG.output.redactEmails).toBe(false);
@@ -757,7 +756,7 @@ describe('validateConfig', () => {
       local: {
         enabled: 'true',
         enableClone: 1,
-        enableAstRewriteApply: 'yes',
+        beta: 'yes',
         allowedPaths: ['/tmp', 42],
         workspaceRoot: 99,
       },
@@ -766,7 +765,7 @@ describe('validateConfig', () => {
       expect.arrayContaining([
         'local.enabled: Must be a boolean',
         'local.enableClone: Must be a boolean',
-        'local.enableAstRewriteApply: Must be a boolean',
+        'local.beta: Must be a boolean',
         'local.allowedPaths[1]: Must be a string',
         'local.workspaceRoot: Must be a string',
       ])
@@ -1130,7 +1129,7 @@ describe('resolveLocal', () => {
     for (const key of [
       'ENABLE_LOCAL',
       'ENABLE_CLONE',
-      'ENABLE_AST_REWRITE_APPLY',
+      'OCTOCODE_BETA',
       'ALLOWED_PATHS',
       'WORKSPACE_ROOT',
     ]) {
@@ -1164,16 +1163,14 @@ describe('resolveLocal', () => {
       resolveLocal({
         enabled: false,
         enableClone: false,
-        enableAstRewrite: false,
-        enableAstRewriteApply: false,
+        beta: false,
         allowedPaths: ['/tmp'],
         workspaceRoot: '/tmp',
       })
     ).toEqual({
       enabled: false,
       enableClone: false,
-      enableAstRewrite: false,
-      enableAstRewriteApply: false,
+      beta: false,
       allowedPaths: ['/tmp'],
       workspaceRoot: '/tmp',
     });
@@ -1182,23 +1179,21 @@ describe('resolveLocal', () => {
   it('env overrides local file config', () => {
     process.env['ENABLE_LOCAL'] = 'false';
     process.env['ENABLE_CLONE'] = 'true';
-    process.env['ENABLE_AST_REWRITE'] = 'true';
-    process.env['ENABLE_AST_REWRITE_APPLY'] = 'true';
+    process.env['OCTOCODE_BETA'] = 'true';
     process.env['ALLOWED_PATHS'] = ' /a, /b ,, ';
     process.env['WORKSPACE_ROOT'] = ' /workspace ';
     expect(
       resolveLocal({
         enabled: true,
         enableClone: false,
-        enableAstRewriteApply: false,
+        beta: false,
         allowedPaths: ['/file'],
         workspaceRoot: '/file',
       })
     ).toEqual({
       enabled: false,
       enableClone: true,
-      enableAstRewrite: true,
-      enableAstRewriteApply: true,
+      beta: true,
       allowedPaths: ['/a', '/b'],
       workspaceRoot: '/workspace',
     });

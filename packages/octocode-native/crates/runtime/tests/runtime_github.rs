@@ -45,7 +45,7 @@ async fn github_file_read_goes_through_execute_and_redacts() {
             "branch": "main",
             "forceRefresh": true,
             "chunkType": "lines",
-            "limit": 2
+            "chunkSize": 2
         }),
     )
     .await
@@ -314,7 +314,7 @@ async fn gh_search_history_commits_lists_via_rest() {
     let outcome = call(
         &runtime,
         "ghSearchHistory",
-        json!({"operation": "commits", "owner": "a", "repo": "b"}),
+        json!({"operation": "commit", "owner": "a", "repo": "b"}),
     )
     .await
     .expect("gh_search_history commits");
@@ -358,7 +358,7 @@ async fn gh_search_history_issues_lists_via_rest() {
     let outcome = call(
         &runtime,
         "ghSearchHistory",
-        json!({"operation": "issues", "owner": "a", "repo": "b"}),
+        json!({"operation": "issue", "owner": "a", "repo": "b"}),
     )
     .await
     .expect("gh_search_history issues");
@@ -408,7 +408,7 @@ async fn gh_search_history_pull_requests_lists_via_rest() {
     let outcome = call(
         &runtime,
         "ghSearchHistory",
-        json!({"operation": "pullRequests", "owner": "a", "repo": "b"}),
+        json!({"operation": "pullRequest", "owner": "a", "repo": "b"}),
     )
     .await
     .expect("gh_search_history pullRequests");

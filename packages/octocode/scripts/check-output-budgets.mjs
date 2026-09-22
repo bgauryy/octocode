@@ -30,7 +30,7 @@ const cases = [
         searchText: 'runCLI',
         regex: 'literal',
         resultView: 'files',
-        maxFiles: 1,
+        pageSize: 1,
         reasoning: 'Exercise the direct localSearch CLI within the output budget.',
       }),
       '--compact',

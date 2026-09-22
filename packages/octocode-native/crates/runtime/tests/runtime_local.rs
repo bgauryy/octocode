@@ -113,7 +113,7 @@ async fn local_fetch_pages_and_unions_through_the_runtime() {
     let first = call(
         &runtime,
         "localFetch",
-        query_path(&path, json!({"chunkType":"lines","limit":1})),
+        query_path(&path, json!({"chunkType":"lines","chunkSize":1})),
     )
     .await
     .expect("first page");
@@ -144,13 +144,13 @@ async fn mcp_local_fetch_cursors_stale_only_the_mutated_batch_row() {
                 {
                     "path":first_path,
                     "chunkType":"lines",
-                    "limit":1,
+                    "chunkSize":1,
                     "reasoning":"Page the first cursor fixture."
                 },
                 {
                     "path":second_path,
                     "chunkType":"lines",
-                    "limit":1,
+                    "chunkSize":1,
                     "reasoning":"Page the second cursor fixture."
                 }
             ]}),
@@ -272,10 +272,10 @@ async fn ast_rewrite_requires_its_separate_opt_in() {
     .await
     .expect_err("astRewrite must be opt-in");
     assert_eq!(error.code, "missingConfiguration");
-    assert!(error.message.contains("ENABLE_AST_REWRITE"));
+    assert!(error.message.contains("OCTOCODE_BETA"));
     runtime.close().await;
 
-    let enabled = workspace.runtime(&[("ENABLE_AST_REWRITE", "true".into())]);
+    let enabled = workspace.runtime(&[("OCTOCODE_BETA", "true".into())]);
     assert!(enabled.is_available("astRewrite"));
     enabled.close().await;
 }
@@ -287,7 +287,7 @@ async fn host_options_environment_controls_embedded_tool_availability() {
         cwd: Some(workspace.workspace.clone()),
         env: Some(BTreeMap::from([
             ("ENABLE_LOCAL".into(), "true".into()),
-            ("ENABLE_AST_REWRITE".into(), "true".into()),
+            ("OCTOCODE_BETA".into(), "true".into()),
         ])),
         surface: RuntimeSurface::Mcp,
         ..HostOptions::default()

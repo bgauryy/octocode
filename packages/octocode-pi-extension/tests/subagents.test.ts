@@ -133,16 +133,15 @@ describe('resolveSubagentSkills', () => {
     expect(skills).toContain(skillDir);
   });
 
-  it('includes one usable Awareness skill for every typed profile', () => {
+  it('does not grant the Awareness skill to typed profiles even when a user copy exists', () => {
     const skillDir = path.join(tmpDir, '.agents', 'skills', 'octocode-awareness');
     fs.mkdirSync(skillDir, { recursive: true });
     fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '---\nname: octocode-awareness\ndescription: Coordinate shared work.\n---\n');
 
     process.chdir(tmpDir);
     for (const profile of Object.values(SUBAGENT_REGISTRY)) {
-      const skills = resolveSubagentSkills(profile, tmpDir).filter(s => path.basename(s) === 'octocode-awareness');
-      expect(skills).toHaveLength(1);
-      expect(fs.existsSync(path.join(skills[0]!, 'SKILL.md'))).toBe(true);
+      const skills = resolveSubagentSkills(profile, tmpDir);
+      expect(skills.some(s => path.basename(s) === 'octocode-awareness')).toBe(false);
     }
   });
 

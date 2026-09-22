@@ -89,10 +89,14 @@ and separate addons even though one npm distribution owns their artifacts.
 
 ### Language boundary
 
-The default release has 12 first-class source-language families and exactly 30
-extensions: JavaScript, TypeScript, Rust, Python, C, C++, CUDA, Assembly, Java,
+The default release has 11 first-class source-language families and exactly 28
+extensions: JavaScript, TypeScript, Rust, Python, C, C++, Assembly, Java,
 Scala, Go, and C#. Structural search/rewrite, signatures, graph facts, syntax
-inspection, and LSP grammar adapters derive from one registry. Built-in semantic
+inspection, and LSP grammar adapters derive from one registry. CUDA native
+parsing is an optional compile-time grammar (`tree-sitter-cuda`), excluded from
+the default build because its parse tables cost ~6.8 MiB of binary size for a
+niche language; it can be re-enabled via that feature. CUDA `.cu`/`.cuh` files
+still route to `clangd` for LSP navigation regardless. Built-in semantic
 server routes cover 11 families and 27 extensions: CUDA uses `clangd`, while
 generic Assembly requires trusted custom LSP configuration. Text search,
 ordinary reads, generic best-effort minification, artifact lookup, and trusted
@@ -170,7 +174,7 @@ octocode ghGetFileContent '{"owner":"cli","repo":"cli","path":"README.md","reaso
 octocode ghSearch '{"operation":"repositories","keywords":["ast-grep"],"reasoning":"Find pattern-matching repos."}'
 
 # PR / issue / commit history
-octocode ghSearchHistory '{"operation":"pullRequests","owner":"octocodeai","repo":"octocode","keywords":["fix"],"reasoning":"Find fix PRs."}'
+octocode ghSearchHistory '{"operation":"pullRequest","owner":"octocodeai","repo":"octocode","keywords":["fix"],"reasoning":"Find fix PRs."}'
 octocode ghGetHistoryItem '{"operation":"pullRequest","owner":"octocodeai","repo":"octocode","number":42,"reasoning":"Read PR 42."}'
 
 # package lookup

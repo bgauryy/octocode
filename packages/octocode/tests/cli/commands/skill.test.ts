@@ -127,6 +127,9 @@ describe('skill command', () => {
     expect(parsed.success).toBe(true);
     expect(parsed.count).toBeGreaterThan(0);
     expect(parsed.skills.some(s => s.name === 'octocode-research')).toBe(true);
+    expect(parsed.skills.some(s => s.name === 'octocode-awareness')).toBe(
+      false
+    );
     expect(parsed.skills[0]?.env).toBeDefined();
   });
 

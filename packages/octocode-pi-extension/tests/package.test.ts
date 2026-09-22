@@ -418,10 +418,10 @@ test('build copies bundled Octocode skills without secret env files', () => {
   const cliHelp = execFileSync(process.execPath, [bundledCli, '--help'], { encoding: 'utf8' });
   assert.match(cliHelp, /Octocode/i, 'the bundled CLI boots and renders its command help');
   const catalog = JSON.parse(
-    execFileSync(process.execPath, [bundledCli, 'tools', '--json'], { encoding: 'utf8' }),
+    execFileSync(process.execPath, [bundledCli, 'scheme', '--json'], { encoding: 'utf8' }),
   ) as {
     toolCount: number;
-    tools: Array<{ name: string; category: string; availability: { enabled: boolean; envVar?: string } }>;
+    tools: Array<{ name: string; availability: { enabled: boolean; envVar?: string } }>;
   };
   const catalogNames = catalog.tools.map(({ name }) => name);
   assert.equal(catalog.toolCount, catalog.tools.length);
@@ -442,8 +442,12 @@ test('build copies bundled Octocode skills without secret env files', () => {
     catalog.tools.some(({ name }) => name === 'ghCloneRepo'),
     'clone capability remains represented',
   );
-  for (const category of ['GitHub', 'Package', 'Local Code']) {
-    assert.ok(catalog.tools.some((tool) => tool.category === category), `${category} capability is represented`);
+  for (const [toolName, capability] of [
+    ['ghSearch', 'GitHub'],
+    ['artifactSearch', 'Package'],
+    ['localSearch', 'Local Code'],
+  ] as const) {
+    assert.ok(catalogNames.includes(toolName), `${capability} capability is represented`);
   }
   assert.deepEqual(
     catalogNames.filter((name) => /PullRequests|Issues|Commits|Releases|Discussions/.test(name)),
@@ -494,7 +498,7 @@ test('build copies bundled Octocode skills without secret env files', () => {
   // redundant root skills/ dir and no pi.skills declaration — that duplicate
   // package-scanned copy caused [Skill conflicts].
   const skills = listBundledSkills(distDir);
-  assert.equal(skills.includes('octocode-awareness'), true, 'Full Awareness is discoverable through the skill loader');
+  assert.equal(skills.includes('octocode-awareness'), false, 'Awareness is provided by the native runtime/tool, not bundled as a skill');
   assert.equal(skills.some((skill) => skill.includes('awareness-lite')), false, 'Lite is not shipped');
   assert.equal(skills.includes('octocode-mannequin'), false, 'mannequin skill is intentionally excluded from the coding-agent bundle');
   for (const skill of skills) {
@@ -530,14 +534,9 @@ test('build copies bundled Octocode skills without secret env files', () => {
   assert.equal(packageJson.pi?.skills, undefined, 'pi.skills removed — resources_discover is the single source');
 
   assert.equal(
-    skills.includes('octocode-awareness'),
-    true,
-    'Awareness is available through the single resources_discover skill surface'
-  );
-  assert.equal(
     fs.existsSync(path.join(distDir, 'skills', 'octocode-awareness', 'SKILL.md')),
-    true,
-    'Full Awareness operating guidance ships with its runtime integration'
+    false,
+    'Awareness operating guidance must not ship as a bundled skill'
   );
   const forbiddenEnv = path.join(
     distDir,
@@ -4338,7 +4337,7 @@ test('agentSpecialist starts researcher, planner, and architect with focused ena
     assert.match(architectTools, /bash/);
     assert.match(architectTools, /MCPTool/);
     for (const names of [researcherTools, plannerTools, architectTools]) {
-      assert.ok(names.split(',').includes('skill'), 'typed workers can load the Awareness skill');
+      assert.ok(names.split(',').includes('skill'), 'typed workers can load focused workflow skills');
       assert.doesNotMatch(names, /(?:^|,)(?:memory|lock|message|write)(?:,|$)/, 'typed workers use current registered tools');
     }
     assert.doesNotMatch(architectTools, /lspSearch/, 'lspSearch served via MCPTool, not natively');

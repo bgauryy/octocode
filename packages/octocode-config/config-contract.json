@@ -21,7 +21,21 @@
     "GITHUB_TOKEN": { "dotenv": "never", "tokenPriority": 2, "description": "GitHub Actions token" },
     "GITHUB_PERSONAL_ACCESS_TOKEN": { "dotenv": "never", "tokenPriority": 3, "description": "GitHub personal access token" },
     "OCTOCODE_GITHUB_CLIENT_ID": { "configSource": true, "description": "GitHub OAuth client override" },
-    "OCTOCODE_HOME": { "documentation": true, "dotenv": "never", "description": "Overrides the Octocode configuration directory (default: <os-home>/.octocode)" }
+    "OCTOCODE_HOME": { "documentation": true, "dotenv": "never", "description": "Overrides the Octocode configuration directory (default: <os-home>/.octocode)" },
+    "OCTOCODE_TS_SERVER_PATH": { "documentation": true, "description": "Override the TypeScript/JavaScript LSP server binary (e.g. tsgo)." },
+    "OCTOCODE_RUST_SERVER_PATH": { "documentation": true, "description": "Override the Rust LSP server binary (rust-analyzer)." },
+    "OCTOCODE_GO_SERVER_PATH": { "documentation": true, "description": "Override the Go LSP server binary (gopls)." },
+    "OCTOCODE_PYTHON_SERVER_PATH": { "documentation": true, "description": "Override the Python LSP server binary." },
+    "OCTOCODE_JAVA_SERVER_PATH": { "documentation": true, "description": "Override the Java LSP server binary." },
+    "OCTOCODE_CLANGD_SERVER_PATH": { "documentation": true, "description": "Override the C/C++ LSP server binary (clangd)." },
+    "OCTOCODE_CSHARP_SERVER_PATH": { "documentation": true, "description": "Override the C# LSP server binary." },
+    "OCTOCODE_SCALA_SERVER_PATH": { "documentation": true, "description": "Override the Scala LSP server binary (metals)." },
+    "OCTOCODE_ASM_SERVER_PATH": { "documentation": true, "description": "Override the assembly LSP server binary." },
+    "OCTOCODE_LSP_AUTO_INSTALL": { "documentation": true, "description": "LSP server auto-install policy: off (default), prompt, or auto." },
+    "OCTOCODE_LSP_CACHE_DIR": { "documentation": true, "description": "Override the managed LSP server download/cache directory." },
+    "OCTOCODE_TRUST_PROJECT_LSP_CONFIG": { "documentation": true, "description": "Trust a project-local lsp-servers.json (1/true/yes/on). Security-sensitive: a trusted project config can launch server binaries, so prefer setting this in your shell rather than a project .env." },
+    "OCTOCODE_AST_REWRITE_STATE_DIR": { "documentation": true, "description": "Override the astRewrite transaction/recovery state directory." },
+    "OCTOCODE_CARGO": { "documentation": true, "description": "Override the cargo executable used for Rust dependency-graph analysis." }
   },
   "sections": {
     "": {
@@ -84,20 +98,12 @@
           },
           "notes": "Opt-in and requires persistent storage. ENABLE_CLONE is canonical."
         },
-        "enableAstRewrite": {
+        "beta": {
           "type": "boolean",
           "default": false,
-          "description": "Enable the astRewrite tool. Preview and apply are unavailable while false.",
+          "description": "Enable beta features. Currently the sole gate for the astRewrite tool (both preview and apply); off by default on every surface.",
           "env": {
-            "ENABLE_AST_REWRITE": { "priority": 0 }
-          }
-        },
-        "enableAstRewriteApply": {
-          "type": "boolean",
-          "default": false,
-          "description": "Permit hash-guarded astRewrite apply when astRewrite is enabled; preview remains available.",
-          "env": {
-            "ENABLE_AST_REWRITE_APPLY": { "priority": 0 }
+            "OCTOCODE_BETA": { "priority": 0 }
           }
         },
         "allowedPaths": {

@@ -608,7 +608,7 @@
     "tool": "ghSearchHistory",
     "input": {
       "reasoning": "Use ghSearchHistory for the PR search (list) example.",
-      "operation": "pullRequests",
+      "operation": "pullRequest",
       "owner": "bgauryy",
       "repo": "octocode",
       "keywords": [
@@ -631,7 +631,7 @@
           "repo": "octocode",
           "concise": true,
           "pageSize": 5,
-          "operation": "pullRequests"
+          "operation": "pullRequest"
         }
       ]
     }
@@ -641,7 +641,7 @@
     "tool": "ghSearchHistory",
     "input": {
       "reasoning": "Use ghSearchHistory for the issue search (list) example.",
-      "operation": "issues",
+      "operation": "issue",
       "owner": "bgauryy",
       "repo": "octocode",
       "keywords": [
@@ -664,7 +664,7 @@
           ],
           "state": "open",
           "pageSize": 5,
-          "operation": "issues"
+          "operation": "issue"
         }
       ]
     }
@@ -674,7 +674,7 @@
     "tool": "ghSearchHistory",
     "input": {
       "reasoning": "Use ghSearchHistory for the commit history example.",
-      "operation": "commits",
+      "operation": "commit",
       "owner": "bgauryy",
       "repo": "octocode",
       "path": "packages/octocode-native/src",
@@ -694,7 +694,7 @@
           "since": "6m",
           "pageSize": 10,
           "page": 1,
-          "operation": "commits"
+          "operation": "commit"
         }
       ]
     }
@@ -703,8 +703,8 @@
     "id": "ghSearchHistory.curated-4",
     "tool": "ghSearchHistory",
     "input": {
-      "reasoning": "Use ghSearchHistory for the pullRequests variant.",
-      "operation": "pullRequests",
+      "reasoning": "Use ghSearchHistory for the pullRequest variant.",
+      "operation": "pullRequest",
       "keywords": [
         "schema"
       ]
@@ -714,13 +714,13 @@
       "queries": [
         {
           "goal": "Execute ghSearchHistory via fixture",
-          "reasoning": "Use ghSearchHistory for the pullRequests variant.",
+          "reasoning": "Use ghSearchHistory for the pullRequest variant.",
           "debug": false,
           "keywords": [
             "schema"
           ],
           "pageSize": 30,
-          "operation": "pullRequests"
+          "operation": "pullRequest"
         }
       ]
     }
@@ -729,8 +729,8 @@
     "id": "ghSearchHistory.curated-5",
     "tool": "ghSearchHistory",
     "input": {
-      "reasoning": "Use ghSearchHistory for the issues variant.",
-      "operation": "issues",
+      "reasoning": "Use ghSearchHistory for the issue variant.",
+      "operation": "issue",
       "owner": "o",
       "repo": "r"
     },
@@ -739,12 +739,12 @@
       "queries": [
         {
           "goal": "Execute ghSearchHistory via fixture",
-          "reasoning": "Use ghSearchHistory for the issues variant.",
+          "reasoning": "Use ghSearchHistory for the issue variant.",
           "debug": false,
           "owner": "o",
           "repo": "r",
           "pageSize": 30,
-          "operation": "issues"
+          "operation": "issue"
         }
       ]
     }
@@ -753,8 +753,8 @@
     "id": "ghSearchHistory.curated-6",
     "tool": "ghSearchHistory",
     "input": {
-      "reasoning": "Use ghSearchHistory for the commits variant.",
-      "operation": "commits",
+      "reasoning": "Use ghSearchHistory for the commit variant.",
+      "operation": "commit",
       "owner": "o",
       "repo": "r"
     },
@@ -763,13 +763,13 @@
       "queries": [
         {
           "goal": "Execute ghSearchHistory via fixture",
-          "reasoning": "Use ghSearchHistory for the commits variant.",
+          "reasoning": "Use ghSearchHistory for the commit variant.",
           "debug": false,
           "owner": "o",
           "repo": "r",
           "pageSize": 30,
           "page": 1,
-          "operation": "commits"
+          "operation": "commit"
         }
       ]
     }
@@ -1140,7 +1140,7 @@
       "path": "/ABS/repo/src",
       "searchText": "buildDirectToolCommandPatterns",
       "regex": "literal",
-      "maxFiles": 20
+      "pageSize": 20
     },
     "accepted": true,
     "normalized": {
@@ -1153,13 +1153,12 @@
           "path": "/ABS/repo/src",
           "caseMode": "smart",
           "matchContentLength": 500,
-          "maxFiles": 20,
           "multiline": "off",
           "sort": "relevance",
-          "rankingProfile": "auto",
           "matchPage": 1,
           "page": 1,
           "regex": "literal",
+          "pageSize": 20,
           "unique": "off",
           "resultView": "paginated"
         }
@@ -1187,7 +1186,6 @@
           "matchContentLength": 500,
           "multiline": "off",
           "sort": "relevance",
-          "rankingProfile": "auto",
           "matchPage": 1,
           "page": 1,
           "regex": "rust",
@@ -1407,7 +1405,6 @@
           "path": "/ABS/repo/src",
           "matchContentLength": 500,
           "sort": "relevance",
-          "rankingProfile": "auto",
           "langType": "typescript",
           "matchPage": 1,
           "page": 1,
@@ -1519,7 +1516,6 @@
           "path": ".",
           "matchContentLength": 500,
           "sort": "relevance",
-          "rankingProfile": "auto",
           "langType": "typescript",
           "matchPage": 1,
           "page": 1,
@@ -2440,7 +2436,7 @@
       "reasoning": "Exercise the local-fetch.full-controls native parity fixture.",
       "path": "/fixture/a.ts",
       "fullContent": true,
-      "limit": 1
+      "chunkSize": 1
     },
     "accepted": false
   },
@@ -2679,7 +2675,6 @@
           "matchContentLength": 500,
           "multiline": "off",
           "sort": "relevance",
-          "rankingProfile": "auto",
           "matchPage": 1,
           "page": 1,
           "regex": "rust",
@@ -2713,7 +2708,6 @@
           "matchContentLength": 500,
           "multiline": "off",
           "sort": "relevance",
-          "rankingProfile": "auto",
           "matchPage": 1,
           "page": 1,
           "regex": "rust",
@@ -2746,7 +2740,6 @@
           "matchContentLength": 500,
           "multiline": "off",
           "sort": "relevance",
-          "rankingProfile": "auto",
           "matchPage": 1,
           "page": 1,
           "regex": "rust",
@@ -2778,7 +2771,6 @@
           "matchContentLength": 500,
           "multiline": "off",
           "sort": "traversal",
-          "rankingProfile": "auto",
           "matchPage": 1,
           "page": 1,
           "regex": "rust",
@@ -2814,7 +2806,7 @@
     "tool": "ghSearchHistory",
     "input": {
       "reasoning": "Exercise the history-search.issue-scope native parity fixture.",
-      "operation": "issues",
+      "operation": "issue",
       "owner": "o"
     },
     "accepted": false
@@ -2824,7 +2816,7 @@
     "tool": "ghSearchHistory",
     "input": {
       "reasoning": "Exercise the history-search.keyword-path native parity fixture.",
-      "operation": "commits",
+      "operation": "commit",
       "owner": "o",
       "repo": "r",
       "keywords": [

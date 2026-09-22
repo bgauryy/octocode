@@ -1,8 +1,6 @@
 # Octocode tools reference
 
-This is the field-level reference for the research surface of the Octocode agentic toolkit. It covers every tool exposed through MCP and the CLI. Schemas and descriptions live in `@octocodeai/octocode-core`; execution and distribution live in `@octocodeai/octocode-native`; native search, minify, security, and LSP primitives live in its engine crate and `./engine` subpath.
-
-Use this page when you need field-level guidance, cross-tool workflows, known behavior, or release verification checks. For MCP tool ratings, quality gaps, per-tool improvement backlogs, and the recommended agent workflow, see [`MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md`](https://github.com/bgauryy/octocode/blob/main/docs/MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md). For the exact active schema in a local checkout, run the compact form first; its `relations` list preserves mode-specific required and mutually exclusive fields:
+Field-level reference for every tool exposed through MCP and the CLI. Schemas and descriptions live in `@octocodeai/octocode-core`; execution and native search/minify/security/LSP primitives live in `@octocodeai/octocode-native`. For MCP tool ratings, quality gaps, and the recommended agent workflow, see [`MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md`](MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md). For the exact active schema, run the compact form first; its `relations` list preserves mode-specific required and mutually exclusive fields:
 
 ```bash
 npx octocode scheme <toolName> --compact
@@ -28,8 +26,7 @@ npx octocode scheme <toolName> --compact
 - [LSP tools reference](#lsp-tools-reference)
 - [Semantic assessment reference](#semantic-assessment-reference)
 - [Clone and local tools workflow](#clone-and-local-tools-workflow)
-- [Tool verification playbook](#tool-verification-playbook)
-- [MCP tool quality and agent workflow](https://github.com/bgauryy/octocode/blob/main/docs/MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md)
+- [MCP tool quality and agent workflow](MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md)
 
 ## How every tool call works
 
@@ -94,17 +91,7 @@ results:
       error: "..."
 ```
 
-Common row fields are `index`, optional `status`, optional `cache`, `meta`, and `data`. `status: empty` means the tool produced no usable result for that row; interpret it with tool-specific diagnostics because unsupported capabilities, unresolved anchors, and no matches can all produce empty-like outcomes. `status: error` means that row failed. Neither status should be inferred from missing output. Evidence metadata describes what the result can support: provider-index, lexical, structural, syntactic graph, exact content, or semantic LSP evidence have different failure modes. The shared envelope and continuation contract is maintained in [TOOL_DATA_CONTRACT.md](TOOL_DATA_CONTRACT.md); tool-specific payloads may add their own completeness or partial markers.
-
-Pagination is layered:
-
-1. **Collection pagination** uses tool fields such as `page`, `pageSize`, `matchPage`, a cursor, or operation-specific selectors.
-2. **Content pagination** uses `chunkType`/`offset`/`limit` for both file readers; history text uses its own character windows.
-3. **Whole-response pagination** uses outer `responseCharLength` and `responseCharOffset` only for the rendered aggregate response.
-
-When output is partial, run the returned schema-valid `next.*` object. Do not stop at a numeric cursor, silently drop later pages, or treat a bounded first page as complete. When continuation is impossible, the tool emits a typed terminal-limit diagnostic instead of a fake next call.
-
-Keep continuation tokens scoped to their surface: operation-level `snapshot` values continue one result set, while the outer response contract uses `responseSnapshot` for whole-response pagination. Do not substitute one for the other; copy the executable `next.*` query returned by the same surface.
+Row fields are `index`, optional `status`, optional `cache`, `meta`, and `data`. `status: empty` means no usable result (unsupported capability, unresolved anchor, or no match — interpret with tool diagnostics); `status: error` means that row failed. Neither is inferable from missing output. `meta.evidence` states what the result supports (provider-index, lexical, structural, syntactic-graph, exact-content, or semantic-LSP), each with different failure modes. Pagination is layered: **collection** (`page`/`pageSize`/`matchPage`/cursor/operation selectors), **content** (`chunkType`/`offset`/`chunkSize` for file readers; history uses character windows), and **whole-response** (outer `responseCharLength`/`responseCharOffset`). When partial, run the returned schema-valid `next.*` object — don't stop at a numeric cursor or treat a bounded first page as complete; an impossible continuation emits a typed terminal-limit diagnostic. Keep tokens scoped to their surface (operation-level `snapshot` vs whole-response `responseSnapshot`). The full envelope and continuation contract lives in [TOOL_DATA_CONTRACT.md](TOOL_DATA_CONTRACT.md).
 
 ## Internal, external, and hybrid tools
 
@@ -120,12 +107,12 @@ Keep continuation tokens scoped to their surface: operation-level `snapshot` val
 | `ghCloneRepo` | Hybrid | Uses provider credentials/network access, then atomically materializes a full or sparse repository under managed local storage. Disabled unless cloning and local storage are enabled. |
 | `localSearch` | Internal/local | Runs bounded lexical text/regex search against allowed local paths. |
 | `astSearch` | Internal/local | Runs structural AST, filesystem, tree, symbol, and topology queries against allowed local paths. |
-| `astRewrite` | Internal/local | Opt-in with `ENABLE_AST_REWRITE=true`. Previews structural ast-grep rewrites and performs serialized, snapshot-bound, hash-guarded applies with journal recovery. Apply has its own gate; inspect the commit or recovery receipt. Cross-file changes are not simultaneously visible. |
+| `astRewrite` | Internal/local | Opt-in beta feature (`OCTOCODE_BETA=true`). Previews structural ast-grep rewrites and performs serialized, snapshot-bound, hash-guarded applies with journal recovery; inspect the commit or recovery receipt. Cross-file changes are not simultaneously visible. |
 | `localFetch` | Internal/local | Reads a known allowed path with full, match, line-range, minified, or symbol-outline views and exact continuations. |
 | `lspSearch` | Internal/local with a language-server process | Resolves an anchored symbol and asks a real language server for definitions, references, calls, types, symbols, hierarchy, or diagnostics. It reports unavailable capabilities instead of returning a syntactic approximation as semantic proof. |
 | `clasify` | External Jev provider | Executes unread read-tool requests or accepts supplied state, applies Noul, Choice, or Score questions across a resource-question matrix, and returns correlated typed pages without retrieved bodies. |
 
-Remote GitHub tools require provider runtime and credentials. `artifactSearch` uses official registry APIs; `type:"npm"` honors the effective npm registry configuration. Local tools require `ENABLE_LOCAL`; clone/materialization additionally requires `ENABLE_CLONE` and persistent storage. `astRewrite` additionally requires `ENABLE_AST_REWRITE=true`, and apply requires `ENABLE_AST_REWRITE_APPLY=true`. LSP availability also depends on a compatible server for the file language. `clasify` requires a nonblank resolved `OCTOCODE_CLASSIFICATION_API`; without one, MCP omits it and a CLI call returns an actionable missing-key error.
+Remote GitHub tools require provider runtime and credentials. `artifactSearch` uses official registry APIs; `type:"npm"` honors the effective npm registry configuration. Local tools require `ENABLE_LOCAL`; clone/materialization additionally requires `ENABLE_CLONE` and persistent storage. `astRewrite` additionally requires `OCTOCODE_BETA=true` (the sole gate for both preview and apply). LSP availability also depends on a compatible server for the file language. `clasify` requires a nonblank resolved `OCTOCODE_CLASSIFICATION_API`; without one, MCP omits it and a CLI call returns an actionable missing-key error.
 
 ## Text, AST, graph, and LSP: choose the evidence you need
 
@@ -198,7 +185,7 @@ Search match values and provider text snippets are evidence previews, not collec
 | Read a file or fetch a directory | `ghGetFileContent` |
 | Browse a repository tree | `ghSearch` with `operation: "tree"` |
 | Discover repositories | `ghSearch` with `operation: "repositories"` |
-| Search PRs, issues, or commits | `ghSearchHistory` with `operation: "pullRequests"`, `"issues"`, or `"commits"` |
+| Search PRs, issues, or commits | `ghSearchHistory` with `operation: "pullRequest"`, `"issue"`, or `"commit"` |
 | Inspect one PR, issue, commit, or ref comparison | `ghGetHistoryItem` with `operation: "pullRequest"`, `"issue"`, `"commit"`, or `"compare"` |
 | Materialize a repo/subtree locally | `ghCloneRepo` |
 | Resolve package identity or find packages by capability | `artifactSearch` |
@@ -249,10 +236,10 @@ Key fields:
 | `matchString` | Return matching slices. |
 | `contextLines` | Context around `matchString`. |
 | `matchStringIsRegex`, `matchStringCaseSensitive` | Match behavior. |
-| `chunkType`, `offset`, `limit` | Same line/UTF-8 byte pagination as `localFetch`; follow `next.continue`. |
+| `chunkType`, `offset`, `chunkSize` | Same line/UTF-8 byte pagination as `localFetch`; follow `next.continue`. |
 | `minify` | `standard` (lossy, language-dependent compression), `none` (no minification), or `symbols` (structural outline). Defaults to `none`, exactly as `localFetch`. Security redaction still applies. |
 
-Choose one extraction intent: whole file, line range, matching slices, or symbol outline. Both readers reject symbol outlines combined with match or line selectors. Selection precedes minification, redaction, and pagination. `chunkType` defaults to `lines` with `limit:100`; `bytes` defaults to 16384 UTF-8 bytes. Offsets are zero-based in the selected view. Line pages have a 16384-byte budget and oversized lines switch to bytes. Byte ends may extend by up to three bytes to finish a code point.
+Choose one extraction intent: whole file, line range, matching slices, or symbol outline. Both readers reject symbol outlines combined with match or line selectors. Selection precedes minification, redaction, and pagination. `chunkType` defaults to `lines` with `chunkSize:100`; `bytes` defaults to 16384 UTF-8 bytes. Offsets are zero-based in the selected view. Line pages have a 16384-byte budget and oversized lines switch to bytes. Byte ends may extend by up to three bytes to finish a code point.
 
 `fullContent:true` requests an unpaged view and rejects chunk controls. Views over 50000 bytes return a typed `fullContentLimit` with a bounded `next.continue` call. A range remains bounded by its original `endLine`; continuing a match preserves its pattern and source-line context. `totalLines` and `sourceBytes` describe the original file; `pagination.totalLines`/`totalBytes` describe the complete selected view. `matchedLines` contains source anchors on the current page and `selectedMatchCount` counts all selected matching lines. `minifyFallback` explains when match evidence or unavailable outlines prevent the requested transform.
 
@@ -262,7 +249,7 @@ Examples:
 
 <!-- tool: ghGetFileContent -->
 ```json
-{"reasoning": "Use ghGetFileContent for this documented evidence request.", "owner": "vercel", "repo": "next.js", "path": "packages/next/src/server/config.ts", "matchString": "export", "contextLines": 2, "chunkType": "lines", "limit": 20}
+{"reasoning": "Use ghGetFileContent for this documented evidence request.", "owner": "vercel", "repo": "next.js", "path": "packages/next/src/server/config.ts", "matchString": "export", "contextLines": 2, "chunkType": "lines", "chunkSize": 20}
 ```
 
 Cost by mode:
@@ -277,38 +264,28 @@ Cost by mode:
 
 Behaviors worth knowing:
 
-- `matchString` selects all occurrences with context and source anchors in
-  `matchedLines` and `matchRanges`. Follow character continuations if the selected
-  content exceeds a window. Both readers disable minification for matches;
-  security redaction still applies.
-- `minify: "symbols"` returns a paginated outline. Read its source-line gutter,
-  then follow up with `startLine`/`endLine` and `minify:"none"`.
-- Semantic character windows can expand beyond the requested target. Execute
-  `next` unchanged; offsets are exact and `pageCountsKind:"estimated"` identifies
-  approximate page counters. Continuations retain the requested character target.
-- `standard` compacts source without JS/TS optimization or type-declaration
-  removal. It still removes comments and rewrites formatting. Use `none` for
-  source quotes and comment-sensitive evidence. See
-  [minification coverage](https://github.com/bgauryy/octocode/blob/main/packages/octocode-native/docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md#minification--file-reads-and-search-fragments).
-- Files too large for the `/contents/` API fall back to the Git tree and blob API
-  automatically. You do not need to switch to `ghCloneRepo` for size alone.
+- `matchString` selects all occurrences with context and source anchors in `matchedLines`/`matchRanges`; both readers disable minification for matches (redaction still applies). Follow character continuations when selected content exceeds a window.
+- `minify: "symbols"` returns a paginated outline; read its source-line gutter, then follow up with `startLine`/`endLine` and `minify:"none"`.
+- Semantic character windows can expand beyond the target — execute `next` unchanged (offsets are exact; `pageCountsKind:"estimated"` marks approximate counters).
+- `standard` removes comments and rewrites formatting but does no JS/TS optimization or type-declaration removal; use `none` for source quotes and comment-sensitive evidence. See [minification coverage](../packages/octocode-native/docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md#minification--file-reads-and-search-fragments).
+- Files too large for the `/contents/` API fall back to the Git tree/blob API automatically — no need to switch to `ghCloneRepo` for size alone.
 
 ### `ghSearchHistory`
 
 Search GitHub history through one strict discovery operation per query:
 
-- `operation: "pullRequests"` searches PR candidates.
-- `operation: "issues"` searches issue candidates.
-- `operation: "commits"` walks commit history, optionally scoped to a path or time range.
+- `operation: "pullRequest"` searches PR candidates.
+- `operation: "issue"` searches issue candidates.
+- `operation: "commit"` walks commit history, optionally scoped to a path or time range.
 
 The search tool returns candidates and stable identities. Fetch detailed content
 with `ghGetHistoryItem`; search queries do not accept singular-item identities.
 
 <!-- tool: ghSearchHistory -->
 ```json
-{"reasoning": "Use ghSearchHistory for this documented evidence request.", "operation": "pullRequests", "owner": "vercel", "repo": "next.js", "keywords": ["middleware"], "match": ["title"], "state": "merged"}
-{"reasoning": "Use ghSearchHistory for this documented evidence request.", "operation": "issues", "owner": "vercel", "repo": "next.js", "keywords": ["memory leak"], "match": ["title"], "state": "open"}
-{"reasoning": "Use ghSearchHistory for this documented evidence request.", "operation": "commits", "owner": "vercel", "repo": "next.js", "path": "packages/next/src/server/", "since": "30d"}
+{"reasoning": "Use ghSearchHistory for this documented evidence request.", "operation": "pullRequest", "owner": "vercel", "repo": "next.js", "keywords": ["middleware"], "match": ["title"], "state": "merged"}
+{"reasoning": "Use ghSearchHistory for this documented evidence request.", "operation": "issue", "owner": "vercel", "repo": "next.js", "keywords": ["memory leak"], "match": ["title"], "state": "open"}
+{"reasoning": "Use ghSearchHistory for this documented evidence request.", "operation": "commit", "owner": "vercel", "repo": "next.js", "path": "packages/next/src/server/", "since": "30d"}
 ```
 
 Prefer title-first PR and issue searches. For commit archaeology, narrow by path
@@ -432,9 +409,7 @@ Each query selects one ecosystem. Compare ecosystems using independent entries i
 
 `artifacts[]` contains canonical package identities, registry URLs, and available version, description, license, homepage, and source metadata. Go package paths stay separate from module identities. Optional metadata can be absent; cross-registry popularity scores are not comparable. Read exact source to establish behavior and match the published or installed version before making version-specific claims.
 
-For npm, scoped names honor `@scope:registry`; explicit `registry` takes precedence. Authentication uses registry-scoped npm configuration, including environment interpolation. Configuration reloads per query, caches isolate registry/configuration identities, and continuations preserve the selected registry. Private registries must support npm's search endpoint for discovery. Other ecosystems use official public services.
-
-Discovery continuations preserve type, selectors, page size, registry, and provider state. Follow executable continuations instead of constructing provider page numbers or interpreting cursors. Unknown totals remain unknown; incomplete results and terminal provider limits remain explicit. An empty page may still have a continuation. Authentication, unsupported operations, rate limits, and provider failures remain errors; a missing exact package is empty. Hints appear only for empty/error results; successful pages retain required continuations.
+For npm, scoped names honor `@scope:registry` and an explicit `registry` takes precedence; authentication uses registry-scoped npm configuration (with environment interpolation), caches isolate registry/configuration identities, and continuations preserve the selected registry. Private registries must support npm's search endpoint for discovery; other ecosystems use official public services. Follow executable continuations rather than constructing page numbers or interpreting cursors; unknown totals stay unknown, an empty page may still continue, and auth/unsupported/rate-limit/provider failures are errors while a missing exact package is empty.
 
 ### Token cost control by goal
 
@@ -445,7 +420,7 @@ Discovery continuations preserve type, selectors, page size, registry, and provi
 | Scan a whole file's structure | `ghGetFileContent` with `minify: "symbols"` |
 | Read 2–10 functions from a file | Multiple `startLine`/`endLine` reads in one batched call |
 | Read a 3MB+ file | `ghCloneRepo` sparse + local read |
-| Understand why a PR was made | `ghSearchHistory(operation:"pullRequests")`, then `ghGetHistoryItem(operation:"pullRequest", number)` with `content.body: true` |
+| Understand why a PR was made | `ghSearchHistory(operation:"pullRequest")`, then `ghGetHistoryItem(operation:"pullRequest", number)` with `content.body: true` |
 | Review a PR's changes | `content.changedFiles: true` first, then `content.patches.mode: "selected"` for relevant files |
 | Get all inline code comments on a PR | `content: { comments: { reviewInline: true, discussion: false } }` |
 | Count repositories in an org | `owner: "vercel"` with no keywords → `totalMatches` from pagination |
@@ -469,12 +444,6 @@ Discovery continuations preserve type, selectors, page size, registry, and provi
 - Use `matchString`, line ranges, or `minify: "symbols"` instead of `fullContent` for large files.
 - Use PR metadata first, then selected content.
 - Use `ghCloneRepo` only when local analysis is worth the clone cost.
-
-Related docs:
-
-- [Local code tools reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md#local-code-tools-reference)
-- [LSP tools reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md#lsp-tools-reference)
-- [Clone and local tools workflow](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md#clone-and-local-tools-workflow)
 
 ---
 
@@ -519,7 +488,7 @@ Useful local-tool environment variables:
 | `ENABLE_CLONE` | Enables `ghCloneRepo` workflows. Defaults to `false`; set `true` to enable cloning. Persistent storage and local access are also required. |
 | `TOOLS_TO_RUN` | Strict tool allowlist; include every tool that must remain enabled. Removed compatibility names are rejected. |
 
-Config reference: [Configuration Reference](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md).
+Config reference: [Configuration Reference](CONFIGURATION.md).
 
 ---
 
@@ -543,7 +512,7 @@ Local tools expose two pagination layers:
 |-------|--------|------------|
 | Native result pagination | `page`, `pageSize` | Every `localSearch` query |
 | Per-file match pagination | `matchPage`, `maxMatchesPerFile` | `localSearch` when a matched file has more matches |
-| Local content pagination | `chunkType`, `offset`, `limit` | `localFetch` selected views |
+| Local content pagination | `chunkType`, `offset`, `chunkSize` | `localFetch` selected views |
 | Bulk response pagination | `responseCharOffset`, `responseCharLength` | Any local-tool bulk response |
 
 Use native pagination first for result lists, then char pagination only when a single result payload is still too large.
@@ -600,7 +569,7 @@ Lexical local search. The query is selected by `searchText` and `regex`; use
 | `unique` | With `resultView:"matchOnly"`, use `list` for distinct match values per file or `count` for frequencies. |
 | `contextLines` | Lines around each match. Max 100. |
 | `matchContentLength` | Max characters per individual match snippet. Default 500, max 100000. |
-| `maxFiles` | Text: per-page ceiling. Structural: scan cap; stats report truncation. |
+| `pageSize` | Files returned per lexical result page. |
 | `maxMatchesPerFile` | Per-file match page size. Pair with `matchPage` to continue. |
 | `page` | Result page across matched files. |
 | `matchPage` | Per-file match page when a file has more matches. |
@@ -792,7 +761,7 @@ Read a known local path. Path-only reads are valid and return exact source subje
 | --- | --- |
 | `chunkType` | `lines` (default) or UTF-8 `bytes` in the selected returned view. |
 | `offset` | Zero-based view offset; byte offsets must start on code-point boundaries. Default 0. |
-| `limit` | Requested lines (default 100) or bytes (default 16384), from 1 through 50000. |
+| `chunkSize` | Requested lines (default 100) or bytes (default 16384), from 1 through 50000. |
 | `matchString` | Nonempty literal source text; enable `matchStringIsRegex` for regex or `matchStringCaseSensitive` for case sensitivity. |
 | `contextLines` | Explicit source-line context per side, 0–100; default 5 for line chunks. Exclusive with `contextBytes`. |
 | `contextBytes` | UTF-8 context bytes per side, 0–16384; default 256 for byte chunks. Requires `matchString`. Full-source redaction precedes byte matching; edges expand to whole code points, and disjoint windows are joined by a newline. |
@@ -809,7 +778,7 @@ Security scanning applies to the complete selected view before paging. Above the
 
 ```bash
 localFetch(path="/ABS/repo/src/index.ts", startLine=1, endLine=80)
-localFetch(path="/ABS/repo/README.md", matchString="Configuration", contextBytes=256, chunkType="bytes", limit=1024)
+localFetch(path="/ABS/repo/README.md", matchString="Configuration", contextBytes=256, chunkType="bytes", chunkSize=1024)
 localFetch(path="/ABS/repo/src/index.ts", minify="symbols")
 ```
 
@@ -966,21 +935,12 @@ localSearch( path=".", searchText="TODO|FIXME", regex="rust")
 
 ---
 
-### Local tools: related documentation
-
-- [Clone and local tools workflow](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md#clone-and-local-tools-workflow) - cloning repositories before local analysis.
-- [GitHub Tools Reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md#github-tools-reference) - remote GitHub search, fetch, clone, and PR tools.
-- [Configuration Reference](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) - environment variables and config file behavior.
-
----
-
 ### `astRewrite`
 
 Preview structural ast-grep rewrites before applying them. Preview is the default and does not apply proposed edits, but it may recover an interrupted transaction. Structural matching distinguishes executable syntax from matching text in comments and strings.
 
-The entire tool is disabled by default. Set `ENABLE_AST_REWRITE=true` (or
-`local.enableAstRewrite: true`) before previewing. Applying still requires the
-separate `ENABLE_AST_REWRITE_APPLY=true` gate.
+This is a beta feature, disabled by default. Set `OCTOCODE_BETA=true` (or
+`local.beta: true`) to enable both preview and apply.
 
 | Field | Meaning |
 | --- | --- |
@@ -1202,7 +1162,7 @@ If `workspaceRoot` is omitted:
 | `lsp` | A language server is available | Type-aware, cross-file. |
 | `native` / `markdown` | `documentSymbols` only | Syntax-only outline; no type inference. |
 
-Every **other** semantic operation — `references`, `definition`, `hover`, `callers`/`callees`/`callHierarchy`, `typeDefinition`, `implementation`, `workspaceSymbol`, `supertypes`/`subtypes`, `diagnostic` — requires a real server. When no server is available octocode **does not fall back to a syntactic guess**: it returns `status:"error"` with `errorCode:"lspServerUnavailable"` and a message directing you to lexical `localSearch` or structural `astSearch` + `localFetch`. (There is no longer a same-file-only `references` native path — a partial answer that silently omits cross-file usages is a trap, so it now errors instead.) See [LSP server lifecycle](https://github.com/bgauryy/octocode/blob/main/packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md).
+Every **other** semantic operation — `references`, `definition`, `hover`, `callers`/`callees`/`callHierarchy`, `typeDefinition`, `implementation`, `workspaceSymbol`, `supertypes`/`subtypes`, `diagnostic` — requires a real server. When no server is available octocode **does not fall back to a syntactic guess**: it returns `status:"error"` with `errorCode:"lspServerUnavailable"` and a message directing you to lexical `localSearch` or structural `astSearch` + `localFetch`. (There is no longer a same-file-only `references` native path — a partial answer that silently omits cross-file usages is a trap, so it now errors instead.) See [LSP server lifecycle](../packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md).
 
 ### TypeScript backends
 
@@ -1274,7 +1234,7 @@ for that extension:
 (passed verbatim in `initialize`) are optional. With the config present, the server can answer the
 semantic operations it advertises; without it the extension is unsupported and semantic ops throw
 `lspServerUnavailable` (→ fall back to `localSearch`). See
-[`LSP_SERVER_LIFECYCLE.md`](https://github.com/bgauryy/octocode/blob/main/packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md#custom--bring-your-own-lsp-any-language).
+[`LSP_SERVER_LIFECYCLE.md`](../packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md#custom--bring-your-own-lsp-any-language).
 
 ### Examples
 
@@ -1339,20 +1299,13 @@ Workspace-symbol search:
 }
 ```
 
-### LSP: related documentation
-
-- [Local code tools reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md#local-code-tools-reference)
-- [Clone and local tools workflow](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md#clone-and-local-tools-workflow)
-
----
-
 ## Semantic assessment reference
 
 Use `octocode clasify --input request.json`; inspect `octocode scheme clasify --compact` before hand-authoring a call. Pass one complete `SemanticQuery` directly or batch one to five complete matrices in `queries[]`. Within a query, every question sees every resource, each resource is captured once, and every result carries `queryId`, `resourceId`, and `questionId`. Keep a matrix at 25 cells or fewer and the batch at 50 cells or fewer.
 
 Context is supplied non-empty `{value}` state or one unread `{tool,query}` request. `instructions` is always a non-null, non-empty string, object, or array. Noul criteria are optional; when present, both `true` and `false` are required and their descriptions may be null. Choice requires 2–255 labels whose descriptions may be null. Score requires 2–10 ordered, non-null, non-empty string/object/array levels.
 
-The runtime executes supported read requests under normal policy and automatically retains ordered same-resource results in `pages[]`; it never silently averages or reduces them. Successful pages report `requestedModel` and `resolvedModel` separately. Follow an executable `next.clasify` unchanged, retain error pages, and never use partial coverage to establish global absence. See the [complete contract and examples](OCTOCODE_CLASIFY.md) and the [research workflow](CLASIFY_RESEARCH_GUIDE.md).
+The runtime executes supported read requests under normal policy and automatically retains ordered same-resource results in `pages[]`; it never silently averages or reduces them. Successful pages report `requestedModel` and `resolvedModel` separately. Follow an executable `next.clasify` unchanged, retain error pages, and never use partial coverage to establish global absence. See the [complete contract, research workflow, and examples](OCTOCODE_CLASIFY.md).
 
 ---
 
@@ -1371,149 +1324,22 @@ Use the returned `location.localPath` for local queries. Preserve the resolved r
 
 ### Two clone modes
 
-#### Mode 1: Full clone
+- **Full clone** — general exploration; LSP works best with full repositories. Omit `branch` to auto-detect the default.
+- **Sparse fetch** — one package/directory of a large monorepo via `sparsePath`; much faster, but LSP cross-file resolution may be limited since not all files are present.
 
-Best for general exploration where you need full project context (LSP works best with full repositories).
-
-```
-ghCloneRepo:
-  owner: "vercel"
-  repo: "next.js"
-  # branch omitted → auto-detects default branch
-```
-
-**Result:**
-```yaml
-owner: vercel
-repo: next.js
-branch: main
-localPath: <octocode-home>/tmp/clone/vercel/next.js/main
-location:
-  kind: repo
-  localPath: <octocode-home>/tmp/clone/vercel/next.js/main
-  repoRoot: <octocode-home>/tmp/clone/vercel/next.js/main
-  source: clone
-  cached: false
-  complete: true
-```
-
-Use `location.localPath` as the absolute `path` for local search, tree, or fetch queries.
-
-#### Mode 2: Sparse folder fetch
-
-Best for large monorepos where you only need one package/directory. Dramatically faster.
+Both return `location.localPath` (absolute), `location.kind` (`repo`/`tree`), `source`, `cached`, `complete`, `commitSha`, and `requestedPath` for sparse. Use `location.localPath` as the absolute `path`/`uri` for local queries. Sparse checkouts use a separate cache key (`{branch}__sp_{hash}/`) and can coexist with a full clone.
 
 ```
-ghCloneRepo:
-  owner: "microsoft"
-  repo: "TypeScript"
-  sparsePath: "src/compiler"
+ghCloneRepo(owner="microsoft", repo="TypeScript", sparsePath="src/compiler")
+→ location.localPath = <octocode-home>/tmp/clone/microsoft/TypeScript/main__sp_a3f8c1  (kind: tree, complete: false)
 ```
-
-**Result:**
-```yaml
-owner: microsoft
-repo: TypeScript
-branch: main
-localPath: <octocode-home>/tmp/clone/microsoft/TypeScript/main__sp_a3f8c1
-sparsePath: "src/compiler"
-location:
-  kind: tree
-  localPath: <octocode-home>/tmp/clone/microsoft/TypeScript/main__sp_a3f8c1
-  repoRoot: <octocode-home>/tmp/clone/microsoft/TypeScript/main__sp_a3f8c1
-  source: clone
-  cached: false
-  complete: false
-  requestedPath: "src/compiler"
-```
-
-> **Note:** LSP may have limited cross-file resolution in sparse checkouts since not all source files are present. If you need full project context, clone without `sparsePath`.
 
 ### Step-by-step workflows
 
-#### Workflow 1: Browse a cloned repository tree
-
-**Goal:** Understand the structure of an external repository using local tools.
-
-```
-Step 1: Clone the repo
-  ghCloneRepo(owner="vercel", repo="next.js")
-  → localPath = "<octocode-home>/tmp/clone/vercel/next.js/canary"
-
-Step 2: Browse the tree
-  astSearch(operation="tree", path=localPath, maxDepth=2)
-  → See the full directory structure with file sizes and dates
-
-Step 3: Drill into a directory
-  astSearch(operation="tree", path=localPath + "/packages/next/src", maxDepth=2)
-  → See the subdirectory contents
-```
-
-#### Workflow 2: Deep code analysis with LSP
-
-**Goal:** Trace who calls a function in an external repository.
-
-```
-Step 1: Clone the repo
-  ghCloneRepo(owner="vercel", repo="next.js", sparsePath="packages/next/src")
-  → localPath
-
-Step 2: Search for the function
-  localSearch( path=localPath, searchText="handleRequest")
-  → Get file paths and lineHint values
-
-Step 3: Jump to definition
-  lspSearch(operation="definition", uri=localPath+"/server/router.ts", symbolName="handleRequest", lineHint=42)
-  → See the function definition
-
-Step 4: Trace callers
-  lspSearch(operation="callers", uri=..., symbolName="handleRequest", lineHint=42)
-  → See all functions that call handleRequest
-```
-
-#### Workflow 3: From GitHub browsing to deep local analysis
-
-**Goal:** You're browsing a repository on GitHub and want to go deeper.
-
-```
-Step 1: Browse on GitHub first (quick)
-  ghSearch(operation="tree", owner="pallets", repo="flask", maxDepth=2)
-  → See the tree, find interesting directory "src/flask"
-
-Step 2: Clone for deep analysis
-  ghCloneRepo(owner="pallets", repo="flask")
-  → localPath
-
-Step 3: Use full ripgrep power
-  localSearch( path=localPath, searchText="def route\\(", langType="py")
-  → Full regex search, file type filtering, match context
-
-Step 4: Use LSP
-  lspSearch(operation="references", uri=localPath+"/src/flask/app.py", symbolName="route", lineHint=...)
-  → Find every file that uses the @route decorator
-```
-
-#### Workflow 4: Sparse fetch of a monorepo package
-
-**Goal:** Analyze one package in a large monorepo without cloning the entire thing.
-
-```
-Step 1: Browse the monorepo structure on GitHub (quick discovery)
-  ghSearch(operation="tree", owner="microsoft", repo="TypeScript", path="src", maxDepth=1)
-  → See packages: compiler, services, harness, ...
-
-Step 2: Clone only the compiler
-  ghCloneRepo(owner="microsoft", repo="TypeScript", sparsePath="src/compiler")
-  → localPath (only downloads src/compiler, much faster)
-
-Step 3: Search within the fetched subtree
-  localSearch( path=localPath, searchText="transformTypeScript")
-  → Search only within the compiler code
-
-Step 4: Find files by metadata
-  astSearch(operation="files", path=localPath, names=["*.ts"], time={"modifiedWithin":"30d"})
-  → TypeScript files in the compiler modified within 30 days
-```
+- **Browse a cloned tree:** `ghCloneRepo` → `astSearch(operation="tree", path=localPath, maxDepth=2)`, drilling into subdirectories.
+- **Deep analysis with LSP:** `ghCloneRepo` → `localSearch` for the symbol + `lineHint` → `lspSearch(operation="definition"|"callers", uri=localPath+"/file", symbolName, lineHint)`.
+- **GitHub browse → local:** `ghSearch(operation="tree")` to scout → `ghCloneRepo` → `localSearch` (full regex/type filters) → `lspSearch(operation="references")`.
+- **Sparse monorepo package:** scout with `ghSearch(operation="tree")` → `ghCloneRepo(sparsePath=...)` → `localSearch`/`astSearch(operation="files")` within the subtree.
 
 ---
 
@@ -1536,53 +1362,20 @@ Step 4: Find files by metadata
 | **Force refresh** | Set `forceRefresh: true` in the query to bypass cache and re-clone/re-fetch |
 | **Periodic GC** | CLI tool-runtime bootstrap performs a persisted due-check once per process and exits without a timer. MCP performs the same bootstrap check, then uses an unreferenced deadline timer. Both use one persisted 24-hour marker. A cross-process lock prevents duplicate sweeps; a cleanup failure doesn't block startup. |
 | **Cleanup scope** | Automatic maintenance removes expired entries only from owned clone, tree, response, and managed artifact roots. It preserves unrelated files under `tmp`. |
-| **Response limits** | Response entries also obey configurable per-entry and total-disk limits. See [Response cache](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#response-cache). |
+| **Response limits** | Response entries also obey configurable per-entry and total-disk limits. See [Cache storage and lifecycle](CONFIGURATION.md#cache-storage-and-lifecycle). |
 | **Manual clear** | `octocode cache clear` deletes all cached responses; `octocode cache status` prints the cache home directory. There are no selective clear flags. |
 
 ---
 
 ### Path validation: why it works
 
-Local tools validate all paths against allowed roots. Cloned repositories are accessible because:
-
-1. **Tmp destination**: `<octocode-home>/tmp/...` is under the Octocode home directory
-2. **PathValidator and ExecutionContextValidator**: Both automatically add Octocode home as an allowed root alongside the workspace directory
-3. **Workspace root resolution**: Local tools validate paths against allowed roots, and LSP tools automatically choose project context from the target file path. If a cloned file is inside `WORKSPACE_ROOT`, Octocode keeps that root; otherwise it walks up from the file to the nearest project marker (`package.json`, `tsconfig.json`, `.git`, `Cargo.toml`, `go.mod`, `pyproject.toml`, etc.)
-4. **Result**: The `location.localPath` returned by `ghCloneRepo` is automatically valid for all local + LSP tools, even when the cloned repository lives outside your current shell workspace
-
-For CLI or MCP, set `ENABLE_CLONE=true` and leave local tools enabled. Local tools default on; clone support defaults off on both surfaces.
-
-For TypeScript/JavaScript LSP:
-
-- Octocode tries its bundled `typescript-language-server` first.
-- If that bundled server is not available in your environment, install `typescript-language-server` + `typescript` on `PATH`, or set `OCTOCODE_TS_SERVER_PATH`.
-- LSP can analyze bundled/minified `.js` files, but semantic quality is usually much better on original source trees than on large generated artifacts.
-
----
+Clones live under `<octocode-home>/tmp/...`, and both the path and execution-context validators automatically add the Octocode home as an allowed root, so a returned `location.localPath` is valid for all local and LSP tools even outside your shell workspace. LSP picks project context from the target file: inside `WORKSPACE_ROOT` it keeps that root; otherwise it walks up to the nearest marker (`package.json`, `tsconfig.json`, `.git`, `Cargo.toml`, `go.mod`, `pyproject.toml`). Set `ENABLE_CLONE=true` and leave local tools on (clone defaults off on both surfaces). For TS/JS LSP, Octocode uses its bundled `typescript-language-server`; if unavailable, install it (plus `typescript`) on `PATH` or set `OCTOCODE_TS_SERVER_PATH`. LSP can read minified `.js`, but quality is far better on original source.
 
 ### Quick reference
 
-| Action | Tool | Key Parameter |
+| Action | Tool | Key parameter |
 |--------|------|---------------|
-| Clone entire repository | `ghCloneRepo` | `owner`, `repo` (branch auto-detected) |
-| Clone specific branch | `ghCloneRepo` | `owner`, `repo`, `branch` |
-| Clone one folder | `ghCloneRepo` | `owner`, `repo`, `sparsePath` (branch auto-detected) |
-| Force re-clone | `ghCloneRepo` | `forceRefresh: true` (bypasses valid cache) |
-| Browse cloned tree | `localSearch` | `path` = `localPath` |
-| Search cloned code | `localSearch` | `path` = `localPath` |
-| Read cloned file | `localFetch` | `path` = `localPath + "/file.ts"` |
-| Find files in clone | `localSearch` | `path` = `localPath` |
-| Jump to definition | `lspSearch` with `operation="definition"` | `uri` = file in `localPath` |
-| Find all references | `lspSearch` with `operation="references"` | `uri` = file in `localPath` |
-| Trace callers/callees | `lspSearch` with `operation="callers"` or `operation="callees"` | `uri` = file in `localPath` |
-
----
-
-### Clone workflow: related documentation
-
-- [GitHub Tools Reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md#github-tools-reference) — Full `ghCloneRepo` parameter reference
-- [Local code tools reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md#local-code-tools-reference) — Local filesystem search, structure, metadata, and content tools
-- [LSP tools reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md#lsp-tools-reference) — Semantic content tool
-- [Configuration Reference](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) — `ENABLE_LOCAL`, `ENABLE_CLONE`, and other settings
-
----
+| Clone repository / branch / one folder | `ghCloneRepo` | `owner`, `repo`, optional `branch` or `sparsePath` |
+| Force re-clone | `ghCloneRepo` | `forceRefresh: true` |
+| Browse / search / read / find in a clone | `localSearch`, `localFetch` | `path` = `localPath` |
+| Definition / references / callers / callees | `lspSearch` | `uri` = file in `localPath` |

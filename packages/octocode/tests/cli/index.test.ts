@@ -4,16 +4,20 @@ const mocks = vi.hoisted(() => ({
   delegate: vi.fn(() => 0),
   resolve: vi.fn((): string | null => '/native/octocode'),
   skillHandler: vi.fn(),
+  schemeHandler: vi.fn(),
 }));
 
 vi.mock('../../src/cli/native-delegate.js', () => ({
   shouldDelegateToNative: (command: string | null | undefined) =>
-    command !== 'skill',
+    command !== 'skill' && command !== 'scheme',
   resolveNativeBin: mocks.resolve,
   delegateToNative: mocks.delegate,
 }));
 vi.mock('../../src/cli/commands/skill.js', () => ({
   skillCommand: { name: 'skill', options: [], handler: mocks.skillHandler },
+}));
+vi.mock('../../src/cli/commands/scheme.js', () => ({
+  schemeCommand: { name: 'scheme', handler: mocks.schemeHandler },
 }));
 vi.mock('../../src/cli/stale-build.js', () => ({
   maybeWarnAboutStaleBuild: vi.fn(),
@@ -41,7 +45,7 @@ describe('runCLI native boundary', () => {
     expect(mocks.skillHandler).not.toHaveBeenCalled();
   });
 
-  it('keeps clasify and its help/schema discovery on the native CLI', async () => {
+  it('keeps clasify execution and help native while scheme discovery stays Node-owned', async () => {
     const { runCLI } = await import('../../src/cli/index.js');
     const invocation = ['clasify', '{"resources":[],"questions":[]}'];
     await runCLI(invocation);
@@ -51,17 +55,29 @@ describe('runCLI native boundary', () => {
     );
 
     await runCLI(['scheme', 'clasify', '--compact']);
-    expect(mocks.delegate).toHaveBeenLastCalledWith('/native/octocode', [
-      'scheme',
-      'clasify',
-      '--compact',
-    ]);
+    expect(mocks.schemeHandler).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        command: 'scheme',
+        args: ['clasify'],
+        options: expect.objectContaining({ compact: true }),
+      })
+    );
+    expect(mocks.delegate).toHaveBeenCalledTimes(1);
 
     await runCLI(['clasify', '--help']);
     expect(mocks.delegate).toHaveBeenLastCalledWith('/native/octocode', [
       'clasify',
       '--help',
     ]);
+  });
+
+  it('renders the agent overview (scheme catalog) for a bare invocation', async () => {
+    const { runCLI } = await import('../../src/cli/index.js');
+    await runCLI([]);
+    expect(mocks.schemeHandler).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'scheme', args: [] })
+    );
+    expect(mocks.delegate).not.toHaveBeenCalled();
   });
 
   it('delegates top-level help, version, and unknown commands to native parsing', async () => {

@@ -40,6 +40,7 @@ describe('canonical Awareness CLI in Pi', () => {
     const rendered = renderAwarenessCliContext(ctx);
     expect(rendered).toContain('$OCTOCODE_AWARENESS_DB');
     expect(rendered).toContain('lacks the native facade');
+    expect(rendered).not.toMatch(/Awareness .*bundled.*skill/i);
     expect(rendered).not.toContain('pi-cli-test');
     expect(rendered).not.toContain(ctx.cwd);
   });

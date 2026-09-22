@@ -81,8 +81,6 @@ const EXPECTED_STRUCTURAL_EXTENSIONS = [
   'cpp',
   'cs',
   'cts',
-  'cu',
-  'cuh',
   'cxx',
   'go',
   'h',

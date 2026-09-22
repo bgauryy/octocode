@@ -29,7 +29,7 @@ pub struct GhGetFileContentQuery {
     pub context_bytes: Option<usize>,
     pub chunk_type: Option<ChunkType>,
     pub offset: Option<usize>,
-    pub limit: Option<usize>,
+    pub chunk_size: Option<usize>,
     pub minify: Option<MinifyMode>,
     pub force_refresh: Option<bool>,
     pub goal: Option<String>,
@@ -122,7 +122,7 @@ where
         context_bytes: query.context_bytes,
         chunk_type: query.chunk_type,
         offset: query.offset,
-        limit: query.limit.or_else(|| {
+        chunk_size: query.chunk_size.or_else(|| {
             (query.full_content != Some(true)
                 && query.match_string.is_none()
                 && !(query.start_line.is_some() && query.end_line.is_some()))
@@ -169,8 +169,8 @@ where
             chunk_type: query.chunk_type.unwrap_or_default(),
             offset: 0,
             length: 0,
-            limit: query
-                .limit
+            chunk_size: query
+                .chunk_size
                 .unwrap_or(match query.chunk_type.unwrap_or_default() {
                     ChunkType::Lines => 1,
                     ChunkType::Bytes => 16384,
@@ -194,8 +194,8 @@ where
             chunk_type: query.chunk_type.unwrap_or_default(),
             offset: 0,
             length: 0,
-            limit: query
-                .limit
+            chunk_size: query
+                .chunk_size
                 .unwrap_or(match query.chunk_type.unwrap_or_default() {
                     ChunkType::Lines => 1,
                     ChunkType::Bytes => 16384,
@@ -495,7 +495,7 @@ mod tests {
             context_bytes: None,
             chunk_type: Some(ChunkType::Lines),
             offset: None,
-            limit: Some(2),
+            chunk_size: Some(2),
             minify: None,
             force_refresh: None,
             goal: None,

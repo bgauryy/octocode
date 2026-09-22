@@ -8,7 +8,7 @@ Select the smallest example that answers the question.
 
 ```json
 [
-  {"tool":"localSearch","query":{"reasoning":"<why>","path":"/ABS/repo/src","searchText":"withDataCache","maxFiles":10}},
+  {"tool":"localSearch","query":{"reasoning":"<why>","path":"/ABS/repo/src","searchText":"withDataCache","pageSize":10}},
   {"tool":"astSearch","query":{"reasoning":"<why>","operation":"match","path":"/ABS/repo/src","pattern":"withDataCache($$$ARGS)","langType":"typescript","resultView":"files"}},
   {"tool":"astSearch","query":{"reasoning":"<why>","operation":"files","path":"/ABS/repo","names":["README.md"],"limit":20}},
   {"tool":"astSearch","query":{"reasoning":"<why>","operation":"tree","path":"/ABS/repo/src","maxDepth":1}},
@@ -16,7 +16,7 @@ Select the smallest example that answers the question.
   {"tool":"localFetch","query":{"reasoning":"<why>","path":"/ABS/repo/README.md","minify":"symbols"}},
   {"tool":"localFetch","query":{"reasoning":"<why>","path":"/ABS/repo/README.md","fullContent":true}},
   {"tool":"astSearch","query":{"reasoning":"<why>","operation":"symbols","path":"/ABS/repo/src/example.ts","name":"example"}},
-  {"tool":"localFetch","query":{"reasoning":"<why>","path":"/ABS/repo/src/example.ts","matchString":"example","contextBytes":256,"chunkType":"bytes","offset":0,"limit":1024}},
+  {"tool":"localFetch","query":{"reasoning":"<why>","path":"/ABS/repo/src/example.ts","matchString":"example","contextBytes":256,"chunkType":"bytes","offset":0,"chunkSize":1024}},
   {"tool":"lspSearch","query":{"reasoning":"<why>","uri":"/ABS/repo/src/example.ts","operation":"references","symbolName":"example","lineHint":10,"includeDeclaration":false,"pageSize":10}},
   {"tool":"astSearch","query":{"reasoning":"<why>","operation":"topology","analysis":"dependents","path":"/ABS/repo","file":"src/example.ts","depth":1}},
   {"tool":"astSearch","query":{"reasoning":"<why>","operation":"topology","analysis":"reachability","path":"/ABS/repo","entrypoints":["src/index.ts"],"includeTests":false}},
@@ -24,10 +24,10 @@ Select the smallest example that answers the question.
   {"tool":"ghSearch","query":{"reasoning":"<why>","operation":"repositories","keywords":["octokit"],"language":"TypeScript","pageSize":5}},
   {"tool":"ghSearch","query":{"reasoning":"<why>","operation":"code","owner":"octokit","repo":"octokit.js","keywords":["Octokit"],"pageSize":5}},
   {"tool":"ghSearch","query":{"reasoning":"<why>","operation":"tree","owner":"octokit","repo":"octokit.js","path":"src","pageSize":5}},
-  {"tool":"ghGetFileContent","query":{"reasoning":"<why>","owner":"octokit","repo":"octokit.js","path":"src/octokit.ts","branch":"main","matchString":"Octokit","contextBytes":256,"chunkType":"bytes","offset":0,"limit":1024}},
+  {"tool":"ghGetFileContent","query":{"reasoning":"<why>","owner":"octokit","repo":"octokit.js","path":"src/octokit.ts","branch":"main","matchString":"Octokit","contextBytes":256,"chunkType":"bytes","offset":0,"chunkSize":1024}},
   {"tool":"ghGetFileContent","query":{"reasoning":"<why>","owner":"octokit","repo":"octokit.js","path":"README.md","branch":"main","minify":"symbols"}},
   {"tool":"ghGetFileContent","query":{"reasoning":"<why>","owner":"octokit","repo":"octokit.js","path":"README.md","branch":"main","fullContent":true}},
-  {"tool":"ghSearchHistory","query":{"reasoning":"<why>","operation":"commits","owner":"octokit","repo":"octokit.js","path":"src/octokit.ts","pageSize":5}},
+  {"tool":"ghSearchHistory","query":{"reasoning":"<why>","operation":"commit","owner":"octokit","repo":"octokit.js","path":"src/octokit.ts","pageSize":5}},
   {"tool":"ghGetHistoryItem","query":{"reasoning":"<why>","operation":"pullRequest","owner":"octokit","repo":"octokit.js","number":2961,"content":{"changedFiles":true}}},
   {"tool":"ghGetHistoryItem","query":{"reasoning":"<why>","operation":"issue","owner":"octokit","repo":"octokit.js","number":2968,"content":{"body":true},"charLength":200}},
   {"tool":"ghGetHistoryItem","query":{"reasoning":"<why>","operation":"commit","owner":"octokit","repo":"octokit.js","ref":"main","includeDiff":true}},

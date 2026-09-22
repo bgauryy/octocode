@@ -133,12 +133,12 @@ mod tests {
     #[test]
     fn all_fields_and_source_quirk_resolve() {
         let env = BTreeMap::from([
-            ("ENABLE_AST_REWRITE_APPLY".into(), "true".into()),
+            ("OCTOCODE_BETA".into(), "true".into()),
             ("REQUEST_TIMEOUT".into(), "12ms".into()),
             ("OCTOCODE_EXTENSION_STORAGE_MODE".into(), "memory".into()),
         ]);
         let out = resolve_config(&input(env, None));
-        assert!(out.resolved.local.enable_ast_rewrite_apply);
+        assert!(out.resolved.local.beta);
         assert_eq!(out.resolved.network.timeout, 5000.);
         assert_eq!(out.resolved.extension.storage.mode, "memory");
         assert_eq!(
@@ -146,11 +146,11 @@ mod tests {
             ConfigSource::Env,
             "extension storage is in the frozen source key list"
         );
-        let only = BTreeMap::from([("ENABLE_AST_REWRITE_APPLY".into(), "true".into())]);
+        let only = BTreeMap::from([("OCTOCODE_BETA".into(), "true".into())]);
         assert_eq!(
             resolve_config(&input(only, None)).source,
             ConfigSource::Env,
-            "ENABLE_AST_REWRITE_APPLY is a frozen source key"
+            "OCTOCODE_BETA is a frozen source key"
         )
     }
     #[test]

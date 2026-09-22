@@ -935,7 +935,7 @@ export interface RipgrepSearchOptions {
    * (char-boundary safe), marking trimmed sides with `…`. 0/unset = bare span.
    */
   matchWindow?: number;
-  /** Native collection guard distinct from native runtime per-page maxFiles. */
+  /** Native collection guard distinct from native runtime pageSize. */
   maxCollectedFiles?: number;
 }
 

@@ -17,7 +17,7 @@ const TOOL_PAGINATION_CONTRACT: Record<
   { controls: string[]; exemption?: string }
 > = {
   ghSearch: { controls: ['page', 'pageSize'] },
-  ghGetFileContent: { controls: ['chunkType', 'offset', 'limit'] },
+  ghGetFileContent: { controls: ['chunkType', 'offset', 'chunkSize'] },
   ghSearchHistory: { controls: ['page', 'pageSize'] },
   ghGetHistoryItem: {
     controls: [
@@ -38,7 +38,7 @@ const TOOL_PAGINATION_CONTRACT: Record<
   localSearch: { controls: ['page', 'pageSize'] },
   astSearch: { controls: ['page', 'pageSize'] },
   astRewrite: { controls: ['page', 'pageSize'] },
-  localFetch: { controls: ['chunkType', 'offset', 'limit'] },
+  localFetch: { controls: ['chunkType', 'offset', 'chunkSize'] },
   lspSearch: { controls: ['page', 'pageSize'] },
   clasify: {
     controls: [],
@@ -70,14 +70,14 @@ describe('all-tools pagination contract', () => {
         }
       });
 
-      it('declares limit only for tools with an explicit limit contract', () => {
-        if (
-          TOTAL_CAP_TOOLS.has(toolName) ||
-          ['localFetch', 'ghGetFileContent'].includes(toolName)
-        ) {
+      it('reserves limit for explicit total caps and chunkSize for content windows', () => {
+        if (TOTAL_CAP_TOOLS.has(toolName)) {
           expect(schemaText).toContain('"limit"');
         } else {
           expect(schemaText).not.toContain('"limit"');
+        }
+        if (['localFetch', 'ghGetFileContent'].includes(toolName)) {
+          expect(schemaText).toContain('"chunkSize"');
         }
       });
 

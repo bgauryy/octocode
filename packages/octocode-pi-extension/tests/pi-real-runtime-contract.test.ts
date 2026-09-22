@@ -291,7 +291,7 @@ describe('real Pi runtime contract', { concurrent: false }, () => {
       await settings.flush();
     }
   }, 30_000);
-  it('delivers Octocode skills, Awareness CLI bindings, context measurements and compaction receipts', async () => {
+  it('delivers workflow skills, Awareness CLI bindings, context measurements and compaction receipts', async () => {
     restoreProcesses = allowLocalFixtureProcesses();
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-real-pi-'));
     temporaryRoots.push(root);
@@ -323,7 +323,7 @@ describe('real Pi runtime contract', { concurrent: false }, () => {
     const scripted = [
       response([{
         type: 'toolCall', id: 'skill-load', name: 'skill', arguments: {
-          queries: [{ reasoning: 'Load the bundled Awareness operating contract.', type: 'load', action: 'load', name: 'octocode-awareness', reason: 'Verify the real Pi agent can load its bundled coordination skill.' }],
+          queries: [{ reasoning: 'Load the bundled research operating contract.', type: 'load', action: 'load', name: 'octocode-research', reason: 'Verify the real Pi agent can load a bundled workflow skill.' }],
         },
       }], 'toolUse'),
       response([{
@@ -428,7 +428,7 @@ describe('real Pi runtime contract', { concurrent: false }, () => {
       const model = created.session.modelRuntime.getModel(PROVIDER, MODEL);
       expect(model).toBeDefined();
       await created.session.setModel(model!);
-      await created.session.prompt('Verify the installed Awareness skill and CLI bindings.', { expandPromptTemplates: false });
+      await created.session.prompt('Verify the bundled research skill and Awareness CLI bindings.', { expandPromptTemplates: false });
       await created.session.waitForIdle();
 
       expect(providerPrompts[0]).toContain('<awareness>');
@@ -448,7 +448,7 @@ describe('real Pi runtime contract', { concurrent: false }, () => {
       ]);
       expect(execution.completedTurns).toBeGreaterThan(0);
       expect(Object.values(execution.tools).every(tool => tool.status !== 'running')).toBe(true);
-      expect(toolResultsBeforeCompact).toContain('# Awareness');
+      expect(toolResultsBeforeCompact).toContain('# Octocode Research');
       expect(toolResultsBeforeCompact).toContain('work verify');
       expect(lifecycle).toEqual(expect.arrayContaining(['before_agent_start', 'turn_start', 'turn_end']));
       expect(usages).toContainEqual(expect.objectContaining({ phase: 'turn_end', contextWindow: 8_192 }));
@@ -520,7 +520,7 @@ describe('real Pi runtime contract', { concurrent: false }, () => {
       expect(JSON.stringify(checkpointEntries[0])).toContain('tokensBefore');
       await created.session.prompt('Check the remaining acceptance criteria.', { expandPromptTemplates: false });
       await created.session.waitForIdle();
-      expect(providerContexts.at(-1)).toContain('Verify the installed Awareness skill and CLI bindings.');
+      expect(providerContexts.at(-1)).toContain('Verify the bundled research skill and Awareness CLI bindings.');
       expect(providerContexts.at(-1)).toContain('Check the remaining acceptance criteria.');
 
       const homeSnapshot = JSON.stringify(fs.readdirSync(octocodeHome, { recursive: true }));

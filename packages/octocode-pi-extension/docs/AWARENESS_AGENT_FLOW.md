@@ -50,4 +50,4 @@ A restore uses a bound two-phase flow: preview an operation and side, inspect th
 
 External agents can participate through the same physical SQLite file and normalized workspace identity. Separate clones or databases do not connect.
 
-See [TOOLS.md](TOOLS.md) for the Pi tool contract, [Integrating any agent](../../octocode-awareness/docs/AGENT_INTEGRATION.md) for the observation-feedback loop, and the bundled [Awareness skill](../../octocode-awareness/skills/octocode-awareness/SKILL.md) for model routing.
+See [TOOLS.md](TOOLS.md) for the Pi tool contract and [Integrating any agent](../../octocode-awareness/docs/AGENT_INTEGRATION.md) for the observation-feedback loop. Awareness is a native runtime/tool capability and is not bundled as a skill.

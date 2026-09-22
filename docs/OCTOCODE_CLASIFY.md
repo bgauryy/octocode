@@ -138,11 +138,15 @@ Each resource-question result reports `coverage` as `complete`, `partial`, or `e
 
 If a query-level `next.clasify` continuation is present, execute it unchanged and append its page results. A partial result cannot establish global absence. Do not silently collapse pages or treat the first page as the whole resource.
 
-## Workflow boundary
+## Research workflow
 
-Use `clasify` only when a bounded semantic judgment changes the next action. Exact presence, counts, symbols, references, diagnostics, and deterministic assertions belong to ordinary search, AST/LSP, or tests.
+Use `clasify` only when a bounded semantic judgment changes the next action. Exact presence, counts, symbols, references, diagnostics, and deterministic assertions belong to ordinary search, AST/LSP, or tests. Skip it when the answer is already known, an exact operation can decide it, or every candidate must be read anyway.
 
-For research, scout broadly enough to identify candidates, assess only the ambiguous candidates, then verify the winning claims against source evidence. Do not cite a semantic answer as proof. See [Semantic Assessment Research Guide](CLASIFY_RESEARCH_GUIDE.md).
+1. **Frame the decision.** State the next action that can change and pick Noul, Choice, or Score.
+2. **Scout candidates.** Use search, AST, LSP, history, or package discovery to identify bounded candidates.
+3. **Assess the matrix.** Put shared candidates in `resources[]` and shared typed questions in `questions[]`; each resource is captured once and evaluated across the cross-product.
+4. **Follow coverage.** Keep every ordered page and execute any `next.clasify` unchanged. `partial` coverage cannot support a global-absence claim.
+5. **Verify the winner.** Fetch the decisive lines, inspect the symbol/reference, or run the focused test — and cite that evidence, not the semantic result.
 
 ## Source of truth
 

@@ -782,7 +782,7 @@ mod contract_owner_tests {
         };
         validate_output(
             "ghSearchHistory",
-            &data(json!({"operation":"pullRequests","owner":"o","repo":"r","page":2})),
+            &data(json!({"operation":"pullRequest","owner":"o","repo":"r","page":2})),
         )
         .expect("defaulted history pageSize may be omitted");
         let invalid = validate_output(

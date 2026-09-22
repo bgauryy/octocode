@@ -41,12 +41,12 @@ pub fn page(content: &str, q: &LocalFetchRequest) -> Result<Page, String> {
                         .into(),
                 );
             }
-            let limit = q.limit.unwrap_or(if q.full_content == Some(true) {
+            let chunk_size = q.chunk_size.unwrap_or(if q.full_content == Some(true) {
                 content.len()
             } else {
                 16384
             });
-            let mut end = (offset + limit).min(content.len());
+            let mut end = (offset + chunk_size).min(content.len());
             while end < content.len() && !content.is_char_boundary(end) {
                 end += 1
             }
@@ -59,7 +59,7 @@ pub fn page(content: &str, q: &LocalFetchRequest) -> Result<Page, String> {
                     chunk_type: kind,
                     offset,
                     length: end - offset,
-                    limit,
+                    chunk_size,
                     total_lines: line_count(content),
                     total_bytes: content.len(),
                     has_more: end < content.len(),
@@ -73,7 +73,7 @@ pub fn page(content: &str, q: &LocalFetchRequest) -> Result<Page, String> {
             let offset = offset.min(lines.len());
             let selected =
                 q.match_string.is_some() || (q.start_line.is_some() && q.end_line.is_some());
-            let requested_limit = q.limit.unwrap_or(if selected {
+            let requested_limit = q.chunk_size.unwrap_or(if selected {
                 lines.len().clamp(1, 50_000)
             } else {
                 100
@@ -89,7 +89,7 @@ pub fn page(content: &str, q: &LocalFetchRequest) -> Result<Page, String> {
                 let mut byte_query = q.clone();
                 byte_query.chunk_type = Some(ChunkType::Bytes);
                 byte_query.offset = Some(byte_offset);
-                byte_query.limit = Some(16384);
+                byte_query.chunk_size = Some(16384);
                 return page(content, &byte_query);
             }
             let text = lines[offset..end].concat();
@@ -99,7 +99,7 @@ pub fn page(content: &str, q: &LocalFetchRequest) -> Result<Page, String> {
                     chunk_type: kind,
                     offset,
                     length: end - offset,
-                    limit: q.limit.unwrap_or(end.saturating_sub(offset)),
+                    chunk_size: q.chunk_size.unwrap_or(end.saturating_sub(offset)),
                     total_lines: lines.len(),
                     total_bytes: content.len(),
                     has_more: end < lines.len(),
@@ -115,7 +115,7 @@ pub fn continuation(q: &LocalFetchRequest, p: &Pagination) -> Option<NextCalls> 
         let mut query = q.clone();
         query.offset = Some(offset);
         query.chunk_type = Some(p.chunk_type);
-        query.limit = Some(p.limit);
+        query.chunk_size = Some(p.chunk_size);
         NextCalls {
             r#continue: Some(Continuation {
                 tool: "localFetch".into(),

@@ -57,30 +57,26 @@ describe('Unified public pagination fields', () => {
     expect('itemsPerPage' in query).toBe(false);
   });
 
-  it('localSearch text uses maxFiles as its total cap, not limit', () => {
-    const query = q0(LocalSearchBulkQuerySchema, {
+  it('localSearch text uses pageSize without redundant cap aliases', () => {
+    const base = {
       reasoning: 'exercise pagination fields',
       path: '.',
       searchText: 'needle',
       regex: 'literal',
-      maxFiles: 40,
+    };
+    const query = q0(LocalSearchBulkQuerySchema, {
+      ...base,
       page: 2,
       pageSize: 10,
     });
-    expect(query).toMatchObject({ maxFiles: 40, page: 2, pageSize: 10 });
-    expect(
-      LocalSearchBulkQuerySchema.safeParse({
-        queries: [
-          {
-            reasoning: 'exercise pagination fields',
-            path: '.',
-            searchText: 'needle',
-            regex: 'literal',
-            limit: 40,
-          },
-        ],
-      }).success
-    ).toBe(false);
+    expect(query).toMatchObject({ page: 2, pageSize: 10 });
+    for (const retired of [{ maxFiles: 40 }, { limit: 40 }]) {
+      expect(
+        LocalSearchBulkQuerySchema.safeParse({
+          queries: [{ ...base, ...retired }],
+        }).success
+      ).toBe(false);
+    }
   });
 
   it('astSearch topology distinguishes limit from pageSize', () => {

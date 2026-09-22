@@ -470,7 +470,7 @@ fn validate_history_keyword_scope(input: &Value) -> Result<(), ContractValidatio
         if !has_keywords {
             continue;
         }
-        if query.get("operation").and_then(Value::as_str) != Some("commits") {
+        if query.get("operation").and_then(Value::as_str) != Some("commit") {
             continue;
         }
         for field in ["path", "branch", "base", "head", "includeDiff"] {
@@ -1156,10 +1156,10 @@ mod tests {
     fn rejects_local_fetch_relations_and_unknown_fields() {
         let relation = validate(
             "localFetch",
-            json!({"queries":[{"path":"/tmp/a","fullContent":true,"limit":2,"reasoning":"Read the complete fixture."}]}),
+            json!({"queries":[{"path":"/tmp/a","fullContent":true,"chunkSize":2,"reasoning":"Read the complete fixture."}]}),
         )
         .expect_err("invalid relation");
-        // `limit` is now a valid chunk control, mutually exclusive with
+        // `chunkSize` is a valid chunk control, mutually exclusive with
         // fullContent, so the relation is rejected as a field conflict rather
         // than an unknown field.
         assert_eq!(

@@ -157,7 +157,7 @@ export const SUBAGENT_REGISTRY = {
       'web',         // CDP docs + web research
       'MCPTool',     // Octocode MCP server: localFetch, localSearch, astSearch, etc.
       'file',        // only parent-assigned durable handback artifacts
-      'skill',       // load bundled/user workflows, including Awareness
+      'skill',       // load bundled/user workflows
       'awareness',   // native coordination, memory, verification, and history gateway
       'bash',        // assigned shell work
     ],
@@ -165,7 +165,7 @@ export const SUBAGENT_REGISTRY = {
     thinking: 'low',
     systemPromptPath: subagentPromptPath('browser-agent'),
     extraSkillPaths: [subagentSkillPath('browser-agent', 'browser-agent')],
-    skillNames: ['octocode-chrome-devtools', 'octocode-awareness'],
+    skillNames: ['octocode-chrome-devtools'],
   },
   researcher: {
     name: 'researcher' as SubagentName,
@@ -177,14 +177,14 @@ export const SUBAGENT_REGISTRY = {
       'web',
       'MCPTool', // octocode MCP server: all GitHub, local, LSP, npm research tools
       'file',   // only parent-assigned durable handback artifacts
-      'skill',  // load bundled/user workflows, including Awareness
+      'skill',  // load bundled/user workflows
       'awareness', // native coordination, memory, verification, and history gateway
       'bash',   // assigned shell work
     ],
     resourceMode: 'octocode' as ResourceMode,
     thinking: 'low',
     systemPromptPath: subagentPromptPath('researcher'),
-    skillNames: ['octocode-research', 'octocode-awareness'],
+    skillNames: ['octocode-research'],
   },
   planner: {
     name: 'planner' as SubagentName,
@@ -196,14 +196,14 @@ export const SUBAGENT_REGISTRY = {
       'web',
       'MCPTool', // octocode MCP server: all GitHub, local, LSP, npm research tools
       'file',   // only parent-assigned durable handback artifacts
-      'skill',  // load bundled/user workflows, including Awareness
+      'skill',  // load bundled/user workflows
       'awareness', // native coordination, memory, verification, and history gateway
       'bash',   // assigned shell work
     ],
     resourceMode: 'octocode' as ResourceMode,
     thinking: 'low',
     systemPromptPath: subagentPromptPath('planner'),
-    skillNames: ['octocode-research', 'octocode-rfc-generator', 'octocode-awareness'],
+    skillNames: ['octocode-research', 'octocode-rfc-generator'],
   },
   architect: {
     name: 'architect' as SubagentName,
@@ -216,13 +216,13 @@ export const SUBAGENT_REGISTRY = {
       'web',
       'MCPTool', // octocode MCP server: all GitHub, local, LSP, npm research tools
       'file',   // only parent-assigned durable handback artifacts
-      'skill',  // load bundled/user workflows, including Awareness
+      'skill',  // load bundled/user workflows
       'awareness', // native coordination, memory, verification, and history gateway
     ],
     resourceMode: 'octocode' as ResourceMode,
     thinking: 'medium',
     systemPromptPath: subagentPromptPath('architect'),
-    skillNames: ['octocode-research', 'octocode-architect', 'octocode-awareness'],
+    skillNames: ['octocode-research', 'octocode-architect'],
   },
   implementer: {
     name: 'implementer' as SubagentName,
@@ -239,7 +239,7 @@ export const SUBAGENT_REGISTRY = {
     resourceMode: 'octocode' as ResourceMode,
     thinking: 'medium',
     systemPromptPath: subagentPromptPath('implementer'),
-    skillNames: ['octocode-research', 'octocode-awareness'],
+    skillNames: ['octocode-research'],
   },
   reviewer: {
     name: 'reviewer' as SubagentName,
@@ -254,6 +254,6 @@ export const SUBAGENT_REGISTRY = {
     resourceMode: 'octocode' as ResourceMode,
     thinking: 'medium',
     systemPromptPath: subagentPromptPath('reviewer'),
-    skillNames: ['octocode-research', 'octocode-awareness'],
+    skillNames: ['octocode-research'],
   },
 } satisfies Record<SubagentName, SubagentConfig>;

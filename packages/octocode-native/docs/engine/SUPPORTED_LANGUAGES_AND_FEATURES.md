@@ -21,7 +21,7 @@ Tree-sitter-backed. Two query forms: `pattern` (code-shaped, `$X`/`$$$ARGS` meta
 |---|---|---|
 | C | `c` `h` | `.h` defaults to C; explicitly select C++ when project context requires it |
 | C++ | `cc` `cpp` `cxx` `hh` `hpp` `hxx` | Function patterns repair a narrow C++11 initializer-list ambiguity only when the alternate parse is a function definition |
-| CUDA | `cu` `cuh` | CUDA-specific C++ grammar; complete function patterns and direct `kind` rules support kernel-launch syntax |
+| CUDA *(optional; not in default build)* | `cu` `cuh` | CUDA-specific C++ grammar behind the `tree-sitter-cuda` feature (dropped from `portable-default` to save ~6.8 MiB); when enabled, complete function patterns and direct `kind` rules support kernel-launch syntax. `.cu`/`.cuh` still route to `clangd` for LSP regardless |
 | Assembly | `asm` `assembly` `s` | Generic multi-dialect grammar; uppercase `.S` normalizes to `.s`; label/directive outlines omit instructions |
 | C# | `cs` | Member patterns use a transparent synthetic wrapper class for grammar context |
 | Go | `go` | |
@@ -32,7 +32,7 @@ Tree-sitter-backed. Two query forms: `pattern` (code-shaped, `$X`/`$$$ARGS` meta
 | JavaScript | `js` `jsx` `mjs` `cjs` | Tree-sitter owns structural matching; OXC owns richer JS analysis |
 | TypeScript | `ts` `tsx` `mts` `cts` | Tree-sitter owns structural matching; OXC owns richer TS analysis |
 
-The default release build registers exactly **30 extensions across 12 language families**. Structural search/rewrite, signatures, graph facts, syntax inspection, and LSP grammar adapters derive from the single registry in `crates/engine/src/signatures/languages.rs`. Exact expected-set assertions live in `crates/engine/src/signatures/languages_tests.rs` and `tests/engine/ffi.test.ts`; every retained grammar also parses and searches a representative fixture. Built-in semantic-server routing is intentionally narrower because generic Assembly has no truthful default server.
+The default release build registers exactly **28 extensions across 11 language families**. CUDA (`.cu`/`.cuh`) is an optional grammar (`tree-sitter-cuda`) excluded from the default build to save ~6.8 MiB of binary size; its native capabilities appear only in builds that re-enable the feature, though `.cu`/`.cuh` still route to `clangd` for LSP. Structural search/rewrite, signatures, graph facts, syntax inspection, and LSP grammar adapters derive from the single registry in `crates/engine/src/signatures/languages.rs`. Exact expected-set assertions live in `crates/engine/src/signatures/languages_tests.rs` and `tests/engine/ffi.test.ts`; every retained grammar also parses and searches a representative fixture. Built-in semantic-server routing is intentionally narrower because generic Assembly has no truthful default server.
 
 ## Signature extraction / graph facts — `minify:"symbols"`, `astSearch operation:"topology"`
 
@@ -40,7 +40,7 @@ The default release build registers exactly **30 extensions across 12 language f
 
 Cross-file graph linking covers JavaScript/TypeScript ESM and binding-safe CommonJS, Rust modules, bounded Python absolute and relative imports, and quoted relative C/C++/CUDA includes. Explicit relative `package.json` imports become bounded metadata leaves. CommonJS links require an unshadowed literal `require`, `module.require`, or `createRequire(import.meta.url)` binding; dynamic, shadowed, reassigned, and otherwise ambiguous loaders remain coverage diagnostics. Python wildcards, ambiguous package attributes, and ambiguous stub layouts remain diagnostics. C/C++/CUDA system and macro includes are not linked. Other languages report unsupported cross-file linking rather than producing heuristic edges.
 
-Supported: the same exact 30 extensions in the structural table. Every registered grammar has a real body query; use the capability APIs for builds with optional Assembly, C++, C#, CUDA, or Scala features turned off. Assembly graph facts expose labels as declarations but deliberately do not claim dialect-neutral calls, containment, exports, or cross-file links.
+Supported: the same exact 28 extensions in the structural table. Every registered grammar has a real body query; use the capability APIs for builds with optional Assembly, C++, C#, CUDA, or Scala features turned off. Assembly graph facts expose labels as declarations but deliberately do not claim dialect-neutral calls, containment, exports, or cross-file links.
 
 Kotlin (`kt`/`kts`), PHP (`php`), CSS (`css`), HTML (`html`/`htm`), JSON (`json`/`jsonc`), TOML, Lua, Zig, Ruby, SCSS, SQL, Swift, YAML, Elixir, HCL/Terraform, Protobuf, Shell, Less, OCaml, Julia, R, Erlang, Vue, Svelte, Astro, Dart, and other non-target languages have no native source grammar. Grammar-dependent operations return a typed unsupported result instead of selecting another parser.
 

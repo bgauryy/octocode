@@ -23,8 +23,9 @@ missing or invalid, startup fails closed.
 ## Tool registration
 
 The native catalog contains twelve tools. MCP registers only the available
-subset: `astRewrite` requires `ENABLE_AST_REWRITE=true`, and `clasify`
-requires a nonblank `OCTOCODE_CLASSIFICATION_API`.
+subset: `astRewrite` is a beta feature requiring `OCTOCODE_BETA=true`
+(or `local.beta:true`) — the sole gate for both preview and apply — and
+`clasify` requires a nonblank `OCTOCODE_CLASSIFICATION_API`.
 
 `createNativeMcp()` constructs one `NativeRuntime` and calls `catalog()`. The
 adapter omits tools with `available: false`; this keeps both default-off tools

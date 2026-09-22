@@ -40,7 +40,10 @@ hmac = "0.13"
 getrandom = "0.3"
 flate2 = "1"
 zip = { version = "2", default-features = false, features = ["deflate"] }
-reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "stream", "http2", "query", "system-proxy"] }
+# http2 is intentionally omitted: it links the `h2` stack (HPACK tables, ~0.2 MB)
+# and no code path relies on HTTP/2 semantics — GitHub's REST/raw endpoints all
+# serve over HTTP/1.1. Re-add "http2" if a future endpoint requires h2.
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "stream", "query", "system-proxy"] }
 bytes = "1"
 futures-util = "0.3"
 secrecy = "0.10"

@@ -114,7 +114,7 @@ function loadSkill(skill: DiscoveredSkill, invocation: { reasoning: string; debu
     const partialReasons: SkillPartialReason[] = [...(contentPartial ? ['content-limit' as const] : []), ...filePartialReasons];
     const next = {
       ...(contentPartial ? { content: skillContinuation('localFetch', {
-        path: skill.path, minify: 'none', chunkType: 'bytes', offset: Buffer.byteLength(text.slice(0, returnedChars)), limit: SKILL_CONTENT_CAP,
+        path: skill.path, minify: 'none', chunkType: 'bytes', offset: Buffer.byteLength(text.slice(0, returnedChars)), chunkSize: SKILL_CONTENT_CAP,
       }, 'Read the next page of skill instructions before acting.', invocation) } : {}),
       ...(filePartialReasons.length ? { files: skillContinuation('astSearch', {
         operation: 'files', path: skill.dir, entryType: 'f', excludeDir: [], maxDepth: 100, limit: 10_000, pageSize: 50, sort: 'path',

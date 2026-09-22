@@ -230,7 +230,7 @@ async fn ghsearchhistory_never_sets_cache_flag() {
     let runtime = workspace.runtime(&settings);
 
     let query = json!({
-        "operation": "pullRequests",
+        "operation": "pullRequest",
         "owner": "o",
         "repo": "r",
     });

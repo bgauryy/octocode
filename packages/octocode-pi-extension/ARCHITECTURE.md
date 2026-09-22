@@ -355,7 +355,7 @@ rearms the single automatic peer-wake budget.
 ### 4.1 Bundled skills
 
 The build places bundled skills in `dist/skills/`. See the
-[README inventory](README.md#bundled-skills-15) for names. The inventory is checked
+[README inventory](README.md#bundled-skills-14) for names. The inventory is checked
 by `tests/docs-consistency.test.ts`; `tests/package.test.ts` checks bundled artifacts.
 
 ### 4.2 Discovery sources

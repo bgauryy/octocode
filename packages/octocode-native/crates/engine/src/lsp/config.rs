@@ -628,10 +628,15 @@ mod tests {
 
     #[test]
     fn builtin_routes_cover_the_exact_first_class_extension_set() {
+        // Intersection of the native grammar registry with the built-in server
+        // routes. CUDA (`cu`/`cuh`) left the default registry (optional
+        // `tree-sitter-cuda` feature), so it is no longer part of this
+        // intersection — the ServerSpec table still routes `.cu`/`.cuh` to
+        // clangd (see `all_cuda_extensions_resolve_to_clangd`), that route is
+        // simply no longer grammar-backed by default.
         let expected = [
-            "c", "cc", "cjs", "cpp", "cs", "cts", "cu", "cuh", "cxx", "go", "h", "hh", "hpp",
-            "hxx", "java", "js", "jsx", "mjs", "mts", "py", "pyi", "rs", "sbt", "sc", "scala",
-            "ts", "tsx",
+            "c", "cc", "cjs", "cpp", "cs", "cts", "cxx", "go", "h", "hh", "hpp", "hxx", "java",
+            "js", "jsx", "mjs", "mts", "py", "pyi", "rs", "sbt", "sc", "scala", "ts", "tsx",
         ];
         let mut actual: Vec<_> = crate::signatures::languages::supported_extensions()
             .into_iter()

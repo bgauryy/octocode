@@ -27,6 +27,16 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
   const args = parseArgs(rawArgv);
   if (args.options['no-color']) process.env.NO_COLOR = '1';
 
+  // A bare `octocode` (no command, no help/version flag) is the agent overview:
+  // the same catalog `scheme` emits — short tool descriptions, availability, the
+  // `scheme <name>` route to a tool's params, and the canonical instructions.
+  // `--help`/`--version` still fall through to the native command reference.
+  if (args.command === null && !hasHelpFlag(args) && !hasVersionFlag(args)) {
+    const { schemeCommand } = await import('./commands/scheme.js');
+    await schemeCommand.handler({ ...args, command: 'scheme', args: [] });
+    return true;
+  }
+
   if (!shouldDelegateToNative(args.command)) {
     if (args.command === 'scheme') {
       const { schemeCommand } = await import('./commands/scheme.js');

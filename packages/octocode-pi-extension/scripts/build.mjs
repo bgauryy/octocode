@@ -19,7 +19,6 @@ const require = createRequire(import.meta.url);
 
 // Resolve workspace/package sources via package resolution — no path hardcoding.
 const CONFIG_LOADER_SRC = require.resolve('@octocodeai/config');
-const AWARENESS_PACKAGE_ROOT = path.dirname(path.dirname(require.resolve('@octocodeai/octocode-awareness')));
 const OCTOCODE_PACKAGE_ROOT = path.dirname(require.resolve('octocode/package.json'));
 
 const SOURCE_PATHS = {
@@ -32,8 +31,6 @@ const SOURCE_PATHS = {
   // The system prompt is one inlined document (src/prompts/system-prompt.ts → dist/prompts/system-prompt.js);
   // there are no per-section fragment files to copy.
   promptSource: path.join(packageRoot, 'src', 'prompts', 'system-prompt.ts'),
-  // Full Awareness guidance comes from the same package as its runtime.
-  awarenessSkills: path.join(AWARENESS_PACKAGE_ROOT, 'skills'),
   octocodeSkills: path.join(OCTOCODE_PACKAGE_ROOT, 'skills'),
   // octocode CLI — bundled at build time so the pi-extension is self-contained.
   // Optional in subset checkouts: if missing, the published `octocode` runtime dep is
@@ -75,6 +72,8 @@ const SKIPPED_FILES = new Set([
 ]);
 
 const EXCLUDED_BUNDLED_SKILLS = new Set([
+  // Awareness is a native runtime/tool capability, not an optional model-loaded workflow.
+  'octocode-awareness',
   // 3D mannequin/animation workflow is intentionally not part of the coding-agent bundle.
   'octocode-mannequin',
 ]);
@@ -284,27 +283,24 @@ function copySkillDirectories(sourceRoot, targetRoot) {
 function refreshPackageSkills(targetRoot = SOURCE_PATHS.skills) {
   fs.rmSync(targetRoot, { recursive: true, force: true });
   fs.mkdirSync(targetRoot, { recursive: true });
-  // Bundle workflow skills from dependencies, including full Awareness guidance.
-  // Skills become discoverable on init via the
-  // resources_discover hook — no on-demand install step needed for a fresh checkout.
-  // (If a user also installs the same skill globally with `octocode skill --add`,
-  // Pi surfaces a [Skill conflicts] notice — expected with a self-contained bundle.)
-  const octocodeCopied = copySkillDirectories(SOURCE_PATHS.octocodeSkills, targetRoot);
-  const awarenessCopied = copySkillDirectories(SOURCE_PATHS.awarenessSkills, targetRoot);
+  // Bundle only optional workflow skills from the Octocode CLI package. Awareness
+  // guidance is delivered by the native runtime/tool contract and is deliberately
+  // not exposed as a second, model-loaded skill.
+  const copied = copySkillDirectories(SOURCE_PATHS.octocodeSkills, targetRoot);
   assertNoHiddenLocalOnlyEntries(targetRoot);
-  if (octocodeCopied + awarenessCopied === 0) {
-    throw new Error(`No Awareness/Octocode skills found in ${SOURCE_PATHS.awarenessSkills} or ${SOURCE_PATHS.octocodeSkills}`);
+  if (copied === 0) {
+    throw new Error(`No Octocode skills found in ${SOURCE_PATHS.octocodeSkills}`);
   }
-  return { octocodeCopied, awarenessCopied };
+  return copied;
 }
 
 function syncPackageSkills(targetRoot = SOURCE_PATHS.skills) {
   assertRequiredSources();
-  const { octocodeCopied, awarenessCopied } = refreshPackageSkills(targetRoot);
+  const copied = refreshPackageSkills(targetRoot);
   const skillNames = listSkillNames(targetRoot);
   console.log(`Synced ${skillNames.length} skill(s) into ${targetRoot}`);
   if (skillNames.length > 0) console.log(`Skills: ${skillNames.join(', ')}`);
-  console.log(`Sources: octocode skills/ (${octocodeCopied}), awareness skills/ (${awarenessCopied})`);
+  console.log(`Source: octocode skills/ (${copied})`);
   return skillNames;
 }
 

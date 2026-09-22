@@ -89,7 +89,7 @@ mod tests {
         let paths = Paths(t.0.clone());
         let mut req = q(&p);
         req.chunk_type = Some(ChunkType::Lines);
-        req.limit = Some(1);
+        req.chunk_size = Some(1);
         let mut joined = String::new();
         loop {
             let r = execute_local_fetch(&req, &paths, &Safe, &NeverCancel);
@@ -114,7 +114,7 @@ mod tests {
         let paths = Paths(t.0.clone());
         let mut req = q(&p);
         req.chunk_type = Some(ChunkType::Bytes);
-        req.limit = Some(2);
+        req.chunk_size = Some(2);
         let a = execute_local_fetch(&req, &paths, &Safe, &NeverCancel);
         assert_eq!(a.content.as_deref(), Some("a😀"));
         req = a

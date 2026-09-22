@@ -22,11 +22,8 @@ export interface LocalConfigOptions {
   /** Opt-in and requires persistent storage. ENABLE_CLONE is canonical. */
   enableClone?: boolean;
 
-  /** Enable the astRewrite tool. Preview and apply are unavailable while false. */
-  enableAstRewrite?: boolean;
-
-  /** Permit hash-guarded astRewrite apply when astRewrite is enabled; preview remains available. */
-  enableAstRewriteApply?: boolean;
+  /** Enable beta features. Currently the sole gate for the astRewrite tool (both preview and apply); off by default on every surface. */
+  beta?: boolean;
 
   /** Extra absolute or home-relative roots added to the allowed home directory. */
   /** The environment value is a comma-separated list. */
@@ -136,8 +133,7 @@ export interface RequiredGitHubConfig {
 export interface RequiredLocalConfig {
   enabled: boolean;
   enableClone: boolean;
-  enableAstRewrite: boolean;
-  enableAstRewriteApply: boolean;
+  beta: boolean;
   allowedPaths: string[];
   workspaceRoot: string | undefined;
 }
@@ -324,34 +320,17 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "defaultValue": false
   },
   {
-    "path": "local.enableAstRewrite",
+    "path": "local.beta",
     "section": "local",
-    "key": "enableAstRewrite",
+    "key": "beta",
     "type": "boolean",
     "file": true,
     "resolved": true,
     "credential": false,
-    "description": "Enable the astRewrite tool. Preview and apply are unavailable while false.",
+    "description": "Enable beta features. Currently the sole gate for the astRewrite tool (both preview and apply); off by default on every surface.",
     "env": [
       {
-        "name": "ENABLE_AST_REWRITE",
-        "priority": 0
-      }
-    ],
-    "defaultValue": false
-  },
-  {
-    "path": "local.enableAstRewriteApply",
-    "section": "local",
-    "key": "enableAstRewriteApply",
-    "type": "boolean",
-    "file": true,
-    "resolved": true,
-    "credential": false,
-    "description": "Permit hash-guarded astRewrite apply when astRewrite is enabled; preview remains available.",
-    "env": [
-      {
-        "name": "ENABLE_AST_REWRITE_APPLY",
+        "name": "OCTOCODE_BETA",
         "priority": 0
       }
     ],
@@ -709,15 +688,14 @@ export const ENV_TOKEN_VARS = ["OCTOCODE_TOKEN","GH_TOKEN","GITHUB_TOKEN","GITHU
 export type EnvTokenVar = (typeof ENV_TOKEN_VARS)[number];
 export const PROTECTED_KEY_NAMES = ["PATH","HOME","SHELL","USER","LOGNAME","PWD","TMPDIR","NODE_OPTIONS","PYTHON","GH_HOST","OCTOCODE_TOKEN","GH_TOKEN","GITHUB_TOKEN","GITHUB_PERSONAL_ACCESS_TOKEN","OCTOCODE_HOME","GITHUB_API_URL","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_CLASSIFICATION_TYPE","OCTOCODE_CLASSIFICATION_API","OCTOCODE_JEV_KEY","OCTOCODE_CLASSIFICATION_API_HOST"] as const;
 export const HOME_TRUSTED_ENV_KEYS = ["OCTOCODE_CLASSIFICATION_TYPE","OCTOCODE_CLASSIFICATION_API","OCTOCODE_JEV_KEY","OCTOCODE_CLASSIFICATION_API_HOST"] as const;
-export const CONFIG_SOURCE_ENV_KEYS = ["OCTOCODE_GITHUB_CLIENT_ID","GITHUB_API_URL","OCTOCODE_GITHUB_GRAPHQL","ENABLE_LOCAL","OCTOCODE_ENABLE_LOCAL","ENABLE_CLONE","OCTOCODE_ENABLE_CLONE","ENABLE_AST_REWRITE","ENABLE_AST_REWRITE_APPLY","ALLOWED_PATHS","WORKSPACE_ROOT","TOOLS_TO_RUN","DISABLE_TOOLS","REQUEST_TIMEOUT","MAX_RETRIES","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_LSP_CONFIG","OCTOCODE_OUTPUT_FORMAT","OCTOCODE_REDACT_EMAILS","OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH","OCTOCODE_STORAGE_MODE","OCTOCODE_EXTENSION_STORAGE_MODE","OCTOCODE_CLASSIFICATION_TYPE","OCTOCODE_CLASSIFICATION_API","OCTOCODE_JEV_KEY","OCTOCODE_CLASSIFICATION_API_HOST","OCTOCODE_ENABLE_STATS"] as const;
+export const CONFIG_SOURCE_ENV_KEYS = ["OCTOCODE_GITHUB_CLIENT_ID","GITHUB_API_URL","OCTOCODE_GITHUB_GRAPHQL","ENABLE_LOCAL","OCTOCODE_ENABLE_LOCAL","ENABLE_CLONE","OCTOCODE_ENABLE_CLONE","OCTOCODE_BETA","ALLOWED_PATHS","WORKSPACE_ROOT","TOOLS_TO_RUN","DISABLE_TOOLS","REQUEST_TIMEOUT","MAX_RETRIES","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_LSP_CONFIG","OCTOCODE_OUTPUT_FORMAT","OCTOCODE_REDACT_EMAILS","OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH","OCTOCODE_STORAGE_MODE","OCTOCODE_EXTENSION_STORAGE_MODE","OCTOCODE_CLASSIFICATION_TYPE","OCTOCODE_CLASSIFICATION_API","OCTOCODE_JEV_KEY","OCTOCODE_CLASSIFICATION_API_HOST","OCTOCODE_ENABLE_STATS"] as const;
 export type ConfigSourceEnvKey = (typeof CONFIG_SOURCE_ENV_KEYS)[number];
-export const DEFAULT_CONFIG_VALUE: ResolvedConfigData = { "session": { "enableStats": false }, "classification": { "type": "jev" }, "storage": { "mode": "persistent" }, "output": { "pagination": { "defaultCharLength": 20000 }, "redactEmails": false, "format": "yaml" }, "lsp": { "configPath": undefined }, "network": { "allowPrivateRegistry": false, "maxRetries": 3, "timeout": 30000 }, "tools": { "disabled": null, "enabled": null }, "local": { "workspaceRoot": undefined, "allowedPaths": [], "enableAstRewriteApply": false, "enableAstRewrite": false, "enableClone": false, "enabled": true }, "github": { "graphqlEnabled": true, "apiUrl": "https://api.github.com" }, "version": 1, "extension": { "storage": { "mode": "persistent" } } };
+export const DEFAULT_CONFIG_VALUE: ResolvedConfigData = { "session": { "enableStats": false }, "classification": { "type": "jev" }, "storage": { "mode": "persistent" }, "output": { "pagination": { "defaultCharLength": 20000 }, "redactEmails": false, "format": "yaml" }, "lsp": { "configPath": undefined }, "network": { "allowPrivateRegistry": false, "maxRetries": 3, "timeout": 30000 }, "tools": { "disabled": null, "enabled": null }, "local": { "workspaceRoot": undefined, "allowedPaths": [], "beta": false, "enableClone": false, "enabled": true }, "github": { "graphqlEnabled": true, "apiUrl": "https://api.github.com" }, "version": 1, "extension": { "storage": { "mode": "persistent" } } };
 export const DEFAULT_GITHUB_API_URL = "https://api.github.com" as const;
 export const DEFAULT_GITHUB_GRAPHQL_ENABLED = true as const;
 export const DEFAULT_LOCAL_ENABLED = true as const;
 export const DEFAULT_LOCAL_ENABLE_CLONE = false as const;
-export const DEFAULT_LOCAL_ENABLE_AST_REWRITE = false as const;
-export const DEFAULT_LOCAL_ENABLE_AST_REWRITE_APPLY = false as const;
+export const DEFAULT_LOCAL_BETA = false as const;
 export const DEFAULT_LOCAL_ALLOWED_PATHS = [] as const;
 export const DEFAULT_LOCAL_WORKSPACE_ROOT = null;
 export const DEFAULT_TOOLS_ENABLED = null;

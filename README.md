@@ -122,7 +122,7 @@ Every MCP tool is also a plain command named after the tool: JSON in, structured
 
 ```bash
 npx octocode localSearch \
-  '{"path":"/absolute/path/to/project","searchText":"authenticate","maxFiles":20,"reasoning":"locate the auth entry point"}'
+  '{"path":"/absolute/path/to/project","searchText":"authenticate","pageSize":20,"reasoning":"locate the auth entry point"}'
 ```
 ```json
 {
@@ -169,7 +169,7 @@ The research layer connects **local code** and **external code** on GitHub and p
 - **Scales to monorepos.** Spot a pattern in one repository, follow the PR that introduced it, then trace it across other repositories and your own files, without leaving the chat.
 - **Smart GitHub flow.** Parallel bulk queries across code, PRs, commits, issues, and repositories, all with the same search-broad, read-narrow, trace-semantically discipline.
 - **Works without GitHub.** Clone any repository and point the local tools (search, AST, LSP, content) at it, same evidence-first flow.
-- **Reads shape, not noise.** On-the-fly best-effort minification across broad code/data formats, plus grammar-backed outlines for the 25 first-class extensions: a large file becomes focused evidence instead of walls of boilerplate.
+- **Reads shape, not noise.** On-the-fly best-effort minification across broad code/data formats, plus grammar-backed outlines for the 30 first-class extensions: a large file becomes focused evidence instead of walls of boilerplate.
 - **Fast, self-contained.** Search, parsing, navigation, and redaction run in one prebuilt **Rust engine**: quick on a laptop or a mega-repo, nothing extra to install.
 - **Safe by default.** Every byte to the model is scanned and secrets redacted first (see [Security](#security)).
 
@@ -205,16 +205,17 @@ than `gh`+Headroom, and ~3.2× fewer than `gh`+RTK** in the local-build headline
 
 ## Tools
 
-**12 tools in the full discovery catalog.** MCP advertises ten by default when
-no Jev provider key is resolved. Repository cloning is opt-in, and MCP registers
-`clasify` only with a nonblank `OCTOCODE_JEV_KEY`. The CLI keeps the
-command discoverable and returns an actionable `OCTOCODE_JEV_KEY` setup error
-if it is called without the key:
+**12 tools in the full discovery catalog.** By default MCP registers **9** — it
+omits the three gated tools until their gate is set: `clasify` (needs
+`OCTOCODE_CLASSIFICATION_API`, or its `OCTOCODE_JEV_KEY` alias), `ghCloneRepo`
+(needs `ENABLE_CLONE` + persistent storage), and `astRewrite` (a beta feature,
+needs `OCTOCODE_BETA`). The CLI keeps all 12 commands discoverable and returns an
+actionable setup error naming the exact gate when a gated command is called.
 
-| Surface | Registers | What that set is |
+| Surface | Registers by default | Gated tools |
 |---|---:|---|
-| MCP, no flags | 10 | Credential-gated `clasify` and opt-in `ghCloneRepo` are omitted. |
-| CLI, no flags | 10 | Twelve commands remain discoverable; `clasify` explains the missing key and `ghCloneRepo` explains its opt-in gate when called. |
+| MCP, no flags | 9 of 12 | `clasify`, `ghCloneRepo`, and `astRewrite` omitted until enabled. |
+| CLI, no flags | 12 discoverable | Gated commands run only when enabled; otherwise each explains the gate to set. |
 
 Use `TOOLS_TO_RUN` for a strict allowlist or `DISABLE_TOOLS` to remove tools from
 the default set. `ENABLE_LOCAL=false` disables local, graph, and LSP tools;
@@ -229,7 +230,7 @@ Flags: [Configuration](https://github.com/bgauryy/octocode/blob/main/docs/CONFIG
 |------|--------------|------|
 | `ghSearch` | Discover GitHub code, repositories, or repository trees through strict `operation:"code"`, `"repositories"`, or `"tree"` queries. Accepts 1 to 5 parallel queries. | `operation` |
 | `ghGetFileContent` | Read a GitHub file or region: full file, line range, match slice, or paginated chars. | `minify` |
-| `ghSearchHistory` | Search or list pull requests, issues, or commits through strict `operation:"pullRequests"`, `"issues"`, or `"commits"` queries. | `operation` |
+| `ghSearchHistory` | Search or list pull requests, issues, or commits through strict `operation:"pullRequest"`, `"issue"`, or `"commit"` queries. | `operation` |
 | `ghGetHistoryItem` | Read one pull request or issue by `number`, one commit by `ref`, or a comparison by `base`+`head`. | `operation` |
 | `ghCloneRepo` | Clone a repository or sparse subtree into the local cache for local and LSP analysis. Requires `ENABLE_LOCAL=true`, `ENABLE_CLONE=true`, and persistent storage. | `sparsePath` |
 
@@ -242,7 +243,7 @@ or trees with its strict `operation` field.
 |------|--------------|------|
 | `localSearch` | Lexical text and regex search over local files. | `searchText` |
 | `astSearch` | AST shape, file, tree, symbol, and topology queries. | `operation` |
-| `astRewrite` | Preview or apply snapshot-bound structural rewrites. Apply is separately opt-in. | `apply` |
+| `astRewrite` | Preview or apply snapshot-bound structural rewrites. Beta feature gated by `OCTOCODE_BETA` (the sole gate for both preview and apply). | `apply` |
 | `localFetch` | Read a local file or region: exact slice, match string, line range, or paginated chars. | `minify` |
 
 ### Package search
@@ -361,7 +362,8 @@ Most-used settings (both CLI and MCP unless noted):
 | `ALLOWED_PATHS` | `local.allowedPaths` | `[]` | Extra path allowlist for local access. |
 | `OCTOCODE_OUTPUT_FORMAT` | `output.format` | `yaml` | Response format: `yaml` or `json`. |
 | `OCTOCODE_STORAGE_MODE` | `storage.mode` | `persistent` | Set `memory` to prevent persistent runtime state and materialization. |
-| `OCTOCODE_JEV_KEY` | env only | unset | TypeSafe Jev API key. A nonblank resolved value exposes `clasify` through MCP; CLI calls without it explain how to enable the command. Never commit it. |
+| `OCTOCODE_BETA` | `local.beta` | `false` | Enable beta features — the sole gate for the `astRewrite` tool (both preview and apply). |
+| `OCTOCODE_CLASSIFICATION_API` | env only | unset | Classification provider API key (`OCTOCODE_JEV_KEY` is the jev-vendor alias). A nonblank value exposes `clasify` through MCP; CLI calls without it explain how to enable the command. Never commit it. |
 
 `OCTOCODE_HOME`, GitHub Enterprise (`GITHUB_API_URL`), MCP tool filtering (`TOOLS_TO_RUN`/`DISABLE_TOOLS`), and network timeouts/retries: see the [Configuration Reference](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md).
 
@@ -433,7 +435,7 @@ Create a token at [github.com/settings/tokens](https://github.com/settings/token
 - **Schema validation** runs before any tool executes; untrusted input size and shape are bounded.
 - **Credentials.** GitHub auth through environment tokens, the operating-system credential store, or the `gh` CLI; tokens are never logged.
 
-**Full security model, pipeline, and threat coverage: [SECURITY.md](https://github.com/bgauryy/octocode/blob/main/docs/SECURITY.md).** Related: [Configuration and authentication](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) · [Credentials](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#github-token)
+**Full security model, pipeline, and threat coverage: [SECURITY.md](https://github.com/bgauryy/octocode/blob/main/docs/SECURITY.md).** Related: [Configuration and authentication](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) · [Credentials](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#authentication)
 
 ---
 
@@ -459,7 +461,7 @@ Text search, ordinary reads, GitHub/history tools, and artifact lookup remain la
 > [Agent Skills](https://agentskills.io/what-are-skills) are a lightweight, open format for extending AI agent capabilities.
 > Browse and install on [**skills.sh/bgauryy/octocode-mcp**](https://www.skills.sh/bgauryy/octocode-mcp)
 
-**13 skills** under [`skills/`](https://github.com/bgauryy/octocode/tree/main/skills), bundled in the `octocode` package. Each is a lean `SKILL.md` that loads references only when needed, so they compose. Start with ⭐ [Research](https://www.skills.sh/bgauryy/octocode-mcp/octocode-research) for evidence-first code work.
+**14 skills** under [`skills/`](https://github.com/bgauryy/octocode/tree/main/skills), bundled in the `octocode` package. Each is a lean `SKILL.md` that loads references only when needed, so they compose. Start with ⭐ [Research](https://www.skills.sh/bgauryy/octocode-mcp/octocode-research) for evidence-first code work.
 
 ```bash
 npx octocode skill list
@@ -473,6 +475,7 @@ npx octocode skill help
 |-------|----------|
 | ⭐ [**octocode-research**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-research) | Evidence-first research, review, debugging, refactors, prior-art validation. |
 | [**octocode-architect**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-architect) | Architecture and algorithm review, dependency/flow analysis, verified flaw detection, and evidence-gated refactoring. |
+| [**octocode-clasify**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-clasify) | Judge unread candidates (Noul / Choice / Score) to decide what to read before spending context; skip exact checks and settled decisions. |
 | [**octocode-scraping**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-scraping) | Public page extraction and crawl triage: static corpus + graph v2 (pages/data/actions/risks/evidence), then CDP handoff for dynamic actions and blocked pages. |
 | [**octocode-chrome-devtools**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-chrome-devtools) | Browser/CDP evidence: network, console, performance, cookies/storage, screenshots, auth-gated pages, and live validation of scrape-graph actions. |
 
@@ -487,6 +490,7 @@ npx octocode skill help
 | Skill | Use when |
 |-------|----------|
 | [**octocode-roast**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-roast) | Blunt, evidence-backed code critique with severity ranking and repair paths. |
+| [**octocode-clean-agentic-code**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-clean-agentic-code) | Behavior-preserving cleanup: dead exports, shims, duplicate logic, stale prose/config/tests, and agent residue (AI slop). |
 | [**octocode-eval-benchmark**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-eval-benchmark) | Smart evals and honest benchmarks: goal→KPI contracts, graders, held-out suites, guardrails, and accept/revert loops. |
 | [**octocode-prompt-optimizer**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-prompt-optimizer) | Making prompts, tool schemas, and agent contracts clearer, safer, cheaper, measurable. |
 

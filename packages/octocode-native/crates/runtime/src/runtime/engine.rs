@@ -275,7 +275,7 @@ impl ToolRuntime {
         let github = matches!(id, Some(t) if t.is_github() && t != ToolId::GhCloneRepo);
         let local_tools = local
             && matches!(id, Some(t) if t.is_local())
-            && (id != Some(ToolId::AstRewrite) || self.config.resolved.local.enable_ast_rewrite);
+            && (id != Some(ToolId::AstRewrite) || self.config.resolved.local.beta);
         let classification = matches!(id, Some(t) if t.is_clasify())
             && self
                 .classification_key()
@@ -395,10 +395,10 @@ impl ToolRuntime {
         mcp: bool,
     ) -> Result<ToolOutcome, RuntimeError> {
         if !self.is_available(&tool) {
-            if !mcp && tool == "astRewrite" && !self.config.resolved.local.enable_ast_rewrite {
+            if !mcp && tool == "astRewrite" && !self.config.resolved.local.beta {
                 return Err(RuntimeError::new(
                     "missingConfiguration",
-                    "astRewrite is disabled by default. Set ENABLE_AST_REWRITE=true or local.enableAstRewrite:true before retrying.",
+                    "astRewrite is a beta feature, disabled by default. Set OCTOCODE_BETA=true or local.beta:true before retrying.",
                 ));
             }
             if !mcp
@@ -410,7 +410,17 @@ impl ToolRuntime {
             {
                 return Err(RuntimeError::new(
                     "missingConfiguration",
-                    "clasify requires OCTOCODE_CLASSIFICATION_API (or the jev vendor's OCTOCODE_JEV_KEY). Create a classification provider API key (jev: https://docs.typesafe.ai/introduction) and set OCTOCODE_CLASSIFICATION_API before retrying.",
+                    {
+                        let vendor = self.config.resolved.classification.r#type.as_str();
+                        let p = crate::providers::classification::provider_for(vendor);
+                        format!(
+                            "clasify requires OCTOCODE_CLASSIFICATION_API (or the {vendor} \
+                             vendor's {}). Create a classification provider API key ({}) \
+                             and set OCTOCODE_CLASSIFICATION_API before retrying.",
+                            p.key_env(),
+                            p.docs_url(),
+                        )
+                    },
                 ));
             }
             return Err(RuntimeError::new(
@@ -542,22 +552,23 @@ impl ToolRuntime {
         let classification_provider = crate::providers::classification::provider_for(
             self.config.resolved.classification.r#type.as_str(),
         );
-        let jev_key = self
+        let classification_key_secret = self
             .classification_key()
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(|value| SecretString::from(value.to_owned()));
-        let jev_base_url = self
+        let classification_base_url = self
             .config
             .env_value("OCTOCODE_CLASSIFICATION_API_HOST")
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_owned)
             .unwrap_or_else(|| classification_provider.default_host().to_owned());
-        let jev_endpoint_path = classification_provider.endpoint_path().to_owned();
-        let jev_model = classification_provider.default_model().to_owned();
-        let jev_timeout = Duration::from_millis(self.config.resolved.network.timeout as u64);
-        let jev_retries = self.config.resolved.network.max_retries as u32;
+        let classification_endpoint_path = classification_provider.endpoint_path().to_owned();
+        let classification_model = classification_provider.default_model().to_owned();
+        let classification_timeout =
+            Duration::from_millis(self.config.resolved.network.timeout as u64);
+        let classification_retries = self.config.resolved.network.max_retries as u32;
         let stats_enabled = config::is_stats_enabled(&self.config.resolved);
         let redact_emails = self.config.resolved.output.redact_emails;
         let output_tool = tool.clone();
@@ -569,26 +580,28 @@ impl ToolRuntime {
                 let mut source_digest = None;
                 let mut source_digests = Vec::with_capacity(queries.len());
                 let mut failure = None;
-                let mut jev_rows = if tool == "clasify" {
+                let mut classification_rows = if tool == "clasify" {
                     let _enter = handle.enter();
-                    let Some(key) = jev_key.as_ref() else {
+                    let Some(key) = classification_key_secret.as_ref() else {
                         return Err(ExecutionError::WorkerFailed);
                     };
                     let evaluation_context = ExecutionContext {
-                        deadline: context.deadline.min(Instant::now() + jev_timeout),
+                        deadline: context.deadline.min(
+                            Instant::now() + classification_timeout,
+                        ),
                         ..context.clone()
                     };
-                    let evaluated = super::jev_batch::execute(
+                    let evaluated = super::clasify_batch::execute(
                         &queries,
                         &dispatcher,
                         &evaluation_context,
-                        super::jev_batch::ProviderConfig {
+                        super::clasify_batch::ProviderConfig {
                             key,
-                            base_url: &jev_base_url,
-                            endpoint_path: &jev_endpoint_path,
-                            model: &jev_model,
+                            base_url: &classification_base_url,
+                            endpoint_path: &classification_endpoint_path,
+                            model: &classification_model,
                             provider: classification_provider,
-                            retries: jev_retries,
+                            retries: classification_retries,
                         },
                         |usage| {
                             super::session_stats::record_jev(
@@ -604,7 +617,7 @@ impl ToolRuntime {
                 };
                 for (index, query) in queries.iter().enumerate() {
                     context.check()?;
-                    let result = match jev_rows.as_mut() {
+                    let result = match classification_rows.as_mut() {
                         Some(rows) => rows.next().ok_or(ExecutionError::WorkerFailed)?,
                         None => dispatcher.execute(&tool, query, &context)?,
                     };
@@ -663,7 +676,7 @@ impl ToolRuntime {
                 let rendered_text =
                     render.then(|| super::render::render_tool(&tool, &structured, &response_query));
                 context.check()?;
-                let jev_output = tool == "clasify";
+                let is_clasify_output = tool == "clasify";
                 let prepared = ResponsePager::new(ResponsePagerConfig::default())
                     .prepare(
                         ResponseInput {
@@ -682,7 +695,7 @@ impl ToolRuntime {
                 let mut structured_content = prepared.structured_content;
                 // Jev receipts retain executable tool/query pairs. Their tool
                 // scopes differ from the outer Jev request's cursor scope.
-                if !jev_output {
+                if !is_clasify_output {
                     inject_cursors(&mut structured_content, &cursor_scope, &source_digests);
                 }
                 context.check()?;

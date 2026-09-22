@@ -30,13 +30,15 @@ interface MachineCatalog {
   tools: MachineToolEntry[];
 }
 
-const USAGE = `octocode scheme [toolName] [--view full|query] [--select FIELD=VALUE] [--compact]
+const USAGE = `octocode scheme [toolName] [--view full|query|variants] [--select FIELD=VALUE] [--compact]
 
   octocode scheme                   list every tool, availability, and agent instructions
-  octocode scheme <toolName>        print the tool's contract
-  octocode scheme <toolName> --view query [--select FIELD=VALUE]
+  octocode scheme <toolName>        print the tool's contract with variants before its schema
+  octocode scheme <toolName> --view variants
+                                    compact branch names, selectors, and examples
+  octocode scheme <toolName> --view query [--select variant=NAME]
                                     self-contained query schema, optionally isolated
-                                    to one union branch`;
+                                    to one named variant or const field/value`;
 
 function writeJson(value: unknown, compact: boolean): number {
   console.log(compact ? JSON.stringify(value) : JSON.stringify(value, null, 2));
@@ -99,15 +101,21 @@ export async function runScheme(args: ParsedArgs): Promise<number> {
   if (
     viewOption !== undefined &&
     viewOption !== 'full' &&
-    viewOption !== 'query'
+    viewOption !== 'query' &&
+    viewOption !== 'variants'
   ) {
     emitError(
-      `--view expects full|query, got: ${String(viewOption)}`,
+      `--view expects full|query|variants, got: ${String(viewOption)}`,
       jsonErrors
     );
     return EXIT.USAGE;
   }
-  const view: SchemeView = viewOption === 'query' ? 'query' : 'full';
+  const view: SchemeView =
+    viewOption === 'query'
+      ? 'query'
+      : viewOption === 'variants'
+        ? 'variants'
+        : 'full';
   const select =
     typeof args.options.select === 'string' ? args.options.select : undefined;
   const toolName = args.args[0];
@@ -177,7 +185,8 @@ export async function runScheme(args: ParsedArgs): Promise<number> {
           'Compact discovery catalog with availability-scoped agent instructions. Inspect one tool before execution.',
         commands: {
           schema: 'scheme <name>',
-          querySchema: 'scheme <name> --view query',
+          variants: 'scheme <name> --view variants',
+          querySchema: 'scheme <name> --view query [--select variant=<name>]',
           run: "<name> '<json>'",
         },
         instructions: buildMcpInstructions(enabled),

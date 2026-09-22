@@ -59,7 +59,7 @@ describe.skipIf(!ready)('launcher → native binary e2e', () => {
       reasoning: 'Launcher e2e: prove the delegation boundary executes tools.',
       path: resolve(__dirname, '..', '..', 'src'),
       searchText: 'delegateToNative',
-      maxFiles: 5,
+      pageSize: 5,
     });
     const result = runLauncher(['localSearch', query, '--compact']);
     expect(result.status).toBe(0);

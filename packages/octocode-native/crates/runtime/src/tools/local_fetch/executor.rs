@@ -400,7 +400,7 @@ fn bounded_continuation(q: &LocalFetchRequest) -> NextCalls {
     query.full_content = None;
     query.chunk_type = Some(ChunkType::Lines);
     query.offset = Some(0);
-    query.limit = Some(100);
+    query.chunk_size = Some(100);
     NextCalls {
         r#continue: Some(Continuation {
             tool: "localFetch".into(),

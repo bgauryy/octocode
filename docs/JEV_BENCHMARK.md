@@ -60,7 +60,7 @@ These retired tools required `OCTOCODE_CLASSIFICATION_API` and returned provider
 names instead of reframing the packet. Scout verdicts are provisional — reopen
 the returned anchors before asserting anything, and never report absence from a
 skip. At the time, the retired `octocode-jev-reasoning-loop` skill owned the
-reference runners. The current [semantic-assessment research guide](CLASIFY_RESEARCH_GUIDE.md)
+reference runners. The current [semantic assessment reference](OCTOCODE_CLASIFY.md)
 keeps the durable LOCATE → ASSESS → VERIFY boundary.
 
 ## Agent WITH vs WITHOUT Jev — the head-to-head (2026-09-19)

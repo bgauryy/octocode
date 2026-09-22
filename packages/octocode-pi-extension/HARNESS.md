@@ -127,14 +127,13 @@ discovery in `src/tools/skill-discovery.ts` resolves one effective skill per nam
 from valid Pi metadata, native roots, reviewed foreign links, and the bundle.
 Bundled names win unless an exact source is explicitly selected. Ordinary workspace
 definitions outrank global ones; the nearest repository ancestor wins. Recursive
-and linked directories retain source identity and change diagnostics. The bundled
-`octocode-awareness` skill is loadable and owns detailed operating guidance. See the
-[15-skill inventory](README.md#bundled-skills-15) for the complete enabled bundle.
+and linked directories retain source identity and change diagnostics. Awareness is
+provided by the native runtime and `awareness` tool, not by a bundled skill. See the
+[14-skill inventory](README.md#bundled-skills-14) for the complete enabled bundle.
 
-| Skill | Source |
+| Skills | Source |
 |---|---|
-| `octocode-awareness` | Canonical `@octocodeai/octocode-awareness` package skill |
-| Other bundled skills | Build-managed sources; see the README inventory |
+| Bundled workflow skills | Build-managed `octocode` package sources; see the README inventory |
 
 Env var `OCTOCODE_SKILL_ROOT` is set to the skill root so bundled skills can locate their assets.
 
@@ -344,7 +343,7 @@ Resolved by `getAssetPaths()` in `src/assets.ts`.
  1  flag                     (--no-context)
     lifecycle hooks          (hookComposer plus reviewed declarative event adapters)
     direct pi.on handlers    (metrics, UI, worker inbox, Awareness, and Pi-owned compaction observation)
-15  bundled skills           (including the canonical octocode-awareness skill)
+14  bundled workflow skills  (Awareness is a native runtime/tool capability, not a bundled skill)
  7  worker profiles          (researcher, architect, planner, implementer, reviewer, browser, custom)
  1  built-in MCP server      (octocode — cache-first npx, pre-warmed at session start)
  1  composed system prompt     (host facts + canonical coder kernel + Awareness guide + runtime bindings)

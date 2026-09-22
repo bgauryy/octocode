@@ -961,7 +961,7 @@ mod tests {
         let output = envelope(vec![result_row(
             "ghSearchHistory",
             0,
-            &json!({"operation":"pullRequests"}),
+            &json!({"operation":"pullRequest"}),
             json!({
                 "type":"pullRequests",
                 "pullRequests":[

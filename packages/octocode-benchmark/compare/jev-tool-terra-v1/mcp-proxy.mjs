@@ -110,7 +110,7 @@ async function main() {
     appendFileSync(logPath, `${JSON.stringify(redact(value))}\n`, { mode: 0o600 });
   };
   const allowed = [...READ_TOOLS, ...(config.arm === 'candidate' ? ['jev'] : [])];
-  const env = { ...process.env, TOOLS_TO_RUN: allowed.join(','), ENABLE_LOCAL: 'false', ENABLE_CLONE: 'false', ENABLE_AST_REWRITE_APPLY: 'false' };
+  const env = { ...process.env, TOOLS_TO_RUN: allowed.join(','), ENABLE_LOCAL: 'false', ENABLE_CLONE: 'false', OCTOCODE_BETA: 'false' };
   delete env.JEV_BENCH_CONFIG;
   if (config.arm === 'baseline') env.OCTOCODE_CLASSIFICATION_API = '';
   const downstream = new Client({ name: 'jev-tool-terra-proxy', version: '1.0.0' }, { capabilities: {} });

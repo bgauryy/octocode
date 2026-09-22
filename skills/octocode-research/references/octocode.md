@@ -8,7 +8,7 @@ Prefer exposed Octocode MCP tools with current public contracts. If unavailable,
 ```bash
 node packages/octocode/out/octocode.js scheme --compact
 node packages/octocode/out/octocode.js scheme localSearch --view query --compact
-node packages/octocode/out/octocode.js localSearch '{"reasoning":"<why>","path":"/ABS/repo/src","searchText":"needle","resultView":"matchOnly","maxFiles":10}' --compact
+node packages/octocode/out/octocode.js localSearch '{"reasoning":"<why>","path":"/ABS/repo/src","searchText":"needle","resultView":"matchOnly","pageSize":10}' --compact
 ```
 
 Run `scheme` once per session or tool-version change to discover enabled tools; `scheme <tool>` prints that tool's public input contract. `clasify` requires nonblank `reasoning`; ordinary tools accept it as optional context. The grammar inventory lives in the live tool schemas (the `langType` enum from `scheme astSearch`): a language name, grammar ID, or alias selects its family; a dot-prefixed extension selects exactly; parser availability does not imply LSP availability. Never copy a static grammar list into a skill. Inspect an unfamiliar schema once, including relations and operation variants; reuse it until the tool/version changes. Use the default public schema view when compact fields do not resolve an input condition. CLI and MCP discovery do not expose internal output-validation schemas. Explicit commands above work in Bash and zsh without splitting a command stored in a scalar.

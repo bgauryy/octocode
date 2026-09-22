@@ -149,7 +149,7 @@
         "tool": "ghSearchHistory",
         "query": {
           "reasoning": "Find merged pull requests about routing.",
-          "operation": "pullRequests",
+          "operation": "pullRequest",
           "owner": "fixture-owner",
           "repo": "fixture-repo",
           "keywords": ["routing"],
@@ -167,7 +167,7 @@
         "tool": "ghSearchHistory",
         "query": {
           "reasoning": "Find open schema-drift issues.",
-          "operation": "issues",
+          "operation": "issue",
           "owner": "fixture-owner",
           "repo": "fixture-repo",
           "keywords": ["schema drift"],
@@ -185,7 +185,7 @@
         "tool": "ghSearchHistory",
         "query": {
           "reasoning": "Trace commits that changed the routing module.",
-          "operation": "commits",
+          "operation": "commit",
           "owner": "fixture-owner",
           "repo": "fixture-repo",
           "path": "src/routing.ts"

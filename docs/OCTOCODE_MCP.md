@@ -2,7 +2,7 @@
 
 The Octocode MCP server is the toolkit's standard interface for AI coding clients. It exposes Octocode's research tools through the Model Context Protocol over stdio. The server is intentionally thin: it registers schemas and transports requests, while tool behavior and distribution live in `@octocodeai/octocode-native`; reusable primitives remain isolated in its engine crate and `./engine` subpath.
 
-Use this page for the MCP mental model, startup lifecycle, client configuration entry points, and session persistence. For every tool, see [Octocode tools reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md). For settings, GitHub tokens, and encrypted credential storage, see [Octocode configuration and authentication](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md).
+Use this page for the MCP mental model, startup lifecycle, client configuration entry points, and session persistence. For every tool, see [Octocode tools reference](OCTOCODE_TOOLS.md). For settings, GitHub tokens, and encrypted credential storage, see [Octocode configuration and authentication](CONFIGURATION.md).
 
 ## What MCP adds
 
@@ -37,7 +37,7 @@ Otherwise, configure an MCP client directly to run `octocode-mcp`:
 }
 ```
 
-Set tokens through environment variables or run `npx octocode auth login`. Don't put tokens in `.octocoderc`. For more information, see the [Authentication](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#authentication) section of the configuration reference.
+Set tokens through environment variables or run `npx octocode auth login`. Don't put tokens in `.octocoderc`. For more information, see the [Authentication](CONFIGURATION.md#authentication) section of the configuration reference.
 
 ## Startup lifecycle
 
@@ -57,11 +57,12 @@ At startup, the Node adapter loads the platform-specific Rust N-API addon (`@oct
 
 ## Tool catalog
 
-The full discovery catalog contains 12 tools. With the default settings and no
-Jev provider key, the MCP server registers 10. `ghCloneRepo` execution is opt-in and requires
-`ENABLE_CLONE=true` plus persistent storage, while `clasify`
-is registered only when the resolved `OCTOCODE_CLASSIFICATION_API` is nonblank. An absent
-or whitespace-only key omits the tool from MCP discovery.
+The full discovery catalog contains 12 tools. With default settings and no
+provider key, the MCP server registers 9: it omits the three gated tools until
+each gate is set — `clasify` (needs a nonblank `OCTOCODE_CLASSIFICATION_API`),
+`ghCloneRepo` (needs `ENABLE_CLONE=true` plus persistent storage), and
+`astRewrite` (a beta feature, needs `OCTOCODE_BETA=true`). Unavailable tools are
+omitted from MCP discovery entirely, not registered as failing calls.
 
 | Family | Tools |
 |--------|-------|
@@ -70,9 +71,9 @@ or whitespace-only key omits the tool from MCP discovery.
 | Package | `artifactSearch` |
 | Semantic assessment | `clasify` |
 
-`astRewrite` is omitted from MCP discovery unless `ENABLE_AST_REWRITE=true`.
-Once enabled it is preview-first; file mutation is separately opt-in with
-`ENABLE_AST_REWRITE_APPLY=true` and requires the complete set of preview hashes.
+`astRewrite` is a beta feature, omitted from MCP discovery unless `OCTOCODE_BETA=true`
+(or `local.beta:true`) — the sole gate for both preview and apply. It is
+preview-first; applying a mutation requires the complete set of preview hashes.
 
 To read the live CLI catalog, run `octocode scheme`.
 
@@ -86,7 +87,7 @@ does not publish output schemas; core and the native runtime retain them for
 internal result validation and drift detection. Runtime results use the shared
 structured bulk envelope with per-query success, empty, and error states, plus
 typed evidence and pagination data when more content is available. For the
-complete response and continuation rules, see the [Octocode tools reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md).
+complete response and continuation rules, see the [Octocode tools reference](OCTOCODE_TOOLS.md).
 
 ## Configuration and auth
 
@@ -111,7 +112,7 @@ Use environment variables for per-client or per-project settings. Use `<octocode
 | `OCTOCODE_CLASSIFICATION_TYPE` | `jev` | Classification vendor selector; per-vendor model/host/endpoint defaults are built in (jev → model `jev-latest`). Results preserve both requested and resolved model names. |
 | `OCTOCODE_CLASSIFICATION_API_HOST` | vendor default (jev: `https://api.typesafe.ai`) | Optional override of the selected vendor's trusted API root. |
 
-For full details, see the [Octocode configuration and authentication](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) reference.
+For full details, see the [Octocode configuration and authentication](CONFIGURATION.md) reference.
 
 ## Tool name migration
 
@@ -150,7 +151,7 @@ The MCP server shares the same on-disk cache as the CLI under the configured Oct
 
 Initialization performs a persisted maintenance due-check. After the transport connects, MCP schedules the next persisted deadline with an unreferenced timer, so the timer does not keep the process alive. A cross-process lock prevents concurrent sweeps when CLI and MCP processes start together. Cleanup is best effort and is cancelled during shutdown; a cleanup failure does not block server startup or tool execution.
 
-Maintenance removes expired owned cache entries while preserving unrelated files under `tmp`. See [Cache storage and lifecycle](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#cache-storage-and-lifecycle) for the 24-hour gate, expiry rules, limits, and manual controls, and [Cache behavior](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md#cache-behavior) for tool-level semantics.
+Maintenance removes expired owned cache entries while preserving unrelated files under `tmp`. See [Cache storage and lifecycle](CONFIGURATION.md#cache-storage-and-lifecycle) for the 24-hour gate, expiry rules, limits, and manual controls, and [Cache behavior](OCTOCODE_TOOLS.md#cache-behavior) for tool-level semantics.
 
 ## Session persistence
 
@@ -225,14 +226,9 @@ Testing helper: `_resetSessionState()` clears the cache, the timer, and the exit
 - Call `flushSession()` in explicit shutdown paths when possible.
 - Use `_resetSessionState()` in tests that touch session state.
 
-### Related documentation
-
-- [Token priority order](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#token-priority-order)
-- [Tools core package](https://github.com/bgauryy/octocode/blob/main/packages/octocode-native/README.md)
-
 ## See also
 
-- [Octocode tools reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md)
-- [Octocode configuration and authentication](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md)
-- [Octocode CLI guide](https://github.com/bgauryy/octocode/blob/main/packages/octocode/docs/OCTOCODE_CLI.md)
-- [Security](https://github.com/bgauryy/octocode/blob/main/docs/SECURITY.md)
+- [Octocode tools reference](OCTOCODE_TOOLS.md)
+- [Octocode configuration and authentication](CONFIGURATION.md)
+- [Octocode CLI guide](../packages/octocode/docs/OCTOCODE_CLI.md)
+- [Security](SECURITY.md)

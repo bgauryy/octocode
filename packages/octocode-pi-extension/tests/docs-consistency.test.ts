@@ -151,7 +151,7 @@ test('README bundled-skill count and names match the canonical bundle inventory'
   for (const skill of skills) {
     assert.ok(readme.includes(`\`${skill}\``), `${skill} missing from README bundled-skill inventory`);
   }
-  assert.ok(skills.includes('octocode-awareness'), 'full Awareness guidance is included');
+  assert.equal(skills.includes('octocode-awareness'), false, 'Awareness must not be bundled as a skill');
   assert.equal(skills.some((skill) => skill.includes('awareness-lite')), false);
 });
 

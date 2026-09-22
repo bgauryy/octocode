@@ -28,7 +28,7 @@ unavailable capabilities with each acceptance run. Enabling a tool does not
 install its external language server or grant provider access.
 
 Public schemas, descriptions, and shared instructions belong to `@octocodeai/octocode-core`.
-[Native runtime](https://github.com/bgauryy/octocode/blob/main/packages/octocode-native/ARCHITECTURE.md) owns execution and response shaping. CLI and MCP expose
+[Native runtime](../packages/octocode-native/ARCHITECTURE.md) owns execution and response shaping. CLI and MCP expose
 those contracts through their respective interfaces. Test both when changing
 registration, schema projection, output formatting, or continuation rendering.
 
@@ -119,7 +119,7 @@ the change affects caching.
 
 Do not accept fewer requests if a requested collection disappears, fewer tokens
 if matched evidence is removed, or a faster result if pagination becomes
-unreachable. Use the [benchmark guidance](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/README.md)
+unreachable. Use the [benchmark guidance](../packages/octocode-benchmark/README.md)
 for measured comparisons; record commands and artifacts with the result.
 
 ## Per-tool verification matrix
@@ -157,7 +157,7 @@ filename overrides. Check every configured extension with meaningful syntax;
 configuration presence alone is not a correctness test. Keep grammar fixtures,
 outline fixtures, graph resolution, and real LSP-server runs as separate coverage
 dimensions. See the
-[language and feature reference](https://github.com/bgauryy/octocode/blob/main/packages/octocode-native/docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md).
+[language and feature reference](../packages/octocode-native/docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md).
 
 Include comments containing delimiters, strings containing comment-like text,
 TypeScript type declarations/imports, JSX/TSX, data and markup, indentation-sensitive
@@ -169,7 +169,7 @@ and parity checks; an ignored annotation alone is not a passing receipt.
 
 ## Record release evidence
 
-Follow the [monorepo verification instructions](https://github.com/bgauryy/octocode/blob/main/AGENTS.md) and the affected
+Follow the [monorepo verification instructions](../AGENTS.md) and the affected
 package's build/test commands. Rebuild changed engine and native runtime packages,
 then rebuild the CLI before exercising the real tool path. Run relevant unit and
 integration tests, lint, type checks, and the affected CLI/MCP acceptance calls.

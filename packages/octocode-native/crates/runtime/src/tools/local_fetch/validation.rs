@@ -33,8 +33,8 @@ pub fn validate_request(q: &LocalFetchRequest) -> Result<(), String> {
     if q.context_bytes.is_some() && !matched {
         return Err("contextBytes requires matchString".into());
     }
-    if q.limit == Some(0) {
-        return Err("limit must be at least 1".into());
+    if q.chunk_size == Some(0) {
+        return Err("chunkSize must be at least 1".into());
     }
     Ok(())
 }

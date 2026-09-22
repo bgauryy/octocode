@@ -268,9 +268,9 @@ npx octocode ghSearch '{"operation":"code","keywords":["ZodObject"],"owner":"col
 ### Pull requests and history
 
 ```bash
-npx octocode ghSearchHistory '{"operation":"pullRequests","owner":"bgauryy","repo":"octocode","state":"merged","pageSize":10,"reasoning":"Survey merged PRs."}'
+npx octocode ghSearchHistory '{"operation":"pullRequest","owner":"bgauryy","repo":"octocode","state":"merged","pageSize":10,"reasoning":"Survey merged PRs."}'
 npx octocode ghGetHistoryItem '{"operation":"pullRequest","owner":"bgauryy","repo":"octocode","number":123,"content":{"patches":{"mode":"all"},"comments":{"discussion":true}},"reasoning":"Read PR 123."}'
-npx octocode ghSearchHistory '{"operation":"commits","owner":"bgauryy","repo":"octocode","path":"packages/octocode/src","since":"2024-01-01T00:00:00Z","reasoning":"Find recent commits."}'
+npx octocode ghSearchHistory '{"operation":"commit","owner":"bgauryy","repo":"octocode","path":"packages/octocode/src","since":"2024-01-01T00:00:00Z","reasoning":"Find recent commits."}'
 npx octocode ghGetHistoryItem '{"operation":"compare","owner":"bgauryy","repo":"octocode","base":"v1.0.0","head":"v2.0.0","reasoning":"Diff releases."}'
 ```
 

@@ -2,11 +2,19 @@
 // the retired Rust `cli/schema.rs` views. No I/O — the `scheme` command
 // composes these with the native machine catalog.
 
+import { usageLines } from './scheme-usage.js';
+
+export { usageLines };
+
 export type JsonValue =
   null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 export type JsonObject = { [key: string]: JsonValue };
 
-export type SchemeView = 'full' | 'query';
+export type SchemeView = 'full' | 'query' | 'variants';
+
+function cloneJson(value: JsonValue): JsonValue {
+  return JSON.parse(JSON.stringify(value)) as JsonValue;
+}
 
 function jsonType(value: JsonValue | undefined): string {
   if (value === null) return 'null';
@@ -81,13 +89,37 @@ function pruneUnreachableDefs(schema: JsonObject): void {
 
 export function project(tool: JsonObject, view: SchemeView): JsonObject {
   if (view === 'full') {
-    // The public catalog never carries outputSchema; drop defensively anyway.
-    const { outputSchema: _outputSchema, ...published } = tool;
-    return published;
+    // Put branch selectors before the large schema so bounded renderers do not
+    // hide the one-step route an agent needs to choose a union branch. `usage`
+    // is the gh-CLI-style param cheat-sheet (mandatory <>, optional []) an agent
+    // reads before the full schema.
+    const {
+      outputSchema: _outputSchema,
+      name,
+      variants,
+      querySchema,
+      ...published
+    } = tool;
+    return {
+      name,
+      variants,
+      usage: usageLines(tool),
+      querySchema,
+      ...published,
+    };
+  }
+  if (view === 'variants') {
+    const projected: JsonObject = { name: tool.name, variants: tool.variants };
+    if (tool.description !== undefined)
+      projected.description = tool.description;
+    return projected;
   }
   // Keep the complete schema subtree: its local refs resolve against its
   // own root, including all core-owned $defs and validation constraints.
-  const query: JsonObject = { name: tool.name, querySchema: tool.querySchema };
+  const query: JsonObject = {
+    name: tool.name,
+    querySchema: cloneJson(tool.querySchema),
+  };
   if (tool.description !== undefined) query.description = tool.description;
   const inputSchema = tool.inputSchema;
   const queries =
@@ -141,7 +173,10 @@ export function projectSelected(
   if (!schema || typeof schema !== 'object' || Array.isArray(schema)) {
     throw new Error('Query schema must be an object');
   }
-  const constOf = (branch: JsonValue): JsonValue | undefined => {
+  const propertyConst = (
+    branch: JsonValue,
+    propertyName: string
+  ): JsonValue | undefined => {
     if (!branch || typeof branch !== 'object' || Array.isArray(branch))
       return undefined;
     const properties = (branch as JsonObject).properties;
@@ -152,28 +187,105 @@ export function projectSelected(
     ) {
       return undefined;
     }
-    const property = (properties as JsonObject)[field];
+    const property = (properties as JsonObject)[propertyName];
     if (!property || typeof property !== 'object' || Array.isArray(property)) {
       return undefined;
     }
+    const reference = (property as JsonObject).$ref;
+    if (typeof reference === 'string' && reference.startsWith('#/$defs/')) {
+      const name = reference
+        .slice('#/$defs/'.length)
+        .replaceAll('~1', '/')
+        .replaceAll('~0', '~');
+      const definitions = (schema as JsonObject).$defs;
+      if (
+        definitions &&
+        typeof definitions === 'object' &&
+        !Array.isArray(definitions)
+      ) {
+        const target = (definitions as JsonObject)[name];
+        if (target && typeof target === 'object' && !Array.isArray(target)) {
+          return (target as JsonObject).const;
+        }
+      }
+    }
     return (property as JsonObject).const;
   };
+  const constOf = (branch: JsonValue): JsonValue | undefined =>
+    propertyConst(branch, field);
+  const variant =
+    field === 'variant' &&
+    typeof value === 'string' &&
+    Array.isArray(tool.variants)
+      ? tool.variants.find(
+          candidate =>
+            candidate !== null &&
+            typeof candidate === 'object' &&
+            !Array.isArray(candidate) &&
+            (candidate as JsonObject).name === value
+        )
+      : undefined;
+  if (field === 'variant' && variant === undefined) {
+    const names = Array.isArray(tool.variants)
+      ? tool.variants
+          .filter(
+            candidate =>
+              candidate !== null &&
+              typeof candidate === 'object' &&
+              !Array.isArray(candidate) &&
+              typeof (candidate as JsonObject).name === 'string'
+          )
+          .map(candidate => String((candidate as JsonObject).name))
+      : [];
+    throw new Error(
+      `Unknown variant: ${String(value)}. Known variants: ${names.join(', ')}`
+    );
+  }
+  const variantExample =
+    variant !== undefined &&
+    typeof variant === 'object' &&
+    !Array.isArray(variant) &&
+    (variant as JsonObject).example !== null &&
+    typeof (variant as JsonObject).example === 'object' &&
+    !Array.isArray((variant as JsonObject).example)
+      ? ((variant as JsonObject).example as JsonObject)
+      : undefined;
   const candidates: Array<['oneOf' | 'anyOf', number]> = [];
   for (const union of ['oneOf', 'anyOf'] as const) {
     const branches = (schema as JsonObject)[union];
     if (!Array.isArray(branches)) continue;
     branches.forEach((branch, index) => {
-      if (deepEqual(constOf(branch), value)) candidates.push([union, index]);
+      if (variantExample) {
+        const selectors = Object.entries(variantExample).filter(
+          ([propertyName]) => propertyConst(branch, propertyName) !== undefined
+        );
+        if (
+          selectors.length > 0 &&
+          selectors.every(([propertyName, expected]) =>
+            deepEqual(propertyConst(branch, propertyName), expected)
+          )
+        ) {
+          candidates.push([union, index]);
+        }
+      } else if (deepEqual(constOf(branch), value)) {
+        candidates.push([union, index]);
+      }
     });
   }
-  if (candidates.length !== 1) {
+  const allowMultiple = variantExample !== undefined;
+  if (candidates.length === 0 || (!allowMultiple && candidates.length !== 1)) {
     throw new Error(
-      `--select "${selection}" matched ${candidates.length} top-level oneOf/anyOf branches; choose a const field/value identifying exactly one branch in --view query.`
+      `--select "${selection}" matched ${candidates.length} top-level oneOf/anyOf branches; choose a variant name or const field/value identifying one branch in --view query.`
     );
   }
-  const [union, index] = candidates[0];
+  const union = candidates[0]![0];
+  if (candidates.some(([candidateUnion]) => candidateUnion !== union)) {
+    throw new Error(`--select "${selection}" matched multiple schema unions.`);
+  }
   const branches = (schema as JsonObject)[union] as JsonValue[];
-  const selected = branches[index];
+  const indexes = new Set(candidates.map(([, index]) => index));
+  const selectedBranches = branches.filter((_, index) => indexes.has(index));
+  const selected = selectedBranches[0];
   // Removing other oneOf branches must not admit instances that previously
   // matched multiple branches. Const discriminators usually prove disjointness;
   // retain exclusion constraints for siblings whose overlap cannot be ruled out.
@@ -184,9 +296,9 @@ export function projectSelected(
     return Array.isArray(required) && required.some(name => name === field);
   };
   const overlaps: JsonValue[] = [];
-  if (union === 'oneOf') {
+  if (union === 'oneOf' && !allowMultiple) {
     branches.forEach((branch, i) => {
-      if (i === index) return;
+      if (indexes.has(i)) return;
       const other = constOf(branch);
       const provablyDisjoint =
         other !== undefined &&
@@ -195,7 +307,7 @@ export function projectSelected(
       if (!provablyDisjoint) overlaps.push(branch);
     });
   }
-  (schema as JsonObject)[union] = [selected];
+  (schema as JsonObject)[union] = selectedBranches;
   if (overlaps.length > 0) {
     const target = schema as JsonObject;
     if (!Array.isArray(target.allOf)) target.allOf = [];

@@ -25,7 +25,6 @@ pub struct AstMatchQuery {
     pub context_lines: Option<u32>,
     pub match_content_length: Option<u32>,
     pub sort: Option<String>,
-    pub ranking_profile: Option<String>,
     pub lang_type: Option<String>,
     pub capture_text: Option<bool>,
     pub result_view: Option<String>,
@@ -448,7 +447,6 @@ fn continuation_with(q: &AstMatchQuery, changes: Value, snapshot: &str) -> Value
     }
     query["matchContentLength"] = json!(q.match_content_length.unwrap_or(500));
     query["sort"] = json!(q.sort.as_deref().unwrap_or("relevance"));
-    query["rankingProfile"] = json!(q.ranking_profile.as_deref().unwrap_or("auto"));
     query["resultView"] = json!(q.result_view.as_deref().unwrap_or("content"));
     query["maxFiles"] = json!(q.max_files.unwrap_or(2_000));
     query["snapshot"] = json!(snapshot);
@@ -505,10 +503,11 @@ mod language_glob_tests {
 
     #[test]
     fn directory_language_globs_derive_from_the_canonical_grammar_registry() {
-        assert_eq!(
-            language_include_globs("cuda"),
-            Some(vec!["*.cu".to_owned(), "*.cuh".to_owned()])
-        );
+        // CUDA was dropped from the default grammar registry (optional
+        // `tree-sitter-cuda` feature, excluded to save ~6.8 MiB), so its
+        // language globs no longer resolve. `.cu`/`.cuh` still route to clangd
+        // for LSP, but langType filtering derives from the native registry.
+        assert_eq!(language_include_globs("cuda"), None);
         assert_eq!(
             language_include_globs("assembly"),
             Some(vec![

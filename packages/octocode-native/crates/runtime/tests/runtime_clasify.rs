@@ -3,14 +3,36 @@
 mod support;
 
 use serde_json::json;
+use std::time::{Duration, Instant};
 use support::Workspace;
 use wiremock::matchers::{method, path};
-use wiremock::{Mock, MockServer, ResponseTemplate};
+use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
 
 // Match the production default for HTTP-backed provider fixtures. The shared
 // test workspace uses 5 seconds to keep unrelated timeout tests fast, which is
 // too narrow during a cold/full native build with several mock servers active.
 const MOCK_PROVIDER_TIMEOUT_MS: &str = "30000";
+
+#[derive(Clone)]
+struct DelayedJevResponse {
+    arrivals: std::sync::Arc<std::sync::Mutex<Vec<Instant>>>,
+}
+
+impl Respond for DelayedJevResponse {
+    fn respond(&self, _: &Request) -> ResponseTemplate {
+        self.arrivals
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(Instant::now());
+        ResponseTemplate::new(200)
+            .set_delay(Duration::from_millis(200))
+            .set_body_json(json!({
+                "model":"resolved",
+                "answers":{"answer":{"type":"noul","noul":0.8}},
+                "usage":{"input_tokens":2,"output_tokens":1}
+            }))
+    }
+}
 
 fn query() -> serde_json::Value {
     json!({
@@ -141,6 +163,59 @@ async fn matrix_is_resource_major_and_reports_requested_and_resolved_models() {
 }
 
 #[tokio::test]
+async fn independent_resource_assessments_are_dispatched_concurrently() {
+    let server = MockServer::start().await;
+    let arrivals = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    Mock::given(method("POST"))
+        .and(path("/v1/systemone"))
+        .respond_with(DelayedJevResponse {
+            arrivals: arrivals.clone(),
+        })
+        .expect(4)
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[
+        ("OCTOCODE_CLASSIFICATION_API", "secret".into()),
+        ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
+        ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
+    ]);
+    let input = json!({
+        "id":"concurrent-resources",
+        "reasoning":"Assess independent resources without serial provider latency.",
+        "resources":(0..4).map(|index| json!({
+            "id":format!("resource-{index}"),
+            "context":{"value":{"index":index}}
+        })).collect::<Vec<_>>(),
+        "questions":[{"id":"relevant","question":{"type":"noul","instructions":"Relevant?"}}]
+    });
+
+    let outcome = runtime
+        .execute("concurrent-resources".into(), "clasify".into(), input)
+        .await
+        .unwrap();
+    {
+        let arrivals = arrivals
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert_eq!(arrivals.len(), 4);
+        assert!(
+            arrivals.last().unwrap().duration_since(arrivals[0]) < Duration::from_millis(150),
+            "provider requests were dispatched serially: {arrivals:?}"
+        );
+    }
+    let results = outcome.structured_content["queries"][0]["results"]
+        .as_array()
+        .unwrap();
+    assert_eq!(results.len(), 4);
+    for (index, result) in results.iter().enumerate() {
+        assert_eq!(result["resourceId"], format!("resource-{index}"));
+        assert_eq!(result["coverage"], "complete");
+    }
+    runtime.close().await;
+}
+
+#[tokio::test]
 async fn oversized_first_page_is_bounded_partial_without_a_looping_continuation() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
@@ -263,7 +338,7 @@ async fn page_budget_continuation_round_trips_through_the_public_contract() {
         "id":"paged",
         "reasoning":"Assess bounded pages.",
         "resources":[{"id":"file","maxChars":5000,"context":{"tool":"localFetch","query":{
-            "path":file,"reasoning":"Read the next exact line.","limit":1,"fullContent":false
+            "path":file,"reasoning":"Read the next exact line.","chunkSize":1,"fullContent":false
         }}}],
         "questions":[{"id":"relevant","question":{"type":"noul","instructions":"Relevant?"}}]
     });
@@ -340,9 +415,10 @@ async fn payload_over_max_chars_returns_an_executable_clasify_continuation() {
 
 #[tokio::test]
 async fn invalid_inner_query_surfaces_contract_detail_in_page_error() {
-    // A localFetch context missing `reasoning` must fail with `invalidJevContext`
-    // and the page error message must name the offending field — not just say
-    // "does not satisfy the contract". The provider is never reached.
+    // A localFetch context missing `reasoning` must fail with
+    // `invalidClassificationContext` and the page error message must name the
+    // offending field — not just say "does not satisfy the contract". The
+    // provider is never reached.
     let workspace = Workspace::new();
     let file = workspace.write("dummy.txt", "content");
     let runtime = workspace.runtime(&[("OCTOCODE_CLASSIFICATION_API", "secret".into())]);
@@ -371,8 +447,8 @@ async fn invalid_inner_query_surfaces_contract_detail_in_page_error() {
         "missing inner reasoning must produce a page-level error"
     );
     assert_eq!(
-        page["error"]["code"], "invalidJevContext",
-        "error code must be invalidJevContext, got: {}",
+        page["error"]["code"], "invalidClassificationContext",
+        "error code must be invalidClassificationContext, got: {}",
         page["error"]
     );
     let message = page["error"]["message"].as_str().unwrap_or("");

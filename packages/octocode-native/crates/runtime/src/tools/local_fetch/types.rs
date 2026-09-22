@@ -43,7 +43,7 @@ pub struct LocalFetchRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub offset: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub limit: Option<usize>,
+    pub chunk_size: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub minify: Option<MinifyMode>,
 }
@@ -60,7 +60,7 @@ pub struct Pagination {
     pub chunk_type: ChunkType,
     pub offset: usize,
     pub length: usize,
-    pub limit: usize,
+    pub chunk_size: usize,
     pub total_lines: usize,
     pub total_bytes: usize,
     pub has_more: bool,

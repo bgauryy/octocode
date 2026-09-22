@@ -168,22 +168,22 @@ test('discoverSkills supports linked directories while rejecting oversized defin
   assert.ok(!names.includes('oversized-skill'));
 });
 
-test('discoverSkills protects bundled Awareness from workspace and explicit Pi collisions', () => {
+test('discoverSkills protects a bundled workflow from workspace and explicit Pi collisions', () => {
   const cwd = tmpWorkspace();
-  const name = 'octocode-awareness';
+  const name = 'octocode-research';
   makeSkillDir(path.join(cwd, '.agents', 'skills'), name, 'External-agent skill copy.');
   const bundledDir = tmpWorkspace();
   const bundledSkillDir = makeSkillDir(bundledDir, name, 'Bundled copy.');
   const piDir = makeSkillDir(tmpWorkspace(), name, 'Pi copy.');
   const piSkills: SkillInfo[] = [{ name, description: 'Pi copy.', path: path.join(piDir, 'SKILL.md') }];
   const skills = discoverSkills(cwd, piSkills, os.homedir(), { bundledDir });
-  const awareness = skills.filter((skill) => skill.name === name);
-  assert.equal(awareness.length, 1);
-  assert.equal(awareness[0]!.description, 'Bundled copy.');
-  assert.equal(awareness[0]!.path, path.join(bundledSkillDir, 'SKILL.md'));
+  const workflow = skills.filter((skill) => skill.name === name);
+  assert.equal(workflow.length, 1);
+  assert.equal(workflow[0]!.description, 'Bundled copy.');
+  assert.equal(workflow[0]!.path, path.join(bundledSkillDir, 'SKILL.md'));
 });
 
-test('registered skill tool loads the bundled Awareness instructions when no user copy exists', async () => {
+test('registered skill tool loads bundled workflow instructions when no user copy exists', async () => {
   const cwd = tmpWorkspace();
   const home = tmpWorkspace();
   const homedir = vi.spyOn(os, 'homedir').mockReturnValue(home);
@@ -193,18 +193,18 @@ test('registered skill tool loads the bundled Awareness instructions when no use
   const assetPaths = vi.spyOn(assets, 'getAssetPaths').mockReturnValue(builtAssets);
   vi.stubEnv('OCTOCODE_HOME', path.join(home, '.octocode'));
   try {
-    const awareness = discoverSkills(cwd).find((skill) => skill.name === 'octocode-awareness');
-    assert.ok(awareness, 'bundled Awareness is discoverable');
-    assert.equal(awareness.source, 'bundled');
-    assert.ok(renderAvailableSkillsAddendum([awareness]).includes(awareness.description), 'Awareness keeps its complete trigger description in the prompt');
+    const research = discoverSkills(cwd).find((skill) => skill.name === 'octocode-research');
+    assert.ok(research, 'bundled research workflow is discoverable');
+    assert.equal(research.source, 'bundled');
+    assert.ok(renderAvailableSkillsAddendum([research]).includes(research.description), 'research keeps its complete trigger description in the prompt');
     const def = await makeTool();
-    const loaded = await run(def, q([{ reasoning: 'Use canonical coordination instructions.', type: 'load', action: 'load', name: 'octocode-awareness', reason: 'Coordinate with an external CLI agent.' }]), cwd);
+    const loaded = await run(def, q([{ reasoning: 'Use the canonical evidence workflow.', type: 'load', action: 'load', name: 'octocode-research', reason: 'Research a code claim.' }]), cwd);
     const text = loaded.content.flatMap((part) => part.type === 'text' ? [part.text] : []).join('\n');
     assert.equal(loaded.isError ?? false, false, text);
-    assert.match(text, /skill: octocode-awareness \[bundled\]/);
-    assert.match(text, /# Awareness/);
-    assert.match(text, /work\.verify/);
-    assert.equal(getSkillUsage().get('octocode-awareness')?.count, 1);
+    assert.match(text, /skill: octocode-research \[bundled\]/);
+    assert.match(text, /# Octocode Research/);
+    assert.match(text, /Find an anchor, read exact bytes, prove the claim/);
+    assert.equal(getSkillUsage().get('octocode-research')?.count, 1);
   } finally {
     assetPaths.mockRestore();
     homedir.mockRestore();

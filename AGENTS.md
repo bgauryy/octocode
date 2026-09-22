@@ -118,7 +118,7 @@ Full reference: [`docs/OCTOCODE_TOOLS.md`](docs/OCTOCODE_TOOLS.md) · live: `$OC
 - `astSearch` topology edges are **candidates** — confirm with `lspSearch` references/callers before any delete claim
 - Pagination: never drop results silently; always provide a schema-valid executable `next.*` continuation or an explicit terminal-limit diagnostic
 
-**Field gotchas:** `localSearch` takes `path` (absolute) + `searchText` — no `operation`, no `directory`, no `maxResults`, no `limit` (use `maxFiles`, `pageSize`, or `maxMatchesPerFile`). Check live schema first: `$OCTO scheme <name> --compact`.
+**Field gotchas:** `localSearch` takes `path` (absolute) + `searchText` — no `operation`, no `directory`, no `maxResults`, no `limit` or `maxFiles` (use `pageSize` or `maxMatchesPerFile`). Check live schema first: `$OCTO scheme <name> --compact`.
 
 ---
 
@@ -182,6 +182,6 @@ yarn install && yarn prepublish       # lockfile + final guard + readme sync
 | CLI | [`packages/octocode/docs/OCTOCODE_CLI.md`](packages/octocode/docs/OCTOCODE_CLI.md) |
 | Engine / LSP | [`LSP_SERVER_LIFECYCLE.md`](packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md) · [`SUPPORTED_LANGUAGES_AND_FEATURES.md`](packages/octocode-native/docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md) |
 | Research | [`docs/OCTOCODE_RESEARCH_MANIFEST.md`](docs/OCTOCODE_RESEARCH_MANIFEST.md) |
-| Semantic assessment | [`docs/OCTOCODE_CLASIFY.md`](docs/OCTOCODE_CLASIFY.md) (contract) · [`docs/CLASIFY_RESEARCH_GUIDE.md`](docs/CLASIFY_RESEARCH_GUIDE.md) (workflow) · [`docs/JEV_BENCHMARK.md`](docs/JEV_BENCHMARK.md) (historical provider benchmark) |
+| Semantic assessment | [`docs/OCTOCODE_CLASIFY.md`](docs/OCTOCODE_CLASIFY.md) (contract + research loop) · [`docs/JEV_BENCHMARK.md`](docs/JEV_BENCHMARK.md) (historical provider benchmark) |
 | Benchmarks | [`BENCHMARK.md`](packages/octocode-benchmark/skills/octocode-benchmark/references/BENCHMARK.md) · [`SCORING.md`](packages/octocode-benchmark/skills/octocode-benchmark/references/SCORING.md) |
 | Skills (repo) | [`skills/`](skills/) → linked into [`.agents/skills/`](.agents/skills/) |

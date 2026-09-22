@@ -18,7 +18,7 @@ Load when deciding between search, a compact overview, exact source, or a comple
 
 ## Reader defaults
 
-Both readers keep `minify:"none"`, `chunkType:"lines"`, and `limit:100`. Match context defaults to five source lines per side for line chunks and 256 UTF-8 bytes per side for byte chunks. Use `contextLines` or `contextBytes` (exclusive) to override the context unit explicitly. Continuations pin the chosen context even if pagination switches units. Line pages also have a 16384-byte budget; byte pages default to 16384 bytes. Larger pages trade fewer continuation calls for more context per response. Choose a targeted source region before increasing a page size.
+Both readers keep `minify:"none"`, `chunkType:"lines"`, and `chunkSize:100`. Match context defaults to five source lines per side for line chunks and 256 UTF-8 bytes per side for byte chunks. Use `contextLines` or `contextBytes` (exclusive) to override the context unit explicitly. Continuations pin the chosen context even if pagination switches units. Line pages also have a 16384-byte budget; byte pages default to 16384 bytes. Larger pages trade fewer continuation calls for more context per response. Choose a targeted source region before increasing a page size.
 
 Byte context follows full-source redaction, keeps UTF-8 characters whole, and joins disjoint windows with a newline. A byte page offset addresses this selected view, not source bytes.
 

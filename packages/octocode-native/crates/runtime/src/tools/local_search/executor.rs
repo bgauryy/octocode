@@ -156,6 +156,13 @@ pub fn execute_local_search(
             Some(UniqueMode::List | UniqueMode::Count)
         )),
         count_unique: Some(query.unique == Some(UniqueMode::Count)),
+        // The engine collects every matching file, deterministically sorts, then
+        // truncates to this cap (a stable path-sorted prefix — see
+        // ripgrep_search::sort_and_cap). `rank_relevance` re-orders that retained
+        // set afterwards, so "relevance" is relevance *within the first 10k
+        // matched files*; a highly-relevant file beyond the path-prefix cap is
+        // dropped before ranking sees it. Documented on the `sort` field so
+        // callers narrow the search rather than expecting global ranking.
         max_collected_files: Some(10_000),
         // Use the engine default per-file byte ceiling (skips pathological
         // multi-GB files, surfaced as a maxFileSize diagnostic).
@@ -276,7 +283,7 @@ pub fn execute_local_search(
                 .cmp(&a.match_count)
                 .then_with(|| a.path.cmp(&b.path))
         }),
-        SortMode::Relevance => rank_relevance(&mut parsed.files, query, view),
+        SortMode::Relevance => rank_relevance(&mut parsed.files, view),
         SortMode::Traversal => {}
         _ => {}
     }
@@ -285,11 +292,7 @@ pub fn execute_local_search(
     {
         parsed.files.reverse();
     }
-    let page_size = query
-        .page_size
-        .unwrap_or(100)
-        .min(query.max_files.unwrap_or(u32::MAX))
-        .max(1);
+    let page_size = query.page_size.unwrap_or(100).max(1);
     let page = query.page.unwrap_or(1).max(1);
     let total_files = parsed.files.len() as u32;
     let total_pages = total_files.div_ceil(page_size).max(1);
@@ -571,19 +574,19 @@ fn cancelled(message: String) -> LocalSearchError {
     }
 }
 
-fn rank_relevance(
-    files: &mut [octocode_engine::types::RipgrepFile],
-    q: &LocalSearchRequest,
-    view: ResultView,
-) {
-    if !q
-        .search_text
-        .chars()
-        .any(|c| c.is_alphanumeric() || c == '_')
-    {
-        files.sort_by(|a, b| a.path.cmp(&b.path));
-        return;
-    }
+/// Relevance ordering for the match-bearing views.
+///
+/// Deliberately heuristic-free and fully deterministic: files with more matches
+/// rank higher, ties broken by ascending path (a total order, so page 1 never
+/// varies run-to-run). The previous `score()` function layered path-string
+/// boosts (`/src/`, `/test`, `/docs/`, `main.`, dotfiles), per-language
+/// affinity, and per-view flips — including a `.contains("unicode")` tweak and a
+/// `/test` bonus that only applied in `matchOnly`. Those constants were overfit
+/// to specific benchmark fixtures and actively mis-ranked real repositories
+/// (any repo with "unicode" in a path, or one whose signal lives in test files),
+/// so they were removed. Match density is the one honest, repo-agnostic signal.
+fn rank_relevance(files: &mut [octocode_engine::types::RipgrepFile], view: ResultView) {
+    // Path-list views carry no per-file match-density signal — order by path.
     if matches!(
         view,
         ResultView::Files | ResultView::FilesWithout | ResultView::Discovery
@@ -591,103 +594,11 @@ fn rank_relevance(
         files.sort_by(|a, b| a.path.cmp(&b.path));
         return;
     }
-    if matches!(view, ResultView::CountLines | ResultView::CountMatches) {
-        files.sort_by(|a, b| {
-            b.match_count
-                .cmp(&a.match_count)
-                .then_with(|| a.path.cmp(&b.path))
-        });
-        return;
-    }
-    let profile = q.ranking_profile.as_deref().unwrap_or("auto");
     files.sort_by(|a, b| {
-        score(
-            b,
-            profile,
-            view,
-            q.unique.unwrap_or_default() != UniqueMode::Off,
-        )
-        .cmp(&score(
-            a,
-            profile,
-            view,
-            q.unique.unwrap_or_default() != UniqueMode::Off,
-        ))
-        .then_with(|| b.match_count.cmp(&a.match_count))
-        .then_with(|| a.path.cmp(&b.path))
+        b.match_count
+            .cmp(&a.match_count)
+            .then_with(|| a.path.cmp(&b.path))
     });
-}
-fn score(
-    file: &octocode_engine::types::RipgrepFile,
-    profile: &str,
-    view: ResultView,
-    unique: bool,
-) -> i32 {
-    let p = file.path.replace('\\', "/").to_lowercase();
-    let mut s = file.match_count as i32 * 10;
-    if p.contains("/test") || p.contains(".test.") {
-        s -= 100
-    }
-    if p.contains("/docs/") || p.ends_with(".md") {
-        s += 5
-    }
-    if p.contains("/src/") || p.starts_with("src/") {
-        s += 30
-    }
-    if p.contains("main.") {
-        s += 25
-    }
-    if p.starts_with('.') {
-        s += 20
-    }
-    let language = if profile == "auto" {
-        if p.ends_with(".rs") {
-            "rust"
-        } else if p.ends_with(".ts") || p.ends_with(".tsx") {
-            "typescript"
-        } else if p.ends_with(".js") || p.ends_with(".jsx") {
-            "javascript"
-        } else if p.ends_with(".py") {
-            "python"
-        } else {
-            profile
-        }
-    } else {
-        profile
-    };
-    let boost = match language {
-        "rust" => p.ends_with(".rs"),
-        "typescript" => p.ends_with(".ts") || p.ends_with(".tsx"),
-        "javascript" => p.ends_with(".js") || p.ends_with(".jsx") || p.ends_with(".mjs"),
-        "python" => p.ends_with(".py"),
-        "go" => p.ends_with(".go"),
-        "java" => p.ends_with(".java"),
-        "markdown" => p.ends_with(".md"),
-        _ => false,
-    };
-    if boost {
-        s += 100
-    } else if matches!(
-        language,
-        "rust" | "typescript" | "javascript" | "python" | "go" | "java"
-    ) {
-        s -= 10
-    }
-    if view == ResultView::MatchOnly {
-        if p.ends_with(".md") {
-            s += 100
-        }
-        if p.contains("unicode") {
-            s -= 50
-        }
-        if p.contains("/test") || p.contains(".test.") {
-            s += 70
-        }
-        if unique && p.contains("unicode") {
-            s += 90
-        }
-    }
-    s
 }
 
 fn normalized_query(q: &LocalSearchRequest) -> Value {
@@ -702,7 +613,6 @@ fn normalized_query(q: &LocalSearchRequest) -> Value {
     o.entry("matchContentLength").or_insert(json!(500));
     o.entry("multiline").or_insert(json!("off"));
     o.entry("sort").or_insert(json!("relevance"));
-    o.entry("rankingProfile").or_insert(json!("auto"));
     o.entry("unique").or_insert(json!("off"));
     o.entry("matchPage").or_insert(json!(1));
     o.entry("page").or_insert(json!(1));
@@ -838,10 +748,6 @@ fn fingerprint(
             SortMode::Accessed => "accessed",
             SortMode::Created => "created",
         }),
-    );
-    identity.insert(
-        "rankingProfile".into(),
-        json!(q.ranking_profile.as_deref().unwrap_or("auto")),
     );
     identity.insert(
         "output".into(),

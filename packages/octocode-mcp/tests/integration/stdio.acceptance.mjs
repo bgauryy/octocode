@@ -32,8 +32,7 @@ const acceptanceEnv = {
   ...process.env,
   ENABLE_LOCAL: 'true',
   ENABLE_CLONE: 'true',
-  ENABLE_AST_REWRITE: 'true',
-  ENABLE_AST_REWRITE_APPLY: 'true',
+  OCTOCODE_BETA: 'true',
   OCTOCODE_STORAGE_MODE: 'persistent',
 };
 const { DIRECT_TOOL_DEFINITIONS, TOOL_NAMES } = await import('@octocodeai/config/schema');
@@ -307,7 +306,7 @@ try {
       for (const chunkType of ['lines', 'bytes']) {
         for (const matched of [false, true]) {
           let page = await call('localFetch', {
-            path: file, chunkType, limit: chunkType === 'lines' ? 1 : 3,
+            path: file, chunkType, chunkSize: chunkType === 'lines' ? 1 : 3,
             ...(matched ? { matchString: 'needle', contextLines: 0, minify: 'standard' } : {}),
           });
           let content = '';
@@ -720,7 +719,7 @@ try {
         const full = await call('ghGetFileContent', query);
         let current = await call('ghGetFileContent', {
           ...query,
-          chunkType: 'bytes', limit: 5,
+          chunkType: 'bytes', chunkSize: 5,
         });
         let content = current.files[0].content;
         let count = 1;
@@ -749,7 +748,7 @@ try {
         const localFound = await call('localSearch', { path: directory, searchText: 'module.exports', regex: 'literal' });
         assert.ok(localFound.files?.length > 0);
         for (const chunkType of ['lines', 'bytes']) {
-          const selector = { matchString: 'module.exports', contextLines: 2, minify: 'standard', chunkType, limit: chunkType === 'lines' ? 1 : 7 };
+          const selector = { matchString: 'module.exports', contextLines: 2, minify: 'standard', chunkType, chunkSize: chunkType === 'lines' ? 1 : 7 };
           const contents = [];
           const anchors = [];
           for (const remote of [false, true]) {
@@ -784,7 +783,7 @@ try {
     await check('GitHub commit history search positive', async () => {
       const data = await call('ghSearchHistory', {
         ...repo,
-        operation: 'commits',
+        operation: 'commit',
         pageSize: 1,
       });
       assert.ok(JSON.stringify(data).includes(sha));

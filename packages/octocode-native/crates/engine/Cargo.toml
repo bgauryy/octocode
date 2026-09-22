@@ -114,7 +114,13 @@ tree-sitter-asm = ["dep:tree-sitter-asm"]
 tree-sitter-cpp = ["dep:tree-sitter-cpp"]
 tree-sitter-c-sharp = ["dep:tree-sitter-c-sharp"]
 tree-sitter-cuda = ["dep:tree-sitter-cuda"]
-tree-sitter-large-grammars = ["tree-sitter-cpp", "tree-sitter-c-sharp", "tree-sitter-cuda"]
+# CUDA is intentionally excluded from the default bundle: its tree-sitter parse
+# tables are ~7 MB of `__const` — the single largest grammar — for a niche
+# GPU-kernel language. `.cu`/`.cuh` still route to `clangd` for LSP navigation
+# (see crates/engine/src/lsp/config.rs), so semantic nav survives; only native
+# signatures/structural parsing is gated off. Re-enable by adding
+# "tree-sitter-cuda" here (the optional dep + feature below are retained).
+tree-sitter-large-grammars = ["tree-sitter-cpp", "tree-sitter-c-sharp"]
 tree-sitter-scala = ["dep:tree-sitter-scala"]
 
 [build-dependencies]

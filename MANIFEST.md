@@ -427,7 +427,7 @@ GitHub search is default-branch and index-limited: **empty is not absence**; ver
 **6. History archaeology**
 
 ```
-ghSearchHistory (operation:"commits", path-scoped)       ← who touched this and when
+ghSearchHistory (operation:"commit", path-scoped)       ← who touched this and when
   → next.prDetail (PR number parsed from the commit)
   → ghGetHistoryItem (operation:"pullRequest", number + content selectors)  ← select ONLY what you need
   → patches mode:"selected" + files/ranges               ← cheapest diff read

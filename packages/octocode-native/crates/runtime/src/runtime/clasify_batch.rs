@@ -4,7 +4,7 @@ use super::{
     dispatch::{self, DomainResult},
     domain_dispatch::DomainDispatcher,
 };
-use crate::tools::jev::{self, transport::JevProviderError};
+use crate::tools::clasify::{self, transport::ClassificationError};
 use futures_util::{StreamExt, stream};
 use secrecy::SecretString;
 use serde_json::{Value, json};
@@ -30,7 +30,7 @@ enum CapturedPage {
         context: Value,
     },
     Failed {
-        error: JevProviderError,
+        error: ClassificationError,
         context: Value,
     },
 }
@@ -160,8 +160,8 @@ fn capture_resource(
         let identity = source.to_string();
         if !seen.insert(identity) {
             pages.push(CapturedPage::Failed {
-                error: JevProviderError {
-                    code: "jevContextContinuationLoop".into(),
+                error: ClassificationError {
+                    code: "classificationContextContinuationLoop".into(),
                     message: "Context continuation repeated without advancing.".into(),
                     hints: vec![
                         "Run the ordinary context tool and inspect its executable continuation."
@@ -172,7 +172,7 @@ fn capture_resource(
             });
             break;
         }
-        match super::jev_context::resolve(&source, dispatcher, execution) {
+        match super::clasify_context::resolve(&source, dispatcher, execution) {
             Ok((state, receipt)) => {
                 let state_chars = assessed_payload_chars(&source, &state);
                 let remaining_chars = max_chars.saturating_sub(captured_chars);
@@ -192,7 +192,7 @@ fn capture_resource(
                     break;
                 }
                 captured_chars = captured_chars.saturating_add(state_chars);
-                let continuation = super::jev_context::continuation(&context);
+                let continuation = super::clasify_context::continuation(&context);
                 pages.push(CapturedPage::Ready { state, context });
                 let Some(next) = continuation else {
                     break;
@@ -205,7 +205,7 @@ fn capture_resource(
             }
             Err(failure) => {
                 let context = failure.receipt.unwrap_or_else(|| fallback_context(&source));
-                if let Some(next) = super::jev_context::exact_continuation(&context) {
+                if let Some(next) = super::clasify_context::exact_continuation(&context) {
                     source = next;
                     continue;
                 }
@@ -220,7 +220,7 @@ fn capture_resource(
     Ok((pages, remaining))
 }
 
-fn error_page(index: usize, context: Value, error: JevProviderError) -> Value {
+fn error_page(index: usize, context: Value, error: ClassificationError) -> Value {
     json!({
         "pageIndex": index,
         "context": context,
@@ -246,17 +246,17 @@ fn cell_coverage(pages: &[Value], has_continuation: bool) -> &'static str {
     }
 }
 
-fn concurrency_error() -> JevProviderError {
-    JevProviderError {
-        code: "jevProviderError".into(),
-        message: "Jev provider concurrency gate closed unexpectedly.".into(),
+fn concurrency_error() -> ClassificationError {
+    ClassificationError {
+        code: "classificationProviderError".into(),
+        message: "Classification provider concurrency gate closed unexpectedly.".into(),
         hints: vec!["Retry the semantic assessment.".into()],
     }
 }
 
 async fn provider_permit(
     concurrency: Arc<Semaphore>,
-) -> Result<OwnedSemaphorePermit, JevProviderError> {
+) -> Result<OwnedSemaphorePermit, ClassificationError> {
     concurrency
         .acquire_owned()
         .await
@@ -269,18 +269,20 @@ async fn assess_page(
     config: &ProviderConfig<'_>,
     budget: &crate::providers::RequestBudget,
     concurrency: &Arc<Semaphore>,
-) -> (Vec<Result<Value, JevProviderError>>, Option<Value>) {
+) -> (Vec<Result<Value, ClassificationError>>, Option<Value>) {
     let indexed = questions
         .iter()
         .enumerate()
         .map(|(index, question)| (index, &question["question"]))
         .collect::<Vec<_>>();
-    if indexed.len() > 1 && jev::batch::fits(state, &indexed, config.model) {
+    if indexed.len() > 1
+        && clasify::batch::fits(state, &indexed, config.model, config.provider)
+    {
         let permit = match provider_permit(concurrency.clone()).await {
             Ok(permit) => permit,
             Err(error) => return (vec![Err(error); questions.len()], None),
         };
-        let result = jev::batch::execute(
+        let result = clasify::batch::execute(
             state,
             &indexed,
             config.key,
@@ -311,7 +313,7 @@ async fn assess_page(
             let concurrency = concurrency.clone();
             async move {
                 let permit = provider_permit(concurrency).await?;
-                let result = jev::execute(
+                let result = clasify::execute(
                     state,
                     &question["question"],
                     config.key.clone(),
@@ -346,7 +348,7 @@ struct CapturedResource<'a> {
 type PageAssessment = (
     usize,
     usize,
-    Vec<Result<Value, JevProviderError>>,
+    Vec<Result<Value, ClassificationError>>,
     Option<Value>,
 );
 
@@ -357,13 +359,13 @@ pub(super) fn execute(
     config: ProviderConfig<'_>,
     mut record_usage: impl FnMut(&Value),
 ) -> Result<Vec<DomainResult>, ExecutionError> {
-    let budget = jev::transport::budget(execution.deadline, execution.cancellation.clone());
+    let budget = clasify::transport::budget(execution.deadline, execution.cancellation.clone());
     let concurrency = Arc::new(Semaphore::new(MAX_CONCURRENT_PROVIDER_CALLS));
     let mut outputs = Vec::with_capacity(queries.len());
 
     for query in queries {
         execution.check()?;
-        jev::preflight(query).map_err(|_| ExecutionError::WorkerFailed)?;
+        clasify::preflight(query).map_err(|_| ExecutionError::WorkerFailed)?;
         let questions = query["questions"]
             .as_array()
             .ok_or(ExecutionError::WorkerFailed)?;

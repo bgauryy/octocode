@@ -74,7 +74,7 @@ pub(super) fn validate(input: &Value, extraction: bool) -> Result<(), ContractVa
                 "contextBytes requires matchString and is exclusive with contextLines.",
             );
             add(
-                full && ["offset", "limit", "chunkType"]
+                full && ["offset", "chunkSize", "chunkType"]
                     .iter()
                     .any(|field| query.get(field).is_some()),
                 "content.full-controls",

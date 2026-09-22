@@ -506,19 +506,14 @@ export function configSignature(config: McpServerConfig): string {
   });
 }
 
-/**
- * Concise stderr warning for best-effort MCP paths. Never throws and never
- * touches the TUI (stderr only) — it makes an otherwise-silent config failure
- * observable in logs/debug output without blocking session start.
- */
+/** Best-effort stderr warning; never throws or touches the TUI. */
 function warnMcp(message: string): void {
   try { process.stderr.write(`[octocode-mcp] ${message}\n`); } catch { /* stderr unavailable */ }
 }
 
 export function patchGlobalMcpOctocodeEnv(configPath = globalMcpPath()): void {
   try {
-    if (!fs.existsSync(configPath)) return; // No global mcp.json — nothing to patch.
-
+    if (!fs.existsSync(configPath)) return;
     // Re-parse as raw JSON so we can write it back with minimal diff.
     let raw: Record<string, unknown>;
     try { raw = JSON.parse(fs.readFileSync(configPath, 'utf8')); }
@@ -534,9 +529,8 @@ export function patchGlobalMcpOctocodeEnv(configPath = globalMcpPath()): void {
     const missing = Object.keys(OCTOCODE_MCP_ENV_DEFAULTS).filter(
       (key) => !(typeof env[key] === 'string' && (env[key] as string).length > 0),
     );
-    if (missing.length === 0) return; // Already patched.
-
-    // Merge — user-supplied values take precedence.
+    if (missing.length === 0) return;
+    // User-supplied values take precedence.
     entry['env'] = { ...OCTOCODE_MCP_ENV_DEFAULTS, ...env };
     servers[DEFAULT_OCTOCODE_MCP_SERVER_NAME] = entry;
     raw['mcpServers'] = servers;

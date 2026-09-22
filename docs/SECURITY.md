@@ -49,9 +49,9 @@ Every local operation resolves through `packages/octocode-native/crates/runtime/
 
 Sensitive classes include environment files, private keys and certificates, credential stores, cloud configuration, shell history, browser login stores, infrastructure state, wallets, and application secret files. Denied errors use safe relative paths instead of echoing private absolute paths.
 
-Set `ENABLE_LOCAL=false` to disable local tools. `astRewrite` has a second,
-default-off discovery gate: `ENABLE_AST_REWRITE=true`. Its mutation path remains
-independently gated by `ENABLE_AST_REWRITE_APPLY=true`.
+Set `ENABLE_LOCAL=false` to disable local tools. `astRewrite` is a beta feature
+gated solely by `OCTOCODE_BETA=true` (or `local.beta:true`), default off, which
+permits both preview and its hash-guarded mutation path.
 
 ## Structural rewrite safety
 

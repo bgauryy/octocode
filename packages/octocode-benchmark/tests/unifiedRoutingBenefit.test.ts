@@ -82,9 +82,7 @@ describe('unified routing keep/revert gate', () => {
   );
 
   it('does not reintroduce any retired public runtime alias', () => {
-    const publicNames = DIRECT_TOOL_DEFINITIONS.map(
-      tool => tool.name
-    );
+    const publicNames = DIRECT_TOOL_DEFINITIONS.map(tool => tool.name);
     const retiredNames = fixture.retiredSurface.tools.map(tool => tool.name);
     expect(publicNames).not.toEqual(expect.arrayContaining(retiredNames));
   });

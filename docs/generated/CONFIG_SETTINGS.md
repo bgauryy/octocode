@@ -18,8 +18,7 @@ This reference is generated from [`packages/octocode-config/config-contract.json
   "local": {
     "enabled": true,
     "enableClone": false,
-    "enableAstRewrite": false,
-    "enableAstRewriteApply": false,
+    "beta": false,
     "allowedPaths": [],
     "workspaceRoot": null
   },
@@ -69,8 +68,7 @@ Environment values take precedence over `.octocoderc`. Aliases are listed in pri
 | `github.graphqlEnabled` | `OCTOCODE_GITHUB_GRAPHQL` | `true` | boolean | Use GitHub GraphQL where supported; false forces REST-only access. |
 | `local.enabled` | `ENABLE_LOCAL`<br>`OCTOCODE_ENABLE_LOCAL` | `true` | boolean | Enable local filesystem tools on every runtime surface. ENABLE_LOCAL is canonical; OCTOCODE_ENABLE_LOCAL is an alias. |
 | `local.enableClone` | `ENABLE_CLONE`<br>`OCTOCODE_ENABLE_CLONE` | `false` | boolean | Enable ghCloneRepo and directory materialization. Opt-in and requires persistent storage. ENABLE_CLONE is canonical. |
-| `local.enableAstRewrite` | `ENABLE_AST_REWRITE` | `false` | boolean | Enable the astRewrite tool. Preview and apply are unavailable while false. |
-| `local.enableAstRewriteApply` | `ENABLE_AST_REWRITE_APPLY` | `false` | boolean | Permit hash-guarded astRewrite apply when astRewrite is enabled; preview remains available. |
+| `local.beta` | `OCTOCODE_BETA` | `false` | boolean | Enable beta features. Currently the sole gate for the astRewrite tool (both preview and apply); off by default on every surface. |
 | `local.allowedPaths` | `ALLOWED_PATHS` | `[]` | string array | Extra absolute or home-relative roots added to the allowed home directory. The environment value is a comma-separated list. |
 | `local.workspaceRoot` | `WORKSPACE_ROOT` | process.cwd() | path | Optional absolute or home-relative workspace root. |
 | `tools.enabled` | `TOOLS_TO_RUN` | unset | string array | Strict tool allowlist replacing the default tool set. |
@@ -106,3 +104,17 @@ Tokens are environment-only and are never loaded from a project or home `.env` f
 |---|---|
 | `OCTOCODE_GITHUB_CLIENT_ID` | GitHub OAuth client override |
 | `OCTOCODE_HOME` | Overrides the Octocode configuration directory (default: <os-home>/.octocode) |
+| `OCTOCODE_TS_SERVER_PATH` | Override the TypeScript/JavaScript LSP server binary (e.g. tsgo). |
+| `OCTOCODE_RUST_SERVER_PATH` | Override the Rust LSP server binary (rust-analyzer). |
+| `OCTOCODE_GO_SERVER_PATH` | Override the Go LSP server binary (gopls). |
+| `OCTOCODE_PYTHON_SERVER_PATH` | Override the Python LSP server binary. |
+| `OCTOCODE_JAVA_SERVER_PATH` | Override the Java LSP server binary. |
+| `OCTOCODE_CLANGD_SERVER_PATH` | Override the C/C++ LSP server binary (clangd). |
+| `OCTOCODE_CSHARP_SERVER_PATH` | Override the C# LSP server binary. |
+| `OCTOCODE_SCALA_SERVER_PATH` | Override the Scala LSP server binary (metals). |
+| `OCTOCODE_ASM_SERVER_PATH` | Override the assembly LSP server binary. |
+| `OCTOCODE_LSP_AUTO_INSTALL` | LSP server auto-install policy: off (default), prompt, or auto. |
+| `OCTOCODE_LSP_CACHE_DIR` | Override the managed LSP server download/cache directory. |
+| `OCTOCODE_TRUST_PROJECT_LSP_CONFIG` | Trust a project-local lsp-servers.json (1/true/yes/on). Security-sensitive: a trusted project config can launch server binaries, so prefer setting this in your shell rather than a project .env. |
+| `OCTOCODE_AST_REWRITE_STATE_DIR` | Override the astRewrite transaction/recovery state directory. |
+| `OCTOCODE_CARGO` | Override the cargo executable used for Rust dependency-graph analysis. |

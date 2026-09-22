@@ -4,7 +4,10 @@ import {
   projectSelected,
   runScheme,
 } from '../../../src/cli/commands/scheme.js';
-import type { JsonObject } from '../../../src/cli/commands/scheme-projection.js';
+import {
+  usageLines,
+  type JsonObject,
+} from '../../../src/cli/commands/scheme-projection.js';
 import {
   getPublicToolCatalog,
   getNativeContractFingerprint,
@@ -71,7 +74,7 @@ describe('scheme command admission', () => {
       })
     ).resolves.toBe(2);
     expect(error).toHaveBeenCalledWith(
-      '--view expects full|query, got: invalid'
+      '--view expects full|query|variants, got: invalid'
     );
   });
 
@@ -86,7 +89,7 @@ describe('scheme command admission', () => {
     ).resolves.toBe(2);
     expect(JSON.parse(String(output.mock.calls[0]?.[0]))).toEqual({
       success: false,
-      error: '--view expects full|query, got: invalid',
+      error: '--view expects full|query|variants, got: invalid',
     });
   });
 });
@@ -100,6 +103,18 @@ describe('project', () => {
     expect(full.outputSchema).toBeUndefined();
   });
 
+  it('variants view exposes compact branch selectors before schema details', () => {
+    const variants = project(toolNamed('astSearch'), 'variants');
+    expect(variants.name).toBe('astSearch');
+    expect(variants.querySchema).toBeUndefined();
+    expect(variants.variants).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'tree:syntax' }),
+        expect.objectContaining({ name: 'topology:dependencies' }),
+      ])
+    );
+  });
+
   it('query view is self-contained with envelope bounds', () => {
     const query = project(toolNamed('localSearch'), 'query');
     expect(Object.keys(query).sort()).toEqual(
@@ -109,6 +124,51 @@ describe('project', () => {
     const envelope = query.queryEnvelope as
       { queries?: Record<string, unknown> } | undefined;
     expect(envelope?.queries).toBeDefined();
+  });
+});
+
+describe('usageLines', () => {
+  it('marks mandatory params <angle> and optional [square] for a simple tool', () => {
+    const lines = usageLines(toolNamed('localFetch'));
+    expect(lines[0]).toBe('octocode localFetch \'{"queries":[ … ]}\'');
+    const body = lines[1]!;
+    expect(body).toContain('<reasoning>');
+    expect(body).toContain('<path>');
+    expect(body).toContain('[goal]');
+    // A required field is never also shown as optional.
+    expect(body).not.toContain('[reasoning]');
+    expect(body).not.toContain('[path]');
+  });
+
+  it('labels each union branch by its discriminator const and drops it from fields', () => {
+    const lines = usageLines(toolNamed('ghSearch'));
+    const code = lines.find(line => line.startsWith('operation=code'));
+    const repos = lines.find(line => line.startsWith('operation=repositories'));
+    const tree = lines.find(line => line.startsWith('operation=tree'));
+    expect(code).toBeDefined();
+    expect(repos).toBeDefined();
+    expect(tree).toBeDefined();
+    // The discriminator is the label, not a field.
+    expect(code).not.toContain('<operation>');
+    // tree requires owner+repo; code does not.
+    expect(tree).toContain('<owner>');
+    expect(tree).toContain('<repo>');
+    expect(code).not.toContain('<owner>');
+  });
+
+  it('resolves a $ref discriminator so every union branch is labeled', () => {
+    // astSearch authors `operation` behind a $ref in its match branches.
+    const lines = usageLines(toolNamed('astSearch'));
+    expect(lines.slice(1).every(line => line.startsWith('operation='))).toBe(
+      true
+    );
+    expect(lines.some(line => line.startsWith('operation=match'))).toBe(true);
+  });
+
+  it('degrades to a scheme hint when no query fields are exposed', () => {
+    const lines = usageLines(toolNamed('clasify'));
+    expect(lines[0]).toBe('octocode clasify \'{"queries":[ … ]}\'');
+    expect(lines.some(line => line.includes('--view query'))).toBe(true);
   });
 });
 
@@ -148,6 +208,31 @@ describe('projectSelected', () => {
     for (const name of Object.keys(defs)) {
       expect(serialized).toContain(`#/$defs/${name}`);
     }
+  });
+
+  it('selects a named nested astSearch variant in one step', () => {
+    const projected = projectSelected(
+      toolNamed('astSearch'),
+      'query',
+      'variant=topology:dependencies'
+    );
+    const schema = projected.querySchema as JsonObject;
+    const union = (schema.oneOf ?? schema.anyOf) as JsonObject[];
+    expect(union).toHaveLength(1);
+    const properties = union[0]!.properties as JsonObject;
+    expect((properties.operation as JsonObject).const).toBe('topology');
+    expect((properties.analysis as JsonObject).const).toBe('dependencies');
+  });
+
+  it('keeps both valid match shapes when selecting the match variant', () => {
+    const projected = projectSelected(
+      toolNamed('astSearch'),
+      'query',
+      'variant=match'
+    );
+    const schema = projected.querySchema as JsonObject;
+    const union = (schema.oneOf ?? schema.anyOf) as JsonObject[];
+    expect(union).toHaveLength(2);
   });
 
   it('rejects selections matching no branch', () => {

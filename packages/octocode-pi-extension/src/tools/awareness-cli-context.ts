@@ -35,7 +35,7 @@ export function renderAwarenessCliContext(ctx?: PiContext): string {
   if (!env.OCTOCODE_AWARENESS_CLI) return '<awareness_cli_runtime>Awareness CLI dependency is unavailable. Report the missing runtime before relying on shared coordination.</awareness_cli_runtime>';
   return [
     '<awareness_cli_runtime>',
-    'Awareness skill is bundled. This external tool set lacks the native facade, so explicit coordination uses the bound CLI through bash.',
+    'Awareness is provided by the host runtime. This external tool set lacks the native facade, so explicit coordination uses the bound CLI through bash.',
     'bash inherits the host-bound identity, workspace, database, and runtime through environment variables.',
     'Runner: "$OCTOCODE_NODE" "$OCTOCODE_AWARENESS_CLI" --db "$OCTOCODE_AWARENESS_DB" <command> [options]. Pass --workspace "$OCTOCODE_AWARENESS_WORKSPACE" on scoped commands and --agent-id "$OCTOCODE_AGENT_ID" when required. Use this installed runner for the npx commands in the Awareness guide.',
     '</awareness_cli_runtime>',

@@ -29,7 +29,7 @@ The live source inventory is authoritative. Use `/config` inside Pi to open the 
 | Guarded Pi builtin overrides | 1 (`bash`) |
 | Disabled Pi builtins | 6 |
 | Slash command entries | 5 |
-| Bundled main-agent skills | 15 |
+| Bundled main-agent skills | 14 |
 
 ### Support tools
 
@@ -113,12 +113,11 @@ skill sources, command hooks, permissions, theme, effort, and footer density. It
 for review. Host-provided and user-installed commands remain in the live inventory.
 The recovery command remains preview-first and does not rewrite input through regex triggers.
 
-## Bundled skills (15)
+## Bundled skills (14)
 
-The build copies these main-agent skills into `dist/skills/`:
+The build copies these optional workflow skills into `dist/skills/`. Awareness is provided by the native runtime and `awareness` tool; it is intentionally not bundled as a skill.
 
 - `octocode-architect`
-- `octocode-awareness`
 - `octocode-brainstorming`
 - `octocode-chrome-devtools`
 - `octocode-clean-agentic-code`

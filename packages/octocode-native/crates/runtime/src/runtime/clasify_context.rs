@@ -2,40 +2,40 @@
 use super::{ExecutionContext, domain_dispatch::DomainDispatcher, response};
 use crate::{
     contracts::{self, PrepareOptions},
-    tools::jev::{is_context_tool, transport::JevProviderError},
+    tools::clasify::{is_context_tool, transport::ClassificationError},
 };
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
 const MAX_RECEIPT_BYTES: usize = 16 * 1024;
 
-fn error(code: &str, message: impl Into<String>) -> JevProviderError {
-    JevProviderError {
+fn error(code: &str, message: impl Into<String>) -> ClassificationError {
+    ClassificationError {
         code: code.into(),
         message: message.into(),
         hints: vec!["Run the ordinary context tool to inspect or correct its request.".into()],
     }
 }
 
-fn checked(context: &ExecutionContext) -> Result<(), JevProviderError> {
+fn checked(context: &ExecutionContext) -> Result<(), ClassificationError> {
     context.check().map_err(|failure| {
         error(
             match failure {
                 super::ExecutionError::Timeout => "timeout",
                 _ => "cancelled",
             },
-            "Context execution stopped before Jev evaluation.",
+            "Context execution stopped before classification.",
         )
     })
 }
 
 pub(super) struct ContextFailure {
-    pub error: JevProviderError,
+    pub error: ClassificationError,
     pub receipt: Option<Value>,
 }
 
-impl From<JevProviderError> for ContextFailure {
-    fn from(error: JevProviderError) -> Self {
+impl From<ClassificationError> for ContextFailure {
+    fn from(error: ClassificationError) -> Self {
         Self {
             error,
             receipt: None,
@@ -43,10 +43,10 @@ impl From<JevProviderError> for ContextFailure {
     }
 }
 
-fn prepare(tool: &str, query: &Value) -> Result<Value, JevProviderError> {
+fn prepare(tool: &str, query: &Value) -> Result<Value, ClassificationError> {
     let object = query.as_object().ok_or_else(|| {
         error(
-            "invalidJevContext",
+            "invalidClassificationContext",
             "Context query must be one ordinary query object.",
         )
     })?;
@@ -62,7 +62,7 @@ fn prepare(tool: &str, query: &Value) -> Result<Value, JevProviderError> {
         || (object.len() == 1 && object.contains_key("cursor"))
     {
         return Err(error(
-            "invalidJevContext",
+            "invalidClassificationContext",
             "Context query cannot contain a bulk envelope, cursor, or response paging options.",
         ));
     }
@@ -82,7 +82,7 @@ fn prepare(tool: &str, query: &Value) -> Result<Value, JevProviderError> {
                     .collect::<Vec<_>>()
                     .join("; ");
                 error(
-                    "invalidJevContext",
+                    "invalidClassificationContext",
                     if detail.is_empty() {
                         format!("Context query does not satisfy the {tool} input contract.")
                     } else {
@@ -94,13 +94,13 @@ fn prepare(tool: &str, query: &Value) -> Result<Value, JevProviderError> {
             })?;
     if queries.len() != 1 {
         return Err(error(
-            "invalidJevContext",
+            "invalidClassificationContext",
             "Context must contain exactly one ordinary query.",
         ));
     }
     queries
         .pop()
-        .ok_or_else(|| error("invalidJevContext", "Context query is missing."))
+        .ok_or_else(|| error("invalidClassificationContext", "Context query is missing."))
 }
 
 // `ContextFailure` carries a sanitized failure envelope; boxing it would ripple
@@ -120,14 +120,14 @@ pub(super) fn resolve(
         .filter(|tool| is_context_tool(tool))
         .ok_or_else(|| {
             error(
-                "invalidJevContext",
-                "Only read tools can provide Jev context.",
+                "invalidClassificationContext",
+                "Only read tools can provide classification context.",
             )
         })
         .map_err(ContextFailure::from)?;
     if !dispatcher.available_tools.contains(&tool) {
         return Err(ContextFailure::from(error(
-            "jevContextUnavailable",
+            "classificationContextUnavailable",
             format!("Context tool {tool} is disabled by runtime policy."),
         )));
     }
@@ -142,7 +142,7 @@ pub(super) fn resolve(
     let prepared = Value::Object(checked_input.sanitized_params);
     let result = dispatcher.execute(tool, &prepared, context).map_err(|_| {
         ContextFailure::from(error(
-            "jevContextFailed",
+            "classificationContextFailed",
             format!("Context tool {tool} could not complete."),
         ))
     })?;
@@ -165,13 +165,13 @@ pub(super) fn resolve(
     )
     .map_err(|_| {
         ContextFailure::from(error(
-            "jevContextFailed",
+            "classificationContextFailed",
             "Context output sanitization failed.",
         ))
     })?;
     contracts::validate_output(tool, &state).map_err(|_| {
         ContextFailure::from(error(
-            "jevContextContractViolation",
+            "classificationContextContractViolation",
             format!("Context tool {tool} returned invalid output."),
         ))
     })?;
@@ -180,11 +180,11 @@ pub(super) fn resolve(
         let code = state
             .pointer("/results/0/data/errorCode")
             .and_then(Value::as_str)
-            .unwrap_or("jevContextFailed");
+            .unwrap_or("classificationContextFailed");
         return Err(ContextFailure {
             error: error(
                 code,
-                format!("Context tool {tool} returned an error; Jev was not called."),
+                format!("Context tool {tool} returned an error; classification was not called."),
             ),
             receipt: Some(receipt),
         });
@@ -196,8 +196,8 @@ pub(super) fn resolve(
 
 /// Extracts the line or byte range of this page from a localFetch (or
 /// compatible tool) result. Added to the receipt so callers always know
-/// which chunk a Jev page judgment covers without having to infer it from
-/// the continuation query of the previous page.
+/// which chunk a classification page judgment covers without having to infer
+/// it from the continuation query of the previous page.
 fn page_scope(state: &Value) -> Option<Value> {
     let data = state
         .get("results")
@@ -205,8 +205,6 @@ fn page_scope(state: &Value) -> Option<Value> {
         .and_then(|rows| rows.first())
         .and_then(|row| row.get("data"))
         .and_then(Value::as_object)?;
-    // localFetch carries pagination on data; ghGetFileContent nests the same
-    // shape (pagination + sourceLineRanges) inside files[0].
     let data = if data.contains_key("pagination") {
         data
     } else {
@@ -219,8 +217,6 @@ fn page_scope(state: &Value) -> Option<Value> {
     let chunk_type = pagination.get("chunkType").and_then(Value::as_str)?;
     match chunk_type {
         "lines" => {
-            // sourceLineRanges is 1-indexed and already merged across windows;
-            // fall back to offset + length when absent.
             let (start, end) = data
                 .get("sourceLineRanges")
                 .and_then(Value::as_array)
@@ -241,7 +237,6 @@ fn page_scope(state: &Value) -> Option<Value> {
                 .get("nextOffset")
                 .and_then(Value::as_u64)
                 .or_else(|| {
-                    // Final chunk has no nextOffset; compute from offset + length.
                     let length = pagination.get("length")?.as_u64()?;
                     Some(byte_offset + length)
                 })?;
@@ -296,7 +291,7 @@ fn receipt_with_evaluation(tool: &str, state: &Value, evaluation_completed: bool
     if !evaluation_completed {
         append_limitation(
             &mut receipt,
-            "Context retrieval failed; Jev evaluation was not run.",
+            "Context retrieval failed; classification was not run.",
         );
     }
     if receipt.to_string().len() > MAX_RECEIPT_BYTES {
@@ -310,7 +305,7 @@ fn receipt_with_evaluation(tool: &str, state: &Value, evaluation_completed: bool
         } else {
             json!([
                 "Continuation metadata exceeded the receipt limit; inspect the ordinary tool result to continue.",
-                "Context retrieval failed; Jev evaluation was not run."
+                "Context retrieval failed; classification was not run."
             ])
         };
     }
@@ -419,9 +414,6 @@ fn inspect(value: &Value, next: &mut Map<String, Value>, partial: &mut bool, ter
 }
 
 fn is_history_expansion(name: &str, tool: &str, query: &Value) -> bool {
-    // pr_next_menu offers unrequested content, not another page of captured evidence.
-    // Keep unfamiliar shapes (including any paging fields) so this filter cannot
-    // silently discard a continuation if the history contract evolves.
     tool == "ghGetHistoryItem"
         && query.get("operation").and_then(Value::as_str) == Some("pullRequest")
         && matches!(
@@ -458,36 +450,32 @@ mod tests {
             assert!(prepare("localFetch", &query).is_err(), "{query}");
         }
         assert!(prepare("localFetch", &json!({"path":"/tmp/f","reasoning":"Read"})).is_ok());
-        // reasoning is mandatory on every tool, so a path-only query is rejected.
         assert!(prepare("localFetch", &json!({"path":"/tmp/f"})).is_err());
     }
+
     #[test]
     fn contract_violation_in_nested_context_includes_field_details() {
-        // A path-only query fails because `reasoning` is required.
-        // The error message must name the failing field so the caller can fix
-        // the request without running the tool separately — the original
-        // `.map_err(|_| ...)` discarded all ContractValidationError detail.
         let err = prepare("localFetch", &json!({"path":"/tmp/f"}))
             .expect_err("path-only localFetch must be rejected");
-        assert_eq!(err.code, "invalidJevContext");
+        assert_eq!(err.code, "invalidClassificationContext");
         assert!(
             err.message.contains("reasoning"),
             "error message must name the failing field; got: {}",
             err.message
         );
-        // A completely unknown field must also surface the field name.
         let err_unknown = prepare(
             "localFetch",
             &json!({"path":"/tmp/f","reasoning":"r","typo":1}),
         )
         .expect_err("unknown field must be rejected");
-        assert_eq!(err_unknown.code, "invalidJevContext");
+        assert_eq!(err_unknown.code, "invalidClassificationContext");
         assert!(
             err_unknown.message.contains("typo") || err_unknown.message.contains("localFetch"),
             "error must surface field or tool context; got: {}",
             err_unknown.message
         );
     }
+
     #[test]
     fn artifact_domain_cursors_are_valid_context_and_receipt_continuations() {
         let artifact = json!({"type":"npm","keywords":["parser"],"reasoning":"Find packages","cursor":"provider-cursor","pageSize":2});
@@ -510,7 +498,6 @@ mod tests {
                 "path":"/tmp/f","reasoning":"Recover","offset":0,"chunkSize":100
             }}))
         );
-
         let candidate = json!({"next":{"continue":{"tool":"localFetch","confidence":"candidate","query":{
             "path":"/tmp/f","reasoning":"Guess","offset":0,"chunkSize":100
         }}}});
@@ -539,6 +526,7 @@ mod tests {
                 .contains("terminal")
         );
     }
+
     fn receipt_for_terminal() -> Value {
         receipt(
             "astSearch",
@@ -705,7 +693,6 @@ mod tests {
 
     #[test]
     fn gh_file_nested_pagination_receipt_includes_line_scope() {
-        // ghGetFileContent nests pagination + sourceLineRanges inside files[0].
         let state = json!({
             "results": [{"data": {
                 "owner": "o", "repo": "r",
@@ -736,17 +723,12 @@ mod tests {
 
     #[test]
     fn line_paginated_receipt_includes_scope_start_end_total() {
-        // Page 0: lines 1-30 of 479
         let r = receipt("localFetch", &line_paginated_state(0, 30, 479, 30));
         assert_eq!(r["scope"]["startLine"], 1, "page 0 starts at line 1");
         assert_eq!(r["scope"]["endLine"], 30);
         assert_eq!(r["scope"]["totalLines"], 479);
-        assert!(
-            r["scope"].get("byteOffset").is_none(),
-            "no byte fields for line scope"
-        );
+        assert!(r["scope"].get("byteOffset").is_none());
 
-        // Page 1: lines 31-60 of 479
         let r2 = receipt("localFetch", &line_paginated_state(30, 30, 479, 60));
         assert_eq!(r2["scope"]["startLine"], 31, "page 1 starts at line 31");
         assert_eq!(r2["scope"]["endLine"], 60);
@@ -755,40 +737,24 @@ mod tests {
 
     #[test]
     fn byte_paginated_receipt_includes_scope_offset_end_total() {
-        // First byte chunk: bytes 0-16384 of 16500
         let r = receipt("localFetch", &byte_paginated_state(0, 16384, 16500, true));
         assert_eq!(r["scope"]["byteOffset"], 0);
         assert_eq!(r["scope"]["byteEnd"], 16384);
         assert_eq!(r["scope"]["totalBytes"], 16500);
-        assert!(
-            r["scope"].get("startLine").is_none(),
-            "no line fields for byte scope"
-        );
+        assert!(r["scope"].get("startLine").is_none());
 
-        // Second (final) byte chunk: no nextOffset in pagination
-        let r2 = receipt(
-            "localFetch",
-            &byte_paginated_state(16384, 116, 16500, false),
-        );
+        let r2 = receipt("localFetch", &byte_paginated_state(16384, 116, 16500, false));
         assert_eq!(r2["scope"]["byteOffset"], 16384);
-        assert_eq!(
-            r2["scope"]["byteEnd"], 16500,
-            "byteEnd falls back to offset+length when no nextOffset"
-        );
+        assert_eq!(r2["scope"]["byteEnd"], 16500);
         assert_eq!(r2["scope"]["totalBytes"], 16500);
     }
 
     #[test]
     fn complete_and_value_receipts_have_no_scope() {
-        // A result without pagination metadata (complete, all lines fit)
         let complete = json!({"results": [{"data": {
             "content": "all here", "totalLines": 5, "returnedLines": 5
         }}]});
-        assert!(
-            receipt("localFetch", &complete).get("scope").is_none(),
-            "complete result must not have scope"
-        );
-        // Value context receipts never have scope
+        assert!(receipt("localFetch", &complete).get("scope").is_none());
         assert!(value_receipt(&json!({"key": "val"})).get("scope").is_none());
     }
 }

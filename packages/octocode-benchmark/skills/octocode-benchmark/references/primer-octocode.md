@@ -11,7 +11,7 @@ and is **not** counted; use it instead of paying for schema discovery.
 |---|---|
 | `ghSearch` | Remote discovery through strict operations: `code` for code/file paths, `repositories` for repository discovery, and `tree` for a known repository. For code, use `match:"path"` when only filenames matter. For repositories, start with `concise:true`. Skip discovery when you already know the exact file path. |
 | `ghGetFileContent` | Read a file or a **region** once you know the path — not for discovery. A code-search snippet can narrow the candidate; fetch exact source when the answer depends on source text, line identity, or a fixed revision. |
-| `ghSearchHistory` | Search or list history with `operation:"pullRequests"`, `"issues"`, or `"commits"`. Use it for discovery, not exact item reads. |
+| `ghSearchHistory` | Search or list history with `operation:"pullRequest"`, `"issue"`, or `"commit"`. Use it for discovery, not exact item reads. |
 | `ghGetHistoryItem` | Read one PR or issue by `number`, one commit by `ref`, or compare `base`+`head`. Select only the content or diff you need. |
 | `ghCloneRepo` | Materialize a repo/sparse subtree **only** for repeated reads, structural (AST) matching, or LSP semantics. |
 | `artifactSearch` | Resolve dependencies/source or discover packages by capability. Require ecosystem `type` and exact `packageName` or `keywords`; PyPI is exact-only. Skip when source is known or installed behavior needs local evidence. |
@@ -23,7 +23,7 @@ and is **not** counted; use it instead of paying for schema discovery.
 ## Lean path
 
 - **Use snippets as leads.** A `ghSearch(operation:"code")` result can identify a candidate, but fetch the file when exact source, line identity, or revision matters.
-- **Choose the needed source view.** Read a known region directly with `matchString` or `startLine`+`endLine`. For an unfamiliar large file, use `minify:"symbols"` only when its outline can select the decisive region. Path-only reads are valid and exact by default; selectors are optional and mutually exclusive with `fullContent`. Both readers use `chunkType:"lines"|"bytes"`, `offset`, and `limit`; copy `next.continue` unchanged. Match context defaults to five lines or 256 UTF-8 bytes according to chunk type; explicit `contextLines` and `contextBytes` are exclusive.
+- **Choose the needed source view.** Read a known region directly with `matchString` or `startLine`+`endLine`. For an unfamiliar large file, use `minify:"symbols"` only when its outline can select the decisive region. Path-only reads are valid and exact by default; selectors are optional and mutually exclusive with `fullContent`. Both readers use `chunkType:"lines"|"bytes"`, `offset`, and `chunkSize`; copy `next.continue` unchanged. Match context defaults to five lines or 256 UTF-8 bytes according to chunk type; explicit `contextLines` and `contextBytes` are exclusive.
 - **Structured/config membership needs exact content.** Keep `minify:"none"`; fetch the enclosing object or a small full file. A partial slice cannot establish that a field is absent; follow relevant continuations before an absence claim.
 - **Inspect the returned envelope.** Use fields present in the operation's response, including `meta.evidence`, diagnostics, pagination, and `next` continuations; never invent a field or quote.
 - **Clone only when it pays** — repeated reads, AST/structural matching, or LSP. A single remote read should stay remote.
@@ -36,7 +36,7 @@ npx octocode ghSearch '{"reasoning":"Find the source repository.","operation":"r
 npx octocode ghSearch '{"reasoning":"Browse the known revision.","operation":"tree","owner":"OWNER","repo":"REPO","branch":"SHA","path":"PATH"}'
 npx octocode ghGetFileContent '{"reasoning":"Read the deciding source region.","owner":"OWNER","repo":"REPO","path":"PATH","branch":"SHA","matchString":"SYMBOL","contextLines":8}'
 npx octocode ghGetFileContent '{"reasoning":"Map declarations before an exact read.","owner":"OWNER","repo":"REPO","path":"PATH","branch":"SHA","minify":"symbols"}'
-npx octocode ghSearchHistory '{"reasoning":"Find revisions that changed this path.","operation":"commits","owner":"OWNER","repo":"REPO","path":"PATH"}'
+npx octocode ghSearchHistory '{"reasoning":"Find revisions that changed this path.","operation":"commit","owner":"OWNER","repo":"REPO","path":"PATH"}'
 npx octocode artifactSearch '{"reasoning":"Resolve the known dependency.","type":"npm","packageName":"@octokit/rest"}'
 npx octocode artifactSearch '{"reasoning":"Discover candidate runtimes.","type":"crates","keywords":["async","runtime"]}'
 npx octocode ghGetHistoryItem '{"reasoning":"Read the known pull request body.","operation":"pullRequest","owner":"OWNER","repo":"REPO","number":123,"content":{"body":true}}'
@@ -99,7 +99,7 @@ npx octocode astSearch '{"reasoning":"Rank files by line count.","operation":"fi
 Alternatively, to get line count for a specific file:
 
 ```bash
-npx octocode localFetch '{"reasoning":"Read exact file metadata.","path":"/repo/file.ts","fullContent":false,"limit":1,"offset":0}'
+npx octocode localFetch '{"reasoning":"Read exact file metadata.","path":"/repo/file.ts","fullContent":false,"chunkSize":1,"offset":0}'
 # Check `totalLines` in the response pagination — this is the exact line count.
 ```
 

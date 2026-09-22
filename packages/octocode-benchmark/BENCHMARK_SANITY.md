@@ -86,7 +86,7 @@ tool section to diagnose a failure.
 - [ ] 6. `artifactSearch` — all 8 ecosystems, exact + keyword
 - [ ] 7. `ghSearch` — code / repositories / tree + filters
 - [ ] 8. `ghGetFileContent` — read + minify / matchString / line-range  (incl. **R2**)
-- [ ] 9. `ghSearchHistory` — commits / pullRequests / issues  (incl. **R3**)
+- [ ] 9. `ghSearchHistory` — commit / pullRequest / issue  (incl. **R3**)
 - [ ] 10. `ghGetHistoryItem` — commit / pullRequest / issue / compare  (incl. **R4**)
 - [ ] 11. `ghCloneRepo` — clone (+ branch / sparsePath)
 - [ ] 12. `clasify` — resource-question matrices with typed Noul / Choice / Score answers (gated)
@@ -104,7 +104,7 @@ tool section to diagnose a failure.
 (`off`|`list`|`count`), `resultView` (`matchOnly`), `sort` (`relevance`|`path`|
 `matchCount`|`modified`|…), `page`/`pageSize`/`matchPage`, `matchContentLength`,
 `matchWindow`, `contextLines`, `include`/`exclude`/`excludeDir` globs, `langType`,
-`rankingProfile`, `maxDepth`/`maxFiles`/`maxMatchesPerFile`, `hidden`/`noIgnore`.
+`maxDepth`/`pageSize`/`maxMatchesPerFile`, `hidden`/`noIgnore`.
 
 **Core task:** *"Find every `greet` under `src/`."*
 `{"reasoning":"x","searchText":"greet","path":"src"}` → **PASS:** matches in `util.ts` **and** `index.ts`.
@@ -195,7 +195,7 @@ optionally minified.
 **Schema:** required `reasoning`, `path`. Advanced: `fullContent`,
 `startLine`+`endLine`, `matchString` (+`matchStringIsRegex`,
 `matchStringCaseSensitive`, `contextLines`), `minify` (`none`|`standard`|`symbols`),
-`chunkType` (`lines`|`bytes`) + `limit`/`offset` (pagination), `contextBytes`.
+`chunkType` (`lines`|`bytes`) + `chunkSize`/`offset` (pagination), `contextBytes`.
 
 **Core task:** *"Read `src/util.ts`."*  `{"path":"src/util.ts"}`
 → **PASS:** returns `greet`/`shout` source.
@@ -204,7 +204,7 @@ optionally minified.
 - [ ] `minify:"standard"` and `minify:"symbols"` — both return without violation
 - [ ] `startLine:1,endLine:2` line-range read
 - [ ] `matchString:"gr.et",matchStringIsRegex:true,contextLines:1` — regex match filter
-- [ ] `chunkType:"lines",limit:2,offset:0` — chunk pagination
+- [ ] `chunkType:"lines",chunkSize:2,offset:0` — chunk pagination
 - [ ] `fullContent:true`
 
 - [ ] native CLI [ ] node CLI [ ] MCP
@@ -311,18 +311,18 @@ require `uri` + (`symbolName`+`lineHint`) **or** `position`. `documentSymbols`/
 
 **Purpose:** search commits, pull requests, or issues. **Network.**
 
-**Schema:** required `reasoning`, `operation` (`commits`|`pullRequests`|`issues`);
-`commits`/`issues` also need `owner`+`repo`. Advanced filters: `author`/`committer`/
+**Schema:** required `reasoning`, `operation` (`commit`|`pullRequest`|`issue`);
+`commit`/`issue` also need `owner`+`repo`. Advanced filters: `author`/`committer`/
 `assignee`/`commenter`/`mentions`, `state` (`open`|`closed`|`merged`), `label`,
 `review`/`checks`/`draft`, `since`/`until`/`created`/`updated`/`closed`,
 `sort`/`order`, `base`/`head`/`branch`/`path`, `page`/`pageSize`.
 
 **Core task:** *"Recent commits in `bgauryy/octocode`."*
-`{"operation":"commits","owner":"bgauryy","repo":"octocode"}` → **PASS:** `commits[]` with SHAs.
+`{"operation":"commit","owner":"bgauryy","repo":"octocode"}` → **PASS:** `commits[]` with SHAs.
 
 **Advanced coverage:**
-- [ ] `operation:"issues"` — `{"operation":"issues","owner":"bgauryy","repo":"octocode"}`
-- [ ] **R3 (regression):** `operation:"pullRequests"` (`state:"merged"`) completes
+- [ ] `operation:"issue"` — `{"operation":"issue","owner":"bgauryy","repo":"octocode"}`
+- [ ] **R3 (regression):** `operation:"pullRequest"` (`state:"merged"`) completes
       with **no** `outputContractViolation` — its `next.nextPage` must carry
       `pageSize` (guards `ghsearchhistory_nextpage_carries_pagesize`)
 
@@ -453,7 +453,7 @@ const tools = {
   artifactSearch:{reasoning:"x",type:"npm",packageName:"left-pad"},
   ghSearch:{reasoning:"x",operation:"repositories",owner:"bgauryy"},
   ghGetFileContent:{reasoning:"x",owner:"bgauryy",repo:"octocode",path:"README.md"},
-  ghSearchHistory:{reasoning:"x",operation:"commits",owner:"bgauryy",repo:"octocode"},
+  ghSearchHistory:{reasoning:"x",operation:"commit",owner:"bgauryy",repo:"octocode"},
   ghGetHistoryItem:{reasoning:"x",owner:"bgauryy",repo:"octocode",operation:"commit",ref:"HEAD"},
   ghCloneRepo:{reasoning:"x",owner:"octocat",repo:"Hello-World"},
 };
@@ -481,7 +481,7 @@ const V = {
   "localFetch minify=symbols":["localFetch",{reasoning:"x",path:"src/util.ts",minify:"symbols"}],
   "localFetch lineRange":["localFetch",{reasoning:"x",path:"src/util.ts",startLine:1,endLine:2}],
   "localFetch matchString+regex":["localFetch",{reasoning:"x",path:"src/util.ts",matchString:"gr.et",matchStringIsRegex:true,contextLines:1}],
-  "localFetch chunk pagination":["localFetch",{reasoning:"x",path:"src/util.ts",chunkType:"lines",limit:2,offset:0}],
+  "localFetch chunk pagination":["localFetch",{reasoning:"x",path:"src/util.ts",chunkType:"lines",chunkSize:2,offset:0}],
   "localSearch regex=pcre2":["localSearch",{reasoning:"x",searchText:"gr(?=eet)",path:"src",regex:"pcre2"}],
   "localSearch regex=literal":["localSearch",{reasoning:"x",searchText:"greet(",path:"src",regex:"literal"}],
   "localSearch unique=count":["localSearch",{reasoning:"x",searchText:"greet",path:"src",unique:"count",resultView:"matchOnly"}],
@@ -502,7 +502,7 @@ const V = {
   "artifact rubygems":["artifactSearch",{reasoning:"x",type:"rubygems",packageName:"rails"}],
   "ghFileContent minify":["ghGetFileContent",{reasoning:"x",owner:"bgauryy",repo:"octocode",path:"README.md",minify:"standard"}],
   "R2 ghFileContent 404":["ghGetFileContent",{reasoning:"x",owner:"bgauryy",repo:"octocode",path:"DOES_NOT_EXIST.md"}],
-  "R3 ghHistory pullRequests":["ghSearchHistory",{reasoning:"x",operation:"pullRequests",owner:"bgauryy",repo:"octocode",state:"merged"}],
+  "R3 ghHistory pullRequests":["ghSearchHistory",{reasoning:"x",operation:"pullRequest",owner:"bgauryy",repo:"octocode",state:"merged"}],
   "R4 ghItem compare":["ghGetHistoryItem",{reasoning:"x",owner:"bgauryy",repo:"octocode",operation:"compare",base:"HEAD~1",head:"HEAD"}],
 };
 const ok=t=>!/outputContractViolation|invalidInput|Invalid arguments|panicked|contract validation failed/.test(t);
