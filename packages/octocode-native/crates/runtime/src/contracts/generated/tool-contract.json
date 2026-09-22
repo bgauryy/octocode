@@ -1,6 +1,6 @@
 {
   "contractFormatVersion": 2,
-  "fingerprint": "f26c61b46e0f80e67e1248511194143313ed38e4de8b807eea8b02c4fca9b959",
+  "fingerprint": "04be5d6ec883795a572fbf9ac2b76fb2f17d45a77c5973d8aa0ce127a14c46eb",
   "tools": [
     {
       "defaults": [
@@ -379,9 +379,11 @@
                                 "ghSearchHistory",
                                 "ghGetHistoryItem",
                                 "artifactSearch",
+                                "ghCloneRepo",
                                 "localSearch",
                                 "localFetch",
                                 "astSearch",
+                                "astTopology",
                                 "lspSearch"
                               ],
                               "type": "string"
@@ -394,7 +396,7 @@
                           "type": "object"
                         }
                       ],
-                      "description": "Use supplied state already in hand, or delegate one unread search, tree, fetch, history, AST, or LSP query."
+                      "description": "Use supplied state already in hand, or delegate one unread search, tree, fetch, history, AST, topology, clone, or LSP query."
                     },
                     "id": {
                       "description": "Correlation key preserved across every result in the batch.",
@@ -799,9 +801,11 @@
                                       "ghSearchHistory",
                                       "ghGetHistoryItem",
                                       "artifactSearch",
+                                      "ghCloneRepo",
                                       "localSearch",
                                       "localFetch",
                                       "astSearch",
+                                      "astTopology",
                                       "lspSearch"
                                     ],
                                     "type": "string"
@@ -814,7 +818,7 @@
                                 "type": "object"
                               }
                             ],
-                            "description": "Use supplied state already in hand, or delegate one unread search, tree, fetch, history, AST, or LSP query."
+                            "description": "Use supplied state already in hand, or delegate one unread search, tree, fetch, history, AST, topology, clone, or LSP query."
                           },
                           "id": {
                             "description": "Correlation key preserved across every result in the batch.",
@@ -1245,9 +1249,11 @@
                                               "ghSearchHistory",
                                               "ghGetHistoryItem",
                                               "artifactSearch",
+                                              "ghCloneRepo",
                                               "localSearch",
                                               "localFetch",
                                               "astSearch",
+                                              "astTopology",
                                               "lspSearch"
                                             ],
                                             "type": "string"
@@ -1260,7 +1266,7 @@
                                         "type": "object"
                                       }
                                     ],
-                                    "description": "Use supplied state already in hand, or delegate one unread search, tree, fetch, history, AST, or LSP query."
+                                    "description": "Use supplied state already in hand, or delegate one unread search, tree, fetch, history, AST, topology, clone, or LSP query."
                                   },
                                   "id": {
                                     "description": "Correlation key preserved across every result in the batch.",
@@ -1666,9 +1672,11 @@
                                                     "ghSearchHistory",
                                                     "ghGetHistoryItem",
                                                     "artifactSearch",
+                                                    "ghCloneRepo",
                                                     "localSearch",
                                                     "localFetch",
                                                     "astSearch",
+                                                    "astTopology",
                                                     "lspSearch"
                                                   ],
                                                   "type": "string"
@@ -1681,7 +1689,7 @@
                                               "type": "object"
                                             }
                                           ],
-                                          "description": "Use supplied state already in hand, or delegate one unread search, tree, fetch, history, AST, or LSP query."
+                                          "description": "Use supplied state already in hand, or delegate one unread search, tree, fetch, history, AST, topology, clone, or LSP query."
                                         },
                                         "id": {
                                           "description": "Correlation key preserved across every result in the batch.",
@@ -2074,9 +2082,11 @@
                                             "ghSearchHistory",
                                             "ghGetHistoryItem",
                                             "artifactSearch",
+                                            "ghCloneRepo",
                                             "localSearch",
                                             "localFetch",
                                             "astSearch",
+                                            "astTopology",
                                             "lspSearch"
                                           ],
                                           "type": "string"
@@ -2342,9 +2352,11 @@
                                             "ghSearchHistory",
                                             "ghGetHistoryItem",
                                             "artifactSearch",
+                                            "ghCloneRepo",
                                             "localSearch",
                                             "localFetch",
                                             "astSearch",
+                                            "astTopology",
                                             "lspSearch"
                                           ],
                                           "type": "string"
@@ -2841,9 +2853,11 @@
                             "ghSearchHistory",
                             "ghGetHistoryItem",
                             "artifactSearch",
+                            "ghCloneRepo",
                             "localSearch",
                             "localFetch",
                             "astSearch",
+                            "astTopology",
                             "lspSearch"
                           ],
                           "type": "string"
@@ -2856,7 +2870,7 @@
                       "type": "object"
                     }
                   ],
-                  "description": "Use supplied state already in hand, or delegate one unread search, tree, fetch, history, AST, or LSP query."
+                  "description": "Use supplied state already in hand, or delegate one unread search, tree, fetch, history, AST, topology, clone, or LSP query."
                 },
                 "id": {
                   "description": "Correlation key preserved across every result in the batch.",
@@ -4099,9 +4113,11 @@
                                         "ghSearchHistory",
                                         "ghGetHistoryItem",
                                         "artifactSearch",
+                                        "ghCloneRepo",
                                         "localSearch",
                                         "localFetch",
                                         "astSearch",
+                                        "astTopology",
                                         "lspSearch"
                                       ],
                                       "type": "string"
@@ -4114,7 +4130,7 @@
                                   "type": "object"
                                 }
                               ],
-                              "description": "Use supplied state already in hand, or delegate one unread search, tree, fetch, history, AST, or LSP query."
+                              "description": "Use supplied state already in hand, or delegate one unread search, tree, fetch, history, AST, topology, clone, or LSP query."
                             },
                             "id": {
                               "description": "Correlation key preserved across every result in the batch.",
@@ -11873,9 +11889,11 @@
                                         "ghSearchHistory",
                                         "ghGetHistoryItem",
                                         "artifactSearch",
+                                        "ghCloneRepo",
                                         "localSearch",
                                         "localFetch",
                                         "astSearch",
+                                        "astTopology",
                                         "lspSearch"
                                       ],
                                       "type": "string"
@@ -11888,7 +11906,7 @@
                                   "type": "object"
                                 }
                               ],
-                              "description": "Use supplied state already in hand, or delegate one unread search, tree, fetch, history, AST, or LSP query."
+                              "description": "Use supplied state already in hand, or delegate one unread search, tree, fetch, history, AST, topology, clone, or LSP query."
                             },
                             "id": {
                               "description": "Correlation key preserved across every result in the batch.",
@@ -19319,9 +19337,11 @@
                                         "ghSearchHistory",
                                         "ghGetHistoryItem",
                                         "artifactSearch",
+                                        "ghCloneRepo",
                                         "localSearch",
                                         "localFetch",
                                         "astSearch",
+                                        "astTopology",
                                         "lspSearch"
                                       ],
                                       "type": "string"
@@ -19334,7 +19354,7 @@
                                   "type": "object"
                                 }
                               ],
-                              "description": "Use supplied state already in hand, or delegate one unread search, tree, fetch, history, AST, or LSP query."
+                              "description": "Use supplied state already in hand, or delegate one unread search, tree, fetch, history, AST, topology, clone, or LSP query."
                             },
                             "id": {
                               "description": "Correlation key preserved across every result in the batch.",
@@ -27574,9 +27594,11 @@
                                         "ghSearchHistory",
                                         "ghGetHistoryItem",
                                         "artifactSearch",
+                                        "ghCloneRepo",
                                         "localSearch",
                                         "localFetch",
                                         "astSearch",
+                                        "astTopology",
                                         "lspSearch"
                                       ],
                                       "type": "string"
@@ -27589,7 +27611,7 @@
                                   "type": "object"
                                 }
                               ],
-                              "description": "Use supplied state already in hand, or delegate one unread search, tree, fetch, history, AST, or LSP query."
+                              "description": "Use supplied state already in hand, or delegate one unread search, tree, fetch, history, AST, topology, clone, or LSP query."
                             },
                             "id": {
                               "description": "Correlation key preserved across every result in the batch.",
@@ -36353,9 +36375,11 @@
                                         "ghSearchHistory",
                                         "ghGetHistoryItem",
                                         "artifactSearch",
+                                        "ghCloneRepo",
                                         "localSearch",
                                         "localFetch",
                                         "astSearch",
+                                        "astTopology",
                                         "lspSearch"
                                       ],
                                       "type": "string"
@@ -36368,7 +36392,7 @@
                                   "type": "object"
                                 }
                               ],
-                              "description": "Use supplied state already in hand, or delegate one unread search, tree, fetch, history, AST, or LSP query."
+                              "description": "Use supplied state already in hand, or delegate one unread search, tree, fetch, history, AST, topology, clone, or LSP query."
                             },
                             "id": {
                               "description": "Correlation key preserved across every result in the batch.",
@@ -43087,9 +43111,11 @@
                                         "ghSearchHistory",
                                         "ghGetHistoryItem",
                                         "artifactSearch",
+                                        "ghCloneRepo",
                                         "localSearch",
                                         "localFetch",
                                         "astSearch",
+                                        "astTopology",
                                         "lspSearch"
                                       ],
                                       "type": "string"
@@ -43102,7 +43128,7 @@
                                   "type": "object"
                                 }
                               ],
-                              "description": "Use supplied state already in hand, or delegate one unread search, tree, fetch, history, AST, or LSP query."
+                              "description": "Use supplied state already in hand, or delegate one unread search, tree, fetch, history, AST, topology, clone, or LSP query."
                             },
                             "id": {
                               "description": "Correlation key preserved across every result in the batch.",
@@ -49953,9 +49979,11 @@
                                         "ghSearchHistory",
                                         "ghGetHistoryItem",
                                         "artifactSearch",
+                                        "ghCloneRepo",
                                         "localSearch",
                                         "localFetch",
                                         "astSearch",
+                                        "astTopology",
                                         "lspSearch"
                                       ],
                                       "type": "string"
@@ -49968,7 +49996,7 @@
                                   "type": "object"
                                 }
                               ],
-                              "description": "Use supplied state already in hand, or delegate one unread search, tree, fetch, history, AST, or LSP query."
+                              "description": "Use supplied state already in hand, or delegate one unread search, tree, fetch, history, AST, topology, clone, or LSP query."
                             },
                             "id": {
                               "description": "Correlation key preserved across every result in the batch.",
@@ -57975,9 +58003,11 @@
                                         "ghSearchHistory",
                                         "ghGetHistoryItem",
                                         "artifactSearch",
+                                        "ghCloneRepo",
                                         "localSearch",
                                         "localFetch",
                                         "astSearch",
+                                        "astTopology",
                                         "lspSearch"
                                       ],
                                       "type": "string"
@@ -57990,7 +58020,7 @@
                                   "type": "object"
                                 }
                               ],
-                              "description": "Use supplied state already in hand, or delegate one unread search, tree, fetch, history, AST, or LSP query."
+                              "description": "Use supplied state already in hand, or delegate one unread search, tree, fetch, history, AST, topology, clone, or LSP query."
                             },
                             "id": {
                               "description": "Correlation key preserved across every result in the batch.",
@@ -67354,9 +67384,11 @@
                                         "ghSearchHistory",
                                         "ghGetHistoryItem",
                                         "artifactSearch",
+                                        "ghCloneRepo",
                                         "localSearch",
                                         "localFetch",
                                         "astSearch",
+                                        "astTopology",
                                         "lspSearch"
                                       ],
                                       "type": "string"
@@ -67369,7 +67401,7 @@
                                   "type": "object"
                                 }
                               ],
-                              "description": "Use supplied state already in hand, or delegate one unread search, tree, fetch, history, AST, or LSP query."
+                              "description": "Use supplied state already in hand, or delegate one unread search, tree, fetch, history, AST, topology, clone, or LSP query."
                             },
                             "id": {
                               "description": "Correlation key preserved across every result in the batch.",
@@ -76278,9 +76310,11 @@
                                         "ghSearchHistory",
                                         "ghGetHistoryItem",
                                         "artifactSearch",
+                                        "ghCloneRepo",
                                         "localSearch",
                                         "localFetch",
                                         "astSearch",
+                                        "astTopology",
                                         "lspSearch"
                                       ],
                                       "type": "string"
@@ -76293,7 +76327,7 @@
                                   "type": "object"
                                 }
                               ],
-                              "description": "Use supplied state already in hand, or delegate one unread search, tree, fetch, history, AST, or LSP query."
+                              "description": "Use supplied state already in hand, or delegate one unread search, tree, fetch, history, AST, topology, clone, or LSP query."
                             },
                             "id": {
                               "description": "Correlation key preserved across every result in the batch.",
@@ -84601,9 +84635,11 @@
                                         "ghSearchHistory",
                                         "ghGetHistoryItem",
                                         "artifactSearch",
+                                        "ghCloneRepo",
                                         "localSearch",
                                         "localFetch",
                                         "astSearch",
+                                        "astTopology",
                                         "lspSearch"
                                       ],
                                       "type": "string"
@@ -84616,7 +84652,7 @@
                                   "type": "object"
                                 }
                               ],
-                              "description": "Use supplied state already in hand, or delegate one unread search, tree, fetch, history, AST, or LSP query."
+                              "description": "Use supplied state already in hand, or delegate one unread search, tree, fetch, history, AST, topology, clone, or LSP query."
                             },
                             "id": {
                               "description": "Correlation key preserved across every result in the batch.",
@@ -92740,9 +92776,11 @@
                                         "ghSearchHistory",
                                         "ghGetHistoryItem",
                                         "artifactSearch",
+                                        "ghCloneRepo",
                                         "localSearch",
                                         "localFetch",
                                         "astSearch",
+                                        "astTopology",
                                         "lspSearch"
                                       ],
                                       "type": "string"
@@ -92755,7 +92793,7 @@
                                   "type": "object"
                                 }
                               ],
-                              "description": "Use supplied state already in hand, or delegate one unread search, tree, fetch, history, AST, or LSP query."
+                              "description": "Use supplied state already in hand, or delegate one unread search, tree, fetch, history, AST, topology, clone, or LSP query."
                             },
                             "id": {
                               "description": "Correlation key preserved across every result in the batch.",

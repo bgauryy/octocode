@@ -228,7 +228,10 @@ fn page_scope(state: &Value) -> Option<Value> {
                     let length = pagination.get("length")?.as_u64()?;
                     Some((offset + 1, offset + length))
                 })?;
-            let total_lines = pagination.get("totalLines")?.as_u64()?;
+            let total_lines = data
+                .get("totalLines")
+                .or_else(|| pagination.get("totalLines"))?
+                .as_u64()?;
             Some(json!({"startLine": start, "endLine": end, "totalLines": total_lines}))
         }
         "bytes" => {
@@ -733,6 +736,24 @@ mod tests {
         assert_eq!(r2["scope"]["startLine"], 31, "page 1 starts at line 31");
         assert_eq!(r2["scope"]["endLine"], 60);
         assert_eq!(r2["scope"]["totalLines"], 479);
+    }
+
+    #[test]
+    fn selected_line_window_scope_uses_the_full_source_total() {
+        let state = json!({"results":[{"data":{
+            "totalLines":763,
+            "sourceLineRanges":[{"start":111,"end":240}],
+            "pagination":{
+                "chunkType":"lines",
+                "offset":0,
+                "length":130,
+                "totalLines":130
+            }
+        }}]});
+        let r = receipt("localFetch", &state);
+        assert_eq!(r["scope"]["startLine"], 111);
+        assert_eq!(r["scope"]["endLine"], 240);
+        assert_eq!(r["scope"]["totalLines"], 763);
     }
 
     #[test]
