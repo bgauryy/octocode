@@ -797,22 +797,17 @@ export function buildOctocodeRenderResult(
   }
 
   const stats = buildResultStats(toolName, result.details);
-
-  // Summary (counts) stays muted; paths get the dedicated `path` colour so a
-  // glance separates "what happened" from "which files". Painted as separate SGR
-  // spans — safe under pi-tui width measurement (OSC 8 hyperlinks are not, so
-  // clickable links are intentionally omitted from TUI rows).
+  // Separate SGR spans distinguish counts, paths, and previews while remaining
+  // safe under pi-tui width measurement; OSC 8 links are intentionally omitted.
   const summarySeg = stats.summary ?? '';
   const pathSeg = stats.paths && stats.paths.length > 0 ? stats.paths.join(', ') : '';
-
   const previewSeg = stats.previews && stats.previews.length > 0 ? stats.previews.join(' | ') : '';
   const segments: InlineSegment[] = [];
   if (summarySeg) segments.push({ text: summarySeg, token: 'count' });
   if (pathSeg) segments.push({ text: pathSeg, token: 'path' });
   if (previewSeg) segments.push({ text: `“${previewSeg}”`, token: 'dim' });
-  // Every result row carries the result: when the tool reported no structured
-  // preview, show the first line of its response (`→ …`) so the operator reads
-  // the outcome inline instead of expanding the row (ctrl+o still shows all).
+  // Without a structured preview, show the first response line so the outcome
+  // remains visible without expansion (ctrl+o still shows everything).
   if (!previewSeg) {
     const firstLine = firstResultTextLine(result);
     if (firstLine) segments.push({ text: `→ ${truncatePlainToWidth(firstLine, RESULT_PREVIEW_MAX)}`, token: 'dim' });
