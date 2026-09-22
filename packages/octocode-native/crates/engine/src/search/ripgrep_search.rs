@@ -1045,6 +1045,16 @@ pub(crate) fn search_filtered(
         .word(whole_word)
         .multi_line(multiline)
         .dot_matches_new_line(dotall);
+    // ripgrep parity + fast path: in line-oriented (non-multiline) search the
+    // searcher feeds one terminator-stripped line at a time. Declaring the line
+    // terminator lets grep-regex extract inner literals and cheaply skip lines
+    // that cannot match (its primary perf lever) and forbids a pattern from
+    // matching across `\n` (which the line-oriented sink could never surface
+    // anyway). Multiline matchers span lines and must NOT set it — matching
+    // ripgrep's `hiargs` matcher construction exactly.
+    if !multiline {
+        b.line_terminator(Some(b'\n'));
+    }
     let pattern = if fixed_string {
         regex::escape(&opts.pattern)
     } else {

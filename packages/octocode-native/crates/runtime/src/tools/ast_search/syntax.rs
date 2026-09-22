@@ -42,6 +42,12 @@ pub fn execute_syntax(
     security: &ContentSecurity,
     cancel: &dyn CancellationCheck,
 ) -> super::AstResult {
+    if q.operation != "tree" || q.tree_kind != "syntax" {
+        return Err(super::AstError::new(
+            "ast.input.invalid",
+            "operation must be tree with treeKind syntax",
+        ));
+    }
     cancel.check().map_err(super::cancelled)?;
     let p = paths
         .validate_read(&q.path)

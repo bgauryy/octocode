@@ -513,7 +513,7 @@ try {
       assert.ok(JSON.stringify(data).includes('add(value, value)'));
     });
     await check('file graph dependency positive', async () => {
-      const data = await call('astSearch', {
+      const data = await call('astTopology', {
         operation: 'topology',
         analysis: 'dependencies',
         path: fixture,
@@ -535,11 +535,11 @@ try {
           pageSize: 50,
           excludeDir: [],
         };
-        const full = await call('astSearch', {
+        const full = await call('astTopology', {
           ...query,
           diagnosticPageSize: 100,
         });
-        const first = await call('astSearch', {
+        const first = await call('astTopology', {
           ...query,
           diagnosticPageSize: 2,
         });

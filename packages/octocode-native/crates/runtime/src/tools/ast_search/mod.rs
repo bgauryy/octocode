@@ -4,7 +4,6 @@ mod matches;
 mod policy_tests;
 mod symbols;
 mod syntax;
-mod tree;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -170,15 +169,7 @@ pub fn execute_ast(
             security,
             cancellation,
         ),
-        "tree" if query.get("treeKind").and_then(Value::as_str) == Some("syntax") => {
-            execute_syntax(
-                &serde_json::from_value(query).map_err(decode)?,
-                paths,
-                security,
-                cancellation,
-            )
-        }
-        "tree" => execute_tree(
+        "tree" => execute_syntax(
             &serde_json::from_value(query).map_err(decode)?,
             paths,
             security,
@@ -195,7 +186,6 @@ pub use files::execute_files;
 pub use matches::execute_match;
 pub use symbols::execute_symbols;
 pub use syntax::execute_syntax;
-pub use tree::execute_tree;
 
 #[cfg(test)]
 mod tests {
@@ -255,6 +245,43 @@ mod tests {
         )
         .expect_err("cancelled before filesystem access");
         assert_eq!(cancelled.code, "ast.execution.cancelled");
+    }
+
+    #[test]
+    fn syntax_tree_is_the_only_tree_surface() {
+        let root = tempfile::tempdir().expect("fixture directory");
+        let source = root.path().join("fixture.ts");
+        std::fs::write(&source, "export const value = 1;\n").expect("fixture source");
+        let paths = PathPolicy::new(PathPolicyConfig {
+            workspace_root: Some(root.path().to_path_buf()),
+            ..Default::default()
+        })
+        .expect("fixture path policy");
+        let security = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+
+        let syntax = execute_ast(
+            json!({
+                "operation":"tree",
+                "treeKind":"syntax",
+                "path":source.to_string_lossy()
+            }),
+            &paths,
+            &security,
+            &Active,
+        )
+        .expect("syntax tree");
+        assert_eq!(syntax["treeKind"], "syntax");
+
+        for retired in [
+            json!({"operation":"tree","treeKind":"filesystem","path":root.path().to_string_lossy()}),
+            json!({"operation":"tree","treeKind":"syntax","path":source.to_string_lossy(),"entryType":"f"}),
+            json!({"operation":"tree","treeKind":"syntax","path":source.to_string_lossy(),"sort":"size"}),
+            json!({"operation":"topology","analysis":"dependencies","path":root.path().to_string_lossy(),"file":"fixture.ts"}),
+        ] {
+            let error = execute_ast(retired, &paths, &security, &Active)
+                .expect_err("retired astSearch surface must be rejected");
+            assert_eq!(error.code, "ast.input.invalid");
+        }
     }
 
     #[test]

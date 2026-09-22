@@ -54,6 +54,7 @@ Load references that resolve the current decision. Reuse material already read a
 |---|---|---|
 | READ, UNDERSTAND | `references/flow/gates.md` | intent and runtime-context map before judgment |
 | RATE | `references/flow/rate.md` | evidenced severity and baseline score |
+| RATE covers many competing files or prompts | `octocode-clasify` — screen with shared questions (`trigger-clarity`, `has-workflow`, `cross-skill-refs`, `rigid-language`, `needs-optimizer`) | fast quantitative triage before reading; miss-risk ~0.28, saves reading unflagged files entirely |}
 | FIX | `references/flow/fix.md` | smallest repair in the owning layer |
 | VALIDATE | `references/flow/validate.md` | applicable behavioral and domain gates |
 | OUTPUT | `references/flow/output.md` | delivery variant and truthful delta |

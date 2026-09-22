@@ -45,7 +45,7 @@
   },
   "scripts": {
     "build": "yarn workspaces foreach -At --exclude octocode-monorepo run build",
- "build:dev": "yarn workspace @octocodeai/octocode-native build:dev && yarn workspace @octocodeai/octocode-extension-rust build:dev && yarn workspaces foreach -At --exclude @octocodeai/octocode-native --exclude @octocodeai/octocode-extension-rust --exclude octocode-monorepo run build",
+    "build:dev": "yarn workspace @octocodeai/octocode-native build:dev && yarn workspace @octocodeai/octocode-extension-rust build:dev && yarn workspaces foreach -At --exclude @octocodeai/octocode-native --exclude @octocodeai/octocode-extension-rust --exclude octocode-monorepo run build",
     "build:ci": "yarn prepublish && yarn workspace @octocodeai/octocode-native build && node ./scripts/workspace-health.mjs run build --exclude @octocodeai/octocode-native --exclude @octocodeai/octocode-benchmark",
     "build:native:all": "yarn workspace @octocodeai/octocode-extension-rust build:all && yarn workspace @octocodeai/octocode-native build:all",
     "build:publish": "yarn prepublish && yarn build:native:all && yarn platforms:check && yarn workspace octocode-mcp build:publish",

@@ -1351,6 +1351,42 @@ mod tests {
     }
 
     #[test]
+    fn diagnostic_continuation_stays_on_ast_topology() {
+        let query: AstGraphQuery = serde_json::from_value(json!({
+            "operation":"topology",
+            "analysis":"dependencies",
+            "path":".",
+            "file":"src/index.ts",
+            "diagnosticPageSize":2
+        }))
+        .expect("graph query");
+        let mut result = json!({
+            "pagination":{"hasMore":false},
+            "coverage":{"diagnosticsPagination":{
+                "hasMore":true,
+                "outOfRange":false,
+                "resultId":"diagnostic-snapshot"
+            }},
+            "results":[]
+        })
+        .as_object()
+        .cloned()
+        .expect("result object");
+
+        add_next(&mut result, &query, false, false, false);
+
+        assert_eq!(result["next"]["nextDiagnostics"]["tool"], "astTopology");
+        assert_eq!(
+            result["next"]["nextDiagnostics"]["query"]["operation"],
+            "topology"
+        );
+        assert_eq!(
+            result["next"]["nextDiagnostics"]["query"]["diagnosticSnapshot"],
+            "diagnostic-snapshot"
+        );
+    }
+
+    #[test]
     fn immediate_dominators_use_the_complete_reachable_diamond() {
         let graph = BTreeMap::from([
             ("entry.ts".into(), node(&["left.ts", "right.ts"])),

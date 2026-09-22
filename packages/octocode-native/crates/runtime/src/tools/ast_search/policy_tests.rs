@@ -63,9 +63,6 @@ fn descendant_policy_precedes_discovery_totals_and_line_reads() {
     assert_eq!(files["files"][0]["lineCount"], 3);
     assert!(!files.to_string().contains("credentials"));
     assert!(!files.to_string().contains("locked"));
-    let tree = execute_ast(json!({"operation":"tree","treeKind":"filesystem","path":root.0,"hidden":true,"maxDepth":10,"detail":"full"}), &paths, &security, &Active).expect("tree");
-    assert_eq!(tree["entries"].as_array().expect("entries").len(), 1);
-    assert_eq!(tree["summary"], "1 entries (1 files, 0 dirs, 21.0B)");
     let symbols = execute_ast(
         json!({"operation":"symbols","path":root.0}),
         &paths,
@@ -196,14 +193,6 @@ fn escaped_links_are_pruned_before_line_counting() {
     )
     .expect("files");
     assert_eq!(files["pagination"]["totalFiles"], 0);
-    let tree = execute_ast(
-        json!({"operation":"tree","path":root.0,"detail":"full"}),
-        &paths,
-        &security,
-        &Active,
-    )
-    .expect("tree");
-    assert_eq!(tree["entries"], json!([]));
 }
 
 #[test]
@@ -226,16 +215,14 @@ fn cancellation_interrupts_descendant_traversal() {
     })
     .expect("policy");
     let security = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
-    for operation in ["files", "tree"] {
-        let error = execute_ast(
-            json!({"operation":operation,"path":root.0}),
-            &paths,
-            &security,
-            &AfterRoot(std::sync::atomic::AtomicUsize::new(0)),
-        )
-        .expect_err("cancel during walk");
-        assert_eq!(error.code, "ast.execution.cancelled");
-    }
+    let error = execute_ast(
+        json!({"operation":"files","path":root.0}),
+        &paths,
+        &security,
+        &AfterRoot(std::sync::atomic::AtomicUsize::new(0)),
+    )
+    .expect_err("cancel during walk");
+    assert_eq!(error.code, "ast.execution.cancelled");
     let error = execute_ast(
         json!({
             "operation":"match","path":root.0,"langType":"rust",
@@ -378,36 +365,6 @@ fn files_continuation_rejects_stale_snapshot() {
     std::fs::write(root.0.join("newcomer.rs"), "x\n").expect("mutate corpus");
     let page2 = execute_ast(
         json!({"operation":"files","path":root.0,"entryType":"f","pageSize":2,"page":2,"snapshot":snapshot}),
-        &paths,
-        &security,
-        &Active,
-    )
-    .expect("page2");
-    assert_eq!(
-        page2["errorCode"],
-        json!("ast.snapshot.changed"),
-        "got {page2}"
-    );
-}
-
-#[test]
-fn tree_continuation_rejects_stale_snapshot() {
-    let root = Fixture::new();
-    for i in 0..6 {
-        std::fs::write(root.0.join(format!("f{i}.rs")), "x\n").expect("file");
-    }
-    let (paths, security) = simple_policy(&root.0);
-    let page1 = execute_ast(
-        json!({"operation":"tree","treeKind":"filesystem","path":root.0,"pageSize":2}),
-        &paths,
-        &security,
-        &Active,
-    )
-    .expect("page1");
-    let snapshot = page1["snapshot"].as_str().expect("snapshot").to_string();
-    std::fs::write(root.0.join("newcomer.rs"), "x\n").expect("mutate corpus");
-    let page2 = execute_ast(
-        json!({"operation":"tree","treeKind":"filesystem","path":root.0,"pageSize":2,"page":2,"snapshot":snapshot}),
         &paths,
         &security,
         &Active,

@@ -72,13 +72,26 @@ mod tests {
         let src = "// header comment\nexport function resolveNativeBin(env: NodeEnv): string | null {\n  const explicitOverride = env.OCTOCODE_NATIVE_BIN?.trim(); // inline\n  /* block */\n  return explicitOverride;\n}\n";
         let out = minify_javascript_core(src);
         // Comments gone.
-        assert!(!out.contains("header comment") && !out.contains("inline") && !out.contains("block"));
+        assert!(
+            !out.contains("header comment") && !out.contains("inline") && !out.contains("block")
+        );
         // Identifiers + types preserved (citation/comprehension).
-        for ident in ["resolveNativeBin", "explicitOverride", "OCTOCODE_NATIVE_BIN", "NodeEnv"] {
-            assert!(out.contains(ident), "identifier {ident} must survive minification");
+        for ident in [
+            "resolveNativeBin",
+            "explicitOverride",
+            "OCTOCODE_NATIVE_BIN",
+            "NodeEnv",
+        ] {
+            assert!(
+                out.contains(ident),
+                "identifier {ident} must survive minification"
+            );
         }
         // Line structure preserved (NOT collapsed to a single line).
-        assert!(out.lines().count() >= 3, "per-statement lines must be retained, got:\n{out}");
+        assert!(
+            out.lines().count() >= 3,
+            "per-statement lines must be retained, got:\n{out}"
+        );
     }
 
     #[test]

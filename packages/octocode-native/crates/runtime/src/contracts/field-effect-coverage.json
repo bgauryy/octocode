@@ -1,0 +1,1424 @@
+{
+  "contractFingerprint": "f26c61b46e0f80e67e1248511194143313ed38e4de8b807eea8b02c4fca9b959",
+  "coverageClasses": [
+    "validated",
+    "consumed",
+    "forwarded",
+    "output-control",
+    "continuation",
+    "workflow-metadata",
+    "security-policy"
+  ],
+  "tools": {
+    "clasify": {
+      "evidence": [
+        "src/tools/clasify/mod.rs",
+        "src/runtime/clasify_context.rs",
+        "tests/runtime_clasify.rs"
+      ],
+      "variants": [],
+      "discriminators": {
+        "questions[].question.type": [
+          "noul",
+          "choice",
+          "score"
+        ]
+      },
+      "fields": {
+        "id": [
+          "consumed"
+        ],
+        "questions": [
+          "consumed"
+        ],
+        "questions[].id": [
+          "consumed"
+        ],
+        "questions[].question": [
+          "consumed"
+        ],
+        "questions[].question.criteria": [
+          "consumed"
+        ],
+        "questions[].question.criteria.false": [
+          "consumed"
+        ],
+        "questions[].question.criteria.true": [
+          "consumed"
+        ],
+        "questions[].question.instructions": [
+          "consumed"
+        ],
+        "questions[].question.type": [
+          "consumed"
+        ],
+        "reasoning": [
+          "workflow-metadata"
+        ],
+        "resources": [
+          "consumed"
+        ],
+        "resources[].context": [
+          "consumed"
+        ],
+        "resources[].context.query": [
+          "consumed"
+        ],
+        "resources[].context.tool": [
+          "consumed"
+        ],
+        "resources[].context.value": [
+          "consumed"
+        ],
+        "resources[].id": [
+          "consumed"
+        ],
+        "resources[].maxChars": [
+          "consumed"
+        ]
+      }
+    },
+    "ghSearch": {
+      "evidence": [
+        "src/tools/gh_search/mod.rs",
+        "tests/runtime_github.rs"
+      ],
+      "variants": [
+        "code",
+        "repositories",
+        "tree"
+      ],
+      "discriminators": {
+        "operation": [
+          "code",
+          "repositories",
+          "tree"
+        ]
+      },
+      "fields": {
+        "archived": [
+          "forwarded"
+        ],
+        "branch": [
+          "forwarded"
+        ],
+        "concise": [
+          "forwarded",
+          "output-control"
+        ],
+        "created": [
+          "forwarded"
+        ],
+        "debug": [
+          "workflow-metadata"
+        ],
+        "extension": [
+          "forwarded"
+        ],
+        "filename": [
+          "forwarded"
+        ],
+        "forks": [
+          "forwarded"
+        ],
+        "goal": [
+          "workflow-metadata"
+        ],
+        "goodFirstIssues": [
+          "forwarded"
+        ],
+        "include": [
+          "forwarded"
+        ],
+        "keywords": [
+          "forwarded"
+        ],
+        "language": [
+          "forwarded"
+        ],
+        "license": [
+          "forwarded"
+        ],
+        "match": [
+          "forwarded"
+        ],
+        "materialize": [
+          "forwarded",
+          "output-control"
+        ],
+        "materializeOffset": [
+          "forwarded",
+          "output-control",
+          "continuation"
+        ],
+        "maxDepth": [
+          "forwarded"
+        ],
+        "metadataPage": [
+          "forwarded",
+          "output-control",
+          "continuation"
+        ],
+        "operation": [
+          "forwarded"
+        ],
+        "owner": [
+          "forwarded"
+        ],
+        "page": [
+          "forwarded",
+          "output-control",
+          "continuation"
+        ],
+        "pageSize": [
+          "forwarded",
+          "output-control"
+        ],
+        "path": [
+          "forwarded",
+          "security-policy"
+        ],
+        "reasoning": [
+          "workflow-metadata"
+        ],
+        "repo": [
+          "forwarded"
+        ],
+        "size": [
+          "forwarded"
+        ],
+        "sort": [
+          "forwarded"
+        ],
+        "stars": [
+          "forwarded"
+        ],
+        "topics": [
+          "forwarded"
+        ],
+        "updated": [
+          "forwarded"
+        ],
+        "visibility": [
+          "forwarded"
+        ]
+      }
+    },
+    "ghGetFileContent": {
+      "evidence": [
+        "src/tools/gh_get_file_content/mod.rs",
+        "tests/runtime_github.rs"
+      ],
+      "variants": [],
+      "discriminators": {},
+      "fields": {
+        "branch": [
+          "forwarded"
+        ],
+        "chunkSize": [
+          "forwarded",
+          "output-control"
+        ],
+        "chunkType": [
+          "forwarded",
+          "output-control"
+        ],
+        "contextBytes": [
+          "forwarded",
+          "output-control"
+        ],
+        "contextLines": [
+          "forwarded",
+          "output-control"
+        ],
+        "debug": [
+          "workflow-metadata"
+        ],
+        "endLine": [
+          "forwarded",
+          "output-control"
+        ],
+        "forceRefresh": [
+          "forwarded"
+        ],
+        "fullContent": [
+          "forwarded",
+          "output-control"
+        ],
+        "goal": [
+          "workflow-metadata"
+        ],
+        "matchString": [
+          "forwarded"
+        ],
+        "matchStringCaseSensitive": [
+          "forwarded"
+        ],
+        "matchStringIsRegex": [
+          "forwarded"
+        ],
+        "minify": [
+          "forwarded",
+          "output-control"
+        ],
+        "offset": [
+          "forwarded",
+          "output-control",
+          "continuation"
+        ],
+        "owner": [
+          "forwarded"
+        ],
+        "path": [
+          "forwarded",
+          "security-policy"
+        ],
+        "reasoning": [
+          "workflow-metadata"
+        ],
+        "repo": [
+          "forwarded"
+        ],
+        "startLine": [
+          "forwarded",
+          "output-control"
+        ]
+      }
+    },
+    "ghSearchHistory": {
+      "evidence": [
+        "src/tools/gh_search_history/mod.rs",
+        "tests/runtime_github.rs"
+      ],
+      "variants": [
+        "pullRequest",
+        "issue",
+        "commit"
+      ],
+      "discriminators": {
+        "operation": [
+          "pullRequest",
+          "issue",
+          "commit"
+        ]
+      },
+      "fields": {
+        "archived": [
+          "forwarded"
+        ],
+        "assignee": [
+          "forwarded"
+        ],
+        "author": [
+          "forwarded"
+        ],
+        "base": [
+          "forwarded"
+        ],
+        "branch": [
+          "forwarded"
+        ],
+        "checks": [
+          "forwarded"
+        ],
+        "closed": [
+          "forwarded"
+        ],
+        "commenter": [
+          "forwarded"
+        ],
+        "comments": [
+          "forwarded"
+        ],
+        "committer": [
+          "forwarded"
+        ],
+        "concise": [
+          "forwarded",
+          "output-control"
+        ],
+        "created": [
+          "forwarded"
+        ],
+        "debug": [
+          "workflow-metadata"
+        ],
+        "draft": [
+          "forwarded"
+        ],
+        "goal": [
+          "workflow-metadata"
+        ],
+        "head": [
+          "forwarded"
+        ],
+        "keywords": [
+          "forwarded"
+        ],
+        "label": [
+          "forwarded"
+        ],
+        "match": [
+          "forwarded"
+        ],
+        "mentions": [
+          "forwarded"
+        ],
+        "merged-at": [
+          "forwarded"
+        ],
+        "operation": [
+          "forwarded"
+        ],
+        "order": [
+          "forwarded"
+        ],
+        "owner": [
+          "forwarded"
+        ],
+        "page": [
+          "forwarded",
+          "output-control",
+          "continuation"
+        ],
+        "pageSize": [
+          "forwarded",
+          "output-control"
+        ],
+        "path": [
+          "forwarded",
+          "security-policy"
+        ],
+        "reactions": [
+          "forwarded"
+        ],
+        "reasoning": [
+          "workflow-metadata"
+        ],
+        "repo": [
+          "forwarded"
+        ],
+        "review": [
+          "forwarded"
+        ],
+        "review-requested": [
+          "forwarded"
+        ],
+        "reviewed-by": [
+          "forwarded"
+        ],
+        "since": [
+          "forwarded"
+        ],
+        "sort": [
+          "forwarded"
+        ],
+        "state": [
+          "forwarded"
+        ],
+        "until": [
+          "forwarded"
+        ],
+        "updated": [
+          "forwarded"
+        ]
+      }
+    },
+    "ghGetHistoryItem": {
+      "evidence": [
+        "src/tools/gh_get_history_item/mod.rs",
+        "tests/runtime_github.rs"
+      ],
+      "variants": [
+        "pullRequest",
+        "issue",
+        "commit",
+        "compare"
+      ],
+      "discriminators": {
+        "operation": [
+          "pullRequest",
+          "issue",
+          "commit",
+          "compare"
+        ]
+      },
+      "fields": {
+        "base": [
+          "forwarded"
+        ],
+        "charLength": [
+          "forwarded",
+          "output-control"
+        ],
+        "charOffset": [
+          "forwarded",
+          "output-control",
+          "continuation"
+        ],
+        "collectionPages": [
+          "forwarded",
+          "output-control"
+        ],
+        "collectionPages.changedFiles": [
+          "forwarded",
+          "output-control"
+        ],
+        "collectionPages.commits": [
+          "forwarded",
+          "output-control"
+        ],
+        "collectionPages.discussion": [
+          "forwarded",
+          "output-control"
+        ],
+        "collectionPages.inline": [
+          "forwarded",
+          "output-control"
+        ],
+        "collectionPages.reviews": [
+          "forwarded",
+          "output-control"
+        ],
+        "commentBodyOffset": [
+          "forwarded",
+          "output-control",
+          "continuation"
+        ],
+        "commentPage": [
+          "forwarded",
+          "output-control",
+          "continuation"
+        ],
+        "commitPage": [
+          "forwarded",
+          "output-control",
+          "continuation"
+        ],
+        "content": [
+          "forwarded",
+          "output-control"
+        ],
+        "content.body": [
+          "forwarded",
+          "output-control"
+        ],
+        "content.changedFiles": [
+          "forwarded",
+          "output-control"
+        ],
+        "content.comments": [
+          "forwarded",
+          "output-control"
+        ],
+        "content.comments.discussion": [
+          "forwarded",
+          "output-control"
+        ],
+        "content.comments.file": [
+          "forwarded",
+          "output-control"
+        ],
+        "content.comments.includeBots": [
+          "forwarded",
+          "output-control"
+        ],
+        "content.comments.reviewInline": [
+          "forwarded",
+          "output-control"
+        ],
+        "content.commits": [
+          "forwarded",
+          "output-control"
+        ],
+        "content.commits.includeFiles": [
+          "forwarded",
+          "output-control"
+        ],
+        "content.patches": [
+          "forwarded",
+          "output-control"
+        ],
+        "content.patches.files": [
+          "forwarded",
+          "output-control"
+        ],
+        "content.patches.mode": [
+          "forwarded",
+          "output-control"
+        ],
+        "content.patches.ranges": [
+          "forwarded",
+          "output-control"
+        ],
+        "content.patches.ranges[].additions": [
+          "forwarded",
+          "output-control"
+        ],
+        "content.patches.ranges[].deletions": [
+          "forwarded",
+          "output-control"
+        ],
+        "content.patches.ranges[].file": [
+          "forwarded",
+          "output-control"
+        ],
+        "content.reviews": [
+          "forwarded",
+          "output-control"
+        ],
+        "debug": [
+          "workflow-metadata"
+        ],
+        "fileBatch": [
+          "forwarded"
+        ],
+        "filePage": [
+          "forwarded",
+          "output-control",
+          "continuation"
+        ],
+        "goal": [
+          "workflow-metadata"
+        ],
+        "head": [
+          "forwarded"
+        ],
+        "includeDiff": [
+          "forwarded",
+          "output-control"
+        ],
+        "matchString": [
+          "forwarded"
+        ],
+        "minify": [
+          "forwarded",
+          "output-control"
+        ],
+        "number": [
+          "forwarded"
+        ],
+        "operation": [
+          "forwarded"
+        ],
+        "owner": [
+          "forwarded"
+        ],
+        "page": [
+          "forwarded",
+          "output-control",
+          "continuation"
+        ],
+        "pageSize": [
+          "forwarded",
+          "output-control"
+        ],
+        "path": [
+          "forwarded",
+          "security-policy"
+        ],
+        "reasoning": [
+          "workflow-metadata"
+        ],
+        "ref": [
+          "forwarded"
+        ],
+        "repo": [
+          "forwarded"
+        ],
+        "reviewPage": [
+          "forwarded",
+          "output-control",
+          "continuation"
+        ]
+      }
+    },
+    "artifactSearch": {
+      "evidence": [
+        "src/providers/artifact/mod.rs",
+        "src/providers/artifact/registries.rs",
+        "src/tools/artifact_search/mod.rs"
+      ],
+      "variants": [],
+      "discriminators": {
+        "type": [
+          "npm",
+          "pypi",
+          "crates",
+          "maven",
+          "nuget",
+          "go",
+          "packagist",
+          "rubygems"
+        ]
+      },
+      "fields": {
+        "cursor": [
+          "forwarded",
+          "output-control",
+          "continuation"
+        ],
+        "debug": [
+          "workflow-metadata"
+        ],
+        "goal": [
+          "workflow-metadata"
+        ],
+        "keywords": [
+          "forwarded"
+        ],
+        "packageName": [
+          "forwarded"
+        ],
+        "pageSize": [
+          "forwarded",
+          "output-control"
+        ],
+        "reasoning": [
+          "workflow-metadata"
+        ],
+        "registry": [
+          "forwarded",
+          "security-policy"
+        ],
+        "type": [
+          "forwarded"
+        ]
+      }
+    },
+    "ghCloneRepo": {
+      "evidence": [
+        "src/tools/gh_clone_repo/tests.rs",
+        "src/tools/gh_clone_repo/cache.rs"
+      ],
+      "variants": [],
+      "discriminators": {},
+      "fields": {
+        "branch": [
+          "forwarded"
+        ],
+        "debug": [
+          "workflow-metadata"
+        ],
+        "forceRefresh": [
+          "forwarded"
+        ],
+        "goal": [
+          "workflow-metadata"
+        ],
+        "owner": [
+          "forwarded"
+        ],
+        "reasoning": [
+          "workflow-metadata"
+        ],
+        "repo": [
+          "forwarded"
+        ],
+        "sparsePath": [
+          "forwarded",
+          "security-policy"
+        ]
+      }
+    },
+    "localSearch": {
+      "evidence": [
+        "src/tools/local_search/mod.rs",
+        "tests/runtime_local.rs"
+      ],
+      "variants": [
+        "lexical"
+      ],
+      "discriminators": {
+        "regex": [
+          "literal",
+          "rust",
+          "pcre2"
+        ]
+      },
+      "fields": {
+        "caseMode": [
+          "consumed"
+        ],
+        "contextLines": [
+          "consumed",
+          "output-control"
+        ],
+        "debug": [
+          "workflow-metadata"
+        ],
+        "exclude": [
+          "consumed"
+        ],
+        "excludeDir": [
+          "consumed"
+        ],
+        "goal": [
+          "workflow-metadata"
+        ],
+        "hidden": [
+          "consumed"
+        ],
+        "include": [
+          "consumed"
+        ],
+        "invertMatch": [
+          "consumed"
+        ],
+        "langType": [
+          "consumed"
+        ],
+        "matchContentLength": [
+          "consumed",
+          "output-control"
+        ],
+        "matchPage": [
+          "consumed",
+          "output-control",
+          "continuation"
+        ],
+        "matchWindow": [
+          "consumed"
+        ],
+        "maxDepth": [
+          "consumed"
+        ],
+        "maxMatchesPerFile": [
+          "consumed"
+        ],
+        "multiline": [
+          "consumed"
+        ],
+        "noIgnore": [
+          "consumed"
+        ],
+        "page": [
+          "consumed",
+          "output-control",
+          "continuation"
+        ],
+        "pageSize": [
+          "consumed",
+          "output-control"
+        ],
+        "path": [
+          "consumed",
+          "security-policy"
+        ],
+        "reasoning": [
+          "workflow-metadata"
+        ],
+        "regex": [
+          "consumed"
+        ],
+        "resultView": [
+          "consumed",
+          "output-control"
+        ],
+        "reverse": [
+          "consumed"
+        ],
+        "searchText": [
+          "consumed"
+        ],
+        "snapshot": [
+          "consumed",
+          "output-control",
+          "continuation"
+        ],
+        "sort": [
+          "consumed"
+        ],
+        "unique": [
+          "consumed"
+        ],
+        "wholeWord": [
+          "consumed"
+        ]
+      }
+    },
+    "astSearch": {
+      "evidence": [
+        "src/tools/ast_search/mod.rs",
+        "src/tools/ast_search/policy_tests.rs",
+        "tests/runtime_local.rs"
+      ],
+      "variants": [
+        "match",
+        "files",
+        "tree:syntax",
+        "symbols"
+      ],
+      "discriminators": {
+        "operation": [
+          "match",
+          "files",
+          "tree",
+          "symbols"
+        ],
+        "treeKind": [
+          "syntax"
+        ]
+      },
+      "fields": {
+        "access": [
+          "consumed",
+          "security-policy"
+        ],
+        "captureText": [
+          "consumed"
+        ],
+        "contextLines": [
+          "consumed",
+          "output-control"
+        ],
+        "debug": [
+          "workflow-metadata"
+        ],
+        "detail": [
+          "consumed"
+        ],
+        "empty": [
+          "consumed"
+        ],
+        "entryType": [
+          "consumed"
+        ],
+        "exclude": [
+          "consumed"
+        ],
+        "excludeDir": [
+          "consumed"
+        ],
+        "extensions": [
+          "consumed"
+        ],
+        "goal": [
+          "workflow-metadata"
+        ],
+        "hidden": [
+          "consumed"
+        ],
+        "include": [
+          "consumed"
+        ],
+        "kinds": [
+          "consumed"
+        ],
+        "langType": [
+          "consumed"
+        ],
+        "limit": [
+          "consumed",
+          "output-control"
+        ],
+        "matchContentLength": [
+          "consumed",
+          "output-control"
+        ],
+        "matchPage": [
+          "consumed",
+          "output-control",
+          "continuation"
+        ],
+        "maxDepth": [
+          "consumed"
+        ],
+        "maxFiles": [
+          "consumed"
+        ],
+        "maxMatchesPerFile": [
+          "consumed"
+        ],
+        "minDepth": [
+          "consumed"
+        ],
+        "name": [
+          "consumed"
+        ],
+        "namedOnly": [
+          "consumed"
+        ],
+        "names": [
+          "consumed"
+        ],
+        "noIgnore": [
+          "consumed"
+        ],
+        "nodeLimit": [
+          "consumed",
+          "output-control"
+        ],
+        "nodeOffset": [
+          "consumed",
+          "output-control",
+          "continuation"
+        ],
+        "operation": [
+          "consumed"
+        ],
+        "page": [
+          "consumed",
+          "output-control",
+          "continuation"
+        ],
+        "pageSize": [
+          "consumed",
+          "output-control"
+        ],
+        "path": [
+          "consumed",
+          "security-policy"
+        ],
+        "pathPattern": [
+          "consumed"
+        ],
+        "pathRegex": [
+          "consumed"
+        ],
+        "pattern": [
+          "consumed"
+        ],
+        "permissions": [
+          "consumed",
+          "security-policy"
+        ],
+        "reasoning": [
+          "workflow-metadata"
+        ],
+        "resultView": [
+          "consumed",
+          "output-control"
+        ],
+        "reverse": [
+          "consumed"
+        ],
+        "rule": [
+          "consumed"
+        ],
+        "size": [
+          "consumed"
+        ],
+        "size.greater": [
+          "consumed"
+        ],
+        "size.less": [
+          "consumed"
+        ],
+        "snapshot": [
+          "consumed",
+          "output-control",
+          "continuation"
+        ],
+        "sort": [
+          "consumed"
+        ],
+        "time": [
+          "consumed"
+        ],
+        "time.accessedWithin": [
+          "consumed"
+        ],
+        "time.modifiedBefore": [
+          "consumed"
+        ],
+        "time.modifiedWithin": [
+          "consumed"
+        ],
+        "treeKind": [
+          "consumed"
+        ]
+      }
+    },
+    "astTopology": {
+      "evidence": [
+        "src/tools/ast_graph/mod.rs",
+        "src/tools/ast_graph/analysis.rs",
+        "tests/runtime_local.rs"
+      ],
+      "variants": [
+        "dependencies",
+        "dependents",
+        "path",
+        "cycles",
+        "reachability",
+        "deadCode",
+        "drift"
+      ],
+      "discriminators": {
+        "operation": [
+          "topology"
+        ],
+        "analysis": [
+          "deadCode",
+          "cycles",
+          "dependencies",
+          "dependents",
+          "path",
+          "reachability",
+          "drift"
+        ]
+      },
+      "fields": {
+        "analysis": [
+          "consumed"
+        ],
+        "baseline": [
+          "consumed",
+          "security-policy"
+        ],
+        "debug": [
+          "workflow-metadata"
+        ],
+        "depth": [
+          "consumed"
+        ],
+        "diagnosticPage": [
+          "consumed",
+          "output-control",
+          "continuation"
+        ],
+        "diagnosticPageSize": [
+          "consumed",
+          "output-control"
+        ],
+        "diagnosticSnapshot": [
+          "consumed",
+          "output-control",
+          "continuation"
+        ],
+        "entrypoints": [
+          "consumed"
+        ],
+        "excludeDir": [
+          "consumed"
+        ],
+        "file": [
+          "consumed"
+        ],
+        "goal": [
+          "workflow-metadata"
+        ],
+        "includeTests": [
+          "consumed"
+        ],
+        "limit": [
+          "consumed",
+          "output-control"
+        ],
+        "maxFiles": [
+          "consumed"
+        ],
+        "operation": [
+          "consumed"
+        ],
+        "page": [
+          "consumed",
+          "output-control",
+          "continuation"
+        ],
+        "pageSize": [
+          "consumed",
+          "output-control"
+        ],
+        "path": [
+          "consumed",
+          "security-policy"
+        ],
+        "reasoning": [
+          "workflow-metadata"
+        ],
+        "rustWorkspace": [
+          "consumed"
+        ],
+        "target": [
+          "consumed"
+        ]
+      }
+    },
+    "astRewrite": {
+      "evidence": [
+        "src/tools/ast_rewrite/mod.rs"
+      ],
+      "variants": [
+        "preview",
+        "apply"
+      ],
+      "discriminators": {
+        "ruleKind": [
+          "pattern",
+          "rule"
+        ]
+      },
+      "fields": {
+        "apply": [
+          "consumed"
+        ],
+        "constraints": [
+          "consumed"
+        ],
+        "debug": [
+          "workflow-metadata"
+        ],
+        "exclude": [
+          "consumed"
+        ],
+        "expectedHashes": [
+          "consumed"
+        ],
+        "fix": [
+          "consumed"
+        ],
+        "goal": [
+          "workflow-metadata"
+        ],
+        "include": [
+          "consumed"
+        ],
+        "langType": [
+          "consumed"
+        ],
+        "maxFiles": [
+          "consumed"
+        ],
+        "maxMatches": [
+          "consumed"
+        ],
+        "page": [
+          "consumed",
+          "output-control",
+          "continuation"
+        ],
+        "pageSize": [
+          "consumed",
+          "output-control"
+        ],
+        "path": [
+          "consumed",
+          "security-policy"
+        ],
+        "pattern": [
+          "consumed"
+        ],
+        "postconditions": [
+          "consumed"
+        ],
+        "reasoning": [
+          "workflow-metadata"
+        ],
+        "rewrite": [
+          "consumed"
+        ],
+        "rule": [
+          "consumed"
+        ],
+        "ruleKind": [
+          "consumed"
+        ],
+        "selectedMatchIds": [
+          "consumed"
+        ],
+        "snapshot": [
+          "consumed",
+          "output-control",
+          "continuation"
+        ],
+        "transform": [
+          "consumed"
+        ],
+        "utils": [
+          "consumed"
+        ]
+      }
+    },
+    "localFetch": {
+      "evidence": [
+        "src/tools/local_fetch.rs",
+        "src/tools/local_fetch/executor.rs",
+        "tests/runtime_local.rs"
+      ],
+      "variants": [],
+      "discriminators": {},
+      "fields": {
+        "chunkSize": [
+          "consumed",
+          "output-control"
+        ],
+        "chunkType": [
+          "consumed",
+          "output-control"
+        ],
+        "contextBytes": [
+          "consumed",
+          "output-control"
+        ],
+        "contextLines": [
+          "consumed",
+          "output-control"
+        ],
+        "debug": [
+          "workflow-metadata"
+        ],
+        "endLine": [
+          "consumed",
+          "output-control"
+        ],
+        "fullContent": [
+          "consumed",
+          "output-control"
+        ],
+        "goal": [
+          "workflow-metadata"
+        ],
+        "matchString": [
+          "consumed"
+        ],
+        "matchStringCaseSensitive": [
+          "consumed"
+        ],
+        "matchStringIsRegex": [
+          "consumed"
+        ],
+        "minify": [
+          "consumed",
+          "output-control"
+        ],
+        "offset": [
+          "consumed",
+          "output-control",
+          "continuation"
+        ],
+        "path": [
+          "consumed",
+          "security-policy"
+        ],
+        "reasoning": [
+          "workflow-metadata"
+        ],
+        "startLine": [
+          "consumed",
+          "output-control"
+        ]
+      }
+    },
+    "lspSearch": {
+      "evidence": [
+        "src/tools/lsp_search/mod.rs",
+        "tests/runtime_local.rs"
+      ],
+      "variants": [
+        "anchored",
+        "position",
+        "document",
+        "workspace:uri",
+        "workspace:root"
+      ],
+      "discriminators": {
+        "operation": [
+          "definition",
+          "references",
+          "callers",
+          "callees",
+          "callHierarchy",
+          "hover",
+          "typeDefinition",
+          "implementation",
+          "supertypes",
+          "subtypes",
+          "documentSymbols",
+          "diagnostic",
+          "workspaceSymbol"
+        ]
+      },
+      "fields": {
+        "contextLines": [
+          "consumed",
+          "output-control"
+        ],
+        "debug": [
+          "workflow-metadata"
+        ],
+        "depth": [
+          "consumed"
+        ],
+        "goal": [
+          "workflow-metadata"
+        ],
+        "groupByFile": [
+          "consumed"
+        ],
+        "includeDeclaration": [
+          "consumed"
+        ],
+        "lineHint": [
+          "consumed"
+        ],
+        "operation": [
+          "consumed"
+        ],
+        "orderHint": [
+          "consumed"
+        ],
+        "page": [
+          "consumed",
+          "output-control",
+          "continuation"
+        ],
+        "pageSize": [
+          "consumed",
+          "output-control"
+        ],
+        "position": [
+          "consumed"
+        ],
+        "position.character": [
+          "consumed"
+        ],
+        "position.line": [
+          "consumed"
+        ],
+        "reasoning": [
+          "workflow-metadata"
+        ],
+        "rustContext": [
+          "consumed"
+        ],
+        "rustContext.buildScripts": [
+          "consumed",
+          "security-policy"
+        ],
+        "rustContext.cfgs": [
+          "consumed"
+        ],
+        "rustContext.features": [
+          "consumed"
+        ],
+        "rustContext.noDefaultFeatures": [
+          "consumed"
+        ],
+        "rustContext.procMacros": [
+          "consumed",
+          "security-policy"
+        ],
+        "rustContext.target": [
+          "consumed"
+        ],
+        "snapshot": [
+          "consumed",
+          "output-control",
+          "continuation"
+        ],
+        "symbolName": [
+          "consumed"
+        ],
+        "uri": [
+          "consumed"
+        ],
+        "workspaceRoot": [
+          "consumed",
+          "security-policy"
+        ]
+      }
+    }
+  }
+}

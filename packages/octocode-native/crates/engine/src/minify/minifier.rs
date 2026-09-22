@@ -138,7 +138,10 @@ mod tests {
             "comments must be stripped: {out}"
         );
         for kept in ["import type", "Foo", "bar", "greet", "name"] {
-            assert!(out.contains(kept), "must preserve identifier/type {kept}: {out}");
+            assert!(
+                out.contains(kept),
+                "must preserve identifier/type {kept}: {out}"
+            );
         }
     }
 

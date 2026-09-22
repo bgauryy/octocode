@@ -26,14 +26,15 @@ fn shared_client() -> Result<reqwest::Client, ClassificationError> {
     }
     CLIENT.with(|cell| {
         let mut guard = cell.borrow_mut();
-        if guard.is_none() {
-            let client = reqwest::Client::builder()
-                .redirect(reqwest::redirect::Policy::none())
-                .build()
-                .map_err(|_| transport_error())?;
-            *guard = Some(client);
+        if let Some(client) = guard.as_ref() {
+            return Ok(client.clone());
         }
-        Ok(guard.as_ref().expect("client was just set").clone())
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(|_| transport_error())?;
+        *guard = Some(client.clone());
+        Ok(client)
     })
 }
 

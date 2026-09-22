@@ -125,13 +125,14 @@ fn aggregate_allowed_literals(failures: &[Vec<ValidationIssue>]) -> Vec<(Vec<Str
             if literals.is_empty() {
                 continue;
             }
-            let entry =
-                if let Some(existing) = allowed.iter_mut().find(|(field, _)| field == &item.path) {
-                    existing
-                } else {
+            let index = allowed
+                .iter()
+                .position(|(field, _)| field == &item.path)
+                .unwrap_or_else(|| {
                     allowed.push((item.path.clone(), Vec::new()));
-                    allowed.last_mut().expect("entry just pushed")
-                };
+                    allowed.len() - 1
+                });
+            let entry = &mut allowed[index];
             for literal in literals {
                 if !entry.1.contains(&literal) {
                     entry.1.push(literal);
