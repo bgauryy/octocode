@@ -95,7 +95,7 @@ Row fields are `index`, optional `status`, optional `cache`, `meta`, and `data`.
 
 ## Internal, external, and hybrid tools
 
-"External" describes the data or provider boundary, not the MCP transport. All twelve catalog entries use the same MCP and CLI contracts; availability gates can hide or reject an entry on a particular surface.
+"External" describes the data or provider boundary, not the MCP transport. All thirteen catalog entries use the same MCP and CLI contracts; availability gates can hide or reject an entry on a particular surface.
 
 | Tool | Boundary | How it works |
 | --- | --- | --- |
@@ -106,13 +106,14 @@ Row fields are `index`, optional `status`, optional `cache`, `meta`, and `data`.
 | `artifactSearch` | External | Resolves dependency identities or discovers packages by capability across eight ecosystems. Set `type`; registry metadata and upstream links lead to source research. npm retains registry-scoped authentication. |
 | `ghCloneRepo` | Hybrid | Uses provider credentials/network access, then atomically materializes a full or sparse repository under managed local storage. Disabled unless cloning and local storage are enabled. |
 | `localSearch` | Internal/local | Runs bounded lexical text/regex search against allowed local paths. |
-| `astSearch` | Internal/local | Runs structural AST, filesystem, tree, symbol, and topology queries against allowed local paths. |
+| `astSearch` | Internal/local | Finds files, declarations, structural AST matches, and syntax trees against allowed local paths. |
+| `astTopology` | Internal/local | Analyzes syntactic cross-file dependency graphs for dependencies, dependents, paths, cycles, reachability, dead code, and drift. |
 | `astRewrite` | Internal/local | Opt-in beta feature (`OCTOCODE_BETA=true`). Previews structural ast-grep rewrites and performs serialized, snapshot-bound, hash-guarded applies with journal recovery; inspect the commit or recovery receipt. Cross-file changes are not simultaneously visible. |
 | `localFetch` | Internal/local | Reads a known allowed path with full, match, line-range, minified, or symbol-outline views and exact continuations. |
 | `lspSearch` | Internal/local with a language-server process | Resolves an anchored symbol and asks a real language server for definitions, references, calls, types, symbols, hierarchy, or diagnostics. It reports unavailable capabilities instead of returning a syntactic approximation as semantic proof. |
 | `clasify` | External Jev provider | Executes unread read-tool requests or accepts supplied state, applies Noul, Choice, or Score questions across a resource-question matrix, and returns correlated typed pages without retrieved bodies. |
 
-Remote GitHub tools require provider runtime and credentials. `artifactSearch` uses official registry APIs; `type:"npm"` honors the effective npm registry configuration. Local tools require `ENABLE_LOCAL`; clone/materialization additionally requires `ENABLE_CLONE` and persistent storage. `astRewrite` additionally requires `OCTOCODE_BETA=true` (the sole gate for both preview and apply). LSP availability also depends on a compatible server for the file language. `clasify` requires a nonblank resolved `OCTOCODE_CLASSIFICATION_API`; without one, MCP omits it and a CLI call returns an actionable missing-key error.
+Remote GitHub tools require provider runtime and credentials. `artifactSearch` uses official registry APIs; `type:"npm"` honors the effective npm registry configuration. Local tools require `ENABLE_LOCAL`; clone/materialization additionally requires `ENABLE_CLONE` and persistent storage. `astRewrite` and `astTopology` additionally require `OCTOCODE_BETA=true` (the sole gate for both preview and apply). LSP availability also depends on a compatible server for the file language. `clasify` requires a nonblank resolved `OCTOCODE_CLASSIFICATION_API`; without one, MCP omits it and a CLI call returns an actionable missing-key error.
 
 ## Text, AST, graph, and LSP: choose the evidence you need
 
@@ -122,7 +123,7 @@ These surfaces complement one another; they are not interchangeable.
 | --- | --- | --- | --- |
 | Text/regex | `localSearch` | Exact lexical occurrences, paths, and source-line anchors within the scanned scope. | Symbol identity, reachability, or all runtime uses. |
 | Structural AST | `astSearch(operation:"match")` with exactly one of `pattern` or `rule` | Syntax-shaped matches that ignore formatting differences and can expose captures. | That two same-shaped nodes refer to the same symbol or execute at runtime. |
-| File graph | `astSearch` | Syntactic import topology, candidate paths/cycles, and reachability under stated roots and exclusions. | Symbol-level identity, dynamic imports that were not resolved, or safe deletion by itself. |
+| File graph | `astTopology` | Syntactic import topology, candidate paths/cycles, and reachability under stated roots and exclusions. | Symbol-level identity, dynamic imports that were not resolved, or safe deletion by itself. |
 | LSP semantics | `lspSearch` | Language-server identity and relations such as definitions, references, callers, callees, implementations, types, symbols, and diagnostics. | Runtime behavior outside the server's configured project/build context. |
 
 Recommended proof ladder:
@@ -130,7 +131,7 @@ Recommended proof ladder:
 1. Orient with `astSearch(operation:"tree"|"files")`.
 2. Find a lexical anchor with `localSearch`.
 3. Use structural search when syntax shape matters or text is noisy.
-4. Use `astSearch` to map file-level blast radius or candidate reachability.
+4. Use `astTopology` to map file-level blast radius or candidate reachability.
 5. Read exact source with `localFetch`.
 6. Use `lspSearch` from a real file/line/symbol anchor to prove identity and usages.
 7. Run the relevant test, build, or runtime path before claiming behavior.
@@ -458,7 +459,8 @@ For npm, scoped names honor `@scope:registry` and an explicit `registry` takes p
 | Tool | Purpose |
 |------|---------|
 | `localSearch` | Lexical local discovery; matches provide anchors for `lspSearch`. |
-| `astSearch` | Structural AST, filesystem, tree, symbol, and topology discovery. |
+| `astSearch` | Structural AST matches, file discovery, syntax trees, and symbols. |
+| `astTopology` | Cross-file dependency graph analysis and coverage diagnostics. |
 | `localFetch` | Read targeted file content by line range, match, signature skeleton, or line/byte chunk. |
 
 ---
@@ -538,8 +540,8 @@ DISCOVER -> SEARCH -> READ
 
 Start broad with structure or metadata, narrow with content search, then read the smallest exact file slice needed.
 
-`localSearch` handles lexical search, while `astSearch` handles structural,
-filesystem, tree, symbol, and topology queries. Each public tool rejects fields
+`localSearch` handles lexical search, `astSearch` handles structural matches,
+files, syntax trees, and symbols, and `astTopology` handles file graphs. Each public tool rejects fields
 from other operations. Removed compatibility names cannot be restored with
 `TOOLS_TO_RUN` or `.octocoderc`.
 
@@ -548,7 +550,7 @@ from other operations. Removed compatibility names cannot be restored with
 ### `localSearch`
 
 Lexical local search. The query is selected by `searchText` and `regex`; use
-`astSearch` for syntax, filesystem, tree, symbol, or topology queries.
+`astSearch` for syntax, files, trees, or symbols, and `astTopology` for file-graph queries.
 
 #### Best for
 
@@ -784,7 +786,7 @@ localFetch(path="/ABS/repo/src/index.ts", minify="symbols")
 
 ---
 
-### `astSearch`
+### `astTopology`
 
 The `coverage` object separates parser inventory from module-linking support.
 It reports language coverage, resolved and external import counts, unresolved
@@ -811,7 +813,7 @@ Declaration IDs identify scoped source occurrences; unresolved call references
 are not proof of symbol identity. Lexical occurrence counts are conservative
 retention evidence and still require LSP confirmation for deletion decisions.
 
-One bounded repository graph provides six operations: `dependencies`, `dependents`, `path`, `reachability`, `cycles`, and `deadCode`. Import edges come from native syntax facts. Traversal and path results report exact `edgeKinds`: `static-import`, `type-import`, `dynamic-import`, `named-reexport`, `star-reexport`, `type-named-reexport`, `type-star-reexport`, `commonjs-require`, `create-require`, `python-import`, `rust-module`, `rust-use`, `c-include`, and `metadata-import`. Rust module/use edges, C includes, metadata, erased types, and edges without provenance do not establish runtime import cycles.
+One bounded repository graph provides seven analyses: `dependencies`, `dependents`, `path`, `reachability`, `cycles`, `deadCode`, and `drift`. Import edges come from native syntax facts. Traversal and path results report exact `edgeKinds`: `static-import`, `type-import`, `dynamic-import`, `named-reexport`, `star-reexport`, `type-named-reexport`, `type-star-reexport`, `commonjs-require`, `create-require`, `python-import`, `rust-module`, `rust-use`, `c-include`, and `metadata-import`. Rust module/use edges, C includes, metadata, erased types, and edges without provenance do not establish runtime import cycles.
 
 Cross-file resolution covers JavaScript/TypeScript ESM and binding-safe CommonJS, Rust modules, bounded Python absolute and relative imports, and quoted relative C/C++ includes. Literal CommonJS loads link only when `require`, `module.require`, or an imported `createRequire(import.meta.url)` binding is not shadowed or reassigned. Dynamic and ambiguous loaders remain explicit diagnostics. Python wildcard and ambiguous package-attribute imports remain diagnostics, as do C/C++ system and macro includes. Explicit relative `package.json` imports can link to a manifest inside the root or the nearest ancestor boundary; these manifests are validated, limited to 64 KiB, count against `maxFiles`, and remain metadata leaves. Namespace-style imports conservatively retain target exports during dead-code analysis.
 
@@ -825,13 +827,14 @@ Dependency traversal also reports immediate dominators, topological layers, and 
 - Classifying entrypoint reachability and finding strongly connected import cycles.
 - Finding repository-wide dead-export candidates and dead clusters in one pass. A dead cluster is a strongly connected set of mutually importing, unreachable files; the files don't necessarily call one another.
 
-Use `astSearch` to discover repository-scale file topology and candidate reachability. Use `lspSearch` with `references`, `callers`, or `callees` to prove the identity and semantic connections of one known symbol. A graph edge proves that one file syntactically imports or re-exports another; it doesn't prove which binding is used.
+Use `astTopology` to discover repository-scale file topology and candidate reachability. Use `lspSearch` with `references`, `callers`, or `callees` to prove the identity and semantic connections of one known symbol. A graph edge proves that one file syntactically imports or re-exports another; it doesn't prove which binding is used.
 
 #### Key parameters
 
 | Parameter | Description |
 |-----------|-------------|
-| `operation` | Required: `dependencies`, `dependents`, `path`, `reachability`, `cycles`, or `deadCode`. |
+| `operation` | Required discriminator: `topology`. |
+| `analysis` | Required: `dependencies`, `dependents`, `path`, `reachability`, `cycles`, `deadCode`, or `drift`. |
 | `path` | Repository root to analyze. Required. |
 | `file` | Repo-relative source file for `dependencies`, `dependents`, and `path`. |
 | `target` | Repo-relative destination file for `path`. |
@@ -861,9 +864,9 @@ The graph assigns no weights to edges. `path` therefore uses breadth-first searc
 #### Examples
 
 ```bash
-astSearch(operation="topology", analysis="dependencies", path="/ABS/repo", file="src/index.ts", depth=2)
-astSearch(operation="topology", analysis="cycles", path="/ABS/repo", pageSize=20, limit=100)
-astSearch(operation="topology", analysis="deadCode", path="/ABS/repo", entrypoints=["src/index.ts"], includeTests=false)
+astTopology(operation="topology", analysis="dependencies", path="/ABS/repo", file="src/index.ts", depth=2)
+astTopology(operation="topology", analysis="cycles", path="/ABS/repo", pageSize=20, limit=100)
+astTopology(operation="topology", analysis="deadCode", path="/ABS/repo", entrypoints=["src/index.ts"], includeTests=false)
 ```
 
 For a cycle, read the exact imports named by `cycleEdges`; use `runtimeCycleEdges` when investigating loading behavior. Verify a dead-code or transitive-edge candidate with `lspSearch` before removing it.
@@ -919,7 +922,7 @@ localSearch( path=".", searchText="TODO|FIXME", regex="rust")
 ### Response shape
 
 - Tool results use the shared `results[]` row envelope; each row may contain `index`, `status`, `meta`, and `data`. Tool-specific payloads own their pagination and hints; see [TOOL_DATA_CONTRACT.md](TOOL_DATA_CONTRACT.md) for the common rules.
-- `localSearch` returns lexical matches; `astSearch` returns operation-specific structural, file, tree, symbol, or topology payloads.
+- `localSearch` returns lexical matches; `astSearch` returns structural, file, syntax-tree, or symbol payloads; `astTopology` returns graph-analysis payloads.
 - `localFetch` returns file slices only — not directory listings.
 
 ### Anti-patterns

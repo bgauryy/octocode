@@ -71,7 +71,7 @@ pub struct RemainingMatches {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AstRewriteQuery {
     #[serde(default)]
     pub goal: Option<String>,
@@ -96,8 +96,6 @@ pub struct AstRewriteQuery {
     #[serde(default)]
     pub fix: Option<Value>,
     #[serde(default)]
-    pub rewriters: Option<Value>,
-    #[serde(default)]
     pub include: Option<Vec<String>>,
     #[serde(default)]
     pub exclude: Option<Vec<String>>,
@@ -109,11 +107,6 @@ pub struct AstRewriteQuery {
     pub selected_match_ids: Option<Vec<String>>,
     #[serde(default)]
     pub postconditions: Option<Vec<RemainingMatches>>,
-    /// Escape hatch for intentionally staging syntactically-broken output
-    /// (e.g. rewriting fragments a later pass completes). Off by default so a
-    /// template that breaks syntax is rejected before any file is changed.
-    #[serde(default)]
-    pub allow_syntax_regression: bool,
     #[serde(default = "default_max_files")]
     pub max_files: usize,
     #[serde(default = "default_max_matches")]
@@ -424,11 +417,6 @@ fn validate_query(query: &AstRewriteQuery) -> Result<(), RewriteError> {
                 .is_some_and(|v| !v.trim().is_empty())
                 && query.rewrite.is_some() => {}
         "rule" if query.rule.is_some() && query.fix.is_some() => {}
-        "experimental"
-            if query.rule.is_some()
-                && query.fix.is_some()
-                && query.transform.is_some()
-                && query.rewriters.is_some() => {}
         _ => {
             return Err(RewriteError::new(
                 "ast.rewrite.input_invalid",
@@ -459,11 +447,7 @@ fn embedded_engine_receipt() -> ExecutableReceipt {
         version: "embedded".to_owned(),
         sha256: String::new(),
         capability_digest: "native".to_owned(),
-        capabilities: vec![
-            "pattern".to_owned(),
-            "inline-rules".to_owned(),
-            "experimental".to_owned(),
-        ],
+        capabilities: vec!["pattern".to_owned(), "inline-rules".to_owned()],
     }
 }
 
@@ -764,7 +748,6 @@ fn rule_config(query: &AstRewriteQuery) -> Value {
             ("constraints", query.constraints.as_ref()),
             ("utils", query.utils.as_ref()),
             ("transform", query.transform.as_ref()),
-            ("rewriters", query.rewriters.as_ref()),
         ] {
             if let Some(value) = value {
                 config.insert(key.to_owned(), value.clone());
@@ -858,9 +841,6 @@ fn check_syntax_regression(
     before: &str,
     after: &str,
 ) -> Result<(), RewriteError> {
-    if query.allow_syntax_regression {
-        return Ok(());
-    }
     // Replacements can grow a near-limit file past the engine's parse bound;
     // an unverifiable-but-legal rewrite must stage rather than hard-fail.
     if after.len() > octocode_engine::structural::MAX_REWRITE_CONTENT_BYTES {
@@ -876,7 +856,7 @@ fn check_syntax_regression(
         return Err(RewriteError::new(
             "ast.rewrite.broken_syntax",
             "The staged rewrite introduces new syntax errors; no files were changed. \
-             Fix the rewrite template, or set allowSyntaxRegression=true to override.",
+             Fix the rewrite template before retrying.",
         )
         .detail(json!({
             "path": path,
@@ -1101,7 +1081,7 @@ fn snapshot(
         .iter()
         .map(|file| json!([file.absolute, file.before_hash, file.after_hash]))
         .collect::<Vec<_>>();
-    let rule_spec = if matches!(query.rule_kind.as_deref(), Some("rule" | "experimental")) {
+    let rule_spec = if query.rule_kind.as_deref() == Some("rule") {
         let mut spec = Map::new();
         spec.insert(
             "ruleKind".to_owned(),
@@ -1117,11 +1097,6 @@ fn snapshot(
             if let Some(value) = value {
                 spec.insert(key.to_owned(), value.clone());
             }
-        }
-        if query.rule_kind.as_deref() == Some("experimental")
-            && let Some(rewriters) = &query.rewriters
-        {
-            spec.insert("rewriters".to_owned(), rewriters.clone());
         }
         Value::Object(spec)
     } else {
@@ -1416,17 +1391,16 @@ mod tests {
         );
         assert_eq!(result["errorCode"], "ast.rewrite.broken_syntax", "{result}");
 
-        // The escape hatch stages the same rewrite on request.
+        // The removed escape hatch is rejected rather than silently ignored.
         broken["allowSyntaxRegression"] = json!(true);
-        let allowed = execute_ast_rewrite_with_options(
+        let rejected = execute_ast_rewrite_with_options(
             broken,
             &policy,
             &security,
             &Active,
             &Default::default(),
         );
-        assert_eq!(allowed["mode"], "preview", "{allowed}");
-        assert_eq!(allowed["totalMatches"], 2);
+        assert_eq!(rejected["errorCode"], "ast.rewrite.input_invalid");
     }
 
     #[test]

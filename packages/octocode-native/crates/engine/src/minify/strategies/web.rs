@@ -1,5 +1,5 @@
 use crate::minify::comment_remover::remove_comments;
-use crate::minify::strategies::code::minify_js_oxc;
+use crate::minify::strategies::code::minify_javascript_core;
 use regex::Regex;
 use std::sync::LazyLock;
 
@@ -74,17 +74,14 @@ static WEB_BLOCK_OR_COMMENT: LazyLock<Regex> = LazyLock::new(|| {
 static ATTR_TYPE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(?i)\btype\s*=\s*["']([^"']*)["']"#).expect("type attr regex must compile")
 });
-#[allow(clippy::expect_used)]
-static ATTR_LANG: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(?i)\blang\s*=\s*["']([^"']*)["']"#).expect("lang attr regex must compile")
-});
 
 /// Readable embedded-language content view for HTML, Vue, and Svelte.
 ///
 /// The markup structure (and its line breaks) is preserved so the output stays
 /// readable for an agent. The real byte savings come from minifying the
 /// embedded `<style>` blocks (lightweight CSS cleanup) and `<script>` blocks
-/// (OXC, no mangle — the same treatment standalone JS/TS gets) and from
+/// (comment-strip + whitespace tighten — the same treatment standalone JS/TS
+/// gets, identifiers and line structure preserved) and from
 /// dropping HTML comments outside raw script/style blocks. Markup whitespace is
 /// preserved. This bounded non-recursive scanner does not claim parser-grade
 /// HTML correctness; malformed or unclosed blocks are left unchanged.
@@ -104,7 +101,7 @@ pub fn minify_embedded_web(content: &str, _file_path: &str) -> String {
             output.push_str(open.as_str());
             let source = inner.as_str();
             let compacted = if script_is_javascript(open.as_str()) {
-                minify_js_oxc(source, &script_virtual_path(open.as_str()), false)
+                Some(minify_javascript_core(source))
             } else {
                 None
             };
@@ -165,24 +162,6 @@ fn script_is_javascript(open_tag: &str) -> bool {
                 | "text/typescript"
                 | "application/typescript"
         ),
-    }
-}
-
-/// Pick a virtual file path so oxc selects the right parser for an embedded
-/// script, honoring `lang="ts"`/`type="..."` (Vue/Svelte SFCs commonly do this).
-fn script_virtual_path(open_tag: &str) -> String {
-    let hint = ATTR_LANG
-        .captures(open_tag)
-        .or_else(|| ATTR_TYPE.captures(open_tag))
-        .and_then(|c| c.get(1))
-        .map(|m| m.as_str().to_ascii_lowercase())
-        .unwrap_or_default();
-    if hint.contains("tsx") {
-        "embedded.tsx".to_owned()
-    } else if hint.contains("ts") || hint.contains("typescript") {
-        "embedded.ts".to_owned()
-    } else {
-        "embedded.js".to_owned()
     }
 }
 

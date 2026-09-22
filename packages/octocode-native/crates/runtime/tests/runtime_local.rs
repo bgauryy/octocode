@@ -254,10 +254,11 @@ async fn disabled_local_family_is_unavailable() {
 }
 
 #[tokio::test]
-async fn ast_rewrite_requires_its_separate_opt_in() {
+async fn beta_ast_tools_require_the_shared_opt_in() {
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[]);
     assert!(!runtime.is_available("astRewrite"));
+    assert!(!runtime.is_available("astTopology"));
     let error = call(
         &runtime,
         "astRewrite",
@@ -273,10 +274,24 @@ async fn ast_rewrite_requires_its_separate_opt_in() {
     .expect_err("astRewrite must be opt-in");
     assert_eq!(error.code, "missingConfiguration");
     assert!(error.message.contains("OCTOCODE_BETA"));
+    let topology_error = call(
+        &runtime,
+        "astTopology",
+        json!({
+            "operation": "topology",
+            "analysis": "cycles",
+            "path": workspace.workspace
+        }),
+    )
+    .await
+    .expect_err("astTopology must be opt-in");
+    assert_eq!(topology_error.code, "missingConfiguration");
+    assert!(topology_error.message.contains("OCTOCODE_BETA"));
     runtime.close().await;
 
     let enabled = workspace.runtime(&[("OCTOCODE_BETA", "true".into())]);
     assert!(enabled.is_available("astRewrite"));
+    assert!(enabled.is_available("astTopology"));
     enabled.close().await;
 }
 
@@ -294,6 +309,7 @@ async fn host_options_environment_controls_embedded_tool_availability() {
     })
     .expect("embedded runtime with explicit environment");
     assert!(runtime.is_available("astRewrite"));
+    assert!(runtime.is_available("astTopology"));
     runtime.close().await;
 }
 
@@ -356,6 +372,30 @@ async fn ast_search_lists_files_through_the_runtime() {
     .expect("astSearch");
     let rendered = serde_json::to_string(row_data(&outcome)).expect("json");
     assert!(rendered.contains("lib.rs"), "expected lib.rs in {rendered}");
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn ast_topology_executes_only_after_beta_opt_in() {
+    let workspace = Workspace::new();
+    workspace.write(
+        "src/a.ts",
+        "import { b } from './b';\nexport const a = b;\n",
+    );
+    workspace.write("src/b.ts", "export const b = 1;\n");
+    let runtime = workspace.runtime(&[("OCTOCODE_BETA", "true".into())]);
+    let outcome = call(
+        &runtime,
+        "astTopology",
+        json!({
+            "operation": "topology",
+            "analysis": "cycles",
+            "path": workspace.workspace
+        }),
+    )
+    .await
+    .expect("astTopology");
+    assert_eq!(row_data(&outcome)["analysis"], "cycles");
     runtime.close().await;
 }
 

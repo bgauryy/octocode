@@ -75,7 +75,13 @@ pub(super) fn validate(
             issues: non_aborted[0].clone(),
         });
     }
-    let Some(selected) = failures
+    // Each branch pins its selector fields to distinct literals, so any single
+    // branch's const/enum issue names only that branch's value(s). Collect the
+    // allowed literals for every field across all branches before one branch is
+    // chosen, so the surfaced error can list the full set instead of one
+    // arbitrary literal (parity: validation/unionIssues.ts).
+    let allowed = aggregate_allowed_literals(&failures);
+    let Some(mut selected) = failures
         .into_iter()
         .min_by_key(|issues| score(issues, path.len()))
     else {
@@ -85,9 +91,86 @@ pub(super) fn validate(
             "Input matches multiple exclusive schema branches",
         ));
     };
+    widen_literal_issues(&mut selected, &allowed);
     // Branch scoring may group key errors for parity, but the selected branch
     // must retain individual paths and schemas for precise diagnostics.
     Err(ContractValidationError { issues: selected })
+}
+
+/// Collects the allowed literal values for each field path across every failed
+/// branch. A branch reports one `schema.const` (a single literal) or
+/// `schema.enum` (a set) per selector; their union is the field's true allowed
+/// set, which no single branch's issue can name on its own.
+fn aggregate_allowed_literals(failures: &[Vec<ValidationIssue>]) -> Vec<(Vec<String>, Vec<Value>)> {
+    let mut allowed: Vec<(Vec<String>, Vec<Value>)> = Vec::new();
+    for issues in failures {
+        for item in issues {
+            let literals: Vec<Value> = match item.rule_id.as_str() {
+                "schema.const" => item
+                    .schema
+                    .as_ref()
+                    .and_then(|schema| schema.get("const"))
+                    .cloned()
+                    .into_iter()
+                    .collect(),
+                "schema.enum" => item
+                    .schema
+                    .as_ref()
+                    .and_then(|schema| schema.get("enum"))
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default(),
+                _ => continue,
+            };
+            if literals.is_empty() {
+                continue;
+            }
+            let entry =
+                if let Some(existing) = allowed.iter_mut().find(|(field, _)| field == &item.path) {
+                    existing
+                } else {
+                    allowed.push((item.path.clone(), Vec::new()));
+                    allowed.last_mut().expect("entry just pushed")
+                };
+            for literal in literals {
+                if !entry.1.contains(&literal) {
+                    entry.1.push(literal);
+                }
+            }
+        }
+    }
+    allowed
+}
+
+/// Rewrites the selected branch's single-literal `schema.const` (or partial
+/// `schema.enum`) issues into an enum-shaped issue listing every allowed value
+/// for that field, so a wrong selector is self-correcting instead of naming one
+/// arbitrary branch's literal. Only widens when the aggregated set has more than
+/// one value; a genuinely single-valued field keeps its precise const message.
+fn widen_literal_issues(issues: &mut [ValidationIssue], allowed: &[(Vec<String>, Vec<Value>)]) {
+    for item in issues {
+        if !matches!(item.rule_id.as_str(), "schema.const" | "schema.enum") {
+            continue;
+        }
+        let Some((_, literals)) = allowed.iter().find(|(field, _)| field == &item.path) else {
+            continue;
+        };
+        if literals.len() < 2 {
+            continue;
+        }
+        let rendered = literals
+            .iter()
+            .map(|literal| {
+                literal
+                    .as_str()
+                    .map_or_else(|| literal.to_string(), str::to_owned)
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        item.rule_id = "schema.enum".into();
+        item.message = format!("Value is outside the allowed enum; allowed: {rendered}");
+        item.schema = Some(serde_json::json!({ "enum": literals }));
+    }
 }
 
 fn score(issues: &[ValidationIssue], depth: usize) -> [usize; 4] {

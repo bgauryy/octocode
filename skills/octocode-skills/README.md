@@ -16,6 +16,12 @@ Discover, evaluate, create, improve, install, synchronize, and verify standalone
 - Keep every shipped file reachable and useful; remove duplicate, development-only metadata, probe, and scratch files.
 - Use scripts for deterministic work, and route them from the lobby or import them from a used script.
 
+## Not for
+
+- Writing skill-dependent code logic → the skill that owns the code
+- Open-ended ideation → `octocode-brainstorming`
+- Architectural decisions about code structure → `octocode-architect`
+
 ## Workflow
 
 ```text

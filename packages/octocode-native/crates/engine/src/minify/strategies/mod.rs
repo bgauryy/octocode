@@ -4,7 +4,7 @@ pub mod json;
 pub mod markdown;
 pub mod web;
 
-pub use code::{minify_javascript_core, minify_js_oxc};
+pub use code::minify_javascript_core;
 pub use core::{minify_aggressive, minify_code_core, minify_conservative, minify_general_core};
 pub use json::{minify_json_core_inner, minify_json_readable_inner};
 pub use markdown::minify_markdown_core;

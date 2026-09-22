@@ -144,7 +144,7 @@ pub(crate) fn analyze(
         }
         base.insert(
             "next".into(),
-            json!({"restartDiagnostics":{"tool":"astSearch","query":restart_query,"why":"Restart diagnostic pagination from the current diagnostic snapshot.","confidence":"exact"}}),
+            json!({"restartDiagnostics":{"tool":"astTopology","query":restart_query,"why":"Restart diagnostic pagination from the current diagnostic snapshot.","confidence":"exact"}}),
         );
     } else {
         add_next(&mut base, q, limit_truncated, b.truncated, terminal);
@@ -1061,7 +1061,7 @@ fn add_next(
         value["diagnosticSnapshot"] = base["coverage"]["diagnosticsPagination"]["resultId"].clone();
         next.insert(
             "nextDiagnostics".into(),
-            json!({"tool":"astSearch","query":value,"why":"Continue coverage diagnostics from the same diagnostic snapshot.","confidence":"exact"}),
+            json!({"tool":"astTopology","query":value,"why":"Continue coverage diagnostics from the same diagnostic snapshot.","confidence":"exact"}),
         );
     }
     if base["coverage"]["diagnosticsPagination"]["outOfRange"] == true {
@@ -1072,7 +1072,7 @@ fn add_next(
         }
         next.insert(
             "restartDiagnostics".into(),
-            json!({"tool":"astSearch","query":value,"why":"Restart diagnostic pagination from the current diagnostic snapshot.","confidence":"exact"}),
+            json!({"tool":"astTopology","query":value,"why":"Restart diagnostic pagination from the current diagnostic snapshot.","confidence":"exact"}),
         );
     }
     if scan_truncated && q.max_files.unwrap_or(20_000) < 50_000 {
@@ -1097,7 +1097,7 @@ fn add_next(
         if let Some(query) = value.as_object_mut() {
             query.remove("diagnosticSnapshot");
         }
-        next.insert("expandLimit".into(),json!({"tool":"astSearch","query":value,"why":"Re-run with a larger result limit because additional graph results exist.","confidence":"exact"}));
+        next.insert("expandLimit".into(),json!({"tool":"astTopology","query":value,"why":"Re-run with a larger result limit because additional graph results exist.","confidence":"exact"}));
     }
     if q.analysis == GraphAnalysis::DeadCode
         && let Some(c) = base["results"].as_array().and_then(|x| x.first())
@@ -1144,7 +1144,7 @@ fn continuation(q: &AstGraphQuery, page: Option<u32>, max: Option<u32>, why: &st
         }
         v["diagnosticPage"] = json!(1)
     }
-    json!({"tool":"astSearch","query":v,"why":why,"confidence":"exact"})
+    json!({"tool":"astTopology","query":v,"why":why,"confidence":"exact"})
 }
 fn graph_file(f: &str, root: &Path) -> String {
     let p = Path::new(f);

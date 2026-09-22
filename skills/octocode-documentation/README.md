@@ -1,20 +1,18 @@
 # Octocode Documentation
 
-Create evidence-backed documentation for humans and coding agents, with routed Google developer documentation style guidance and deterministic Markdown checks.
+Create, repair, or review documentation for humans and coding agents — with style guidance, Markdown checks, and verified claims.
 
 ## Use when
 
 - A README, tutorial, how-to, reference, runbook, ADR, or migration guide is missing or stale.
-- Agent instructions such as `AGENTS.md` or `CLAUDE.md` need restructuring.
-- Existing prose needs a factual or style review.
+- Agent instruction files (`AGENTS.md`, `CLAUDE.md`, `COPILOT-INSTRUCTIONS.md`) need restructuring.
+- Existing prose needs a factual accuracy or style review.
 
-## Capabilities
+## Not for
 
-- Classifies work as agent docs, human docs, ADR, multi-file pack, or style pass.
-- Verifies repository claims before writing.
-- Keeps one Diátaxis type per human-facing page.
-- Prefers durable links and ownership pointers over copied code or line numbers.
-- Routes wording questions to focused style references and the bundled word list.
+- Architecture decisions that need evidence first → `octocode-research` then `octocode-rfc-generator`
+- Skill folder structure or SKILL.md review → `octocode-skills`
+- Open-ended ideation about what to build → `octocode-brainstorming`
 
 ## Workflow
 
@@ -39,4 +37,6 @@ node scripts/style-lint.mjs --self-test
 
 Then run the `octocode-skills` review against this folder.
 
-Upstream references: [Google developer documentation style guide](https://developers.google.com/style), [Diátaxis](https://diataxis.fr/), and [agents.md](https://agents.md/).
+---
+
+Style guidance: [Google developer documentation style guide](https://developers.google.com/style) · [Diátaxis](https://diataxis.fr/) · [agents.md](https://agents.md/)

@@ -57,21 +57,21 @@ At startup, the Node adapter loads the platform-specific Rust N-API addon (`@oct
 
 ## Tool catalog
 
-The full discovery catalog contains 12 tools. With default settings and no
-provider key, the MCP server registers 9: it omits the three gated tools until
+The full discovery catalog contains 13 tools. With default settings and no
+provider key, the MCP server registers 9: it omits the four gated tools until
 each gate is set — `clasify` (needs a nonblank `OCTOCODE_CLASSIFICATION_API`),
 `ghCloneRepo` (needs `ENABLE_CLONE=true` plus persistent storage), and
-`astRewrite` (a beta feature, needs `OCTOCODE_BETA=true`). Unavailable tools are
-omitted from MCP discovery entirely, not registered as failing calls.
+`astRewrite` plus `astTopology` (need `OCTOCODE_BETA=true`). Unavailable tools
+are omitted from MCP discovery entirely, not registered as failing calls.
 
 | Family | Tools |
 |--------|-------|
 | GitHub | `ghSearch`, `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem`, `ghCloneRepo` |
-| Local | `localSearch`, `localFetch`, `astSearch`, `astRewrite`, `lspSearch` |
+| Local | `localSearch`, `localFetch`, `astSearch`, `astTopology`, `astRewrite`, `lspSearch` |
 | Package | `artifactSearch` |
 | Semantic assessment | `clasify` |
 
-`astRewrite` is a beta feature, omitted from MCP discovery unless `OCTOCODE_BETA=true`
+`astRewrite` and `astTopology` are omitted from MCP discovery unless `OCTOCODE_BETA=true`.
 (or `local.beta:true`) — the sole gate for both preview and apply. It is
 preview-first; applying a mutation requires the complete set of preview hashes.
 
@@ -129,9 +129,9 @@ active catalog entries.
 | `github_search_repos` | `ghSearch` (repositories operation) |
 | `github_search_pull_requests` | `ghSearchHistory` |
 | `github_clone_repo` | `ghCloneRepo` |
-| `local_analyze_graph` | `astSearch` (`topology` operation) |
+| `local_analyze_graph` | `astTopology` |
 | `local_fetch_content` | `localFetch` |
-| `local_dead_code` | `astSearch` (`topology` with `analysis:"deadCode"`) |
+| `local_dead_code` | `astTopology` (`analysis:"deadCode"`) |
 | `local_find_files` | `astSearch` (`files` operation) |
 | `local_ripgrep` | `localSearch` (lexical `searchText`) |
 | `local_view_structure` | `astSearch` (`tree` operation) |

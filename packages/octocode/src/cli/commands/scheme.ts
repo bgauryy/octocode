@@ -216,6 +216,15 @@ export async function runScheme(args: ParsedArgs): Promise<number> {
     );
     return EXIT.USAGE;
   }
+  // Carry runtime availability into the per-tool view so an agent inspecting a
+  // contract right before calling sees the gate (e.g. astRewrite's disabled
+  // state and ENABLE_AST_REWRITE env var). The core contract catalog has no
+  // availability field; only the native machine catalog knows it, so join it
+  // here exactly as the discovery list does above.
+  const runtimeEntry = machineByName.get(String(toolName));
+  value.availability = (runtimeEntry?.availability ?? {
+    enabled: false,
+  }) as JsonObject;
   // The compact catalog carries a generic `run` hint; the per-tool view echoes
   // the concrete invocation so an agent inspecting one contract sees exactly
   // how to execute it.

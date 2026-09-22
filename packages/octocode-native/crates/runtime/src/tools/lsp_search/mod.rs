@@ -67,8 +67,6 @@ pub struct LspSearchQuery {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group_by_file: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub format: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub depth: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub page: Option<u32>,
@@ -1569,7 +1567,6 @@ mod tests {
             "position": { "line": 7, "character": 11 },
             "page": 1,
             "pageSize": 40,
-            "format": "structured",
             "includeDeclaration": true
         }))
         .expect("canonical lsp query");
@@ -1632,7 +1629,6 @@ mod tests {
             "uri": "/repo/src/lib.rs",
             "page": 1,
             "pageSize": 3,
-            "format": "structured",
             "includeDeclaration": true
         }))
         .expect("canonical lsp query");
@@ -1685,7 +1681,6 @@ mod tests {
                 "uri": "/repo/src/lib.rs",
                 "page": 1,
                 "pageSize": 40,
-                "format": "structured",
                 "includeDeclaration": true
             }))
             .expect("document-wide lsp query");
@@ -1700,7 +1695,6 @@ mod tests {
             "uri": "/repo/src/lib.rs",
             "page": 2,
             "pageSize": 1,
-            "format": "structured",
             "includeDeclaration": true
         }))
         .expect("canonical lsp query");
@@ -1891,7 +1885,6 @@ mod tests {
             order_hint: None,
             include_declaration: None,
             group_by_file: None,
-            format: None,
             depth: None,
             page: None,
             page_size: None,

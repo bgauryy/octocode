@@ -296,7 +296,12 @@ export function buildToolCallSummary(toolName: string, args: unknown): string {
   }
 
   // ── Local tools ───────────────────────────────────────────────────────────
-  if (toolName.startsWith('local') || toolName === 'astSearch' || toolName === 'lspSearch') {
+  if (
+    toolName.startsWith('local') ||
+    toolName === 'astSearch' ||
+    toolName === 'astTopology' ||
+    toolName === 'lspSearch'
+  ) {
     if (toolName === 'localSearch' || (toolName === 'astSearch' && q.operation === 'match')) {
       const kw = str(q.searchText ?? q.pattern ?? q.rule ?? q.keywords);
       const p = str(q.path);
@@ -327,7 +332,7 @@ export function buildToolCallSummary(toolName: string, args: unknown): string {
       return `${shortPath(p)}${names ? ` [${names}]` : ''}${pat ? ` ${pat}` : ''}`.trim();
     }
 
-    if (toolName === 'astSearch' && q.operation === 'topology') {
+    if (toolName === 'astTopology' && q.operation === 'topology') {
       const p = str(q.path);
       const entrypoints = arr(q.entrypoints).join(', ');
       return `${shortPath(p)}${entrypoints ? ` entries:[${entrypoints}]` : ''}`.trim();

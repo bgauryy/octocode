@@ -34,6 +34,7 @@ pub enum ToolId {
     LocalSearch,
     LocalFetch,
     AstSearch,
+    AstTopology,
     AstRewrite,
     LspSearch,
     Clasify,
@@ -41,7 +42,7 @@ pub enum ToolId {
 
 impl ToolId {
     /// All tool identities in declaration order.
-    pub const ALL: [ToolId; 12] = [
+    pub const ALL: [ToolId; 13] = [
         ToolId::GhSearch,
         ToolId::GhGetFileContent,
         ToolId::GhSearchHistory,
@@ -51,6 +52,7 @@ impl ToolId {
         ToolId::LocalSearch,
         ToolId::LocalFetch,
         ToolId::AstSearch,
+        ToolId::AstTopology,
         ToolId::AstRewrite,
         ToolId::LspSearch,
         ToolId::Clasify,
@@ -70,6 +72,7 @@ impl ToolId {
             ToolId::LocalSearch => "localSearch",
             ToolId::LocalFetch => "localFetch",
             ToolId::AstSearch => "astSearch",
+            ToolId::AstTopology => "astTopology",
             ToolId::AstRewrite => "astRewrite",
             ToolId::LspSearch => "lspSearch",
             ToolId::Clasify => "clasify",
@@ -89,6 +92,7 @@ impl ToolId {
             ToolId::LocalSearch
             | ToolId::LocalFetch
             | ToolId::AstSearch
+            | ToolId::AstTopology
             | ToolId::AstRewrite
             | ToolId::LspSearch => ToolFamily::Local,
             ToolId::GhSearch
@@ -119,6 +123,12 @@ impl ToolId {
         matches!(self, ToolId::Clasify)
     }
 
+    /// Tools hidden from discovery unless the shared beta gate is enabled.
+    #[must_use]
+    pub const fn is_beta(self) -> bool {
+        matches!(self, ToolId::AstRewrite | ToolId::AstTopology)
+    }
+
     /// Env-var hint shown in the CLI `scheme` catalog when a tool is disabled.
     /// `None` means availability is controlled via `tools.enabled`/`disabled`.
     /// `ENABLE_CLONE` and `OCTOCODE_ENABLE_CLONE` are accepted aliases
@@ -128,7 +138,7 @@ impl ToolId {
         match self {
             ToolId::GhCloneRepo => Some("ENABLE_CLONE|OCTOCODE_STORAGE_MODE"),
             ToolId::Clasify => Some("OCTOCODE_CLASSIFICATION_API|OCTOCODE_JEV_KEY"),
-            ToolId::AstRewrite => Some("OCTOCODE_BETA"),
+            ToolId::AstRewrite | ToolId::AstTopology => Some("OCTOCODE_BETA"),
             ToolId::LocalSearch | ToolId::LocalFetch | ToolId::AstSearch | ToolId::LspSearch => {
                 Some("ENABLE_LOCAL")
             }
@@ -187,6 +197,7 @@ mod tests {
             ToolId::LocalSearch,
             ToolId::LocalFetch,
             ToolId::AstSearch,
+            ToolId::AstTopology,
             ToolId::AstRewrite,
             ToolId::LspSearch,
         ] {
@@ -228,10 +239,10 @@ mod tests {
         ] {
             assert_eq!(id.availability_env_hint(), Some("ENABLE_LOCAL"), "{id}");
         }
-        assert_eq!(
-            ToolId::AstRewrite.availability_env_hint(),
-            Some("OCTOCODE_BETA")
-        );
+        for id in [ToolId::AstRewrite, ToolId::AstTopology] {
+            assert!(id.is_beta());
+            assert_eq!(id.availability_env_hint(), Some("OCTOCODE_BETA"));
+        }
     }
 
     #[test]

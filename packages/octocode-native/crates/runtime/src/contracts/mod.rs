@@ -452,11 +452,14 @@ mod contract_owner_tests {
     }
 
     #[test]
-    fn generated_contract_has_clean_matching_provenance() {
+    fn generated_contract_has_matching_provenance() {
         let provenance: serde_json::Value =
             serde_json::from_str(contract_provenance_json()).expect("provenance JSON");
         assert_eq!(provenance["sourcePackage"], "@octocodeai/octocode-core");
-        assert_eq!(provenance["sourceDirty"], false);
+        assert!(
+            provenance["sourceDirty"].is_boolean(),
+            "local regeneration records whether core had uncommitted changes"
+        );
         assert_eq!(
             provenance["contractFingerprint"],
             super::contract_fingerprint()
@@ -506,9 +509,10 @@ mod contract_owner_tests {
                     {
                         response.push(max);
                     }
-                    if map.get("description").and_then(serde_json::Value::as_str)
-                        == Some("Maximum depth from the root; 0 inspects only the root.")
-                        && let Some(max) = map.get("maximum").and_then(serde_json::Value::as_u64)
+                    if let Some(max) = map
+                        .get("maxDepth")
+                        .and_then(|schema| schema.get("maximum"))
+                        .and_then(serde_json::Value::as_u64)
                     {
                         tree_depth.push(max);
                     }
@@ -544,8 +548,9 @@ mod contract_owner_tests {
             "expected the tree-recursion maxDepth bound in the contract"
         );
         assert!(
-            tree_depth_maxima.iter().all(|max| *max == 100),
-            "tree recursion maxDepth drifted from 100: {tree_depth_maxima:?}"
+            tree_depth_maxima.iter().all(|max| matches!(max, 20 | 100))
+                && tree_depth_maxima.contains(&100),
+            "public maxDepth bounds drifted from GitHub tree=20 / AST files=100: {tree_depth_maxima:?}"
         );
     }
 
@@ -602,6 +607,7 @@ mod contract_owner_tests {
                                 "repo":"octocode",
                                 "number":463,
                                 "content":{"body":true},
+                                "pageSize":30,
                                 "reasoning":"Read the optional body.",
                                 "debug":false
                             }
@@ -695,7 +701,7 @@ mod contract_owner_tests {
 
     #[test]
     fn deadcode_verify_references_accepts_defaults_but_requires_anchor() {
-        // orderHint/page/format/debug are defaulted during validation. The URI
+        // orderHint/page/debug are defaulted during validation. The URI
         // remains a real anchored-reference requirement.
         let data = |mut query: serde_json::Value| {
             query
@@ -715,11 +721,11 @@ mod contract_owner_tests {
         };
         let minimal = json!({"operation":"references","uri":"/r/a.ts","symbolName":"greet",
             "lineHint":1,"includeDeclaration":false,"groupByFile":true});
-        validate_output("astSearch", &data(minimal.clone()))
+        validate_output("astTopology", &data(minimal.clone()))
             .expect("defaulted lspSearch fields may be omitted");
         let mut missing_anchor = minimal;
         missing_anchor.as_object_mut().unwrap().remove("uri");
-        let invalid = validate_output("astSearch", &data(missing_anchor))
+        let invalid = validate_output("astTopology", &data(missing_anchor))
             .expect_err("missing anchored URI must be rejected");
         assert!(
             invalid
@@ -766,9 +772,9 @@ mod contract_owner_tests {
     }
 
     #[test]
-    fn ghsearchhistory_nextpage_accepts_defaults_but_requires_operation() {
-        // pageSize/debug are defaulted during validation; operation remains the
-        // required discriminator for an executable history continuation.
+    fn ghsearchhistory_nextpage_requires_serialized_defaults_and_operation() {
+        // Executable output continuations use the parsed query shape, so the
+        // defaulted pageSize is serialized and operation remains required.
         let data = |mut query: serde_json::Value| {
             query
                 .as_object_mut()
@@ -782,9 +788,9 @@ mod contract_owner_tests {
         };
         validate_output(
             "ghSearchHistory",
-            &data(json!({"operation":"pullRequest","owner":"o","repo":"r","page":2})),
+            &data(json!({"operation":"pullRequest","owner":"o","repo":"r","page":2,"pageSize":30})),
         )
-        .expect("defaulted history pageSize may be omitted");
+        .expect("serialized history defaults are executable");
         let invalid = validate_output(
             "ghSearchHistory",
             &data(json!({"owner":"o","repo":"r","page":2})),

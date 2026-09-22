@@ -1,13 +1,13 @@
 # Tool data and handoff contract
 
-This reference explains how agents carry evidence through the research layer of the Octocode agentic toolkit. It covers handoffs among Octocode's 12 tools. Use the [tool reference](OCTOCODE_TOOLS.md) for operation fields and the [local workflow](LOCAL_RESEARCH_WORKFLOW.md) for choosing the next evidence source. Inspect the live public input schema when constructing an unfamiliar request; compact fields are a summary, while the default public view retains nested and conditional input constraints.
+This reference explains how agents carry evidence through the research layer of the Octocode agentic toolkit. It covers handoffs among Octocode's 13 tools. Use the [tool reference](OCTOCODE_TOOLS.md) for operation fields and the [local workflow](LOCAL_RESEARCH_WORKFLOW.md) for choosing the next evidence source. Inspect the live public input schema when constructing an unfamiliar request; compact fields are a summary, while the default public view retains nested and conditional input constraints.
 
 ```sh
 node packages/octocode/out/octocode.js scheme --compact
 node packages/octocode/out/octocode.js scheme astSearch --view query
 ```
 
-The CLI discovery catalog includes disabled tools: 12 tools are discoverable and 10 are enabled by default when clone is disabled and no Jev provider key is resolved. MCP registers the enabled subset. Check `availability` and effective configuration. Enabling a tool does not install a language server or supply provider credentials.
+The CLI discovery catalog includes disabled tools: 13 tools are discoverable and 9 are enabled by default when clone is disabled, beta tools are disabled, and no Jev provider key is resolved. MCP registers the enabled subset. Check `availability` and effective configuration. Enabling a tool does not install a language server or supply provider credentials.
 
 ## Ownership and runtime boundaries
 
@@ -131,7 +131,7 @@ Document LSP operations use `uri` without symbol anchors. `workspaceSymbol` requ
 | `ghGetHistoryItem` | `ghGetFileContent` or another history read | Changed-file path and the correct revision or diff side; continue each selected history surface independently. |
 | `artifactSearch` | Repository search or clone | Verify repository host, owner/name, and any package subdirectory before constructing a repository query. A repository link is metadata, not source content. |
 | `ghCloneRepo` | Local tools | `data.location.localPath` and checkout metadata. Completeness is relative to the selected sparse scope. Cached working-tree contents are not reverified merely because HEAD has a SHA. |
-| `localSearch` or `astSearch` | `localFetch` | Observed path and source range, preferably through an executable `next` call. |
+| `localSearch`, `astSearch`, or `astTopology` | `localFetch` | Observed path and source range, preferably through an executable `next` call. |
 | `localFetch` | `lspSearch` | Exact path, symbol and actual source line, or an observed UTF-16 position. |
 | `lspSearch` | Exact read or lexical/structural recovery | Returned source locations, `readSite`, or an explicit recovery call; retain provider and completeness qualifications. |
 

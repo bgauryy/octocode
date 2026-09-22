@@ -1,10 +1,10 @@
 ---
 name: octocode-subagent
-description: "Use when choosing execution before spawning agents: solo/batch/subagent/local-Ollama, decomposition, and handoffs."
+description: "Use when substantial work has independent lanes that justify delegation cost: parallel specialist workers, local Ollama offload, or A2A handoffs. Not for: routine edits or dependent sequences where one batched call handles everything; explanations; known reads that fit a single call."
 ---
-# Octocode Orchestration
+# Octocode Subagent
 tools: `npx octocode` / `octocode-mcp`
-related-skill: `octocode-research`
+related-skill: `octocode-research` · `octocode-eval-benchmark` · `octocode-rfc-generator` · `octocode-prompt-optimizer`
 output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
 routes: load/run a reference, doc, or script only when it changes the next action; otherwise keep the rule here.
 The parent owns user intent, authority, integration, evidence, and verdict; workers return bounded results, never authority. Packets/results: `<output>/worker/`; transient prompts: `<output>/tmp/ollama-worker/`. Chat-only synthesis stays in chat; approved source edits keep their paths.

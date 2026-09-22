@@ -110,8 +110,8 @@ impl DomainDispatcher {
         let security = self.security.clone();
         let regex = self.regex.clone();
         let context = context.clone();
-        // OCTOCODE_BETA is the sole astRewrite gate: when beta is on, both
-        // preview and hash-guarded apply are permitted (no separate apply flag).
+        // OCTOCODE_BETA is the shared gate for beta local tools. For astRewrite,
+        // enabling beta permits both preview and hash-guarded apply.
         let allow_apply = self.config.resolved.local.beta;
         self.handle.block_on(async {
             tokio::task::spawn_blocking(move || {

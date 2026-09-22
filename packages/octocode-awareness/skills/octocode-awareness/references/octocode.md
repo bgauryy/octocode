@@ -12,7 +12,8 @@ npx -y octocode scheme localSearch          # one tool's contract
 | Question | Tool |
 |---|---|
 | Text or regex occurrence | `localSearch`; no `operation` field |
-| Paths, syntax, symbols, or file topology | `astSearch`: `files`, `tree`, `match`, `symbols`, or `topology` |
+| Paths, syntax, or symbols | `astSearch`: `files`, `tree`, `match`, or `symbols` |
+| File topology | `astTopology`: `operation:"topology"` plus `analysis` |
 | Exact source or a deliberate transformed view | `localFetch`; exact by default, choose minification explicitly |
 | Symbol identity or uses | `lspSearch` with the operation's real anchor and scope |
 | Remote discovery and history | `ghSearch`, `ghSearchHistory` |

@@ -56,5 +56,16 @@ fn scheme_catalog_is_machine_only_with_availability_scoping() {
             ast_rewrite["availability"]["envVar"], "OCTOCODE_BETA",
             "{catalog}"
         );
+        let ast_topology = catalog["tools"]
+            .as_array()
+            .expect("tools array")
+            .iter()
+            .find(|tool| tool["name"] == "astTopology")
+            .expect("astTopology entry");
+        assert_eq!(ast_topology["availability"]["enabled"], false, "{catalog}");
+        assert_eq!(
+            ast_topology["availability"]["envVar"], "OCTOCODE_BETA",
+            "{catalog}"
+        );
     }
 }

@@ -68,6 +68,8 @@ pub(super) enum Command {
     LocalFetch(ToolArgs),
     #[command(name = "astSearch")]
     AstSearch(ToolArgs),
+    #[command(name = "astTopology")]
+    AstTopology(ToolArgs),
     #[command(name = "astRewrite")]
     AstRewrite(ToolArgs),
     #[command(name = "lspSearch")]

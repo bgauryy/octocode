@@ -28,11 +28,11 @@ Flow: `FRAME → MODEL → PROVE → CHANGE → VERIFY`.
 
 ## Workflow
 
-1. **FRAME** — define the decision, constraints, quality attribute, scope, entrypoints, tests policy, budget, and consequence being predicted.
-2. **MODEL** — load `references/architecture-lenses.md` when boundaries, layers, interfaces, flows, ownership, or blast radius matter; trace 1–3 representative scenarios. Load `references/contract-data-flow-checks.md` when a contract or external/internal data path crosses a trust, process, package, persistence, or ownership boundary.
-3. **PROVE** — load `references/algorithm-review.md` when algorithms or data structures can fail on correctness, bounds, termination, complexity, concurrency, or numerical behavior. Load `references/architecture-analysis.md` when dependency topology, cycles, reachability, dead code, duplication, coupling, separation, hot paths, or efficiency can change the decision.
-4. **CHANGE** — load `references/refactoring.md` when a proven issue needs a safer boundary or migration seam. Before any source edit, load `references/delivery-discipline.md`; freeze the owned behavior, implement one vertical slice, and exercise the production path.
-5. **VERIFY** — inspect the diff and rerun comparable focused checks. For agent-authored work, load `references/agent-defect-classes.md`; load `references/agent-defect-evidence.md` only when prioritizing or disputing a defect class. Use `references/output-contracts.md` when a consequential plan or review needs an auditable result.
+1. **FRAME** — state the decision, quality attribute (performance/maintainability/correctness), scope, and consequence. Stop if the decision is open-ended without a named attribute — clarify first.
+2. **MODEL** — map boundaries, contracts, and representative data/control flows from exact source using `octocode-research`. Separate declared architecture from observed structure; a graph edge or folder name is a hypothesis, not a flaw. Load `references/architecture-lenses.md` when layers, ownership, or blast radius need a structured lens. Load `references/contract-data-flow-checks.md` when a path crosses trust or process boundaries.
+3. **PROVE** — confirm hypotheses with exact code, AST/LSP identity, and tests before reporting a finding. Load `references/algorithm-review.md` for correctness/complexity/concurrency questions. Load `references/architecture-analysis.md` for dependency topology, cycles, dead code, or hot paths.
+4. **CHANGE** — only when the request authorizes edits and evidence names a specific seam. Implement one vertical slice; keep cleanup within the changed area. Load `references/refactoring.md` and `references/delivery-discipline.md` before any source edit.
+5. **VERIFY** — rerun the pre-change checks and confirm the diff is within authorized scope. Review-only requests stop here and return findings + a plan, not edits. Load `references/agent-defect-classes.md` for agent-authored work quality checks.
 
 ## Gates
 

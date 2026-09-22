@@ -91,7 +91,7 @@ pub(crate) fn build_graph(
             file: ".".into(),
             line: None,
             code: "unsupported-linking".into(),
-            message: "Cargo metadata cargo-manifest-missing: No Cargo.toml was found at the scan root or known Rust-file ancestors. Point astSearch at the crate root that contains Cargo.toml (not a nested src/ directory); crate:: imports cannot be resolved otherwise.".into(),
+            message: "Cargo metadata cargo-manifest-missing: No Cargo.toml was found at the scan root or known Rust-file ancestors. Point astTopology at the crate root that contains Cargo.toml (not a nested src/ directory); crate:: imports cannot be resolved otherwise.".into(),
         });
     }
     let cargo_crates = if q.rust_workspace.as_deref() == Some("cargo") && !rust_cargo_unavailable {

@@ -261,7 +261,7 @@ pub fn process_fetched_content(
         } else if let Some(outline) = crate::content::markdown_heading_outline(&selected, &q.path) {
             selected = outline
         } else {
-            warnings.push(format!("No smaller outline is available for {}; using the standard content view. The outline may be unsupported, oversized, or unavailable for this source.",q.path));
+            warnings.push(format!("No smaller outline is available for {}; using the standard content view. The outline may be unsupported, oversized, or the source may be minified/bundled (single giant lines) — read specific line ranges instead.",q.path));
             selected =
                 octocode_engine::portable::apply_content_view_minification(&selected, &q.path);
             content_view = MinifyMode::Standard;

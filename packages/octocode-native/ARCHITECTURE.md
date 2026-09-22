@@ -16,7 +16,7 @@ The CLI never loads N-API or JavaScript. The MCP addon and native CLI call the s
 
 ## Public catalog
 
-The runtime executes all twelve tools:
+The runtime executes all thirteen tools:
 
 - `ghSearch`
 - `ghGetFileContent`
@@ -27,11 +27,12 @@ The runtime executes all twelve tools:
 - `localSearch`
 - `localFetch`
 - `astSearch`
+- `astTopology`
 - `astRewrite`
 - `lspSearch`
 - `clasify`
 
-Availability is resolved natively. GitHub and artifact tools are enabled by default; local tools honor local policy; cloning requires its feature gate and persistent storage. `astRewrite` is a beta feature gated solely by `OCTOCODE_BETA` (env or `local.beta`), default off, which permits both preview and hash-guarded apply. `clasify` is available to MCP only when the resolved `OCTOCODE_CLASSIFICATION_API` is nonblank; the CLI command returns an actionable missing-key error when invoked without it. Ordinary contract preparation accepts direct, array, and `{ "queries": [...] }` forms. Semantic assessment accepts one complete `SemanticQuery` directly or a batch of complete queries, validates the full resource-question matrices, and preserves isolated page failures.
+Availability is resolved natively. GitHub and artifact tools are enabled by default; local tools honor local policy; cloning requires its feature gate and persistent storage. `astRewrite` and `astTopology` are gated solely by `OCTOCODE_BETA` (env or `local.beta`) and default off; for `astRewrite`, the gate permits both preview and hash-guarded apply. `clasify` is available to MCP only when the resolved `OCTOCODE_CLASSIFICATION_API` is nonblank; the CLI command returns an actionable missing-key error when invoked without it. Ordinary contract preparation accepts direct, array, and `{ "queries": [...] }` forms. Semantic assessment accepts one complete `SemanticQuery` directly or a batch of complete queries, validates the full resource-question matrices, and preserves isolated page failures.
 
 `clasify` applies every `questions[]` entry to every `resources[]` entry. Native contract preparation validates IDs, the 25-cell per-query cap, and the 50-cell batch cap, then expands resource-major work with `queryId`, `resourceId`, and `questionId`. The IDs are correlation metadata and never provider evidence. Questions are native Noul, Choice, or Score primitives: instructions are non-null/non-empty structured values; Choice and Noul descriptions may be null at their documented boundaries; Score levels may not. Configuration selects the Jev provider model. `runtime/domain_dispatch` is the shared execution path for ordinary tools and hidden context; `runtime/jev_context` validates the nested canonical query, enforces availability and security, sanitizes the ordinary result and checks its output contract before inference. It never re-enters public request admission.
 

@@ -9,7 +9,7 @@ covers the four public local tools:
 ## Goal and decision rule
 
 The goal is to remove `localAnalyzeGraph` and `lspGetSemantics` while retaining
-the behavior they provided through `astSearch` topology and `lspSearch`.
+the behavior they provided through `astTopology` and `lspSearch`.
 
 The local fixture is
 [`fixtures/local-tool-removal-held-out.json`](../fixtures/local-tool-removal-held-out.json).

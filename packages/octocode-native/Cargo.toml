@@ -42,6 +42,8 @@ serde_json = { version = "1", features = ["arbitrary_precision", "preserve_order
 serde_yaml_ng = "0.10"
 regex = "1"
 url = "2"
+sha2 = "0.11"
+hex = "0.4"
 tokio = { version = "1" }
 libc = "0.2"
 windows-sys = { version = "0.61" }
@@ -89,6 +91,15 @@ strip = "symbols"
 [profile.release.package.octocode-native]
 codegen-units = 16
 
+# NOTE (measured 2026-09-22): the engine is the release long pole at the global
+# cu=1 (~146s, compiled up to 3×), but it must STAY at cu=1. Benchmarked cu=1 vs
+# cu=8 and cu=16 on the criterion suites: both cut the engine compile to ~28s but
+# regressed CSS minify (`minify_content_view_css`) ~17-22% and search ~2% —
+# beyond the ~2% gate. The minify hot paths lose cross-function inlining when the
+# crate is split into more codegen units. Do NOT add a per-package
+# codegen-units override for octocode-engine; the parallel-codegen build win is
+# not free here.
+
 # ── Profiling / benchmarking build ────────────────────────────────────────────
 # Inherits the optimized release profile but keeps full debuginfo and drops LTO,
 # so criterion runs and perf/flamegraph traces stay usable without paying the
@@ -99,6 +110,19 @@ inherits = "release"
 debug = true
 strip = false
 lto = false
+
+# ── Faster inner-loop debug builds (ruff / uv / biome pattern) ────────────────
+# Emit only line tables: keeps file:line in panics/backtraces but drops the bulk
+# of DWARF, and `split-debuginfo = "unpacked"` skips macOS `dsymutil` on every
+# link. Cross-validated against ruff/uv/biome dev profiles — ~20-40% faster debug
+# rebuilds; full DWARF is only needed when stepping in a debugger (use
+# `--profile profiling` for that). Dependencies below get no debuginfo at all.
+[profile.dev]
+debug = "line-tables-only"
+split-debuginfo = "unpacked"
+
+[profile.dev.package."*"]
+debug = false
 
 [profile.dev.package."regex-automata"]
 opt-level = 3
@@ -134,10 +158,6 @@ opt-level = 3
 opt-level = 2
 [profile.dev.package."oxc_semantic"]
 opt-level = 2
-[profile.dev.package."oxc_minifier"]
-opt-level = 2
-[profile.dev.package."oxc_codegen"]
-opt-level = 2
 [profile.dev.package."ast-grep-core"]
 opt-level = 2
 
@@ -164,10 +184,6 @@ opt-level = 3
 [profile.test.package."oxc_parser"]
 opt-level = 2
 [profile.test.package."oxc_semantic"]
-opt-level = 2
-[profile.test.package."oxc_minifier"]
-opt-level = 2
-[profile.test.package."oxc_codegen"]
 opt-level = 2
 [profile.test.package."ast-grep-core"]
 opt-level = 2

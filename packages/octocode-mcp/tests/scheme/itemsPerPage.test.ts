@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { GitHubSearchBulkQuerySchema } from '@octocodeai/config/schema';
 import { LocalSearchBulkQuerySchema } from '@octocodeai/config/schema';
-import { AstSearchBulkQuerySchema } from '@octocodeai/config/schema';
+import {
+  AstSearchBulkQuerySchema,
+  AstTopologyBulkQuerySchema,
+} from '@octocodeai/config/schema';
 import { ArtifactSearchBulkQueryLocalSchema } from '@octocodeai/config/schema';
 
 const q0 = (
@@ -79,8 +82,8 @@ describe('Unified public pagination fields', () => {
     }
   });
 
-  it('astSearch topology distinguishes limit from pageSize', () => {
-    const query = q0(AstSearchBulkQuerySchema, {
+  it('astTopology distinguishes limit from pageSize', () => {
+    const query = q0(AstTopologyBulkQuerySchema, {
       reasoning: 'exercise pagination fields',
       operation: 'topology',
       analysis: 'cycles',

@@ -14,8 +14,8 @@ import packageJson from '../../package.json';
 /**
  * A tool as reported by the native runtime catalog: runtime truth only —
  * names, availability, and the enforcement contract fingerprint. Everything
- * agent-facing (`title`/`description`/`inputSchema`/`annotations` for
- * `registerTool`, server instructions) is sourced from core through the
+ * agent-facing (`title`/`description`/`inputSchema` for `registerTool`,
+ * server instructions) is sourced from core through the
  * `@octocodeai/config` contract hub; the native embed carries no presentation.
  */
 export interface NativeCatalogTool {
@@ -93,7 +93,6 @@ type RegisterTool = (
     title?: string;
     description?: string;
     inputSchema?: unknown;
-    annotations?: unknown;
   },
   callback: (
     args: unknown,
@@ -220,7 +219,6 @@ export function createNativeMcp({
         title: definition.title,
         description: definition.description,
         inputSchema,
-        annotations: definition.annotations,
       },
       async (args, context = {}) => {
         const signal = context.signal;

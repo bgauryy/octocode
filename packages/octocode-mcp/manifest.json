@@ -64,7 +64,11 @@
     },
     {
       "name": "astSearch",
-      "description": "Inspect local syntax, symbols, structural matches, files, trees, and graph topology"
+      "description": "Inspect local syntax, symbols, structural matches, files, and syntax trees"
+    },
+    {
+      "name": "astTopology",
+      "description": "Analyze local dependency topology, cycles, reachability, dead code, and drift"
     },
     {
       "name": "astRewrite",

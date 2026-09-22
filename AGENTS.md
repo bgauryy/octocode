@@ -125,11 +125,24 @@ Full reference: [`docs/OCTOCODE_TOOLS.md`](docs/OCTOCODE_TOOLS.md) · live: `$OC
 ## Build
 
 ```bash
-yarn build                                          # all packages
+yarn build:dev                                      # FAST local full build (debug) — the default
+yarn build                                          # all packages, RELEASE (slow — see below)
 yarn workspace <pkg-name> <script>                  # single package
 yarn test · yarn lint · yarn typecheck · yarn verify
-yarn build:native:all · yarn platforms:check
+yarn build:native:all · yarn platforms:check        # 6-platform cross-compile (publish only)
 ```
+
+**Use `yarn build:dev` locally** (debug native + extension-rust + TS). `yarn build` compiles in
+**release**, and `octocode-native` rebuilds its Rust dep graph **~3× per run** — the runtime crate
+as a CLI bin (`--no-default-features`) **and** as a napi cdylib (`--features napi-addon`), plus the
+engine addon (`--features portable-default,napi-addon`). Those are three distinct feature sets Cargo
+can't share, so a cold release build is ~25 min (dominated by the engine crate at `codegen-units=1`).
+Reserve `yarn build` for release/perf-representative artifacts; `build:dev` for everything else.
+`[profile.dev]` emits line-tables-only debuginfo and `split-debuginfo="unpacked"` (skips macOS
+`dsymutil`); deps carry none. For optimized-but-fast local artifacts use `--profile profiling`
+(release opt, LTO off, debuginfo kept). Do **not** commit `.cargo/config.toml` lld/sccache blocks —
+on Apple Silicon the default `ld` is already fast and sccache can't cache our cdylib/bin (they stay
+opt-in; oxc/ruff/uv/biome commit no alternative linker either).
 
 **End-to-end after engine/native/CLI changes:**
 

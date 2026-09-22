@@ -23,8 +23,8 @@ const toolNamed = (name: string): JsonObject => {
 };
 
 describe('core public catalog', () => {
-  it('carries presentation for all 12 tools and never an output schema', () => {
-    expect(tools).toHaveLength(12);
+  it('carries presentation for all 13 tools and never an output schema', () => {
+    expect(tools).toHaveLength(13);
     for (const tool of tools) {
       expect(tool.outputSchema, String(tool.name)).toBeUndefined();
       expect(typeof tool.description, String(tool.name)).toBe('string');
@@ -104,13 +104,19 @@ describe('project', () => {
   });
 
   it('variants view exposes compact branch selectors before schema details', () => {
-    const variants = project(toolNamed('astSearch'), 'variants');
-    expect(variants.name).toBe('astSearch');
-    expect(variants.querySchema).toBeUndefined();
-    expect(variants.variants).toEqual(
+    const searchVariants = project(toolNamed('astSearch'), 'variants');
+    expect(searchVariants.name).toBe('astSearch');
+    expect(searchVariants.querySchema).toBeUndefined();
+    expect(searchVariants.variants).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'tree:syntax' })])
+    );
+
+    const topologyVariants = project(toolNamed('astTopology'), 'variants');
+    expect(topologyVariants.name).toBe('astTopology');
+    expect(topologyVariants.querySchema).toBeUndefined();
+    expect(topologyVariants.variants).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ name: 'tree:syntax' }),
-        expect.objectContaining({ name: 'topology:dependencies' }),
+        expect.objectContaining({ name: 'dependencies' }),
       ])
     );
   });
@@ -210,17 +216,20 @@ describe('projectSelected', () => {
     }
   });
 
-  it('selects a named nested astSearch variant in one step', () => {
+  it('selects a named nested astTopology variant in one step', () => {
     const projected = projectSelected(
-      toolNamed('astSearch'),
+      toolNamed('astTopology'),
       'query',
-      'variant=topology:dependencies'
+      'variant=dependencies'
     );
     const schema = projected.querySchema as JsonObject;
     const union = (schema.oneOf ?? schema.anyOf) as JsonObject[];
     expect(union).toHaveLength(1);
     const properties = union[0]!.properties as JsonObject;
-    expect((properties.operation as JsonObject).const).toBe('topology');
+    const operation = properties.operation as JsonObject;
+    const defs = schema.$defs as JsonObject;
+    expect((defs.T_Operation as JsonObject).const).toBe('topology');
+    expect(operation.$ref).toBe('#/$defs/T_Operation');
     expect((properties.analysis as JsonObject).const).toBe('dependencies');
   });
 

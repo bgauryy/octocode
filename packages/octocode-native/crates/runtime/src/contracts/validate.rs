@@ -432,23 +432,6 @@ fn validate_ast_rewrite_rules(input: &Value) -> Result<(), ContractValidationErr
                 )?;
             }
         }
-        if query.get("ruleKind").and_then(Value::as_str) == Some("experimental") {
-            let has_rewrite = query
-                .get("transform")
-                .and_then(Value::as_object)
-                .is_some_and(|values| {
-                    values
-                        .values()
-                        .any(|v| v.as_object().is_some_and(|o| o.contains_key("rewrite")))
-                });
-            if !has_rewrite {
-                return Err(issue(
-                    "ast-rewrite.experimental-rewrite",
-                    vec!["queries".into(), index.to_string(), "transform".into()],
-                    "experimental rules require a rewrite transformation",
-                ));
-            }
-        }
     }
     Ok(())
 }

@@ -205,17 +205,17 @@ than `gh`+Headroom, and ~3.2× fewer than `gh`+RTK** in the local-build headline
 
 ## Tools
 
-**12 tools in the full discovery catalog.** By default MCP registers **9** — it
-omits the three gated tools until their gate is set: `clasify` (needs
+**13 tools in the full discovery catalog.** By default MCP registers **9** — it
+omits the four gated tools until their gate is set: `clasify` (needs
 `OCTOCODE_CLASSIFICATION_API`, or its `OCTOCODE_JEV_KEY` alias), `ghCloneRepo`
-(needs `ENABLE_CLONE` + persistent storage), and `astRewrite` (a beta feature,
-needs `OCTOCODE_BETA`). The CLI keeps all 12 commands discoverable and returns an
+(needs `ENABLE_CLONE` + persistent storage), and `astRewrite` plus `astTopology`
+(need `OCTOCODE_BETA`). The CLI keeps all 13 commands discoverable and returns an
 actionable setup error naming the exact gate when a gated command is called.
 
 | Surface | Registers by default | Gated tools |
 |---|---:|---|
-| MCP, no flags | 9 of 12 | `clasify`, `ghCloneRepo`, and `astRewrite` omitted until enabled. |
-| CLI, no flags | 12 discoverable | Gated commands run only when enabled; otherwise each explains the gate to set. |
+| MCP, no flags | 9 of 13 | `clasify`, `ghCloneRepo`, `astRewrite`, and `astTopology` omitted until enabled. |
+| CLI, no flags | 13 discoverable | Gated commands run only when enabled; otherwise each explains the gate to set. |
 
 Use `TOOLS_TO_RUN` for a strict allowlist or `DISABLE_TOOLS` to remove tools from
 the default set. `ENABLE_LOCAL=false` disables local, graph, and LSP tools;
@@ -242,7 +242,8 @@ or trees with its strict `operation` field.
 | Tool | What it does | Knob |
 |------|--------------|------|
 | `localSearch` | Lexical text and regex search over local files. | `searchText` |
-| `astSearch` | AST shape, file, tree, symbol, and topology queries. | `operation` |
+| `astSearch` | AST shape, file, syntax-tree, and symbol queries. | `operation` |
+| `astTopology` | Cross-file dependency graph analysis: dependencies, dependents, paths, cycles, reachability, dead code, and drift. | `analysis` |
 | `astRewrite` | Preview or apply snapshot-bound structural rewrites. Beta feature gated by `OCTOCODE_BETA` (the sole gate for both preview and apply). | `apply` |
 | `localFetch` | Read a local file or region: exact slice, match string, line range, or paginated chars. | `minify` |
 

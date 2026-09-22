@@ -59,7 +59,7 @@ The remaining tools each own a distinct effect or capability boundary. Scores us
 | Durable `memory` | 7/10 | 8/10 | Keep conditionally: only verified reusable learning. |
 | Generic automatic ledger-count signal | 2/10 | 3/10 | Remove: unrelated global counts distract the agent. |
 | Unread direct-message count | 6/10 | 8/10 | Keep narrowly: it is targeted, bounded, and routes to `message` inbox. |
-| Awareness skill/CLI diagnostics | 5/10 | 8/10 when needed | Keep out of the default palette; load only for overlap, recovery, or deeper diagnosis. |
+| Awareness CLI diagnostics | 5/10 | 8/10 when needed | Keep out of the default palette; use only for overlap, recovery, or deeper diagnosis. |
 
 ## Captured contract-efficiency baseline
 

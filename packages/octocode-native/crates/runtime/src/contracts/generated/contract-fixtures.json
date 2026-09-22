@@ -1225,170 +1225,6 @@
     "id": "astSearch.curated-2",
     "tool": "astSearch",
     "input": {
-      "reasoning": "Use astSearch for the dead code from detected entrypoints example.",
-      "operation": "topology",
-      "analysis": "deadCode",
-      "path": "/ABS/repo",
-      "limit": 20
-    },
-    "accepted": true,
-    "normalized": {
-      "queries": [
-        {
-          "goal": "Execute astSearch via fixture",
-          "reasoning": "Use astSearch for the dead code from detected entrypoints example.",
-          "debug": false,
-          "path": "/ABS/repo",
-          "limit": 20,
-          "page": 1,
-          "includeTests": true,
-          "operation": "topology",
-          "analysis": "deadCode"
-        }
-      ]
-    }
-  },
-  {
-    "id": "astSearch.curated-3",
-    "tool": "astSearch",
-    "input": {
-      "reasoning": "Use astSearch for the cycles example.",
-      "operation": "topology",
-      "analysis": "cycles",
-      "path": "/ABS/repo",
-      "limit": 20
-    },
-    "accepted": true,
-    "normalized": {
-      "queries": [
-        {
-          "goal": "Execute astSearch via fixture",
-          "reasoning": "Use astSearch for the cycles example.",
-          "debug": false,
-          "path": "/ABS/repo",
-          "limit": 20,
-          "page": 1,
-          "operation": "topology",
-          "analysis": "cycles"
-        }
-      ]
-    }
-  },
-  {
-    "id": "astSearch.curated-4",
-    "tool": "astSearch",
-    "input": {
-      "reasoning": "Use astSearch for the dependencies of one file example.",
-      "operation": "topology",
-      "analysis": "dependencies",
-      "path": "/ABS/repo",
-      "file": "src/index.ts",
-      "depth": 2
-    },
-    "accepted": true,
-    "normalized": {
-      "queries": [
-        {
-          "goal": "Execute astSearch via fixture",
-          "reasoning": "Use astSearch for the dependencies of one file example.",
-          "debug": false,
-          "path": "/ABS/repo",
-          "page": 1,
-          "file": "src/index.ts",
-          "depth": 2,
-          "operation": "topology",
-          "analysis": "dependencies"
-        }
-      ]
-    }
-  },
-  {
-    "id": "astSearch.curated-5",
-    "tool": "astSearch",
-    "input": {
-      "reasoning": "Use astSearch for the dependents of one file example.",
-      "operation": "topology",
-      "analysis": "dependents",
-      "path": "/ABS/repo",
-      "file": "src/index.ts",
-      "depth": 2
-    },
-    "accepted": true,
-    "normalized": {
-      "queries": [
-        {
-          "goal": "Execute astSearch via fixture",
-          "reasoning": "Use astSearch for the dependents of one file example.",
-          "debug": false,
-          "path": "/ABS/repo",
-          "page": 1,
-          "file": "src/index.ts",
-          "depth": 2,
-          "operation": "topology",
-          "analysis": "dependents"
-        }
-      ]
-    }
-  },
-  {
-    "id": "astSearch.curated-6",
-    "tool": "astSearch",
-    "input": {
-      "reasoning": "Use astSearch for the shortest dependency path example.",
-      "operation": "topology",
-      "analysis": "path",
-      "path": "/ABS/repo",
-      "file": "src/index.ts",
-      "target": "src/responses.ts"
-    },
-    "accepted": true,
-    "normalized": {
-      "queries": [
-        {
-          "goal": "Execute astSearch via fixture",
-          "reasoning": "Use astSearch for the shortest dependency path example.",
-          "debug": false,
-          "path": "/ABS/repo",
-          "page": 1,
-          "file": "src/index.ts",
-          "target": "src/responses.ts",
-          "operation": "topology",
-          "analysis": "path"
-        }
-      ]
-    }
-  },
-  {
-    "id": "astSearch.curated-7",
-    "tool": "astSearch",
-    "input": {
-      "reasoning": "Use astSearch for the reachability from detected entrypoints example.",
-      "operation": "topology",
-      "analysis": "reachability",
-      "path": "/ABS/repo",
-      "limit": 20
-    },
-    "accepted": true,
-    "normalized": {
-      "queries": [
-        {
-          "goal": "Execute astSearch via fixture",
-          "reasoning": "Use astSearch for the reachability from detected entrypoints example.",
-          "debug": false,
-          "path": "/ABS/repo",
-          "limit": 20,
-          "page": 1,
-          "includeTests": true,
-          "operation": "topology",
-          "analysis": "reachability"
-        }
-      ]
-    }
-  },
-  {
-    "id": "astSearch.curated-8",
-    "tool": "astSearch",
-    "input": {
       "reasoning": "Use astSearch for the structural match example.",
       "operation": "match",
       "path": "/ABS/repo/src",
@@ -1416,7 +1252,7 @@
     }
   },
   {
-    "id": "astSearch.curated-9",
+    "id": "astSearch.curated-3",
     "tool": "astSearch",
     "input": {
       "reasoning": "Use astSearch for the file discovery example.",
@@ -1446,34 +1282,7 @@
     }
   },
   {
-    "id": "astSearch.curated-10",
-    "tool": "astSearch",
-    "input": {
-      "reasoning": "Use astSearch for the tree orientation example.",
-      "operation": "tree",
-      "path": "/ABS/repo/src",
-      "maxDepth": 2
-    },
-    "accepted": true,
-    "normalized": {
-      "queries": [
-        {
-          "goal": "Execute astSearch via fixture",
-          "reasoning": "Use astSearch for the tree orientation example.",
-          "debug": false,
-          "operation": "tree",
-          "treeKind": "filesystem",
-          "path": "/ABS/repo/src",
-          "detail": "basic",
-          "sort": "name",
-          "maxDepth": 2,
-          "page": 1
-        }
-      ]
-    }
-  },
-  {
-    "id": "astSearch.curated-11",
+    "id": "astSearch.curated-4",
     "tool": "astSearch",
     "input": {
       "reasoning": "Use astSearch for the document symbols example.",
@@ -1497,7 +1306,7 @@
     }
   },
   {
-    "id": "astSearch.curated-12",
+    "id": "astSearch.curated-5",
     "tool": "astSearch",
     "input": {
       "reasoning": "Use astSearch for the match variant.",
@@ -1527,7 +1336,7 @@
     }
   },
   {
-    "id": "astSearch.curated-13",
+    "id": "astSearch.curated-6",
     "tool": "astSearch",
     "input": {
       "reasoning": "Use astSearch for the files variant.",
@@ -1557,35 +1366,7 @@
     }
   },
   {
-    "id": "astSearch.curated-14",
-    "tool": "astSearch",
-    "input": {
-      "reasoning": "Use astSearch for the tree:filesystem variant.",
-      "operation": "tree",
-      "treeKind": "filesystem",
-      "path": ".",
-      "maxDepth": 5
-    },
-    "accepted": true,
-    "normalized": {
-      "queries": [
-        {
-          "goal": "Execute astSearch via fixture",
-          "reasoning": "Use astSearch for the tree:filesystem variant.",
-          "debug": false,
-          "operation": "tree",
-          "treeKind": "filesystem",
-          "path": ".",
-          "detail": "basic",
-          "sort": "name",
-          "maxDepth": 5,
-          "page": 1
-        }
-      ]
-    }
-  },
-  {
-    "id": "astSearch.curated-15",
+    "id": "astSearch.curated-7",
     "tool": "astSearch",
     "input": {
       "reasoning": "Use astSearch for the tree:syntax variant.",
@@ -1612,7 +1393,7 @@
     }
   },
   {
-    "id": "astSearch.curated-16",
+    "id": "astSearch.curated-8",
     "tool": "astSearch",
     "input": {
       "reasoning": "Use astSearch for the symbols variant.",
@@ -1636,10 +1417,174 @@
     }
   },
   {
-    "id": "astSearch.curated-17",
-    "tool": "astSearch",
+    "id": "astTopology.curated-1",
+    "tool": "astTopology",
     "input": {
-      "reasoning": "Use astSearch for the topology:dependencies variant.",
+      "reasoning": "Use astTopology for the dead code from detected entrypoints example.",
+      "operation": "topology",
+      "analysis": "deadCode",
+      "path": "/ABS/repo",
+      "limit": 20
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "goal": "Execute astTopology via fixture",
+          "reasoning": "Use astTopology for the dead code from detected entrypoints example.",
+          "debug": false,
+          "path": "/ABS/repo",
+          "limit": 20,
+          "page": 1,
+          "includeTests": true,
+          "operation": "topology",
+          "analysis": "deadCode"
+        }
+      ]
+    }
+  },
+  {
+    "id": "astTopology.curated-2",
+    "tool": "astTopology",
+    "input": {
+      "reasoning": "Use astTopology for the cycles example.",
+      "operation": "topology",
+      "analysis": "cycles",
+      "path": "/ABS/repo",
+      "limit": 20
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "goal": "Execute astTopology via fixture",
+          "reasoning": "Use astTopology for the cycles example.",
+          "debug": false,
+          "path": "/ABS/repo",
+          "limit": 20,
+          "page": 1,
+          "operation": "topology",
+          "analysis": "cycles"
+        }
+      ]
+    }
+  },
+  {
+    "id": "astTopology.curated-3",
+    "tool": "astTopology",
+    "input": {
+      "reasoning": "Use astTopology for the dependencies of one file example.",
+      "operation": "topology",
+      "analysis": "dependencies",
+      "path": "/ABS/repo",
+      "file": "src/index.ts",
+      "depth": 2
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "goal": "Execute astTopology via fixture",
+          "reasoning": "Use astTopology for the dependencies of one file example.",
+          "debug": false,
+          "path": "/ABS/repo",
+          "page": 1,
+          "file": "src/index.ts",
+          "depth": 2,
+          "operation": "topology",
+          "analysis": "dependencies"
+        }
+      ]
+    }
+  },
+  {
+    "id": "astTopology.curated-4",
+    "tool": "astTopology",
+    "input": {
+      "reasoning": "Use astTopology for the dependents of one file example.",
+      "operation": "topology",
+      "analysis": "dependents",
+      "path": "/ABS/repo",
+      "file": "src/index.ts",
+      "depth": 2
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "goal": "Execute astTopology via fixture",
+          "reasoning": "Use astTopology for the dependents of one file example.",
+          "debug": false,
+          "path": "/ABS/repo",
+          "page": 1,
+          "file": "src/index.ts",
+          "depth": 2,
+          "operation": "topology",
+          "analysis": "dependents"
+        }
+      ]
+    }
+  },
+  {
+    "id": "astTopology.curated-5",
+    "tool": "astTopology",
+    "input": {
+      "reasoning": "Use astTopology for the shortest dependency path example.",
+      "operation": "topology",
+      "analysis": "path",
+      "path": "/ABS/repo",
+      "file": "src/index.ts",
+      "target": "src/responses.ts"
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "goal": "Execute astTopology via fixture",
+          "reasoning": "Use astTopology for the shortest dependency path example.",
+          "debug": false,
+          "path": "/ABS/repo",
+          "page": 1,
+          "file": "src/index.ts",
+          "target": "src/responses.ts",
+          "operation": "topology",
+          "analysis": "path"
+        }
+      ]
+    }
+  },
+  {
+    "id": "astTopology.curated-6",
+    "tool": "astTopology",
+    "input": {
+      "reasoning": "Use astTopology for the reachability from detected entrypoints example.",
+      "operation": "topology",
+      "analysis": "reachability",
+      "path": "/ABS/repo",
+      "limit": 20
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "goal": "Execute astTopology via fixture",
+          "reasoning": "Use astTopology for the reachability from detected entrypoints example.",
+          "debug": false,
+          "path": "/ABS/repo",
+          "limit": 20,
+          "page": 1,
+          "includeTests": true,
+          "operation": "topology",
+          "analysis": "reachability"
+        }
+      ]
+    }
+  },
+  {
+    "id": "astTopology.curated-7",
+    "tool": "astTopology",
+    "input": {
+      "reasoning": "Use astTopology for the dependencies variant.",
       "path": ".",
       "operation": "topology",
       "analysis": "dependencies",
@@ -1649,8 +1594,8 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute astSearch via fixture",
-          "reasoning": "Use astSearch for the topology:dependencies variant.",
+          "goal": "Execute astTopology via fixture",
+          "reasoning": "Use astTopology for the dependencies variant.",
           "debug": false,
           "path": ".",
           "page": 1,
@@ -1663,10 +1608,10 @@
     }
   },
   {
-    "id": "astSearch.curated-18",
-    "tool": "astSearch",
+    "id": "astTopology.curated-8",
+    "tool": "astTopology",
     "input": {
-      "reasoning": "Use astSearch for the topology:dependents variant.",
+      "reasoning": "Use astTopology for the dependents variant.",
       "path": ".",
       "operation": "topology",
       "analysis": "dependents",
@@ -1676,8 +1621,8 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute astSearch via fixture",
-          "reasoning": "Use astSearch for the topology:dependents variant.",
+          "goal": "Execute astTopology via fixture",
+          "reasoning": "Use astTopology for the dependents variant.",
           "debug": false,
           "path": ".",
           "page": 1,
@@ -1690,10 +1635,10 @@
     }
   },
   {
-    "id": "astSearch.curated-19",
-    "tool": "astSearch",
+    "id": "astTopology.curated-9",
+    "tool": "astTopology",
     "input": {
-      "reasoning": "Use astSearch for the topology:path variant.",
+      "reasoning": "Use astTopology for the path variant.",
       "path": ".",
       "operation": "topology",
       "analysis": "path",
@@ -1704,8 +1649,8 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute astSearch via fixture",
-          "reasoning": "Use astSearch for the topology:path variant.",
+          "goal": "Execute astTopology via fixture",
+          "reasoning": "Use astTopology for the path variant.",
           "debug": false,
           "path": ".",
           "page": 1,
@@ -1718,10 +1663,10 @@
     }
   },
   {
-    "id": "astSearch.curated-20",
-    "tool": "astSearch",
+    "id": "astTopology.curated-10",
+    "tool": "astTopology",
     "input": {
-      "reasoning": "Use astSearch for the topology:cycles variant.",
+      "reasoning": "Use astTopology for the cycles variant.",
       "path": ".",
       "operation": "topology",
       "analysis": "cycles"
@@ -1730,8 +1675,8 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute astSearch via fixture",
-          "reasoning": "Use astSearch for the topology:cycles variant.",
+          "goal": "Execute astTopology via fixture",
+          "reasoning": "Use astTopology for the cycles variant.",
           "debug": false,
           "path": ".",
           "page": 1,
@@ -1742,10 +1687,10 @@
     }
   },
   {
-    "id": "astSearch.curated-21",
-    "tool": "astSearch",
+    "id": "astTopology.curated-11",
+    "tool": "astTopology",
     "input": {
-      "reasoning": "Use astSearch for the topology:reachability variant.",
+      "reasoning": "Use astTopology for the reachability variant.",
       "path": ".",
       "operation": "topology",
       "analysis": "reachability"
@@ -1754,8 +1699,8 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute astSearch via fixture",
-          "reasoning": "Use astSearch for the topology:reachability variant.",
+          "goal": "Execute astTopology via fixture",
+          "reasoning": "Use astTopology for the reachability variant.",
           "debug": false,
           "path": ".",
           "page": 1,
@@ -1767,10 +1712,10 @@
     }
   },
   {
-    "id": "astSearch.curated-22",
-    "tool": "astSearch",
+    "id": "astTopology.curated-12",
+    "tool": "astTopology",
     "input": {
-      "reasoning": "Use astSearch for the topology:deadCode variant.",
+      "reasoning": "Use astTopology for the deadCode variant.",
       "path": ".",
       "operation": "topology",
       "analysis": "deadCode"
@@ -1779,8 +1724,8 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute astSearch via fixture",
-          "reasoning": "Use astSearch for the topology:deadCode variant.",
+          "goal": "Execute astTopology via fixture",
+          "reasoning": "Use astTopology for the deadCode variant.",
           "debug": false,
           "path": ".",
           "page": 1,
@@ -1792,10 +1737,10 @@
     }
   },
   {
-    "id": "astSearch.curated-23",
-    "tool": "astSearch",
+    "id": "astTopology.curated-13",
+    "tool": "astTopology",
     "input": {
-      "reasoning": "Use astSearch for the topology:drift variant.",
+      "reasoning": "Use astTopology for the drift variant.",
       "path": ".",
       "operation": "topology",
       "analysis": "drift",
@@ -1805,8 +1750,8 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute astSearch via fixture",
-          "reasoning": "Use astSearch for the topology:drift variant.",
+          "goal": "Execute astTopology via fixture",
+          "reasoning": "Use astTopology for the drift variant.",
           "debug": false,
           "path": ".",
           "page": 1,
@@ -1838,7 +1783,6 @@
           "path": "/ABS/repo/src",
           "langType": "typescript",
           "apply": false,
-          "allowSyntaxRegression": false,
           "maxFiles": 2000,
           "maxMatches": 10000,
           "page": 1,
@@ -1879,7 +1823,6 @@
           "expectedHashes": {
             "/ABS/repo/src/example.ts": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
           },
-          "allowSyntaxRegression": false,
           "maxFiles": 2000,
           "maxMatches": 10000,
           "page": 1,
@@ -1913,7 +1856,6 @@
           "path": ".",
           "langType": "typescript",
           "apply": false,
-          "allowSyntaxRegression": false,
           "maxFiles": 2000,
           "maxMatches": 10000,
           "page": 1,
@@ -1954,7 +1896,6 @@
           "expectedHashes": {
             "/repo/src/a.ts": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
           },
-          "allowSyntaxRegression": false,
           "maxFiles": 2000,
           "maxMatches": 10000,
           "page": 1,
@@ -2082,8 +2023,7 @@
           "lineHint": 80,
           "orderHint": 0,
           "includeDeclaration": true,
-          "page": 1,
-          "format": "structured"
+          "page": 1
         }
       ]
     }
@@ -2112,8 +2052,7 @@
           "lineHint": 10,
           "orderHint": 0,
           "includeDeclaration": false,
-          "page": 1,
-          "format": "structured"
+          "page": 1
         }
       ]
     }
@@ -2137,8 +2076,7 @@
           "operation": "documentSymbols",
           "orderHint": 0,
           "includeDeclaration": true,
-          "page": 1,
-          "format": "structured"
+          "page": 1
         }
       ]
     }
@@ -2162,8 +2100,7 @@
           "operation": "diagnostic",
           "orderHint": 0,
           "includeDeclaration": true,
-          "page": 1,
-          "format": "structured"
+          "page": 1
         }
       ]
     }
@@ -2191,8 +2128,7 @@
           "lineHint": 1,
           "orderHint": 0,
           "includeDeclaration": true,
-          "page": 1,
-          "format": "structured"
+          "page": 1
         }
       ]
     }
@@ -2224,8 +2160,7 @@
           },
           "orderHint": 0,
           "includeDeclaration": true,
-          "page": 1,
-          "format": "structured"
+          "page": 1
         }
       ]
     }
@@ -2249,8 +2184,7 @@
           "operation": "documentSymbols",
           "orderHint": 0,
           "includeDeclaration": true,
-          "page": 1,
-          "format": "structured"
+          "page": 1
         }
       ]
     }
@@ -2276,8 +2210,7 @@
           "symbolName": "Schema",
           "orderHint": 0,
           "includeDeclaration": true,
-          "page": 1,
-          "format": "structured"
+          "page": 1
         }
       ]
     }
@@ -2303,7 +2236,6 @@
           "orderHint": 0,
           "includeDeclaration": true,
           "page": 1,
-          "format": "structured",
           "workspaceRoot": "."
         }
       ]
@@ -2954,38 +2886,6 @@
       "ruleKind": "rule",
       "rule": {},
       "fix": "x"
-    },
-    "accepted": false
-  },
-  {
-    "id": "ast-rewrite.experimental-without-rewrite",
-    "tool": "astRewrite",
-    "input": {
-      "reasoning": "Exercise the ast-rewrite.experimental-without-rewrite native parity fixture.",
-      "path": "/r",
-      "langType": "ts",
-      "ruleKind": "experimental",
-      "rule": {
-        "pattern": "$A"
-      },
-      "transform": {
-        "X": {
-          "substring": {
-            "source": "$A",
-            "startChar": 0
-          }
-        }
-      },
-      "fix": "$X",
-      "rewriters": [
-        {
-          "id": "r",
-          "rule": {
-            "pattern": "$A"
-          },
-          "fix": "$A"
-        }
-      ]
     },
     "accepted": false
   },

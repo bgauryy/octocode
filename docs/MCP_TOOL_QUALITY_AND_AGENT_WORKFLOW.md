@@ -22,7 +22,7 @@ node packages/octocode/out/octocode.js scheme localFetch --view query --compact
 node packages/octocode/out/octocode.js scheme ghGetHistoryItem --view query
 ```
 
-The discovery catalog contains 12 tools, with 10 enabled by default when no Jev provider key is resolved and clone is not enabled. Enabled tools depend on local-tool,
+The discovery catalog contains 13 tools, with 9 enabled by default when no Jev provider key is resolved, clone is not enabled, and beta tools are disabled. Enabled tools depend on local-tool,
 clone, storage, allowlist, and credential-gated `clasify` settings. MCP omits that tool when `OCTOCODE_CLASSIFICATION_API` is absent or blank. Record the effective configuration and
 unavailable capabilities with each acceptance run. Enabling a tool does not
 install its external language server or grant provider access.
@@ -128,7 +128,8 @@ for measured comparisons; record commands and artifacts with the result.
 |---|---|---|
 | `localSearch` | Exercise lexical text and regex queries independently. | Verify match continuations, exclusions, and zero-result diagnostics. |
 | `localFetch` | Exercise path-only, full, range, match, and each supported view. | Preserve matched anchors; reconstruct transformed windows; verify effective fallback mode, redaction, and source lines. |
-| `astSearch` | Exercise `match`, `files`, filesystem/syntax `tree`, `symbols`, and all six `topology` analyses. | Validate pattern/rule exclusivity and language selection; traverse captures, nodes, results, and diagnostics; expose parser/scan limits and unresolved edges; corroborate deletion candidates. |
+| `astSearch` | Exercise `match`, `files`, syntax `tree`, and `symbols`. | Validate pattern/rule exclusivity and language selection; traverse captures, nodes, and results; expose parser and scan limits. |
+| `astTopology` | Exercise all seven graph analyses. | Traverse results and diagnostics; expose unresolved edges and coverage limits; corroborate deletion candidates. |
 | `lspSearch` | Exercise document, workspace, anchored, and hierarchy operations. | Distinguish unavailable server, unsupported capability, failed anchor, and valid empty result; verify server provenance and paginated snapshots. |
 | `ghSearch` | Exercise code, repository, and tree variants; reject branch selection for indexed code search. | Preserve candidate matches, selected operation, immutable tree identity, metadata pages, indexing uncertainty, and provider-limit diagnostics. |
 | `ghGetFileContent` | Exercise exact, compact, full, and paginated file views. | Compare local/remote matching and windows; verify pinned refs, repeated-outline prevention, security redaction, and rejection of directory inputs. |

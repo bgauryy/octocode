@@ -1,20 +1,21 @@
 # Local code research workflow
 
-This workflow covers the local-code research layer of the Octocode agentic toolkit. The public local tools are `localSearch`, `astSearch`, `localFetch`, and `lspSearch`. CLI and MCP share core-owned schemas and routing instructions, with execution in the native Rust runtime. Inspect a tool’s current schema before constructing an unfamiliar call:
+This workflow covers the local-code research layer of the Octocode agentic toolkit. The public local research tools are `localSearch`, `astSearch`, `astTopology`, `localFetch`, and `lspSearch`. CLI and MCP share core-owned schemas and routing instructions, with execution in the native Rust runtime. Inspect a tool’s current schema before constructing an unfamiliar call:
 
 ```sh
 node packages/octocode/out/octocode.js scheme localSearch --view query --compact
 node packages/octocode/out/octocode.js scheme astSearch --view query --compact
+node packages/octocode/out/octocode.js scheme astTopology --view query --compact
 node packages/octocode/out/octocode.js scheme localFetch --view query --compact
 node packages/octocode/out/octocode.js scheme lspSearch --view query --compact
 ```
 
 | Question | Tool and operation | Evidence returned |
 |---|---|---|
-| Where are files, and how is the repository arranged? | `astSearch`: `files`, or `tree` with `treeKind:"filesystem"` | Paths, metadata, bounded directory entries |
+| Where are files? | `astSearch`: `files` | Paths and bounded filesystem metadata |
 | Where does this text or regex occur? | `localSearch` | Lexical file/line anchors; literal, Rust regex, or PCRE2 |
 | What syntax or declarations are present? | `astSearch`: `match`, `symbols`, or `tree` with `treeKind:"syntax"` | Syntax matches, declaration ranges, node kinds and parents |
-| How do files depend on each other? | `astSearch`: `topology`, selecting `analysis` | Dependencies, dependents, shortest paths, cycles/SCCs, reachability, dead-code candidates |
+| How do files depend on each other? | `astTopology`: `operation:"topology"`, selecting `analysis` | Dependencies, dependents, shortest paths, cycles/SCCs, reachability, dead-code candidates |
 | What does the source contain? | `localFetch` | Exact content by default; path-only reads are valid, and selectors/views are optional |
 | Which symbol is this, and where is it used? | `lspSearch` | Semantic provider results when available, or explicitly labeled syntactic/native fallback evidence |
 

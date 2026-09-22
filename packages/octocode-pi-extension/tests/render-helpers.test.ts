@@ -105,7 +105,7 @@ test('buildToolCallSummary formats each Octocode direct-tool family', () => {
     ['localFetch', { queries: [{ path: '/tmp/src/file.ts', matchString: 'export function longName' }] }, /file\.ts \/export function long/],
     ['astSearch', { queries: [{ operation: 'tree', path: '/tmp/workspace', maxDepth: 4 }] }, /workspace depth:4/],
     ['astSearch', { queries: [{ operation: 'files', path: '/tmp/workspace', names: ['a.ts', 'b.ts'], pathPattern: 'src/**' }] }, /workspace \[a\.ts, b\.ts\] src\/\*\*/],
-    ['astSearch', { queries: [{ operation: 'topology', analysis: 'deadCode', path: '/tmp/workspace', entrypoints: ['src/index.ts'] }] }, /workspace entries:\[src\/index\.ts\]/],
+    ['astTopology', { queries: [{ operation: 'topology', analysis: 'deadCode', path: '/tmp/workspace', entrypoints: ['src/index.ts'] }] }, /workspace entries:\[src\/index\.ts\]/],
     ['lspSearch', { queries: [{ operation: 'references', symbolName: 'run', uri: 'file:///tmp/src/main.ts?x=1', lineHint: 42 }] }, /references "run" in main\.ts:42/],
     ['artifactSearch', { queries: [{ type: 'npm', packageName: 'vitest' }] }, /npm: vitest/],
     ['artifactSearch', { queries: [{ type: 'crates', keywords: ['async', 'runtime'] }] }, /crates: async runtime/],

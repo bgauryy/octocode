@@ -1,15 +1,21 @@
 # Octocode Research
 
-Investigate local code, external repositories, packages, history, failures, reviews, and implementation plans with exact evidence.
+Investigate local code, external repositories, packages, history, failures, and reviews with exact evidence before asserting a claim or making a change.
 
 ## Use when
 
 - You need callers, imports, paths, affected-area analysis, or safe-delete proof.
-- You must locate behavior or analyze the root cause of a failure.
+- You must locate a behavior or analyze the root cause of a failure.
 - An upstream repository, package registry, commit, or pull request can answer the question.
 - A planned change needs evidence before editing and verification afterward.
+- You’re asked to “research this” or “use octocode.”
 
-Skip this skill when a trivial edit's impact is already known. Documentation writing belongs to `octocode-documentation`; skill folders belong to `octocode-skills`; open-ended idea exploration belongs to `octocode-brainstorming`.
+## Not for
+
+- A trivial edit whose impact is already known → make the edit directly
+- Writing or reviewing documentation → `octocode-documentation`
+- Skill folder structure → `octocode-skills`
+- Open-ended idea exploration → `octocode-brainstorming`
 
 ## Workflow
 
@@ -17,11 +23,7 @@ Skip this skill when a trivial edit's impact is already known. Documentation wri
 FRAME → CLASSIFY → MODEL → SEARCH → READ EXACT → PROVE → DECIDE/PATCH → VERIFY
 ```
 
-Search results are leads. Findings use exact repository paths, package versions, commits, pull requests, or URLs with explicit confidence. Empty results describe only the searched lane.
-
-## Tools
-
-Prefer current Octocode MCP tools. The monorepo uses its built CLI; installed skills use `npx -y octocode`. Choose text for lexical anchors, AST for syntax, LSP for identity, and graph for file topology. A known exact target skips discovery. See `references/tool-examples.md` for all 12 tools and `references/references.md` for primary sources.
+Search results are leads until exact bytes confirm. Findings cite repository paths, package versions, commits, or URLs with explicit confidence. Empty results describe only the searched lane.
 
 ## Install
 

@@ -41,6 +41,7 @@ pub(crate) fn is_context_tool(tool: &str) -> bool {
                 | ToolId::LocalSearch
                 | ToolId::LocalFetch
                 | ToolId::AstSearch
+                | ToolId::AstTopology
                 | ToolId::LspSearch
         )
     )
@@ -48,7 +49,9 @@ pub(crate) fn is_context_tool(tool: &str) -> bool {
 
 pub(crate) fn preflight(query: &Value) -> Result<(), ClassificationError> {
     if query.to_string().len() > MAX_REQUEST_BYTES {
-        return Err(request_error("Classification request exceeded the 4 MiB limit."));
+        return Err(request_error(
+            "Classification request exceeded the 4 MiB limit.",
+        ));
     }
     let query = query
         .as_object()
@@ -184,7 +187,9 @@ fn prepare(
     validate_question(question)?;
     let request = provider.build_request(state, question, model);
     if request.to_string().len() > MAX_REQUEST_BYTES {
-        return Err(request_error("Classification request exceeded the 4 MiB limit."));
+        return Err(request_error(
+            "Classification request exceeded the 4 MiB limit.",
+        ));
     }
     Ok(request)
 }

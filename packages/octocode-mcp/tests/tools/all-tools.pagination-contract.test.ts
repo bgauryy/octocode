@@ -37,6 +37,9 @@ const TOOL_PAGINATION_CONTRACT: Record<
   },
   localSearch: { controls: ['page', 'pageSize'] },
   astSearch: { controls: ['page', 'pageSize'] },
+  astTopology: {
+    controls: ['page', 'pageSize', 'diagnosticPage', 'diagnosticPageSize'],
+  },
   astRewrite: { controls: ['page', 'pageSize'] },
   localFetch: { controls: ['chunkType', 'offset', 'chunkSize'] },
   lspSearch: { controls: ['page', 'pageSize'] },
@@ -46,7 +49,7 @@ const TOOL_PAGINATION_CONTRACT: Record<
   },
 };
 
-const TOTAL_CAP_TOOLS = new Set(['astSearch']);
+const TOTAL_CAP_TOOLS = new Set(['astSearch', 'astTopology']);
 
 describe('all-tools pagination contract', () => {
   it('covers every tool in the live catalog', () => {

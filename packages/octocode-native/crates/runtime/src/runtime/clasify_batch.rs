@@ -275,9 +275,7 @@ async fn assess_page(
         .enumerate()
         .map(|(index, question)| (index, &question["question"]))
         .collect::<Vec<_>>();
-    if indexed.len() > 1
-        && clasify::batch::fits(state, &indexed, config.model, config.provider)
-    {
+    if indexed.len() > 1 && clasify::batch::fits(state, &indexed, config.model, config.provider) {
         let permit = match provider_permit(concurrency.clone()).await {
             Ok(permit) => permit,
             Err(error) => return (vec![Err(error); questions.len()], None),

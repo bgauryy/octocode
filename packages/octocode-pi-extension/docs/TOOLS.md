@@ -107,7 +107,7 @@ The `awareness` tool exposes canonical operations across Context, Work, Message,
 | Browse local directory tree                             | `astSearch` with `operation:"tree"`                           |
 | Find files by name/size/time                            | `astSearch` with `operation:"files"`; use `names`, `pathPattern`, or `pathRegex` |
 | Read a local file or range                              | `localFetch`; choose one of `fullContent`, `matchString`, or `startLine` plus `endLine` |
-| Find dead-code candidates                               | `astSearch` with `operation:"topology", analysis:"deadCode"` |
+| Find dead-code candidates                               | `astTopology` with `operation:"topology", analysis:"deadCode"` |
 | Symbol identity, refs, callers, types                   | `lspSearch`                                                    |
 | Resolve package identity or capability                           | `artifactSearch`                                                    |
 | See a local image / screenshot                          | `inspectMedia` with `type:"image"`                                |

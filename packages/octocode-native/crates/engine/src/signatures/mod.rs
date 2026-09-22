@@ -239,8 +239,26 @@ pub fn extract_signatures_inner(content: &str, file_path: &str) -> Option<String
     if skeleton.len() >= content.len() {
         return None;
     }
+
+    // A usable outline is scannable: one short signature per line. Minified or
+    // bundled sources pack whole declarations onto a few enormous physical
+    // lines, so per-line extraction keeps those lines verbatim and returns a
+    // "skeleton" the agent cannot read. Detect that here and suppress it so the
+    // caller falls back to the standard view (which can be range-read) instead
+    // of promising an outline that is really raw minified bytes.
+    if skeleton
+        .lines()
+        .any(|line| line.chars().count() > OUTLINE_MAX_LINE_CHARS)
+    {
+        return None;
+    }
     Some(skeleton)
 }
+
+/// Longest rendered outline line (gutter included) still treated as a scannable
+/// signature. Hand-written declaration lines effectively never reach this;
+/// anything longer signals minified/bundled source with no navigational value.
+const OUTLINE_MAX_LINE_CHARS: usize = 1000;
 
 fn extract_by_ext(content: &str, ext: &str) -> Option<String> {
     // Tree-sitter is the only signature path — real AST parsing, no regex

@@ -199,7 +199,8 @@ contract is identical to the MCP server tool of the same name.
 |---|---|
 | `localSearch` | Text/regex search across local files. |
 | `localFetch` | Read a local file: pagination, ranges, match filtering, minification. |
-| `astSearch` | Structural search (ast-grep), declarations, syntax trees, import graph. |
+| `astSearch` | Structural search (ast-grep), file discovery, declarations, and syntax trees. |
+| `astTopology` | Dependency graph analysis for paths, cycles, reachability, dead code, and drift. |
 | `astRewrite` | Structural find-and-replace; previews before writing. |
 | `lspSearch` | Definitions, references, hover, call/type hierarchy, diagnostics. |
 | `ghSearch` | GitHub repository and code search. |

@@ -9,7 +9,7 @@ use crate::{
 
 pub use types::{AstGraphError, AstGraphQuery, AstGraphResult, GraphAnalysis};
 
-/// Execute the public `astSearch` topology variant through the portable native
+/// Execute public `astTopology` through the portable native
 /// fact scanner and Rust-owned graph algorithms.
 pub fn execute_topology(
     query: &AstGraphQuery,

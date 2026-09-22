@@ -6,9 +6,15 @@ Deliver a memorable, evidence-backed code critique with ranked impact and practi
 
 - You request a roast, brutal review, debt ranking, or hot-path autopsy.
 - Security, correctness, performance, design, testing, or maintainability problems need sharper framing.
-- A blunt but constructive review can be more useful than a conventional polite review.
+- A blunt but constructive review would be more useful than a polite one.
 
-## Rules
+## Not for
+
+- A standard architectural review → `octocode-architect`
+- Behavior-preserving cleanup → `octocode-clean-agentic-code`
+- Writing or fixing documentation → `octocode-documentation`
+
+## Commitments
 
 - Target code patterns, never people.
 - Cite or drop every major finding.

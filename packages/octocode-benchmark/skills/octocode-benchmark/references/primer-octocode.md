@@ -16,7 +16,8 @@ and is **not** counted; use it instead of paying for schema discovery.
 | `ghCloneRepo` | Materialize a repo/sparse subtree **only** for repeated reads, structural (AST) matching, or LSP semantics. |
 | `artifactSearch` | Resolve dependencies/source or discover packages by capability. Require ecosystem `type` and exact `packageName` or `keywords`; PyPI is exact-only. Skip when source is known or installed behavior needs local evidence. |
 | `localSearch` | Lexical text and regex occurrences with file+line anchors. Choose a result view and follow returned continuations. |
-| `astSearch` | Filesystem, syntax tree, symbols, structural matches, and bounded topology. Use `operation:"topology"` with `analysis` for dependencies, dependents, paths, reachability, cycles, or dead-code candidates. |
+| `astSearch` | File discovery, syntax trees, symbols, and structural matches. |
+| `astTopology` | Bounded dependency graphs. Use `operation:"topology"` with `analysis` for dependencies, dependents, paths, reachability, cycles, drift, or dead-code candidates. |
 | `localFetch` | Read exact local file bytes or an anchored region. Use `minify:"symbols"` only for an outline; preserve `minify:"none"` for exact content. |
 | `lspSearch` | Definitions, references, callers/callees, symbols, types, and diagnostics — **after** search/read gives a real file+line. `documentSymbols`/`diagnostic` need `uri`; `workspaceSymbol` needs `symbolName` plus `uri` or `workspaceRoot`; anchored operations need `uri`+`symbolName`+`lineHint`. |
 
@@ -160,7 +161,7 @@ npx octocode lspSearch '{"reasoning":"Find uses of the alias.","operation":"refe
 
 ### 7 — Topology edges now include `importLine` and `inboundCount`
 
-`astSearch operation:topology analysis:dependents` and `analysis:dependencies` now
+`astTopology operation:topology analysis:dependents` and `analysis:dependencies` now
 return two additional fields per result item:
 
 - **`importLine`**: the exact line number in the importer file where the `import` statement appears
@@ -169,7 +170,7 @@ return two additional fields per result item:
 Use `inboundCount` to answer “which files are most imported within this subtree”:
 ```bash
 # Run dependents from the subtree root, then sort by inboundCount in the results
-npx octocode astSearch '{"reasoning":"Rank inbound dependencies in this subtree.","operation":"topology","analysis":"dependents","file":"/repo/subtree/index.ts","path":"/repo/subtree","depth":5}'
+npx octocode astTopology '{"reasoning":"Rank inbound dependencies in this subtree.","operation":"topology","analysis":"dependents","file":"/repo/subtree/index.ts","path":"/repo/subtree","depth":5}'
 # Look at inboundCount on each result — highest = most imported within the scan scope
 ```
 

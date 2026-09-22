@@ -182,7 +182,9 @@ pub(crate) async fn post(
             if delay >= budget.deadline.saturating_duration_since(Instant::now()) {
                 return Err(ClassificationError::new(
                     "timeout",
-                    format!("HTTP {status}: retry delay exceeds the remaining classification deadline."),
+                    format!(
+                        "HTTP {status}: retry delay exceeds the remaining classification deadline."
+                    ),
                     "Retry later.",
                 ));
             }

@@ -40,6 +40,7 @@ pub(crate) fn is_context_tool(tool: &str) -> bool {
                 | ToolId::LocalSearch
                 | ToolId::LocalFetch
                 | ToolId::AstSearch
+                | ToolId::AstTopology
                 | ToolId::LspSearch
         )
     )

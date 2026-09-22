@@ -2,6 +2,7 @@
 use super::{ExecutionContext, ExecutionError, FailureKind};
 use crate::policy::path::PathPolicy;
 use crate::security::ContentSecurity;
+use crate::tools::ast_graph::{AstGraphQuery, execute_topology};
 use crate::tools::ast_rewrite::{AstRewriteRuntimeOptions, execute_ast_rewrite_with_options};
 use crate::tools::ast_search::execute_ast;
 use crate::tools::local_fetch::{
@@ -119,6 +120,17 @@ pub(super) fn execute_local(
                 error.next,
             )),
         },
+        "astTopology" => {
+            let request: AstGraphQuery =
+                serde_json::from_value(query).map_err(|_| ExecutionError::WorkerFailed)?;
+            match execute_topology(&request, paths, security, context) {
+                Ok(data) => Ok(value_result(data)),
+                Err(error) => Ok(domain_error(
+                    json!({"error":error.message,"errorCode":error.code}),
+                    None,
+                )),
+            }
+        }
         "astRewrite" => {
             let data = execute_ast_rewrite_with_options(
                 query,

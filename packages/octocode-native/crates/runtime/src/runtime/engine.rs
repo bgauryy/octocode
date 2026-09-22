@@ -275,7 +275,7 @@ impl ToolRuntime {
         let github = matches!(id, Some(t) if t.is_github() && t != ToolId::GhCloneRepo);
         let local_tools = local
             && matches!(id, Some(t) if t.is_local())
-            && (id != Some(ToolId::AstRewrite) || self.config.resolved.local.beta);
+            && (id.is_none_or(|tool| !tool.is_beta()) || self.config.resolved.local.beta);
         let classification = matches!(id, Some(t) if t.is_clasify())
             && self
                 .classification_key()
@@ -395,10 +395,15 @@ impl ToolRuntime {
         mcp: bool,
     ) -> Result<ToolOutcome, RuntimeError> {
         if !self.is_available(&tool) {
-            if !mcp && tool == "astRewrite" && !self.config.resolved.local.beta {
+            if !mcp
+                && ToolId::from_name(&tool).is_some_and(ToolId::is_beta)
+                && !self.config.resolved.local.beta
+            {
                 return Err(RuntimeError::new(
                     "missingConfiguration",
-                    "astRewrite is a beta feature, disabled by default. Set OCTOCODE_BETA=true or local.beta:true before retrying.",
+                    format!(
+                        "{tool} is a beta feature, disabled by default. Set OCTOCODE_BETA=true or local.beta:true before retrying."
+                    ),
                 ));
             }
             if !mcp
@@ -408,20 +413,17 @@ impl ToolRuntime {
                     .map(str::trim)
                     .is_none_or(str::is_empty)
             {
-                return Err(RuntimeError::new(
-                    "missingConfiguration",
-                    {
-                        let vendor = self.config.resolved.classification.r#type.as_str();
-                        let p = crate::providers::classification::provider_for(vendor);
-                        format!(
-                            "clasify requires OCTOCODE_CLASSIFICATION_API (or the {vendor} \
+                return Err(RuntimeError::new("missingConfiguration", {
+                    let vendor = self.config.resolved.classification.r#type.as_str();
+                    let p = crate::providers::classification::provider_for(vendor);
+                    format!(
+                        "clasify requires OCTOCODE_CLASSIFICATION_API (or the {vendor} \
                              vendor's {}). Create a classification provider API key ({}) \
                              and set OCTOCODE_CLASSIFICATION_API before retrying.",
-                            p.key_env(),
-                            p.docs_url(),
-                        )
-                    },
-                ));
+                        p.key_env(),
+                        p.docs_url(),
+                    )
+                }));
             }
             return Err(RuntimeError::new(
                 "toolUnavailable",
@@ -586,9 +588,9 @@ impl ToolRuntime {
                         return Err(ExecutionError::WorkerFailed);
                     };
                     let evaluation_context = ExecutionContext {
-                        deadline: context.deadline.min(
-                            Instant::now() + classification_timeout,
-                        ),
+                        deadline: context
+                            .deadline
+                            .min(Instant::now() + classification_timeout),
                         ..context.clone()
                     };
                     let evaluated = super::clasify_batch::execute(

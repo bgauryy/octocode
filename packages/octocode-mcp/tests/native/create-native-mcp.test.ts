@@ -207,7 +207,11 @@ describe('createNativeMcp registration + execution', () => {
       env: {},
       binding: bindingFor(() => ({
         fingerprint: getNativeContractFingerprint(),
-        tools: [tool('localFetch', true), tool('ghSearch', false)],
+        tools: [
+          tool('localFetch', true),
+          tool('ghSearch', false),
+          tool('astTopology', false),
+        ],
       })),
     });
 
@@ -219,7 +223,7 @@ describe('createNativeMcp registration + execution', () => {
       client.connect(clientTransport),
     ]);
 
-    // Only the available tool is advertised (ghSearch.available === false).
+    // Unavailable tools, including beta-gated astTopology, are not loaded.
     const list = await client.listTools();
     expect(list.tools.map(t => t.name)).toEqual(['localFetch']);
     expect(list.tools.every(t => !Object.hasOwn(t, 'outputSchema'))).toBe(true);

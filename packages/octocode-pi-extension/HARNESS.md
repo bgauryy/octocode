@@ -33,7 +33,7 @@ MCPTool({queries:[{action:"call", tool:"ghSearch",
   arguments:{queries:[{operation:"code", keywords:["..."]}]}}]})
 ```
 
-Catalogued tools via `MCPTool` (omitted `server` defaults to `octocode`): `ghSearch` · `ghGetFileContent` · `ghSearchHistory` · `ghGetHistoryItem` · `ghCloneRepo` · `artifactSearch` · `localSearch` · `astSearch` · `localFetch` · `lspSearch`. Runtime availability can disable individual tools such as cloning.
+Catalogued tools via `MCPTool` (omitted `server` defaults to `octocode`): `ghSearch` · `ghGetFileContent` · `ghSearchHistory` · `ghGetHistoryItem` · `ghCloneRepo` · `artifactSearch` · `localSearch` · `astSearch` · `astTopology` · `localFetch` · `lspSearch`. Runtime availability can disable individual tools such as cloning.
 
 `warmMcpCatalog()` runs at `session_start`. The prompt receives one deterministic `<mcp_catalog_index>` with enabled server instructions plus tool names and descriptions; input schemas are not injected. The initial index is bounded and exposes an executable `MCPTool action:"list"` continuation when needed. `action:"describe"` returns the exact JSON schema and, when the host admits dynamic names, activates a namespaced Pi proxy whose provider-visible parameters are that schema. Call the returned proxy directly; a fixed host allowlist is reported and uses the generic gateway fallback. Generic gateway calls are blocked until describe and are bound to the described schema digest. Calls also validate against the current enabled `catalog.json` snapshot. The gateway's own `queries[]` schema uses strict action-discriminated branches, so unrelated fields are rejected before execution.
 

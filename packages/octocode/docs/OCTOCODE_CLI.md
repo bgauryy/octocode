@@ -24,7 +24,8 @@ plus `--compact` for single-line JSON (default output is indented JSON).
 |---|---|
 | `localSearch` | Text/regex search across local files. |
 | `localFetch` | Read a local file: pagination, line ranges, match filtering, minification. |
-| `astSearch` | Structural (ast-grep) search, declarations, syntax/filesystem trees, import graph. |
+| `astSearch` | Structural (ast-grep) search, file discovery, declarations, and syntax trees. |
+| `astTopology` | Dependency graph analysis for paths, cycles, reachability, dead code, and drift. |
 | `astRewrite` | Structural find-and-replace; previews before writing. |
 | `lspSearch` | Definitions, references, hover, call/type hierarchy, diagnostics. |
 | `ghSearch` | GitHub repository, code, and tree search. |
@@ -81,11 +82,15 @@ resolve from the command cwd, which may differ from the repository root.
 | Category | Default enabled tools |
 |---|---|
 | GitHub | `ghSearch` · `ghGetFileContent` · `ghSearchHistory` · `ghGetHistoryItem` |
-| Local Code | `localSearch` · `astSearch` · `astRewrite` · `localFetch` · `lspSearch` |
+| Local Code | `localSearch` · `astSearch` · `localFetch` · `lspSearch` |
 | Package | `artifactSearch` |
 
-`ghCloneRepo` is opt-in with `ENABLE_CLONE=true`. `clasify` is available
-when `OCTOCODE_CLASSIFICATION_API` is nonblank. Both remain discoverable in the CLI catalog.
+`ghCloneRepo` is opt-in with `ENABLE_CLONE=true`. `astRewrite` and
+`astTopology` are beta tools and require `OCTOCODE_BETA=true` or
+`local.beta:true`. `clasify` is available when
+`OCTOCODE_CLASSIFICATION_API` is nonblank. All four remain discoverable in the
+CLI catalog with availability metadata, but unavailable tools are omitted from
+MCP registration.
 
 ### Research loop
 

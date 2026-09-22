@@ -47,13 +47,12 @@ grep-matcher = "0.1.9"
 grep-pcre2 = { version = "0.1.10", optional = true }
 grep-regex = "0.1.14"
 grep-searcher = "0.1.17"
+hex = { workspace = true }
 ignore = "0.4"
 napi = { workspace = true, optional = true }
 napi-derive = { workspace = true, optional = true }
 oxc_allocator = "=0.150.0"
 oxc_ast = "=0.150.0"
-oxc_codegen = { version = "=0.150.0", default-features = false }
-oxc_minifier = "=0.150.0"
 oxc_parser = "=0.150.0"
 oxc_semantic = "=0.150.0"
 oxc_span = "=0.150.0"
@@ -63,6 +62,7 @@ regex-syntax = "0.8"
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml_ng = { workspace = true }
+sha2 = { workspace = true }
 tokio = { workspace = true, features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "sync", "time"] }
 tree-sitter = "0.27"
 tree-sitter-asm = { version = "0.24", optional = true }

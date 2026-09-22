@@ -22,9 +22,11 @@ missing or invalid, startup fails closed.
 
 ## Tool registration
 
-The native catalog contains twelve tools. MCP registers only the available
-subset: `astRewrite` is a beta feature requiring `OCTOCODE_BETA=true`
-(or `local.beta:true`) — the sole gate for both preview and apply — and
+The native catalog contains thirteen tools. MCP registers only the available
+subset: `astRewrite` and `astTopology` are beta features requiring
+`OCTOCODE_BETA=true` (or `local.beta:true`). For `astRewrite`, that is the
+sole gate for both preview and apply. The runtime filters both beta tools from
+discovery while the gate is off, and
 `clasify` requires a nonblank `OCTOCODE_CLASSIFICATION_API`.
 
 `createNativeMcp()` constructs one `NativeRuntime` and calls `catalog()`. The
@@ -33,8 +35,8 @@ out of MCP discovery rather than advertising unusable contracts. For every
 available tool, it:
 
 1. looks up the matching core-owned Standard Schema definition;
-2. registers its title, description, input schema, and annotations; MCP discovery
-   intentionally omits output schemas while tool results remain structured;
+2. registers its title, description, and input schema; MCP discovery intentionally
+   omits annotations and output schemas while tool results remain structured;
 3. forwards the unchanged MCP arguments to `NativeRuntime.executeMcp()`;
 4. forwards MCP cancellation to `NativeRuntime.cancel()`.
 

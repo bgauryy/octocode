@@ -35,7 +35,7 @@ regress = "0.12"
 url = { workspace = true }
 clap = { version = "4", features = ["derive"] }
 base64 = "0.23"
-sha2 = "0.11"
+sha2 = { workspace = true }
 hmac = "0.13"
 getrandom = "0.3"
 flate2 = "1"
@@ -48,10 +48,10 @@ bytes = "1"
 futures-util = "0.3"
 secrecy = "0.10"
 keyring-core = "1"
-hex = "0.4"
+hex = { workspace = true }
 octocode-engine = { path = "../engine", default-features = false, features = ["portable-default", "embedded-ast-grep-rewrite"] }
 tokio = { workspace = true, features = ["fs", "rt-multi-thread", "macros", "sync", "time", "signal"] }
-tokio-util = { version = "0.7", features = ["rt"] }
+tokio-util = { version = "0.7", default-features = false }
 napi = { workspace = true, optional = true }
 napi-derive = { workspace = true, optional = true }
 

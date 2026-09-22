@@ -33,10 +33,7 @@ pub(crate) fn fits(
             .to_string()
             .len()
             <= MAX_STATE_AND_QUESTION_BYTES
-    }) && request(state, questions, model, provider)
-        .to_string()
-        .len()
-        <= MAX_GROUP_BYTES
+    }) && request(state, questions, model, provider).to_string().len() <= MAX_GROUP_BYTES
 }
 
 pub(crate) struct GroupResponse {

@@ -1,8 +1,8 @@
 use crate::minify::config::{FileTypeConfig, indentation_sensitive_names, minify_config};
 use crate::minify::strategies::{
     minify_aggressive, minify_conservative, minify_css_quality, minify_general_core,
-    minify_html_core, minify_html_quality, minify_javascript_core, minify_js_oxc,
-    minify_json_core_inner, minify_markdown_core,
+    minify_html_core, minify_html_quality, minify_javascript_core, minify_json_core_inner,
+    minify_markdown_core,
 };
 use crate::text::file_extension::get_extension_internal;
 use crate::types::MinifyResult;
@@ -91,8 +91,7 @@ fn dispatch_inner(content: &str, file_path: &str) -> DispatchResult {
     match cfg.strategy {
         "oxc" | "conservative" => {
             let out = if crate::text::file_extension::is_js_ts_extension(&ext) {
-                minify_js_oxc(content, file_path, true)
-                    .unwrap_or_else(|| minify_javascript_core(content))
+                minify_javascript_core(content)
             } else {
                 minify_conservative(content, Some(&grps))
             };
@@ -124,41 +123,46 @@ fn dispatch_inner(content: &str, file_path: &str) -> DispatchResult {
 mod tests {
     use super::*;
 
-    // ── TS type stripping in the full-minify path (OXC) ───────────────────────
+    // ── Content-view minify: strip comments/whitespace, PRESERVE everything else ──
+    // The JS/TS minify path is a comment + whitespace stripper, not an AST
+    // minifier. It keeps every identifier, TypeScript type declaration, and
+    // per-statement line — type-only syntax is high-signal evidence for an agent,
+    // and preserving it (plus stable line numbers for file:line citation) is the
+    // correct trade for an LLM content view. See strategies/code.rs.
     #[test]
-    fn full_minify_strips_import_type() {
-        let src = "import type { Foo } from './foo';\nimport { bar } from './bar';\nexport function greet(name: string): void {\n  bar();\n}\n";
+    fn minify_preserves_types_and_identifiers_strips_comments() {
+        let src = "// header\nimport type { Foo } from './foo';\nimport { bar } from './bar';\nexport function greet(name: string): void {\n  bar(); // call\n}\n";
         let out = minify_content_result_inner(src, "greet.ts").content;
         assert!(
-            !out.contains("import type"),
-            "must strip 'import type': {out}"
+            !out.contains("header") && !out.contains("call"),
+            "comments must be stripped: {out}"
         );
+        for kept in ["import type", "Foo", "bar", "greet", "name"] {
+            assert!(out.contains(kept), "must preserve identifier/type {kept}: {out}");
+        }
     }
 
     #[test]
-    fn full_minify_strips_interfaces() {
-        let src = "interface User { name: string; age: number; }\nexport function getName(u: User): string { return u.name; }\n";
+    fn minify_preserves_interfaces_and_type_aliases() {
+        let src = "interface User { name: string; age: number; }\ntype Id = string | number;\nexport function getName(u: User): string { return u.name; }\n";
         let out = minify_content_result_inner(src, "user.ts").content;
-        assert!(!out.contains("interface"), "must strip interfaces: {out}");
+        for kept in ["interface", "User", "type Id", "getName"] {
+            assert!(out.contains(kept), "must preserve {kept}: {out}");
+        }
     }
 
     #[test]
-    fn full_minify_strips_type_aliases() {
-        let src = "type Id = string | number;\nexport function process(id: Id): string { return String(id); }\n";
-        let out = minify_content_result_inner(src, "util.ts").content;
-        assert!(!out.contains("type Id"), "must strip type aliases: {out}");
-    }
-
-    #[test]
-    fn full_minify_preserves_runtime_code_after_type_stripping() {
-        let src = "import type { Opts } from './opts';\ninterface Config { host: string; }\ntype Port = number;\nexport function connect(host: string, port: number): boolean {\n  return host.length > 0 && port > 0;\n}\n";
+    fn minify_preserves_line_structure_not_single_line() {
+        let src = "export function connect(host: string, port: number): boolean {\n  const ok = host.length > 0;\n  return ok && port > 0;\n}\n";
         let out = minify_content_result_inner(src, "connect.ts").content;
         assert!(
-            out.contains("connect"),
-            "runtime function must survive: {out}"
+            out.contains("connect") && out.contains("ok"),
+            "identifiers survive: {out}"
         );
-        assert!(!out.contains("import type"));
-        assert!(!out.contains("interface"));
+        assert!(
+            out.lines().count() >= 3,
+            "per-statement lines retained, not collapsed to one line: {out}"
+        );
     }
 
     // ── dispatch routing preserves UTF-8 on the aggressive path ───────────────
@@ -168,15 +172,15 @@ mod tests {
         let cases = [
             (
                 "module.mts",
-                "import type { Foo } from './foo';\nexport function f(x: Foo): string { return String(x); }\n",
+                "// strip-me\nimport type { Foo } from './foo';\nexport function f(x: Foo): string { return String(x); }\n",
                 "conservative",
-                "import type",
+                "strip-me",
             ),
             (
                 "module.cts",
-                "import type { Foo } from './foo';\nexport function f(x: Foo): string { return String(x); }\n",
+                "// strip-me\nimport type { Foo } from './foo';\nexport function f(x: Foo): string { return String(x); }\n",
                 "conservative",
-                "import type",
+                "strip-me",
             ),
             (
                 "types.pyi",

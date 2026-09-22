@@ -38,7 +38,7 @@ describe('canonical localSearch lexical contract', () => {
 });
 
 describe('canonical astSearch filesystem contract', () => {
-  it('accepts file discovery and filesystem tree operations', () => {
+  it('accepts file discovery and syntax trees but rejects filesystem trees', () => {
     expect(
       AstSearchQuerySchema.safeParse({
         reasoning: 'exercise filesystem contract',
@@ -51,13 +51,20 @@ describe('canonical astSearch filesystem contract', () => {
     ).toBe(true);
     expect(
       AstSearchQuerySchema.safeParse({
-        reasoning: 'exercise filesystem contract',
+        reasoning: 'exercise syntax contract',
+        operation: 'tree',
+        treeKind: 'syntax',
+        path: 'src/index.ts',
+      }).success
+    ).toBe(true);
+    expect(
+      AstSearchQuerySchema.safeParse({
+        reasoning: 'exercise retired filesystem contract',
         operation: 'tree',
         treeKind: 'filesystem',
         path: 'src',
-        sort: 'time',
       }).success
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it('keeps unsupported aliases rejected', () => {

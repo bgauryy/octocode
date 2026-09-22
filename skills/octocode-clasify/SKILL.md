@@ -1,15 +1,17 @@
 ---
 name: octocode-clasify
-description: "Use when clasify can make a bounded Noul, Choice, or Score judgment over supplied or unread resources that changes the next action; skip exact checks and settled decisions."
+description: "Use when clasify can make a bounded Noul, Choice, or Score judgment over supplied or unread resources that changes the next action; skip exact checks and settled decisions. Not for: literal presence checks (use corpus-run --regex), deterministic auth/syntax/version checks, or free-form summarization."
 ---
 # Semantic assessment
 
 tools: `npx octocode` / `octocode-mcp`
-related-skill: `octocode-research`
+related-skill: `octocode-research` · `octocode-scraping` · `octocode-chrome-devtools`
 output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
 routes: load/run a reference, doc, or script only when it changes the next action; otherwise keep the rule here.
 
 Flow: `INSPECT → SHAPE → ASSESS → VERIFY`.
+
+Not for: literal text search or presence verification (use `corpus-run --regex`); exact deterministic checks (version match, syntax valid, auth test); free-form summarization or full-body extraction; settled decisions with known answers. Use `octocode-scraping` SCREEN or `octocode-chrome-devtools` SCREEN for corpus/artifact triage that calls this skill internally.
 
 Inspect `octocode scheme clasify --view query --compact` once; reuse its description and query schema while current. Run `octocode clasify --input request.json --compact` with one semantic query or `{queries:[...]}` for independent semantic queries. Each semantic query supplies `resources:[{id,context}]` and `questions:[{id,question}]`; every resource is assessed against every question. The runtime captures a resource once, groups its questions into provider requests, automatically evaluates bounded source pages, and returns correlated query/resource/question/page results. Keep each matrix at 25 cells or fewer. Read retained proof for relevant, uncertain, insufficient, partial, and errored results. The runtime selects the provider model and reports requested and resolved model identities separately.
 

@@ -743,7 +743,10 @@ mod tests {
         assert_eq!(r["scope"]["totalBytes"], 16500);
         assert!(r["scope"].get("startLine").is_none());
 
-        let r2 = receipt("localFetch", &byte_paginated_state(16384, 116, 16500, false));
+        let r2 = receipt(
+            "localFetch",
+            &byte_paginated_state(16384, 116, 16500, false),
+        );
         assert_eq!(r2["scope"]["byteOffset"], 16384);
         assert_eq!(r2["scope"]["byteEnd"], 16500);
         assert_eq!(r2["scope"]["totalBytes"], 16500);

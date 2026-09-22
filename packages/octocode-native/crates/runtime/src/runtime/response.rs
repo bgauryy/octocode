@@ -158,9 +158,7 @@ fn fallback_hint(tool: &str, query: &Value) -> Option<&'static str> {
         {
             Some("Broaden path or file filters.")
         }
-        "astSearch" if query["operation"] == "topology" => {
-            Some("Inspect diagnostics, then broaden the graph scope if needed.")
-        }
+        "astTopology" => Some("Inspect diagnostics, then broaden the graph scope if needed."),
         "astSearch" => Some("Broaden the syntax/name query, path, or filters."),
         "astRewrite" if query["apply"] == true => {
             Some("Preview again and copy every current beforeHash before applying.")
@@ -514,6 +512,7 @@ fn evidence_kind<'a>(tool: &'a str, query: &Value, data: &Value) -> &'a str {
             Some("match") => "structural",
             _ => "syntactic",
         },
+        "astTopology" => "syntactic",
         "lspSearch" => match data.pointer("/lsp/source").and_then(Value::as_str) {
             Some("native-graph-facts" | "markdown") => "syntactic",
             _ => "semantic",
@@ -608,14 +607,14 @@ fn pagination_codes(data: &Value) -> Vec<String> {
     }
 }
 
-/// `astSearch` formats its row paths relative to the queried root before the
-/// shared envelope compactor runs. Restore the same absolute base emitted by
-/// the TypeScript finalizer so consumers can resolve those paths losslessly.
+/// AST tools format row paths relative to the queried root before the shared
+/// envelope compactor runs. Restore the same absolute base emitted by the
+/// TypeScript finalizer so consumers can resolve those paths losslessly.
 pub fn attach_query_base(value: &mut Value, tool: &str, query: &Value) {
     let has_error = value["results"]
         .as_array()
         .is_some_and(|rows| rows.iter().any(|row| row["status"] == "error"));
-    if tool != "astSearch" || has_error {
+    if !matches!(tool, "astSearch" | "astTopology") || has_error {
         return;
     }
     let Some(path) = query.get("path").and_then(Value::as_str) else {
@@ -624,7 +623,7 @@ pub fn attach_query_base(value: &mut Value, tool: &str, query: &Value) {
     let Ok(canonical) = std::fs::canonicalize(path) else {
         return;
     };
-    if query.get("operation").and_then(Value::as_str) == Some("topology") {
+    if tool == "astTopology" {
         let display_name = canonical
             .file_name()
             .map(|name| name.to_string_lossy().into_owned());

@@ -22,12 +22,12 @@ metrics or with any other campaign.
 
 - [Tool sanity benchmark](BENCHMARK_SANITY.md) is a per-tool checkbox suite: one
   section per public tool (schema, agent task, invocation, pass criterion) that
-  an agent runs top to bottom to cover the 12-tool public catalog across native
-  CLI, node CLI, and MCP, including availability behavior. With clone disabled
-  and no `OCTOCODE_CLASSIFICATION_API`, 10
-  tools are available: MCP omits `clasify`, while the CLI keeps its
-  command and schema discoverable and returns an actionable configuration
-  error when called. The suite includes a one-shot matrix runner and
+  an agent runs top to bottom to cover the 13-tool public catalog across native
+  CLI, node CLI, and MCP, including availability behavior. With clone and beta
+  tools disabled and no `OCTOCODE_CLASSIFICATION_API`, 9 tools are available:
+  MCP omits `clasify`, `ghCloneRepo`, `astRewrite`, and `astTopology`, while the
+  CLI keeps their commands and schemas discoverable and returns an actionable
+  configuration error when one is called. The suite includes a one-shot matrix runner and
   continuation-contract regression checks.
 - [Artifact routing v2](evals/artifact-routing-v2/README.md) compares native and
   emulated tool calls against frozen schemas and validators.

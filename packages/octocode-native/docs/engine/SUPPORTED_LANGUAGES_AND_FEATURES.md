@@ -34,7 +34,7 @@ Tree-sitter-backed. Two query forms: `pattern` (code-shaped, `$X`/`$$$ARGS` meta
 
 The default release build registers exactly **28 extensions across 11 language families**. CUDA (`.cu`/`.cuh`) is an optional grammar (`tree-sitter-cuda`) excluded from the default build to save ~6.8 MiB of binary size; its native capabilities appear only in builds that re-enable the feature, though `.cu`/`.cuh` still route to `clangd` for LSP. Structural search/rewrite, signatures, graph facts, syntax inspection, and LSP grammar adapters derive from the single registry in `crates/engine/src/signatures/languages.rs`. Exact expected-set assertions live in `crates/engine/src/signatures/languages_tests.rs` and `tests/engine/ffi.test.ts`; every retained grammar also parses and searches a representative fixture. Built-in semantic-server routing is intentionally narrower because generic Assembly has no truthful default server.
 
-## Signature extraction / graph facts — `minify:"symbols"`, `astSearch operation:"topology"`
+## Signature extraction / graph facts — `minify:"symbols"`, `astTopology`
 
 `localFetch minify:"symbols"` provides skeleton outlines. All supported code languages, including JS/TS, use Tree-sitter body queries for signature skeletons. OXC provides JS/TS graph facts, native document symbols and in-file references, and minification. Graph facts are syntax-derived and vary by language; signature capability does not establish complete declaration or call extraction.
 
@@ -165,4 +165,4 @@ yarn workspace @octocodeai/octocode-native test:node
 | `maxDepth`, `contextLines`, `matchWindow`, `matchPage`, `maxMatchesPerFile` | bounds/pagination |
 
 Read the live `localSearch` schema before scripting queries. It is lexical only;
-use `astSearch` for structural, file, tree, symbol, and topology operations.
+use `astSearch` for structural, file, syntax-tree, and symbol operations, and `astTopology` for file-graph analysis.

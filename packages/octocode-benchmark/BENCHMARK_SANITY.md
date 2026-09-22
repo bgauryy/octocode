@@ -13,7 +13,7 @@ This is a *sanity/coverage* gate (does every path answer correctly at all), not 
 performance benchmark — for comparative measurement see `compare/terra-v3/`.
 
 > **Note on R# items:** `R1`…`R4` are **regression checks, not tools**. Each lives
-> under the tool it guards (e.g. R1 is `astSearch`'s deadCode continuation). They
+> under the tool it guards (e.g. R1 is `astTopology`'s deadCode continuation). They
 > reproduce specific `outputContractViolation` bugs that were fixed, so a
 > regression is caught immediately.
 
@@ -45,6 +45,7 @@ export BIN=<repo>/packages/octocode-native/npm/darwin-arm64/octocode   # native 
 export NODECLI=<repo>/packages/octocode/out/octocode.js                # node CLI
 export MCP=<repo>/packages/octocode-mcp/dist/index.js                  # MCP server
 export ENABLE_CLONE=true                                # opt in for the ghCloneRepo checks
+export OCTOCODE_BETA=true                                # opt in for astRewrite and astTopology
 ```
 
 **0.3 — Fixture** (local-tool tasks; path policy is scoped to the process cwd):
@@ -65,21 +66,22 @@ cd "$FIX"
 `outputContractViolation`, no `Invalid arguments`/`invalidInput`, no crash, and
 the stated content check holds.
 
-**0.5 — Availability and automated runners.** `scheme` always discovers 12
-tools. With clone at its default disabled setting and no `OCTOCODE_CLASSIFICATION_API`, 10
-are available. MCP registers only available tools, so it omits
-`clasify`; the CLI keeps `clasify` and its schema discoverable and
-reports the missing key when called. This setup opts into clone. Section 13 runs
-the 11 non-provider tools across three surfaces, section 12 checks the gated
-semantic tool, and section 14 covers advanced variants. Use the corresponding
-tool section to diagnose a failure.
+**0.5 — Availability and automated runners.** `scheme` always discovers 13
+tools. With clone and beta tools disabled and no `OCTOCODE_CLASSIFICATION_API`,
+9 are available. MCP registers only available tools, so it omits `clasify`,
+`ghCloneRepo`, `astRewrite`, and `astTopology`; the CLI keeps all commands and
+schemas discoverable and reports the missing gate when one is called. This setup
+opts into clone and beta tools. Section 13 runs the 12 non-provider tools across
+three surfaces, section 12 checks the gated semantic tool, and section 14 covers
+advanced variants. Use the corresponding tool section to diagnose a failure.
 
 ---
 
 ## Rollup checklist
 
 - [ ] 1. `localSearch` — text/regex search + advanced (regex modes, case, unique, pagination)
-- [ ] 2. `astSearch` — match / symbols / files / tree / topology (all 7 analyses)
+- [ ] 2. `astSearch` — match / symbols / files / syntax tree
+- [ ] 2a. `astTopology` — all 7 graph analyses
 - [ ] 3. `astRewrite` — structural rewrite (pattern/rule/experimental, apply, escape hatch)
 - [ ] 4. `localFetch` — read file + minify / matchString / line-range / chunk pagination
 - [ ] 5. `lspSearch` — all semantic operations + anchoring modes
@@ -90,7 +92,7 @@ tool section to diagnose a failure.
 - [ ] 10. `ghGetHistoryItem` — commit / pullRequest / issue / compare  (incl. **R4**)
 - [ ] 11. `ghCloneRepo` — clone (+ branch / sparsePath)
 - [ ] 12. `clasify` — resource-question matrices with typed Noul / Choice / Score answers (gated)
-- [ ] R1. `astSearch` deadCode continuation is contract-valid
+- [ ] R1. `astTopology` deadCode continuation is contract-valid
 
 ---
 
@@ -124,7 +126,7 @@ tool section to diagnose a failure.
 
 ## 2. astSearch
 
-**Purpose:** structural/AST queries. One tool, five `operation`s.
+**Purpose:** structural/AST queries and file discovery. One tool, four `operation`s.
 
 **Schema:** required `reasoning`, `operation`, `path`.
 - `match`: + `pattern` **or** `rule` (JSON string); `langType` required for dirs;
@@ -132,11 +134,7 @@ tool section to diagnose a failure.
 - `symbols`: + optional `kinds`, `name`, `namedOnly`, `nodeLimit`, `nodeOffset`.
 - `files`: + filters `names`/`extensions`/`entryType`(`f`|`d`)/`access`/`size`/
   `time`/`minDepth`/`maxDepth`/`pathPattern`/`pathRegex`/`empty`/`permissions`/`limit`.
-- `tree`: + `treeKind` (`filesystem`|`syntax`).
-- `topology`: + `analysis` (`deadCode`|`cycles`|`dependencies`|`dependents`|
-  `path`|`reachability`|`drift`); `dependencies`/`dependents`/`path` need `file`
-  (and `path`-analysis needs `target`); `drift` needs a `baseline` snapshot;
-  `entrypoints`, `includeTests`, `rustWorkspace` (`syntax`|`cargo`), `depth`.
+- `tree`: + `treeKind:"syntax"` for a single source file.
 
 **Core task:** *"Find `greet($A)` calls in `src/`."*
 `{"operation":"match","path":"src","pattern":"greet($A)","langType":"typescript"}`
@@ -147,14 +145,37 @@ tool section to diagnose a failure.
 - [ ] `match` `resultView:"countMatches"` and `resultView:"files"`
 - [ ] `operation:"symbols"` on `src` → lists `greet`/`shout`/`main`
 - [ ] `operation:"files"` with `extensions:["ts"]`
-- [ ] `operation:"tree"` `treeKind:"filesystem"` **and** `treeKind:"syntax"` (on a single file)
-- [ ] `topology` `analysis:"cycles"`
-- [ ] `topology` `analysis:"dependencies"` `file:"src/index.ts"`
-- [ ] `topology` `analysis:"dependents"` `file:"src/util.ts"`
-- [ ] `topology` `analysis:"reachability"`
-- [ ] **R1 (regression):** `topology` `analysis:"deadCode"` completes with **no**
-      `outputContractViolation` (guards `deadcode_verify_references_continuation_is_contract_valid`)
+- [ ] `operation:"tree"` with `treeKind:"syntax"` on a single file
 - [ ] language spread: run a `match` on a Rust/Python file with the right `langType`
+
+- [ ] native CLI [ ] node CLI [ ] MCP
+
+---
+
+## 2a. astTopology
+
+**Purpose:** syntactic cross-file dependency graph analysis.
+
+**Schema:** required `reasoning`, `operation:"topology"`, and `analysis`.
+Analyses are `deadCode`, `cycles`, `dependencies`, `dependents`, `path`,
+`reachability`, and `drift`. `dependencies`, `dependents`, and `path` require
+`file`; `path` also requires `target`; `drift` requires `baseline`. Advanced
+fields include `entrypoints`, `includeTests`, `rustWorkspace`
+(`syntax`|`cargo`), `depth`, result pagination, and diagnostic pagination.
+
+**Core task:** *"Find dependencies of `src/index.ts`."*
+`{"operation":"topology","analysis":"dependencies","path":".","file":"src/index.ts"}`
+→ **PASS:** returns graph edges or an explicit empty result with coverage diagnostics.
+
+**Advanced coverage:**
+- [ ] `analysis:"cycles"`
+- [ ] `analysis:"dependencies"` with `file:"src/index.ts"`
+- [ ] `analysis:"dependents"` with `file:"src/util.ts"`
+- [ ] `analysis:"path"` with `file` and `target`
+- [ ] `analysis:"reachability"`
+- [ ] `analysis:"drift"` with a separate `baseline`
+- [ ] **R1 (regression):** `analysis:"deadCode"` completes with **no**
+      `outputContractViolation` (guards `deadcode_verify_references_continuation_is_contract_valid`)
 
 - [ ] native CLI [ ] node CLI [ ] MCP
 
@@ -435,7 +456,7 @@ and run `next.clasify` unchanged when present.
 
 ---
 
-## 13. Core matrix runner (11 non-provider tools × 3 surfaces)
+## 13. Core matrix runner (12 non-provider tools × 3 surfaces)
 
 Run from the fixture cwd (§0.3) with the env from §0.2. Prints a pass grid;
 `ghCloneRepo` shows `reached-net(auth)` in credential-less sandboxes.
@@ -447,6 +468,7 @@ const FIX = process.env.FIXROOT;
 const tools = {
   localSearch:{reasoning:"x",searchText:"greet",path:"src"},
   astSearch:{reasoning:"x",operation:"match",path:"src",pattern:"greet($A)",langType:"typescript"},
+  astTopology:{reasoning:"x",operation:"topology",analysis:"dependencies",path:".",file:"src/index.ts"},
   astRewrite:{reasoning:"x",path:"src/util.ts",langType:"typescript",ruleKind:"pattern",pattern:"greet($A)",rewrite:"greet2($A)"},
   localFetch:{reasoning:"x",path:"src/util.ts"},
   lspSearch:{reasoning:"x",operation:"references",uri:FIX+"/src/util.ts",symbolName:"greet",lineHint:1},
@@ -489,9 +511,9 @@ const V = {
   "astSearch op=symbols":["astSearch",{reasoning:"x",operation:"symbols",path:"src"}],
   "astSearch tree=syntax":["astSearch",{reasoning:"x",operation:"tree",path:"src/util.ts",treeKind:"syntax"}],
   "astSearch match/rule":["astSearch",{reasoning:"x",operation:"match",path:"src",langType:"typescript",rule:'{"pattern":"greet($A)"}'}],
-  "astSearch topology=cycles":["astSearch",{reasoning:"x",operation:"topology",path:".",analysis:"cycles"}],
-  "astSearch topology=dependencies":["astSearch",{reasoning:"x",operation:"topology",path:".",analysis:"dependencies",file:"src/index.ts"}],
-  "R1 topology=deadCode":["astSearch",{reasoning:"x",operation:"topology",path:".",analysis:"deadCode"}],
+  "astTopology analysis=cycles":["astTopology",{reasoning:"x",operation:"topology",path:".",analysis:"cycles"}],
+  "astTopology analysis=dependencies":["astTopology",{reasoning:"x",operation:"topology",path:".",analysis:"dependencies",file:"src/index.ts"}],
+  "R1 topology=deadCode":["astTopology",{reasoning:"x",operation:"topology",path:".",analysis:"deadCode"}],
   "artifact npm":["artifactSearch",{reasoning:"x",type:"npm",packageName:"left-pad"}],
   "artifact pypi":["artifactSearch",{reasoning:"x",type:"pypi",packageName:"requests"}],
   "artifact crates":["artifactSearch",{reasoning:"x",type:"crates",packageName:"serde"}],

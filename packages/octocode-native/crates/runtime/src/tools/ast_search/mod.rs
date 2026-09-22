@@ -184,13 +184,6 @@ pub fn execute_ast(
             security,
             cancellation,
         ),
-        "topology" => crate::tools::ast_graph::execute_topology(
-            &serde_json::from_value(query).map_err(decode)?,
-            paths,
-            security,
-            cancellation,
-        )
-        .map_err(|error| AstError::new(error.code, error.message)),
         _ => Err(AstError::new(
             "ast.input.invalid",
             format!("unsupported operation: {operation}"),

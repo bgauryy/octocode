@@ -26,7 +26,8 @@ Optional `goal` and `reasoning` are short decision context, not ranking controls
 |---|---|---|
 | `localSearch` | Where is text, syntax, a path, or a directory entry? | Text proves occurrence; AST proves syntax within the searched scope. |
 | `localFetch` | What does a known local file contain? | `none` preserves selected source apart from security redaction; transformed views are lossy. |
-| `astSearch` | Which files depend on one another or form paths and cycles? | Syntactic file topology; unresolved imports and excluded files limit coverage. |
+| `astSearch` | Which files, declarations, syntax trees, or structural matches are present? | Structural syntax evidence within the scanned scope. |
+| `astTopology` | Which files depend on one another or form paths and cycles? | Syntactic file topology; unresolved imports and excluded files limit coverage. |
 | `lspSearch` | Which definition, references, callers, or types does the server resolve? | Server and project scope limit semantic evidence. |
 | `ghSearch` | Which indexed code, repositories, or tree paths are candidates? | Code search uses GitHub's indexed default branch; a tree query can select a ref. |
 | `ghGetFileContent` | What is in a known remote file? | Pin the ref for reproducibility; file views and provider limits still apply. |

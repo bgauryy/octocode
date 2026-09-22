@@ -79,14 +79,7 @@ pub fn provision_mode(raw: Option<&str>) -> ProvisionMode {
 
 /// Lowercase hex SHA-256 of `bytes`.
 pub fn sha256_hex(bytes: &[u8]) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(bytes);
-    let digest = hasher.finalize();
-    let mut out = String::with_capacity(64);
-    for byte in digest {
-        out.push_str(&format!("{byte:02x}"));
-    }
-    out
+    hex::encode(Sha256::digest(bytes))
 }
 
 /// True when `url` is https and its host is on the release allowlist.
