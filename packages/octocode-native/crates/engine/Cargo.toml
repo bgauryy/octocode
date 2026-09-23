@@ -47,6 +47,7 @@ grep-matcher = "0.1.9"
 grep-pcre2 = { version = "0.1.10", optional = true }
 grep-regex = "0.1.14"
 grep-searcher = "0.1.17"
+globset = "0.4"
 hex = { workspace = true }
 ignore = "0.4"
 napi = { workspace = true, optional = true }
@@ -125,4 +126,3 @@ tree-sitter-scala = ["dep:tree-sitter-scala"]
 
 [build-dependencies]
 napi-build = { workspace = true, optional = true }
-

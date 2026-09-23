@@ -1,6 +1,6 @@
 {
   "contractFormatVersion": 2,
-  "fingerprint": "d6e96a8d5527dafe30b9a1d714d67a74dcba70856f415ecb4baf599bc82e97ea",
+  "fingerprint": "154327c741fc8d7ff21dfbfa8cf15a880b2ea2a2b6e1d3b6af8898179c06ebb8",
   "tools": [
     {
       "defaults": [
@@ -6229,6 +6229,18 @@
                             "minLength": 1,
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "namedOnly": {
                             "type": "boolean"
                           },
@@ -6421,6 +6433,18 @@
                           "includeTests": {
                             "type": "boolean"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -6447,7 +6471,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -6505,6 +6529,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -6531,7 +6567,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -6599,6 +6635,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -6625,7 +6673,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -6693,6 +6741,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -6719,7 +6779,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -6782,6 +6842,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -6808,7 +6880,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -6882,6 +6954,18 @@
                           "includeTests": {
                             "type": "boolean"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -6908,7 +6992,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -6970,6 +7054,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -6996,7 +7092,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -13042,6 +13138,18 @@
                             "minLength": 1,
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "namedOnly": {
                             "type": "boolean"
                           },
@@ -13234,6 +13342,18 @@
                           "includeTests": {
                             "type": "boolean"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -13260,7 +13380,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -13318,6 +13438,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -13344,7 +13476,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -13412,6 +13544,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -13438,7 +13582,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -13506,6 +13650,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -13532,7 +13688,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -13595,6 +13751,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -13621,7 +13789,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -13695,6 +13863,18 @@
                           "includeTests": {
                             "type": "boolean"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -13721,7 +13901,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -13783,6 +13963,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -13809,7 +14001,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -19572,6 +19764,18 @@
                             "minLength": 1,
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "namedOnly": {
                             "type": "boolean"
                           },
@@ -19764,6 +19968,18 @@
                           "includeTests": {
                             "type": "boolean"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -19790,7 +20006,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -19848,6 +20064,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -19874,7 +20102,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -19942,6 +20170,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -19968,7 +20208,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -20036,6 +20276,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -20062,7 +20314,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -20125,6 +20377,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -20151,7 +20415,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -20225,6 +20489,18 @@
                           "includeTests": {
                             "type": "boolean"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -20251,7 +20527,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -20313,6 +20589,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -20339,7 +20627,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -26864,6 +27152,18 @@
                             "minLength": 1,
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "namedOnly": {
                             "type": "boolean"
                           },
@@ -27056,6 +27356,18 @@
                           "includeTests": {
                             "type": "boolean"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -27082,7 +27394,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -27140,6 +27452,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -27166,7 +27490,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -27234,6 +27558,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -27260,7 +27596,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -27328,6 +27664,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -27354,7 +27702,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -27417,6 +27765,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -27443,7 +27803,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -27517,6 +27877,18 @@
                           "includeTests": {
                             "type": "boolean"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -27543,7 +27915,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -27605,6 +27977,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -27631,7 +28015,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -34669,6 +35053,18 @@
                             "minLength": 1,
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "namedOnly": {
                             "type": "boolean"
                           },
@@ -34861,6 +35257,18 @@
                           "includeTests": {
                             "type": "boolean"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -34887,7 +35295,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -34945,6 +35353,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -34971,7 +35391,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -35039,6 +35459,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -35065,7 +35497,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -35133,6 +35565,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -35159,7 +35603,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -35222,6 +35666,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -35248,7 +35704,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -35322,6 +35778,18 @@
                           "includeTests": {
                             "type": "boolean"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -35348,7 +35816,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -35410,6 +35878,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -35436,7 +35916,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -40477,6 +40957,18 @@
                             "minLength": 1,
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "namedOnly": {
                             "type": "boolean"
                           },
@@ -40669,6 +41161,18 @@
                           "includeTests": {
                             "type": "boolean"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -40695,7 +41199,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -40753,6 +41257,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -40779,7 +41295,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -40847,6 +41363,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -40873,7 +41401,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -40941,6 +41469,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -40967,7 +41507,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -41030,6 +41570,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -41056,7 +41608,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -41130,6 +41682,18 @@
                           "includeTests": {
                             "type": "boolean"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -41156,7 +41720,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -41218,6 +41782,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -41244,7 +41820,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -46248,6 +46824,18 @@
                             "minLength": 1,
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "namedOnly": {
                             "type": "boolean"
                           },
@@ -46440,6 +47028,18 @@
                           "includeTests": {
                             "type": "boolean"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -46466,7 +47066,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -46524,6 +47124,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -46550,7 +47162,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -46618,6 +47230,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -46644,7 +47268,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -46712,6 +47336,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -46738,7 +47374,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -46801,6 +47437,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -46827,7 +47475,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -46901,6 +47549,18 @@
                           "includeTests": {
                             "type": "boolean"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -46927,7 +47587,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -46989,6 +47649,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -47015,7 +47687,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -49406,7 +50078,7 @@
                       "type": "array"
                     },
                     "langType": {
-                      "description": "Directory: use a language/ID or .extension; cpp includes C++ .h. Single .h defaults to C. Bare scheme lists grammars.",
+                      "description": "Directory grammar; cpp includes .h. Single .h defaults to C.",
                       "minLength": 1,
                       "type": "string"
                     },
@@ -49569,7 +50241,7 @@
                       "type": "array"
                     },
                     "langType": {
-                      "description": "Directory: use a language/ID or .extension; cpp includes C++ .h. Single .h defaults to C. Bare scheme lists grammars.",
+                      "description": "Directory grammar; cpp includes .h. Single .h defaults to C.",
                       "minLength": 1,
                       "type": "string"
                     },
@@ -49686,7 +50358,7 @@
                   "additionalProperties": false,
                   "properties": {
                     "access": {
-                      "description": "Current-user access.",
+                      "description": "User access.",
                       "enum": [
                         "executable",
                         "readable",
@@ -49701,7 +50373,7 @@
                     },
                     "detail": {
                       "default": "basic",
-                      "description": "\"full\" adds byte size and lineCount.",
+                      "description": "\"full\" adds size and lines.",
                       "enum": [
                         "basic",
                         "modified",
@@ -49710,11 +50382,11 @@
                       "type": "string"
                     },
                     "empty": {
-                      "description": "Only empty files or directories.",
+                      "description": "Empty only.",
                       "type": "boolean"
                     },
                     "entryType": {
-                      "description": "File \"f\" or dir \"d\".",
+                      "description": "\"f\" file, \"d\" dir.",
                       "enum": [
                         "f",
                         "d"
@@ -49722,7 +50394,7 @@
                       "type": "string"
                     },
                     "excludeDir": {
-                      "description": "Directories to prune.",
+                      "description": "Pruned directories.",
                       "items": {
                         "type": "string"
                       },
@@ -49730,7 +50402,7 @@
                       "type": "array"
                     },
                     "extensions": {
-                      "description": "Dotless extensions.",
+                      "description": "Extensions (no dot).",
                       "items": {
                         "type": "string"
                       },
@@ -49742,7 +50414,7 @@
                       "type": "string"
                     },
                     "limit": {
-                      "description": "Result cap before paging.",
+                      "description": "Pre-page cap.",
                       "maximum": 10000,
                       "minimum": 1,
                       "type": "integer"
@@ -49790,15 +50462,15 @@
                       "type": "string"
                     },
                     "pathPattern": {
-                      "description": "Relative path glob.",
+                      "description": "Path glob.",
                       "type": "string"
                     },
                     "pathRegex": {
-                      "description": "Basename Rust regex.",
+                      "description": "Name regex.",
                       "type": "string"
                     },
                     "permissions": {
-                      "description": "Exact permissions.",
+                      "description": "Permissions.",
                       "type": "string"
                     },
                     "reasoning": {
@@ -49872,25 +50544,38 @@
                       "type": "string"
                     },
                     "langType": {
-                      "description": "Single .h: cpp selects C++; default C.",
+                      "description": "cpp parses .h as C++; default C.",
                       "minLength": 1,
                       "type": "string"
                     },
+                    "languageGlobs": {
+                      "additionalProperties": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "description": "AST parsers by root-relative glob, e.g. {cpp:[\"include/**/*.h\"]}; clangd unaffected.",
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
                     "namedOnly": {
                       "default": true,
-                      "description": "Only named parser nodes.",
+                      "description": "Named nodes only.",
                       "type": "boolean"
                     },
                     "nodeLimit": {
                       "default": 100,
-                      "description": "Syntax nodes per page.",
+                      "description": "Nodes per page.",
                       "maximum": 1000,
                       "minimum": 1,
                       "type": "integer"
                     },
                     "nodeOffset": {
                       "default": 0,
-                      "description": "Copy next node offset.",
+                      "description": "Next node offset.",
                       "maximum": 9007199254740991,
                       "minimum": 0,
                       "type": "integer"
@@ -49948,7 +50633,7 @@
                       "type": "string"
                     },
                     "kinds": {
-                      "description": "Native declaration kinds.",
+                      "description": "Declaration kinds.",
                       "items": {
                         "type": "string"
                       },
@@ -49956,13 +50641,13 @@
                       "type": "array"
                     },
                     "langType": {
-                      "description": "Single .h: cpp selects C++; default C.",
+                      "description": "cpp parses .h as C++; default C.",
                       "minLength": 1,
                       "type": "string"
                     },
                     "maxFiles": {
                       "default": 2000,
-                      "description": "File scan cap.",
+                      "description": "Scan cap.",
                       "maximum": 50000,
                       "minimum": 1,
                       "type": "integer"
@@ -52961,6 +53646,18 @@
                             "minLength": 1,
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "namedOnly": {
                             "type": "boolean"
                           },
@@ -53153,6 +53850,18 @@
                           "includeTests": {
                             "type": "boolean"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -53179,7 +53888,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -53237,6 +53946,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -53263,7 +53984,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -53331,6 +54052,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -53357,7 +54090,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -53425,6 +54158,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -53451,7 +54196,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -53514,6 +54259,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -53540,7 +54297,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -53614,6 +54371,18 @@
                           "includeTests": {
                             "type": "boolean"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -53640,7 +54409,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -53702,6 +54471,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -53728,7 +54509,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -55458,6 +56239,18 @@
                                   "minLength": 1,
                                   "type": "string"
                                 },
+                                "languageGlobs": {
+                                  "additionalProperties": {
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "type": "array"
+                                  },
+                                  "propertyNames": {
+                                    "type": "string"
+                                  },
+                                  "type": "object"
+                                },
                                 "namedOnly": {
                                   "type": "boolean"
                                 },
@@ -56777,7 +57570,7 @@
                 "type": "array"
               },
               "langType": {
-                "description": "Directory: use a language/ID or .extension; cpp includes C++ .h. Single .h defaults to C. Bare scheme lists grammars.",
+                "description": "Directory grammar; cpp includes .h. Single .h defaults to C.",
                 "minLength": 1,
                 "type": "string"
               },
@@ -56940,7 +57733,7 @@
                 "type": "array"
               },
               "langType": {
-                "description": "Directory: use a language/ID or .extension; cpp includes C++ .h. Single .h defaults to C. Bare scheme lists grammars.",
+                "description": "Directory grammar; cpp includes .h. Single .h defaults to C.",
                 "minLength": 1,
                 "type": "string"
               },
@@ -57057,7 +57850,7 @@
             "additionalProperties": false,
             "properties": {
               "access": {
-                "description": "Current-user access.",
+                "description": "User access.",
                 "enum": [
                   "executable",
                   "readable",
@@ -57072,7 +57865,7 @@
               },
               "detail": {
                 "default": "basic",
-                "description": "\"full\" adds byte size and lineCount.",
+                "description": "\"full\" adds size and lines.",
                 "enum": [
                   "basic",
                   "modified",
@@ -57081,11 +57874,11 @@
                 "type": "string"
               },
               "empty": {
-                "description": "Only empty files or directories.",
+                "description": "Empty only.",
                 "type": "boolean"
               },
               "entryType": {
-                "description": "File \"f\" or dir \"d\".",
+                "description": "\"f\" file, \"d\" dir.",
                 "enum": [
                   "f",
                   "d"
@@ -57093,7 +57886,7 @@
                 "type": "string"
               },
               "excludeDir": {
-                "description": "Directories to prune.",
+                "description": "Pruned directories.",
                 "items": {
                   "type": "string"
                 },
@@ -57101,7 +57894,7 @@
                 "type": "array"
               },
               "extensions": {
-                "description": "Dotless extensions.",
+                "description": "Extensions (no dot).",
                 "items": {
                   "type": "string"
                 },
@@ -57113,7 +57906,7 @@
                 "type": "string"
               },
               "limit": {
-                "description": "Result cap before paging.",
+                "description": "Pre-page cap.",
                 "maximum": 10000,
                 "minimum": 1,
                 "type": "integer"
@@ -57161,15 +57954,15 @@
                 "type": "string"
               },
               "pathPattern": {
-                "description": "Relative path glob.",
+                "description": "Path glob.",
                 "type": "string"
               },
               "pathRegex": {
-                "description": "Basename Rust regex.",
+                "description": "Name regex.",
                 "type": "string"
               },
               "permissions": {
-                "description": "Exact permissions.",
+                "description": "Permissions.",
                 "type": "string"
               },
               "reasoning": {
@@ -57243,25 +58036,38 @@
                 "type": "string"
               },
               "langType": {
-                "description": "Single .h: cpp selects C++; default C.",
+                "description": "cpp parses .h as C++; default C.",
                 "minLength": 1,
                 "type": "string"
               },
+              "languageGlobs": {
+                "additionalProperties": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "description": "AST parsers by root-relative glob, e.g. {cpp:[\"include/**/*.h\"]}; clangd unaffected.",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
               "namedOnly": {
                 "default": true,
-                "description": "Only named parser nodes.",
+                "description": "Named nodes only.",
                 "type": "boolean"
               },
               "nodeLimit": {
                 "default": 100,
-                "description": "Syntax nodes per page.",
+                "description": "Nodes per page.",
                 "maximum": 1000,
                 "minimum": 1,
                 "type": "integer"
               },
               "nodeOffset": {
                 "default": 0,
-                "description": "Copy next node offset.",
+                "description": "Next node offset.",
                 "maximum": 9007199254740991,
                 "minimum": 0,
                 "type": "integer"
@@ -57319,7 +58125,7 @@
                 "type": "string"
               },
               "kinds": {
-                "description": "Native declaration kinds.",
+                "description": "Declaration kinds.",
                 "items": {
                   "type": "string"
                 },
@@ -57327,13 +58133,13 @@
                 "type": "array"
               },
               "langType": {
-                "description": "Single .h: cpp selects C++; default C.",
+                "description": "cpp parses .h as C++; default C.",
                 "minLength": 1,
                 "type": "string"
               },
               "maxFiles": {
                 "default": 2000,
-                "description": "File scan cap.",
+                "description": "Scan cap.",
                 "maximum": 50000,
                 "minimum": 1,
                 "type": "integer"
@@ -57532,6 +58338,7 @@
             "treeKind",
             "path",
             "langType",
+            "languageGlobs",
             "namedOnly",
             "nodeOffset",
             "nodeLimit",
@@ -57700,12 +58507,12 @@
                       "type": "integer"
                     },
                     "diagnosticSnapshot": {
-                      "description": "Diagnostic snapshot from next.nextDiagnostics; detects changes between pages.",
+                      "description": "Copy next.nextDiagnostics snapshot.",
                       "pattern": "^[a-f0-9]{64}$",
                       "type": "string"
                     },
                     "entrypoints": {
-                      "description": "Repo-relative file or dynamic asset directory roots; omit to detect package.json main/exports/bin.",
+                      "description": "Repo-relative retention roots; omit for package.json defaults.",
                       "items": {
                         "type": "string"
                       },
@@ -57713,7 +58520,7 @@
                       "type": "array"
                     },
                     "excludeDir": {
-                      "description": "Directory names to prune from graph construction.",
+                      "description": "Directory names to prune.",
                       "items": {
                         "type": "string"
                       },
@@ -57728,6 +58535,19 @@
                       "default": true,
                       "description": "Disable to exclude tests as retention roots.",
                       "type": "boolean"
+                    },
+                    "languageGlobs": {
+                      "additionalProperties": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "description": "AST parsers by root-relative glob, e.g. {cpp:[\"include/**/*.h\"]}; clangd unaffected.",
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "type": "object"
                     },
                     "limit": {
                       "description": "Result cap applied before pagination.",
@@ -57760,7 +58580,7 @@
                       "type": "integer"
                     },
                     "path": {
-                      "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                      "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                       "type": "string"
                     },
                     "reasoning": {
@@ -57769,7 +58589,7 @@
                       "type": "string"
                     },
                     "rustWorkspace": {
-                      "description": "Use \"cargo\" only when workspace metadata is needed for Rust resolution.",
+                      "description": "\"cargo\" enables Rust workspace metadata.",
                       "enum": [
                         "syntax",
                         "cargo"
@@ -57810,12 +58630,12 @@
                       "type": "integer"
                     },
                     "diagnosticSnapshot": {
-                      "description": "Diagnostic snapshot from next.nextDiagnostics; detects changes between pages.",
+                      "description": "Copy next.nextDiagnostics snapshot.",
                       "pattern": "^[a-f0-9]{64}$",
                       "type": "string"
                     },
                     "excludeDir": {
-                      "description": "Directory names to prune from graph construction.",
+                      "description": "Directory names to prune.",
                       "items": {
                         "type": "string"
                       },
@@ -57825,6 +58645,19 @@
                     "goal": {
                       "description": "Desired evidence or decision.",
                       "type": "string"
+                    },
+                    "languageGlobs": {
+                      "additionalProperties": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "description": "AST parsers by root-relative glob, e.g. {cpp:[\"include/**/*.h\"]}; clangd unaffected.",
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "type": "object"
                     },
                     "limit": {
                       "description": "Result cap applied before pagination.",
@@ -57857,7 +58690,7 @@
                       "type": "integer"
                     },
                     "path": {
-                      "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                      "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                       "type": "string"
                     },
                     "reasoning": {
@@ -57866,7 +58699,7 @@
                       "type": "string"
                     },
                     "rustWorkspace": {
-                      "description": "Use \"cargo\" only when workspace metadata is needed for Rust resolution.",
+                      "description": "\"cargo\" enables Rust workspace metadata.",
                       "enum": [
                         "syntax",
                         "cargo"
@@ -57915,12 +58748,12 @@
                       "type": "integer"
                     },
                     "diagnosticSnapshot": {
-                      "description": "Diagnostic snapshot from next.nextDiagnostics; detects changes between pages.",
+                      "description": "Copy next.nextDiagnostics snapshot.",
                       "pattern": "^[a-f0-9]{64}$",
                       "type": "string"
                     },
                     "excludeDir": {
-                      "description": "Directory names to prune from graph construction.",
+                      "description": "Directory names to prune.",
                       "items": {
                         "type": "string"
                       },
@@ -57934,6 +58767,19 @@
                     "goal": {
                       "description": "Desired evidence or decision.",
                       "type": "string"
+                    },
+                    "languageGlobs": {
+                      "additionalProperties": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "description": "AST parsers by root-relative glob, e.g. {cpp:[\"include/**/*.h\"]}; clangd unaffected.",
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "type": "object"
                     },
                     "limit": {
                       "description": "Result cap applied before pagination.",
@@ -57966,7 +58812,7 @@
                       "type": "integer"
                     },
                     "path": {
-                      "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                      "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                       "type": "string"
                     },
                     "reasoning": {
@@ -57975,7 +58821,7 @@
                       "type": "string"
                     },
                     "rustWorkspace": {
-                      "description": "Use \"cargo\" only when workspace metadata is needed for Rust resolution.",
+                      "description": "\"cargo\" enables Rust workspace metadata.",
                       "enum": [
                         "syntax",
                         "cargo"
@@ -58024,12 +58870,12 @@
                       "type": "integer"
                     },
                     "diagnosticSnapshot": {
-                      "description": "Diagnostic snapshot from next.nextDiagnostics; detects changes between pages.",
+                      "description": "Copy next.nextDiagnostics snapshot.",
                       "pattern": "^[a-f0-9]{64}$",
                       "type": "string"
                     },
                     "excludeDir": {
-                      "description": "Directory names to prune from graph construction.",
+                      "description": "Directory names to prune.",
                       "items": {
                         "type": "string"
                       },
@@ -58043,6 +58889,19 @@
                     "goal": {
                       "description": "Desired evidence or decision.",
                       "type": "string"
+                    },
+                    "languageGlobs": {
+                      "additionalProperties": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "description": "AST parsers by root-relative glob, e.g. {cpp:[\"include/**/*.h\"]}; clangd unaffected.",
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "type": "object"
                     },
                     "limit": {
                       "description": "Result cap applied before pagination.",
@@ -58075,7 +58934,7 @@
                       "type": "integer"
                     },
                     "path": {
-                      "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                      "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                       "type": "string"
                     },
                     "reasoning": {
@@ -58084,7 +58943,7 @@
                       "type": "string"
                     },
                     "rustWorkspace": {
-                      "description": "Use \"cargo\" only when workspace metadata is needed for Rust resolution.",
+                      "description": "\"cargo\" enables Rust workspace metadata.",
                       "enum": [
                         "syntax",
                         "cargo"
@@ -58126,12 +58985,12 @@
                       "type": "integer"
                     },
                     "diagnosticSnapshot": {
-                      "description": "Diagnostic snapshot from next.nextDiagnostics; detects changes between pages.",
+                      "description": "Copy next.nextDiagnostics snapshot.",
                       "pattern": "^[a-f0-9]{64}$",
                       "type": "string"
                     },
                     "excludeDir": {
-                      "description": "Directory names to prune from graph construction.",
+                      "description": "Directory names to prune.",
                       "items": {
                         "type": "string"
                       },
@@ -58145,6 +59004,19 @@
                     "goal": {
                       "description": "Desired evidence or decision.",
                       "type": "string"
+                    },
+                    "languageGlobs": {
+                      "additionalProperties": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "description": "AST parsers by root-relative glob, e.g. {cpp:[\"include/**/*.h\"]}; clangd unaffected.",
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "type": "object"
                     },
                     "limit": {
                       "description": "Result cap applied before pagination.",
@@ -58177,7 +59049,7 @@
                       "type": "integer"
                     },
                     "path": {
-                      "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                      "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                       "type": "string"
                     },
                     "reasoning": {
@@ -58186,7 +59058,7 @@
                       "type": "string"
                     },
                     "rustWorkspace": {
-                      "description": "Use \"cargo\" only when workspace metadata is needed for Rust resolution.",
+                      "description": "\"cargo\" enables Rust workspace metadata.",
                       "enum": [
                         "syntax",
                         "cargo"
@@ -58233,12 +59105,12 @@
                       "type": "integer"
                     },
                     "diagnosticSnapshot": {
-                      "description": "Diagnostic snapshot from next.nextDiagnostics; detects changes between pages.",
+                      "description": "Copy next.nextDiagnostics snapshot.",
                       "pattern": "^[a-f0-9]{64}$",
                       "type": "string"
                     },
                     "entrypoints": {
-                      "description": "Repo-relative file or dynamic asset directory roots; omit to detect package.json main/exports/bin.",
+                      "description": "Repo-relative retention roots; omit for package.json defaults.",
                       "items": {
                         "type": "string"
                       },
@@ -58246,7 +59118,7 @@
                       "type": "array"
                     },
                     "excludeDir": {
-                      "description": "Directory names to prune from graph construction.",
+                      "description": "Directory names to prune.",
                       "items": {
                         "type": "string"
                       },
@@ -58261,6 +59133,19 @@
                       "default": true,
                       "description": "Disable to exclude tests as retention roots.",
                       "type": "boolean"
+                    },
+                    "languageGlobs": {
+                      "additionalProperties": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "description": "AST parsers by root-relative glob, e.g. {cpp:[\"include/**/*.h\"]}; clangd unaffected.",
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "type": "object"
                     },
                     "limit": {
                       "description": "Result cap applied before pagination.",
@@ -58293,7 +59178,7 @@
                       "type": "integer"
                     },
                     "path": {
-                      "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                      "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                       "type": "string"
                     },
                     "reasoning": {
@@ -58302,7 +59187,7 @@
                       "type": "string"
                     },
                     "rustWorkspace": {
-                      "description": "Use \"cargo\" only when workspace metadata is needed for Rust resolution.",
+                      "description": "\"cargo\" enables Rust workspace metadata.",
                       "enum": [
                         "syntax",
                         "cargo"
@@ -58347,12 +59232,12 @@
                       "type": "integer"
                     },
                     "diagnosticSnapshot": {
-                      "description": "Diagnostic snapshot from next.nextDiagnostics; detects changes between pages.",
+                      "description": "Copy next.nextDiagnostics snapshot.",
                       "pattern": "^[a-f0-9]{64}$",
                       "type": "string"
                     },
                     "excludeDir": {
-                      "description": "Directory names to prune from graph construction.",
+                      "description": "Directory names to prune.",
                       "items": {
                         "type": "string"
                       },
@@ -58362,6 +59247,19 @@
                     "goal": {
                       "description": "Desired evidence or decision.",
                       "type": "string"
+                    },
+                    "languageGlobs": {
+                      "additionalProperties": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "description": "AST parsers by root-relative glob, e.g. {cpp:[\"include/**/*.h\"]}; clangd unaffected.",
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "type": "object"
                     },
                     "limit": {
                       "description": "Result cap applied before pagination.",
@@ -58394,7 +59292,7 @@
                       "type": "integer"
                     },
                     "path": {
-                      "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                      "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                       "type": "string"
                     },
                     "reasoning": {
@@ -58403,7 +59301,7 @@
                       "type": "string"
                     },
                     "rustWorkspace": {
-                      "description": "Use \"cargo\" only when workspace metadata is needed for Rust resolution.",
+                      "description": "\"cargo\" enables Rust workspace metadata.",
                       "enum": [
                         "syntax",
                         "cargo"
@@ -61370,6 +62268,18 @@
                             "minLength": 1,
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "namedOnly": {
                             "type": "boolean"
                           },
@@ -61562,6 +62472,18 @@
                           "includeTests": {
                             "type": "boolean"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -61588,7 +62510,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -61646,6 +62568,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -61672,7 +62606,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -61740,6 +62674,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -61766,7 +62712,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -61834,6 +62780,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -61860,7 +62818,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -61923,6 +62881,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -61949,7 +62919,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -62023,6 +62993,18 @@
                           "includeTests": {
                             "type": "boolean"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -62049,7 +63031,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -62111,6 +63093,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -62137,7 +63131,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -63466,6 +64460,18 @@
                                 "includeTests": {
                                   "type": "boolean"
                                 },
+                                "languageGlobs": {
+                                  "additionalProperties": {
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "type": "array"
+                                  },
+                                  "propertyNames": {
+                                    "type": "string"
+                                  },
+                                  "type": "object"
+                                },
                                 "limit": {
                                   "maximum": 5000,
                                   "minimum": 1,
@@ -63492,7 +64498,7 @@
                                   "type": "integer"
                                 },
                                 "path": {
-                                  "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                                  "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                                   "type": "string"
                                 },
                                 "reasoning": {
@@ -63550,6 +64556,18 @@
                                 "goal": {
                                   "type": "string"
                                 },
+                                "languageGlobs": {
+                                  "additionalProperties": {
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "type": "array"
+                                  },
+                                  "propertyNames": {
+                                    "type": "string"
+                                  },
+                                  "type": "object"
+                                },
                                 "limit": {
                                   "maximum": 5000,
                                   "minimum": 1,
@@ -63576,7 +64594,7 @@
                                   "type": "integer"
                                 },
                                 "path": {
-                                  "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                                  "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                                   "type": "string"
                                 },
                                 "reasoning": {
@@ -63644,6 +64662,18 @@
                                 "goal": {
                                   "type": "string"
                                 },
+                                "languageGlobs": {
+                                  "additionalProperties": {
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "type": "array"
+                                  },
+                                  "propertyNames": {
+                                    "type": "string"
+                                  },
+                                  "type": "object"
+                                },
                                 "limit": {
                                   "maximum": 5000,
                                   "minimum": 1,
@@ -63670,7 +64700,7 @@
                                   "type": "integer"
                                 },
                                 "path": {
-                                  "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                                  "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                                   "type": "string"
                                 },
                                 "reasoning": {
@@ -63738,6 +64768,18 @@
                                 "goal": {
                                   "type": "string"
                                 },
+                                "languageGlobs": {
+                                  "additionalProperties": {
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "type": "array"
+                                  },
+                                  "propertyNames": {
+                                    "type": "string"
+                                  },
+                                  "type": "object"
+                                },
                                 "limit": {
                                   "maximum": 5000,
                                   "minimum": 1,
@@ -63764,7 +64806,7 @@
                                   "type": "integer"
                                 },
                                 "path": {
-                                  "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                                  "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                                   "type": "string"
                                 },
                                 "reasoning": {
@@ -63827,6 +64869,18 @@
                                 "goal": {
                                   "type": "string"
                                 },
+                                "languageGlobs": {
+                                  "additionalProperties": {
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "type": "array"
+                                  },
+                                  "propertyNames": {
+                                    "type": "string"
+                                  },
+                                  "type": "object"
+                                },
                                 "limit": {
                                   "maximum": 5000,
                                   "minimum": 1,
@@ -63853,7 +64907,7 @@
                                   "type": "integer"
                                 },
                                 "path": {
-                                  "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                                  "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                                   "type": "string"
                                 },
                                 "reasoning": {
@@ -63927,6 +64981,18 @@
                                 "includeTests": {
                                   "type": "boolean"
                                 },
+                                "languageGlobs": {
+                                  "additionalProperties": {
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "type": "array"
+                                  },
+                                  "propertyNames": {
+                                    "type": "string"
+                                  },
+                                  "type": "object"
+                                },
                                 "limit": {
                                   "maximum": 5000,
                                   "minimum": 1,
@@ -63953,7 +65019,7 @@
                                   "type": "integer"
                                 },
                                 "path": {
-                                  "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                                  "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                                   "type": "string"
                                 },
                                 "reasoning": {
@@ -64015,6 +65081,18 @@
                                 "goal": {
                                   "type": "string"
                                 },
+                                "languageGlobs": {
+                                  "additionalProperties": {
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "type": "array"
+                                  },
+                                  "propertyNames": {
+                                    "type": "string"
+                                  },
+                                  "type": "object"
+                                },
                                 "limit": {
                                   "maximum": 5000,
                                   "minimum": 1,
@@ -64041,7 +65119,7 @@
                                   "type": "integer"
                                 },
                                 "path": {
-                                  "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                                  "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                                   "type": "string"
                                 },
                                 "reasoning": {
@@ -64850,12 +65928,12 @@
                 "type": "integer"
               },
               "diagnosticSnapshot": {
-                "description": "Diagnostic snapshot from next.nextDiagnostics; detects changes between pages.",
+                "description": "Copy next.nextDiagnostics snapshot.",
                 "pattern": "^[a-f0-9]{64}$",
                 "type": "string"
               },
               "entrypoints": {
-                "description": "Repo-relative file or dynamic asset directory roots; omit to detect package.json main/exports/bin.",
+                "description": "Repo-relative retention roots; omit for package.json defaults.",
                 "items": {
                   "type": "string"
                 },
@@ -64863,7 +65941,7 @@
                 "type": "array"
               },
               "excludeDir": {
-                "description": "Directory names to prune from graph construction.",
+                "description": "Directory names to prune.",
                 "items": {
                   "type": "string"
                 },
@@ -64878,6 +65956,19 @@
                 "default": true,
                 "description": "Disable to exclude tests as retention roots.",
                 "type": "boolean"
+              },
+              "languageGlobs": {
+                "additionalProperties": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "description": "AST parsers by root-relative glob, e.g. {cpp:[\"include/**/*.h\"]}; clangd unaffected.",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
               },
               "limit": {
                 "description": "Result cap applied before pagination.",
@@ -64910,7 +66001,7 @@
                 "type": "integer"
               },
               "path": {
-                "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                 "type": "string"
               },
               "reasoning": {
@@ -64919,7 +66010,7 @@
                 "type": "string"
               },
               "rustWorkspace": {
-                "description": "Use \"cargo\" only when workspace metadata is needed for Rust resolution.",
+                "description": "\"cargo\" enables Rust workspace metadata.",
                 "enum": [
                   "syntax",
                   "cargo"
@@ -64960,12 +66051,12 @@
                 "type": "integer"
               },
               "diagnosticSnapshot": {
-                "description": "Diagnostic snapshot from next.nextDiagnostics; detects changes between pages.",
+                "description": "Copy next.nextDiagnostics snapshot.",
                 "pattern": "^[a-f0-9]{64}$",
                 "type": "string"
               },
               "excludeDir": {
-                "description": "Directory names to prune from graph construction.",
+                "description": "Directory names to prune.",
                 "items": {
                   "type": "string"
                 },
@@ -64975,6 +66066,19 @@
               "goal": {
                 "description": "Desired evidence or decision.",
                 "type": "string"
+              },
+              "languageGlobs": {
+                "additionalProperties": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "description": "AST parsers by root-relative glob, e.g. {cpp:[\"include/**/*.h\"]}; clangd unaffected.",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
               },
               "limit": {
                 "description": "Result cap applied before pagination.",
@@ -65007,7 +66111,7 @@
                 "type": "integer"
               },
               "path": {
-                "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                 "type": "string"
               },
               "reasoning": {
@@ -65016,7 +66120,7 @@
                 "type": "string"
               },
               "rustWorkspace": {
-                "description": "Use \"cargo\" only when workspace metadata is needed for Rust resolution.",
+                "description": "\"cargo\" enables Rust workspace metadata.",
                 "enum": [
                   "syntax",
                   "cargo"
@@ -65065,12 +66169,12 @@
                 "type": "integer"
               },
               "diagnosticSnapshot": {
-                "description": "Diagnostic snapshot from next.nextDiagnostics; detects changes between pages.",
+                "description": "Copy next.nextDiagnostics snapshot.",
                 "pattern": "^[a-f0-9]{64}$",
                 "type": "string"
               },
               "excludeDir": {
-                "description": "Directory names to prune from graph construction.",
+                "description": "Directory names to prune.",
                 "items": {
                   "type": "string"
                 },
@@ -65084,6 +66188,19 @@
               "goal": {
                 "description": "Desired evidence or decision.",
                 "type": "string"
+              },
+              "languageGlobs": {
+                "additionalProperties": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "description": "AST parsers by root-relative glob, e.g. {cpp:[\"include/**/*.h\"]}; clangd unaffected.",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
               },
               "limit": {
                 "description": "Result cap applied before pagination.",
@@ -65116,7 +66233,7 @@
                 "type": "integer"
               },
               "path": {
-                "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                 "type": "string"
               },
               "reasoning": {
@@ -65125,7 +66242,7 @@
                 "type": "string"
               },
               "rustWorkspace": {
-                "description": "Use \"cargo\" only when workspace metadata is needed for Rust resolution.",
+                "description": "\"cargo\" enables Rust workspace metadata.",
                 "enum": [
                   "syntax",
                   "cargo"
@@ -65174,12 +66291,12 @@
                 "type": "integer"
               },
               "diagnosticSnapshot": {
-                "description": "Diagnostic snapshot from next.nextDiagnostics; detects changes between pages.",
+                "description": "Copy next.nextDiagnostics snapshot.",
                 "pattern": "^[a-f0-9]{64}$",
                 "type": "string"
               },
               "excludeDir": {
-                "description": "Directory names to prune from graph construction.",
+                "description": "Directory names to prune.",
                 "items": {
                   "type": "string"
                 },
@@ -65193,6 +66310,19 @@
               "goal": {
                 "description": "Desired evidence or decision.",
                 "type": "string"
+              },
+              "languageGlobs": {
+                "additionalProperties": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "description": "AST parsers by root-relative glob, e.g. {cpp:[\"include/**/*.h\"]}; clangd unaffected.",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
               },
               "limit": {
                 "description": "Result cap applied before pagination.",
@@ -65225,7 +66355,7 @@
                 "type": "integer"
               },
               "path": {
-                "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                 "type": "string"
               },
               "reasoning": {
@@ -65234,7 +66364,7 @@
                 "type": "string"
               },
               "rustWorkspace": {
-                "description": "Use \"cargo\" only when workspace metadata is needed for Rust resolution.",
+                "description": "\"cargo\" enables Rust workspace metadata.",
                 "enum": [
                   "syntax",
                   "cargo"
@@ -65276,12 +66406,12 @@
                 "type": "integer"
               },
               "diagnosticSnapshot": {
-                "description": "Diagnostic snapshot from next.nextDiagnostics; detects changes between pages.",
+                "description": "Copy next.nextDiagnostics snapshot.",
                 "pattern": "^[a-f0-9]{64}$",
                 "type": "string"
               },
               "excludeDir": {
-                "description": "Directory names to prune from graph construction.",
+                "description": "Directory names to prune.",
                 "items": {
                   "type": "string"
                 },
@@ -65295,6 +66425,19 @@
               "goal": {
                 "description": "Desired evidence or decision.",
                 "type": "string"
+              },
+              "languageGlobs": {
+                "additionalProperties": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "description": "AST parsers by root-relative glob, e.g. {cpp:[\"include/**/*.h\"]}; clangd unaffected.",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
               },
               "limit": {
                 "description": "Result cap applied before pagination.",
@@ -65327,7 +66470,7 @@
                 "type": "integer"
               },
               "path": {
-                "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                 "type": "string"
               },
               "reasoning": {
@@ -65336,7 +66479,7 @@
                 "type": "string"
               },
               "rustWorkspace": {
-                "description": "Use \"cargo\" only when workspace metadata is needed for Rust resolution.",
+                "description": "\"cargo\" enables Rust workspace metadata.",
                 "enum": [
                   "syntax",
                   "cargo"
@@ -65383,12 +66526,12 @@
                 "type": "integer"
               },
               "diagnosticSnapshot": {
-                "description": "Diagnostic snapshot from next.nextDiagnostics; detects changes between pages.",
+                "description": "Copy next.nextDiagnostics snapshot.",
                 "pattern": "^[a-f0-9]{64}$",
                 "type": "string"
               },
               "entrypoints": {
-                "description": "Repo-relative file or dynamic asset directory roots; omit to detect package.json main/exports/bin.",
+                "description": "Repo-relative retention roots; omit for package.json defaults.",
                 "items": {
                   "type": "string"
                 },
@@ -65396,7 +66539,7 @@
                 "type": "array"
               },
               "excludeDir": {
-                "description": "Directory names to prune from graph construction.",
+                "description": "Directory names to prune.",
                 "items": {
                   "type": "string"
                 },
@@ -65411,6 +66554,19 @@
                 "default": true,
                 "description": "Disable to exclude tests as retention roots.",
                 "type": "boolean"
+              },
+              "languageGlobs": {
+                "additionalProperties": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "description": "AST parsers by root-relative glob, e.g. {cpp:[\"include/**/*.h\"]}; clangd unaffected.",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
               },
               "limit": {
                 "description": "Result cap applied before pagination.",
@@ -65443,7 +66599,7 @@
                 "type": "integer"
               },
               "path": {
-                "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                 "type": "string"
               },
               "reasoning": {
@@ -65452,7 +66608,7 @@
                 "type": "string"
               },
               "rustWorkspace": {
-                "description": "Use \"cargo\" only when workspace metadata is needed for Rust resolution.",
+                "description": "\"cargo\" enables Rust workspace metadata.",
                 "enum": [
                   "syntax",
                   "cargo"
@@ -65497,12 +66653,12 @@
                 "type": "integer"
               },
               "diagnosticSnapshot": {
-                "description": "Diagnostic snapshot from next.nextDiagnostics; detects changes between pages.",
+                "description": "Copy next.nextDiagnostics snapshot.",
                 "pattern": "^[a-f0-9]{64}$",
                 "type": "string"
               },
               "excludeDir": {
-                "description": "Directory names to prune from graph construction.",
+                "description": "Directory names to prune.",
                 "items": {
                   "type": "string"
                 },
@@ -65512,6 +66668,19 @@
               "goal": {
                 "description": "Desired evidence or decision.",
                 "type": "string"
+              },
+              "languageGlobs": {
+                "additionalProperties": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "description": "AST parsers by root-relative glob, e.g. {cpp:[\"include/**/*.h\"]}; clangd unaffected.",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
               },
               "limit": {
                 "description": "Result cap applied before pagination.",
@@ -65544,7 +66713,7 @@
                 "type": "integer"
               },
               "path": {
-                "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                 "type": "string"
               },
               "reasoning": {
@@ -65553,7 +66722,7 @@
                 "type": "string"
               },
               "rustWorkspace": {
-                "description": "Use \"cargo\" only when workspace metadata is needed for Rust resolution.",
+                "description": "\"cargo\" enables Rust workspace metadata.",
                 "enum": [
                   "syntax",
                   "cargo"
@@ -69277,6 +70446,18 @@
                             "minLength": 1,
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "namedOnly": {
                             "type": "boolean"
                           },
@@ -69469,6 +70650,18 @@
                           "includeTests": {
                             "type": "boolean"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -69495,7 +70688,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -69553,6 +70746,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -69579,7 +70784,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -69647,6 +70852,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -69673,7 +70890,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -69741,6 +70958,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -69767,7 +70996,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -69830,6 +71059,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -69856,7 +71097,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -69930,6 +71171,18 @@
                           "includeTests": {
                             "type": "boolean"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -69956,7 +71209,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -70018,6 +71271,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -70044,7 +71309,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -76829,6 +78094,18 @@
                             "minLength": 1,
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "namedOnly": {
                             "type": "boolean"
                           },
@@ -77021,6 +78298,18 @@
                           "includeTests": {
                             "type": "boolean"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -77047,7 +78336,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -77105,6 +78394,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -77131,7 +78432,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -77199,6 +78500,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -77225,7 +78538,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -77293,6 +78606,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -77319,7 +78644,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -77382,6 +78707,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -77408,7 +78745,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -77482,6 +78819,18 @@
                           "includeTests": {
                             "type": "boolean"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -77508,7 +78857,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -77570,6 +78919,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -77596,7 +78957,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -84054,6 +85415,18 @@
                             "minLength": 1,
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "namedOnly": {
                             "type": "boolean"
                           },
@@ -84246,6 +85619,18 @@
                           "includeTests": {
                             "type": "boolean"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -84272,7 +85657,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -84330,6 +85715,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -84356,7 +85753,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -84424,6 +85821,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -84450,7 +85859,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -84518,6 +85927,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -84544,7 +85965,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -84607,6 +86028,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -84633,7 +86066,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -84707,6 +86140,18 @@
                           "includeTests": {
                             "type": "boolean"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -84733,7 +86178,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {
@@ -84795,6 +86240,18 @@
                           "goal": {
                             "type": "string"
                           },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
                           "limit": {
                             "maximum": 5000,
                             "minimum": 1,
@@ -84821,7 +86278,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Absolute repository or package root to scan. May be omitted only when an absolute file, target, or entrypoint lets Octocode infer the root.",
+                            "description": "Absolute scan root; omit when an absolute file, target, or entrypoint implies it.",
                             "type": "string"
                           },
                           "reasoning": {

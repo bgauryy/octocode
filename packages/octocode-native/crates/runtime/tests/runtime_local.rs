@@ -451,6 +451,36 @@ async fn lsp_search_returns_a_typed_row_when_no_server_is_configured() {
 }
 
 #[tokio::test]
+async fn local_fetch_denial_echoes_the_relative_request_not_an_expanded_prefix() {
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[]);
+    let outcome = call(
+        &runtime,
+        "localFetch",
+        json!({"path": "../../octocode-outside-probe.txt"}),
+    )
+    .await
+    .expect("typed denial row");
+    assert_eq!(row_status(&outcome), "error");
+    let error = row_data(&outcome)["error"]
+        .as_str()
+        .expect("error")
+        .to_owned();
+    let denied_path = error.split(" is outside").next().unwrap_or_default();
+    assert_eq!(
+        denied_path, "Path '../../octocode-outside-probe.txt'",
+        "{error}"
+    );
+    let crate_dir = env!("CARGO_MANIFEST_DIR");
+    let parent = std::path::Path::new(crate_dir)
+        .parent()
+        .and_then(std::path::Path::parent)
+        .expect("crate grandparent");
+    assert!(!denied_path.contains(&*parent.to_string_lossy()), "{error}");
+    runtime.close().await;
+}
+
+#[tokio::test]
 async fn lsp_search_rejects_files_outside_allowed_roots_before_server_discovery() {
     let workspace = Workspace::new();
     let outside = workspace.write_outside_allowed_roots("secret.rs", "pub fn secret() {}\n");

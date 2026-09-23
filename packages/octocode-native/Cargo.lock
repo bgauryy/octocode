@@ -2012,6 +2012,7 @@ dependencies = [
  "ast-grep-config",
  "ast-grep-core",
  "criterion",
+ "globset",
  "grep-matcher",
  "grep-pcre2",
  "grep-regex",

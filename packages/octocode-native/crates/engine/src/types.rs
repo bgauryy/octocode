@@ -430,6 +430,14 @@ pub struct GraphFactsScanOptions {
     pub exclude_dir: Option<Vec<String>>,
     pub max_files: Option<u32>,
     pub max_file_bytes: Option<u32>,
+    pub language_globs: Option<Vec<GraphLanguageGlob>>,
+}
+
+#[cfg_attr(feature = "napi-addon", napi(object))]
+#[derive(Debug, Clone)]
+pub struct GraphLanguageGlob {
+    pub language: String,
+    pub glob: String,
 }
 
 #[cfg_attr(feature = "napi-addon", napi(object))]

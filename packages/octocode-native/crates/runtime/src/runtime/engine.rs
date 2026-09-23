@@ -3,10 +3,7 @@ use crate::config::{self, ConfigInput, ConfigOutput, RuntimeSurface};
 use crate::contracts::{self, PrepareOptions};
 use crate::policy::path::{PathPolicy, PathPolicyConfig};
 use crate::regex::{IsolatedRegexEngine, IsolatedRegexLimits};
-use crate::response::{
-    PreparedResponse, ResponseInput, ResponsePageOptions, ResponsePager, ResponsePagerConfig,
-    TextContent,
-};
+use crate::response::{PreparedResponse, ResponsePageOptions, TextContent};
 use crate::security::{ContentSecurity, SecurityRegistry};
 use crate::tools::id::{ToolFamily, ToolId};
 use crate::tools::local_fetch::{CancellationCheck, LocalFetchRegex};
@@ -131,22 +128,6 @@ fn merge_rejected_rows(
     }
 }
 
-/// Repair malformed result rows before either response channel is rendered.
-/// Envelope violations remain fatal so pagination never snapshots invalid data.
-fn isolate_output_rows(
-    tool: &str,
-    structured: &mut Value,
-) -> Result<bool, contracts::ContractValidationError> {
-    let Err(error) = contracts::validate_output(tool, structured) else {
-        return Ok(false);
-    };
-    let Some(patched) = contracts::isolate_row_violations(tool, structured, &error) else {
-        return Err(error);
-    };
-    *structured = patched;
-    Ok(true)
-}
-
 fn output_contract_error(tool: &str, error: contracts::ContractValidationError) -> RuntimeError {
     let details = error
         .issues
@@ -162,17 +143,6 @@ fn output_contract_error(tool: &str, error: contracts::ContractValidationError) 
         payload: None,
         validation_issues: Some(error.issues),
     }
-}
-
-fn response_all_failed(structured: &Value) -> bool {
-    structured
-        .get("results")
-        .or_else(|| structured.get("queries"))
-        .and_then(Value::as_array)
-        .is_some_and(|rows| {
-            rows.iter()
-                .all(|row| row.get("status").and_then(Value::as_str) == Some("error"))
-        })
 }
 
 fn mcp_result(result: ToolOutcome) -> Result<Value, RuntimeError> {
@@ -908,152 +878,31 @@ impl ToolRuntime {
                         }
                     }
                 }
-                // Validate the complete, sanitized rows before deriving text,
-                // error state, or a pagination snapshot from them.
-                let repaired = match isolate_output_rows(&tool, &mut structured) {
-                    Ok(repaired) => repaired,
-                    Err(error) => return Ok(Err(error)),
-                };
-                if repaired && failure.is_none() {
-                    failure = Some(FailureKind::Execution);
-                }
-                let all_failed = response_all_failed(&structured);
-                let is_clasify_output = tool == "clasify";
-                // Continuations replay through validation, which restores
-                // defaults; emit only the fields that change the replay.
-                // clasify receipts carry scoped nested queries; leave them whole.
-                if !is_clasify_output {
-                    super::continuations::compact_continuations(&mut structured);
-                }
-                context.check()?;
-                let render = options.render_text.unwrap_or(mcp)
-                    || failure.is_some()
-                    || options.response_char_length.is_some()
-                    || options.response_char_offset.is_some()
-                    || options.response_snapshot.is_some();
-                let rendered_text =
-                    render.then(|| super::render::render_tool(&tool, &structured, &response_query));
-                context.check()?;
-                let mut options = options;
-                // clasify pages at the evidence level (next.clasify); replay
-                // would re-run inference, so it never auto-paginates.
-                // Model-scored rerank output is nondeterministic too: a page
-                // replay would re-score and never match the snapshot.
-                if !is_clasify_output
-                    && !super::semantic_rerank::has_requests(&semantic_rerank_specs)
-                {
-                    options.auto_paginate(rendered_text.as_deref(), &structured, auto_page_chars);
-                }
-                // The pager uses this query only to build responsePagination.next.
-                let mut response_query = response_query;
-                if !is_clasify_output {
-                    super::continuations::compact_input(&tool, &mut response_query);
-                }
-                let prepared = ResponsePager::new(ResponsePagerConfig::default())
-                    .prepare(
-                        ResponseInput {
-                            tool,
-                            query: response_query,
-                            structured,
-                            rendered_text,
-                            is_error: all_failed,
-                            options,
-                        },
-                        &std::sync::atomic::AtomicBool::new(context.cancellation.is_cancelled()),
-                    )
-                    .map_err(|_| ExecutionError::WorkerFailed)?;
-                // Stamp cursor tokens on the final envelope, which now includes
-                // responsePagination.next added by the pager.
-                let mut structured_content = prepared.structured_content;
-                // Clasify receipts retain executable tool/query pairs. Their tool
-                // scopes differ from the outer clasify request's cursor scope.
-                if !is_clasify_output {
-                    inject_cursors(&mut structured_content, &cursor_scope, &source_digests);
-                }
-                context.check()?;
-                Ok(Ok(ToolOutcome {
-                    structured_content,
-                    content: prepared.content,
-                    source_digest,
-                    failure,
-                    all_failed,
-                }))
+                super::response_stage::finish(
+                    super::response_stage::StageInput {
+                        tool,
+                        structured,
+                        response_query,
+                        options,
+                        mcp,
+                        failure,
+                        auto_page_chars,
+                        // Model-scored rerank output is nondeterministic: a page
+                        // replay would re-score and never match the snapshot.
+                        allow_auto_paging: !super::semantic_rerank::has_requests(
+                            &semantic_rerank_specs,
+                        ),
+                        cursor_scope: &cursor_scope,
+                        source_digests: &source_digests,
+                        source_digest,
+                    },
+                    &context,
+                )
             })
             .await
             .map_err(runtime_execution_error)?
             .map_err(|error| output_contract_error(&output_tool, error))?;
-        // Cursor insertion and page shaping also cross the public contract.
-        // They must validate, but must not mutate an already-rendered response.
-        contracts::validate_output(&output_tool, &outcome.structured_content)
-            .map_err(|error| output_contract_error(&output_tool, error))?;
         Ok(outcome)
-    }
-}
-
-fn inject_cursors(value: &mut Value, scope: &str, source_digests: &[Option<String>]) {
-    inject_cursors_inner(value, scope, false, source_digests, None);
-}
-
-fn inject_cursors_inner<'a>(
-    value: &mut Value,
-    scope: &str,
-    inside_next: bool,
-    source_digests: &'a [Option<String>],
-    row_source_digest: Option<&'a str>,
-) {
-    match value {
-        Value::Array(arr) => {
-            for child in arr.iter_mut() {
-                inject_cursors_inner(child, scope, inside_next, source_digests, row_source_digest);
-            }
-        }
-        Value::Object(map) => {
-            let row_source_digest = map
-                .get("index")
-                .and_then(Value::as_u64)
-                .and_then(|index| source_digests.get(index as usize))
-                .and_then(Option::as_deref)
-                .or(row_source_digest);
-            if let (true, Some(tool_str), Some(query_val)) = (
-                inside_next && !map.contains_key("cursor"),
-                map.get("tool").and_then(Value::as_str),
-                map.get("query").filter(|v| v.is_object()),
-            ) {
-                // A cursor re-encodes the whole query (~1 KB), and replaying
-                // `query` ignores it, so emit one only where it adds a check the
-                // query lacks: localFetch source-change detection. localSearch
-                // queries carry `snapshot`, which replay already verifies.
-                // `{cursor}` resume stays accepted for older callers.
-                let token = (tool_str == "localFetch")
-                    .then_some(row_source_digest)
-                    .flatten()
-                    .and_then(|digest| {
-                        super::cursor::ReadCursor::create(
-                            tool_str,
-                            query_val.clone(),
-                            digest.to_owned(),
-                            scope.to_owned(),
-                        )
-                        .ok()
-                    });
-                if let Some(token) = token {
-                    map.insert("cursor".into(), Value::String(token));
-                }
-            }
-            let keys: Vec<String> = map.keys().cloned().collect();
-            for key in keys {
-                if let Some(child) = map.get_mut(&key) {
-                    inject_cursors_inner(
-                        child,
-                        scope,
-                        inside_next || key == "next",
-                        source_digests,
-                        row_source_digest,
-                    );
-                }
-            }
-        }
-        _ => {}
     }
 }
 
@@ -1091,6 +940,7 @@ impl CancellationCheck for ExecutionContext {
 
 #[cfg(test)]
 mod output_recovery_tests {
+    use super::super::response_stage::{isolate_output_rows, response_all_failed};
     use super::*;
 
     fn mcp_from_rows(mut structured: Value) -> Value {
@@ -1165,6 +1015,7 @@ mod output_recovery_tests {
 
 #[cfg(test)]
 mod cursor_tests {
+    use super::super::response_stage::inject_cursors;
     use super::*;
     use crate::policy::path::PathPolicyConfig;
     use sha2::{Digest, Sha256};

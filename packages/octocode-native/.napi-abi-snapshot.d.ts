@@ -434,6 +434,7 @@ export interface GraphFactsScanOptions {
   excludeDir?: Array<string>
   maxFiles?: number
   maxFileBytes?: number
+  languageGlobs?: Array<GraphLanguageGlob>
 }
 
 export interface GraphFactsScanResult {
@@ -443,6 +444,11 @@ export interface GraphFactsScanResult {
   candidatePaths: Array<string>
   filesSkipped: number
   truncated: boolean
+}
+
+export interface GraphLanguageGlob {
+  language: string
+  glob: string
 }
 
 export interface GraphReferenceCount {

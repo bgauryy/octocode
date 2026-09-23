@@ -29,6 +29,7 @@ pub use policy::{
 
 use std::{fs, io::Read, path::Path};
 
+use globset::Glob;
 use rayon::prelude::*;
 
 use crate::types::{
@@ -42,6 +43,35 @@ const DEFAULT_MAX_FILE_BYTES: u32 = 1_000_000;
 enum GraphFactsScanOutcome {
     Entry(Box<GraphFactsTypedEntry>),
     Skipped(GraphFactsScanDiagnostic),
+}
+
+fn parser_overrides(
+    rules: Option<&[crate::types::GraphLanguageGlob]>,
+) -> Result<Vec<(String, globset::GlobMatcher)>, String> {
+    if rules.unwrap_or_default().len() > 400 {
+        return Err("[ast.language.invalidGlob] languageGlobs exceeds 400 patterns".into());
+    }
+    rules.unwrap_or_default().iter().map(|rule| {
+        if rule.glob.len() > 256 || rule.glob.is_empty() {
+            return Err("[ast.language.invalidGlob] glob must contain 1-256 characters".into());
+        }
+        let selector = rule.language.to_ascii_lowercase();
+        let entries: Vec<_> = crate::signatures::languages::all_entries().iter().filter(|entry| {
+            entry.name.eq_ignore_ascii_case(&selector)
+                || entry.language_id.is_some_and(|id| id.eq_ignore_ascii_case(&selector))
+                || entry.extensions.iter().any(|ext| ext.eq_ignore_ascii_case(&selector))
+        }).collect();
+        if entries.len() != 1 {
+            return Err(format!("[ast.language.unsupported] languageGlobs key {:?} must select one registered grammar", rule.language));
+        }
+        let extension = entries[0].extensions.first().ok_or_else(||
+            format!("[ast.language.unsupported] {:?} has no source extension", rule.language)
+        )?;
+        let matcher = Glob::new(&rule.glob).map_err(|error|
+            format!("[ast.language.invalidGlob] {:?}: {error}", rule.glob)
+        )?.compile_matcher();
+        Ok(((*extension).to_owned(), matcher))
+    }).collect()
 }
 
 fn skipped(relative_path: String, code: &str, message: &str) -> GraphFactsScanOutcome {
@@ -90,6 +120,7 @@ pub(crate) fn scan_graph_facts_typed_filtered(
     options: GraphFactsScanOptions,
     allow_path: &(dyn Fn(&Path) -> Result<bool, String> + Sync),
 ) -> Result<GraphFactsTypedScanResult, String> {
+    let overrides = parser_overrides(options.language_globs.as_deref())?;
     let max_files = options.max_files.unwrap_or(DEFAULT_MAX_FILES);
     let max_file_bytes = options.max_file_bytes.unwrap_or(DEFAULT_MAX_FILE_BYTES) as i64;
     let query = crate::search::fs_query::query_file_system_filtered_inner(
@@ -159,10 +190,27 @@ pub(crate) fn scan_graph_facts_typed_filtered(
             if !allow_path(path)? {
                 return Ok(None);
             }
-            let Some(extraction) = crate::signatures::extract_graph_facts_with_metadata_inner(
-                &content,
-                &relative_path,
-            ) else {
+            let selected = overrides
+                .iter()
+                .filter(|(_, matcher)| matcher.is_match(&relative_path))
+                .map(|(extension, _)| extension.as_str())
+                .collect::<std::collections::BTreeSet<_>>();
+            if selected.len() > 1 {
+                return outcome(
+                    "graph.scan.ambiguousParser",
+                    "languageGlobs matched this path with more than one parser",
+                );
+            }
+            let extraction = if let Some(extension) = selected.iter().next() {
+                crate::signatures::graph_facts::extract_graph_facts_with_metadata_with_extension(
+                    &content,
+                    &relative_path,
+                    extension,
+                )
+            } else {
+                crate::signatures::extract_graph_facts_with_metadata_inner(&content, &relative_path)
+            };
+            let Some(extraction) = extraction else {
                 return outcome(
                     "graph.scan.extractFailed",
                     "native graph-fact extraction returned no result",
@@ -292,6 +340,74 @@ mod tests {
         assert_eq!(result.entries[0].reference_counts[0].count, 2);
         assert!(!result.truncated);
         fs::remove_dir_all(root).expect("cleanup fixture");
+    }
+
+    #[cfg(feature = "tree-sitter-cpp")]
+    #[test]
+    fn path_scoped_cpp_header_override_changes_only_matching_headers() {
+        let root =
+            std::env::temp_dir().join(format!("octocode-header-globs-{}", std::process::id()));
+        fs::create_dir_all(root.join("include")).expect("create include fixture");
+        fs::create_dir_all(root.join("legacy")).expect("create legacy fixture");
+        fs::write(
+            root.join("include/widget.h"),
+            "namespace Space { class Widget {}; }\n",
+        )
+        .expect("write C++ header");
+        fs::write(root.join("legacy/plain.h"), "struct Plain { int x; };\n")
+            .expect("write C header");
+        let result = scan_graph_facts(GraphFactsScanOptions {
+            path: path_string(&root),
+            language_globs: Some(vec![crate::types::GraphLanguageGlob {
+                language: "cpp".into(),
+                glob: "include/**/*.h".into(),
+            }]),
+            ..Default::default()
+        })
+        .expect("scan with parser map");
+        assert_eq!(result.entries.len(), 2);
+        let cpp: serde_json::Value = serde_json::from_str(
+            &result
+                .entries
+                .iter()
+                .find(|entry| entry.relative_path == "include/widget.h")
+                .expect("cpp header")
+                .facts_json,
+        )
+        .expect("cpp facts");
+        let c: serde_json::Value = serde_json::from_str(
+            &result
+                .entries
+                .iter()
+                .find(|entry| entry.relative_path == "legacy/plain.h")
+                .expect("c header")
+                .facts_json,
+        )
+        .expect("c facts");
+        assert!(
+            cpp["declarations"]
+                .as_array()
+                .is_some_and(|rows| rows.iter().any(|row| row["name"] == "Widget"))
+        );
+        assert!(
+            c["declarations"]
+                .as_array()
+                .is_some_and(|rows| rows.iter().any(|row| row["name"] == "Plain"))
+        );
+    }
+
+    #[test]
+    fn malformed_parser_glob_fails_before_scanning_files() {
+        let error = scan_graph_facts(GraphFactsScanOptions {
+            path: "/nonexistent".into(),
+            language_globs: Some(vec![crate::types::GraphLanguageGlob {
+                language: "cpp".into(),
+                glob: "[".into(),
+            }]),
+            ..Default::default()
+        })
+        .expect_err("malformed glob");
+        assert!(error.starts_with("[ast.language.invalidGlob]"), "{error}");
     }
 
     #[test]

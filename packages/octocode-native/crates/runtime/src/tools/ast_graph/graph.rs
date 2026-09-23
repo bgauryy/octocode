@@ -2,7 +2,7 @@ use super::types::*;
 use crate::{
     policy::path::PathPolicy, security::ContentSecurity, tools::local_fetch::CancellationCheck,
 };
-use octocode_engine::types::GraphFactsScanOptions;
+use octocode_engine::types::{GraphFactsScanOptions, GraphLanguageGlob};
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::{Component, Path, PathBuf},
@@ -48,6 +48,16 @@ pub(crate) fn build_graph(
             exclude_dir: Some(exclude),
             max_files: Some(max_files),
             max_file_bytes: Some(1_000_000),
+            language_globs: q.language_globs.as_ref().map(|map| {
+                map.iter()
+                    .flat_map(|(language, globs)| {
+                        globs.iter().map(|glob| GraphLanguageGlob {
+                            language: language.clone(),
+                            glob: glob.clone(),
+                        })
+                    })
+                    .collect()
+            }),
         },
         &|path| {
             cancel
@@ -58,7 +68,11 @@ pub(crate) fn build_graph(
     )
     .map_err(|e| {
         let message = e.to_string();
-        let code = if message.starts_with("[ast.execution.cancelled]") {
+        let code = if message.starts_with("[ast.language.unsupported]") {
+            "ast.language.unsupported"
+        } else if message.starts_with("[ast.language.invalidGlob]") {
+            "ast.language.invalidGlob"
+        } else if message.starts_with("[ast.execution.cancelled]") {
             "ast.cancelled"
         } else {
             "ast.graph.scanFailed"

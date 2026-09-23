@@ -1,9 +1,10 @@
 use crate::{
     policy::path::PathPolicy, security::ContentSecurity, tools::local_fetch::CancellationCheck,
 };
-use octocode_engine::types::GraphFactsScanOptions;
+use octocode_engine::types::{GraphFactsScanOptions, GraphLanguageGlob};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AstSymbolsQuery {
@@ -13,6 +14,7 @@ pub struct AstSymbolsQuery {
     pub operation: String,
     pub path: String,
     pub lang_type: Option<String>,
+    pub language_globs: Option<BTreeMap<String, Vec<String>>>,
     pub name: Option<String>,
     pub kinds: Option<Vec<String>>,
     pub exclude_dir: Option<Vec<String>>,
@@ -79,6 +81,12 @@ pub fn execute_symbols(
     }
     let p = paths.validate(&q.path).map_err(super::AstError::from)?;
     let meta = std::fs::metadata(&p.canonical).map_err(super::io_error)?;
+    if meta.is_file() && q.language_globs.is_some() {
+        return Err(super::AstError::new(
+            "ast.language.directoryRequired",
+            "languageGlobs is for directory symbols. Use langType for a single file.",
+        ));
+    }
     if meta.is_file() {
         super::validate_file_language(&p.canonical, q.lang_type.as_deref())?;
     } else if q.lang_type.is_some() {
@@ -130,6 +138,16 @@ pub fn execute_symbols(
                 exclude_dir: q.exclude_dir.clone(),
                 max_files: Some(q.max_files.unwrap_or(2000)),
                 max_file_bytes: Some(1_000_000),
+                language_globs: q.language_globs.as_ref().map(|map| {
+                    map.iter()
+                        .flat_map(|(language, globs)| {
+                            globs.iter().map(|glob| GraphLanguageGlob {
+                                language: language.clone(),
+                                glob: glob.clone(),
+                            })
+                        })
+                        .collect()
+                }),
             },
             &|path| super::allow_discovery(path, paths, cancel),
         )
@@ -197,6 +215,7 @@ pub fn execute_symbols(
     let snapshot = super::syntax::digest(&json!([
         q.path,
         q.lang_type,
+        q.language_globs,
         q.name,
         q.kinds,
         q.exclude_dir,

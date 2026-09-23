@@ -47,6 +47,7 @@ pub struct AstGraphQuery {
     pub entrypoints: Option<Vec<String>>,
     pub include_tests: Option<bool>,
     pub exclude_dir: Option<Vec<String>>,
+    pub language_globs: Option<BTreeMap<String, Vec<String>>>,
     pub max_files: Option<u32>,
     pub limit: Option<u32>,
     #[serde(default = "one")]

@@ -217,6 +217,40 @@ mod drift_tests {
     }
 
     #[test]
+    fn topology_passes_path_scoped_header_parser_to_the_shared_scan() {
+        let root = std::env::temp_dir().join(format!(
+            "octocode-topology-header-glob-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(root.join("include")).expect("fixture directory");
+        std::fs::write(
+            root.join("include/widget.h"),
+            "namespace Space { class Widget {}; }\n",
+        )
+        .expect("fixture header");
+        let paths = PathPolicy::new(PathPolicyConfig {
+            workspace_root: Some(root.clone()),
+            ..Default::default()
+        })
+        .expect("paths");
+        let security = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+        let query: AstGraphQuery = serde_json::from_value(json!({"operation":"topology","analysis":"dependencies","path":root,"file":"include/widget.h","languageGlobs":{"cpp":["include/**/*.h"]}})).expect("query");
+        let built = graph::build_graph(&query, &paths, &security, &Active).expect("graph");
+        assert!(
+            built
+                .facts
+                .get("include/widget.h")
+                .is_some_and(|facts| facts
+                    .declarations
+                    .iter()
+                    .any(|declaration| declaration.name == "Widget")),
+            "{built:?}"
+        );
+        let public = execute_topology(&query, &paths, &security, &Active).expect("public topology");
+        assert!(public.is_object());
+    }
+
+    #[test]
     fn drift_reports_resolved_cycle_and_removed_relation_between_two_roots() {
         let temp = tempfile::TempDir::new().expect("temp");
         let root = temp.path();

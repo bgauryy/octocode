@@ -639,6 +639,33 @@ fn cpp_header_can_use_explicit_cpp_grammar_without_changing_h_default() {
 }
 
 #[test]
+fn directory_symbols_use_path_scoped_header_parser_and_preserve_it_in_next_page() {
+    let root = Fixture::new();
+    std::fs::create_dir_all(root.0.join("include")).expect("include directory");
+    std::fs::create_dir_all(root.0.join("legacy")).expect("legacy directory");
+    std::fs::write(
+        root.0.join("include/widget.h"),
+        "namespace Space { class Widget {}; }\n",
+    )
+    .expect("cpp header");
+    std::fs::write(root.0.join("legacy/plain.h"), "struct Plain { int x; };\n").expect("c header");
+    let result = run(&root.0, json!({"operation":"symbols","path":root.0,"languageGlobs":{"cpp":["include/**/*.h"]},"pageSize":1})).expect("directory symbols");
+    assert_eq!(result["filesScanned"], 2, "{result}");
+    assert_eq!(
+        result["next"]["nextPage"]["query"]["languageGlobs"]["cpp"][0],
+        "include/**/*.h"
+    );
+    let next_query = result["next"]["nextPage"]["query"].clone();
+    let next = run(&root.0, next_query).expect("next page");
+    let names = [
+        result["declarations"][0]["name"].as_str().unwrap_or(""),
+        next["declarations"][0]["name"].as_str().unwrap_or(""),
+    ];
+    assert!(names.contains(&"Widget"), "{result} {next}");
+    assert!(names.contains(&"Plain"), "{result} {next}");
+}
+
+#[test]
 fn match_content_length_bounds_each_match_value() {
     let root = Fixture::new();
     let source = root.0.join("long.rs");

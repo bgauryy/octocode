@@ -989,6 +989,33 @@ fn collect_files_filtered(
     max_depth: Option<u32>,
     allow_path: &(dyn Fn(&Path) -> Result<bool, String> + Sync),
 ) -> Result<Vec<PathBuf>, String> {
+    collect_files_filtered_by(
+        root,
+        overrides,
+        exclude_dir,
+        max_files,
+        supported_only,
+        hidden,
+        no_ignore,
+        max_depth,
+        allow_path,
+        &|_| true,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn collect_files_filtered_by(
+    root: &Path,
+    overrides: Override,
+    exclude_dir: &[String],
+    max_files: usize,
+    supported_only: bool,
+    hidden: Option<bool>,
+    no_ignore: Option<bool>,
+    max_depth: Option<u32>,
+    allow_path: &(dyn Fn(&Path) -> Result<bool, String> + Sync),
+    accept_file: &dyn Fn(&Path) -> bool,
+) -> Result<Vec<PathBuf>, String> {
     if !allow_path(root)? {
         return Err("Structural search root is denied by path policy".to_owned());
     }
@@ -1000,11 +1027,13 @@ fn collect_files_filtered(
     })?;
 
     if metadata.is_file() {
-        return Ok(if file_is_candidate(root, &overrides, supported_only) {
-            vec![root.to_path_buf()]
-        } else {
-            Vec::new()
-        });
+        return Ok(
+            if file_is_candidate(root, &overrides, supported_only) && accept_file(root) {
+                vec![root.to_path_buf()]
+            } else {
+                Vec::new()
+            },
+        );
     }
     if !metadata.is_dir() {
         return Ok(Vec::new());
@@ -1046,8 +1075,10 @@ fn collect_files_filtered(
             continue;
         }
         let path = entry.into_path();
-        if !supported_only
-            || extension_for_path(&path).is_some_and(|ext| languages::find_entry(&ext).is_some())
+        if accept_file(&path)
+            && (!supported_only
+                || extension_for_path(&path)
+                    .is_some_and(|ext| languages::find_entry(&ext).is_some()))
         {
             out.push(path);
         }
@@ -1143,8 +1174,9 @@ pub fn rewrite_files(
     let selector = rule_config
         .get("language")
         .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| "[structural.rewrite.invalid] language is required".to_owned())?;
-    let extensions = super::rewrite::rewrite_language_extensions(selector)
+        .ok_or_else(|| "[structural.rewrite.invalid] language is required".to_owned())?
+        .to_owned();
+    let extensions = super::rewrite::rewrite_language_extensions(&selector)
         .ok_or_else(|| format!("[structural.rewrite.invalid] {selector} is not supported"))?;
 
     let include = options.include.unwrap_or_default();
@@ -1157,7 +1189,7 @@ pub fn rewrite_files(
 
     let overrides = build_overrides(&root, &include, &exclude)?;
     let is_single_file = root.is_file();
-    let candidate_files = collect_files_filtered(
+    let candidate_files = collect_files_filtered_by(
         &root,
         overrides,
         &exclude_dir,
@@ -1166,11 +1198,11 @@ pub fn rewrite_files(
         options.hidden,
         options.no_ignore,
         options.max_depth,
+        &|_| Ok(true),
         &|path| {
-            Ok(is_single_file
-                || path.is_dir()
+            is_single_file
                 || extension_for_path(path)
-                    .is_some_and(|extension| extensions.contains(extension.as_str())))
+                    .is_some_and(|extension| extensions.contains(extension.as_str()))
         },
     )?;
     // `collect_files` was asked for `max_files + 1`; if it returned more than
@@ -1203,7 +1235,24 @@ pub fn rewrite_files(
                 skipped_binary.fetch_add(1, Ordering::Relaxed);
                 return None;
             };
-            match super::rewrite::rewrite(&content, (*rule_config).clone()) {
+            let mut file_rule = (*rule_config).clone();
+            if !is_single_file {
+                let parser = match extension_for_path(path) {
+                    Some(extension)
+                        if extension == "h"
+                            && (selector.eq_ignore_ascii_case("cpp")
+                                || selector.eq_ignore_ascii_case("c++")) =>
+                    {
+                        "cpp".to_owned()
+                    }
+                    Some(extension) => extension,
+                    None => selector.to_owned(),
+                };
+                if let Some(config) = file_rule.as_object_mut() {
+                    config.insert("language".to_owned(), serde_json::json!(parser));
+                }
+            }
+            match super::rewrite::rewrite(&content, file_rule) {
                 Ok(matches) if matches.is_empty() => None,
                 Ok(matches) => Some(StructuralRewriteFileResult {
                     path: path.to_string_lossy().into_owned(),
@@ -1271,6 +1320,42 @@ mod rewrite_coverage_tests {
         );
         assert_eq!(result.files.len(), 1);
         assert!(result.files[0].path.ends_with("widget.h"));
+    }
+
+    #[test]
+    fn family_rewrite_uses_each_files_registered_parser() {
+        let root = std::env::temp_dir().join(format!(
+            "octocode-rewrite-tsx-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|duration| duration.as_nanos())
+                .unwrap_or(0)
+        ));
+        fs::create_dir_all(&root).expect("fixture root");
+        fs::write(root.join("widget.tsx"), "const widget = <Old />;\n").expect("TSX source");
+        let options = crate::structural::StructuralRewriteFilesOptions {
+            path: root.to_string_lossy().into_owned(),
+            rule_config_json: serde_json::json!({
+                "id":"octocode-inline-rewrite",
+                "language":"typescript",
+                "rule":{"pattern":"<Old />"},
+                "fix":"<New />"
+            })
+            .to_string(),
+            include: None,
+            exclude: None,
+            exclude_dir: None,
+            hidden: Some(false),
+            no_ignore: Some(false),
+            max_depth: None,
+            max_files: Some(10),
+            max_file_bytes: Some(1_000_000),
+        };
+        let result = rewrite_files(options).expect("rewrite files");
+        let _ = fs::remove_dir_all(&root);
+        assert_eq!(result.files.len(), 1);
+        assert!(result.files[0].path.ends_with("widget.tsx"));
     }
 
     // Regression: a rewrite over a dir containing a non-UTF8 candidate file must
