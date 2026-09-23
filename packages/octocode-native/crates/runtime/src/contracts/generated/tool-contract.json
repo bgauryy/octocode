@@ -1,6 +1,6 @@
 {
   "contractFormatVersion": 2,
-  "fingerprint": "3884f4d698a2abe0e8505c03617440c727ef963b1678c90b57cb33aca69cfe0d",
+  "fingerprint": "be716f565d5ed367e1cc08f74a50acbca5ded0f5a47123071cd7b00fd7151033",
   "tools": [
     {
       "defaults": [
@@ -5876,7 +5876,7 @@
                             "type": "string"
                           },
                           "pattern": {
-                            "description": "ast-grep pattern with $VARS.",
+                            "description": "Complete ast-grep node with $VARS (keep `;`).",
                             "minLength": 1,
                             "pattern": "\\S",
                             "type": "string"
@@ -10136,7 +10136,7 @@
                   "type": "string"
                 },
                 "matchString": {
-                  "description": "Literal by default; regex when enabled. Selects from full redacted source and merges overlapping windows before paging.",
+                  "description": "Literal by default; regex when enabled. Selects from full redacted source and merges overlapping windows before paging; a `... [lines A-B omitted] ...` line separates non-adjacent windows.",
                   "minLength": 1,
                   "type": "string"
                 },
@@ -12793,7 +12793,7 @@
                             "type": "string"
                           },
                           "pattern": {
-                            "description": "ast-grep pattern with $VARS.",
+                            "description": "Complete ast-grep node with $VARS (keep `;`).",
                             "minLength": 1,
                             "pattern": "\\S",
                             "type": "string"
@@ -16206,7 +16206,7 @@
             "type": "string"
           },
           "matchString": {
-            "description": "Literal by default; regex when enabled. Selects from full redacted source and merges overlapping windows before paging.",
+            "description": "Literal by default; regex when enabled. Selects from full redacted source and merges overlapping windows before paging; a `... [lines A-B omitted] ...` line separates non-adjacent windows.",
             "minLength": 1,
             "type": "string"
           },
@@ -19427,7 +19427,7 @@
                             "type": "string"
                           },
                           "pattern": {
-                            "description": "ast-grep pattern with $VARS.",
+                            "description": "Complete ast-grep node with $VARS (keep `;`).",
                             "minLength": 1,
                             "pattern": "\\S",
                             "type": "string"
@@ -26823,7 +26823,7 @@
                             "type": "string"
                           },
                           "pattern": {
-                            "description": "ast-grep pattern with $VARS.",
+                            "description": "Complete ast-grep node with $VARS (keep `;`).",
                             "minLength": 1,
                             "pattern": "\\S",
                             "type": "string"
@@ -31993,7 +31993,7 @@
                       "type": "string"
                     },
                     "keywords": {
-                      "description": "Capability terms for discovery; exclusive with packageName. PyPI does not support discovery.",
+                      "description": "Capability terms for discovery; exclusive with packageName. PyPI does not support discovery; npm totals are fuzzy relevance counts.",
                       "items": {
                         "minLength": 1,
                         "type": "string"
@@ -32094,7 +32094,7 @@
                       "type": "string"
                     },
                     "keywords": {
-                      "description": "Capability terms for discovery; exclusive with packageName. PyPI does not support discovery.",
+                      "description": "Capability terms for discovery; exclusive with packageName. PyPI does not support discovery; npm totals are fuzzy relevance counts.",
                       "items": {
                         "minLength": 1,
                         "type": "string"
@@ -34732,7 +34732,7 @@
                             "type": "string"
                           },
                           "pattern": {
-                            "description": "ast-grep pattern with $VARS.",
+                            "description": "Complete ast-grep node with $VARS (keep `;`).",
                             "minLength": 1,
                             "pattern": "\\S",
                             "type": "string"
@@ -37867,7 +37867,7 @@
             "type": "string"
           },
           "keywords": {
-            "description": "Capability terms for discovery; exclusive with packageName. PyPI does not support discovery.",
+            "description": "Capability terms for discovery; exclusive with packageName. PyPI does not support discovery; npm totals are fuzzy relevance counts.",
             "items": {
               "minLength": 1,
               "type": "string"
@@ -40644,7 +40644,7 @@
                             "type": "string"
                           },
                           "pattern": {
-                            "description": "ast-grep pattern with $VARS.",
+                            "description": "Complete ast-grep node with $VARS (keep `;`).",
                             "minLength": 1,
                             "pattern": "\\S",
                             "type": "string"
@@ -43696,7 +43696,6 @@
           "values": {
             "caseMode": "smart",
             "debug": false,
-            "matchContentLength": 200,
             "matchPage": 1,
             "multiline": "off",
             "page": 1,
@@ -43779,8 +43778,7 @@
                   "type": "string"
                 },
                 "matchContentLength": {
-                  "default": 200,
-                  "description": "Characters per hit.",
+                  "description": "Characters per hit; default 200 per context line (×(2·contextLines+1), ≤4000).",
                   "maximum": 100000,
                   "minimum": 1,
                   "type": "integer"
@@ -46519,7 +46517,7 @@
                             "type": "string"
                           },
                           "pattern": {
-                            "description": "ast-grep pattern with $VARS.",
+                            "description": "Complete ast-grep node with $VARS (keep `;`).",
                             "minLength": 1,
                             "pattern": "\\S",
                             "type": "string"
@@ -49809,8 +49807,7 @@
             "type": "string"
           },
           "matchContentLength": {
-            "default": 200,
-            "description": "Characters per hit.",
+            "description": "Characters per hit; default 200 per context line (×(2·contextLines+1), ≤4000).",
             "maximum": 100000,
             "minimum": 1,
             "type": "integer"
@@ -50196,7 +50193,7 @@
                       "type": "string"
                     },
                     "pattern": {
-                      "description": "ast-grep pattern with $VARS.",
+                      "description": "Complete ast-grep node with $VARS (keep `;`).",
                       "minLength": 1,
                       "pattern": "\\S",
                       "type": "string"
@@ -53349,7 +53346,7 @@
                             "type": "string"
                           },
                           "pattern": {
-                            "description": "ast-grep pattern with $VARS.",
+                            "description": "Complete ast-grep node with $VARS (keep `;`).",
                             "minLength": 1,
                             "pattern": "\\S",
                             "type": "string"
@@ -55950,7 +55947,7 @@
                                   "type": "string"
                                 },
                                 "pattern": {
-                                  "description": "ast-grep pattern with $VARS.",
+                                  "description": "Complete ast-grep node with $VARS (keep `;`).",
                                   "minLength": 1,
                                   "pattern": "\\S",
                                   "type": "string"
@@ -57697,7 +57694,7 @@
                 "type": "string"
               },
               "pattern": {
-                "description": "ast-grep pattern with $VARS.",
+                "description": "Complete ast-grep node with $VARS (keep `;`).",
                 "minLength": 1,
                 "pattern": "\\S",
                 "type": "string"
@@ -61987,7 +61984,7 @@
                             "type": "string"
                           },
                           "pattern": {
-                            "description": "ast-grep pattern with $VARS.",
+                            "description": "Complete ast-grep node with $VARS (keep `;`).",
                             "minLength": 1,
                             "pattern": "\\S",
                             "type": "string"
@@ -70187,7 +70184,7 @@
                             "type": "string"
                           },
                           "pattern": {
-                            "description": "ast-grep pattern with $VARS.",
+                            "description": "Complete ast-grep node with $VARS (keep `;`).",
                             "minLength": 1,
                             "pattern": "\\S",
                             "type": "string"
@@ -75198,7 +75195,7 @@
                   "type": "string"
                 },
                 "matchString": {
-                  "description": "Literal by default; regex when enabled. Selects from full redacted source and merges overlapping windows before paging.",
+                  "description": "Literal by default; regex when enabled. Selects from full redacted source and merges overlapping windows before paging; a `... [lines A-B omitted] ...` line separates non-adjacent windows.",
                   "minLength": 1,
                   "type": "string"
                 },
@@ -77843,7 +77840,7 @@
                             "type": "string"
                           },
                           "pattern": {
-                            "description": "ast-grep pattern with $VARS.",
+                            "description": "Complete ast-grep node with $VARS (keep `;`).",
                             "minLength": 1,
                             "pattern": "\\S",
                             "type": "string"
@@ -81506,7 +81503,7 @@
             "type": "string"
           },
           "matchString": {
-            "description": "Literal by default; regex when enabled. Selects from full redacted source and merges overlapping windows before paging.",
+            "description": "Literal by default; regex when enabled. Selects from full redacted source and merges overlapping windows before paging; a `... [lines A-B omitted] ...` line separates non-adjacent windows.",
             "minLength": 1,
             "type": "string"
           },
@@ -85172,7 +85169,7 @@
                             "type": "string"
                           },
                           "pattern": {
-                            "description": "ast-grep pattern with $VARS.",
+                            "description": "Complete ast-grep node with $VARS (keep `;`).",
                             "minLength": 1,
                             "pattern": "\\S",
                             "type": "string"

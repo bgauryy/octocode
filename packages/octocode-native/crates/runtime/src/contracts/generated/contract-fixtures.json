@@ -506,10 +506,10 @@
     "tool": "ghGetFileContent",
     "input": {
       "reasoning": "Use ghGetFileContent for the exact context around a match example.",
-      "owner": "bgauryy",
-      "repo": "octocode",
-      "path": "packages/octocode-native/src/runtime/engine.rs",
-      "matchString": "pub fn new",
+      "owner": "facebook",
+      "repo": "react",
+      "path": "packages/react/src/ReactHooks.js",
+      "matchString": "export function useState",
       "contextLines": 5
     },
     "accepted": true,
@@ -519,10 +519,10 @@
           "goal": "Execute ghGetFileContent via fixture",
           "reasoning": "Use ghGetFileContent for the exact context around a match example.",
           "debug": false,
-          "owner": "bgauryy",
-          "repo": "octocode",
-          "path": "packages/octocode-native/src/runtime/engine.rs",
-          "matchString": "pub fn new",
+          "owner": "facebook",
+          "repo": "react",
+          "path": "packages/react/src/ReactHooks.js",
+          "matchString": "export function useState",
           "contextLines": 5
         }
       ]
@@ -533,9 +533,9 @@
     "tool": "ghGetFileContent",
     "input": {
       "reasoning": "Use ghGetFileContent for the symbols outline (unknown/large file) example.",
-      "owner": "bgauryy",
-      "repo": "octocode",
-      "path": "packages/octocode-native/src/runtime/engine.rs",
+      "owner": "facebook",
+      "repo": "react",
+      "path": "packages/react/src/ReactHooks.js",
       "minify": "symbols"
     },
     "accepted": true,
@@ -545,9 +545,9 @@
           "goal": "Execute ghGetFileContent via fixture",
           "reasoning": "Use ghGetFileContent for the symbols outline (unknown/large file) example.",
           "debug": false,
-          "owner": "bgauryy",
-          "repo": "octocode",
-          "path": "packages/octocode-native/src/runtime/engine.rs",
+          "owner": "facebook",
+          "repo": "react",
+          "path": "packages/react/src/ReactHooks.js",
           "minify": "symbols"
         }
       ]
@@ -1152,7 +1152,6 @@
           "searchText": "buildDirectToolCommandPatterns",
           "path": "/ABS/repo/src",
           "caseMode": "smart",
-          "matchContentLength": 200,
           "multiline": "off",
           "sort": "relevance",
           "matchPage": 1,
@@ -1183,7 +1182,6 @@
           "searchText": "toolSchemas",
           "path": ".",
           "caseMode": "smart",
-          "matchContentLength": 200,
           "multiline": "off",
           "sort": "relevance",
           "matchPage": 1,
@@ -2005,10 +2003,10 @@
     "tool": "lspSearch",
     "input": {
       "reasoning": "Use lspSearch for the semantic definition (absolute uri + lineHint) example.",
-      "uri": "/ABS/repo/packages/octocode-native/src/runtime/engine.rs",
+      "uri": "/ABS/repo/packages/octocode-native/crates/runtime/src/runtime/engine.rs",
       "operation": "definition",
       "symbolName": "ToolRuntime",
-      "lineHint": 80
+      "lineHint": 58
     },
     "accepted": true,
     "normalized": {
@@ -2017,10 +2015,10 @@
           "goal": "Execute lspSearch via fixture",
           "reasoning": "Use lspSearch for the semantic definition (absolute uri + lineHint) example.",
           "debug": false,
-          "uri": "/ABS/repo/packages/octocode-native/src/runtime/engine.rs",
+          "uri": "/ABS/repo/packages/octocode-native/crates/runtime/src/runtime/engine.rs",
           "operation": "definition",
           "symbolName": "ToolRuntime",
-          "lineHint": 80,
+          "lineHint": 58,
           "orderHint": 0,
           "includeDeclaration": true,
           "page": 1
@@ -2062,7 +2060,7 @@
     "tool": "lspSearch",
     "input": {
       "reasoning": "Use lspSearch for the symbol outline (absolute uri) example.",
-      "uri": "/ABS/repo/packages/octocode-native/src/runtime/engine.rs",
+      "uri": "/ABS/repo/packages/octocode-native/crates/runtime/src/runtime/engine.rs",
       "operation": "documentSymbols"
     },
     "accepted": true,
@@ -2072,7 +2070,7 @@
           "goal": "Execute lspSearch via fixture",
           "reasoning": "Use lspSearch for the symbol outline (absolute uri) example.",
           "debug": false,
-          "uri": "/ABS/repo/packages/octocode-native/src/runtime/engine.rs",
+          "uri": "/ABS/repo/packages/octocode-native/crates/runtime/src/runtime/engine.rs",
           "operation": "documentSymbols",
           "orderHint": 0,
           "includeDeclaration": true,
@@ -2604,7 +2602,6 @@
           "searchText": "x",
           "path": "/r",
           "caseMode": "smart",
-          "matchContentLength": 200,
           "multiline": "off",
           "sort": "relevance",
           "matchPage": 1,
@@ -2637,7 +2634,6 @@
           "searchText": "x",
           "path": "/r",
           "caseMode": "smart",
-          "matchContentLength": 200,
           "multiline": "off",
           "sort": "relevance",
           "matchPage": 1,
@@ -2669,7 +2665,6 @@
           "searchText": "x",
           "path": "/r",
           "caseMode": "smart",
-          "matchContentLength": 200,
           "multiline": "off",
           "sort": "relevance",
           "matchPage": 1,
@@ -2700,7 +2695,6 @@
           "searchText": "x",
           "path": "/r",
           "caseMode": "smart",
-          "matchContentLength": 200,
           "multiline": "off",
           "sort": "traversal",
           "matchPage": 1,
