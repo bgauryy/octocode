@@ -296,13 +296,19 @@ describe('minifyContent (async wrapper)', () => {
 });
 
 describe('applyContentViewMinification', () => {
-  it('strips comments but preserves indentation for code', () => {
+  it('strips comments and brace-code indentation but keeps Python indentation', () => {
     const out = addon!.applyContentViewMinification(
       'fn foo() {\n  // comment\n  let x = 1;\n}',
       'main.rs'
     );
     expect(out).not.toContain('comment');
-    expect(out).toContain('  let x');
+    expect(out).toContain('\nlet x = 1;');
+    const python = addon!.applyContentViewMinification(
+      'def foo():\n    # comment\n    return 1\n',
+      'main.py'
+    );
+    expect(python).not.toContain('comment');
+    expect(python).toContain('    return 1');
   });
 
   it('returns original if not shorter', () => {

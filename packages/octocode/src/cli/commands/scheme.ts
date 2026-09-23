@@ -156,9 +156,12 @@ export async function runScheme(args: ParsedArgs): Promise<number> {
     return EXIT.TOOL;
   }
 
-  const { getPublicToolCatalogWithAddons } =
+  const { getPublicToolCatalogWithAddons, getDirectToolDefinitionsWithAddons } =
     await import('@octocodeai/config/schema');
   const { buildMcpInstructions } = await import('@octocodeai/config/mcp');
+  const enabled = machine.tools
+    .filter(tool => isEnabled(tool.availability))
+    .map(tool => tool.name);
   const semanticRerank = machine.tools.some(
     tool => tool.name === 'clasify' && isEnabled(tool.availability)
   );
@@ -183,9 +186,6 @@ export async function runScheme(args: ParsedArgs): Promise<number> {
   const machineByName = new Map(machine.tools.map(tool => [tool.name, tool]));
 
   if (toolName === undefined) {
-    const enabled = machine.tools
-      .filter(tool => isEnabled(tool.availability))
-      .map(tool => tool.name);
     const tools = (catalog.tools as readonly JsonObject[]).map(tool => {
       const name = String(tool.name);
       const runtimeEntry = machineByName.get(name);
@@ -230,7 +230,15 @@ export async function runScheme(args: ParsedArgs): Promise<number> {
   }
   let value: JsonObject;
   try {
-    value = projectSelected({ ...tool }, view, select);
+    const definition = getDirectToolDefinitionsWithAddons({
+      semanticRerank,
+      availableTools: enabled,
+    }).find(candidate => candidate.name === toolName);
+    value = projectSelected(
+      { ...tool, description: definition?.description ?? tool.description },
+      view,
+      select
+    );
   } catch (error) {
     emitError(
       error instanceof Error ? error.message : String(error),

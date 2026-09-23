@@ -929,6 +929,10 @@
         "langType": [
           "consumed"
         ],
+        "languageGlobs": [
+          "validated",
+          "consumed"
+        ],
         "limit": [
           "consumed",
           "output-control"
@@ -1121,6 +1125,9 @@
           "workflow-metadata"
         ],
         "includeTests": [
+          "consumed"
+        ],
+        "languageGlobs": [
           "consumed"
         ],
         "limit": [
