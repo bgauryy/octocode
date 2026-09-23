@@ -323,6 +323,18 @@ pub fn search_files_detailed_filtered(
     options: StructuralSearchFilesOptions,
     allow_path: &(dyn Fn(&Path) -> Result<bool, String> + Sync),
 ) -> Result<StructuralSearchFilesDetailedResult, String> {
+    search_files_detailed_filtered_with_extension(options, allow_path, &|path| {
+        extension_for_path(path).unwrap_or_default()
+    })
+}
+
+/// Caller-selected parser for ambiguous paths; file paths remain unchanged in
+/// diagnostics and match IDs. The ordinary entry point still infers by suffix.
+pub fn search_files_detailed_filtered_with_extension(
+    options: StructuralSearchFilesOptions,
+    allow_path: &(dyn Fn(&Path) -> Result<bool, String> + Sync),
+    select_extension: &(dyn Fn(&Path) -> String + Sync),
+) -> Result<StructuralSearchFilesDetailedResult, String> {
     let StructuralSearchFilesOptions {
         path,
         pattern,
@@ -433,7 +445,7 @@ pub fn search_files_detailed_filtered(
             continue;
         }
 
-        let ext = extension_for_path(&file_path).unwrap_or_default();
+        let ext = select_extension(&file_path);
         let Some(entry) = languages::find_entry(&ext) else {
             skipped_unsupported += 1;
             files.push(skipped_file(
@@ -1128,6 +1140,12 @@ pub fn rewrite_files(
 
     let rule_config: serde_json::Value = serde_json::from_str(&options.rule_config_json)
         .map_err(|e| format!("[structural.rewrite.json] {e}"))?;
+    let selector = rule_config
+        .get("language")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "[structural.rewrite.invalid] language is required".to_owned())?;
+    let extensions = super::rewrite::rewrite_language_extensions(selector)
+        .ok_or_else(|| format!("[structural.rewrite.invalid] {selector} is not supported"))?;
 
     let include = options.include.unwrap_or_default();
     let exclude = options.exclude.unwrap_or_default();
@@ -1138,15 +1156,22 @@ pub fn rewrite_files(
     let max_file_bytes = u64::from(options.max_file_bytes.unwrap_or(1_000_000));
 
     let overrides = build_overrides(&root, &include, &exclude)?;
-    let candidate_files = collect_files(
+    let is_single_file = root.is_file();
+    let candidate_files = collect_files_filtered(
         &root,
         overrides,
         &exclude_dir,
         max_files.saturating_add(1),
-        false, // supported_only: ast-grep handles language via rule config
+        false, // explicit single-file rewrites may select a nonstandard suffix
         options.hidden,
         options.no_ignore,
         options.max_depth,
+        &|path| {
+            Ok(is_single_file
+                || path.is_dir()
+                || extension_for_path(path)
+                    .is_some_and(|extension| extensions.contains(extension.as_str())))
+        },
     )?;
     // `collect_files` was asked for `max_files + 1`; if it returned more than
     // `max_files` the candidate scan was truncated and files beyond the cap were
@@ -1206,6 +1231,47 @@ pub fn rewrite_files(
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod rewrite_coverage_tests {
     use super::*;
+
+    #[test]
+    fn cpp_rewrite_scans_h_headers_without_touching_c_sources() {
+        let root = std::env::temp_dir().join(format!(
+            "octocode-rewrite-cpp-header-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|duration| duration.as_nanos())
+                .unwrap_or(0)
+        ));
+        fs::create_dir_all(&root).expect("fixture root");
+        fs::write(root.join("widget.h"), "void widget() { oldCall(); }\n").expect("C++ header");
+        fs::write(root.join("legacy.c"), "void legacy() { oldCall(); }\n").expect("C source");
+        let options = crate::structural::StructuralRewriteFilesOptions {
+            path: root.to_string_lossy().into_owned(),
+            rule_config_json: serde_json::json!({
+                "id":"octocode-inline-rewrite",
+                "language":"cpp",
+                "rule":{"pattern":"oldCall()"},
+                "fix":"newCall()"
+            })
+            .to_string(),
+            include: None,
+            exclude: None,
+            exclude_dir: None,
+            hidden: Some(false),
+            no_ignore: Some(false),
+            max_depth: None,
+            max_files: Some(1),
+            max_file_bytes: Some(1_000_000),
+        };
+        let result = rewrite_files(options).expect("rewrite files");
+        let _ = fs::remove_dir_all(&root);
+        assert!(
+            !result.scan_truncated,
+            "unrelated C files must not consume the scan cap"
+        );
+        assert_eq!(result.files.len(), 1);
+        assert!(result.files[0].path.ends_with("widget.h"));
+    }
 
     // Regression: a rewrite over a dir containing a non-UTF8 candidate file must
     // account for the skip in the coverage counters, not drop it silently.

@@ -11,6 +11,15 @@ routes: load/run a reference, doc, or script only when it changes the next actio
 
 Flow: `INSPECT → SHAPE → ASSESS → VERIFY`. Clasify exists to keep unread bodies out of your context: the provider reads them, you get verdicts plus line scopes, then you read only the deciding scope.
 
+## Locate cascade — cheapest step that still decides (scenario benchmark, 2026-09-23)
+
+1. **Exact anchor** (name, literal, remembered symbol) → `localSearch`/`ghSearch code` → fetch the deciding lines. Stop. (1.6K host chars, ~0.1 s; clasify here cost 2.7× chars + 30K provider tokens for the same answer.)
+2. **Anchor hits many files, wrappers, re-exports, or callers** → `semanticRerank` that page; read the top 3, a tie (≤0.1) means read both. It only reorders what the search returned.
+3. **Zero or off-target hits** (the code uses other words), **no anchor across ≥3 candidates, or large files** → clasify SCREEN (below). Right file 5/7 where lexical scouting got 2/7; the other two were a flagged tie and a correct "none of these".
+4. **Symbol identity** → `lspSearch` definition/references (deterministic; follows one hop, so a wrapper can come back).
+5. **Long evidence you already hold** → clasify JUDGE. Clasify over your own short summary does not locate code — it guesses from file names (3/7).
+6. **Verify** the claim on fetched bytes.
+
 ## When — pick by where the deciding evidence is (measured 2026-09-23)
 
 | Situation | Do | Measured effect |
@@ -34,18 +43,22 @@ Flow: `INSPECT → SHAPE → ASSESS → VERIFY`. Clasify exists to keep unread b
 - `resources × questions` ≤ 25 cells; independent matrices go in root `queries[]` and run in parallel.
 
 ## Shapes
+For unread files, send identifiers in `context.tool` + `context.query` (an absolute local `path`, or GitHub `owner`/`repo`/repository-relative `path` and optional `branch`), not file content in `context.value`. Octocode runs the ordinary read internally, applies its path/security and output rules, sends the sanitized evidence to Jev, and returns only verdicts and scopes. A GitHub browser URL must be split into those canonical fields; `context.value` is for state already held by the agent. Delegated GitHub file reads populate the same credential-scoped content cache as `ghGetFileContent`, so a later exact read can reuse them. Local reads revalidate and reopen the file to see edits; the OS may cache bytes, but there is no persistent localFetch response cache.
+
 ```json
 {"id":"find-retry","reasoning":"Pick the file to read","resources":[
   {"id":"a","context":{"tool":"localFetch","query":{"reasoning":"candidate","path":"/abs/a.rs"}}},
   {"id":"b","context":{"tool":"ghGetFileContent","query":{"reasoning":"candidate","owner":"o","repo":"r","path":"src/b.ts"}}}],
  "questions":[{"id":"impl","question":{"type":"noul","instructions":"Does this content implement the retry loop for provider HTTP calls?"}}]}
 ```
-Rerank question shape is `{id, question}` (a string), not a clasify question: `"semanticRerank":{"questions":[{"id":"impl","question":"Does this file implement X rather than only calling or testing it?"}]}`. For a named symbol ask "Does this file contain the definition of X (not a call site like X(...))?" — callers otherwise outrank the definition.
+Rerank uses `{id, question}`, not a typed clasify question. Use a string for implementation ranking because structured Jev entries bypass automatic implementer-versus-caller criteria: `{"id":"impl","question":"Does this file implement X rather than only calling or testing it?"}`. For a named symbol ask whether the file *defines* X, rather than calls X.
 
 ## Results
-- `queries[].{model, usage, resources[].{coverage, pages[].{scope, focus?, answers.<questionId>}}}`. Files page automatically in ~600-line scopes. A page whose Noul scores ≥0.8 also gets `focus` — its best ~40-line window, picked by one extra Choice over line windows (the provider's line-search pattern). Read `focus` first; if it lacks the answer, read the rest of `scope`. Aggregate pages before judging a file.
-- The shapes above are complete — do not fetch `scheme clasify` (14 KB) unless a call is rejected. Exit 6 means more coverage in `next.clasify`, not failure.
+- `queries[].{model, usage, resources[].{coverage, pages[].{scope, focus?, answers.<questionId>}}}`. Files page automatically in ~600-line scopes. A page whose Noul scores ≥0.8 can get `focus` — its best ~40-line window, picked by a Choice over line windows plus an `insufficient` option. A one-resource, one-page, one-Noul matrix shares one provider request with that Choice when it fits; other cases use a follow-up request. Read `focus` first; if it lacks the answer, read the rest of `scope`. A `matchString` read can have `scope.lineRanges[]` for disjoint windows; verify the listed ranges, and do not expect one `focus` line. Aggregate pages before judging a file.
+- The shapes above cover the common call. Use `scheme clasify --view query --compact` when a field is unclear or a call is rejected; the full `scheme clasify --compact` also includes examples and repeats the schema. Exit 6 means more coverage in `next.clasify`, not failure.
 - `partial`/`error`/`insufficient`/mid-band = narrow or read, never "no" (clear negatives can still sit near 0.4 — read the deciding scope). Run `next.clasify` unchanged for remaining coverage.
+- **Screen `lowSignal`:** a query's `lowSignal: [questionId]` means every candidate was fully judged at ≤0.3 — the answer is outside this set (a sibling crate, a dependency, another directory). Widen the candidate list; do not read the top one.
+- **`classificationContentBlocked`:** the provider's content firewall refused that page (2 of 6 GitHub READMEs in one run). It is not a negative — read the page directly or judge a narrower line window.
 - **Rerank** reorders `files[]` only — no file is removed — and only the ≤8 files the search returned: a poor `searchText` makes it useless (fix the search, not the question). The runtime adds "implements vs only calls/tests/mentions" criteria to behavior questions (held-out top-1 6/6; callers no longer outrank definitions). `lowSignal: true` means every score is <0.4 — the order is noise; fix `searchText` or screen whole files. Scores are ordering hints, not Noul thresholds. `semanticRerank.candidates[i]` = `files[i]` (`path`, `score`); `model`/`usage` report the cost. Read the top 3, treat scores within 0.1 as ties; callers and tests that mention X can outscore its implementer, and code not in the matched snippets cannot be seen — then use a whole-file screen. ≤8 files per reranked page; `localSearch` needs `resultView:"paginated"`; continue with `semanticRerank.next`.
 - Supplied `value` may be large (the request cap is 4 MiB); a search page over `maxChars` fails with `classificationContextTooLarge` — lower `pageSize` or give candidates their own resources; `classificationStateTooLarge` = one page exceeded the provider window (lower `maxChars` or use a line window).
 

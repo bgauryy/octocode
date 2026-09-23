@@ -80,6 +80,15 @@ pub fn inspect(
     file_path: &str,
     options: Option<SyntaxTreeInspectOptions>,
 ) -> SyntaxTreeInspectResult {
+    inspect_with_extension(content, file_path, None, options)
+}
+
+pub fn inspect_with_extension(
+    content: &str,
+    file_path: &str,
+    extension: Option<&str>,
+    options: Option<SyntaxTreeInspectOptions>,
+) -> SyntaxTreeInspectResult {
     let options = options.unwrap_or_default();
     let named_only = options.named_only.unwrap_or(false);
     let offset = options.node_offset.unwrap_or(0) as usize;
@@ -100,7 +109,9 @@ pub fn inspect(
         };
     }
     let limit = requested_limit.min(MAX_NODE_LIMIT);
-    let ext = get_extension_internal(file_path, true, "txt");
+    let ext = extension
+        .map(str::to_owned)
+        .unwrap_or_else(|| get_extension_internal(file_path, true, "txt"));
 
     if content.len() > crate::minify::minifier::MAX_SIZE {
         return SyntaxTreeInspectResult {

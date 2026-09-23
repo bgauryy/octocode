@@ -34,8 +34,9 @@ impl ResponsePageOptions {
     }
 
     /// Apply the configured `output.pagination.defaultCharLength` budget when
-    /// the caller did not page explicitly. Rendered text (MCP) pages as text;
-    /// structured-only output (CLI JSON) pages by whole rows.
+    /// the caller did not page explicitly. Implicit pages are whole rows so
+    /// both text and structuredContent carry the page: MCP clients that read
+    /// only structuredContent would otherwise see an emptied `results`.
     /// Returns whether automatic pagination was enabled.
     pub fn auto_paginate(
         &mut self,
@@ -48,15 +49,11 @@ impl ResponsePageOptions {
         }
         let oversized = match rendered_text {
             Some(text) => text.encode_utf16().count() > budget,
-            None => {
-                self.response_scope = Some("rows".into());
-                structured.to_string().encode_utf16().count() > budget
-            }
+            None => structured.to_string().encode_utf16().count() > budget,
         };
         if oversized {
+            self.response_scope = Some("rows".into());
             self.response_char_length = Some(budget);
-        } else if rendered_text.is_none() {
-            self.response_scope = None;
         }
         oversized
     }
@@ -249,10 +246,15 @@ impl ResponsePager {
                 build_continuation(&input.tool, &input.query, &input.options, &pagination);
             // The text page carries this window of the payload; repeating the
             // whole payload in structuredContent would defeat pagination.
-            if let Some(results) = structured.get_mut("results") {
-                *results = Value::Array(Vec::new());
+            // A single page that covers everything keeps its results.
+            let whole =
+                pagination.char_offset == 0 && !pagination.has_more && pagination.restart.is_none();
+            if !whole {
+                if let Some(results) = structured.get_mut("results") {
+                    *results = Value::Array(Vec::new());
+                }
+                structured.remove("shared");
             }
-            structured.remove("shared");
             // pagination is a plain serializable struct
             #[allow(clippy::expect_used)]
             structured.insert(
@@ -416,11 +418,18 @@ fn split_row(row: &Value, budget: usize) -> Vec<Value> {
         return vec![row.clone()];
     };
     let pointer = format!("/data{relative}");
-    let Some(items) = row.pointer(&pointer).and_then(Value::as_array).cloned() else {
+    // Clone the row once without its largest array; each fragment clones only
+    // this skeleton, never the whole array again.
+    let mut skeleton = row.clone();
+    let Some(items) = skeleton
+        .pointer_mut(&pointer)
+        .and_then(Value::as_array_mut)
+        .map(std::mem::take)
+    else {
         return vec![row.clone()];
     };
     let with_items = |chunk: Vec<Value>| {
-        let mut fragment = row.clone();
+        let mut fragment = skeleton.clone();
         if let Some(slot) = fragment.pointer_mut(&pointer) {
             *slot = Value::Array(chunk);
         }
@@ -833,6 +842,33 @@ mod tests {
             .expect("default");
         assert_eq!(prepared.structured_content, envelope);
         assert!(prepared.structured_content.get("responseWindow").is_none());
+    }
+
+    #[test]
+    fn a_text_page_covering_everything_keeps_structured_results() {
+        let pager = ResponsePager::new(ResponsePagerConfig::default());
+        let envelope = json!({"results":[{"index":0,"data":{"content":"body"}}]});
+        let prepared = pager
+            .prepare(
+                ResponseInput {
+                    tool: "localFetch".into(),
+                    query: json!({"path":"a","reasoning":"r"}),
+                    structured: envelope.clone(),
+                    rendered_text: Some("body".into()),
+                    is_error: false,
+                    options: ResponsePageOptions {
+                        response_char_length: Some(1_000),
+                        ..Default::default()
+                    },
+                },
+                &AtomicBool::new(false),
+            )
+            .expect("page");
+        assert_eq!(prepared.structured_content["results"], envelope["results"]);
+        assert_eq!(
+            prepared.structured_content["responsePagination"]["hasMore"],
+            false
+        );
     }
 
     #[test]

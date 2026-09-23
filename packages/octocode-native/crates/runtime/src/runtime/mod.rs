@@ -3,6 +3,7 @@
 mod clasify_batch;
 mod clasify_context;
 mod clasify_output;
+mod continuations;
 pub(crate) mod cursor;
 mod dispatch;
 mod domain_dispatch;

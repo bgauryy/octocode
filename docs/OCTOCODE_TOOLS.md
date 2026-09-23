@@ -12,7 +12,7 @@ npx octocode scheme <toolName> --compact
 |--------|-------|
 | GitHub | `ghSearch`, `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem`, `ghCloneRepo` |
 | Packages | `artifactSearch` |
-| Local | `localSearch`, `localFetch`, `astSearch`, `astRewrite` |
+| Local | `localSearch`, `localFetch`, `astSearch`, `astTopology`, `astRewrite` |
 | LSP | `lspSearch` |
 | Semantic assessment | `clasify` |
 
@@ -386,7 +386,7 @@ Rules:
 
 ### `artifactSearch`
 
-Find packages for a capability, resolve a known dependency to registry metadata, or locate its upstream source. Use local tools to explain installed code and GitHub tools when the repository is already known. A repository link is metadata, not implementation or published-version proof.
+Find packages for a capability, resolve a known dependency to registry metadata, or locate its upstream source. Use local tools to explain installed code and GitHub tools when the repository is already known. A repository link is metadata, not implementation or published-version proof; for an exact lookup whose source is on GitHub, `next.viewRepo` opens that tree.
 
 | Field | Meaning |
 |-------|---------|
@@ -953,7 +953,7 @@ This is a beta feature, disabled by default. Set `OCTOCODE_BETA=true` (or
 | `include`, `exclude` | Optional file filters. |
 | `maxFiles`, `maxMatches` | Scan bounds; defaults are 2,000 files and 10,000 matches. |
 | `page`, `pageSize`, `snapshot` | Preview pagination; copy executable continuations and their snapshot. |
-| `apply` | Defaults to `false`. Applying requires the unchanged preview snapshot and non-empty `expectedHashes`. |
+| `apply` | Defaults to `false`. Applying requires the unchanged preview snapshot and non-empty `expectedHashes`; a complete preview returns `next.apply` with both filled in. |
 | `expectedHashes`, `selectedMatchIds` | Preview SHA-256 hashes for exactly the selected files. With explicit match selection, omit unselected-file hashes. A stale or missing selected-file hash aborts the apply. |
 | `postconditions` | Check a required `remainingMatches` count in the staged selected files before commit. |
 

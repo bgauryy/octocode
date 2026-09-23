@@ -84,27 +84,28 @@ pub fn execute_match(
     let mut scan_skips = (0_u32, 0_u32, 0_u32);
     let mut skipped_by_prefilter = 0_u32;
     let mut files = if meta.is_file() {
-        if let (Some(extensions), Some(language)) = (&lang_extensions, q.lang_type.as_deref())
-            && !has_extension_in(&p.canonical, extensions)
-        {
-            return Err(super::AstError::new(
-                "ast.language.mismatch",
-                format!(
-                    "{} is not a {language} source file; omit langType or choose the grammar matching its extension.",
-                    super::display_name(&p.canonical)
-                ),
-            ));
-        }
+        super::validate_file_language(&p.canonical, q.lang_type.as_deref())?;
         let bytes = std::fs::read(&p.canonical).map_err(super::io_error)?;
         let s = security
             .validate_text_bytes(&bytes, Some(&p.canonical), 1_000_000)
             .map_err(super::AstError::from)?;
-        let r = octocode_engine::portable::structural_search_detailed(
-            &s.content,
-            &p.canonical.to_string_lossy(),
-            q.pattern.as_deref(),
-            q.rule.as_deref(),
-        )
+        let source_path = p.canonical.to_string_lossy();
+        let r = if super::cpp_header_override(&p.canonical, q.lang_type.as_deref()) {
+            octocode_engine::portable::structural_search_detailed_with_extension(
+                &s.content,
+                &source_path,
+                "cpp",
+                q.pattern.as_deref(),
+                q.rule.as_deref(),
+            )
+        } else {
+            octocode_engine::portable::structural_search_detailed(
+                &s.content,
+                &source_path,
+                q.pattern.as_deref(),
+                q.rule.as_deref(),
+            )
+        }
         .map_err(super::native_error)?;
         if let Some(error) = diagnostic_error(&r.diagnostics) {
             return Err(error);
@@ -120,35 +121,46 @@ pub fn execute_match(
             r.status,
         )]
     } else {
-        let r = octocode_engine::portable::structural_search_files_detailed_filtered(
-            StructuralSearchFilesOptions {
-                path: p.canonical.to_string_lossy().into_owned(),
-                pattern: q.pattern.clone(),
-                rule: q.rule.clone(),
-                include: q.include.clone().or_else(|| {
-                    lang_extensions
-                        .as_ref()
-                        .map(|extensions| extensions.iter().map(|ext| format!("*.{ext}")).collect())
-                }),
-                exclude: q.exclude.clone(),
-                exclude_dir: q.exclude_dir.clone(),
-                hidden: q.hidden,
-                no_ignore: q.no_ignore,
-                max_depth: q.max_depth.map(|depth| depth.saturating_add(1)),
-                max_files: Some(q.max_files.unwrap_or(2_000)),
-                max_file_bytes: Some(1_000_000),
-            },
-            &|path| {
-                // Explicit include globs are intersected with langType: files
-                // outside the selected grammar are never candidates.
-                Ok(super::allow_discovery(path, paths, cancel)?
-                    && (q.include.is_none()
-                        || lang_extensions.as_ref().is_none_or(|extensions| {
-                            !path.is_file() || has_extension_in(path, extensions)
-                        })))
-            },
-        )
-        .map_err(super::native_error)?;
+        let r =
+            octocode_engine::portable::structural_search_files_detailed_filtered_with_extension(
+                StructuralSearchFilesOptions {
+                    path: p.canonical.to_string_lossy().into_owned(),
+                    pattern: q.pattern.clone(),
+                    rule: q.rule.clone(),
+                    include: q.include.clone().or_else(|| {
+                        lang_extensions.as_ref().map(|extensions| {
+                            extensions.iter().map(|ext| format!("*.{ext}")).collect()
+                        })
+                    }),
+                    exclude: q.exclude.clone(),
+                    exclude_dir: q.exclude_dir.clone(),
+                    hidden: q.hidden,
+                    no_ignore: q.no_ignore,
+                    max_depth: q.max_depth.map(|depth| depth.saturating_add(1)),
+                    max_files: Some(q.max_files.unwrap_or(2_000)),
+                    max_file_bytes: Some(1_000_000),
+                },
+                &|path| {
+                    // Explicit include globs are intersected with langType: files
+                    // outside the selected grammar are never candidates.
+                    Ok(super::allow_discovery(path, paths, cancel)?
+                        && (q.include.is_none()
+                            || lang_extensions.as_ref().is_none_or(|extensions| {
+                                !path.is_file() || has_extension_in(path, extensions)
+                            })))
+                },
+                &|path| {
+                    if super::cpp_header_override(path, q.lang_type.as_deref()) {
+                        "cpp".to_owned()
+                    } else {
+                        path.extension()
+                            .and_then(|extension| extension.to_str())
+                            .unwrap_or_default()
+                            .to_ascii_lowercase()
+                    }
+                },
+            )
+            .map_err(super::native_error)?;
         if let Some(error) = diagnostic_error(&r.diagnostics) {
             return Err(error);
         }
@@ -445,7 +457,10 @@ fn match_value(m: StructuralDetailedMatch, capture_text: bool, content_length: u
             ranges.insert(name, Value::Array(budgeted));
         }
     }
-    for (name, values) in m.metavars {
+    // Capture maps are unordered; emit names sorted so output is deterministic.
+    let mut captures: Vec<_> = m.metavars.into_iter().collect();
+    captures.sort_by(|a, b| a.0.cmp(&b.0));
+    for (name, values) in captures {
         if ranges.contains_key(&name) || values.is_empty() {
             continue;
         }
@@ -546,33 +561,42 @@ fn continuation_with(q: &AstMatchQuery, changes: Value, snapshot: &str) -> Value
     json!({"tool":"astSearch","query":query,"confidence":"exact"})
 }
 
-fn language_extensions(language: &str) -> Option<std::collections::BTreeSet<String>> {
-    let selector = language.trim().trim_start_matches('.').to_ascii_lowercase();
-    let extensions: std::collections::BTreeSet<String> =
-        octocode_engine::portable::grammar_capabilities()
-            .into_iter()
-            .filter(|capability| {
-                capability.language.eq_ignore_ascii_case(&selector)
-                    || capability
-                        .language_id
-                        .as_deref()
-                        .is_some_and(|id| id.eq_ignore_ascii_case(&selector))
-                    || capability
-                        .selector_aliases
-                        .iter()
-                        .any(|alias| alias.eq_ignore_ascii_case(&selector))
-                    || capability
-                        .extensions
-                        .iter()
-                        .any(|extension| extension.eq_ignore_ascii_case(&selector))
-            })
-            .flat_map(|capability| capability.extensions)
-            .map(|extension| extension.to_ascii_lowercase())
-            .collect();
+pub(super) fn language_extensions(language: &str) -> Option<std::collections::BTreeSet<String>> {
+    let selector = language.trim().to_ascii_lowercase();
+    let capabilities = octocode_engine::portable::grammar_capabilities();
+    if let Some(extension) = selector.strip_prefix('.') {
+        return capabilities
+            .iter()
+            .any(|capability| capability.extensions.iter().any(|item| *item == extension))
+            .then(|| std::collections::BTreeSet::from([extension.to_owned()]));
+    }
+    let mut extensions: std::collections::BTreeSet<String> = capabilities
+        .into_iter()
+        .filter(|capability| {
+            capability.language.eq_ignore_ascii_case(&selector)
+                || capability
+                    .language_id
+                    .as_deref()
+                    .is_some_and(|id| id.eq_ignore_ascii_case(&selector))
+                || capability
+                    .selector_aliases
+                    .iter()
+                    .any(|alias| alias.eq_ignore_ascii_case(&selector))
+                || capability
+                    .extensions
+                    .iter()
+                    .any(|extension| extension.eq_ignore_ascii_case(&selector))
+        })
+        .flat_map(|capability| capability.extensions)
+        .map(|extension| extension.to_ascii_lowercase())
+        .collect();
+    if !extensions.is_empty() && (selector == "cpp" || selector == "c++") {
+        extensions.insert("h".to_owned());
+    }
     (!extensions.is_empty()).then_some(extensions)
 }
 
-fn has_extension_in(
+pub(super) fn has_extension_in(
     path: &std::path::Path,
     extensions: &std::collections::BTreeSet<String>,
 ) -> bool {
@@ -605,11 +629,13 @@ mod language_glob_tests {
 
     #[test]
     fn directory_language_globs_derive_from_the_canonical_grammar_registry() {
-        // CUDA was dropped from the default grammar registry (optional
-        // `tree-sitter-cuda` feature, excluded to save ~6.8 MiB), so its
-        // language globs no longer resolve. `.cu`/`.cuh` still route to clangd
-        // for LSP, but langType filtering derives from the native registry.
-        assert_eq!(language_include_globs("cuda"), None);
+        let cuda_enabled = octocode_engine::portable::supported_structural_extensions()
+            .iter()
+            .any(|extension| extension == "cu");
+        assert_eq!(
+            language_include_globs("cuda"),
+            cuda_enabled.then(|| vec!["*.cu".to_owned(), "*.cuh".to_owned()])
+        );
         assert_eq!(
             language_include_globs("assembly"),
             Some(vec![

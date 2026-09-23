@@ -1,8 +1,8 @@
 use crate::minify::config::{FileTypeConfig, indentation_sensitive_names, minify_config};
 use crate::minify::strategies::{
-    minify_aggressive, minify_conservative, minify_css_quality, minify_general_core,
-    minify_html_core, minify_html_quality, minify_javascript_core, minify_json_core_inner,
-    minify_markdown_core,
+    minify_aggressive, minify_brace_code, minify_conservative, minify_css_quality,
+    minify_general_core, minify_html_core, minify_html_quality, minify_javascript_core,
+    minify_json_core_inner, minify_markdown_core,
 };
 use crate::text::file_extension::get_extension_internal;
 use crate::types::MinifyResult;
@@ -97,6 +97,9 @@ fn dispatch_inner(content: &str, file_path: &str) -> DispatchResult {
             };
             DispatchResult::ok(out, cfg.strategy)
         }
+        // Brace code: indentation is not syntax, so strip it (config.rs owns
+        // which formats qualify; mixed-markup formats stay conservative).
+        "brace" => DispatchResult::ok(minify_brace_code(content, &grps), "brace"),
         "aggressive" => {
             let out = if matches!(ext.as_str(), "css" | "less" | "scss") {
                 minify_css_quality(content)
@@ -194,13 +197,13 @@ mod tests {
             (
                 "header.hh",
                 "// comment\nint add(int a, int b);\n",
-                "conservative",
+                "brace",
                 "comment",
             ),
             (
                 "header.hxx",
                 "// comment\nint add(int a, int b);\n",
-                "conservative",
+                "brace",
                 "comment",
             ),
         ];

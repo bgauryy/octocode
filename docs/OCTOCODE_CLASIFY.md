@@ -47,13 +47,31 @@ The deciding question is *where the evidence lives*. Clasify pays when it sits i
 
 Blind A/B (ordinary tools vs the skill's routing, 6 local + 6 GitHub fresh questions, 12+12 agents): accuracy 6/6 = 6/6 in both; GitHub host bytes 0.48× baseline (ACCEPT), local 1.30× (no clasify call was warranted; the gap was search-style noise). The measured lesson: on local code, lean search views (`matchOnly`, `include`) move bytes more than clasify; clasify is the lever when bodies are large and anchors are unknown.
 
+### Locate cascade (scenario benchmark, 2026-09-23)
+
+Seven "which file implements X?" scenarios, each run six ways, with ground truth fixed first: lexical scout → fetch (**A**), A plus reading every definition hit (**A+**), A plus clasify over the host's own summary (**B**), clasify screening the unread candidates (**C**), `semanticRerank` (**D**), and read-everything (**E**).
+
+| Scenario | A | B | C | D | E |
+|---|---|---|---|---|---|
+| Clean anchor | ✓ 1.6K chars, 85 ms | ✓ | ✓ but 30K provider tokens | ✓ 0.9K | ✓ 49K |
+| Top hit is a thin wrapper | ✗ | ✗ | ✓ | ✓ 1.2K | ✓ 54K |
+| 18 candidates, no anchor | ✗ | ✗ | ✓ 0.92 | ✓ | ✓ 311K |
+| Code uses other words | ✗ | ✓ filename guess, 0.51 | ✓ 0.89 | ✗ recall miss | ✓ 245K |
+| Many callers + a re-export | ✗ | ✗ | tie 0.93/0.90 → read both | ✗ | ✓ 115K |
+| Remote, several files | ✓ | ✓ | ✓ | — | ✓ 58K |
+| Answer outside the candidates | ✗ | ✗ | all ≤0.22 → correct "none" | — | misleading |
+
+The cheapest path that still decides wins: anchor → search → fetch; ambiguous page → `semanticRerank`; zero/off-target hits, no anchor, or large candidates → clasify screen; identity → `lspSearch` (one hop: it resolved the re-export case but landed on the wrapper in the wrapper case); long held evidence → clasify judge; verify on fetched bytes. Clasify over the host's own short summary is not a locating step — it guesses from file names.
+
+Runtime support: a screen whose candidates all score ≤0.3 with complete coverage returns `lowSignal: [questionId]` on the query — widen the scope instead of reading the top file. A page the provider's content firewall refuses returns `classificationContentBlocked` (not a negative; read it directly).
+
 ### How we use the Jev API
 
 | Choice | Why |
 |---|---|
 | **Batch every question over one state into one request** | Jev ingests state once; each extra question costs ~46 tokens, and batched answers equal single-question answers. Headroom: 72 KiB per state + question, 120 KiB per group. |
 | **Send evidence only** (`{repo?, path, lines, content}`) | Page metadata (absolute base, timestamps, byte counters, pagination) was 26–30% extra provider tokens and ate `maxChars`. Now −21% tokens on the same matrix, same verdicts. |
-| **Focus windows (provider line-search pattern)** | For a file page whose Noul scores ≥0.8, one extra request asks a Choice over ~40-line window IDs; the page gains `focus` (e.g. retry loop pinned to lines 641–680 inside a 550-line scope, 0.97). The page Noul is the "exists" check the recipe pairs with it, because Choice probabilities always rank something first. +~19% provider tokens; the agent reads 40 lines instead of 600. |
+| **Focus windows (provider line-search pattern)** | A one-resource, one-page, one-Noul file matrix sends its verdict and a speculative Choice over ~40-line windows plus `insufficient` in one request when batching fits; candidate matrices and multi-page files retain the positive-only follow-up so negative pages do not pay for unused window answers. Only a Noul ≥0.8 and a confident real window Choice yield `focus`. A same-file prototype used 10,385 input tokens instead of 20,175 while keeping the verdict and selected lines 481–520; broader accuracy remains to be measured. |
 | **Coalesce adjacent file pages to ~24 KiB (~600 lines)** | Needle accuracy stays ≈0.95 up to ~30k tokens, but the verdict should localize: 100-line pages gave 20 fragments for 3 files (36 KB output); 48 KiB judged a 1,079-line README as one scope. 24 KiB gives ~600-line scopes for +5% tokens. |
 | **Map `max_tokens_exceeded` → `classificationStateTooLarge`** | Jev's window is 32k tokens of state + longest question; the hint says lower `maxChars` or use a line window. Oversized *search* pages fail fast with `classificationContextTooLarge` instead of sending truncated JSON. |
 | **Auto-add `insufficient` to Choice** | Without it an irrelevant state forced a wrong answer at confidence 1.0; with it `insufficient` wins 3/3. |
@@ -155,6 +173,8 @@ Every clasify question uses exactly one of three primitives. One question = one 
 
 Each candidate becomes one `resource`. The same typed questions apply to all resources in the matrix. The runtime fetches and sanitizes each file without returning its body.
 
+Pass a resource identifier, not its contents: `context.tool` selects an ordinary read, while `context.query` carries an absolute local path or GitHub `owner`/`repo`/repository-relative `path` (plus a `branch` when needed). Clone and tree materialization are direct acquisition actions, not clasify context. Convert a GitHub browser link to canonical fields; a URL by itself is not a `clasify` context. The runtime executes the read with the normal access checks and redaction, then sends the sanitized evidence to Jev. The agent receives verdicts and scopes, not the fetched body. `context.value` remains available for a draft or other state the agent already holds.
+
 ```json
 {
   "id": "interceptor-scout",
@@ -223,6 +243,8 @@ npx octocode clasify --input scout-request.json
 ```
 
 **After screening:** fetch only the decisive lines from the top-ranked files. The clasify verdict tells you *where to look*, never *what the answer is*.
+
+**Cache behavior:** delegated `ghGetFileContent` uses the ordinary GitHub provider and credential-scoped content cache. A subsequent exact `ghGetFileContent` call can reuse that entry, including across CLI processes when the persistent cache is enabled. A live scout of `octocat/Hello-World` `README` followed by a separate CLI read returned `cache: 1`. Local `localFetch` rechecks path policy and reopens the current file on each call; filesystem caching can avoid disk I/O, while the agent's later exact read still sees edits. There is no persistent local file response cache.
 
 ### Local file scouting
 
@@ -731,7 +753,7 @@ npx octocode scheme clasify --compact
 
 ## Output shape and pagination
 
-Results are resource-major: `queries[] → resources[] → pages[] → answers[questionId]`. The resolved `model` and summed provider `usage` appear once per query. File and history reads (`localFetch`, `ghGetFileContent`, `ghGetHistoryItem`) are paged automatically and adjacent pages are coalesced into token-safe provider judgments; a search or discovery resource captures only the requested page and returns the rest in `next.clasify`. Each page carries its `scope` (line or byte range) and one answer per question. Answers carry no `type`: the key names it (`noul`, `choice`, `score`, or `error`).
+Results are resource-major: `queries[] → resources[] → pages[] → answers[questionId]`. The resolved `model` and summed provider `usage` appear once per query. File and history reads (`localFetch`, `ghGetFileContent`, `ghGetHistoryItem`) are paged automatically and adjacent pages are coalesced into token-safe provider judgments; a search or discovery resource captures only the requested page and returns the rest in `next.clasify`. Each page carries its `scope` (a contiguous line/byte span, or `lineRanges[]` for disjoint match windows) and one answer per question. Disjoint windows remain separate from adjacent-page coalescing and do not produce a misleading single `focus` line. Answers carry no `type`: the key names it (`noul`, `choice`, `score`, or `error`).
 
 ```json
 {
@@ -781,7 +803,7 @@ Measured on 40 labeled items from this repository (jev-1.13.0, 2026-09-23):
 | Confidence 0.5–0.9 | correct but weaker | Treat as a lead; read the deciding scope |
 | Choice without `insufficient` | forced wrong answer at confidence 1.0 | Runtime now adds `insufficient` |
 | "Is X true?" on missing evidence | 0.76 (model prior leaked) | Ask "Does this content show X?" (0.05–0.25) |
-| Rerank (path + snippets) | target top-3 6/6, top-1 3/6 | Read the top 3; scores within 0.1 are ties |
+| Rerank (path + snippets), early prototype | target top-3 6/6, top-1 3/6 before implementer criteria; the later held-out check reported top-1 6/6 | Read the top 3; scores within 0.1 are ties |
 | State size | needle found at 0.95 up to ~30k tokens | Over 32k tokens the provider rejects the page |
 
 These are routing signals, not proof: confirm any claim on fetched bytes.

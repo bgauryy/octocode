@@ -31,21 +31,27 @@ fn excluded_grammars_report_unsupported_across_native_capabilities() {
 }
 
 #[test]
-fn default_release_capabilities_are_exactly_the_first_class_extension_set() {
-    if !cfg!(all(
-        feature = "tree-sitter-asm",
-        feature = "tree-sitter-cpp",
-        feature = "tree-sitter-c-sharp",
-        feature = "tree-sitter-cuda",
-        feature = "tree-sitter-scala"
-    )) {
-        return;
-    }
-    let expected = [
-        "asm", "assembly", "c", "cc", "cjs", "cpp", "cs", "cts", "cu", "cuh", "cxx", "go", "h",
-        "hh", "hpp", "hxx", "java", "js", "jsx", "mjs", "mts", "py", "pyi", "rs", "s", "sbt", "sc",
-        "scala", "ts", "tsx",
+fn configured_capabilities_match_the_exact_first_class_extension_set() {
+    let mut expected = vec![
+        "c", "cjs", "cts", "go", "h", "java", "js", "jsx", "mjs", "mts", "py", "pyi", "rs", "ts",
+        "tsx",
     ];
+    if cfg!(feature = "tree-sitter-asm") {
+        expected.extend(["asm", "assembly", "s"]);
+    }
+    if cfg!(feature = "tree-sitter-cpp") {
+        expected.extend(["cc", "cpp", "cxx", "hh", "hpp", "hxx"]);
+    }
+    if cfg!(feature = "tree-sitter-c-sharp") {
+        expected.push("cs");
+    }
+    if cfg!(feature = "tree-sitter-cuda") {
+        expected.extend(["cu", "cuh"]);
+    }
+    if cfg!(feature = "tree-sitter-scala") {
+        expected.extend(["sbt", "sc", "scala"]);
+    }
+    expected.sort_unstable();
     for (name, mut actual) in [
         (
             "structural",

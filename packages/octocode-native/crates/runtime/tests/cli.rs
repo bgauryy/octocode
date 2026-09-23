@@ -750,6 +750,21 @@ fn scheme_lists_the_compact_discovery_catalog() {
             .is_some_and(|text| text.len() <= 96)
     );
     assert!(first["fields"].is_string());
+    // Union tools list every mode instead of an empty field list.
+    for tool in value["tools"].as_array().expect("tools array") {
+        assert_ne!(tool["fields"], "[]", "{}", tool["name"]);
+    }
+    let fields_of = |name: &str| {
+        value["tools"]
+            .as_array()
+            .and_then(|tools| tools.iter().find(|tool| tool["name"] == name))
+            .and_then(|tool| tool["fields"].as_str())
+            .unwrap_or_default()
+            .to_owned()
+    };
+    assert!(fields_of("ghSearch").contains("operation=tree[owner*, repo*"));
+    assert!(fields_of("astSearch").contains("operation=match(rule)"));
+    assert!(fields_of("astTopology").starts_with("analysis=deadCode["));
     assert!(first["availability"]["enabled"].is_boolean());
     let clone_tool = value["tools"]
         .as_array()

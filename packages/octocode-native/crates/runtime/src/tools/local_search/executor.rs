@@ -369,10 +369,12 @@ pub fn execute_local_search(
         None
     };
     // Leftover rows only count on the files this page shows: another page's
-    // files are reached by `nextPage` (which restarts at matchPage 1).
-    let leftover_matches = parsed.files[page_range.clone()]
-        .iter()
-        .any(|file| file.matches.len() as u32 > match_page.saturating_mul(matches_per));
+    // files are reached by `nextPage` (which restarts at matchPage 1). List
+    // views emit no match rows, so they have none left to page.
+    let leftover_matches = !list
+        && parsed.files[page_range.clone()]
+            .iter()
+            .any(|file| file.matches.len() as u32 > match_page.saturating_mul(matches_per));
     let next = build_next(
         query,
         page,
@@ -480,7 +482,16 @@ pub fn execute_local_search(
         files_searched: parsed.stats.files_searched.unwrap_or(0),
         bytes_searched: parsed.stats.bytes_searched,
         search_time: None,
-        capped: parsed.stats.capped,
+        // Skipping binary files (rg's default) is normal coverage, not a cap a
+        // continuation could lift; it stays visible as capReason only.
+        capped: parsed.stats.capped.map(|capped| {
+            capped
+                && parsed
+                    .stats
+                    .cap_reason
+                    .as_deref()
+                    .is_none_or(|reason| reason.split(", ").any(|r| r != "binaryQuit"))
+        }),
         cap_reason: parsed.stats.cap_reason,
         error_count: parsed.stats.error_count.filter(|n| *n > 0),
         first_error: parsed.stats.first_error,
@@ -514,13 +525,7 @@ pub fn execute_local_search(
         );
     }
     let has_more = page < total_pages;
-    // Skipping binary files (rg's default) is normal coverage, not a cap a
-    // continuation could lift; it stays visible as capReason only.
-    let capped = stats.capped.unwrap_or(false)
-        && stats
-            .cap_reason
-            .as_deref()
-            .is_none_or(|reason| reason.split(", ").any(|r| r != "binaryQuit"));
+    let capped = stats.capped.unwrap_or(false);
     let (status, terminal_limit) = classify_search(
         empty,
         capped,

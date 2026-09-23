@@ -36,16 +36,16 @@ FRAME → POLICY → ROUTE → FETCH → CORPUS → SCREEN → CITE → RECOVER
 4. **SCREEN** — clasify all corpus pages *before* reading any body (prevents context bloat)
    - Drop 0-byte files (they return `classificationContextEmpty`) and duplicate pages first
    - ≤ 25 cells per matrix (split across root `queries[]`); omit `maxChars` so parts are not truncated
-   - Accept route choices only when `confidence >= 0.5`; `insufficient` (auto-added to every Choice) or `partial` → `consider`
+   - Accept route choices only when `confidence >= 0.9`; `insufficient` (auto-added to every Choice) or `partial` → `consider`
    - On `consider`: `corpus-run --regex <term> --flags i` for file/line, then read or re-clasify that line window
-5. **LITERAL VERIFY** — after SCREEN, run `corpus-run.mjs --regex <pattern>` to confirm target data is present in the text; zero matches + `has-target-data > 0.6` → escalate to CDP
+5. **LITERAL VERIFY** — after SCREEN, run `corpus-run.mjs --regex <pattern>` to confirm target data is present in the text; zero matches + `has-target-data >= 0.8` → escalate to CDP
 6. **CITE** — report artifact paths + URL metadata; never paste raw HTML into chat
 
 ---
 
 ## When static isn't enough — CDP escalation
 
-If `corpus-run --regex` returns zero matches for your target data (e.g. fee percentages, code samples) but clasify scored `has-target-data > 0.6`:
+If `corpus-run --regex` returns zero matches for your target data (e.g. fee percentages, code samples) but clasify scored `has-target-data >= 0.8`:
 
 1. Load `octocode-chrome-devtools`
 2. Run `open-browser.mjs` + `page-snapshot.mjs` + `dom-operations-check.mjs` on the same URL

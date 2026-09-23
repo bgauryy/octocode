@@ -184,12 +184,16 @@ where
     if content.returned_bytes == Some(0) {
         content.source_line_ranges.clear();
     }
-    // Remote reads treat an exhausted match selection as a successful search,
-    // and an empty file or bounded complete view as an empty read.
+    // An exhausted match selection, an empty file, or a bounded complete view
+    // with no content is an empty read.
     let match_not_found = content.selected_match_count == Some(0);
     if match_not_found {
         content.error_code = None;
-        content.hints.clear();
+        content.hints = vec![crate::tools::local_fetch::no_match_hint(
+            query.match_string_is_regex.unwrap_or(false),
+            query.match_string_case_sensitive.unwrap_or(false),
+            "ghSearch code",
+        )];
         content.pagination = Some(crate::tools::local_fetch::Pagination {
             chunk_type: query.chunk_type.unwrap_or_default(),
             offset: 0,
@@ -219,8 +223,11 @@ where
         content.content_view = Some(query.minify.unwrap_or_default());
     }
     if content.error.is_none() {
-        content.status = if match_not_found
-                || content.content.as_ref().is_some_and(|s| !s.is_empty())
+        content.status = if match_not_found {
+            // Same as localFetch: no selected line is an empty read, which
+            // keeps the recovery hint visible under the hint policy.
+            "empty"
+        } else if content.content.as_ref().is_some_and(|s| !s.is_empty())
                 // An oversized fullContent read is partial (next.continue
                 // pages the same view), not an empty file.
                 || content.error_code.as_deref() == Some("fullContentLimit")

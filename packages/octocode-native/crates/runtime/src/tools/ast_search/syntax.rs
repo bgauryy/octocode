@@ -16,6 +16,7 @@ pub struct AstSyntaxQuery {
     #[serde(default = "syntax")]
     pub tree_kind: String,
     pub path: String,
+    pub lang_type: Option<String>,
     #[serde(default = "yes")]
     pub named_only: bool,
     #[serde(default)]
@@ -52,6 +53,7 @@ pub fn execute_syntax(
     let p = paths
         .validate_read(&q.path)
         .map_err(super::AstError::from)?;
+    super::validate_file_language(&p.canonical, q.lang_type.as_deref())?;
     let bytes = std::fs::read(&p.canonical).map_err(super::io_error)?;
     if bytes.len() > MAX_SOURCE {
         return Ok(
@@ -61,7 +63,12 @@ pub fn execute_syntax(
     let sanitized = security
         .validate_text_bytes(&bytes, Some(&p.canonical), MAX_SOURCE)
         .map_err(super::AstError::from)?;
-    let snapshot = digest(&json!([q.path, sanitized.content, q.named_only]));
+    let snapshot = digest(&json!([
+        q.path,
+        q.lang_type,
+        sanitized.content,
+        q.named_only
+    ]));
     if q.node_offset > 0 && q.snapshot.as_deref() != Some(&snapshot) {
         let mut restart = serde_json::to_value(q).unwrap_or_default();
         restart["nodeOffset"] = json!(0);
@@ -71,9 +78,10 @@ pub fn execute_syntax(
         );
     }
     cancel.check().map_err(super::cancelled)?;
-    let r = octocode_engine::portable::inspect_syntax_tree(
+    let r = octocode_engine::portable::inspect_syntax_tree_with_extension(
         &sanitized.content,
         &p.canonical.to_string_lossy(),
+        super::cpp_header_override(&p.canonical, q.lang_type.as_deref()).then_some("cpp"),
         Some(SyntaxTreeInspectOptions {
             named_only: Some(q.named_only),
             node_offset: Some(q.node_offset),

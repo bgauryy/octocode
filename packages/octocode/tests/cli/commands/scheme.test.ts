@@ -41,7 +41,7 @@ describe('core public catalog', () => {
     const instructions = buildMcpInstructions(
       tools.map(tool => String(tool.name))
     );
-    expect(instructions).toContain('Route each unresolved question');
+    expect(instructions).toContain('Each call answers one stated question');
     expect(instructions).toContain('clasify');
     // Hard cutover: the pre-rename public name never appears in instructions.
     expect(buildMcpInstructions([])).not.toContain('semanticAssess');
@@ -172,10 +172,11 @@ describe('usageLines', () => {
     expect(tree).toBeDefined();
     // The discriminator is the label, not a field.
     expect(code).not.toContain('<operation>');
-    // tree requires owner+repo; code does not.
+    // Tree requires both fields; code requires an owner but not a repo.
     expect(tree).toContain('<owner>');
     expect(tree).toContain('<repo>');
-    expect(code).not.toContain('<owner>');
+    expect(code).toContain('<owner>');
+    expect(code).not.toContain('<repo>');
   });
 
   it('resolves a $ref discriminator so every union branch is labeled', () => {

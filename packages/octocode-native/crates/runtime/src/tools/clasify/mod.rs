@@ -40,7 +40,6 @@ pub(crate) fn is_context_tool(tool: &str) -> bool {
                 | ToolId::GhSearchHistory
                 | ToolId::GhGetHistoryItem
                 | ToolId::ArtifactSearch
-                | ToolId::GhCloneRepo
                 | ToolId::LocalSearch
                 | ToolId::LocalFetch
                 | ToolId::AstSearch
@@ -440,13 +439,12 @@ mod tests {
             "ghSearchHistory",
             "ghGetHistoryItem",
             "artifactSearch",
-            "ghCloneRepo",
         ] {
             assert!(
                 preflight(&semantic_query(json!({"tool":tool,"query":{}}), question())).is_ok()
             );
         }
-        for tool in ["jev", "clasify", "astRewrite", "unknown"] {
+        for tool in ["jev", "clasify", "astRewrite", "ghCloneRepo", "unknown"] {
             assert!(
                 preflight(&semantic_query(json!({"tool":tool,"query":{}}), question())).is_err()
             );

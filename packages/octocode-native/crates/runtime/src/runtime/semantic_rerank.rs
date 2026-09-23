@@ -365,28 +365,74 @@ fn candidate_state(file: &Value) -> Value {
     }
 }
 
-/// Words that make a question *about* callers, tests, docs, or config, where
-/// the implementer criteria below would contradict it.
-const NON_IMPLEMENTER_TOPICS: [&str; 9] = [
-    "test", "doc", "call", "example", "config", "readme", "usage", "import", "comment",
-];
-
 /// Noul criteria that separate the implementer from files that merely mention
 /// the behavior (callers and tests outranked implementers in held-out evals;
 /// the provider's rerank recipe fixes true/false this way). Skipped when the
 /// question itself targets callers, tests, docs, or config.
 fn implementer_criteria(question: &Value) -> Option<Value> {
     let text = question.as_str()?.to_ascii_lowercase();
-    if NON_IMPLEMENTER_TOPICS
-        .iter()
-        .any(|topic| text.contains(topic))
-    {
+    // Contrast clauses describe what to exclude, not the requested role.
+    // Tokenize first: "callback", "latest", and "docker" are not call,
+    // test, and doc questions.
+    let target_end = [
+        "rather than",
+        "instead of",
+        "not just",
+        "not merely",
+        "not a call",
+        "not a test",
+    ]
+    .iter()
+    .filter_map(|marker| text.find(marker))
+    .min()
+    .unwrap_or(text.len());
+    let target = &text[..target_end];
+    let words = target
+        .split(|ch: char| !ch.is_ascii_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .collect::<Vec<_>>();
+    let asks_for_other_role = words.iter().any(|word| {
+        matches!(
+            *word,
+            "call"
+                | "caller"
+                | "callers"
+                | "callsite"
+                | "callsites"
+                | "test"
+                | "tests"
+                | "testing"
+                | "testcase"
+                | "testcases"
+                | "docs"
+                | "documentation"
+                | "readme"
+                | "examples"
+                | "configuration"
+                | "comments"
+        )
+    }) || words
+        .windows(2)
+        .any(|pair| matches!(pair, ["calls", "to"] | ["imports", "of"] | ["usage", "of"]));
+    if asks_for_other_role {
         return None;
     }
     Some(json!({
         "true": "The path and snippets show code that itself does or defines what the question asks.",
         "false": "The file only calls, imports, tests, configures, documents, or mentions it."
     }))
+}
+
+/// Row isolation restores rejected rows after ordinary queries execute.
+/// Restore their empty spec slots at the same positions before pairing a
+/// rendered row with its rerank request.
+pub(super) fn restore_rejected_positions(
+    specs: &mut Vec<Option<SemanticRerankSpec>>,
+    rejected_indices: &[usize],
+) {
+    for &index in rejected_indices {
+        specs.insert(index, None);
+    }
 }
 
 pub(super) fn build_jobs(
@@ -416,7 +462,7 @@ pub(super) fn build_jobs(
             let continuation = take_continuation(data);
             data["semanticRerank"] = json!({
                 "status":"success","totalCandidates":0,"evaluatedCandidates":0,
-                "returnedCandidates":0,"filteredCandidates":0,"candidates":[]
+                "candidates":[]
             });
             if let Some(continuation) = continuation {
                 data["semanticRerank"]["next"] = continuation;
@@ -599,7 +645,10 @@ fn apply_row(row: &mut Value, spec: &SemanticRerankSpec, assessment: &DomainResu
                 .filter_map(|question| question.score)
                 .collect::<Vec<_>>();
             // Rounded like clasify answers: 0.27999999999999997 carries no signal.
-            let score = (!scores.is_empty()).then(|| {
+            // A missing question is not a free pass: averaging only the
+            // successful cells can put an incomplete candidate above one
+            // assessed on the full rubric.
+            let score = (scores.len() == spec.questions.len()).then(|| {
                 (scores.iter().sum::<f64>() / scores.len() as f64 * 1000.0).round() / 1000.0
             });
             CandidateResult {
@@ -717,6 +766,68 @@ pub(super) fn apply_failure(structured: &mut Value, jobs: &[SemanticRerankJob]) 
 mod tests {
     use super::*;
     use crate::runtime::dispatch;
+
+    #[test]
+    fn rejected_rows_keep_rerank_specs_on_their_original_results() {
+        let spec = SemanticRerankSpec {
+            questions: vec![json!({"id":"q","question":"Does this implement retry?"})],
+        };
+        // Original batch: invalid, plain, rerank. Admission removes the
+        // invalid query, then output isolation puts it back at index 0.
+        let mut specs = vec![None, Some(spec)];
+        restore_rejected_positions(&mut specs, &[0]);
+        let mut structured = json!({"results":[
+            {"index":0,"status":"error","data":{"error":"invalid"}},
+            {"index":1,"data":{"files":[{"path":"plain"}]}},
+            {"index":2,"data":{"files":[{"path":"rerank"}]}}
+        ]});
+        let jobs = build_jobs(&mut structured, "localSearch", &specs);
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].row_index, 2);
+        assert!(
+            structured["results"][1]["data"]
+                .get("semanticRerank")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn implementer_guidance_ignores_excluded_roles_and_word_fragments() {
+        for question in [
+            "Does this implement retry rather than calling or testing it?",
+            "Does this callback implement the latest docker adapter?",
+            "Does this file contain the definition of retry (not a call site like retry())?",
+        ] {
+            assert!(
+                implementer_criteria(&json!(question)).is_some(),
+                "{question}"
+            );
+        }
+        for question in [
+            "Does this file contain tests for retry?",
+            "Does this file document retry in the README?",
+            "Does this file show calls to retry?",
+        ] {
+            assert!(
+                implementer_criteria(&json!(question)).is_none(),
+                "{question}"
+            );
+        }
+    }
+
+    #[test]
+    fn empty_rerank_sidecar_uses_only_current_contract_fields() {
+        let spec = SemanticRerankSpec {
+            questions: vec![json!({"id":"q","question":"Relevant?"})],
+        };
+        let mut structured = json!({"results":[{"data":{"files":[]}}]});
+        assert!(build_jobs(&mut structured, "localSearch", &[Some(spec)]).is_empty());
+        let sidecar = &structured["results"][0]["data"]["semanticRerank"];
+        assert_eq!(sidecar["status"], "success");
+        assert_eq!(sidecar["candidates"], json!([]));
+        assert!(sidecar.get("returnedCandidates").is_none());
+        assert!(sidecar.get("filteredCandidates").is_none());
+    }
 
     #[test]
     fn extracts_multiple_questions_and_applies_the_cell_bound() {
@@ -847,6 +958,33 @@ mod tests {
         );
         assert!(sidecar.get("excluded").is_none() && sidecar.get("minScore").is_none());
         assert!(!sidecar.to_string().contains("BODY"));
+    }
+
+    #[test]
+    fn incomplete_rubric_cannot_outrank_a_fully_answered_candidate() {
+        let spec = SemanticRerankSpec {
+            questions: vec![
+                json!({"id":"a","question":"Relevant?"}),
+                json!({"id":"b","question":"Direct?"}),
+            ],
+        };
+        let mut row = json!({"data":{"files":[{"path":"complete"},{"path":"partial"}]}});
+        let assessment = dispatch::value_result(json!({"resources":[
+            {"resourceId":"candidate-1","pages":[{"answers":{"a":{"noul":0.7},"b":{"noul":0.7}}}]},
+            {"resourceId":"candidate-2","pages":[{"answers":{"a":{"noul":1.0},"b":{"error":{"code":"provider"}}}}]}
+        ]}));
+        apply_row(&mut row, &spec, &assessment);
+        assert_eq!(
+            row["data"]["files"],
+            json!([{"path":"complete"},{"path":"partial"}])
+        );
+        assert_eq!(row["data"]["semanticRerank"]["status"], "partial");
+        assert_eq!(row["data"]["semanticRerank"]["candidates"][0]["score"], 0.7);
+        assert!(
+            row["data"]["semanticRerank"]["candidates"][1]
+                .get("score")
+                .is_none()
+        );
     }
 
     #[test]

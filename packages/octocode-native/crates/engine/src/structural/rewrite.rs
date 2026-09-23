@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::time::Instant;
 
@@ -33,20 +33,9 @@ struct RewriteLanguage {
 
 impl RewriteLanguage {
     fn from_selector(selector: &str) -> Option<Self> {
-        let entry = all_entries().iter().find(|entry| {
-            entry.name.eq_ignore_ascii_case(selector)
-                || entry
-                    .language_id
-                    .is_some_and(|id| id.eq_ignore_ascii_case(selector))
-                || entry
-                    .selector_aliases
-                    .iter()
-                    .any(|alias| alias.eq_ignore_ascii_case(selector))
-                || entry
-                    .extensions
-                    .iter()
-                    .any(|ext| ext.eq_ignore_ascii_case(selector))
-        })?;
+        let entry = all_entries()
+            .iter()
+            .find(|entry| matches_selector(entry, selector))?;
         let extension = entry
             .extensions
             .iter()
@@ -59,6 +48,36 @@ impl RewriteLanguage {
     fn octocode_language(&self) -> AgLanguage {
         AgLanguage::new(self.extension, self.entry)
     }
+}
+
+fn matches_selector(entry: &LanguageEntry, selector: &str) -> bool {
+    entry.name.eq_ignore_ascii_case(selector)
+        || entry
+            .language_id
+            .is_some_and(|id| id.eq_ignore_ascii_case(selector))
+        || entry
+            .selector_aliases
+            .iter()
+            .any(|alias| alias.eq_ignore_ascii_case(selector))
+        || entry
+            .extensions
+            .iter()
+            .any(|ext| ext.eq_ignore_ascii_case(selector))
+}
+
+pub(super) fn rewrite_language_extensions(selector: &str) -> Option<HashSet<&'static str>> {
+    let mut extensions: HashSet<&'static str> = all_entries()
+        .iter()
+        .filter(|entry| matches_selector(entry, selector))
+        .flat_map(|entry| entry.extensions.iter().copied())
+        .collect();
+    if extensions.is_empty() {
+        return None;
+    }
+    if selector.eq_ignore_ascii_case("cpp") || selector.eq_ignore_ascii_case("c++") {
+        extensions.insert("h");
+    }
+    Some(extensions)
 }
 
 impl fmt::Debug for RewriteLanguage {

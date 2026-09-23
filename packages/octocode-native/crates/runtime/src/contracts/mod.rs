@@ -539,7 +539,7 @@ mod contract_owner_tests {
 
     #[test]
     fn generated_contract_body_hash_is_pinned_against_hand_edits() {
-        // `generated_contract_has_clean_matching_provenance` compares two
+        // `generated_contract_has_matching_provenance` compares two
         // co-generated literals; the fingerprint is generator-authored and never
         // recomputed from the body, so a hand-edit to the generated contract
         // passes it. This pin recomputes a digest over the embedded bytes:
@@ -556,10 +556,9 @@ mod contract_owner_tests {
 
     #[test]
     fn public_response_and_tree_limits_are_pinned_against_silent_drift() {
-        // `generated_contract_has_clean_matching_provenance` proves the contract
-        // MATCHES core, but the fingerprint moves together with any core regen —
-        // it does not prove the numeric bounds are still the intended values, so a
-        // core change that relaxed a public limit would pass provenance silently.
+        // Provenance records the core revision and generated fingerprint, but
+        // both move with regeneration. It does not pin intended numeric bounds:
+        // a core change that relaxes a public limit passes provenance checks.
         // This pins the two limits that also surface in the live MCP schema so any
         // change is a visible, reviewed test diff. (Codifies the concern formerly
         // tracked in the schema-authority drift RFC, on the surviving native

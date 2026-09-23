@@ -12,6 +12,7 @@ pub struct AstSymbolsQuery {
     #[serde(default = "op")]
     pub operation: String,
     pub path: String,
+    pub lang_type: Option<String>,
     pub name: Option<String>,
     pub kinds: Option<Vec<String>>,
     pub exclude_dir: Option<Vec<String>>,
@@ -78,6 +79,14 @@ pub fn execute_symbols(
     }
     let p = paths.validate(&q.path).map_err(super::AstError::from)?;
     let meta = std::fs::metadata(&p.canonical).map_err(super::io_error)?;
+    if meta.is_file() {
+        super::validate_file_language(&p.canonical, q.lang_type.as_deref())?;
+    } else if q.lang_type.is_some() {
+        return Err(super::AstError::new(
+            "ast.language.fileRequired",
+            "langType on symbols requires a single source file.",
+        ));
+    }
     let (mut entries, truncated, mut skipped, mut diagnostics) = if meta.is_file() {
         let b = std::fs::read(&p.canonical).map_err(super::io_error)?;
         if b.len() > 1_000_000 {
@@ -91,10 +100,17 @@ pub fn execute_symbols(
         let s = security
             .validate_text_bytes(&b, Some(&p.canonical), 1_000_000)
             .map_err(super::AstError::from)?;
-        match octocode_engine::portable::extract_graph_facts(
-            &s.content,
-            &p.canonical.to_string_lossy(),
-        ) {
+        let source_path = p.canonical.to_string_lossy();
+        let raw = if super::cpp_header_override(&p.canonical, q.lang_type.as_deref()) {
+            octocode_engine::portable::extract_graph_facts_with_extension(
+                &s.content,
+                &source_path,
+                "cpp",
+            )
+        } else {
+            octocode_engine::portable::extract_graph_facts(&s.content, &source_path)
+        };
+        match raw {
             Some(raw) => (
                 vec![(super::display_name(&p.canonical), raw)],
                 false,
@@ -145,7 +161,9 @@ pub fn execute_symbols(
         };
         if let Some(ds) = v["diagnostics"].as_array() {
             for m in ds.iter().filter_map(Value::as_str) {
-                if m == SYNTAX_ONLY_NOTE {
+                if is_linking_only(m) {
+                    continue;
+                } else if m == SYNTAX_ONLY_NOTE {
                     syntax_only_note = true;
                 } else if per_row_path {
                     diagnostics.push(json!({"path":path,"message":m}));
@@ -178,6 +196,7 @@ pub fn execute_symbols(
     }
     let snapshot = super::syntax::digest(&json!([
         q.path,
+        q.lang_type,
         q.name,
         q.kinds,
         q.exclude_dir,
@@ -229,6 +248,14 @@ pub fn execute_symbols(
 fn limit(path: &str) -> Value {
     json!({"status":"error","path":path,"errorCode":"ast.source.limit","error":"Source exceeds the native parser byte limit.","complete":false,"terminalLimit":true})
 }
+/// Import/module-linking caveats from graph facts. Declaration listing never
+/// links imports or modules, so these only add noise to symbols output.
+fn is_linking_only(message: &str) -> bool {
+    message.starts_with("unsupported Rust macro expansion")
+        || message.starts_with("unsupported Rust conditional or custom module attributes")
+        || message.starts_with("unsupported Rust inner conditional or custom crate attributes")
+}
+
 /// Static engine caveat attached to every tree-sitter graph-facts file.
 const SYNTAX_ONLY_NOTE: &str =
     "tree-sitter graph facts are syntax-only; use LSP references/callHierarchy for semantic proof";

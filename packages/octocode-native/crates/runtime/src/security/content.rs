@@ -303,13 +303,26 @@ impl ContentSecurity {
             if pattern.regex.is_match(&sanitized) {
                 secrets.push(pattern.name.clone());
                 let replacement = format!("[REDACTED-{}]", pattern.name.to_uppercase());
+                let preserve_lines = |captures: &regex::Captures<'_>| {
+                    let line_breaks = captures.get(0).map_or(0, |matched| {
+                        matched
+                            .as_str()
+                            .bytes()
+                            .filter(|byte| *byte == b'\n')
+                            .count()
+                    });
+                    format!("{replacement}{}", "\n".repeat(line_breaks))
+                };
                 sanitized = if pattern.global {
                     pattern
                         .regex
-                        .replace_all(&sanitized, replacement)
+                        .replace_all(&sanitized, preserve_lines)
                         .into_owned()
                 } else {
-                    pattern.regex.replace(&sanitized, replacement).into_owned()
+                    pattern
+                        .regex
+                        .replace(&sanitized, preserve_lines)
+                        .into_owned()
                 };
             }
         }

@@ -423,9 +423,9 @@ impl ToolRuntime {
                 .is_some_and(|names| names.iter().any(|name| name == tool))
     }
 
-    /// Runtime truth only: tool names, availability, and the enforcement
-    /// contract fingerprint. Presentation and MCP instructions are delivered
-    /// to agents by the JS layers directly from `@octocodeai/octocode-core`.
+    /// Runtime truth only: tool names, availability, grammar capabilities, and
+    /// the enforcement contract fingerprint. Presentation and MCP instructions
+    /// are delivered to agents by the JS layers from `@octocodeai/octocode-core`.
     pub fn catalog(&self) -> Result<Value, RuntimeError> {
         let contract = contracts::parsed_contract()
             .map_err(|_| RuntimeError::new("contract", "Embedded contract is invalid"))?;
@@ -445,6 +445,7 @@ impl ToolRuntime {
         Ok(json!({
             "contractFormatVersion": contract["contractFormatVersion"],
             "fingerprint": contract["fingerprint"],
+            "grammarCapabilities": octocode_engine::portable::grammar_capabilities(),
             "tools": tools,
         }))
     }
@@ -822,7 +823,15 @@ impl ToolRuntime {
                     response::apply_hint_policy(&mut row, &tool, query);
                     rows.push(row);
                 }
+                let rejected_indices = rejected_rows
+                    .iter()
+                    .map(|(index, _)| *index)
+                    .collect::<Vec<_>>();
                 merge_rejected_rows(&mut rows, &mut source_digests, rejected_rows);
+                super::semantic_rerank::restore_rejected_positions(
+                    &mut semantic_rerank_specs,
+                    &rejected_indices,
+                );
                 // Clasify receipts and caller-authored rubric values are opaque JSON:
                 // path compaction would mutate their identity and meaning.
                 let mut structured = if tool == "clasify" {
@@ -909,6 +918,13 @@ impl ToolRuntime {
                     failure = Some(FailureKind::Execution);
                 }
                 let all_failed = response_all_failed(&structured);
+                let is_clasify_output = tool == "clasify";
+                // Continuations replay through validation, which restores
+                // defaults; emit only the fields that change the replay.
+                // clasify receipts carry scoped nested queries; leave them whole.
+                if !is_clasify_output {
+                    super::continuations::compact_continuations(&mut structured);
+                }
                 context.check()?;
                 let render = options.render_text.unwrap_or(mcp)
                     || failure.is_some()
@@ -918,7 +934,6 @@ impl ToolRuntime {
                 let rendered_text =
                     render.then(|| super::render::render_tool(&tool, &structured, &response_query));
                 context.check()?;
-                let is_clasify_output = tool == "clasify";
                 let mut options = options;
                 // clasify pages at the evidence level (next.clasify); replay
                 // would re-run inference, so it never auto-paginates.
@@ -928,6 +943,11 @@ impl ToolRuntime {
                     && !super::semantic_rerank::has_requests(&semantic_rerank_specs)
                 {
                     options.auto_paginate(rendered_text.as_deref(), &structured, auto_page_chars);
+                }
+                // The pager uses this query only to build responsePagination.next.
+                let mut response_query = response_query;
+                if !is_clasify_output {
+                    super::continuations::compact_input(&tool, &mut response_query);
                 }
                 let prepared = ResponsePager::new(ResponsePagerConfig::default())
                     .prepare(

@@ -615,6 +615,20 @@ mod tests {
     }
 
     #[test]
+    fn list_views_have_no_match_rows_to_page() {
+        let body = search_fixture(
+            &[("a.txt", &"foo\n".repeat(15))],
+            LocalSearchRequest {
+                search_text: "foo".into(),
+                result_view: Some(ResultView::Files),
+                ..Default::default()
+            },
+        );
+        assert!(body.get("next").is_none(), "{}", body["next"]);
+        assert_ne!(body["status"], "partial", "{body}");
+    }
+
+    #[test]
     fn binary_files_do_not_mark_a_search_partial_or_terminal() {
         let body = search_fixture(
             &[("bin.dat", "foo\u{0}foo\n"), ("a.txt", "foo\n")],
@@ -626,6 +640,7 @@ mod tests {
         assert!(body.get("terminalLimit").is_none(), "{body}");
         assert!(body.get("next").is_none_or(|next| next.is_null()), "{body}");
         assert_eq!(body["stats"]["capReason"], "binaryQuit");
+        assert_eq!(body["stats"]["capped"], false, "{body}");
     }
 
     #[test]

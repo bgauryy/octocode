@@ -172,6 +172,15 @@ pub fn extract_graph_facts(content: &str, file_path: &str) -> Option<String> {
 }
 
 #[must_use]
+pub fn extract_graph_facts_with_extension(
+    content: &str,
+    file_path: &str,
+    extension: &str,
+) -> Option<String> {
+    crate::signatures::extract_graph_facts_with_extension_inner(content, file_path, extension)
+}
+
+#[must_use]
 pub fn supported_js_ts_extensions() -> Vec<String> {
     crate::text::file_extension::JS_TS_EXTENSIONS
         .iter()
@@ -232,8 +241,20 @@ pub fn structural_search_detailed(
     rule: Option<&str>,
 ) -> Result<crate::structural::StructuralSearchDetailedResult> {
     let extension = crate::text::file_extension::get_extension_internal(file_path, true, "txt");
+    structural_search_detailed_with_extension(content, file_path, &extension, pattern, rule)
+}
+
+/// Parse with an explicitly selected grammar while retaining the real source path
+/// in match IDs, diagnostics, and returned locations.
+pub fn structural_search_detailed_with_extension(
+    content: &str,
+    file_path: &str,
+    extension: &str,
+    pattern: Option<&str>,
+    rule: Option<&str>,
+) -> Result<crate::structural::StructuralSearchDetailedResult> {
     std::panic::catch_unwind(|| {
-        crate::structural::search_detailed(content, file_path, &extension, pattern, rule)
+        crate::structural::search_detailed(content, file_path, extension, pattern, rule)
     })
     .map_err(|_| {
         Error::new(
@@ -267,8 +288,25 @@ pub fn structural_search_files_detailed_filtered(
     options: crate::structural::StructuralSearchFilesOptions,
     allow_path: &(dyn Fn(&std::path::Path) -> std::result::Result<bool, String> + Sync),
 ) -> Result<crate::structural::StructuralSearchFilesDetailedResult> {
+    structural_search_files_detailed_filtered_with_extension(options, allow_path, &|path| {
+        path.extension()
+            .and_then(|extension| extension.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase()
+    })
+}
+
+pub fn structural_search_files_detailed_filtered_with_extension(
+    options: crate::structural::StructuralSearchFilesOptions,
+    allow_path: &(dyn Fn(&std::path::Path) -> std::result::Result<bool, String> + Sync),
+    select_extension: &(dyn Fn(&std::path::Path) -> String + Sync),
+) -> Result<crate::structural::StructuralSearchFilesDetailedResult> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        crate::structural::search_files_detailed_filtered(options, allow_path)
+        crate::structural::search_files_detailed_filtered_with_extension(
+            options,
+            allow_path,
+            select_extension,
+        )
     }))
     .unwrap_or_else(|_| {
         Err("structural detailed file search failed on pathological input".to_owned())
@@ -354,13 +392,26 @@ pub fn inspect_syntax_tree(
     file_path: &str,
     options: Option<crate::structural::SyntaxTreeInspectOptions>,
 ) -> Result<crate::structural::SyntaxTreeInspectResult> {
-    std::panic::catch_unwind(|| crate::structural::inspect_syntax_tree(content, file_path, options))
-        .map_err(|_| {
-            Error::new(
-                Status::GenericFailure,
-                "syntax-tree inspection failed on pathological input",
-            )
-        })
+    inspect_syntax_tree_with_extension(content, file_path, None, options)
+}
+
+pub fn inspect_syntax_tree_with_extension(
+    content: &str,
+    file_path: &str,
+    extension: Option<&str>,
+    options: Option<crate::structural::SyntaxTreeInspectOptions>,
+) -> Result<crate::structural::SyntaxTreeInspectResult> {
+    std::panic::catch_unwind(|| {
+        crate::structural::inspect_syntax_tree_with_extension(
+            content, file_path, extension, options,
+        )
+    })
+    .map_err(|_| {
+        Error::new(
+            Status::GenericFailure,
+            "syntax-tree inspection failed on pathological input",
+        )
+    })
 }
 
 pub fn semantic_boundary_offsets(content: &str, file_path: &str) -> Result<Vec<u32>> {

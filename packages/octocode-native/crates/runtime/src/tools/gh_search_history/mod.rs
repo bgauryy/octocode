@@ -479,7 +479,9 @@ fn map_commit(v: Value) -> Value {
         .lines()
         .next()
         .unwrap_or("");
-    json!({"sha":v["sha"],"url":v["html_url"],"messageHeadline":message,"date":v.pointer("/commit/author/date"),"author":{"name":v.pointer("/commit/author/name"),"email":v.pointer("/commit/author/email"),"login":v.pointer("/author/login")}})
+    // No per-row html_url: it is owner/repo/commit/sha, all already in the row
+    // and its envelope (issue and PR rows omit it too).
+    json!({"sha":v["sha"],"messageHeadline":message,"date":v.pointer("/commit/author/date"),"author":{"name":v.pointer("/commit/author/name"),"email":v.pointer("/commit/author/email"),"login":v.pointer("/author/login")}})
 }
 
 #[cfg(test)]

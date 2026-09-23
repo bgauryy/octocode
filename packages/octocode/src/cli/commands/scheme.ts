@@ -9,6 +9,7 @@ import { promisify } from 'node:util';
 import type { ParsedArgs } from '../types.js';
 import { EXIT } from '../exit-codes.js';
 import { resolveNativeBin } from '../native-delegate.js';
+import type { GrammarCapability } from '@octocodeai/config/mcp';
 import {
   projectSelected,
   type JsonObject,
@@ -28,6 +29,7 @@ interface MachineToolEntry {
 interface MachineCatalog {
   fingerprint: string;
   tools: MachineToolEntry[];
+  grammarCapabilities?: GrammarCapability[];
 }
 
 const USAGE = `octocode scheme [toolName] [--view full|query|variants] [--select FIELD=VALUE] [--compact]
@@ -193,7 +195,9 @@ export async function runScheme(args: ParsedArgs): Promise<number> {
           querySchema: 'scheme <name> --view query [--select variant=<name>]',
           run: "<name> '<json>'",
         },
-        instructions: buildMcpInstructions(enabled),
+        instructions: buildMcpInstructions(enabled, {
+          grammarCapabilities: machine.grammarCapabilities ?? [],
+        }),
         tools,
       },
       compact

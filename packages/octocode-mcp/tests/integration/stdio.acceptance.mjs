@@ -419,7 +419,7 @@ try {
   });
   if (!values.quick) {
     await check(
-      'outer text pagination preserves structured data and reconstructs every character',
+      'outer text pagination isolates structured rows and reconstructs every character',
       async () => {
         const args = {
           queries: [{
@@ -436,11 +436,12 @@ try {
         });
         let text = '';
         let count = 0;
+        assert.ok(full.structuredContent.results.length > 0);
         while (true) {
           assert.ok(count++ < 30);
           assert.deepEqual(
             current.structuredContent.results,
-            full.structuredContent.results
+            []
           );
           text += current.content
             .filter(block => block.type === 'text')
@@ -668,12 +669,12 @@ try {
           ],
         }] });
         assert.equal(response.isError, false);
-        const cells = response.structuredContent?.queries?.[0]?.results ?? [];
-        assert.deepEqual(
-          cells.map(cell => cell.pages?.[0]?.answer?.type),
-          ['noul', 'choice', 'score']
-        );
-        assert.ok(cells.every(cell => cell.coverage === 'complete'));
+        const resource = response.structuredContent?.queries?.[0]?.resources?.[0];
+        assert.equal(resource?.coverage, 'complete');
+        const answers = resource?.pages?.[0]?.answers;
+        assert.ok(typeof answers?.noul?.noul === 'number');
+        assert.ok(typeof answers?.choice?.choice === 'string');
+        assert.ok(typeof answers?.score?.score === 'number');
       });
     }
     const repo = { owner: 'octocat', repo: 'Hello-World' };

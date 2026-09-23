@@ -213,11 +213,20 @@ pub(crate) fn extract_graph_facts_with_metadata(
     content: &str,
     file_path: &str,
 ) -> Option<super::GraphFactsExtraction> {
+    let extension = get_extension_internal(file_path, true, "txt");
+    extract_graph_facts_with_metadata_with_extension(content, file_path, &extension)
+}
+
+pub(crate) fn extract_graph_facts_with_metadata_with_extension(
+    content: &str,
+    file_path: &str,
+    extension: &str,
+) -> Option<super::GraphFactsExtraction> {
     if content.len() > crate::minify::minifier::MAX_SIZE {
         return None;
     }
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        extract_graph_facts_with_metadata_inner(content, file_path)
+        extract_graph_facts_with_metadata_inner(content, file_path, extension)
     }))
     .unwrap_or(None)
 }
@@ -225,10 +234,12 @@ pub(crate) fn extract_graph_facts_with_metadata(
 fn extract_graph_facts_with_metadata_inner(
     content: &str,
     file_path: &str,
+    extension: &str,
 ) -> Option<super::GraphFactsExtraction> {
     extract_graph_facts_with_metadata_before(
         content,
         file_path,
+        extension,
         std::time::Instant::now() + super::extractor::AST_EXECUTION_TIMEOUT,
     )
 }
@@ -239,16 +250,18 @@ fn extract_graph_facts_before(
     file_path: &str,
     deadline: std::time::Instant,
 ) -> Option<String> {
-    extract_graph_facts_with_metadata_before(content, file_path, deadline)
+    let extension = get_extension_internal(file_path, true, "txt");
+    extract_graph_facts_with_metadata_before(content, file_path, &extension, deadline)
         .and_then(|extraction| serde_json::to_string(&extraction.facts).ok())
 }
 
 fn extract_graph_facts_with_metadata_before(
     content: &str,
     file_path: &str,
+    extension: &str,
     deadline: std::time::Instant,
 ) -> Option<super::GraphFactsExtraction> {
-    let ext = get_extension_internal(file_path, true, "txt");
+    let ext = extension.to_owned();
     if !graph_fact_extensions().iter().any(|item| item == &ext) {
         return None;
     }

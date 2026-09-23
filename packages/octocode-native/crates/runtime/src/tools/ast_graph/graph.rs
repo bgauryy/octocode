@@ -68,7 +68,13 @@ pub(crate) fn build_graph(
     cancel
         .check()
         .map_err(|e| AstGraphError::new("ast.cancelled", e))?;
-    let known: BTreeSet<String> = scan.candidate_paths.iter().map(|x| normalize(x)).collect();
+    // A discovered path is not linkable until its facts were actually parsed.
+    // Otherwise an unread or oversized target becomes a false resolved edge.
+    let known: BTreeSet<String> = scan
+        .entries
+        .iter()
+        .map(|entry| normalize(&entry.relative_path))
+        .collect();
     let mut graph_builder = octocode_engine::graph::CodeGraphBuilder::new(
         validated.canonical.to_string_lossy(),
         scan.schema_version,
@@ -110,7 +116,7 @@ pub(crate) fn build_graph(
     } else {
         BTreeMap::new()
     };
-    let workspace_packages = load_workspace_packages(&built.root, &known);
+    let workspace_packages = load_workspace_packages(&built.root, &known, paths, security);
     for skipped in scan.skipped {
         built.diagnostics.push(Diagnostic {
             file: normalize(&skipped.relative_path),
@@ -245,11 +251,14 @@ fn is_c_family_extension(ext: &str) -> bool {
         "c" | "h" | "cc" | "cpp" | "cxx" | "hh" | "hpp" | "hxx" | "cu" | "cuh"
     )
 }
-fn linking(ext: &str) -> &'static str {
-    if matches!(
+fn is_javascript_extension(ext: &str) -> bool {
+    matches!(
         ext,
         "js" | "jsx" | "ts" | "tsx" | "mjs" | "cjs" | "mts" | "cts"
-    ) {
+    )
+}
+fn linking(ext: &str) -> &'static str {
+    if is_javascript_extension(ext) {
         "javascript-relative"
     } else if ext == "rs" {
         "rust-modules"
@@ -309,10 +318,13 @@ fn link_file(
         b.languages.push((language.clone(), 1, link.clone()));
     }
     for message in &p.diagnostics {
+        if message.starts_with("tree-sitter graph facts are syntax-only;") {
+            // Every response already declares coverage.basis = syntactic.
+            // Repeating this notice for each file hides actionable gaps.
+            continue;
+        }
         let code = if message.starts_with("unsupported ") {
             "unsupported-linking"
-        } else if message.starts_with("tree-sitter graph facts are syntax-only;") {
-            "syntax-only"
         } else {
             "parse-recovery"
         };
@@ -656,30 +668,31 @@ fn resolve(
         if hint != Some("c-relative") || spec.starts_with('/') {
             return None;
         }
-        let p = join(dirname(importer), spec);
+        let p = join_within_root(dirname(importer), spec)?;
         return known.contains(&p).then_some(p);
     }
     if ext == "rs" {
         return resolve_rust(spec, importer, known, cargo_crates);
     }
+    if !is_javascript_extension(ext) {
+        return None;
+    }
     if !spec.starts_with('.') && !spec.starts_with('/') {
-        let (package, subpath) = spec
-            .split_once('/')
-            .filter(|(name, _)| name.starts_with('@'))
-            .and_then(|(scope, rest)| {
-                rest.split_once('/')
-                    .map(|(pkg, sub)| (format!("{scope}/{pkg}"), sub))
-            })
-            .unwrap_or_else(|| {
-                spec.split_once('/')
-                    .map(|(pkg, sub)| (pkg.to_owned(), sub))
-                    .unwrap_or((spec.to_owned(), ""))
-            });
+        let (package, subpath) = if spec.starts_with('@') {
+            let mut parts = spec.splitn(3, '/');
+            let scope = parts.next()?;
+            let name = parts.next()?;
+            (format!("{scope}/{name}"), parts.next().unwrap_or(""))
+        } else {
+            spec.split_once('/')
+                .map(|(pkg, sub)| (pkg.to_owned(), sub))
+                .unwrap_or((spec.to_owned(), ""))
+        };
         if let Some(target) = workspace_packages.get(&package) {
             if subpath.is_empty() {
                 return known.contains(target).then(|| target.clone());
             }
-            let joined = join(dirname(target), subpath);
+            let joined = join_within_root(dirname(target), subpath)?;
             return known.contains(&joined).then_some(joined);
         }
         return None;
@@ -687,8 +700,8 @@ fn resolve(
     if spec.starts_with('/') || !spec.starts_with('.') {
         return None;
     }
-    let stem = join(dirname(importer), spec);
-    let exts = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"];
+    let stem = join_within_root(dirname(importer), spec)?;
+    let exts = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts"];
     let mut candidates = Vec::new();
     if exts.iter().any(|x| stem.ends_with(x)) {
         candidates.push(stem.clone());
@@ -863,9 +876,15 @@ fn resolve_python(
         return None;
     }
     let dots = spec.chars().take_while(|c| *c == '.').count();
-    let base = if dots > 0 { dirname(importer) } else { "." };
+    let mut base = if dots > 0 { dirname(importer) } else { "." };
+    for _ in 1..dots {
+        if base == "." {
+            return None;
+        }
+        base = dirname(base);
+    }
     let module = spec[dots..].replace('.', "/");
-    let stem = join(base, &module);
+    let stem = join_within_root(base, &module)?;
     [
         format!("{stem}.py"),
         format!("{stem}.pyi"),
@@ -880,6 +899,20 @@ fn dirname(p: &str) -> &str {
 }
 fn join(a: &str, b: &str) -> String {
     normalize(&format!("{a}/{b}"))
+}
+fn join_within_root(a: &str, b: &str) -> Option<String> {
+    let mut parts = Vec::new();
+    for component in Path::new(&format!("{a}/{b}")).components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                parts.pop()?;
+            }
+            Component::Normal(part) => parts.push(part.to_string_lossy().into_owned()),
+            Component::RootDir | Component::Prefix(_) => return None,
+        }
+    }
+    Some(parts.join("/"))
 }
 pub(crate) fn normalize(p: &str) -> String {
     let replaced = p.replace('\\', "/");
@@ -1042,21 +1075,45 @@ fn load_cargo_crates(root: &Path) -> Result<BTreeMap<String, String>, String> {
     Ok(map)
 }
 
-fn load_workspace_packages(root: &Path, known: &BTreeSet<String>) -> BTreeMap<String, String> {
+fn load_workspace_packages(
+    root: &Path,
+    known: &BTreeSet<String>,
+    paths: &PathPolicy,
+    security: &ContentSecurity,
+) -> BTreeMap<String, String> {
     let mut packages = BTreeMap::new();
-    let mut manifests = vec!["package.json".to_owned()];
-    manifests.extend(
-        known
-            .iter()
-            .filter(|path| path.ends_with("package.json"))
-            .cloned(),
-    );
+    // The graph scan includes code extensions, never JSON. Discover package
+    // manifests along scanned files' ancestors instead of looking for them in
+    // `known`, which cannot contain package.json.
+    let mut manifests = BTreeSet::from(["package.json".to_owned()]);
+    for file in known {
+        let mut parent = Path::new(file).parent();
+        while let Some(directory) = parent {
+            if directory.as_os_str().is_empty() {
+                break;
+            }
+            manifests.insert(
+                directory
+                    .join("package.json")
+                    .to_string_lossy()
+                    .into_owned(),
+            );
+            parent = directory.parent();
+        }
+    }
     for relative in manifests {
         let path = root.join(&relative);
-        let Ok(text) = std::fs::read_to_string(&path) else {
+        let Ok(validated) = paths.validate_read(&path) else {
             continue;
         };
-        let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
+        let Ok(bytes) = std::fs::read(&validated.canonical) else {
+            continue;
+        };
+        let Ok(safe) = security.validate_text_bytes(&bytes, Some(&validated.canonical), 1_000_000)
+        else {
+            continue;
+        };
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(&safe.content) else {
             continue;
         };
         let Some(name) = value.get("name").and_then(serde_json::Value::as_str) else {
@@ -1075,12 +1132,17 @@ fn load_workspace_packages(root: &Path, known: &BTreeSet<String>) -> BTreeMap<St
         let Some(target) = target else {
             continue;
         };
-        let joined = if directory.is_empty() {
-            target.trim_start_matches("./").to_owned()
-        } else {
-            join(&directory, target.trim_start_matches("./"))
+        let Some(joined) = join_within_root(
+            if directory.is_empty() {
+                "."
+            } else {
+                &directory
+            },
+            &target,
+        ) else {
+            continue;
         };
-        packages.insert(name.to_owned(), normalize(&joined));
+        packages.insert(name.to_owned(), joined);
     }
     packages
 }
@@ -1131,6 +1193,106 @@ fn export_target(package: &serde_json::Value) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn python_parent_imports_climb_the_declared_number_of_packages() {
+        let known = ["pkg/shared.py", "pkg/sub/shared.py", "shared.py"]
+            .iter()
+            .map(|path| (*path).to_owned())
+            .collect();
+        assert_eq!(
+            super::resolve_python(
+                "..shared",
+                "pkg/sub/worker.py",
+                Some("python-relative"),
+                "run",
+                &known,
+            ),
+            Some("pkg/shared.py".to_owned())
+        );
+        assert_eq!(
+            super::resolve_python(
+                "....shared",
+                "pkg/sub/worker.py",
+                Some("python-relative"),
+                "run",
+                &known,
+            ),
+            None,
+            "relative imports cannot climb above the scan root"
+        );
+    }
+
+    #[test]
+    fn relative_javascript_import_cannot_reenter_after_escaping_scan_root() {
+        let known = ["target.ts"]
+            .iter()
+            .map(|path| (*path).to_owned())
+            .collect();
+        assert_eq!(
+            super::resolve(
+                "../target",
+                "entry.ts",
+                "ts",
+                None,
+                "*",
+                &known,
+                &Default::default(),
+                &Default::default(),
+            ),
+            None,
+        );
+    }
+
+    #[test]
+    fn extensionless_javascript_import_links_supported_module_extensions() {
+        let known = ["src/module.mts", "src/legacy.cts"]
+            .iter()
+            .map(|path| (*path).to_owned())
+            .collect();
+        for (specifier, expected) in [
+            ("./module", "src/module.mts"),
+            ("./legacy", "src/legacy.cts"),
+        ] {
+            assert_eq!(
+                super::resolve(
+                    specifier,
+                    "src/entry.ts",
+                    "ts",
+                    None,
+                    "*",
+                    &known,
+                    &Default::default(),
+                    &Default::default(),
+                ),
+                Some(expected.to_owned()),
+            );
+        }
+    }
+
+    #[test]
+    fn unsupported_languages_do_not_use_javascript_package_resolution() {
+        let known = ["src/index.ts"]
+            .iter()
+            .map(|path| (*path).to_owned())
+            .collect();
+        let packages = [("example".to_owned(), "src/index.ts".to_owned())]
+            .into_iter()
+            .collect();
+        assert_eq!(
+            super::resolve(
+                "example",
+                "main.go",
+                "go",
+                None,
+                "*",
+                &known,
+                &Default::default(),
+                &packages,
+            ),
+            None,
+        );
+    }
+
     #[test]
     fn rust_internal_paths_resolve_across_workspace_crates() {
         let known = [

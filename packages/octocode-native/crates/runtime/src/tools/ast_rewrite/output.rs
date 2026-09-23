@@ -49,6 +49,25 @@ pub(super) fn success_value(
             "tool":"astRewrite","query":next,"confidence":"exact"
         }});
     }
+    // A complete preview carries its own guarded apply: the same query with the
+    // preview snapshot and every file's beforeHash. Running it stays the
+    // caller's decision; changed sources or selections are still rejected.
+    if !apply && !has_more && !matches.is_empty() {
+        let mut next = continuation_query(query, root);
+        next["apply"] = json!(true);
+        next["page"] = json!(1);
+        next["snapshot"] = json!(snapshot);
+        next["expectedHashes"] = Value::Object(
+            files
+                .iter()
+                .map(|file| (file.path.clone(), json!(file.before_hash)))
+                .collect(),
+        );
+        value["next"]["apply"] = json!({
+            "tool":"astRewrite","query":next,"confidence":"exact",
+            "why":"Apply exactly this preview; changed sources or selections are rejected."
+        });
+    }
     if let Some(transaction) = transaction {
         value["transaction"] = transaction;
     }

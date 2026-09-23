@@ -124,6 +124,47 @@ pub(super) fn display_name(path: &std::path::Path) -> String {
         .into_owned()
 }
 
+/// A `.h` suffix is shared by C and C++. Keep C as the default and allow an
+/// explicit C++ parser only for a single ambiguous header.
+pub(super) fn cpp_header_override(path: &std::path::Path, selector: Option<&str>) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("h"))
+        && selector.is_some_and(|language| {
+            language.eq_ignore_ascii_case("cpp") || language.eq_ignore_ascii_case("c++")
+        })
+}
+
+pub(super) fn validate_file_language(
+    path: &std::path::Path,
+    selector: Option<&str>,
+) -> Result<(), AstError> {
+    if let Some(language) = selector {
+        if language.trim().is_empty() || matches!(language, ".") {
+            return Err(AstError::new(
+                "ast.language.unsupported",
+                "langType must name a registered grammar.",
+            ));
+        }
+        let selected = matches::language_extensions(language).ok_or_else(|| {
+            AstError::new(
+                "ast.language.unsupported",
+                format!("langType \"{language}\" is not a supported structural grammar."),
+            )
+        })?;
+        if !matches::has_extension_in(path, &selected) && !cpp_header_override(path, selector) {
+            return Err(AstError::new(
+                "ast.language.mismatch",
+                format!(
+                    "{} is not a {language} source file; omit langType or choose the grammar matching its extension.",
+                    display_name(path)
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Row path for a descendant of a directory scope: `{root_name}/{relative}`.
 /// The runtime attaches `base = parent(scope)`, so `base + path` resolves to
 /// the real file for every operation (files, match, symbols).

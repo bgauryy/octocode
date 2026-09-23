@@ -17,22 +17,48 @@ depending on the strategy table.
 
 Tree-sitter-backed. Two query forms: `pattern` (code-shaped, `$X`/`$$$ARGS` metavars) and `rule` (YAML, `kind`/`has`/`inside`/`all`/`any`/`not`). YAML is the rule-document format; it does not imply YAML source parsing. A `rule: kind: NODE_KIND` query bypasses pattern-fragment parsing and dispatches directly to the registered grammar. Direct and nested rule patterns share the same grammar-checked fragment context.
 
-| Language | Extensions | Notes |
+| Language | Extensions | Native AST match/tree/symbols/rewrite | `astTopology` file links | Built-in LSP route |
+|---|---|---|---|---|
+| C | `c` `h` | Yes; `.h` defaults to C; `langType:"cpp"` selects C++ for match and single-file tree/symbols | Quoted relative includes | `clangd` |
+| C++ | `cc` `cpp` `cxx` `hh` `hpp` `hxx` | Yes | Quoted relative includes | `clangd` |
+| CUDA *(optional grammar)* | `cu` `cuh` | Only with `tree-sitter-cuda`; absent in the default build | Quoted relative includes only when grammar enabled | `clangd` even without native grammar |
+| Assembly | `asm` `assembly` `s` | Yes; symbols are labels/directives | No cross-file links | Custom server only |
+| C# | `cs` | Yes | No cross-file links | `csharp-ls` |
+| Go | `go` | Yes | No cross-file links | `gopls` |
+| Java | `java` | Yes | No cross-file links | `jdtls` |
+| Python | `py` `pyi` | Yes | Bounded absolute/relative modules | `pylsp` |
+| Rust | `rs` | Yes | Modules; optional Cargo metadata | `rust-analyzer` |
+| Scala | `sc` `sbt` `scala` | Yes | No cross-file links | `metals` |
+| JavaScript | `js` `jsx` `mjs` `cjs` | Yes | ESM and binding-safe CommonJS | `typescript-language-server` |
+| TypeScript | `ts` `tsx` `mts` `cts` | Yes | ESM and binding-safe CommonJS | `typescript-language-server` |
+
+`astSearch operation:"files"` is language-agnostic. `astRewrite` and `astTopology` are beta-gated; the matrix lists their capabilities when enabled. Native AST availability does not install or guarantee an LSP server or every LSP operation. Tree-sitter owns JS/TS structural matching while OXC supplies richer JS/TS facts. C++ function patterns repair a narrow C++11 initializer-list ambiguity; C# member patterns use a synthetic class wrapper; Java method-call patterns receive statement context. Uppercase `.S` normalizes to `.s`.
+
+### Which operation to use
+
+| Agent needs | Operation | Evidence and limit |
 |---|---|---|
-| C | `c` `h` | `.h` defaults to C; explicitly select C++ when project context requires it |
-| C++ | `cc` `cpp` `cxx` `hh` `hpp` `hxx` | Function patterns repair a narrow C++11 initializer-list ambiguity only when the alternate parse is a function definition |
-| CUDA *(optional; not in default build)* | `cu` `cuh` | CUDA-specific C++ grammar behind the `tree-sitter-cuda` feature (dropped from `portable-default` to save ~6.8 MiB); when enabled, complete function patterns and direct `kind` rules support kernel-launch syntax. `.cu`/`.cuh` still route to `clangd` for LSP regardless |
-| Assembly | `asm` `assembly` `s` | Generic multi-dialect grammar; uppercase `.S` normalizes to `.s`; label/directive outlines omit instructions |
-| C# | `cs` | Member patterns use a transparent synthetic wrapper class for grammar context |
-| Go | `go` | |
-| Java | `java` | Bare method-call patterns receive grammar-checked statement context |
-| Python | `py` `pyi` | |
-| Rust | `rs` | |
-| Scala | `sc` `sbt` `scala` | |
-| JavaScript | `js` `jsx` `mjs` `cjs` | Tree-sitter owns structural matching; OXC owns richer JS analysis |
-| TypeScript | `ts` `tsx` `mts` `cts` | Tree-sitter owns structural matching; OXC owns richer TS analysis |
+| Paths or file metadata | `astSearch files` | Filesystem result; no grammar required |
+| Syntax pattern or node kind | `astSearch match` | Native grammar; provide `langType` for a directory, or let a file extension select it |
+| Parsed node tree | `astSearch tree` | Syntax only; does not resolve symbol identity |
+| Declaration outline | `astSearch symbols` | Native declarations; read source for bodies and exact claims |
+| Structural edit | `astRewrite` | Beta-gated preview and hash-guarded apply |
+| File links, cycles, reachability | `astTopology` | Syntax-derived candidate graph; confirm delete claims with LSP references/callers |
+| Definition, references, types, hover, implementations | `lspSearch definition/references/typeDefinition/hover/implementation` | Requires an installed server and its advertised capability; use an observed symbol anchor |
+| Call hierarchy or inheritance | `lspSearch callers/callees/callHierarchy/supertypes/subtypes` | Requires the corresponding server capability; syntax graph edges alone are not semantic proof |
+| File outline | `lspSearch documentSymbols` | Usually server-backed; JS/TS has a syntactic native fallback identified by `lsp.source` |
+| Workspace name lookup | `lspSearch workspaceSymbol` | Supply `uri` in a mixed-language workspace to select the server |
+| Compiler or language-server findings | `lspSearch diagnostic` | Requires a server; reports its diagnostics rather than native grammar support |
 
 The default release build registers exactly **28 extensions across 11 language families**. CUDA (`.cu`/`.cuh`) is an optional grammar (`tree-sitter-cuda`) excluded from the default build to save ~6.8 MiB of binary size; its native capabilities appear only in builds that re-enable the feature, though `.cu`/`.cuh` still route to `clangd` for LSP. Structural search/rewrite, signatures, graph facts, syntax inspection, and LSP grammar adapters derive from the single registry in `crates/engine/src/signatures/languages.rs`. Exact expected-set assertions live in `crates/engine/src/signatures/languages_tests.rs` and `tests/engine/ffi.test.ts`; every retained grammar also parses and searches a representative fixture. Built-in semantic-server routing is intentionally narrower because generic Assembly has no truthful default server.
+
+### CUDA opt-in and cost
+
+`tree-sitter-cuda` is already declared and locked. For a one-off runtime build, enable the dependency feature with `--features octocode-engine/tree-sitter-cuda`; for the engine addon, include `tree-sitter-cuda` alongside `portable-default,napi-addon`. To ship it in every build, add `tree-sitter-cuda` to the engine's `portable-default` feature, which both the CLI/runtime and engine addon consume. Then update the fixed default extension expectation in `tests/engine/ffi.test.ts`, the documented counts, and build/test the six platform packages. No new grammar dependency or LSP route is required.
+
+The [same-source Darwin ARM64 release ablation](DEPENDENCY_AUDIT.md#footprint-interpretation) measured **+7,116,704 bytes (+6.787 MiB, +25.53%)** in the stripped engine addon with CUDA enabled. That measures one addon, not the total platform package, compressed download, CLI binary, or runtime addon; those need separate release measurements before changing the default. The optional engine and runtime grammar tests pass with CUDA enabled. Text search, ordinary reads, conservative minification, and the `clangd` LSP route already work for `.cu`/`.cuh` without this parser feature.
+
+The lockfile contains no other unregistered Tree-sitter language crate. OXC covers JS/TS, while JSON/YAML parsers and the broader minifier table do not supply the source ranges and grammar queries required by AST match, rewrite, symbols, and topology. C++ `.h` files expose a separate ambiguity: `.h` selects C by default. `astSearch match` with `langType:"cpp"` parses matching `.h` files as C++ for either a file or directory; tree and symbols accept that override for a single file. `astRewrite` uses `langType` for its parser and filters directory scans to the selected language's extensions, including `.h` for C++. Topology retains the extension default. This override does not alter clangd's compile-command handling.
 
 ## Signature extraction / graph facts — `minify:"symbols"`, `astTopology`
 
@@ -56,8 +82,8 @@ a syntax parser. Scala `.scala`, `.sc`, and `.sbt` share one strategy.
 | View | Processing | Research use |
 |---|---|---|
 | `none` | Skips minification; extraction, security redaction, and response formatting still apply | Source evidence, comments, type declarations, edits, and literal matches |
-| `standard` | Uses language-dependent processing. JS/TS uses OXC compact code generation without optimization, mangling, or type-declaration removal; other strategies compact JSON, markup, CSS, Markdown, or comments and whitespace | Orientation; use `none` for exact text, comments, and formatting |
-| `symbols` | Extracts an outline for the 30 first-class extensions; Markdown has a heading fallback. Unsupported or unavailable outlines fall back to `standard` | Declaration locations and source-line anchors; follow with an exact read for bodies |
+| `standard` | Uses language-dependent processing. JS/TS strips comments and tightens whitespace while preserving identifiers, type declarations, and statement lines; other strategies compact JSON, markup, CSS, Markdown, or comments and whitespace | Orientation; use `none` for exact text, comments, and formatting |
+| `symbols` | Extracts an outline for the registered first-class extensions; Markdown has a heading fallback. Unsupported or unavailable outlines fall back to `standard` | Declaration locations and source-line anchors; follow with an exact read for bodies |
 
 For file reads, `fullContent:true` defaults to `none`. Local line ranges also
 default to `none`; GitHub line ranges and other ordinary reads default to
@@ -65,8 +91,7 @@ default to `none`; GitHub line ranges and other ordinary reads default to
 and reject outline queries combined with matching or line-range selectors.
 Explicit character windows apply even with `fullContent:true`.
 
-GitHub code-search fragments use the stronger full-content minifier, which can
-inline or remove local bindings. If compression removes a provider match that
+GitHub code-search fragments use the full-content minifier. If compression removes a provider match that
 survived security redaction, the fragment falls back to its sanitized source.
 Treat snippets as discovery evidence and read the source with `minify:"none"`
 before quoting or checking identifier usage.

@@ -423,7 +423,8 @@ impl RegexMatch for LocalFetchRegex {
         input: &str,
     ) -> Result<Vec<(usize, usize)>, String> {
         use crate::regex::{EcmaPattern, RegexExecutionClass, RegexLimits};
-        let flags = if case_sensitive { "g" } else { "gi" };
+        // Matches select lines, so `^`/`$` must anchor per line.
+        let flags = if case_sensitive { "gm" } else { "gim" };
         let limits = RegexLimits {
             max_pattern_bytes: 4_096,
             max_input_bytes: 10 * 1024 * 1024,

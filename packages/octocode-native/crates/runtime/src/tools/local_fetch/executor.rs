@@ -235,7 +235,11 @@ pub fn process_fetched_content(
             error: None,
             resolved_path: None,
             warnings: vec![],
-            hints: vec!["Verify path/range, or remove matchString.".into()],
+            hints: vec![no_match_hint(
+                q.match_string_is_regex.unwrap_or(false),
+                q.match_string_case_sensitive.unwrap_or(false),
+                "localSearch",
+            )],
             total_lines: Some(total_lines),
             start_line: None,
             end_line: None,
@@ -700,5 +704,25 @@ mod source_size_tests {
         );
 
         let _ = fs::remove_dir_all(&dir);
+    }
+}
+
+/// Next step for a matchString that selected no line, tuned to how it matched.
+/// `finder` names the search tool that locates the file containing the text.
+/// Kept under the 120-char guidance cap.
+pub(crate) fn no_match_hint(regex: bool, case_sensitive: bool, finder: &str) -> String {
+    match (regex, case_sensitive) {
+        (false, false) => format!(
+            "No line contains this text; try a shorter token, matchStringIsRegex:true, or {finder}."
+        ),
+        (false, true) => format!(
+            "No line contains this case-sensitive text; drop matchStringCaseSensitive or use {finder}."
+        ),
+        (true, false) => {
+            format!("No line matches this regex (^/$ per line); simplify it or use {finder}.")
+        }
+        (true, true) => format!(
+            "No line matches this case-sensitive regex; drop matchStringCaseSensitive or use {finder}."
+        ),
     }
 }

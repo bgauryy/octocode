@@ -457,10 +457,7 @@ fn dead_code(
         rows,
         json!({"entrypointsResolved":roots,"entrypointsResolvedCount":roots.len(),"deadClusters":clusters,"deadClusterCount":ccount,"deadExportCount":count}),
         warnings,
-        low_entries
-            || b.truncated
-            || b.files_skipped > 0
-            || b.diagnostics.iter().any(|x| x.code != "syntax-only"),
+        low_entries || b.truncated || b.files_skipped > 0 || !b.diagnostics.is_empty(),
     )
 }
 

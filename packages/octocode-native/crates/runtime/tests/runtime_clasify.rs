@@ -693,27 +693,106 @@ async fn empty_file_is_reported_without_a_provider_call() {
 }
 
 #[tokio::test]
-async fn high_scoring_file_pages_are_narrowed_to_a_focus_window() {
+async fn empty_search_page_is_not_sent_to_the_provider() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(wiremock::matchers::body_string_contains("\"type\":\"choice\""))
+        .respond_with(ResponseTemplate::new(500))
+        .expect(0)
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let file = workspace.write("present.txt", "hello world\n");
+    let runtime = workspace.runtime(&[
+        ("OCTOCODE_CLASSIFICATION_API", "secret".into()),
+        ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
+    ]);
+    let input = json!({
+        "id":"empty-search","reasoning":"Screen a search page.",
+        "resources":[{"id":"e","context":{"tool":"localSearch","query":{
+            "path":file,"searchText":"UNLIKELY_OCTOCODE_SENTINEL_673829",
+            "reasoning":"Find matching source."
+        }}}],
+        "questions":[{"id":"q","question":{"type":"noul","instructions":"Does this page show a match?"}}]
+    });
+    let outcome = runtime
+        .execute("empty-search".into(), "clasify".into(), input)
+        .await
+        .unwrap();
+    let resource = &outcome.structured_content["queries"][0]["resources"][0];
+    assert_eq!(resource["coverage"], "error", "{resource}");
+    assert_eq!(
+        resource["pages"][0]["error"]["code"],
+        "classificationContextEmpty"
+    );
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn disjoint_file_match_windows_return_real_ranges_without_a_focus() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "model":"resolved",
-            "answers":{"answer":{"type":"choice","choice":"w3","confidence":0.9,
-                "probabilities":{"w1":0.05,"w2":0.05,"w3":0.9,"w4":0.0,"w5":0.0}}},
+            "answers":{"answer":{"type":"noul","noul":0.95}},
             "usage":{"input_tokens":5,"output_tokens":1}
         })))
-        .with_priority(1)
         .expect(1)
         .mount(&server)
         .await;
+    let workspace = Workspace::new();
+    let body = (1..=220)
+        .map(|line| {
+            if line == 10 || line == 160 {
+                format!("MARKER {line}\n")
+            } else {
+                format!("line {line}\n")
+            }
+        })
+        .collect::<String>();
+    let file = workspace.write("disjoint.rs", body);
+    let runtime = workspace.runtime(&[
+        ("OCTOCODE_CLASSIFICATION_API", "secret".into()),
+        ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
+        ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
+    ]);
+    let input = json!({
+        "id":"disjoint","reasoning":"Find relevant match windows.",
+        "resources":[{"id":"f","context":{"tool":"localFetch","query":{
+            "path":file,"reasoning":"Read matching windows.",
+            "matchString":"MARKER","contextLines":45,"chunkSize":50000
+        }}}],
+        "questions":[{"id":"q","question":{"type":"noul","instructions":"Does this content show MARKER?"}}]
+    });
+    let outcome = runtime
+        .execute("disjoint".into(), "clasify".into(), input)
+        .await
+        .unwrap();
+    let page = &outcome.structured_content["queries"][0]["resources"][0]["pages"][0];
+    assert_eq!(
+        page["scope"]["lineRanges"].as_array().map(Vec::len),
+        Some(2),
+        "{page}"
+    );
+    assert!(page.get("focus").is_none(), "{page}");
+    octocode_native::contracts::validate_output("clasify", &outcome.structured_content)
+        .expect("disjoint scope output contract");
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn high_scoring_file_pages_are_narrowed_to_a_focus_window() {
+    let server = MockServer::start().await;
     Mock::given(method("POST"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "model":"resolved",
-            "answers":{"answer":{"type":"noul","noul":0.9}},
-            "usage":{"input_tokens":2,"output_tokens":1}
+            "answers":{
+                "answer_0":{"type":"noul","noul":0.9},
+                "answer_1":{"type":"choice","choice":"w3","confidence":0.9,
+                    "probabilities":{"w1":0.05,"w2":0.05,"w3":0.9,"w4":0.0,"w5":0.0,"insufficient":0.0}}
+            },
+            "usage":{"input_tokens":5,"output_tokens":2}
         })))
-        .with_priority(2)
+        .expect(1)
         .mount(&server)
         .await;
     let workspace = Workspace::new();

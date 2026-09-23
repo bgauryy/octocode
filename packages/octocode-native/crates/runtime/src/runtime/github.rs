@@ -23,11 +23,6 @@ use std::{
 
 type Store = ChainedCredentialSource<PlatformCredentialStore, GhCliCredentialSource>;
 
-/// Single source for the permission-denied message shared by the file, search,
-/// and history error mappers below — previously three near-identical literals
-/// that had already drifted in punctuation (hyphen vs em dash).
-const PERMISSION_DENIED_MESSAGE: &str = "Access forbidden - insufficient permissions";
-
 fn provider_recovery_hint(kind: ProviderErrorKind) -> &'static str {
     match kind {
         ProviderErrorKind::Authentication => "Authenticate with GitHub, then retry.",
@@ -319,6 +314,7 @@ impl GitHubServices {
         security: &ContentSecurity,
     ) -> Result<DomainResult, ExecutionError> {
         context.check()?;
+        let raw_query = query;
         let query: gh_get_history_item::GhGetHistoryItemQuery =
             serde_json::from_value(query.clone()).map_err(|_| ExecutionError::WorkerFailed)?;
         // History items are mutable; bypass ConditionalCache intentionally.
@@ -344,7 +340,14 @@ impl GitHubServices {
                 source_digest: None,
                 failure: None,
             },
-            Err(error) => history_error(error, false),
+            Err(error) => {
+                let pull_request = error.message.contains("is a pull request");
+                let mut result = history_error(error, false);
+                if pull_request {
+                    attach_pull_request_recovery(&mut result.data, raw_query);
+                }
+                result
+            }
         })
     }
 
@@ -614,7 +617,7 @@ fn file_error(error: ProviderError, query: &Value) -> DomainResult {
     }
     let message = match error.kind {
         ProviderErrorKind::Authentication => "GitHub authentication required".into(),
-        ProviderErrorKind::Permission => PERMISSION_DENIED_MESSAGE.into(),
+        ProviderErrorKind::Permission => error.message.to_string(),
         ProviderErrorKind::NotFound => "Repository, resource, or path not found".into(),
         // Provider-local validation (no HTTP status) carries a specific,
         // actionable message (directory/symlink/submodule path, bad name).
@@ -645,7 +648,10 @@ fn file_error(error: ProviderError, query: &Value) -> DomainResult {
     {
         data["hints"] =
             json!(["The path is a directory; list its entries with the viewTree continuation."]);
-        data["next"] = json!({ "viewTree": tree_recovery(owner, repo, requested, query) });
+        let mut tree = tree_recovery(owner, repo, requested, query);
+        // The provider confirmed this path is a directory: listing it is exact.
+        tree["confidence"] = json!("exact");
+        data["next"] = json!({ "viewTree": tree });
     } else if error.kind == ProviderErrorKind::NotFound {
         data["hints"] = json!([format!(
             "verify the path (exact case, no leading slash) and branch; use ghSearch with operation:\"tree\", owner:\"{owner}\", repo:\"{repo}\""
@@ -669,6 +675,25 @@ fn file_error(error: ProviderError, query: &Value) -> DomainResult {
 }
 
 const BINARY_FILE_MESSAGE: &str = "binary files are not supported";
+
+/// An issue number that GitHub reports as a pull request: rerun the same read
+/// as operation:"pullRequest". Issue content selections (body, discussion
+/// comments) are a subset of the pull-request ones, so they carry over.
+fn attach_pull_request_recovery(data: &mut Value, query: &Value) {
+    let mut next = serde_json::Map::new();
+    for field in ["owner", "repo", "number", "reasoning", "content"] {
+        if let Some(value) = query.get(field).filter(|value| !value.is_null()) {
+            next.insert(field.into(), value.clone());
+        }
+    }
+    next.insert("operation".into(), json!("pullRequest"));
+    data["hints"] = json!(["This number is a pull request; run the readPullRequest continuation."]);
+    data["next"] = json!({"readPullRequest": {
+        "tool": "ghGetHistoryItem",
+        "confidence": "exact",
+        "query": next,
+    }});
+}
 
 /// Advisory ghSearch tree query for ghGetFileContent recovery. The output
 /// contract validates it against the ghSearch tree-continuation schema, which
@@ -725,7 +750,7 @@ fn search_error(error: ProviderError) -> DomainResult {
     let failure = failure_kind(error.kind);
     let message = match error.kind {
         ProviderErrorKind::Authentication => "GitHub authentication required".to_owned(),
-        ProviderErrorKind::Permission => PERMISSION_DENIED_MESSAGE.to_owned(),
+        ProviderErrorKind::Permission => error.message.to_string(),
         ProviderErrorKind::NotFound => "Repository or resource not found".to_owned(),
         ProviderErrorKind::RateLimited => error.message.to_string(),
         ProviderErrorKind::Validation if error.status == Some(422) => {
@@ -772,7 +797,7 @@ fn history_error(error: ProviderError, search: bool) -> DomainResult {
             Some("octocode login, or set GITHUB_TOKEN / GH_TOKEN"),
         ),
         ProviderErrorKind::Permission => (
-            PERMISSION_DENIED_MESSAGE,
+            error.message.as_ref(),
             Some("Check repository permissions or authentication"),
         ),
         ProviderErrorKind::NotFound => ("Repository, resource, or path not found", None),
@@ -870,6 +895,33 @@ fn history_error(error: ProviderError, search: bool) -> DomainResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn permission_errors_keep_the_provider_reason_across_github_tools() {
+        let reason = "Resource protected by organization SAML SSO authorization";
+        let error = || ProviderError {
+            kind: ProviderErrorKind::Permission,
+            message: reason.into(),
+            status: Some(403),
+            request_id: None,
+            documentation_url: None,
+            rate_limit: None,
+            retryable: false,
+        };
+        for result in [
+            search_error(error()),
+            history_error(error(), true),
+            history_error(error(), false),
+            file_error(
+                error(),
+                &json!({"owner":"a","repo":"b","path":"src/lib.rs"}),
+            ),
+        ] {
+            assert_eq!(result.data["error"], reason);
+            assert_eq!(result.data["httpStatus"], 403);
+            assert_eq!(result.failure, Some(FailureKind::Permission));
+        }
+    }
 
     /// Regression: a provider failure whose body decoded into a structured
     /// error (here modelled as a Validation 422 carrying rate-limit metadata)

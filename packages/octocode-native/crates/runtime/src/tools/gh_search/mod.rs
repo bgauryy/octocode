@@ -122,6 +122,9 @@ pub async fn execute<R: CredentialResolver, C: crate::providers::github::Conditi
                 page.remove("nextPage");
             }
             add_next(&mut value, query, current, more, "code");
+            if let Some(read) = code_output::read_top_match(&value) {
+                value["next"]["readTopMatch"] = read;
+            }
             apply_partial(
                 &mut value,
                 query,

@@ -530,6 +530,115 @@ fn lang_type_is_validated_and_intersected_with_include() {
 }
 
 #[test]
+fn dot_prefixed_lang_type_selects_only_that_extension() {
+    let root = Fixture::new();
+    std::fs::write(root.0.join("a.ts"), "oldCall(x);\n").expect("ts");
+    std::fs::write(root.0.join("b.mts"), "oldCall(y);\n").expect("mts");
+
+    let exact = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"langType":".ts","pattern":"oldCall($A)"}),
+    )
+    .expect("exact extension");
+    let files = exact["files"].as_array().expect("files");
+    assert_eq!(files.len(), 1, "{exact}");
+    assert!(
+        files[0]["path"]
+            .as_str()
+            .is_some_and(|p| p.ends_with("a.ts"))
+    );
+
+    let family = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"langType":"typescript","pattern":"oldCall($A)"}),
+    )
+    .expect("language family");
+    assert_eq!(
+        family["files"].as_array().expect("files").len(),
+        2,
+        "{family}"
+    );
+}
+
+#[test]
+fn cpp_header_can_use_explicit_cpp_grammar_without_changing_h_default() {
+    let root = Fixture::new();
+    let header = root.0.join("widget.h");
+    std::fs::write(
+        &header,
+        "template <typename T> class Widget { public: T value; };\n",
+    )
+    .expect("header");
+
+    let selected = run(
+        &root.0,
+        json!({"operation":"match","path":header,"langType":"cpp","rule":"kind: class_specifier"}),
+    )
+    .expect("explicit C++ match");
+    assert_eq!(selected["stats"]["totalStructuralMatches"], 1, "{selected}");
+
+    let selected_directory = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"langType":"cpp","include":["*.h"],"rule":"kind: class_specifier"}),
+    )
+    .expect("explicit C++ directory match");
+    assert_eq!(
+        selected_directory["stats"]["totalStructuralMatches"], 1,
+        "{selected_directory}"
+    );
+
+    let selected_directory_default = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"langType":"cpp","rule":"kind: class_specifier"}),
+    )
+    .expect("C++ directory includes ambiguous headers");
+    assert_eq!(
+        selected_directory_default["stats"]["totalStructuralMatches"], 1,
+        "{selected_directory_default}"
+    );
+
+    let tree = run(
+        &root.0,
+        json!({"operation":"tree","treeKind":"syntax","path":header,"langType":"cpp"}),
+    )
+    .expect("explicit C++ tree");
+    assert_eq!(tree["isPartial"], false, "{tree}");
+    let default_tree = run(
+        &root.0,
+        json!({"operation":"tree","treeKind":"syntax","path":header}),
+    )
+    .expect(".h defaults to C");
+    assert_eq!(default_tree["isPartial"], true, "{default_tree}");
+    assert!(
+        tree["nodes"]
+            .as_array()
+            .is_some_and(|nodes| nodes.iter().any(|node| node["kind"] == "class_specifier")),
+        "{tree}"
+    );
+
+    let symbols = run(
+        &root.0,
+        json!({"operation":"symbols","path":header,"langType":"cpp"}),
+    )
+    .expect("explicit C++ symbols");
+    assert!(
+        symbols["declarations"]
+            .as_array()
+            .is_some_and(|rows| rows.iter().any(|row| row["name"] == "Widget")),
+        "{symbols}"
+    );
+
+    let wrong_file = root.0.join("wrong.c");
+    std::fs::write(&wrong_file, "int value;\n").expect("C file");
+    let mismatch = run(
+        &root.0,
+        json!({"operation":"match","path":wrong_file,"langType":"cpp","rule":"kind: declaration"}),
+    )
+    .expect_err("C source is not an ambiguous header");
+    assert_eq!(mismatch.code, "ast.language.mismatch");
+}
+
+#[test]
 fn match_content_length_bounds_each_match_value() {
     let root = Fixture::new();
     let source = root.0.join("long.rs");

@@ -114,12 +114,8 @@ pub fn execute_files(
     cancel.check().map_err(super::cancelled)?;
     warnings.extend(walk_warnings(native.skipped, native.permission_denied));
     let full = q.detail.as_deref() == Some("full");
-    // The immutable CLI's packaged filesystem primitive does not expose
-    // modifiedMs. Keep the raw value for sorting, but do not synthesize a
-    // public timestamp that the reference cannot return. Because mtimes are
-    // never populated a `modified` sort ties every row at 0.0 and falls back to
-    // OS readdir order, so it is only honoured when explicitly requested and the
-    // default sort is the unique relative path (see `sort_rows`).
+    // Modification times are collected for the `modified` sort (the schema
+    // default, newest first; ties keep walk order) and `detail` modified/full.
     let collect_modified =
         full || q.detail.as_deref() == Some("modified") || q.sort.as_deref() == Some("modified");
     let count_lines = (full || q.sort.as_deref() == Some("lines")) && native.entries.len() <= 2_000;

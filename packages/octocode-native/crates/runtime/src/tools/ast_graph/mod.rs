@@ -329,6 +329,89 @@ mod drift_tests {
             "unresolved crate:: imports must be flagged: {out}"
         );
     }
+
+    #[test]
+    fn skipped_import_target_is_not_reported_as_a_resolved_dependency() {
+        let temp = tempfile::TempDir::new().expect("temp");
+        let root = temp.path();
+        std::fs::write(root.join("entry.ts"), "import './unread';\n").unwrap();
+        std::fs::write(root.join("unread.ts"), [0xff]).unwrap();
+
+        let out = run(
+            json!({"operation":"topology","analysis":"dependencies","path":root.to_string_lossy(),"file":"entry.ts"}),
+            root,
+        )
+        .expect("dependencies result");
+
+        assert_eq!(out["filesSkipped"], 1);
+        assert_eq!(out["coverage"]["imports"]["resolved"], 0);
+        assert_eq!(out["coverage"]["imports"]["unresolvedInternal"], 1);
+        assert!(out["results"].as_array().unwrap().is_empty(), "{out}");
+    }
+
+    #[test]
+    fn nested_workspace_package_import_resolves_to_scanned_source() {
+        let temp = tempfile::TempDir::new().expect("temp");
+        let root = temp.path();
+        std::fs::create_dir_all(root.join("packages/lib/src")).unwrap();
+        std::fs::write(
+            root.join("packages/lib/package.json"),
+            r#"{"name":"@fixture/lib","exports":"./src/index.ts"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("packages/lib/src/index.ts"),
+            "export const value = 1;\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("entry.ts"),
+            "import { value } from '@fixture/lib';\nconsole.log(value);\n",
+        )
+        .unwrap();
+
+        let out = run(
+            json!({"operation":"topology","analysis":"dependencies","path":root.to_string_lossy(),"file":"entry.ts"}),
+            root,
+        )
+        .expect("dependencies result");
+
+        assert!(
+            out["results"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|row| row["file"] == "packages/lib/src/index.ts"),
+            "workspace package manifest should resolve its source: {out}"
+        );
+    }
+
+    #[test]
+    fn syntax_basis_is_not_repeated_as_a_diagnostic_for_every_file() {
+        let temp = tempfile::TempDir::new().expect("temp");
+        let root = temp.path();
+        std::fs::write(root.join("one.py"), "def one(): pass\n").unwrap();
+        std::fs::write(root.join("two.py"), "def two(): pass\n").unwrap();
+
+        let out = run(
+            json!({"operation":"topology","analysis":"cycles","path":root.to_string_lossy()}),
+            root,
+        )
+        .expect("cycles result");
+
+        assert_eq!(out["coverage"]["basis"], "syntactic");
+        assert!(
+            out["coverage"]["diagnosticCounts"]["syntax-only"].is_null(),
+            "{out}"
+        );
+        assert!(
+            out["coverage"]["diagnostics"]
+                .as_array()
+                .unwrap()
+                .is_empty(),
+            "{out}"
+        );
+    }
 }
 
 #[cfg(test)]

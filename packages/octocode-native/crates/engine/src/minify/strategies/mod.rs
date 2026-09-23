@@ -5,7 +5,10 @@ pub mod markdown;
 pub mod web;
 
 pub use code::minify_javascript_core;
-pub use core::{minify_aggressive, minify_code_core, minify_conservative, minify_general_core};
+pub use core::{
+    minify_aggressive, minify_brace_code, minify_code_core, minify_conservative,
+    minify_general_core,
+};
 pub use json::{minify_json_core_inner, minify_json_readable_inner};
 pub use markdown::minify_markdown_core;
 pub use web::{minify_css_quality, minify_embedded_web, minify_html_core, minify_html_quality};
@@ -237,6 +240,13 @@ mod tests {
         let out = minify_conservative("int x; // comment\nint y;", Some(&["c-style"]));
         assert!(!out.contains("comment"));
         assert!(out.contains("int x"));
+    }
+
+    #[test]
+    fn brace_code_strips_indent_blanks_and_comments_but_keeps_literals() {
+        let src = "fn main() {\n    // note\n\n\n    let s = \"a\n    b\";\n    call(s);\n}\n";
+        let out = minify_brace_code(src, &["c-style"]);
+        assert_eq!(out, "fn main() {\nlet s = \"a\n    b\";\ncall(s);\n}");
     }
 
     #[test]

@@ -94,8 +94,26 @@ impl PathPolicy {
         }
         let absolute = self.expand_and_resolve(input);
         match std::fs::canonicalize(&absolute) {
-            Ok(real) => self.validate_resolved(&absolute, real, require_regular),
-            Err(error) => Err(self.io_error(error, input)),
+            Ok(real) => self.validate_resolved(input, &absolute, real, require_regular),
+            Err(error) => {
+                // Canonicalization can reveal whether an outside path exists.
+                // Resolve only its nearest existing ancestor to decide the
+                // policy boundary, then give the same denial for missing and
+                // existing targets outside the allowed roots.
+                let projected = projected_canonical_root(&absolute);
+                if projected.as_ref().is_none_or(|path| !self.allowed(path)) {
+                    return Err(PolicyError::new(
+                        PolicyErrorCode::OutsideAllowedRoots,
+                        format!(
+                            "Path '{}' is outside allowed directories{}",
+                            self.display_requested(input, &absolute),
+                            self.describe_roots()
+                        ),
+                    )
+                    .with_path(self.display_requested(input, &absolute)));
+                }
+                Err(self.io_error(error, input))
+            }
         }
     }
 
@@ -133,6 +151,7 @@ impl PathPolicy {
         let absolute = self.expand_and_resolve(input);
         if absolute.exists() {
             return self.validate_resolved(
+                input,
                 &absolute,
                 std::fs::canonicalize(&absolute).map_err(|error| self.io_error(error, input))?,
                 false,
@@ -167,11 +186,11 @@ impl PathPolicy {
                 PolicyErrorCode::OutsideAllowedRoots,
                 format!(
                     "Path '{}' is outside allowed directories{}",
-                    self.redact(&absolute),
+                    self.display_requested(input, &absolute),
                     self.describe_roots()
                 ),
             )
-            .with_path(self.redact(&absolute)));
+            .with_path(self.display_requested(input, &absolute)));
         }
         let mut resolved = real_ancestor.clone();
         for name in tail.into_iter().rev() {
@@ -185,11 +204,11 @@ impl PathPolicy {
                 PolicyErrorCode::OutsideAllowedRoots,
                 format!(
                     "Path '{}' is outside allowed directories{}",
-                    self.redact(&absolute),
+                    self.display_requested(input, &absolute),
                     self.describe_roots()
                 ),
             )
-            .with_path(self.redact(&absolute)));
+            .with_path(self.display_requested(input, &absolute)));
         }
         if self.ignored(&absolute) || self.ignored(&real_ancestor) || self.ignored(&resolved) {
             return Err(PolicyError::new(
@@ -209,6 +228,7 @@ impl PathPolicy {
 
     fn validate_resolved(
         &self,
+        input: &Path,
         lexical: &Path,
         real: PathBuf,
         require_regular: bool,
@@ -229,12 +249,14 @@ impl PathPolicy {
                     PolicyErrorCode::OutsideAllowedRoots,
                     format!(
                         "Path '{}' is outside allowed directories{}",
-                        self.redact(lexical),
+                        self.display_requested(input, lexical),
                         self.describe_roots()
                     ),
                 )
             };
-            return Err(PolicyError::new(code, message).with_path(self.redact(lexical)));
+            return Err(
+                PolicyError::new(code, message).with_path(self.display_requested(input, lexical))
+            );
         }
         if self.ignored(lexical) {
             return Err(PolicyError::new(
@@ -332,6 +354,24 @@ impl PathPolicy {
         normalized
             .file_name()
             .map_or_else(String::new, |name| name.to_string_lossy().into_owned())
+    }
+
+    /// A denied path for public messages: workspace-relative when the
+    /// expanded path lies in the workspace, otherwise the caller's literal
+    /// input. Expansion joins relative input to the process directory, so
+    /// echoing the expanded form could add a prefix the caller never sent;
+    /// canonical targets such as symlink destinations stay on `redact`.
+    fn display_requested(&self, input: &Path, absolute: &Path) -> String {
+        let normalized = normalize(absolute);
+        if self
+            .workspace_root
+            .as_ref()
+            .is_some_and(|root| normalized.starts_with(root))
+        {
+            self.redact(&normalized)
+        } else {
+            input.to_string_lossy().into_owned()
+        }
     }
 
     fn describe_roots(&self) -> String {
@@ -638,6 +678,98 @@ mod tests {
         );
         std::fs::remove_dir_all(workspace).expect("path policy test setup should succeed");
         std::fs::remove_dir_all(home).expect("path policy test setup should succeed");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn outside_denial_names_the_requested_path_but_never_a_symlink_target() {
+        use std::os::unix::fs::symlink;
+
+        let workspace = fixture();
+        let outside = fixture();
+        let requested = outside.join("app.ts");
+        std::fs::write(&requested, "x").expect("write outside fixture");
+        symlink(&requested, workspace.join("link.ts")).expect("symlink fixture");
+        let policy = PathPolicy::new(PathPolicyConfig {
+            workspace_root: Some(workspace.clone()),
+            ..Default::default()
+        })
+        .expect("policy");
+        let denied = policy.validate_read(&requested).expect_err("outside path");
+        assert!(
+            denied
+                .message
+                .contains(&*normalize(&requested).to_string_lossy()),
+            "{}",
+            denied.message
+        );
+        let escaped = policy
+            .validate_read(workspace.join("link.ts"))
+            .expect_err("symlink escape");
+        assert!(
+            !escaped.message.contains(&*outside.to_string_lossy()),
+            "{}",
+            escaped.message
+        );
+        std::fs::remove_dir_all(workspace).expect("remove workspace fixture");
+        std::fs::remove_dir_all(outside).expect("remove outside fixture");
+    }
+
+    #[test]
+    fn relative_outside_denial_echoes_only_the_caller_input() {
+        let workspace = fixture();
+        let policy = PathPolicy::new(PathPolicyConfig {
+            workspace_root: Some(workspace.join("nested")),
+            ..Default::default()
+        })
+        .expect("policy");
+        std::fs::create_dir_all(workspace.join("nested")).expect("nested root");
+        let denied = policy
+            .validate_read("../../outside.txt")
+            .expect_err("outside path");
+        assert!(
+            denied.message.contains("'../../outside.txt'"),
+            "{}",
+            denied.message
+        );
+        let prefix = workspace
+            .parent()
+            .expect("parent")
+            .to_string_lossy()
+            .into_owned();
+        assert!(
+            !denied
+                .message
+                .split(" (allowed")
+                .next()
+                .unwrap_or_default()
+                .contains(&prefix),
+            "{}",
+            denied.message
+        );
+        std::fs::remove_dir_all(workspace).expect("remove workspace fixture");
+    }
+
+    #[test]
+    fn outside_read_denial_does_not_reveal_existence() {
+        let workspace = fixture();
+        let outside = fixture();
+        let present = outside.join("present.txt");
+        let absent = outside.join("absent.txt");
+        std::fs::write(&present, "x").expect("write outside fixture");
+        let policy = PathPolicy::new(PathPolicyConfig {
+            workspace_root: Some(workspace.clone()),
+            ..Default::default()
+        })
+        .expect("policy");
+        for path in [present, absent] {
+            assert_eq!(
+                policy.validate_read(path).expect_err("outside path").code,
+                PolicyErrorCode::OutsideAllowedRoots
+            );
+        }
+        std::fs::remove_dir_all(workspace).expect("remove workspace fixture");
+        std::fs::remove_dir_all(outside).expect("remove outside fixture");
     }
 
     #[test]

@@ -95,9 +95,6 @@ pub async fn execute<R: CredentialResolver>(
                         canonical.into()
                     };
                 }
-                ProviderErrorKind::Permission => {
-                    error.message = "Access forbidden - insufficient permissions".into();
-                }
                 ProviderErrorKind::RateLimited => {
                     if let Some(rate_limit) = error.rate_limit.as_mut()
                         && rate_limit.remaining.is_none()

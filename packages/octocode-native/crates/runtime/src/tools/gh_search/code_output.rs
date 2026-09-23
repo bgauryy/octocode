@@ -118,6 +118,37 @@ pub(super) async fn empty_scope<R: CredentialResolver>(
     Ok(())
 }
 
+/// Code-search fragments carry no line numbers. Point the top hit at an exact
+/// ghGetFileContent match read, which returns line-numbered source.
+pub(super) fn read_top_match(value: &Value) -> Option<Value> {
+    let file = value["files"].as_array()?.first()?.as_object()?;
+    let matched = file.get("matches")?.as_array()?.first()?;
+    let text: Vec<u16> = matched["value"].as_str()?.encode_utf16().collect();
+    let anchor = &matched["matchIndices"][0];
+    let start = usize::try_from(anchor["start"].as_u64()?).ok()?;
+    let end = usize::try_from(anchor["end"].as_u64()?).ok()?;
+    let token = String::from_utf16(text.get(start..end)?).ok()?;
+    if token.trim().is_empty() {
+        return None;
+    }
+    // GhSearchQuery carries execution fields only; its caller's `reasoning`
+    // is discarded during deserialization. Give the generated read its own
+    // canonical reason instead of suppressing this continuation entirely.
+    Some(json!({
+        "tool": "ghGetFileContent",
+        "confidence": "high",
+        "why": "Read the top hit with line numbers.",
+        "query": {
+            "owner": file.get("owner")?,
+            "repo": file.get("repo")?,
+            "path": file.get("path")?,
+            "matchString": token,
+            "contextLines": 5,
+            "reasoning": "Read the top code hit with line-numbered source.",
+        },
+    }))
+}
+
 pub(super) fn files(
     items: &[CodeSearchItem],
     query: &GhSearchQuery,
@@ -225,4 +256,21 @@ pub(super) fn files(
             .collect());
     }
     Ok(files)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn top_hit_reads_its_matched_token_with_line_numbers() {
+        let value = json!({"files": [{"owner": "o", "repo": "r", "path": "src/a.rs",
+            "matches": [{"value": "x\nfn find_all() {}", "matchIndices": [{"start": 5, "end": 13, "lineOffset": 1}]}]}]});
+        let read = read_top_match(&value).expect("continuation");
+        assert_eq!(read["tool"], "ghGetFileContent");
+        assert_eq!(read["query"]["matchString"], "find_all");
+        assert_eq!(read["query"]["path"], "src/a.rs");
+        let concise = json!({"files": ["o/r:src/a.rs"]});
+        assert!(read_top_match(&concise).is_none());
+    }
 }

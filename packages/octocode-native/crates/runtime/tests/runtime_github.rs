@@ -562,6 +562,40 @@ async fn gh_get_history_item_issue_fetches_via_rest() {
 }
 
 #[tokio::test]
+async fn gh_get_history_item_preserves_github_permission_reason() {
+    let server = MockServer::start().await;
+    let leaked_token = format!("ghp_{}", "a".repeat(37));
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/issues/42"))
+        .respond_with(ResponseTemplate::new(403).set_body_json(json!({
+            "message": format!("Resource protected by organization SAML SSO authorization; token {leaked_token}")
+        })))
+        .mount(&server)
+        .await;
+
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let outcome = call(
+        &runtime,
+        "ghGetHistoryItem",
+        json!({"operation": "issue", "owner": "a", "repo": "b", "number": 42}),
+    )
+    .await
+    .expect("permission error row");
+    let data = row_data(&outcome);
+    assert_eq!(row_status(&outcome), "error");
+    assert_eq!(data["httpStatus"], 403);
+    assert!(
+        data["error"]
+            .as_str()
+            .is_some_and(|message| message.contains("SAML SSO authorization")),
+        "{data}"
+    );
+    assert!(!data.to_string().contains(&leaked_token), "{data}");
+    runtime.close().await;
+}
+
+#[tokio::test]
 async fn gh_get_history_item_commit_not_found_surfaces_error() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
@@ -805,9 +839,14 @@ async fn gh_get_history_item_pull_request_without_content_passes_output_contract
     assert!(preview.ends_with("..."), "{preview}");
     assert!(preview.chars().count() <= 500, "{preview}");
     let get_body = &pr["next"]["getBody"]["query"];
-    assert_eq!(get_body["pageSize"], 30, "{get_body}");
-    assert_eq!(get_body["minify"], "standard", "{get_body}");
+    // Continuations omit defaulted fields; validation restores them on replay.
+    assert!(get_body.get("pageSize").is_none(), "{get_body}");
+    assert!(get_body.get("minify").is_none(), "{get_body}");
     assert_eq!(get_body["content"], json!({"body": true}), "{get_body}");
+    let replayed = octocode_native::contracts::validate_query("ghGetHistoryItem", get_body.clone())
+        .expect("compact continuation validates");
+    assert_eq!(replayed["pageSize"], 30, "{replayed}");
+    assert_eq!(replayed["minify"], "standard", "{replayed}");
     runtime.close().await;
 }
 

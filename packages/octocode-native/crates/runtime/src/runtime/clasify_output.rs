@@ -174,6 +174,27 @@ fn merge_scope(first: Option<&Value>, last: Option<&Value>) -> Option<Value> {
     None
 }
 
+fn adjacent_scopes(previous: &Value, next: &Value) -> bool {
+    let (Some(previous), Some(next)) = (previous.get("scope"), next.get("scope")) else {
+        return false;
+    };
+    match (
+        previous.get("endLine").and_then(Value::as_u64),
+        next.get("startLine").and_then(Value::as_u64),
+    ) {
+        (Some(end), Some(start)) => {
+            end.checked_add(1) == Some(start)
+                && previous.get("totalLines") == next.get("totalLines")
+        }
+        _ => {
+            previous.get("byteEnd").and_then(Value::as_u64)
+                == next.get("byteOffset").and_then(Value::as_u64)
+                && previous.get("byteEnd").is_some()
+                && previous.get("totalBytes") == next.get("totalBytes")
+        }
+    }
+}
+
 fn merge_receipts(receipts: &[Value]) -> Value {
     let (Some(first), Some(last)) = (receipts.first(), receipts.last()) else {
         return Value::Null;
@@ -265,7 +286,12 @@ pub(super) fn coalesce(pages: Vec<(Value, Value)>, max_bytes: usize) -> Vec<(Val
         };
     for (state, receipt) in pages {
         let size = state.to_string().len();
-        if !states.is_empty() && bytes.saturating_add(size) > max_bytes {
+        if !states.is_empty()
+            && (bytes.saturating_add(size) > max_bytes
+                || !receipts
+                    .last()
+                    .is_some_and(|previous| adjacent_scopes(previous, &receipt)))
+        {
             flush(&mut states, &mut receipts, &mut output);
             bytes = 0;
         }
@@ -299,6 +325,42 @@ pub(super) fn query_meta(
         );
     }
     meta
+}
+
+/// Every candidate at or below this Noul is a "not here" screen.
+const LOW_SIGNAL_MAX_NOUL: f64 = 0.3;
+
+/// Noul question IDs where a multi-candidate screen found nothing: every
+/// resource was judged completely and no page exceeded `LOW_SIGNAL_MAX_NOUL`.
+/// The answer is then most likely outside the candidates, so reading the top
+/// one would chase noise. Partial or errored resources keep the signal off.
+pub(super) fn low_signal(questions: &Value, resources: &[Value]) -> Option<Value> {
+    if resources.len() < 2
+        || resources
+            .iter()
+            .any(|resource| resource["coverage"] != "complete")
+    {
+        return None;
+    }
+    let ids: Vec<Value> = questions
+        .as_array()?
+        .iter()
+        .filter(|question| question["question"]["type"] == "noul")
+        .filter_map(|question| question["id"].as_str())
+        .filter(|id| {
+            resources.iter().all(|resource| {
+                resource["pages"].as_array().is_some_and(|pages| {
+                    pages.iter().all(|page| {
+                        page["answers"][*id]["noul"]
+                            .as_f64()
+                            .is_some_and(|noul| noul <= LOW_SIGNAL_MAX_NOUL)
+                    })
+                })
+            })
+        })
+        .map(|id| json!(id))
+        .collect();
+    (!ids.is_empty()).then_some(Value::Array(ids))
 }
 
 #[cfg(test)]
@@ -428,6 +490,20 @@ mod tests {
     }
 
     #[test]
+    fn disjoint_pages_do_not_claim_one_contiguous_scope() {
+        let page = |start: u64, end: u64| {
+            (
+                json!({"path":"/tmp/a.rs","lines":[start,end],"content":"x\n"}),
+                json!({"coverage":"bounded","scope":{"startLine":start,"endLine":end,"totalLines":1000}}),
+            )
+        };
+        let result = coalesce(vec![page(1, 1), page(900, 900)], 10_000);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].1["scope"]["endLine"], 1);
+        assert_eq!(result[1].1["scope"]["startLine"], 900);
+    }
+
+    #[test]
     fn adjacent_file_evidence_merges_into_one_excerpt() {
         let page = |start: u64, end: u64, text: &str| {
             (
@@ -464,5 +540,24 @@ mod tests {
             Value::Object(meta),
             json!({"model":"jev-1.13.0","usage":{"input_tokens":15,"output_tokens":3}})
         );
+    }
+
+    #[test]
+    fn low_signal_flags_only_complete_all_low_noul_screens() {
+        let questions = json!([
+            {"id":"q","question":{"type":"noul"}},
+            {"id":"c","question":{"type":"choice"}}
+        ]);
+        let page =
+            |noul: f64| json!({"answers":{"q":{"noul":noul},"c":{"choice":"a","confidence":0.2}}});
+        let resource =
+            |coverage: &str, noul: f64| json!({"coverage":coverage,"pages":[page(noul)]});
+        let low = [resource("complete", 0.22), resource("complete", 0.1)];
+        assert_eq!(low_signal(&questions, &low), Some(json!(["q"])));
+        let one_high = [resource("complete", 0.22), resource("complete", 0.8)];
+        assert_eq!(low_signal(&questions, &one_high), None);
+        let partial = [resource("complete", 0.1), resource("partial", 0.1)];
+        assert_eq!(low_signal(&questions, &partial), None);
+        assert_eq!(low_signal(&questions, &[resource("complete", 0.1)]), None);
     }
 }

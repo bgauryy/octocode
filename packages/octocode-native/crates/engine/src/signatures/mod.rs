@@ -28,6 +28,15 @@ pub(crate) fn extract_graph_facts_inner(content: &str, file_path: &str) -> Optio
     extract_graph_facts_with_metadata_inner(content, file_path)
         .and_then(|extraction| serde_json::to_string(&extraction.facts).ok())
 }
+
+pub(crate) fn extract_graph_facts_with_extension_inner(
+    content: &str,
+    file_path: &str,
+    extension: &str,
+) -> Option<String> {
+    graph_facts::extract_graph_facts_with_metadata_with_extension(content, file_path, extension)
+        .and_then(|extraction| serde_json::to_string(&extraction.facts).ok())
+}
 pub mod languages;
 pub mod renderer;
 

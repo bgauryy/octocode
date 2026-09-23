@@ -140,7 +140,8 @@ pub struct IndexStatusResult {
 /// runtime inventory for language selection and agent guidance instead of
 /// maintaining extension/name tables outside the engine.
 #[cfg_attr(feature = "napi-addon", napi(object))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GrammarCapability {
     pub language: String,
     pub language_id: Option<String>,

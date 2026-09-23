@@ -210,12 +210,31 @@ fn replace_chunk(
     regex: &regex::Regex,
     replacement: &str,
 ) -> usize {
-    let new_chunk = regex
-        .replace_all(&sanitized[range.clone()], replacement)
-        .into_owned();
+    let new_chunk = replace_preserving_lines(regex, &sanitized[range.clone()], replacement);
     let new_len = new_chunk.len();
     sanitized.replace_range(range, &new_chunk);
     new_len
+}
+
+/// A redacted multiline match still occupies its source lines. File reads
+/// report and classify source-line scopes, so collapsing a secret block into
+/// one line would shift every later focus window.
+fn replace_preserving_lines(regex: &regex::Regex, content: &str, replacement: &str) -> String {
+    regex
+        .replace_all(content, |captures: &regex::Captures<'_>| {
+            let line_breaks = captures.get(0).map_or(0, |matched| {
+                matched
+                    .as_str()
+                    .bytes()
+                    .filter(|byte| *byte == b'\n')
+                    .count()
+            });
+            let mut redacted = String::with_capacity(replacement.len() + line_breaks);
+            redacted.push_str(replacement);
+            redacted.extend(std::iter::repeat_n('\n', line_breaks));
+            redacted
+        })
+        .into_owned()
 }
 
 fn next_chunk_start(s: &str, effective_end: usize) -> usize {
@@ -274,10 +293,10 @@ pub(crate) fn detect_single(content: &str, file_path: Option<&str>) -> DetectRes
         }
         let pattern = &PATTERNS[idx];
         let regex = pattern_regex(idx);
-        let result = regex.replace_all(&sanitized, replacement_for(idx));
-        if result != sanitized.as_str() {
+        let result = replace_preserving_lines(regex, &sanitized, replacement_for(idx));
+        if result != sanitized {
             secrets_detected.push(pattern.name.to_string());
-            sanitized = result.into_owned();
+            sanitized = result;
         }
     }
 
@@ -359,10 +378,10 @@ pub(crate) fn detect_chunked(content: &str, file_path: Option<&str>) -> DetectRe
         // style). This makes "no candidate pattern matches the output" a
         // guaranteed post-condition regardless of where a secret lands.
         if regex.is_match(&sanitized) {
-            let result = regex.replace_all(&sanitized, replacement);
-            if result != sanitized.as_str() {
+            let result = replace_preserving_lines(regex, &sanitized, replacement);
+            if result != sanitized {
                 found_in_pattern = true;
-                sanitized = result.into_owned();
+                sanitized = result;
             }
         }
 
@@ -472,6 +491,16 @@ impl DetectResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn multiline_redaction_keeps_source_line_positions() {
+        let regex = regex::Regex::new("BEGIN[\\s\\S]*?END").unwrap();
+        let original = "before\nBEGIN\nsecret\nEND\nafter";
+        let redacted = replace_preserving_lines(&regex, original, "[REDACTED]");
+        assert_eq!(redacted, "before\n[REDACTED]\n\n\nafter");
+        assert_eq!(redacted.lines().count(), original.lines().count());
+        assert!(!redacted.contains("secret"));
+    }
 
     #[test]
     fn detect_single_returns_empty_on_blank_input() {

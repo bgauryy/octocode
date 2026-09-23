@@ -189,10 +189,15 @@ fn tool_payload(state: &Value) -> Value {
 
 /// `[start, end]` source lines of one file-read row, when reported.
 fn evidence_lines(data: &Value) -> Option<Value> {
-    let range = data
-        .get("sourceLineRanges")
-        .and_then(Value::as_array)
-        .and_then(|ranges| ranges.first());
+    let ranges = data.get("sourceLineRanges").and_then(Value::as_array);
+    if let Some(ranges) = ranges.filter(|ranges| ranges.len() > 1) {
+        let pairs = ranges
+            .iter()
+            .map(|range| Some(json!([range.get("start")?, range.get("end")?])))
+            .collect::<Option<Vec<_>>>()?;
+        return Some(Value::Array(pairs));
+    }
+    let range = ranges.and_then(|ranges| ranges.first());
     if let Some(range) = range {
         return Some(json!([range.get("start")?, range.get("end")?]));
     }
@@ -598,6 +603,91 @@ type PageAssessment = (
 const FOCUS_WINDOW_LINES: usize = 40;
 /// Below this the window choice is too diffuse to be worth reading first.
 const MIN_FOCUS_CONFIDENCE: f64 = 0.5;
+type FocusRequest = (Value, Value, Vec<(usize, usize)>);
+
+/// A file can be judged and localized from the same windowed state. Sending
+/// the complete content again for the focus Choice nearly doubles provider
+/// input tokens, so include that Choice in the first request when it fits.
+fn focus_request(state: &Value, instructions: &Value) -> Option<FocusRequest> {
+    let content = state.get("content")?.as_str()?;
+    let first_line = state.get("lines")?.get(0)?.as_u64()? as usize;
+    let lines = content.lines().collect::<Vec<_>>();
+    let last_line = state.get("lines")?.get(1)?.as_u64()? as usize;
+    if last_line.checked_sub(first_line)?.checked_add(1)? != lines.len() {
+        return None;
+    }
+    // Reserve one Choice label for insufficient evidence.
+    if lines.len() < FOCUS_WINDOW_LINES * 2 || lines.len().div_ceil(FOCUS_WINDOW_LINES) >= 255 {
+        return None;
+    }
+    let mut windows = serde_json::Map::new();
+    let mut criteria = serde_json::Map::new();
+    let mut spans = Vec::new();
+    for (index, chunk) in lines.chunks(FOCUS_WINDOW_LINES).enumerate() {
+        let id = format!("w{}", index + 1);
+        let start = first_line + index * FOCUS_WINDOW_LINES;
+        windows.insert(id.clone(), json!(chunk.join("\n")));
+        criteria.insert(id, Value::Null);
+        spans.push((start, start + chunk.len() - 1));
+    }
+    criteria.insert(
+        "insufficient".into(),
+        json!("No window on this page contains enough evidence to localize the answer."),
+    );
+    let mut windowed = state
+        .as_object()?
+        .iter()
+        .filter(|(key, _)| key.as_str() != "content")
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect::<serde_json::Map<_, _>>();
+    windowed.insert("windows".into(), Value::Object(windows));
+    let instructions = match instructions {
+        Value::String(text) => text.clone(),
+        other => other.to_string(),
+    };
+    let question = json!({
+        "type": "choice",
+        "instructions": format!("Which window of this content best matches: {instructions}"),
+        "criteria": criteria,
+    });
+    Some((Value::Object(windowed), question, spans))
+}
+
+fn focus_from_answer(
+    answers: &[Result<Value, ClassificationError>],
+    focus_answer: &Result<Value, ClassificationError>,
+    spans: &[(usize, usize)],
+) -> Option<Value> {
+    let positive = answers.iter().any(|answer| {
+        answer
+            .as_ref()
+            .ok()
+            .and_then(|data| data.pointer("/answer/noul"))
+            .and_then(Value::as_f64)
+            .is_some_and(|probability| probability >= 0.8)
+    });
+    if !positive {
+        return None;
+    }
+    let data = focus_answer.as_ref().ok()?;
+    let index = data
+        .pointer("/answer/choice")?
+        .as_str()?
+        .strip_prefix('w')?
+        .parse::<usize>()
+        .ok()?
+        .checked_sub(1)?;
+    let (start, end) = *spans.get(index)?;
+    let confidence = data.pointer("/answer/confidence").and_then(Value::as_f64)?;
+    if confidence < MIN_FOCUS_CONFIDENCE {
+        return None;
+    }
+    Some(json!({
+        "startLine": start,
+        "endLine": end,
+        "confidence": (confidence * 1000.0).round() / 1000.0
+    }))
+}
 
 /// Narrow a high-scoring file page to its best ~40-line window with one
 /// Choice over window IDs (the provider's line-search pattern: the page's own
@@ -611,12 +701,6 @@ async fn focus_page(
     budget: &crate::providers::RequestBudget,
     gate: &GateLease,
 ) -> Option<(Value, Value)> {
-    let content = state.get("content")?.as_str()?;
-    let first_line = state.get("lines")?.get(0)?.as_u64()? as usize;
-    let lines = content.lines().collect::<Vec<_>>();
-    if lines.len() < FOCUS_WINDOW_LINES * 2 {
-        return None;
-    }
     let instructions = questions
         .iter()
         .zip(answers)
@@ -626,29 +710,7 @@ async fn focus_page(
                 && answer.pointer("/answer/noul").and_then(Value::as_f64)? >= 0.8)
                 .then(|| question["question"]["instructions"].clone())
         })?;
-    let instructions = match instructions {
-        Value::String(text) => text,
-        other => other.to_string(),
-    };
-    let mut windows = serde_json::Map::new();
-    let mut criteria = serde_json::Map::new();
-    let mut spans = Vec::new();
-    for (index, chunk) in lines.chunks(FOCUS_WINDOW_LINES).enumerate() {
-        let id = format!("w{}", index + 1);
-        let start = first_line + index * FOCUS_WINDOW_LINES;
-        windows.insert(id.clone(), json!(chunk.join("\n")));
-        criteria.insert(id, Value::Null);
-        spans.push((start, start + chunk.len() - 1));
-    }
-    let mut focus_state = json!({"windows": windows});
-    if let Some(path) = state.get("path") {
-        focus_state["path"] = path.clone();
-    }
-    let question = json!({
-        "type": "choice",
-        "instructions": format!("Which window of this content best matches: {instructions}"),
-        "criteria": criteria,
-    });
+    let (focus_state, question, spans) = focus_request(state, &instructions)?;
     let data = clasify::execute(
         &focus_state,
         &question,
@@ -663,27 +725,8 @@ async fn focus_page(
     )
     .await
     .ok()?;
-    let choice = data.pointer("/answer/choice")?.as_str()?;
-    let index = choice
-        .strip_prefix('w')?
-        .parse::<usize>()
-        .ok()?
-        .checked_sub(1)?;
-    let (start, end) = *spans.get(index)?;
-    let confidence = data.pointer("/answer/confidence").and_then(Value::as_f64)?;
-    // A diffuse window choice points nowhere in particular (eval: 0.42 picked a
-    // header comment); omit it rather than send the agent to the wrong lines.
-    if confidence < MIN_FOCUS_CONFIDENCE {
-        return None;
-    }
-    Some((
-        json!({
-            "startLine": start,
-            "endLine": end,
-            "confidence": (confidence * 1000.0).round() / 1000.0
-        }),
-        data["usage"].clone(),
-    ))
+    let focus = focus_from_answer(answers, &Ok(data.clone()), &spans)?;
+    Some((focus, data["usage"].clone()))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -708,6 +751,10 @@ fn execute_query(
     let resources = query["resources"]
         .as_array()
         .ok_or(ExecutionError::WorkerFailed)?;
+    // In a candidate matrix most files are negative. Speculative window heads
+    // would add output tokens for every negative, so reserve them for a single
+    // large resource whose focus is likely to be consumed.
+    let speculative_focus_allowed = resources.len() == 1;
     let delegated = resources
         .iter()
         .filter(|resource| resource["context"].get("tool").is_some())
@@ -746,6 +793,8 @@ fn execute_query(
                     received = receiver.recv(), if open => match received {
                         Some((resource_index, capture)) => {
                             if let Ok((pages, _)) = &capture {
+                                let speculative_single_page =
+                                    speculative_focus_allowed && pages.len() == 1;
                                 for (page_index, page) in pages.iter().enumerate() {
                                     let CapturedPage::Ready { state, .. } = page else {
                                         continue;
@@ -753,31 +802,75 @@ fn execute_query(
                                     let state = state.clone();
                                     let config = &config;
                                     pending.push(async move {
-                                        let (answers, usage) =
-                                            assess_page(&state, questions, config, budget, gate)
-                                                .await;
-                                        let focus = focus_page(
-                                            &state, questions, &answers, config, budget, gate,
-                                        )
-                                        .await;
-                                        let usage = match (usage, focus.as_ref()) {
-                                            (Some(usage), Some((_, extra))) => {
-                                                let mut calls = usage
-                                                    .get("calls")
-                                                    .and_then(Value::as_array)
-                                                    .cloned()
-                                                    .unwrap_or_else(|| vec![usage.clone()]);
-                                                calls.push(extra.clone());
-                                                Some(json!({"calls": calls}))
-                                            }
-                                            (usage, _) => usage,
+                                        let speculative = if speculative_single_page
+                                            && questions.len() == 1
+                                            && questions[0]["question"]["type"] == "noul"
+                                        {
+                                            focus_request(
+                                                &state,
+                                                &questions[0]["question"]["instructions"],
+                                            )
+                                            .and_then(|(windowed, focus_question, spans)| {
+                                                let extra = json!({
+                                                    "id": "__focus",
+                                                    "question": focus_question,
+                                                });
+                                                let indexed = [
+                                                    (0, &questions[0]["question"]),
+                                                    (1, &extra["question"]),
+                                                ];
+                                                clasify::batch::fits(
+                                                    &windowed,
+                                                    &indexed,
+                                                    config.model,
+                                                    config.provider,
+                                                )
+                                                .then_some((windowed, extra, spans))
+                                            })
+                                        } else {
+                                            None
                                         };
+                                        let (answers, usage, focus) =
+                                            if let Some((windowed, extra, spans)) = speculative {
+                                                let combined = [questions[0].clone(), extra];
+                                                let (mut answers, usage) = assess_page(
+                                                    &windowed, &combined, config, budget, gate,
+                                                )
+                                                .await;
+                                                let focus = answers.pop().and_then(|answer| {
+                                                    focus_from_answer(&answers, &answer, &spans)
+                                                });
+                                                (answers, usage, focus)
+                                            } else {
+                                                let (answers, usage) = assess_page(
+                                                    &state, questions, config, budget, gate,
+                                                )
+                                                .await;
+                                                let extra = focus_page(
+                                                    &state, questions, &answers, config, budget,
+                                                    gate,
+                                                )
+                                                .await;
+                                                let usage = match (usage, extra.as_ref()) {
+                                                    (Some(usage), Some((_, extra_usage))) => {
+                                                        let mut calls = usage
+                                                            .get("calls")
+                                                            .and_then(Value::as_array)
+                                                            .cloned()
+                                                            .unwrap_or_else(|| vec![usage.clone()]);
+                                                        calls.push(extra_usage.clone());
+                                                        Some(json!({"calls": calls}))
+                                                    }
+                                                    (usage, _) => usage,
+                                                };
+                                                (answers, usage, extra.map(|(scope, _)| scope))
+                                            };
                                         (
                                             resource_index,
                                             page_index,
                                             answers,
                                             usage,
-                                            focus.map(|(scope, _)| scope),
+                                            focus,
                                         )
                                     });
                                 }
@@ -886,6 +979,9 @@ fn execute_query(
     for (key, value) in clasify_output::query_meta(&usage_records, resolved_model.as_deref()) {
         output[key.as_str()] = value;
     }
+    if let Some(ids) = clasify_output::low_signal(&query["questions"], &rendered) {
+        output["lowSignal"] = ids;
+    }
     output["resources"] = Value::Array(rendered);
     if !continuation_resources.is_empty() {
         output["next"] = json!({"clasify":{
@@ -954,6 +1050,16 @@ pub(super) fn execute(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn disjoint_file_evidence_cannot_generate_a_false_focus_line() {
+        let state = json!({"results":[{"data":{
+            "path":"/tmp/example.rs","content":(0..100).map(|i| format!("line {i}\n")).collect::<String>(),
+            "sourceLineRanges":[{"start":4,"end":53},{"start":1000,"end":1049}]
+        }}]});
+        let evidence = file_evidence(&state).expect("file evidence");
+        assert_eq!(evidence["lines"], json!([[4, 53], [1000, 1049]]));
+        assert!(focus_request(&evidence, &json!("Find implementation")).is_none());
+    }
 
     #[test]
     fn supplied_value_budget_counts_object_keys_and_fields_named_next() {
@@ -1096,5 +1202,69 @@ mod tests {
             json!({"startLine":1,"endLine":200,"totalLines":400})
         );
         assert!(matches!(pages[1], CapturedPage::Failed { .. }));
+    }
+
+    #[test]
+    fn focus_request_shares_file_content_without_repeating_it() {
+        let content = (1..=100)
+            .map(|line| format!("line {line}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let state = json!({"path":"a.rs","lines":[101,200],"content":content});
+        let (windowed, question, spans) =
+            focus_request(&state, &json!("Find the implementation")).unwrap();
+        assert!(windowed.get("content").is_none());
+        assert_eq!(windowed["path"], "a.rs");
+        assert_eq!(windowed["windows"].as_object().unwrap().len(), 3);
+        assert_eq!(spans, vec![(101, 140), (141, 180), (181, 200)]);
+        assert_eq!(question["criteria"].as_object().unwrap().len(), 4);
+        assert!(question["criteria"].get("insufficient").is_some());
+        assert!(clasify::batch::fits(
+            &windowed,
+            &[
+                (0, &json!({"type":"noul","instructions":"Find it"})),
+                (1, &question)
+            ],
+            "jev-latest",
+            &crate::providers::classification::jev::JEV,
+        ));
+        let too_many_windows = json!({
+            "path":"a.rs",
+            "lines":[1,10201],
+            "content":vec!["x"; 10201].join("\n"),
+        });
+        assert!(focus_request(&too_many_windows, &json!("Find it")).is_none());
+    }
+
+    #[test]
+    fn speculative_focus_needs_a_positive_page_and_confident_valid_window() {
+        let yes = vec![Ok(json!({"answer":{"type":"noul","noul":0.99}}))];
+        let no = vec![Ok(json!({"answer":{"type":"noul","noul":0.01}}))];
+        let choice = Ok(json!({"answer":{"type":"choice","choice":"w2","confidence":0.8}}));
+        let spans = [(1, 40), (41, 80)];
+        let insufficient =
+            Ok(json!({"answer":{"type":"choice","choice":"insufficient","confidence":0.99}}));
+        assert!(focus_from_answer(&yes, &insufficient, &spans).is_none());
+        assert_eq!(
+            focus_from_answer(&yes, &choice, &spans),
+            Some(json!({"startLine":41,"endLine":80,"confidence":0.8}))
+        );
+        assert!(focus_from_answer(&no, &choice, &spans).is_none());
+        assert!(
+            focus_from_answer(
+                &yes,
+                &Ok(json!({"answer":{"type":"choice","choice":"w2","confidence":0.4}})),
+                &spans,
+            )
+            .is_none()
+        );
+        assert!(
+            focus_from_answer(
+                &yes,
+                &Ok(json!({"answer":{"type":"choice","choice":"w3","confidence":0.9}})),
+                &spans,
+            )
+            .is_none()
+        );
     }
 }

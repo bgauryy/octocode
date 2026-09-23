@@ -36,7 +36,7 @@ OPEN/ATTACH → STEALTH → PICK ONE INTENT → RUN(CDP) → REUSE PORT/TAB → 
 2. **RUN** — `scripts/cdp-sandbox.mjs <check-script.mjs> --port 9222` (sequentially — never two in parallel on the same port)
 3. **SCREEN** — clasify all captured artifacts *before* reading any body
    - Drop 0-byte files (they return `classificationContextEmpty`); ≤ 25 cells per matrix; omit `maxChars`
-   - Accept route choices only when `confidence >= 0.5`; `insufficient` (auto-added to every Choice) or `partial` → `consider`
+   - Accept route choices only when `confidence >= 0.9`; `insufficient` (auto-added to every Choice) or `partial` → `consider`
    - Tailor questions to artifact type (see table below)
 4. **QUERY DISK** — read only clasify-approved artifacts
 5. **CLEANUP** — `scripts/open-browser.mjs --cleanup --port 9222`

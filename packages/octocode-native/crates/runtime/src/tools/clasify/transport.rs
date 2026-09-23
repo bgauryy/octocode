@@ -21,6 +21,8 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const MIN_RETRY_DELAY: Duration = Duration::from_millis(100);
 const BACKOFF_BASE: Duration = Duration::from_millis(500);
 const BACKOFF_CAP: Duration = Duration::from_secs(8);
+/// Bound untrusted provider delay fields before converting from floating point.
+const MAX_RETRY_AFTER: Duration = Duration::from_secs(24 * 60 * 60);
 /// Runtimes whose clients stay cached; older entries are evicted.
 const MAX_CACHED_CLIENTS: usize = 8;
 
@@ -236,10 +238,14 @@ fn parse_http_date(value: &str) -> Option<SystemTime> {
 /// delta-seconds or an HTTP-date (relative to `now`).
 fn retry_after(headers: &reqwest::header::HeaderMap, now: SystemTime) -> Option<Duration> {
     if let Some(milliseconds) = header_seconds(headers, "retry-after-ms") {
-        return Some(Duration::from_secs_f64(milliseconds / 1000.0));
+        return Some(Duration::from_secs_f64(
+            (milliseconds / 1000.0).min(MAX_RETRY_AFTER.as_secs_f64()),
+        ));
     }
     if let Some(seconds) = header_seconds(headers, reqwest::header::RETRY_AFTER.as_str()) {
-        return Some(Duration::from_secs_f64(seconds));
+        return Some(Duration::from_secs_f64(
+            seconds.min(MAX_RETRY_AFTER.as_secs_f64()),
+        ));
     }
     let date = headers
         .get(reqwest::header::RETRY_AFTER)?
@@ -953,6 +959,21 @@ mod tests {
             .unwrap_err();
         assert_eq!(error.code, "classificationRateLimited");
         assert!(error.retry_after.unwrap() > Duration::from_secs(100));
+    }
+
+    #[test]
+    fn huge_retry_after_headers_are_bounded_before_duration_conversion() {
+        for name in ["retry-after-ms", "retry-after"] {
+            let mut headers = reqwest::header::HeaderMap::new();
+            headers.insert(
+                reqwest::header::HeaderName::from_bytes(name.as_bytes()).unwrap(),
+                reqwest::header::HeaderValue::from_static("1e20"),
+            );
+            assert_eq!(
+                retry_after(&headers, SystemTime::now()),
+                Some(MAX_RETRY_AFTER)
+            );
+        }
     }
 
     /// Minimal HTTP/1.1 server: one request per connection. `script` decides,

@@ -10,17 +10,32 @@ pub fn minify_conservative(content: &str, comments: Option<&[&str]>) -> String {
     } else {
         content.to_owned()
     };
-    compact_lines(&s, comments, 2, false)
+    compact_lines(&s, comments, 2, Indent::Keep)
+}
+
+/// Brace-delimited code (Rust, Go, Java, C-family, …) where indentation is not
+/// syntax: strip comments, indentation, and blank lines like the JS/TS view,
+/// keeping one statement line per source line. Literal-spanning lines stay
+/// byte-exact.
+pub fn minify_brace_code(content: &str, comments: &[&str]) -> String {
+    compact_lines(
+        &remove_comments(content, comments),
+        Some(comments),
+        0,
+        Indent::Strip,
+    )
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Indent {
+    Keep,
+    Halve,
+    Strip,
 }
 
 /// Preserve every line intersecting a literal, including its line ending.
 /// Outside literals, share one blank/trailing-space pass across strategies.
-fn compact_lines(
-    s: &str,
-    comments: Option<&[&str]>,
-    max_blanks: u32,
-    halve_indent: bool,
-) -> String {
+fn compact_lines(s: &str, comments: Option<&[&str]>, max_blanks: u32, indent: Indent) -> String {
     let rules = comments.map(merge_comment_rules).unwrap_or_default();
     let ranges = crate::minify::comment_remover::literal_ranges(s, &rules);
     let mut result = String::with_capacity(s.len());
@@ -33,12 +48,17 @@ fn compact_lines(
         while range_index < ranges.len() && ranges[range_index].1 <= offset {
             range_index += 1;
         }
-        let protected = ranges
-            .get(range_index)
-            .is_some_and(|&(start, stop)| start < end && stop > offset);
+        let current = ranges.get(range_index).copied();
+        let protected = current.is_some_and(|(start, stop)| start < end && stop > offset);
+        // Leading whitespace is outside the literal unless the line opens inside it.
+        let starts_in_literal = current.is_some_and(|(start, _)| start < offset);
         offset = end;
         if protected {
-            result.push_str(line);
+            if indent == Indent::Strip && !starts_in_literal {
+                result.push_str(line.trim_start_matches([' ', '\t']));
+            } else {
+                result.push_str(line);
+            }
             blank_run = 0;
             last_protected = true;
             continue;
@@ -52,12 +72,14 @@ fn compact_lines(
             }
         } else {
             blank_run = 0;
-            if halve_indent {
-                let leading = stripped.len() - stripped.trim_start().len();
-                result.push_str(&" ".repeat(leading / 2));
-                result.push_str(stripped.trim_start());
-            } else {
-                result.push_str(stripped);
+            match indent {
+                Indent::Keep => result.push_str(stripped),
+                Indent::Halve => {
+                    let leading = stripped.len() - stripped.trim_start().len();
+                    result.push_str(&" ".repeat(leading / 2));
+                    result.push_str(stripped.trim_start());
+                }
+                Indent::Strip => result.push_str(stripped.trim_start()),
             }
             result.push('\n');
         }
@@ -108,11 +130,11 @@ pub(super) fn merge_comment_rules(groups: &[&str]) -> crate::minify::comment_rem
 // ── Code (whitespace only, preserve indent) ───────────────────────────────────
 
 pub fn minify_code_core(content: &str) -> String {
-    compact_lines(content, None, 1, false)
+    compact_lines(content, None, 1, Indent::Keep)
 }
 
 // ── General (allow indent compression) ───────────────────────────────────────
 
 pub fn minify_general_core(content: &str) -> String {
-    compact_lines(content, None, 2, true)
+    compact_lines(content, None, 2, Indent::Halve)
 }

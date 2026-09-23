@@ -70,6 +70,12 @@ fn prepare(tool: &str, query: &Value) -> Result<Value, ClassificationError> {
             "Context query cannot contain a bulk envelope, cursor, or response paging options.",
         ));
     }
+    if tool == "ghSearch" && query.get("materialize") == Some(&Value::Bool(true)) {
+        return Err(error(
+            "invalidClassificationContext",
+            "Clasify context cannot materialize a repository tree; use ghSearch directly when files are needed locally.",
+        ));
+    }
     let mut queries =
         contracts::prepare_many_and_validate(tool, query.clone(), PrepareOptions::default())
             .map_err(|validation_error| {
@@ -130,10 +136,15 @@ pub(super) fn resolve(
         })
         .map_err(ContextFailure::from)?;
     if !dispatcher.available_tools.contains(&tool) {
-        return Err(ContextFailure::from(error(
+        let mut unavailable = error(
             "classificationContextUnavailable",
             format!("Context tool {tool} is disabled by runtime policy."),
-        )));
+        );
+        // Retrying the disabled tool cannot help; name the enabled readers.
+        unavailable.hints = vec![
+            "Use an enabled read tool (localFetch, localSearch, ghGetFileContent) as this resource's context.".into(),
+        ];
+        return Err(ContextFailure::from(unavailable));
     }
     let prepared = prepare(tool, &source["query"]).map_err(ContextFailure::from)?;
     let checked_input = dispatcher.security.validate_input_parameters(&prepared);
@@ -152,6 +163,7 @@ pub(super) fn resolve(
     })?;
     checked(context).map_err(ContextFailure::from)?;
     let failed = result.failure.is_some() || result.status == Some("error");
+    let empty = result.status == Some("empty");
     let mut row = response::result_row(tool, 0, &prepared, result.data, result.status);
     response::attach_diagnostics(&mut row, result.diagnostics);
     if result.cache {
@@ -179,6 +191,15 @@ pub(super) fn resolve(
             format!("Context tool {tool} returned invalid output."),
         ))
     })?;
+    if empty {
+        return Err(ContextFailure {
+            error: error(
+                "classificationContextEmpty",
+                format!("Context tool {tool} returned no evidence; classification was not called."),
+            ),
+            receipt: Some(receipt(tool, &state)),
+        });
+    }
     if failed {
         let receipt = failed_receipt(tool, &state);
         let code = state
@@ -237,6 +258,23 @@ fn page_scope(state: &Value) -> Option<Value> {
             .and_then(|files| files.first())
             .and_then(Value::as_object)?
     };
+    if let Some(ranges) = data.get("sourceLineRanges").and_then(Value::as_array)
+        && ranges.len() > 1
+    {
+        let line_ranges = ranges
+            .iter()
+            .map(|range| {
+                Some(json!({
+                    "startLine":range.get("start")?.as_u64()?,
+                    "endLine":range.get("end")?.as_u64()?
+                }))
+            })
+            .collect::<Option<Vec<_>>>()?;
+        return Some(json!({
+            "lineRanges":line_ranges,
+            "totalLines":data.get("totalLines")?.as_u64()?
+        }));
+    }
     let first_source_range = || {
         data.get("sourceLineRanges")
             .and_then(Value::as_array)
@@ -498,6 +536,42 @@ fn is_history_expansion(name: &str, tool: &str, query: &Value) -> bool {
 mod tests {
     use super::*;
     #[test]
+    fn disjoint_match_windows_keep_each_source_range() {
+        let state = json!({"results":[{"data":{
+            "path":"/tmp/example.rs","content":"first\nsecond\n",
+            "totalLines":80,
+            "sourceLineRanges":[{"start":4,"end":4},{"start":63,"end":63}]
+        }}]});
+        assert_eq!(
+            page_scope(&state),
+            Some(json!({
+                "lineRanges":[
+                    {"startLine":4,"endLine":4},
+                    {"startLine":63,"endLine":63}
+                ],
+                "totalLines":80
+            }))
+        );
+    }
+
+    #[test]
+    fn first_github_file_page_uses_its_nested_file_scope() {
+        let state = json!({"results":[{"data":{
+            "owner":"expressjs","repo":"express","files":[{
+                "path":"lib/application.js","totalLines":631,
+                "sourceLineRanges":[{"start":1,"end":100}],
+                "pagination":{"chunkType":"lines","offset":0,"chunkSize":100,"hasMore":true}
+            }]
+        }}]});
+        assert_eq!(
+            page_scope(&state),
+            Some(json!({
+                "startLine":1,"endLine":100,"totalLines":631
+            }))
+        );
+    }
+
+    #[test]
     fn nested_context_uses_the_canonical_query_contract() {
         for query in [
             json!({}),
@@ -509,6 +583,27 @@ mod tests {
         }
         assert!(prepare("localFetch", &json!({"path":"/tmp/f","reasoning":"Read"})).is_ok());
         assert!(prepare("localFetch", &json!({"path":"/tmp/f"})).is_err());
+    }
+
+    #[test]
+    fn nested_context_cannot_materialize_tree_files() {
+        let query = json!({
+            "operation":"tree", "owner":"o", "repo":"r",
+            "reasoning":"Inspect tree", "materialize":true
+        });
+        let error = prepare("ghSearch", &query).expect_err("materialization writes files");
+        assert_eq!(error.code, "invalidClassificationContext");
+        assert!(error.message.contains("materialize"));
+        assert!(
+            prepare(
+                "ghSearch",
+                &json!({
+                    "operation":"tree", "owner":"o", "repo":"r",
+                    "reasoning":"Inspect tree", "materialize":false
+                })
+            )
+            .is_ok()
+        );
     }
 
     #[test]

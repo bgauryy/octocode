@@ -69,13 +69,106 @@ fn emit_error(msg: &str, json_errors: bool) {
     }
 }
 
+/// Fields shared by every query; listing them per mode is noise.
+const META_FIELDS: &[&str] = &["reasoning", "goal", "debug"];
+
+/// Compact field list for `scheme` rows. Union tools (`anyOf`/`oneOf`) list
+/// each mode, labelled by its discriminator const (or branch title):
+/// `operation=code[keywords*, owner*, …] | operation=tree[…]`.
 fn compact_fields(tool: &Value) -> String {
-    let schema = tool
-        .get("querySchema")
-        .and_then(|schema| schema.get("anyOf"))
-        .and_then(Value::as_array)
-        .and_then(|variants| variants.first())
-        .unwrap_or_else(|| tool.get("querySchema").unwrap_or(&Value::Null));
+    let schema = tool.get("querySchema").unwrap_or(&Value::Null);
+    let resolve = |variant: &'_ Value| -> Value {
+        variant
+            .get("$ref")
+            .and_then(Value::as_str)
+            .and_then(|reference| reference.strip_prefix("#/"))
+            .and_then(|pointer| schema.pointer(&format!("/{pointer}")))
+            .cloned()
+            .unwrap_or_else(|| variant.clone())
+    };
+    let variants: Vec<Value> = ["anyOf", "oneOf"]
+        .iter()
+        .find_map(|key| schema.get(*key).and_then(Value::as_array))
+        .map(|items| items.iter().map(resolve).collect())
+        .unwrap_or_else(|| vec![schema.clone()]);
+    if variants.len() == 1 {
+        return variant_fields(&variants[0], None, 8);
+    }
+    let required_of = |variant: &Value| -> Vec<String> {
+        variant["required"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect()
+    };
+    let mut labels: Vec<(String, Option<String>)> = variants
+        .iter()
+        .enumerate()
+        .map(|(index, variant)| {
+            // The discriminator is the const whose value differs across modes
+            // (astTopology also fixes operation="topology" in every branch).
+            let discriminator = variant["properties"].as_object().and_then(|properties| {
+                properties.iter().find_map(|(name, field)| {
+                    let value = field.get("const")?;
+                    variants
+                        .iter()
+                        .any(|other| other["properties"][name.as_str()].get("const") != Some(value))
+                        .then_some((name, value))
+                })
+            });
+            match discriminator {
+                Some((name, value)) => (
+                    format!("{name}={}", value.as_str().unwrap_or_default()),
+                    Some(name.clone()),
+                ),
+                None => (
+                    variant["title"]
+                        .as_str()
+                        .map_or_else(|| format!("mode{}", index + 1), str::to_owned),
+                    None,
+                ),
+            }
+        })
+        .collect();
+    // Same label twice (e.g. astSearch match by pattern or rule): add the
+    // required field that tells the branches apart.
+    let original: Vec<String> = labels.iter().map(|label| label.0.clone()).collect();
+    for index in 0..labels.len() {
+        let duplicate = original
+            .iter()
+            .enumerate()
+            .any(|(other, label)| other != index && *label == original[index]);
+        if duplicate {
+            let others: Vec<String> = variants
+                .iter()
+                .enumerate()
+                .filter(|(other, _)| *other != index)
+                .flat_map(|(_, variant)| required_of(variant))
+                .collect();
+            if let Some(unique) = required_of(&variants[index])
+                .into_iter()
+                .find(|field| !others.contains(field))
+            {
+                labels[index].0 = format!("{}({unique})", labels[index].0);
+            }
+        }
+    }
+    variants
+        .iter()
+        .zip(labels)
+        .map(|(variant, (label, discriminator))| {
+            format!(
+                "{label}{}",
+                variant_fields(variant, discriminator.as_deref(), 6)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" | ")
+}
+
+fn variant_fields(schema: &Value, discriminator: Option<&str>, max_fields: usize) -> String {
     let Some(properties) = schema.get("properties").and_then(Value::as_object) else {
         return "[]".to_owned();
     };
@@ -89,13 +182,21 @@ fn compact_fields(tool: &Value) -> String {
                 .collect::<std::collections::HashSet<_>>()
         })
         .unwrap_or_default();
-    let mut names = properties.keys().map(String::as_str).collect::<Vec<_>>();
+    let mut names = properties
+        .iter()
+        // `{"not":{}}` marks a field this mode forbids.
+        .filter(|(name, field)| {
+            Some(name.as_str()) != discriminator
+                && !META_FIELDS.contains(&name.as_str())
+                && field.get("not").is_none()
+        })
+        .map(|(name, _)| name.as_str())
+        .collect::<Vec<_>>();
     names.sort_by_key(|name| (!required.contains(name), *name));
-    const MAX_FIELDS: usize = 8;
-    let truncated = names.len() > MAX_FIELDS;
+    let truncated = names.len() > max_fields;
     let mut fields = names
         .into_iter()
-        .take(MAX_FIELDS)
+        .take(max_fields)
         .map(|name| format!("{name}{}", if required.contains(name) { "*" } else { "?" }))
         .collect::<Vec<_>>();
     if truncated {
@@ -192,6 +293,7 @@ fn compact_tool_catalog(
             "run": "<name> '<json>'"
         },
         "fingerprint": catalog["fingerprint"],
+        "grammarCapabilities": catalog["grammarCapabilities"],
         "tools": tools
     })
 }

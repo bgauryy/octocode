@@ -322,6 +322,37 @@ describe('createNativeMcp registration + execution', () => {
     expect(runtime.closeCount).toBe(1);
   });
 
+  it('delivers the native grammar inventory when AST search is available', async () => {
+    const instance = createNativeMcp({
+      env: {},
+      binding: bindingFor(() => ({
+        fingerprint: getNativeContractFingerprint(),
+        tools: [tool('astSearch', true)],
+        grammarCapabilities: [{
+          language: 'Rust',
+          languageId: 'rust',
+          selectorAliases: [],
+          extensions: ['rs'],
+          structuralSearch: true,
+          signatureOutline: true,
+          graphFacts: true,
+        }],
+      })),
+    });
+    const client = new Client({ name: 'grammar-inventory', version: '1' });
+    const [serverTransport, clientTransport] =
+      InMemoryTransport.createLinkedPair();
+    await Promise.all([
+      instance.server.connect(serverTransport),
+      client.connect(clientTransport),
+    ]);
+    expect(client.getInstructions()).toContain(
+      'Rust [id:rust; .rs; structural+outline+graph]'
+    );
+    await client.close();
+    await instance.close();
+  });
+
   it('throws and closes the runtime when a catalog tool has no core contract', () => {
     expect(() =>
       createNativeMcp({

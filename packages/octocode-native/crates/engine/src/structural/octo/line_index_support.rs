@@ -39,7 +39,7 @@ fn build_metavar_ranges(
     line_index: &LineIndex,
     values: &HashMap<String, Vec<String>>,
     raw: HashMap<String, Vec<RawRange>>,
-) -> HashMap<String, Vec<MetavarRange>> {
+) -> std::collections::BTreeMap<String, Vec<MetavarRange>> {
     raw.into_iter()
         .map(|(name, ranges)| {
             let texts = values.get(&name);

@@ -1448,6 +1448,42 @@ mod tests {
     }
 
     #[test]
+    fn complete_preview_offers_an_executable_guarded_apply() {
+        let (root, policy, security) = fixture();
+        let first = execute_ast_rewrite_with_options(
+            query(&root),
+            &policy,
+            &security,
+            &Active,
+            &Default::default(),
+        );
+        // A partial preview page never offers apply.
+        assert!(first["next"].get("apply").is_none(), "{}", first["next"]);
+        let last = execute_ast_rewrite_with_options(
+            first["next"]["nextPage"]["query"].clone(),
+            &policy,
+            &security,
+            &Active,
+            &Default::default(),
+        );
+        let apply = last["next"]["apply"]["query"].clone();
+        assert_eq!(apply["apply"], true, "{apply}");
+        assert_eq!(apply["snapshot"], last["snapshot"]);
+        let options = AstRewriteRuntimeOptions {
+            allow_apply: true,
+            ..Default::default()
+        };
+        let applied =
+            execute_ast_rewrite_with_options(apply.clone(), &policy, &security, &Active, &options);
+        assert_eq!(applied["mode"], "apply", "{applied}");
+        let replay = execute_ast_rewrite_with_options(apply, &policy, &security, &Active, &options);
+        assert_eq!(
+            replay["errorCode"], "ast.rewrite.snapshot_changed",
+            "{replay}"
+        );
+    }
+
+    #[test]
     fn preview_continuation_is_lossless_and_apply_is_hash_guarded() {
         let (root, policy, security) = fixture();
         let first = execute_ast_rewrite_with_options(

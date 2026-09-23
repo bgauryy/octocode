@@ -137,6 +137,26 @@ pub async fn execute(
             });
         }
     }
+    // An exact lookup whose source lives on GitHub continues straight to its
+    // tree (package subdirectory when the registry names one). Registry
+    // metadata can point at a fork or stale repo, so this is a lead, not proof.
+    if query.package_name.is_some()
+        && let Some(artifact) = page.artifacts.first()
+        && let Some((owner, repo)) = artifact.repository.as_deref().and_then(github_repo)
+    {
+        data["next"]["viewRepo"] = json!({
+            "tool": "ghSearch",
+            "confidence": "high",
+            "query": {
+                "operation": "tree",
+                "owner": owner,
+                "repo": repo,
+                "path": artifact.repository_directory.clone().unwrap_or_default(),
+                "maxDepth": 1,
+                "reasoning": "Inspect the package's upstream source tree.",
+            },
+        });
+    }
     if let Some(limit) = page.terminal_limit {
         data["isPartial"] = json!(true);
         data["terminalLimit"] = json!(true);
@@ -151,6 +171,40 @@ pub async fn execute(
         }]);
     }
     Ok(data)
+}
+
+/// `owner/repo` from a GitHub repository URL in any common registry form
+/// (`git+https://github.com/o/r.git`, `git@github.com:o/r`, `github.com/o/r/tree/…`).
+fn github_repo(url: &str) -> Option<(String, String)> {
+    let rest = url
+        .split_once("github.com/")
+        .or_else(|| url.split_once("github.com:"))?
+        .1;
+    let mut parts = rest.split(['/', '#', '?']);
+    let owner = parts.next().filter(|part| !part.is_empty())?;
+    let repo = parts.next()?.trim_end_matches(".git");
+    (!repo.is_empty()).then(|| (owner.to_owned(), repo.to_owned()))
+}
+
+#[cfg(test)]
+mod github_repo_tests {
+    use super::github_repo;
+
+    #[test]
+    fn parses_registry_repository_urls() {
+        let expected = Some(("o".to_owned(), "r".to_owned()));
+        for url in [
+            "git+https://github.com/o/r.git",
+            "https://github.com/o/r",
+            "git@github.com:o/r.git",
+            "https://github.com/o/r/tree/main/packages/x",
+            "github.com/o/r#readme",
+        ] {
+            assert_eq!(github_repo(url), expected, "{url}");
+        }
+        assert_eq!(github_repo("https://gitlab.com/o/r"), None);
+        assert_eq!(github_repo("https://github.com/o"), None);
+    }
 }
 
 #[cfg(test)]

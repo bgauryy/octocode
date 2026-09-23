@@ -232,31 +232,43 @@ pub(crate) fn assemble_file(
                 // Contiguous context only: stop at the first line that is absent.
                 // Join by line slot (not by buffer emptiness) so a blank
                 // leading line keeps its place and line numbers stay aligned.
-                let mut window: Vec<&str> = (1..=context_lines)
+                let mut before: Vec<&str> = (1..=context_lines)
                     .map_while(|i| m.line_number.checked_sub(i).and_then(neighbour))
                     .collect();
-                window.reverse();
-                let prefix_chars = window
-                    .iter()
-                    .map(|line| line.chars().count() + 1)
-                    .sum::<usize>();
-                window.push(&m.line_text);
-                window.extend(
-                    (1..=context_lines)
-                        .map_while(|i| m.line_number.checked_add(i).and_then(neighbour)),
-                );
-                let joined = window.join("\n");
+                before.reverse();
+                let after: Vec<&str> = (1..=context_lines)
+                    .map_while(|i| m.line_number.checked_add(i).and_then(neighbour))
+                    .collect();
+                let join = |lead: &[&str]| {
+                    let mut window = lead.to_vec();
+                    window.push(&m.line_text);
+                    window.extend(&after);
+                    window.join("\n")
+                };
+                let joined = join(&before);
                 let chars = joined.chars().count();
                 let value = if chars <= max_snippet {
                     joined
-                } else if prefix_chars + utf16_to_char_index(&m.line_text, m.column)
-                    < max_snippet.saturating_sub(MATCH_TAIL_CHARS)
-                {
-                    truncate_unicode(&joined, max_snippet)
                 } else {
-                    // Leading context/line would push the match out of the
-                    // snippet: show a window of the match line instead.
-                    clip_around_match(&m.line_text, m.column, max_snippet)
+                    // Drop leading context (farthest first) until the match
+                    // line fits, then spend the rest on trailing context.
+                    let column = utf16_to_char_index(&m.line_text, m.column);
+                    let budget = max_snippet.saturating_sub(MATCH_TAIL_CHARS);
+                    let mut lead = &before[..];
+                    let prefix = |lead: &[&str]| {
+                        lead.iter()
+                            .map(|line| line.chars().count() + 1)
+                            .sum::<usize>()
+                    };
+                    while !lead.is_empty() && prefix(lead) + column >= budget {
+                        lead = &lead[1..];
+                    }
+                    if prefix(lead) + column < budget {
+                        truncate_unicode(&join(lead), max_snippet)
+                    } else {
+                        // Even the match line alone would push the match out.
+                        clip_around_match(&m.line_text, m.column, max_snippet)
+                    }
                 };
                 (
                     value,
@@ -553,6 +565,31 @@ mod tests {
             }),
         );
         assert_eq!(r.files[0].matches[0].original_chars, Some(600));
+    }
+
+    #[test]
+    fn oversized_context_drops_far_leading_lines_before_the_match() {
+        let far = "f".repeat(60);
+        let near = "n".repeat(20);
+        let stdout = [
+            make_context_line("f.rs", &format!("{far}\n"), 8),
+            make_context_line("f.rs", &format!("{near}\n"), 9),
+            make_match_line("f.rs", "fn target() {\n", 10, 3),
+            make_context_line("f.rs", "    body();\n", 11),
+            make_context_line("f.rs", &format!("{far}\n"), 12),
+        ]
+        .join("\n");
+        let r = parse_ripgrep_json_inner(
+            &stdout,
+            Some(RipgrepParseOptions {
+                context_lines: Some(2),
+                max_snippet_chars: Some(80),
+            }),
+        );
+        let val = &r.files[0].matches[0].value;
+        assert!(val.starts_with(&near), "{val}");
+        assert!(val.contains("fn target() {\n    body();"), "{val}");
+        assert!(val.chars().count() <= 80, "{val}");
     }
 
     #[test]

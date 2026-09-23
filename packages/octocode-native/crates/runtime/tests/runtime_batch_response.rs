@@ -200,7 +200,7 @@ fn cli_exit_is_six_while_response_pages_remain() {
 }
 
 #[tokio::test]
-async fn small_output_is_not_paginated_and_mcp_text_pages_without_a_full_structured_copy() {
+async fn small_output_is_not_paginated_and_mcp_auto_pages_by_whole_rows() {
     let workspace = Workspace::new();
     let file = workspace.write("src/a.txt", "needle\n");
     let root = file.parent().unwrap().to_string_lossy().into_owned();
@@ -236,7 +236,14 @@ async fn small_output_is_not_paginated_and_mcp_text_pages_without_a_full_structu
     let text = mcp["content"][0]["text"].as_str().unwrap();
     assert!(text.encode_utf16().count() < 2600, "text page is bounded");
     let structured = &mcp["structuredContent"];
-    assert_eq!(structured["results"], json!([]), "no full payload copy");
+    // Implicit pages are whole rows: structuredContent-only clients see the
+    // page instead of an emptied results array.
+    assert!(!structured["results"].as_array().unwrap().is_empty());
+    assert_eq!(structured["responsePagination"]["scope"], "rows");
     assert_eq!(structured["responsePagination"]["hasMore"], true);
+    assert_eq!(
+        structured["responsePagination"]["next"]["query"]["responseScope"],
+        "rows"
+    );
     runtime.close().await;
 }

@@ -23,7 +23,7 @@ Judge unread local or GitHub files without fetching their bodies into chat. Each
 | `choice` | one named class | routing: `read`/`skip`/`consider`, content type, link action |
 | `score` | one ordered level | quality/priority ranking |
 
-**Confidence gate:** accept a `choice` route only when `confidence >= 0.5`. Treat anything lower as `consider`.
+**Confidence gate:** accept a `choice` route only when `confidence >= 0.9`. Treat lower confidence, `insufficient`, or incomplete coverage as `consider`.
 
 ## Workflow
 
@@ -31,7 +31,7 @@ Judge unread local or GitHub files without fetching their bodies into chat. Each
 octocode clasify --input request.json --compact
 ```
 
-Each query: `{reasoning, resources:[{id, context}], questions:[{id, question}]}`. Every question sees every resource. Maximum 25 cells per query. Batch independent matrices under root `queries[]`.
+Each query: `{id, reasoning, resources:[{id, context}], questions:[{id, question}]}`. Every question sees every resource. Maximum 25 cells per query. Batch independent matrices under root `queries[]`.
 
 ## Install
 
@@ -50,4 +50,4 @@ Requires `OCTOCODE_CLASSIFICATION_API` in the environment.
 ## References
 
 - [Protocol and query schema](references/ojql.md)
-- [Workflow patterns](references/jev-workflows.md)
+- [Workflow patterns](references/clasify-workflows.md)

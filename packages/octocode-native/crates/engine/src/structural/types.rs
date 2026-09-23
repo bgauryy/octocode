@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 #[cfg(feature = "napi-addon")]
 use napi_derive::napi;
@@ -32,7 +32,7 @@ pub struct StructuralMatch {
     pub metavars: HashMap<String, Vec<String>>,
     /// Per-capture precise ranges, parallel to `metavars` (same keys, same
     /// order). Lets an agent hand a capture straight to LSP without re-search.
-    pub metavar_ranges: HashMap<String, Vec<MetavarRange>>,
+    pub metavar_ranges: BTreeMap<String, Vec<MetavarRange>>,
 }
 
 #[cfg_attr(feature = "napi-addon", napi(object))]
@@ -68,7 +68,7 @@ pub struct StructuralDetailedMatch {
     pub end_col: u32,
     pub text: String,
     pub metavars: HashMap<String, Vec<String>>,
-    pub metavar_ranges: HashMap<String, Vec<MetavarRange>>,
+    pub metavar_ranges: BTreeMap<String, Vec<MetavarRange>>,
     pub node_kind: Option<String>,
     pub confidence: String,
 }

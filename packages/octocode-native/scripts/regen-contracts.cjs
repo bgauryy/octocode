@@ -117,5 +117,5 @@ if (!contracts.ok) {
 const provenance = JSON.parse(readFileSync(join(generatedDir, 'contract-provenance.json'), 'utf8'));
 console.log(`done: revision ${provenance.sourceRevision.slice(0, 8)} dirty=${provenance.sourceDirty} fingerprint=${provenance.contractFingerprint.slice(0, 12)}…`);
 if (provenance.sourceDirty) {
-  console.warn('WARNING: contracts were generated from a dirty core tree (--allow-dirty); the provenance test will fail until a clean regen.');
+  console.warn('WARNING: contracts were generated from a dirty core tree (--allow-dirty); sourceDirty is recorded in provenance.');
 }

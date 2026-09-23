@@ -352,6 +352,16 @@ async fn runtime_catalog_lists_available_tools() {
     assert!(names.contains(&"localFetch"));
     assert!(names.contains(&"localSearch"));
     assert!(names.contains(&"ghSearch"));
+    let grammars = catalog["grammarCapabilities"]
+        .as_array()
+        .expect("runtime grammar capabilities");
+    assert!(grammars.iter().any(|entry| {
+        entry["language"] == "Rust"
+            && entry["extensions"]
+                .as_array()
+                .is_some_and(|extensions| extensions.contains(&json!("rs")))
+            && entry["structuralSearch"] == true
+    }));
     runtime.close().await;
 }
 

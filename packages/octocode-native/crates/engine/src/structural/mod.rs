@@ -18,7 +18,10 @@ mod types;
 
 #[cfg(feature = "embedded-ast-grep-rewrite")]
 pub use files::{StructuralRewriteFileResult, StructuralRewriteFilesResult, rewrite_files};
-pub use files::{search_files, search_files_detailed, search_files_detailed_filtered};
+pub use files::{
+    search_files, search_files_detailed, search_files_detailed_filtered,
+    search_files_detailed_filtered_with_extension,
+};
 #[cfg(feature = "embedded-ast-grep-rewrite")]
 pub use rewrite::{
     MAX_REWRITE_CONTENT_BYTES, StructuralRewriteCapture, StructuralRewriteMatch,
@@ -27,6 +30,7 @@ pub use rewrite::{
 };
 pub use syntax_tree::{
     SyntaxTreeInspectOptions, SyntaxTreeInspectResult, inspect as inspect_syntax_tree,
+    inspect_with_extension as inspect_syntax_tree_with_extension,
 };
 #[cfg(feature = "embedded-ast-grep-rewrite")]
 pub use types::StructuralRewriteFilesOptions;

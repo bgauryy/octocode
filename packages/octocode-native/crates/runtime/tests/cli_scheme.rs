@@ -38,6 +38,10 @@ fn scheme_catalog_is_machine_only_with_availability_scoping() {
         assert!(catalog.get("instructions").is_none(), "{catalog}");
         assert!(catalog.get("guidance").is_none(), "{catalog}");
         assert_eq!(catalog["fingerprint"], expected_fingerprint, "{catalog}");
+        assert_eq!(
+            catalog["grammarCapabilities"], native_catalog["grammarCapabilities"],
+            "machine scheme must carry the runtime grammar inventory"
+        );
         let clasify = catalog["tools"]
             .as_array()
             .expect("tools array")

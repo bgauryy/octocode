@@ -3,6 +3,7 @@ mod extraction;
 mod pagination;
 mod types;
 mod validation;
+pub(crate) use executor::no_match_hint;
 pub use executor::{execute_local_fetch, execute_local_fetch_with_regex, process_fetched_content};
 pub use types::*;
 pub use validation::validate_request;
@@ -105,6 +106,21 @@ mod tests {
             req = next.query
         }
         assert_eq!(joined, "one\ntwo 😀\nthree\n")
+    }
+    #[test]
+    fn regex_line_anchors_match_every_line() {
+        let t = Temp::new();
+        let p = t.0.join("Cargo.toml");
+        fs::write(&p, "[package]\nversion = \"1\"\n[dep]\nversion = \"2\"\n")
+            .expect("test fixture operation should succeed");
+        let paths = Paths(t.0.clone());
+        let mut req = q(&p);
+        req.match_string = Some("^version.*\"$".into());
+        req.match_string_is_regex = Some(true);
+        req.context_lines = Some(0);
+        let wire = serde_json::to_value(execute_local_fetch(&req, &paths, &Safe, &NeverCancel))
+            .expect("serializable");
+        assert_eq!(wire["matchedLines"], serde_json::json!([2, 4]));
     }
     #[test]
     fn wire_form_omits_metadata_derivable_from_emitted_fields() {

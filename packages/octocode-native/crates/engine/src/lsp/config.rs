@@ -721,15 +721,24 @@ mod tests {
     }
 
     #[test]
-    fn builtin_routes_cover_the_exact_first_class_extension_set() {
-        // Intersection of the native grammar registry with the built-in server
-        // routes. CUDA (`cu`/`cuh`) re-joined the default registry in 19.1.3,
-        // so it is now part of this intersection again.
-        let expected = [
-            "c", "cc", "cjs", "cpp", "cs", "cts", "cu", "cuh", "cxx", "go", "h", "hh", "hpp",
-            "hxx", "java", "js", "jsx", "mjs", "mts", "py", "pyi", "rs", "sbt", "sc", "scala",
+    fn builtin_routes_intersect_enabled_grammars_exactly() {
+        let mut expected = vec![
+            "c", "cjs", "cts", "go", "h", "java", "js", "jsx", "mjs", "mts", "py", "pyi", "rs",
             "ts", "tsx",
         ];
+        if cfg!(feature = "tree-sitter-cpp") {
+            expected.extend(["cc", "cpp", "cxx", "hh", "hpp", "hxx"]);
+        }
+        if cfg!(feature = "tree-sitter-c-sharp") {
+            expected.push("cs");
+        }
+        if cfg!(feature = "tree-sitter-cuda") {
+            expected.extend(["cu", "cuh"]);
+        }
+        if cfg!(feature = "tree-sitter-scala") {
+            expected.extend(["sbt", "sc", "scala"]);
+        }
+        expected.sort_unstable();
         let mut actual: Vec<_> = crate::signatures::languages::supported_extensions()
             .into_iter()
             .filter(|extension| super::spec_for_extension(&format!(".{extension}")).is_some())

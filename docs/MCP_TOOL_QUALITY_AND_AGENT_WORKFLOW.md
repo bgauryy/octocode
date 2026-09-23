@@ -1,6 +1,6 @@
 # Tool quality and agent workflow acceptance
 
-This contributor reference defines how to evaluate the 12 public research tools in the Octocode agentic toolkit.
+This contributor reference defines how to evaluate the 13 catalog tools in the Octocode agentic toolkit. `ghCloneRepo` is CLI-only; MCP exposes the other tools when their availability gates are satisfied.
 It separates implemented contracts from the tests needed to establish quality.
 For routing decisions, read the [research manifest](OCTOCODE_RESEARCH_MANIFEST.md).
 For parameters and defaults, use the [tool reference](OCTOCODE_TOOLS.md) and live
@@ -128,8 +128,10 @@ for measured comparisons; record commands and artifacts with the result.
 |---|---|---|
 | `localSearch` | Exercise lexical text and regex queries independently. | Verify match continuations, exclusions, and zero-result diagnostics. |
 | `localFetch` | Exercise path-only, full, range, match, and each supported view. | Preserve matched anchors; reconstruct transformed windows; verify effective fallback mode, redaction, and source lines. |
+| `clasify` | Exercise Noul, Choice, and Score over supplied values and delegated unread resources. | Verify body-free page answers, coverage, focus scopes, provider failures, and cache reuse on later exact reads. |
 | `astSearch` | Exercise `match`, `files`, syntax `tree`, and `symbols`. | Validate pattern/rule exclusivity and language selection; traverse captures, nodes, and results; expose parser and scan limits. |
 | `astTopology` | Exercise all seven graph analyses. | Traverse results and diagnostics; expose unresolved edges and coverage limits; corroborate deletion candidates. |
+| `astRewrite` | Exercise preview, stale snapshots, hash guards, and apply on an isolated fixture. | Verify overlap guidance, transaction recovery, changed bytes, and unchanged files. |
 | `lspSearch` | Exercise document, workspace, anchored, and hierarchy operations. | Distinguish unavailable server, unsupported capability, failed anchor, and valid empty result; verify server provenance and paginated snapshots. |
 | `ghSearch` | Exercise code, repository, and tree variants; reject branch selection for indexed code search. | Preserve candidate matches, selected operation, immutable tree identity, metadata pages, indexing uncertainty, and provider-limit diagnostics. |
 | `ghGetFileContent` | Exercise exact, compact, full, and paginated file views. | Compare local/remote matching and windows; verify pinned refs, repeated-outline prevention, security redaction, and rejection of directory inputs. |

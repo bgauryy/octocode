@@ -1,12 +1,13 @@
 use crate::minify::comment_remover::remove_comments;
 use crate::minify::minifier::{MAX_SIZE, get_file_config};
 use crate::minify::strategies::{
-    minify_code_core, minify_css_quality, minify_embedded_web, minify_general_core,
-    minify_javascript_core, minify_json_readable_inner, minify_markdown_core,
+    minify_brace_code, minify_code_core, minify_css_quality, minify_embedded_web,
+    minify_general_core, minify_javascript_core, minify_json_readable_inner, minify_markdown_core,
 };
 use crate::text::file_extension::get_extension_internal;
 
-/// Content-view minification — agent-readable, preserves indentation.
+/// Content-view minification — agent-readable; indentation is kept wherever
+/// it can carry syntax.
 /// Agent-readable content view minification pipeline.
 pub fn apply_content_view_minification_inner(content: &str, file_path: &str) -> String {
     if content.len() > MAX_SIZE {
@@ -53,6 +54,13 @@ pub fn apply_content_view_minification_inner(content: &str, file_path: &str) -> 
             return minify_javascript_core(content);
         }
 
+        // Brace code (config strategy "brace"): strip indentation like JS/TS.
+        if let Some(c) = cfg.filter(|c| c.strategy == "brace")
+            && let Some(groups) = c.comments
+        {
+            return minify_brace_code(content, groups);
+        }
+
         let stripped = if let Some(c) = cfg {
             if let Some(groups) = c.comments {
                 remove_comments(content, groups)
@@ -81,6 +89,27 @@ pub fn apply_content_view_minification_inner(content: &str, file_path: &str) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn content_view_keeps_php_inline_html_indentation() {
+        let php = "<ul>\n    <li><?php echo $a; ?></li>\n</ul>\n";
+        assert!(apply_content_view_minification_inner(php, "view.php").contains("    <li>"));
+        assert_eq!(
+            crate::minify::minifier::get_file_config("view.php").map(|c| c.strategy),
+            Some("conservative")
+        );
+    }
+
+    #[test]
+    fn content_view_strips_brace_code_indent_but_keeps_python_indent() {
+        let rust = "fn main() {\n    // note\n\n    call();\n}\n";
+        assert_eq!(
+            apply_content_view_minification_inner(rust, "src/main.rs"),
+            "fn main() {\ncall();\n}"
+        );
+        let python = "def main():\n    # note\n    call()\n";
+        assert!(apply_content_view_minification_inner(python, "main.py").contains("    call()"));
+    }
 
     #[test]
     fn content_view_keeps_valid_json_intact() {
@@ -160,9 +189,7 @@ mod tests {
 
     #[test]
     fn content_view_strips_all_js_comment_classes() {
-        // The "standard" view contract removes known language comments —
-        // normal and jsdoc default to KEPT in oxc codegen, so this guards
-        // the explicit CommentOptions in minify_js_oxc.
+        // The "standard" view contract removes both line and JSDoc comments.
         let src = "import { useState } from \"react\";\n// Top-level comment that should be stripped\nexport function f() {\n  /** jsdoc to strip */\n  return useState;\n}\n";
         let out = apply_content_view_minification_inner(src, "x.tsx");
         assert!(

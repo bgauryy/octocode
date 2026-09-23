@@ -658,18 +658,16 @@ fn validate_local_search_queries(input: &Value) -> Result<(), ContractValidation
                 return Err(issue(
                     "local-search.match-window",
                     prefix("matchWindow"),
-                    "matchWindow requires matchOnly output",
+                    "matchWindow requires resultView:\"matchOnly\"",
                 ));
             }
-            if matches!(
-                query.get("unique").and_then(Value::as_str),
-                Some("list" | "count")
-            ) && !is_match_only
+            if let Some(unique @ ("list" | "count")) = query.get("unique").and_then(Value::as_str)
+                && !is_match_only
             {
                 return Err(issue(
                     "local-search.unique",
                     prefix("unique"),
-                    "unique requires matchOnly output",
+                    format!("unique:\"{unique}\" requires resultView:\"matchOnly\""),
                 ));
             }
             continue;
@@ -1272,12 +1270,14 @@ mod tests {
             }]}),
         )
         .expect_err("code search without an owner is a global wildcard");
-        assert!(
-            error
-                .issues
-                .iter()
-                .any(|issue| issue.rule_id == "gh-search.code-scope")
-        );
+        // The schema requires owner; the code-scope rule backs it up.
+        assert!(error.issues.iter().any(|issue| {
+            issue.path.last().is_some_and(|field| field == "owner")
+                && matches!(
+                    issue.rule_id.as_str(),
+                    "schema.required" | "gh-search.code-scope"
+                )
+        }));
         // owner alone (no repo) is a legitimate org-wide code search.
         validate(
             "ghSearch",
