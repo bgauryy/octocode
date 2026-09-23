@@ -125,10 +125,16 @@ pub(super) fn execute_local(
                 serde_json::from_value(query).map_err(|_| ExecutionError::WorkerFailed)?;
             match execute_topology(&request, paths, security, context) {
                 Ok(data) => Ok(value_result(data)),
-                Err(error) => Ok(domain_error(
-                    json!({"error":error.message,"errorCode":error.code}),
-                    None,
-                )),
+                Err(error) => {
+                    let mut data = json!({"error":error.message,"errorCode":error.code});
+                    if !error.hints.is_empty() {
+                        data["hints"] = json!(error.hints);
+                    }
+                    if let Some(next) = error.next {
+                        data["next"] = *next;
+                    }
+                    Ok(domain_error(data, None))
+                }
             }
         }
         "astRewrite" => {

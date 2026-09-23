@@ -380,9 +380,19 @@ pub async fn execute<R: CredentialResolver>(
         } else {
             "providerIncompleteResults"
         }]);
+        // Success rows keep warnings (hints are reserved for empty/error rows).
+        if result.total_count > 1000 {
+            match value.get_mut("warnings").and_then(Value::as_array_mut) {
+                Some(warnings) => warnings.push(json!(CAP_PARTITION_HINT)),
+                None => value["warnings"] = json!([CAP_PARTITION_HINT]),
+            }
+        }
     }
     Ok(value)
 }
+/// GitHub search stops at 1,000 results; the cap is not the end of history.
+const CAP_PARTITION_HINT: &str = "GitHub search returns at most 1,000 results; partition by date (created/merged-at/closed ranges, or since/until for commits) or narrow keywords to reach the rest.";
+
 /// A complete page with no rows is empty, so the shared fallback hint fires.
 fn mark_empty(value: &mut Value, more: bool) {
     let rows = ["pullRequests", "issues", "commits"]

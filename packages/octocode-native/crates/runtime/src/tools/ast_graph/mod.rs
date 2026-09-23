@@ -217,6 +217,45 @@ mod drift_tests {
     }
 
     #[test]
+    fn oversized_implicit_scan_is_refused_with_narrower_roots() {
+        let root = tempfile::tempdir().expect("fixture directory");
+        let over = graph::SCOPE_ADMISSION_FILES as usize + 1;
+        for (package, count) in [("big", over - 10), ("small", 10)] {
+            let dir = root.path().join("packages").join(package);
+            std::fs::create_dir_all(&dir).expect("package dir");
+            for i in 0..count {
+                std::fs::write(dir.join(format!("f{i}.ts")), "export const x = 1;\n")
+                    .expect("fixture file");
+            }
+        }
+        let query = json!({"operation":"topology","analysis":"cycles","path":root.path()});
+        let error = run(query.clone(), root.path()).expect_err("scope refused");
+        assert_eq!(error.code, "ast.graph.scopeTooBroad");
+        assert!(
+            error
+                .message
+                .contains("packages/big (4991), packages/small (10)"),
+            "{}",
+            error.message
+        );
+        assert_eq!(error.hints.len(), 1);
+        let next = error.next.expect("continuations");
+        let narrow = &next["narrowScope"]["query"];
+        assert!(
+            narrow["path"].as_str().unwrap().ends_with("packages/big"),
+            "{next}"
+        );
+        assert_eq!(next["expandScan"]["query"]["maxFiles"], 20_000);
+
+        let mut explicit = query;
+        explicit["maxFiles"] = json!(20_000);
+        assert!(
+            run(explicit, root.path()).is_ok(),
+            "explicit maxFiles opts in"
+        );
+    }
+
+    #[test]
     fn topology_passes_path_scoped_header_parser_to_the_shared_scan() {
         let root = std::env::temp_dir().join(format!(
             "octocode-topology-header-glob-{}",

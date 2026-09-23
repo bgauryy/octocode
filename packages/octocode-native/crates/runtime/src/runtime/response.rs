@@ -159,6 +159,11 @@ fn fallback_hint(tool: &str, query: &Value) -> Option<&'static str> {
             Some("Broaden path or file filters.")
         }
         "astTopology" => Some("Inspect diagnostics, then broaden the graph scope if needed."),
+        // A pattern must parse as a complete node: `const $A = $B` misses
+        // statements that `const $A = $B;` matches.
+        "astSearch" if query["operation"] == "match" && query["pattern"].is_string() => Some(
+            "Write the pattern as a complete node (keep terminators like `;`), check a tree view, then broaden path or filters.",
+        ),
         "astSearch" => Some("Broaden the syntax/name query, path, or filters."),
         "astRewrite" if query["apply"] == true => {
             Some("Preview again and copy every current beforeHash before applying.")
@@ -879,6 +884,19 @@ fn rewrite_paths(value: &mut Value, depth: usize, base: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn empty_pattern_match_hints_at_complete_nodes() {
+        let pattern = json!({"operation": "match", "pattern": "const $A = $B"});
+        assert!(
+            fallback_hint("astSearch", &pattern).is_some_and(|hint| hint.contains("complete node"))
+        );
+        let rule = json!({"operation": "match", "rule": "id: x"});
+        assert_eq!(
+            fallback_hint("astSearch", &rule),
+            Some("Broaden the syntax/name query, path, or filters.")
+        );
+    }
 
     #[test]
     fn native_language_server_results_are_semantic_evidence() {

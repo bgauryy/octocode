@@ -108,10 +108,10 @@ function dedupeInputSchema(
     Array.isArray(querySchema)
   )
     return inputSchema;
+  const { $schema: _schema, $defs: queryDefs, ...queryBody } = querySchema;
   const queries = (inputSchema.properties as JsonObject | undefined)?.queries;
   if (!queries || typeof queries !== 'object' || Array.isArray(queries))
-    return inputSchema;
-  const { $schema: _schema, $defs: queryDefs, ...queryBody } = querySchema;
+    return dedupeDefinedQuery(inputSchema, queryDefs);
   if (
     !deepEqual(queries.items, queryBody) ||
     JSON.stringify(inputSchema.$defs ?? null) !==
@@ -125,6 +125,32 @@ function dedupeInputSchema(
     description: 'Each item is one querySchema object.',
   };
   pruneUnreachableDefs(deduped);
+  return deduped;
+}
+
+/**
+ * Union envelopes (e.g. clasify: one matrix or `queries[]`) reference the
+ * query through `$ref`s into $defs that are an exact copy of querySchema's
+ * $defs. Print those definitions once, under querySchema.
+ */
+function dedupeDefinedQuery(
+  inputSchema: JsonObject,
+  queryDefs: JsonValue | undefined
+): JsonValue {
+  if (
+    !queryDefs ||
+    typeof queryDefs !== 'object' ||
+    Array.isArray(queryDefs) ||
+    Object.keys(queryDefs).length === 0 ||
+    !deepEqual(inputSchema.$defs, queryDefs)
+  )
+    return inputSchema;
+  const deduped = cloneJson(inputSchema) as JsonObject;
+  deduped.$defs = {
+    querySchema: {
+      description: 'Identical to querySchema.$defs; resolve #/$defs/* there.',
+    },
+  };
   return deduped;
 }
 

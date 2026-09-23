@@ -126,7 +126,7 @@ impl Readiness {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::ProgressIdle => "progressIdle",
-            Self::SilentServer => "silentServer",
+            Self::SilentServer => "settledWithoutProgress",
             Self::Timeout => "timeout",
         }
     }
@@ -1628,7 +1628,7 @@ mod tests {
                 "must not return after the old aggressive 100 ms window, got {elapsed} ms"
             );
             assert!(elapsed < 5_000, "must stay bounded, got {elapsed} ms");
-            // No progress events ever arrived -> silentServer, not progressIdle.
+            // No progress events ever arrived -> settledWithoutProgress, not progressIdle.
             assert_eq!(readiness, Readiness::SilentServer);
         });
     }

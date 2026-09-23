@@ -501,7 +501,7 @@ fn first_open_waits_for_the_project_load_the_open_triggers() {
         // No progress on initialized: the initial readiness wait only settles.
         assert_eq!(
             client.wait_for_ready(Some(300)).await.unwrap(),
-            "silentServer"
+            "settledWithoutProgress"
         );
 
         let readiness = client

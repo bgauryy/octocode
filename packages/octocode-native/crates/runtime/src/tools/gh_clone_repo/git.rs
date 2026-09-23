@@ -34,6 +34,35 @@ pub(super) fn read_head(
     Ok(sha)
 }
 
+/// Whether a cached checkout's working tree still matches its HEAD commit.
+/// Edited, deleted, or added files mean the cache no longer holds the fetched
+/// revision, so it must not be served as `verified`.
+pub(super) fn is_clean(context: &CloneContext<'_>, directory: &Path) -> Result<bool, CloneError> {
+    let output = run(
+        context,
+        vec![
+            "-C".into(),
+            directory.as_os_str().to_owned(),
+            "status".into(),
+            "--porcelain".into(),
+            "--untracked-files=normal".into(),
+        ],
+        HEAD_TIMEOUT,
+        "check cached checkout cleanliness",
+        None,
+    )?;
+    // Porcelain lines are `XY <path>`; octocode's own cache bookkeeping
+    // (meta, lock, and their temp files) lives in the checkout root.
+    Ok(output
+        .stdout
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .all(|line| {
+            line.get(3..)
+                .is_some_and(|path| path.trim_matches('"').starts_with(".octocode-"))
+        }))
+}
+
 pub(super) fn checkout(
     context: &CloneContext<'_>,
     repository_url: &str,

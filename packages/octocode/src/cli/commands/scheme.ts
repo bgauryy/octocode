@@ -32,7 +32,7 @@ interface MachineCatalog {
   grammarCapabilities?: GrammarCapability[];
 }
 
-const USAGE = `octocode scheme [toolName] [--view full|query|variants] [--select FIELD=VALUE] [--compact]
+const USAGE = `octocode scheme [toolName] [--view full|query|variants] [--select FIELD=VALUE] [--compact|--pretty]
 
   octocode scheme                   list every tool, availability, and agent instructions
   octocode scheme <toolName>        print the tool's contract with variants before its schema
@@ -92,13 +92,27 @@ function isEnabled(availability: unknown): boolean {
   );
 }
 
+/**
+ * Agents read scheme through pipes: default to single-line JSON there, like
+ * tool output. A terminal keeps the indented view unless --compact is set;
+ * --pretty forces indentation anywhere.
+ */
+export function useCompactJson(
+  options: ParsedArgs['options'],
+  isTty: boolean
+): boolean {
+  if (options.compact === true) return true;
+  if (options.pretty === true) return false;
+  return !isTty;
+}
+
 export async function runScheme(args: ParsedArgs): Promise<number> {
   const jsonErrors = args.options['json-errors'] === true;
   if (args.options.help === true || args.options.h === true) {
     console.log(USAGE);
     return EXIT.OK;
   }
-  const compact = args.options.compact === true;
+  const compact = useCompactJson(args.options, process.stdout.isTTY === true);
   const viewOption = args.options.view;
   if (
     viewOption !== undefined &&

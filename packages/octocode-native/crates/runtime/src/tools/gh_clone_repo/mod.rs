@@ -208,6 +208,8 @@ pub fn execute_clone(
         )
         && let Ok(commit_sha) = git::read_head(context, &clone_dir)
         && (!is_commit(&branch) || commit_sha == branch.to_ascii_lowercase())
+        // A modified cache no longer holds the fetched revision: re-clone it.
+        && git::is_clean(context, &clone_dir).unwrap_or(false)
     {
         context
             .path_policy

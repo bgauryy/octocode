@@ -4,16 +4,16 @@ export declare class NativeLspClient {
   constructor(config: JsLanguageServerConfig);
   start(): Promise<void>;
   stop(): Promise<void>;
-  /** Readiness after post-`initialized` indexing: `progressIdle` = a `$/progress` cycle drained to idle; `silentServer` = the server reported no progress and the settle window elapsed (normal for servers without `$/progress`, not an error); `timeout` = progress still active at the deadline. */
+  /** Readiness after post-`initialized` indexing: `progressIdle` = a `$/progress` cycle drained to idle; `settledWithoutProgress` = the server reported no progress and the settle window elapsed (normal for servers without `$/progress`, not an error); `timeout` = progress still active at the deadline. */
   waitForReady(
     timeoutMs?: number | undefined | null
-  ): Promise<'progressIdle' | 'silentServer' | 'timeout'>;
+  ): Promise<'progressIdle' | 'settledWithoutProgress' | 'timeout'>;
   hasCapability(capability: string): boolean;
   /** `false` if never started/already stopped, or once the connection's read loop has observed the server process close (crash). */
   isAlive(): Promise<boolean>;
   /** Server-selected LSP `positionEncoding` (utf-16 unless the server is non-conformant); null if omitted/not started. */
   positionEncoding(): string | null;
-  getReadiness(): 'progressIdle' | 'silentServer' | 'timeout' | null;
+  getReadiness(): 'progressIdle' | 'settledWithoutProgress' | 'timeout' | null;
   getRecentStderr(): Array<string>;
   openDocument(filePath: string, content: string): Promise<void>;
   closeDocument(filePath: string): Promise<void>;

@@ -41,6 +41,9 @@ pub(crate) fn build_graph(
             }
         }
     }
+    if q.max_files.is_none() {
+        admit_scope(q, &validated.canonical, &exclude, paths, cancel)?;
+    }
     let max_files = q.max_files.unwrap_or(20_000).clamp(1, 50_000);
     let scan = octocode_engine::portable::scan_typed_graph_facts_filtered(
         GraphFactsScanOptions {
@@ -928,6 +931,127 @@ fn join_within_root(a: &str, b: &str) -> Option<String> {
     }
     Some(parts.join("/"))
 }
+/// Implicit-default scans larger than this are refused before parsing: a
+/// monorepo root otherwise parses thousands of files and can exhaust the call
+/// deadline before any analysis. An explicit maxFiles opts in to a full scan.
+pub(crate) const SCOPE_ADMISSION_FILES: u32 = 5_000;
+const SCOPE_COUNT_FILES: u32 = 100_000;
+
+/// Cheap discovery-only preflight (no parsing) for an implicit-default scan.
+fn admit_scope(
+    q: &AstGraphQuery,
+    root: &Path,
+    exclude: &[String],
+    paths: &PathPolicy,
+    cancel: &dyn CancellationCheck,
+) -> Result<(), AstGraphError> {
+    let found = octocode_engine::portable::query_file_system_filtered(
+        octocode_engine::types::FileSystemQueryOptions {
+            path: root.to_string_lossy().into_owned(),
+            recursive: Some(true),
+            show_hidden: Some(false),
+            entry_type: Some("f".to_owned()),
+            extensions: Some(octocode_engine::signatures::graph_facts::graph_fact_extensions()),
+            exclude_dir: Some(exclude.to_vec()),
+            // Discovery is cheap; count well past the admission bound so the
+            // per-directory suggestions reflect the whole root, not the
+            // first directories walked.
+            stop_at_limit: Some(true),
+            limit: Some(SCOPE_COUNT_FILES),
+            ..Default::default()
+        },
+        &|path| {
+            cancel.check()?;
+            Ok(paths.permits_discovery(path))
+        },
+    )
+    .map_err(|e| AstGraphError::new("ast.graph.scanFailed", e.to_string()))?;
+    if found.entries.len() as u32 <= SCOPE_ADMISSION_FILES {
+        return Ok(());
+    }
+    let mut by_dir: BTreeMap<String, u32> = BTreeMap::new();
+    for entry in &found.entries {
+        let relative = normalize(&entry.relative_path);
+        let mut parts = relative.split('/');
+        let (Some(first), Some(second)) = (parts.next(), parts.next()) else {
+            continue;
+        };
+        // Group by package-level directory (packages/x, crates/y) when the
+        // first segment is a workspace container, else by the first segment.
+        let key = if parts.next().is_some() && WORKSPACE_CONTAINERS.contains(&first) {
+            format!("{first}/{second}")
+        } else {
+            first.to_owned()
+        };
+        *by_dir.entry(key).or_default() += 1;
+    }
+    let mut ranked: Vec<(String, u32)> = by_dir.into_iter().collect();
+    ranked.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    let narrower: Vec<&(String, u32)> = ranked
+        .iter()
+        .filter(|(_, count)| *count <= SCOPE_ADMISSION_FILES)
+        .take(5)
+        .collect();
+    let root_display = root.to_string_lossy().into_owned();
+    let listed = narrower
+        .iter()
+        .map(|(dir, count)| format!("{dir} ({count})"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut error = AstGraphError::new(
+        "ast.graph.scopeTooBroad",
+        format!(
+            "More than {SCOPE_ADMISSION_FILES} parseable files under this root; a full parse can exhaust the call deadline before analysis. Admissible roots by file count: {}.",
+            if listed.is_empty() {
+                "none below the bound"
+            } else {
+                listed.as_str()
+            }
+        ),
+    );
+    // Response shaping keeps one concise hint per row.
+    error.hints = vec!["Run next.narrowScope, pick another listed root, or set maxFiles (next.expandScan) to opt in.".into()];
+    let continuation = |path: String, max_files: Option<u32>| {
+        let mut query = serde_json::to_value(q).unwrap_or_default();
+        if let Some(object) = query.as_object_mut() {
+            object.retain(|_, value| !value.is_null());
+            object.insert("path".into(), serde_json::json!(path));
+            if let Some(max_files) = max_files {
+                object.insert("maxFiles".into(), serde_json::json!(max_files));
+            }
+            object.insert(
+                "reasoning".into(),
+                serde_json::json!("Rerun topology within an admitted scan scope."),
+            );
+        }
+        query
+    };
+    let mut next = serde_json::Map::new();
+    if let Some((dir, _)) = narrower.first() {
+        next.insert(
+            "narrowScope".into(),
+            serde_json::json!({
+                "tool": "astTopology",
+                "confidence": "medium",
+                "query": continuation(format!("{root_display}/{dir}"), None),
+            }),
+        );
+    }
+    next.insert(
+        "expandScan".into(),
+        serde_json::json!({
+            "tool": "astTopology",
+            "confidence": "low",
+            "query": continuation(root_display, Some(20_000)),
+        }),
+    );
+    error.next = Some(Box::new(serde_json::Value::Object(next)));
+    Err(error)
+}
+
+const WORKSPACE_CONTAINERS: &[&str] =
+    &["packages", "crates", "apps", "libs", "services", "modules"];
+
 pub(crate) fn normalize(p: &str) -> String {
     let replaced = p.replace('\\', "/");
     let mut parts = Vec::new();

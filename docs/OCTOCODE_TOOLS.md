@@ -183,7 +183,7 @@ Search match values and provider text snippets are evidence previews, not collec
 | Need | Tool |
 |------|------|
 | Search code across GitHub | `ghSearch` with `operation: "code"` |
-| Read a file or fetch a directory | `ghGetFileContent` |
+| Read a known file | `ghGetFileContent` (browse directories with `ghSearch` tree; bring a repo to disk with `ghCloneRepo`) |
 | Browse a repository tree | `ghSearch` with `operation: "tree"` |
 | Discover repositories | `ghSearch` with `operation: "repositories"` |
 | Search PRs, issues, or commits | `ghSearchHistory` with `operation: "pullRequest"`, `"issue"`, or `"commit"` |
@@ -224,7 +224,7 @@ exact active branch requirements and field types, inspect the compact schema.
 
 ### `ghGetFileContent`
 
-Read one GitHub file or fetch a directory to disk.
+Read one GitHub file. For directories use `ghSearch` `operation:"tree"`; for local analysis use `ghCloneRepo`.
 
 Key fields:
 
@@ -381,8 +381,9 @@ Rules:
 - Use `sparsePath` for large monorepos.
 - Use `ghGetFileContent` when you only need one file.
 - Cached clones are reused.
-- Use the returned path as-is. Cached HEAD identity does not verify uncommitted
-  working-tree bytes; check `verified` separately from `complete`.
+- Use the returned path as-is. A cache hit requires a clean working tree at the
+  recorded HEAD; an edited cache is re-cloned, so `verified` holds for cached
+  bytes. Check `verified` separately from scoped `complete`.
 
 ### `artifactSearch`
 
@@ -565,12 +566,10 @@ Lexical local search. The query is selected by `searchText` and `regex`; use
 | `path` | File or directory to search. Relative paths resolve from the workspace root. For remote repos: pass `localPath` from a `ghCloneRepo` result — it is already absolute and immediately valid. |
 | `searchText` | Text or regex pattern. Required. |
 | `resultView` | Lexical response shape: `paginated`, `discovery`, `detailed`, `content`, `files`, `filesWithout`, `countLines`, `countMatches`, or `matchOnly`. |
-| `pattern` | Use `astSearch(operation:"match")` for Octocode code-shaped AST patterns. |
-| `rule` | Use `astSearch(operation:"match")` for YAML relational rules. |
 | `matchWindow` | With `resultView:"matchOnly"`, widen each matched span by this many characters of context on each side (… marks trimmed sides). 0 = bare match. |
 | `unique` | With `resultView:"matchOnly"`, use `list` for distinct match values per file or `count` for frequencies. |
 | `contextLines` | Lines around each match. Default 0 (`detailed`: 3), max 100. |
-| `matchContentLength` | Max characters per match snippet, clipped around the hit. Default 200, max 100000. |
+| `matchContentLength` | Max characters per match snippet, clipped around the hit. Default 200 × (2·contextLines + 1), capped at 4000; explicit max 100000. |
 | `pageSize` | Files per lexical result page. Default 20 (100 for path/count views). |
 | `maxMatchesPerFile` | Per-file match page size. Default 10. Pair with `matchPage` to continue. |
 | `page` | Result page across matched files. |
@@ -787,6 +786,12 @@ localFetch(path="/ABS/repo/src/index.ts", minify="symbols")
 ---
 
 ### `astTopology`
+
+Scope admission: without an explicit `maxFiles`, a root with more than 5,000
+parseable files is refused before parsing (`ast.graph.scopeTooBroad`). The
+error lists admissible package directories in `hints`, offers
+`next.narrowScope` for the largest one, and `next.expandScan` (explicit
+`maxFiles`) to opt in to the full scan.
 
 The `coverage` object separates parser inventory from module-linking support.
 It reports language coverage, resolved and external import counts, unresolved
@@ -1361,7 +1366,7 @@ ghCloneRepo(owner="microsoft", repo="TypeScript", sparsePath="src/compiler")
 | **Identity** | File reads resolve an omitted branch; pass a commit SHA for reproducible reads. Clones accept branch, tag, or full commit SHA and return the actual HEAD as `location.commitSha` |
 | **Sparse clones** | Separate cache: `{branch}__sp_{hash}/` |
 | **Coexistence** | Full clone and sparse clones of the same repository can coexist |
-| **Cache hit** | Reuses a clone checkout. Cached working files are not reverified; inspect `verified` separately from scoped `complete`. |
+| **Cache hit** | Reuses a clone checkout only when its working tree is clean at the recorded HEAD; a modified cache is re-cloned. Inspect `verified` separately from scoped `complete`. |
 | **Expired** | Owned entries are evicted when requested and by the shared 24-hour lifecycle |
 | **Force refresh** | Set `forceRefresh: true` in the query to bypass cache and re-clone/re-fetch |
 | **Periodic GC** | CLI tool-runtime bootstrap performs a persisted due-check once per process and exits without a timer. MCP performs the same bootstrap check, then uses an unreferenced deadline timer. Both use one persisted 24-hour marker. A cross-process lock prevents duplicate sweeps; a cleanup failure doesn't block startup. |

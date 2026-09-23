@@ -326,6 +326,18 @@ fn clones_caches_refreshes_sparse_tag_and_commit_without_token_argv() {
     // surfaces verified:true rather than a false negative.
     assert!(cached.location.verified);
     assert_eq!(cached.location.local_path, fresh.location.local_path);
+    // Editing the cached working tree invalidates it: the next call re-clones
+    // instead of serving modified bytes as the verified revision.
+    let readme = Path::new(&cached.location.local_path).join("README.md");
+    fs::write(&readme, "tampered\n").expect("tamper cached checkout");
+    let recloned = execute_clone(&query(), &context).expect("reclone after tamper");
+    assert!(!recloned.location.cached, "a dirty cache must not be a hit");
+    assert!(recloned.location.verified);
+    assert_eq!(
+        fs::read_to_string(Path::new(&recloned.location.local_path).join("README.md"))
+            .expect("read reclone"),
+        "fixture\n"
+    );
     let defaulted = execute_clone(
         &GhCloneRepoQuery {
             branch: None,

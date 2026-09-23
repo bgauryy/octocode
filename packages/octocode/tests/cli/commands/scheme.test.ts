@@ -3,6 +3,7 @@ import {
   project,
   projectSelected,
   runScheme,
+  useCompactJson,
 } from '../../../src/cli/commands/scheme.js';
 import {
   usageLines,
@@ -46,6 +47,15 @@ describe('core public catalog', () => {
     // Hard cutover: the pre-rename public name never appears in instructions.
     expect(buildMcpInstructions([])).not.toContain('semanticAssess');
     expect(instructions).not.toContain('semanticAssess');
+  });
+});
+
+describe('scheme output format', () => {
+  it('is compact when piped, indented on a terminal, and flag-overridable', () => {
+    expect(useCompactJson({}, false)).toBe(true);
+    expect(useCompactJson({}, true)).toBe(false);
+    expect(useCompactJson({ compact: true }, true)).toBe(true);
+    expect(useCompactJson({ pretty: true }, false)).toBe(false);
   });
 });
 
@@ -101,6 +111,22 @@ describe('project', () => {
     expect(full.querySchema).toBeDefined();
     expect(full.description).toBeDefined();
     expect(full.outputSchema).toBeUndefined();
+  });
+
+  it('full view dedupes a union envelope whose $defs copy querySchema', () => {
+    const tool = toolNamed('clasify');
+    const full = project(tool, 'full');
+    expect((full.inputSchema as Record<string, any>).$defs).toEqual({
+      querySchema: {
+        description: 'Identical to querySchema.$defs; resolve #/$defs/* there.',
+      },
+    });
+    expect((full.querySchema as Record<string, any>).$defs).toEqual(
+      (tool.querySchema as Record<string, any>).$defs
+    );
+    expect(JSON.stringify(full).length).toBeLessThan(
+      JSON.stringify(tool).length * 0.8
+    );
   });
 
   it('full view prints querySchema once instead of repeating it in inputSchema', () => {

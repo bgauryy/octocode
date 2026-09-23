@@ -20,6 +20,66 @@ mod tests {
         time::{SystemTime, UNIX_EPOCH},
     };
 
+    fn context_fixture() -> (tempfile::TempDir, PathPolicy, ContentSecurity) {
+        let root = tempfile::tempdir().expect("fixture directory");
+        // Nine ~37-char lines around one hit: a ±4 window is ~334 chars.
+        let lines: Vec<String> = (1..=9)
+            .map(|i| {
+                if i == 5 {
+                    format!("let needle_{i} = compute_value_number_{i}();")
+                } else {
+                    format!("let other_{i} = compute_value_number_{i}();")
+                }
+            })
+            .collect();
+        fs::write(root.path().join("ctx.rs"), lines.join("\n") + "\n").expect("fixture");
+        let policy = PathPolicy::new(PathPolicyConfig {
+            workspace_root: Some(root.path().to_path_buf()),
+            ..Default::default()
+        })
+        .expect("policy");
+        let security = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+        (root, policy, security)
+    }
+
+    #[test]
+    fn context_lines_scale_the_default_match_content_length() {
+        let (root, policy, security) = context_fixture();
+        let base = LocalSearchRequest {
+            path: root.path().to_string_lossy().into_owned(),
+            search_text: "needle".into(),
+            context_lines: Some(4),
+            ..Default::default()
+        };
+        let run = |request: &LocalSearchRequest| {
+            let result =
+                execute_local_search(request, &policy, &security, &NeverCancel).expect("search");
+            serde_json::to_value(result).expect("serialize")
+        };
+        let scaled = run(&base);
+        let matched = &scaled["files"][0]["matches"][0];
+        assert!(matched.get("truncated").is_none(), "{scaled}");
+        assert!(matched["value"].as_str().expect("value").chars().count() > 300);
+
+        let explicit = run(&LocalSearchRequest {
+            match_content_length: Some(200),
+            ..base.clone()
+        });
+        assert_eq!(explicit["files"][0]["matches"][0]["truncated"], true);
+
+        let detailed = run(&LocalSearchRequest {
+            context_lines: None,
+            result_view: Some(ResultView::Detailed),
+            ..base.clone()
+        });
+        assert!(
+            detailed["files"][0]["matches"][0]
+                .get("truncated")
+                .is_none(),
+            "{detailed}"
+        );
+    }
+
     #[test]
     fn match_only_caps_display_after_unique_grouping_and_preserves_continuations() {
         let root = tempfile::tempdir().expect("fixture directory");

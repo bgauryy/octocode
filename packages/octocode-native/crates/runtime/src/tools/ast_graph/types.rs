@@ -134,12 +134,16 @@ pub(crate) struct BuiltGraph {
 pub struct AstGraphError {
     pub code: String,
     pub message: String,
+    pub hints: Vec<String>,
+    pub next: Option<Box<serde_json::Value>>,
 }
 impl AstGraphError {
     pub(crate) fn new(code: &str, message: impl Into<String>) -> Self {
         Self {
             code: code.into(),
             message: message.into(),
+            hints: vec![],
+            next: None,
         }
     }
 }

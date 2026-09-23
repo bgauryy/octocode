@@ -35,6 +35,8 @@ const MIN_MATCH_VALUE_CHARS: usize = 40;
 /// ±2 lines: one clipped-around-the-hit line per row is enough to pick the
 /// file+line, and `detailed`/`contextLines` or localFetch add surrounding code.
 const DEFAULT_MATCH_CONTENT_LENGTH: u32 = 200;
+/// Cap on the context-scaled default; an explicit matchContentLength may exceed it.
+const MAX_DEFAULT_MATCH_CONTENT_LENGTH: u32 = 4000;
 const DEFAULT_MAX_MATCHES_PER_FILE: u32 = 10;
 /// Files per page for snippet views; path-only list views stay at 100.
 const DEFAULT_SNIPPET_PAGE_SIZE: u32 = 20;
@@ -157,11 +159,7 @@ pub fn execute_local_search(
             })
         },
         sort_reverse: query.reverse,
-        max_snippet_chars: Some(
-            query
-                .match_content_length
-                .unwrap_or(DEFAULT_MATCH_CONTENT_LENGTH),
-        ),
+        max_snippet_chars: Some(effective_match_content_length(query)),
         classify_matches: Some(false),
         only_matching: Some(view == ResultView::MatchOnly),
         match_window: query.match_window,
@@ -385,11 +383,8 @@ pub fn execute_local_search(
     );
     // Keep full values for identity, unique grouping and counts. The engine's
     // match-only path emits exact spans, so apply the public display bound here.
-    let match_only_limit = (view == ResultView::MatchOnly).then_some(
-        query
-            .match_content_length
-            .unwrap_or(DEFAULT_MATCH_CONTENT_LENGTH) as usize,
-    );
+    let match_only_limit =
+        (view == ResultView::MatchOnly).then_some(effective_match_content_length(query) as usize);
     // OUT-1: distribute the response value-char budget across the matches shown
     // on this page. `display_cap` is the tighter of the matchOnly display bound
     // and the budget-derived per-match cap; a giant match is clipped (flagged
@@ -415,10 +410,7 @@ pub fn execute_local_search(
     // The budget only "binds" when it is tighter than the caller's own
     // per-match limit; otherwise truncation is plain matchContentLength.
     let budget_binds = budget_cap.is_some_and(|cap| {
-        cap < query
-            .match_content_length
-            .unwrap_or(DEFAULT_MATCH_CONTENT_LENGTH) as usize
-            && display_cap == Some(cap)
+        cap < effective_match_content_length(query) as usize && display_cap == Some(cap)
     });
     // Content views emit a ±contextLines window per match row; windows of
     // nearby rows overlap, so merge them into one block per run of lines.
@@ -448,9 +440,7 @@ pub fn execute_local_search(
                 Some(context) => merge_context_windows(
                     shown,
                     context,
-                    query
-                        .match_content_length
-                        .unwrap_or(DEFAULT_MATCH_CONTENT_LENGTH) as usize,
+                    effective_match_content_length(query) as usize,
                 ),
                 None => shown,
             };
@@ -893,6 +883,24 @@ fn rank_relevance(files: &mut [octocode_engine::types::RipgrepFile], view: Resul
 
 /// Default ±context window per match row: the hit line alone, except the
 /// `detailed` view, which exists to show surrounding code.
+/// Per-hit character budget. An omitted matchContentLength scales with the
+/// effective context window so requested context is not silently clipped;
+/// continuations and snapshot identity must use this same value.
+fn effective_match_content_length(q: &LocalSearchRequest) -> u32 {
+    q.match_content_length.unwrap_or_else(|| {
+        let view = q.result_view.unwrap_or_default();
+        let context = if uses_context(view) {
+            q.context_lines
+                .unwrap_or_else(|| default_context_lines(view))
+        } else {
+            0
+        };
+        DEFAULT_MATCH_CONTENT_LENGTH
+            .saturating_mul(context.saturating_mul(2).saturating_add(1))
+            .min(MAX_DEFAULT_MATCH_CONTENT_LENGTH)
+    })
+}
+
 fn default_context_lines(view: ResultView) -> u32 {
     if view == ResultView::Detailed { 3 } else { 0 }
 }
@@ -931,7 +939,7 @@ fn normalized_query(q: &LocalSearchRequest) -> Value {
             .or_insert(json!(default_context_lines(view)));
     }
     o.entry("matchContentLength")
-        .or_insert(json!(DEFAULT_MATCH_CONTENT_LENGTH));
+        .or_insert(json!(effective_match_content_length(q)));
     o.entry("multiline").or_insert(json!("off"));
     o.entry("sort").or_insert(json!("relevance"));
     o.entry("unique").or_insert(json!("off"));
@@ -1043,10 +1051,7 @@ fn fingerprint(
     );
     identity.insert(
         "matchContentLength".into(),
-        json!(
-            q.match_content_length
-                .unwrap_or(DEFAULT_MATCH_CONTENT_LENGTH)
-        ),
+        json!(effective_match_content_length(q)),
     );
     identity.insert(
         "multiline".into(),

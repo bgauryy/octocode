@@ -544,7 +544,7 @@ impl NativeLspClient {
     /// Wait for the server to finish any post-`initialized` indexing, returning
     /// a readiness descriptor so JS can tell a confirmed-idle server apart from
     /// one that never reported progress or is still busy. The returned string
-    /// is one of `"progressIdle"`, `"silentServer"`, or `"timeout"`.
+    /// is one of `"progressIdle"`, `"settledWithoutProgress"`, or `"timeout"`.
     #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn wait_for_ready(&self, timeout_ms: Option<u32>) -> Result<String> {
         let timeout_ms = u64::from(timeout_ms.unwrap_or(45_000));
@@ -696,7 +696,7 @@ impl NativeLspClient {
     /// wave to start (default 400 ms) and `timeout_ms` bounds the whole wait
     /// (default 15 s, capped at 60 s).
     ///
-    /// Returns the readiness string (`progressIdle`, `silentServer`, or
+    /// Returns the readiness string (`progressIdle`, `settledWithoutProgress`, or
     /// `timeout`) for a first open, and `None` for a re-sync of an already open
     /// document, which does not wait.
     #[cfg_attr(feature = "napi-addon", napi)]
