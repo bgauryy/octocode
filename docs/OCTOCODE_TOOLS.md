@@ -836,6 +836,7 @@ Use `astTopology` to discover repository-scale file topology and candidate reach
 | `operation` | Required discriminator: `topology`. |
 | `analysis` | Required: `dependencies`, `dependents`, `path`, `reachability`, `cycles`, `deadCode`, or `drift`. |
 | `path` | Repository root to analyze. Required. |
+| `languageGlobs` | Optional root-relative AST parser map, e.g. `{"cpp":["include/**/*.h"]}`. Also accepted by directory `astSearch` symbols. Does not configure clangd; use compile commands or `.clangd` for C++ header LSP parsing. |
 | `file` | Repo-relative source file for `dependencies`, `dependents`, and `path`. |
 | `target` | Repo-relative destination file for `path`. |
 | `depth` | Traversal depth for `dependencies` and `dependents`. Default 1, max 50. |

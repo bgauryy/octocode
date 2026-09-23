@@ -1,6 +1,6 @@
 {
   "contractFormatVersion": 2,
-  "fingerprint": "c92d1b297620bbff1003843947ea6a526111c94152a418ba6664026a0e4497d9",
+  "fingerprint": "3884f4d698a2abe0e8505c03617440c727ef963b1678c90b57cb33aca69cfe0d",
   "tools": [
     {
       "defaults": [
@@ -6305,6 +6305,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -6438,6 +6439,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -6534,6 +6536,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -6640,6 +6643,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -6746,6 +6750,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -6847,6 +6852,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -6959,6 +6965,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -7059,6 +7066,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -13214,6 +13222,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -13347,6 +13356,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -13443,6 +13453,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -13549,6 +13560,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -13655,6 +13667,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -13756,6 +13769,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -13868,6 +13882,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -13968,6 +13983,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -19840,6 +19856,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -19973,6 +19990,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -20069,6 +20087,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -20175,6 +20194,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -20281,6 +20301,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -20382,6 +20403,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -20494,6 +20516,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -20594,6 +20617,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -27228,6 +27252,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -27361,6 +27386,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -27457,6 +27483,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -27563,6 +27590,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -27669,6 +27697,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -27770,6 +27799,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -27882,6 +27912,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -27982,6 +28013,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -35129,6 +35161,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -35262,6 +35295,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -35358,6 +35392,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -35464,6 +35499,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -35570,6 +35606,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -35671,6 +35708,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -35783,6 +35821,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -35883,6 +35922,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -41033,6 +41073,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -41166,6 +41207,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -41262,6 +41304,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -41368,6 +41411,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -41474,6 +41518,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -41575,6 +41620,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -41687,6 +41733,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -41787,6 +41834,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -46900,6 +46948,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -47033,6 +47082,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -47129,6 +47179,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -47235,6 +47286,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -47341,6 +47393,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -47442,6 +47495,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -47554,6 +47608,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -47654,6 +47709,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -50636,6 +50692,7 @@
                         "items": {
                           "type": "string"
                         },
+                        "maxItems": 100,
                         "type": "array"
                       },
                       "description": "AST parsers by root-relative glob, e.g. {cpp:[\"include/**/*.h\"]}; clangd unaffected.",
@@ -53721,6 +53778,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -53854,6 +53912,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -53950,6 +54009,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -54056,6 +54116,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -54162,6 +54223,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -54263,6 +54325,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -54375,6 +54438,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -54475,6 +54539,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -56314,6 +56379,7 @@
                                     "items": {
                                       "type": "string"
                                     },
+                                    "maxItems": 100,
                                     "type": "array"
                                   },
                                   "propertyNames": {
@@ -58127,6 +58193,7 @@
                   "items": {
                     "type": "string"
                   },
+                  "maxItems": 100,
                   "type": "array"
                 },
                 "description": "AST parsers by root-relative glob, e.g. {cpp:[\"include/**/*.h\"]}; clangd unaffected.",
@@ -58539,6 +58606,7 @@
                         "items": {
                           "type": "string"
                         },
+                        "maxItems": 100,
                         "type": "array"
                       },
                       "description": "AST parsers by root-relative glob, e.g. {cpp:[\"include/**/*.h\"]}; clangd unaffected.",
@@ -58649,6 +58717,7 @@
                         "items": {
                           "type": "string"
                         },
+                        "maxItems": 100,
                         "type": "array"
                       },
                       "description": "AST parsers by root-relative glob, e.g. {cpp:[\"include/**/*.h\"]}; clangd unaffected.",
@@ -58771,6 +58840,7 @@
                         "items": {
                           "type": "string"
                         },
+                        "maxItems": 100,
                         "type": "array"
                       },
                       "description": "AST parsers by root-relative glob, e.g. {cpp:[\"include/**/*.h\"]}; clangd unaffected.",
@@ -58893,6 +58963,7 @@
                         "items": {
                           "type": "string"
                         },
+                        "maxItems": 100,
                         "type": "array"
                       },
                       "description": "AST parsers by root-relative glob, e.g. {cpp:[\"include/**/*.h\"]}; clangd unaffected.",
@@ -59008,6 +59079,7 @@
                         "items": {
                           "type": "string"
                         },
+                        "maxItems": 100,
                         "type": "array"
                       },
                       "description": "AST parsers by root-relative glob, e.g. {cpp:[\"include/**/*.h\"]}; clangd unaffected.",
@@ -59137,6 +59209,7 @@
                         "items": {
                           "type": "string"
                         },
+                        "maxItems": 100,
                         "type": "array"
                       },
                       "description": "AST parsers by root-relative glob, e.g. {cpp:[\"include/**/*.h\"]}; clangd unaffected.",
@@ -59251,6 +59324,7 @@
                         "items": {
                           "type": "string"
                         },
+                        "maxItems": 100,
                         "type": "array"
                       },
                       "description": "AST parsers by root-relative glob, e.g. {cpp:[\"include/**/*.h\"]}; clangd unaffected.",
@@ -62342,6 +62416,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -62475,6 +62550,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -62571,6 +62647,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -62677,6 +62754,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -62783,6 +62861,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -62884,6 +62963,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -62996,6 +63076,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -63096,6 +63177,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -64463,6 +64545,7 @@
                                     "items": {
                                       "type": "string"
                                     },
+                                    "maxItems": 100,
                                     "type": "array"
                                   },
                                   "propertyNames": {
@@ -64559,6 +64642,7 @@
                                     "items": {
                                       "type": "string"
                                     },
+                                    "maxItems": 100,
                                     "type": "array"
                                   },
                                   "propertyNames": {
@@ -64665,6 +64749,7 @@
                                     "items": {
                                       "type": "string"
                                     },
+                                    "maxItems": 100,
                                     "type": "array"
                                   },
                                   "propertyNames": {
@@ -64771,6 +64856,7 @@
                                     "items": {
                                       "type": "string"
                                     },
+                                    "maxItems": 100,
                                     "type": "array"
                                   },
                                   "propertyNames": {
@@ -64872,6 +64958,7 @@
                                     "items": {
                                       "type": "string"
                                     },
+                                    "maxItems": 100,
                                     "type": "array"
                                   },
                                   "propertyNames": {
@@ -64984,6 +65071,7 @@
                                     "items": {
                                       "type": "string"
                                     },
+                                    "maxItems": 100,
                                     "type": "array"
                                   },
                                   "propertyNames": {
@@ -65084,6 +65172,7 @@
                                     "items": {
                                       "type": "string"
                                     },
+                                    "maxItems": 100,
                                     "type": "array"
                                   },
                                   "propertyNames": {
@@ -65960,6 +66049,7 @@
                   "items": {
                     "type": "string"
                   },
+                  "maxItems": 100,
                   "type": "array"
                 },
                 "description": "AST parsers by root-relative glob, e.g. {cpp:[\"include/**/*.h\"]}; clangd unaffected.",
@@ -66070,6 +66160,7 @@
                   "items": {
                     "type": "string"
                   },
+                  "maxItems": 100,
                   "type": "array"
                 },
                 "description": "AST parsers by root-relative glob, e.g. {cpp:[\"include/**/*.h\"]}; clangd unaffected.",
@@ -66192,6 +66283,7 @@
                   "items": {
                     "type": "string"
                   },
+                  "maxItems": 100,
                   "type": "array"
                 },
                 "description": "AST parsers by root-relative glob, e.g. {cpp:[\"include/**/*.h\"]}; clangd unaffected.",
@@ -66314,6 +66406,7 @@
                   "items": {
                     "type": "string"
                   },
+                  "maxItems": 100,
                   "type": "array"
                 },
                 "description": "AST parsers by root-relative glob, e.g. {cpp:[\"include/**/*.h\"]}; clangd unaffected.",
@@ -66429,6 +66522,7 @@
                   "items": {
                     "type": "string"
                   },
+                  "maxItems": 100,
                   "type": "array"
                 },
                 "description": "AST parsers by root-relative glob, e.g. {cpp:[\"include/**/*.h\"]}; clangd unaffected.",
@@ -66558,6 +66652,7 @@
                   "items": {
                     "type": "string"
                   },
+                  "maxItems": 100,
                   "type": "array"
                 },
                 "description": "AST parsers by root-relative glob, e.g. {cpp:[\"include/**/*.h\"]}; clangd unaffected.",
@@ -66672,6 +66767,7 @@
                   "items": {
                     "type": "string"
                   },
+                  "maxItems": 100,
                   "type": "array"
                 },
                 "description": "AST parsers by root-relative glob, e.g. {cpp:[\"include/**/*.h\"]}; clangd unaffected.",
@@ -70520,6 +70616,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -70653,6 +70750,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -70749,6 +70847,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -70855,6 +70954,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -70961,6 +71061,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -71062,6 +71163,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -71174,6 +71276,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -71274,6 +71377,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -78168,6 +78272,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -78301,6 +78406,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -78397,6 +78503,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -78503,6 +78610,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -78609,6 +78717,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -78710,6 +78819,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -78822,6 +78932,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -78922,6 +79033,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -85489,6 +85601,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -85622,6 +85735,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -85718,6 +85832,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -85824,6 +85939,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -85930,6 +86046,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -86031,6 +86148,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -86143,6 +86261,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
@@ -86243,6 +86362,7 @@
                               "items": {
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "type": "array"
                             },
                             "propertyNames": {
