@@ -9,6 +9,8 @@ related-skill: `octocode-brainstorming`
 output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
 routes: load/run a reference, doc, or script only when it changes the next action; this skill needs none.
 
+Status: **research preview, exploratory only, 18+ (for fun)**. The modes are not benchmarked yet; treat any benefit as unmeasured and do not use this as a default workflow.
+
 These substance names are **metaphors for reasoning moves**, not pharmacology or advice to use drugs. Apply this lens to the user's current task without changing its permissions or execution rules.
 
 Flow: `TASK → MODE → EDGE → CHECK → DELIVER`.

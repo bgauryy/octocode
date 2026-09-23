@@ -1,6 +1,6 @@
 {
   "contractFormatVersion": 2,
-  "fingerprint": "154327c741fc8d7ff21dfbfa8cf15a880b2ea2a2b6e1d3b6af8898179c06ebb8",
+  "fingerprint": "c92d1b297620bbff1003843947ea6a526111c94152a418ba6664026a0e4497d9",
   "tools": [
     {
       "defaults": [
@@ -6229,18 +6229,6 @@
                             "minLength": 1,
                             "type": "string"
                           },
-                          "languageGlobs": {
-                            "additionalProperties": {
-                              "items": {
-                                "type": "string"
-                              },
-                              "type": "array"
-                            },
-                            "propertyNames": {
-                              "type": "string"
-                            },
-                            "type": "object"
-                          },
                           "namedOnly": {
                             "type": "boolean"
                           },
@@ -6311,6 +6299,18 @@
                           "langType": {
                             "minLength": 1,
                             "type": "string"
+                          },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
                           },
                           "maxFiles": {
                             "maximum": 50000,
@@ -13138,18 +13138,6 @@
                             "minLength": 1,
                             "type": "string"
                           },
-                          "languageGlobs": {
-                            "additionalProperties": {
-                              "items": {
-                                "type": "string"
-                              },
-                              "type": "array"
-                            },
-                            "propertyNames": {
-                              "type": "string"
-                            },
-                            "type": "object"
-                          },
                           "namedOnly": {
                             "type": "boolean"
                           },
@@ -13220,6 +13208,18 @@
                           "langType": {
                             "minLength": 1,
                             "type": "string"
+                          },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
                           },
                           "maxFiles": {
                             "maximum": 50000,
@@ -19764,18 +19764,6 @@
                             "minLength": 1,
                             "type": "string"
                           },
-                          "languageGlobs": {
-                            "additionalProperties": {
-                              "items": {
-                                "type": "string"
-                              },
-                              "type": "array"
-                            },
-                            "propertyNames": {
-                              "type": "string"
-                            },
-                            "type": "object"
-                          },
                           "namedOnly": {
                             "type": "boolean"
                           },
@@ -19846,6 +19834,18 @@
                           "langType": {
                             "minLength": 1,
                             "type": "string"
+                          },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
                           },
                           "maxFiles": {
                             "maximum": 50000,
@@ -27152,18 +27152,6 @@
                             "minLength": 1,
                             "type": "string"
                           },
-                          "languageGlobs": {
-                            "additionalProperties": {
-                              "items": {
-                                "type": "string"
-                              },
-                              "type": "array"
-                            },
-                            "propertyNames": {
-                              "type": "string"
-                            },
-                            "type": "object"
-                          },
                           "namedOnly": {
                             "type": "boolean"
                           },
@@ -27234,6 +27222,18 @@
                           "langType": {
                             "minLength": 1,
                             "type": "string"
+                          },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
                           },
                           "maxFiles": {
                             "maximum": 50000,
@@ -35053,18 +35053,6 @@
                             "minLength": 1,
                             "type": "string"
                           },
-                          "languageGlobs": {
-                            "additionalProperties": {
-                              "items": {
-                                "type": "string"
-                              },
-                              "type": "array"
-                            },
-                            "propertyNames": {
-                              "type": "string"
-                            },
-                            "type": "object"
-                          },
                           "namedOnly": {
                             "type": "boolean"
                           },
@@ -35135,6 +35123,18 @@
                           "langType": {
                             "minLength": 1,
                             "type": "string"
+                          },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
                           },
                           "maxFiles": {
                             "maximum": 50000,
@@ -40957,18 +40957,6 @@
                             "minLength": 1,
                             "type": "string"
                           },
-                          "languageGlobs": {
-                            "additionalProperties": {
-                              "items": {
-                                "type": "string"
-                              },
-                              "type": "array"
-                            },
-                            "propertyNames": {
-                              "type": "string"
-                            },
-                            "type": "object"
-                          },
                           "namedOnly": {
                             "type": "boolean"
                           },
@@ -41039,6 +41027,18 @@
                           "langType": {
                             "minLength": 1,
                             "type": "string"
+                          },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
                           },
                           "maxFiles": {
                             "maximum": 50000,
@@ -46824,18 +46824,6 @@
                             "minLength": 1,
                             "type": "string"
                           },
-                          "languageGlobs": {
-                            "additionalProperties": {
-                              "items": {
-                                "type": "string"
-                              },
-                              "type": "array"
-                            },
-                            "propertyNames": {
-                              "type": "string"
-                            },
-                            "type": "object"
-                          },
                           "namedOnly": {
                             "type": "boolean"
                           },
@@ -46906,6 +46894,18 @@
                           "langType": {
                             "minLength": 1,
                             "type": "string"
+                          },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
                           },
                           "maxFiles": {
                             "maximum": 50000,
@@ -50470,7 +50470,6 @@
                       "type": "string"
                     },
                     "permissions": {
-                      "description": "Permissions.",
                       "type": "string"
                     },
                     "reasoning": {
@@ -50547,19 +50546,6 @@
                       "description": "cpp parses .h as C++; default C.",
                       "minLength": 1,
                       "type": "string"
-                    },
-                    "languageGlobs": {
-                      "additionalProperties": {
-                        "items": {
-                          "type": "string"
-                        },
-                        "type": "array"
-                      },
-                      "description": "AST parsers by root-relative glob, e.g. {cpp:[\"include/**/*.h\"]}; clangd unaffected.",
-                      "propertyNames": {
-                        "type": "string"
-                      },
-                      "type": "object"
                     },
                     "namedOnly": {
                       "default": true,
@@ -50644,6 +50630,19 @@
                       "description": "cpp parses .h as C++; default C.",
                       "minLength": 1,
                       "type": "string"
+                    },
+                    "languageGlobs": {
+                      "additionalProperties": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "description": "AST parsers by root-relative glob, e.g. {cpp:[\"include/**/*.h\"]}; clangd unaffected.",
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "type": "object"
                     },
                     "maxFiles": {
                       "default": 2000,
@@ -53646,18 +53645,6 @@
                             "minLength": 1,
                             "type": "string"
                           },
-                          "languageGlobs": {
-                            "additionalProperties": {
-                              "items": {
-                                "type": "string"
-                              },
-                              "type": "array"
-                            },
-                            "propertyNames": {
-                              "type": "string"
-                            },
-                            "type": "object"
-                          },
                           "namedOnly": {
                             "type": "boolean"
                           },
@@ -53728,6 +53715,18 @@
                           "langType": {
                             "minLength": 1,
                             "type": "string"
+                          },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
                           },
                           "maxFiles": {
                             "maximum": 50000,
@@ -56239,18 +56238,6 @@
                                   "minLength": 1,
                                   "type": "string"
                                 },
-                                "languageGlobs": {
-                                  "additionalProperties": {
-                                    "items": {
-                                      "type": "string"
-                                    },
-                                    "type": "array"
-                                  },
-                                  "propertyNames": {
-                                    "type": "string"
-                                  },
-                                  "type": "object"
-                                },
                                 "namedOnly": {
                                   "type": "boolean"
                                 },
@@ -56321,6 +56308,18 @@
                                 "langType": {
                                   "minLength": 1,
                                   "type": "string"
+                                },
+                                "languageGlobs": {
+                                  "additionalProperties": {
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "type": "array"
+                                  },
+                                  "propertyNames": {
+                                    "type": "string"
+                                  },
+                                  "type": "object"
                                 },
                                 "maxFiles": {
                                   "maximum": 50000,
@@ -57962,7 +57961,6 @@
                 "type": "string"
               },
               "permissions": {
-                "description": "Permissions.",
                 "type": "string"
               },
               "reasoning": {
@@ -58039,19 +58037,6 @@
                 "description": "cpp parses .h as C++; default C.",
                 "minLength": 1,
                 "type": "string"
-              },
-              "languageGlobs": {
-                "additionalProperties": {
-                  "items": {
-                    "type": "string"
-                  },
-                  "type": "array"
-                },
-                "description": "AST parsers by root-relative glob, e.g. {cpp:[\"include/**/*.h\"]}; clangd unaffected.",
-                "propertyNames": {
-                  "type": "string"
-                },
-                "type": "object"
               },
               "namedOnly": {
                 "default": true,
@@ -58136,6 +58121,19 @@
                 "description": "cpp parses .h as C++; default C.",
                 "minLength": 1,
                 "type": "string"
+              },
+              "languageGlobs": {
+                "additionalProperties": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "description": "AST parsers by root-relative glob, e.g. {cpp:[\"include/**/*.h\"]}; clangd unaffected.",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
               },
               "maxFiles": {
                 "default": 2000,
@@ -58338,7 +58336,6 @@
             "treeKind",
             "path",
             "langType",
-            "languageGlobs",
             "namedOnly",
             "nodeOffset",
             "nodeLimit",
@@ -58364,6 +58361,7 @@
             "debug",
             "path",
             "langType",
+            "languageGlobs",
             "name",
             "kinds",
             "excludeDir",
@@ -62268,18 +62266,6 @@
                             "minLength": 1,
                             "type": "string"
                           },
-                          "languageGlobs": {
-                            "additionalProperties": {
-                              "items": {
-                                "type": "string"
-                              },
-                              "type": "array"
-                            },
-                            "propertyNames": {
-                              "type": "string"
-                            },
-                            "type": "object"
-                          },
                           "namedOnly": {
                             "type": "boolean"
                           },
@@ -62350,6 +62336,18 @@
                           "langType": {
                             "minLength": 1,
                             "type": "string"
+                          },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
                           },
                           "maxFiles": {
                             "maximum": 50000,
@@ -70446,18 +70444,6 @@
                             "minLength": 1,
                             "type": "string"
                           },
-                          "languageGlobs": {
-                            "additionalProperties": {
-                              "items": {
-                                "type": "string"
-                              },
-                              "type": "array"
-                            },
-                            "propertyNames": {
-                              "type": "string"
-                            },
-                            "type": "object"
-                          },
                           "namedOnly": {
                             "type": "boolean"
                           },
@@ -70528,6 +70514,18 @@
                           "langType": {
                             "minLength": 1,
                             "type": "string"
+                          },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
                           },
                           "maxFiles": {
                             "maximum": 50000,
@@ -78094,18 +78092,6 @@
                             "minLength": 1,
                             "type": "string"
                           },
-                          "languageGlobs": {
-                            "additionalProperties": {
-                              "items": {
-                                "type": "string"
-                              },
-                              "type": "array"
-                            },
-                            "propertyNames": {
-                              "type": "string"
-                            },
-                            "type": "object"
-                          },
                           "namedOnly": {
                             "type": "boolean"
                           },
@@ -78176,6 +78162,18 @@
                           "langType": {
                             "minLength": 1,
                             "type": "string"
+                          },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
                           },
                           "maxFiles": {
                             "maximum": 50000,
@@ -85415,18 +85413,6 @@
                             "minLength": 1,
                             "type": "string"
                           },
-                          "languageGlobs": {
-                            "additionalProperties": {
-                              "items": {
-                                "type": "string"
-                              },
-                              "type": "array"
-                            },
-                            "propertyNames": {
-                              "type": "string"
-                            },
-                            "type": "object"
-                          },
                           "namedOnly": {
                             "type": "boolean"
                           },
@@ -85497,6 +85483,18 @@
                           "langType": {
                             "minLength": 1,
                             "type": "string"
+                          },
+                          "languageGlobs": {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "type": "object"
                           },
                           "maxFiles": {
                             "maximum": 50000,
