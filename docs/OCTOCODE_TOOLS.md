@@ -265,7 +265,7 @@ Cost by mode:
 
 Behaviors worth knowing:
 
-- `matchString` selects all occurrences with context and source anchors in `matchedLines`/`matchRanges`; both readers disable minification for matches (redaction still applies). Follow character continuations when selected content exceeds a window.
+- `matchString` selects all occurrences with context and source anchors in `matchedLines`/`matchRanges`; both readers disable minification for matches (redaction still applies). Non-adjacent windows are separated by a `... [lines A-B omitted] ...` line (byte windows: `... [N bytes omitted] ...`), so a gap never reads as contiguous source. Follow character continuations when selected content exceeds a window.
 - `minify: "symbols"` returns a paginated outline; read its source-line gutter, then follow up with `startLine`/`endLine` and `minify:"none"`.
 - Semantic character windows can expand beyond the target — execute `next` unchanged (offsets are exact; `pageCountsKind:"estimated"` marks approximate counters).
 - `standard` removes comments and rewrites formatting but does no JS/TS optimization or type-declaration removal; use `none` for source quotes and comment-sensitive evidence. See [minification coverage](../packages/octocode-native/docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md#minification--file-reads-and-search-fragments).

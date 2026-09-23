@@ -183,6 +183,139 @@ mod tests {
         assert_eq!(wire["sourceBytes"], 6);
         assert_eq!(wire["returnedChars"], 4);
     }
+    fn numbered(n: usize) -> String {
+        (1..=n).map(|i| format!("l{i}\n")).collect()
+    }
+    #[test]
+    fn match_windows_are_separated_by_omission_marker() {
+        let t = Temp::new();
+        let p = t.0.join("a.txt");
+        fs::write(
+            &p,
+            numbered(30)
+                .replace("l3\n", "hit3\n")
+                .replace("l25\n", "hit25\n"),
+        )
+        .expect("test fixture operation should succeed");
+        let paths = Paths(t.0.clone());
+        let mut req = q(&p);
+        req.match_string = Some("hit".into());
+        req.context_lines = Some(1);
+        let wire = serde_json::to_value(execute_local_fetch(&req, &paths, &Safe, &NeverCancel))
+            .expect("serializable");
+        assert_eq!(
+            wire["content"],
+            "l2\nhit3\nl4\n... [lines 5-23 omitted] ...\nl24\nhit25\nl26\n"
+        );
+        assert_eq!(
+            wire["sourceLineRanges"],
+            serde_json::json!([{"start":2,"end":4},{"start":24,"end":26}])
+        );
+        assert_eq!(wire["matchedLines"], serde_json::json!([3, 25]));
+    }
+    #[test]
+    fn adjacent_match_windows_have_no_marker() {
+        let t = Temp::new();
+        let p = t.0.join("a.txt");
+        fs::write(
+            &p,
+            numbered(10)
+                .replace("l3\n", "hit3\n")
+                .replace("l5\n", "hit5\n"),
+        )
+        .expect("test fixture operation should succeed");
+        let paths = Paths(t.0.clone());
+        let mut req = q(&p);
+        req.match_string = Some("hit".into());
+        req.context_lines = Some(1);
+        let wire = serde_json::to_value(execute_local_fetch(&req, &paths, &Safe, &NeverCancel))
+            .expect("serializable");
+        assert_eq!(wire["content"], "l2\nhit3\nl4\nhit5\nl6\n");
+        assert_eq!(
+            wire["sourceLineRanges"],
+            serde_json::json!([{"start":2,"end":6}])
+        );
+    }
+    #[test]
+    fn omission_marker_survives_redaction() {
+        let t = Temp::new();
+        let p = t.0.join("a.txt");
+        fs::write(
+            &p,
+            numbered(10)
+                .replace("l2\n", "hit\n")
+                .replace("l9\n", "hit SECRET\n"),
+        )
+        .expect("test fixture operation should succeed");
+        let paths = Paths(t.0.clone());
+        let mut req = q(&p);
+        req.match_string = Some("hit".into());
+        req.context_lines = Some(0);
+        let r = execute_local_fetch(&req, &paths, &Safe, &NeverCancel);
+        assert_eq!(
+            r.content.as_deref(),
+            Some("hit\n... [lines 3-8 omitted] ...\nhit [REDACTED]\n")
+        );
+        assert!(r.source_line_ranges.is_empty());
+    }
+    #[test]
+    fn paged_match_windows_map_source_ranges_around_marker() {
+        let t = Temp::new();
+        let p = t.0.join("a.txt");
+        fs::write(
+            &p,
+            numbered(30)
+                .replace("l3\n", "hit3\n")
+                .replace("l25\n", "hit25\n"),
+        )
+        .expect("test fixture operation should succeed");
+        let paths = Paths(t.0.clone());
+        let mut req = q(&p);
+        req.match_string = Some("hit".into());
+        req.context_lines = Some(1);
+        req.chunk_type = Some(ChunkType::Lines);
+        req.chunk_size = Some(4);
+        let first = execute_local_fetch(&req, &paths, &Safe, &NeverCancel);
+        assert_eq!(
+            first.content.as_deref(),
+            Some("l2\nhit3\nl4\n... [lines 5-23 omitted] ...\n")
+        );
+        assert_eq!(
+            first.source_line_ranges,
+            vec![LineRange { start: 2, end: 4 }]
+        );
+        let next = first
+            .next
+            .and_then(|n| n.r#continue)
+            .expect("second page")
+            .query;
+        let second = execute_local_fetch(&next, &paths, &Safe, &NeverCancel);
+        assert_eq!(second.content.as_deref(), Some("l24\nhit25\nl26\n"));
+        assert_eq!(
+            second.source_line_ranges,
+            vec![LineRange { start: 24, end: 26 }]
+        );
+    }
+    #[test]
+    fn context_bytes_overlapping_windows_do_not_duplicate_source() {
+        let t = Temp::new();
+        let p = t.0.join("a.txt");
+        let source = "aaa needle bbb\nline2\nline3\nline4\nccc needle ddd\nneedle x needle\n";
+        fs::write(&p, source).expect("test fixture operation should succeed");
+        let paths = Paths(t.0.clone());
+        let mut req = q(&p);
+        req.match_string = Some("needle".into());
+        req.context_bytes = Some(4);
+        let r = execute_local_fetch(&req, &paths, &Safe, &NeverCancel);
+        let content = r.content.expect("content");
+        for part in content.split("\n").filter(|part| !part.is_empty()) {
+            assert!(
+                part.starts_with("... [") || source.contains(part),
+                "fabricated text {part:?} in {content:?}"
+            );
+        }
+        assert!(content.contains("bytes omitted"), "{content:?}");
+    }
     #[test]
     fn byte_pages_preserve_utf8_and_use_byte_offsets() {
         let t = Temp::new();

@@ -48,10 +48,10 @@ function runLauncher(args: string[], env: NodeJS.ProcessEnv = {}) {
 }
 
 describe.skipIf(!ready)('launcher → native binary e2e', () => {
-  it('serves --version from the native CLI', () => {
+  it("serves --version with launcher and native versions", () => {
     const result = runLauncher(['--version']);
     expect(result.status).toBe(0);
-    expect(result.stdout).toMatch(/^octocode \d+\.\d+\.\d+/);
+    expect(result.stdout).toMatch(/^octocode \d+\.\d+\.\d+ \(native \d+\.\d+\.\d+\)/);
   });
 
   it('executes a real tool call end-to-end with exit 0 and structured JSON', () => {

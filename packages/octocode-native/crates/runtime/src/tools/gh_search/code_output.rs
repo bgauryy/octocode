@@ -119,7 +119,7 @@ pub(super) async fn empty_scope<R: CredentialResolver>(
 }
 
 /// Code-search fragments carry no line numbers. Point the top hit at an exact
-/// ghGetFileContent match read, which returns line-numbered source.
+/// ghGetFileContent match read, whose sourceLineRanges carry line numbers.
 pub(super) fn read_top_match(value: &Value) -> Option<Value> {
     let file = value["files"].as_array()?.first()?.as_object()?;
     let matched = file.get("matches")?.as_array()?.first()?;
@@ -131,20 +131,27 @@ pub(super) fn read_top_match(value: &Value) -> Option<Value> {
     if token.trim().is_empty() {
         return None;
     }
+    let path = file.get("path")?.as_str()?;
+    // GitHub ranking often puts docs, changelogs, and tests first; only a
+    // code hit earns medium confidence, and none earns more.
+    let confidence = match crate::content::classify_file_type(path) {
+        Some(crate::content::FileType::Code) if !crate::content::is_test_path(path) => "medium",
+        _ => "low",
+    };
     // GhSearchQuery carries execution fields only; its caller's `reasoning`
     // is discarded during deserialization. Give the generated read its own
     // canonical reason instead of suppressing this continuation entirely.
     Some(json!({
         "tool": "ghGetFileContent",
-        "confidence": "high",
-        "why": "Read the top hit with line numbers.",
+        "confidence": confidence,
+        "why": "Read the top hit's matched region; sourceLineRanges gives its line numbers.",
         "query": {
             "owner": file.get("owner")?,
             "repo": file.get("repo")?,
             "path": file.get("path")?,
             "matchString": token,
             "contextLines": 5,
-            "reasoning": "Read the top code hit with line-numbered source.",
+            "reasoning": "Read the top code hit's matched region.",
         },
     }))
 }
@@ -263,7 +270,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn top_hit_reads_its_matched_token_with_line_numbers() {
+    fn top_hit_reads_its_matched_token() {
         let value = json!({"files": [{"owner": "o", "repo": "r", "path": "src/a.rs",
             "matches": [{"value": "x\nfn find_all() {}", "matchIndices": [{"start": 5, "end": 13, "lineOffset": 1}]}]}]});
         let read = read_top_match(&value).expect("continuation");
@@ -272,5 +279,30 @@ mod tests {
         assert_eq!(read["query"]["path"], "src/a.rs");
         let concise = json!({"files": ["o/r:src/a.rs"]});
         assert!(read_top_match(&concise).is_none());
+    }
+
+    #[test]
+    fn read_top_match_confidence_tracks_path_kind() {
+        let top = |path: &str| {
+            let value = json!({"files": [{"owner": "o", "repo": "r", "path": path,
+                "matches": [{"value": "needle", "matchIndices": [{"start": 0, "end": 6}]}]}]});
+            read_top_match(&value).expect("continuation")
+        };
+        assert_eq!(top("src/a.rs")["confidence"], "medium");
+        for path in [
+            "GUIDE.md",
+            "CHANGELOG.md",
+            "tests/a.rs",
+            "src/a.test.ts",
+            "package.json",
+        ] {
+            assert_eq!(top(path)["confidence"], "low", "{path}");
+        }
+        assert!(
+            !top("src/a.rs")["why"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("with line numbers")
+        );
     }
 }

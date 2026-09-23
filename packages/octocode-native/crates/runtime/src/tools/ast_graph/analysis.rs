@@ -418,7 +418,7 @@ fn dead_code(
     for files in components {
         let report = files
             .into_iter()
-            .filter(|f| q.include_tests.unwrap_or(true) || !is_test(f))
+            .filter(|f| q.include_tests.unwrap_or(true) || !crate::content::is_test_path(f))
             .collect::<Vec<_>>();
         if report.is_empty() || !report.iter().all(|f| !live.contains(f)) {
             continue;
@@ -431,7 +431,7 @@ fn dead_code(
     }
     let mut rows = Vec::new();
     for (file, ff) in &b.facts {
-        if !q.include_tests.unwrap_or(true) && is_test(file) {
+        if !q.include_tests.unwrap_or(true) && crate::content::is_test_path(file) {
             continue;
         }
         let live_names = live_names(file, ff, &public, &real, &rex, &star);
@@ -644,7 +644,12 @@ fn entrypoints(
         }
     }
     if q.include_tests.unwrap_or(true) {
-        for file in b.nodes.keys().filter(|x| is_test(x)).cloned() {
+        for file in b
+            .nodes
+            .keys()
+            .filter(|x| crate::content::is_test_path(x))
+            .cloned()
+        {
             push_unique(&mut roots, &mut seen_roots, file);
         }
     }
@@ -795,13 +800,6 @@ fn source_equivalent(p: &str, nodes: &BTreeMap<String, Node>) -> Option<String> 
         }
     }
     c.into_iter().find(|x| nodes.contains_key(x))
-}
-fn is_test(f: &str) -> bool {
-    let l = f.to_ascii_lowercase();
-    l.contains("/__tests__/")
-        || l.starts_with("tests/")
-        || l.contains("/tests/")
-        || [".test.", ".spec."].iter().any(|x| l.contains(x))
 }
 
 /// Compare the import topology of a baseline root against the head `path` and

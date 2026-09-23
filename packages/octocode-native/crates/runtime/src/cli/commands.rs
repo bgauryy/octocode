@@ -15,7 +15,7 @@ pub(super) struct ToolArgs {
     #[arg(long, value_name = "FILE", conflicts_with = "query")]
     pub input: Option<std::path::PathBuf>,
     /// Accepted for compatibility; single-line JSON is already the default.
-    #[arg(long, conflicts_with = "pretty")]
+    #[arg(long, hide = true, conflicts_with = "pretty")]
     pub compact: bool,
     /// Emit indented JSON for humans (costs 25–55% more bytes for agents).
     #[arg(long)]

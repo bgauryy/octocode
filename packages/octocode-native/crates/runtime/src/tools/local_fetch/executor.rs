@@ -360,9 +360,13 @@ pub fn process_fetched_content(
         && safe == selected
     {
         if let Some(lines) = ext.source_lines.as_ref() {
-            let page_lines =
-                &lines[pg.view_lines.0.saturating_sub(1)..pg.view_lines.1.min(lines.len())];
-            compress_ranges(page_lines)
+            let page_lines: Vec<usize> = lines
+                [pg.view_lines.0.saturating_sub(1)..pg.view_lines.1.min(lines.len())]
+                .iter()
+                .copied()
+                .filter(|line| *line != super::extraction::OMISSION_LINE)
+                .collect();
+            compress_ranges(&page_lines)
         } else {
             vec![LineRange {
                 start: pg.view_lines.0,

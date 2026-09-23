@@ -290,6 +290,15 @@ fn is_doc(name: &str) -> bool {
     DOC_NAMES.contains(&stem) || DOC_NAMES.contains(&base)
 }
 
+/// Repository-relative test path heuristic (test dirs and `.test.`/`.spec.` files).
+pub fn is_test_path(path: &str) -> bool {
+    let l = path.to_ascii_lowercase();
+    l.contains("/__tests__/")
+        || l.starts_with("tests/")
+        || l.contains("/tests/")
+        || [".test.", ".spec."].iter().any(|x| l.contains(x))
+}
+
 pub fn classify_file_type(path: &str) -> Option<FileType> {
     let name = basename(path);
     if name.is_empty() {

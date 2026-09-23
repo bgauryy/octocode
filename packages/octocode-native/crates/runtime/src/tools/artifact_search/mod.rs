@@ -151,7 +151,11 @@ pub async fn execute(
                 "operation": "tree",
                 "owner": owner,
                 "repo": repo,
-                "path": artifact.repository_directory.clone().unwrap_or_default(),
+                "path": artifact
+                    .repository_directory
+                    .clone()
+                    .or_else(|| artifact.repository.as_deref().and_then(github_repo_dir))
+                    .unwrap_or_default(),
                 "maxDepth": 1,
                 "reasoning": "Inspect the package's upstream source tree.",
             },
@@ -186,9 +190,48 @@ fn github_repo(url: &str) -> Option<(String, String)> {
     (!repo.is_empty()).then(|| (owner.to_owned(), repo.to_owned()))
 }
 
+/// Monorepo subdirectory from a `/tree/<ref>/<dir>` or `/blob/<ref>/<file>`
+/// repository URL. The ref is dropped: refs may contain slashes, and registry
+/// refs are often stale, so the viewRepo lead reads the default branch.
+fn github_repo_dir(url: &str) -> Option<String> {
+    let rest = url.split_once("github.com/")?.1;
+    let rest = rest.split(['#', '?']).next()?;
+    let mut parts = rest.split('/').filter(|part| !part.is_empty());
+    let (_owner, _repo, kind, _ref) = (parts.next()?, parts.next()?, parts.next()?, parts.next()?);
+    let mut segments: Vec<&str> = parts.collect();
+    match kind {
+        "tree" => {}
+        "blob" => {
+            segments.pop();
+        }
+        _ => return None,
+    }
+    (!segments.is_empty()).then(|| segments.join("/"))
+}
+
 #[cfg(test)]
 mod github_repo_tests {
-    use super::github_repo;
+    use super::{github_repo, github_repo_dir};
+
+    #[test]
+    fn parses_monorepo_subdirectories() {
+        let dir = |url| github_repo_dir(url);
+        assert_eq!(
+            dir("https://github.com/BurntSushi/ripgrep/tree/master/crates/ignore").as_deref(),
+            Some("crates/ignore")
+        );
+        assert_eq!(
+            dir("https://github.com/o/r/tree/main/packages/x/").as_deref(),
+            Some("packages/x")
+        );
+        assert_eq!(
+            dir("https://github.com/o/r/blob/main/crates/a/Cargo.toml").as_deref(),
+            Some("crates/a")
+        );
+        assert_eq!(dir("https://github.com/o/r/tree/main"), None);
+        assert_eq!(dir("https://github.com/o/r#readme"), None);
+        assert_eq!(dir("git+https://github.com/o/r.git"), None);
+    }
 
     #[test]
     fn parses_registry_repository_urls() {

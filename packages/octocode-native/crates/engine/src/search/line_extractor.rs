@@ -402,21 +402,24 @@ mod tests {
         for i in 1..=20 {
             lines.push(format!("line {i}"));
         }
-        // Match lines 1 and 20 with no context — should have omission between them
+        // Match lines 1 and 20 with no context — lines 2..=19 are omitted.
         let content = lines.join("\n");
         let r = extract_matching_lines_inner(
             &content,
-            "line 1$",
+            "^line (1|20)$",
             Some(ExtractMatchingLinesOptions {
                 context_bytes: None,
                 is_regex: Some(true),
                 case_sensitive: Some(true),
-                context_lines: None,
+                context_lines: Some(0),
                 max_matches: None,
             }),
         );
-        // Only "line 1" matches — no omission marker needed
-        assert!(r.match_count >= 1);
+        assert_eq!(r.match_count, 2);
+        assert_eq!(
+            r.lines,
+            vec!["line 1", "", "... [18 lines omitted] ...", "", "line 20"]
+        );
     }
 
     #[test]

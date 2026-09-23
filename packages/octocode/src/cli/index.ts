@@ -30,11 +30,21 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
   // A bare `octocode` (no command, no help/version flag) is the agent overview:
   // the same catalog `scheme` emits — short tool descriptions, availability, the
   // `scheme <name>` route to a tool's params, and the canonical instructions.
-  // `--help`/`--version` still fall through to the native command reference.
+  // `--help` falls through to the native command reference; a bare `--version`
+  // prints the launcher and native versions (see version.ts).
   if (args.command === null && !hasHelpFlag(args) && !hasVersionFlag(args)) {
     const { schemeCommand } = await import('./commands/scheme.js');
     await schemeCommand.handler({ ...args, command: 'scheme', args: [] });
     return true;
+  }
+
+  if (args.command === null && hasVersionFlag(args) && !hasHelpFlag(args)) {
+    const { versionLine } = await import('./version.js');
+    const line = versionLine();
+    if (line) {
+      process.stdout.write(`${line}\n`);
+      return true;
+    }
   }
 
   if (!shouldDelegateToNative(args.command)) {

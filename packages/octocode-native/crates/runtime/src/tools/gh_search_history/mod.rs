@@ -371,6 +371,7 @@ pub async fn execute<R: CredentialResolver>(
             json!({"tool":"ghSearchHistory","query":next,"confidence":"exact"});
     }
     remove_nulls(&mut value);
+    mark_empty(&mut value, more);
     if result.incomplete_results || (!result.listed && result.total_count > 1000) {
         value["isPartial"] = json!(true);
         value["terminalLimit"] = json!(result.total_count > 1000);
@@ -382,6 +383,16 @@ pub async fn execute<R: CredentialResolver>(
     }
     Ok(value)
 }
+/// A complete page with no rows is empty, so the shared fallback hint fires.
+fn mark_empty(value: &mut Value, more: bool) {
+    let rows = ["pullRequests", "issues", "commits"]
+        .iter()
+        .find_map(|key| value.get(*key).and_then(Value::as_array));
+    if !more && rows.is_some_and(Vec::is_empty) {
+        value["status"] = json!("empty");
+    }
+}
+
 fn required_repo(q: &GhSearchHistoryQuery) -> Result<(&str, &str), ProviderError> {
     q.owner.as_deref().zip(q.repo.as_deref()).ok_or_else(|| {
         ProviderError::new(ProviderErrorKind::Validation, "owner and repo are required")
@@ -759,6 +770,21 @@ mod tests {
         }));
         assert_eq!(closed["state"], "closed");
         assert!(closed.get("mergedAt").is_none());
+    }
+
+    #[test]
+    fn empty_history_rows_are_marked_empty() {
+        for key in ["pullRequests", "issues", "commits"] {
+            let mut value = json!({ key: [] });
+            mark_empty(&mut value, false);
+            assert_eq!(value["status"], "empty", "{key}");
+        }
+        let mut more = json!({"commits": []});
+        mark_empty(&mut more, true);
+        assert!(more.get("status").is_none());
+        let mut rows = json!({"issues": [{"number": 1}]});
+        mark_empty(&mut rows, false);
+        assert!(rows.get("status").is_none());
     }
 
     fn parse(json: &str) -> GhSearchHistoryQuery {

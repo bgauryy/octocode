@@ -10,6 +10,18 @@ pub struct Extraction {
     pub count: Option<usize>,
     pub warnings: Vec<String>,
 }
+/// View-line sentinel for an omission marker (source lines are 1-based).
+pub const OMISSION_LINE: usize = 0;
+
+/// Separates non-adjacent match windows so readers never mistake a gap for
+/// contiguous source.
+pub fn omission_marker(start: usize, end: usize) -> String {
+    if start == end {
+        format!("... [line {start} omitted] ...\n")
+    } else {
+        format!("... [lines {start}-{end} omitted] ...\n")
+    }
+}
 fn records(s: &str) -> Vec<&str> {
     if s.is_empty() {
         return vec![];
@@ -151,13 +163,24 @@ fn match_extract(
             ranges.push(r)
         }
     }
+    // `selected` maps each emitted view line to its source line; omission
+    // markers between non-adjacent windows map to OMISSION_LINE.
     let mut selected = vec![];
     let mut text = String::new();
+    let mut prev_end: Option<usize> = None;
     for r in &ranges {
+        if let Some(prev) = prev_end.filter(|prev| r.start > prev + 1) {
+            if !text.is_empty() && !text.ends_with('\n') {
+                text.push('\n')
+            }
+            text.push_str(&omission_marker(prev + 1, r.start - 1));
+            selected.push(OMISSION_LINE)
+        }
         for line in r.start..=r.end {
             text.push_str(lines[line - 1]);
             selected.push(line)
         }
+        prev_end = Some(r.end)
     }
     if let Some(bytes) = q.context_bytes {
         let mut spans = vec![];
@@ -188,8 +211,19 @@ fn match_extract(
             while b < content.len() && !content.is_char_boundary(b) {
                 b += 1
             }
+            // Overlapping windows continue from the previous end; re-emitting
+            // the overlap would fabricate text that is not in the source.
+            if !text.is_empty() {
+                a = a.max(last_end)
+            }
+            if a >= b {
+                continue;
+            }
             if !text.is_empty() && a > last_end {
-                text.push('\n')
+                if !text.ends_with('\n') {
+                    text.push('\n')
+                }
+                text.push_str(&format!("... [{} bytes omitted] ...\n", a - last_end));
             }
             text.push_str(&content[a..b]);
             let first_line = content[..a].bytes().filter(|byte| *byte == b'\n').count() + 1;

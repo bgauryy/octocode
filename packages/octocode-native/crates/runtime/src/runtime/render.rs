@@ -283,12 +283,23 @@ fn source_lines(content: &str, value: &Value) -> Option<String> {
     let records: Vec<&str> = content.split_inclusive('\n').collect();
     let mut output = String::new();
     let mut index = 0;
+    let mut prev_end: Option<u64> = None;
     for range in ranges {
         let start = range["start"].as_u64()?;
         let end = range["end"].as_u64()?;
         if start < 1 || end < start || end - start >= records.len() as u64 {
             return None;
         }
+        // Non-adjacent windows are separated by one unnumbered omission marker.
+        if prev_end.is_some_and(|prev| start > prev + 1)
+            && records
+                .get(index)
+                .is_some_and(|r| r.starts_with("... [line"))
+        {
+            output.push_str(records[index]);
+            index += 1;
+        }
+        prev_end = Some(end);
         for line in start..=end {
             output.push_str(&format!("{line}: {}", records.get(index)?));
             index += 1;
@@ -418,5 +429,16 @@ mod tests {
         );
         assert_eq!(source_lines("a\nb\n", &json!([{"start":4,"end":4}])), None);
         assert_eq!(source_lines("a\n", &json!([{"start":0,"end":1}])), None);
+    }
+
+    #[test]
+    fn source_lines_passes_omission_marker_through_unnumbered() {
+        assert_eq!(
+            source_lines(
+                "a\n... [lines 3-8 omitted] ...\nb\n",
+                &json!([{"start":2,"end":2},{"start":9,"end":9}])
+            ),
+            Some("2: a\n... [lines 3-8 omitted] ...\n9: b\n".into())
+        );
     }
 }

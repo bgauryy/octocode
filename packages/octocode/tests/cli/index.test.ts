@@ -97,6 +97,25 @@ describe('runCLI native boundary', () => {
     ]);
   });
 
+  it('prints launcher and native versions without delegating', async () => {
+    vi.doMock('../../src/cli/version.js', () => ({
+      versionLine: () => 'octocode 1.2.3 (native 4.5.6)',
+    }));
+    const write = vi
+      .spyOn(process.stdout, 'write')
+      .mockImplementation(() => true);
+    try {
+      const { runCLI } = await import('../../src/cli/index.js');
+      mocks.delegate.mockClear();
+      await runCLI(['--version']);
+      expect(write).toHaveBeenCalledWith('octocode 1.2.3 (native 4.5.6)\n');
+      expect(mocks.delegate).not.toHaveBeenCalled();
+    } finally {
+      write.mockRestore();
+      vi.doUnmock('../../src/cli/version.js');
+    }
+  });
+
   it('runs skill materialization in Node', async () => {
     const { runCLI } = await import('../../src/cli/index.js');
     await runCLI(['skill', 'list']);

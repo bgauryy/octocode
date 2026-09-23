@@ -84,7 +84,7 @@ For a PR, request only the surfaces the question needs; selected patches use `mo
 | `minify:"standard"` | Reduce content with a file- or surface-specific transformation. | Inspect the effective view; do not infer that removed text was absent in source. |
 | `minify:"symbols"` | Extract a file outline where supported. | Use line anchors to read bodies; it is not a complete source view. |
 | `concise` | Select a smaller discovery payload where the operation supports it. | Inspect the operation schema; it is not a universal minification flag. |
-| `--compact` | Reduce CLI envelope and repeated metadata. | Resolve `base` and top-level `shared` values before interpreting rows. |
+| Default CLI output | Single-line JSON with repeated metadata hoisted (`--pretty` indents; `--compact` is a no-op kept for compatibility). | Resolve `base` and top-level `shared` values before interpreting rows. |
 | Character window | Bound the selected or transformed content. | Follow returned continuations; offsets are not source-line numbers. |
 
 File reads expose `none`, `standard`, and `symbols`. History is operation-specific: PR detail exposes `none`/`standard`; discovery, issue detail, and commit/compare accept no `minify`, and history has no `symbols` mode — do not send file-read modes to an operation that rejects them. See the [tool reference](OCTOCODE_TOOLS.md) for defaults, match preservation, fallback behavior, and window semantics. Equal field names do not imply local/remote equivalence, and a minification extension entry is not evidence of a structural grammar, outline extractor, graph resolver, or installed LSP server.
