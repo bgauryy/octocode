@@ -118,7 +118,7 @@ npx octocode scheme                                  # compact catalog of every 
 npx octocode scheme localSearch                      # inspect all local discovery modes
 ```
 
-Every MCP tool is also a plain command named after the tool: JSON in, structured JSON out (indented by default, `--compact` for one line).
+Every MCP tool is also a plain command named after the tool: JSON in, structured JSON out (single-line by default to save agent tokens, `--pretty` for indented).
 
 ```bash
 npx octocode localSearch \
@@ -205,21 +205,19 @@ than `gh`+Headroom, and ~3.2× fewer than `gh`+RTK** in the local-build headline
 
 ## Tools
 
-**13 tools in the full discovery catalog.** By default MCP registers **9** — it
-omits the four gated tools until their gate is set: `clasify` (needs
-`OCTOCODE_CLASSIFICATION_API`, or its `OCTOCODE_JEV_KEY` alias), `ghCloneRepo`
-(needs `ENABLE_CLONE` + persistent storage), and `astRewrite` plus `astTopology`
-(need `OCTOCODE_BETA`). The CLI keeps all 13 commands discoverable and returns an
-actionable setup error naming the exact gate when a gated command is called.
+**13 tools in the full discovery catalog.** By default MCP registers **9**.
+`ghCloneRepo` is CLI-only; MCP never registers it. `clasify` needs
+`OCTOCODE_CLASSIFICATION_API` (or its `OCTOCODE_JEV_KEY` alias), while
+`astRewrite` and `astTopology` need `OCTOCODE_BETA`. The CLI keeps all 13
+commands discoverable; cloning requires persistent storage.
 
 | Surface | Registers by default | Gated tools |
 |---|---:|---|
-| MCP, no flags | 9 of 13 | `clasify`, `ghCloneRepo`, `astRewrite`, and `astTopology` omitted until enabled. |
-| CLI, no flags | 13 discoverable | Gated commands run only when enabled; otherwise each explains the gate to set. |
+| MCP, no flags | 9 of 13 | `ghCloneRepo` is always omitted; `clasify`, `astRewrite`, and `astTopology` can be enabled. |
+| CLI, no flags | 13 discoverable | Clone runs with persistent storage; other gated commands explain the gate to set. |
 
 Use `TOOLS_TO_RUN` for a strict allowlist or `DISABLE_TOOLS` to remove tools from
-the default set. `ENABLE_LOCAL=false` disables local, graph, and LSP tools;
-`ENABLE_CLONE=false` disables cloning on both surfaces.
+the default set. `ENABLE_LOCAL=false` disables local, graph, and LSP tools.
 Flags: [Configuration](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md).
 
 **Token knobs.** `concise:true` returns path/title-only lists. `minify` controls file read density: `symbols` = skeleton with line numbers, `standard` = comments/blanks stripped (default), `none` = exact bytes.
@@ -232,7 +230,7 @@ Flags: [Configuration](https://github.com/bgauryy/octocode/blob/main/docs/CONFIG
 | `ghGetFileContent` | Read a GitHub file or region: full file, line range, match slice, or paginated chars. | `minify` |
 | `ghSearchHistory` | Search or list pull requests, issues, or commits through strict `operation:"pullRequest"`, `"issue"`, or `"commit"` queries. | `operation` |
 | `ghGetHistoryItem` | Read one pull request or issue by `number`, one commit by `ref`, or a comparison by `base`+`head`. | `operation` |
-| `ghCloneRepo` | Clone a repository or sparse subtree into the local cache for local and LSP analysis. Requires `ENABLE_LOCAL=true`, `ENABLE_CLONE=true`, and persistent storage. | `sparsePath` |
+| `ghCloneRepo` | CLI-only clone of a repository or sparse subtree into the local cache for local and LSP analysis. Requires persistent storage. | `sparsePath` |
 
 `ghSearch` is the only GitHub discovery interface; select code, repositories,
 or trees with its strict `operation` field.
@@ -269,6 +267,21 @@ or trees with its strict `operation` field.
 - **A decision aid, never evidence.** Its verdict routes reading — it does not prove a claim. Read the bytes it selects to confirm.
 
 MCP registers `clasify` only when `OCTOCODE_CLASSIFICATION_API` (or its `OCTOCODE_JEV_KEY` alias) resolves nonblank; a keyless CLI call explains how to set it. Direct CLI form: `npx octocode clasify --input request.json`.
+
+**Enable classification and search reranking:**
+
+```bash
+export OCTOCODE_CLASSIFICATION_API='your-provider-key'
+# Optional: override the selected vendor's default API root.
+export OCTOCODE_CLASSIFICATION_API_HOST='https://your-provider.example'
+```
+
+Restart CLI, MCP, and Pi processes after changing these values. A nonblank API key
+registers the `clasify` MCP tool and adds `semanticRerank` (including optional
+`minScore`) to supported `ghSearch` and `localSearch` schemas. The host setting
+only selects the provider endpoint; **setting the host without a key enables
+nothing**. Local search snippets sent for reranking leave the machine for that
+configured provider.
 
 Full schemas, fields, and examples for every tool live in [`docs/OCTOCODE_TOOLS.md`](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md) (linked under [Documentation](#documentation)).
 
@@ -310,7 +323,7 @@ Same research engine, no MCP client needed. Every tool is a plain command named 
 
 | Command | What it does |
 |---------|--------------|
-| `npx octocode <toolName> '<json>'` | Run a tool (same tools as MCP), indented JSON output |
+| `npx octocode <toolName> '<json>'` | Run a tool (same tools as MCP), single-line JSON output (`--pretty` to indent) |
 | `npx octocode <toolName> --input <file>` | Run a tool with the JSON query read from a file |
 | `npx octocode <toolName> '<json>' --compact` | Run a tool, one-line JSON output |
 | `npx octocode scheme <toolName>` | Show one tool's public input contract: fields, types, bounds, defaults |
@@ -358,13 +371,14 @@ Most-used settings (both CLI and MCP unless noted):
 |---------|-------------------|---------|--------------|
 | `OCTOCODE_TOKEN` / `GH_TOKEN` / `GITHUB_TOKEN` | env only | unset | GitHub token, in priority order. Never in `.octocoderc`. |
 | `ENABLE_LOCAL` | `local.enabled` | `true` | Local filesystem and LSP tools on or off. Set `false` to disable them. |
-| `ENABLE_CLONE` | `local.enableClone` | `false` | Opt in to `ghCloneRepo` with `true`; local access and persistent storage are also required. |
+| `ENABLE_CLONE` | `local.enableClone` | `false` | Legacy setting retained for config compatibility; CLI cloning requires persistent storage and MCP cloning is unavailable. |
 | `WORKSPACE_ROOT` | `local.workspaceRoot` | `cwd` | Root for resolving relative local paths. |
 | `ALLOWED_PATHS` | `local.allowedPaths` | `[]` | Extra path allowlist for local access. |
 | `OCTOCODE_OUTPUT_FORMAT` | `output.format` | `yaml` | Response format: `yaml` or `json`. |
 | `OCTOCODE_STORAGE_MODE` | `storage.mode` | `persistent` | Set `memory` to prevent persistent runtime state and materialization. |
 | `OCTOCODE_BETA` | `local.beta` | `false` | Enable beta features — the sole gate for the `astRewrite` tool (both preview and apply). |
-| `OCTOCODE_CLASSIFICATION_API` | env only | unset | Classification provider API key (`OCTOCODE_JEV_KEY` is the jev-vendor alias). A nonblank value exposes `clasify` through MCP; CLI calls without it explain how to enable the command. Never commit it. |
+| `OCTOCODE_CLASSIFICATION_API` | env only | unset | Classification provider API key (`OCTOCODE_JEV_KEY` is the jev-vendor alias). A nonblank value exposes `clasify` through MCP and `semanticRerank` on supported search schemas. Never commit it. |
+| `OCTOCODE_CLASSIFICATION_API_HOST` | `classification.apiHost` | vendor default | Optional classification provider API-root override. It does not enable classification without a nonblank API key. Use HTTPS except for loopback development. |
 
 `OCTOCODE_HOME`, GitHub Enterprise (`GITHUB_API_URL`), MCP tool filtering (`TOOLS_TO_RUN`/`DISABLE_TOOLS`), and network timeouts/retries: see the [Configuration Reference](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md).
 
@@ -377,8 +391,7 @@ Most-used settings (both CLI and MCP unless noted):
     "apiUrl": "https://api.github.com"
   },
   "local": {
-    "enabled": true,
-    "enableClone": true
+    "enabled": true
   },
   "output": {
     "format": "yaml"

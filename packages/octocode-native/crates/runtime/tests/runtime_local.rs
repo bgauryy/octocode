@@ -499,3 +499,142 @@ async fn close_joins_a_fresh_runtime() {
     let workspace = Workspace::new();
     workspace.runtime(&[]).close().await;
 }
+
+/// Resolve an AST row path against the envelope `base` the runtime attaches.
+fn resolve_ast_row_path(
+    outcome: &octocode_native::runtime::ToolOutcome,
+    path: &str,
+) -> std::path::PathBuf {
+    let base = outcome.structured_content["base"]
+        .as_str()
+        .unwrap_or_else(|| {
+            panic!(
+                "astSearch rows must carry a base: {}",
+                outcome.structured_content
+            )
+        });
+    std::path::Path::new(base).join(path)
+}
+
+#[tokio::test]
+async fn ast_search_match_and_symbol_paths_resolve_against_the_base() {
+    let workspace = Workspace::new();
+    let source = workspace.write("pkg/src/lib.rs", "pub fn needle() { helper(1); }\n");
+    let scope = source.parent().expect("scope").to_path_buf();
+    let runtime = workspace.runtime(&[]);
+
+    let matched = call(
+        &runtime,
+        "astSearch",
+        json!({"operation":"match","path":scope,"langType":"rust","pattern":"helper($A)"}),
+    )
+    .await
+    .expect("astSearch match");
+    let path = row_data(&matched)["files"][0]["path"]
+        .as_str()
+        .unwrap_or_else(|| panic!("match row path: {}", matched.structured_content));
+    assert!(
+        resolve_ast_row_path(&matched, path).is_file(),
+        "base + match path must resolve: {}",
+        matched.structured_content
+    );
+
+    let symbols = call(
+        &runtime,
+        "astSearch",
+        json!({"operation":"symbols","path":scope}),
+    )
+    .await
+    .expect("astSearch symbols");
+    let path = row_data(&symbols)["declarations"][0]["path"]
+        .as_str()
+        .unwrap_or_else(|| panic!("symbol row path: {}", symbols.structured_content));
+    assert!(
+        resolve_ast_row_path(&symbols, path).is_file(),
+        "base + symbol path must resolve: {}",
+        symbols.structured_content
+    );
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn ast_topology_dead_code_verify_references_is_a_valid_lsp_query() {
+    let workspace = Workspace::new();
+    workspace.write(
+        "package.json",
+        r#"{"name":"fixture","main":"src/index.ts"}"#,
+    );
+    workspace.write(
+        "src/index.ts",
+        "import { used } from './used';\nexport const main = used;\n",
+    );
+    workspace.write("src/used.ts", "export const used = 1;\n");
+    workspace.write("src/orphan.ts", "export function orphan() { return 2; }\n");
+    let runtime = workspace.runtime(&[("OCTOCODE_BETA", "true".into())]);
+    let outcome = call(
+        &runtime,
+        "astTopology",
+        json!({"operation":"topology","analysis":"deadCode","path":workspace.workspace}),
+    )
+    .await
+    .expect("astTopology deadCode");
+    assert_ne!(
+        row_status(&outcome),
+        "error",
+        "deadCode row must not be withheld: {}",
+        outcome.structured_content
+    );
+    let verify = &row_data(&outcome)["next"]["verifyReferences"];
+    assert_eq!(
+        verify["tool"], "lspSearch",
+        "{}",
+        outcome.structured_content
+    );
+    let mut query = verify["query"].clone();
+    assert!(query.get("format").is_none(), "{query}");
+    let uri = query["uri"].as_str().expect("uri");
+    assert!(
+        std::path::Path::new(uri).is_file(),
+        "uri must be a real file: {uri}"
+    );
+    query["reasoning"] = json!("Verify the dead-code candidate.");
+    octocode_native::contracts::validate_query("lspSearch", query)
+        .expect("verifyReferences must validate against the lspSearch input contract");
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn workspace_root_symbol_queries_infer_the_server_from_project_markers() {
+    let workspace = Workspace::new();
+    workspace.write("Cargo.toml", "[package]\nname = \"demo\"\n");
+    let config_path = workspace.write(
+        ".octocode/lsp.json",
+        r#"{"languageServers":{".rs":{"command":"missing-rust-lsp-for-root-test","args":[],"languageId":"rust"}}}"#,
+    );
+    let runtime = workspace.runtime(&[(
+        "OCTOCODE_LSP_CONFIG",
+        config_path.to_string_lossy().into_owned(),
+    )]);
+    let outcome = call(
+        &runtime,
+        "lspSearch",
+        json!({
+            "operation": "workspaceSymbol",
+            "workspaceRoot": workspace.workspace,
+            "symbolName": "main"
+        }),
+    )
+    .await
+    .expect("typed workspace-root result");
+    let rendered = serde_json::to_string(row_data(&outcome)).expect("json");
+    assert!(
+        !rendered.contains("No language server is configured")
+            && !rendered.contains("could be inferred"),
+        "workspace root must select a server from Cargo.toml: {rendered}"
+    );
+    assert!(
+        rendered.contains("missing-rust-lsp-for-root-test"),
+        "the Rust route for the root should have been attempted: {rendered}"
+    );
+    runtime.close().await;
+}

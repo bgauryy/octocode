@@ -29,7 +29,7 @@ Every tool is called by its canonical name with a raw JSON query:\n\
 EXIT CODES:\n\
   0    Success\n\
   1    Empty result / no matches\n\
-  2    Invalid input (also clap argument errors)\n\
+  2    Invalid input, including any rejected batch row (also clap argument errors)\n\
   3    Not found\n\
   4    Auth required\n\
   5    Execution error\n\
@@ -459,7 +459,7 @@ async fn run_tool(runtime: &ToolRuntime, tool: &str, args: ToolArgs, json_errors
             return 2;
         }
     };
-    execute(runtime, tool, input, args.compact).await
+    execute(runtime, tool, input, !args.pretty).await
 }
 
 /// Execute one tool call and print its structured JSON result to stdout.
@@ -511,11 +511,35 @@ pub(super) async fn execute(runtime: &ToolRuntime, tool: &str, input: Value, com
                     && rows
                         .iter()
                         .all(|row| row.get("status").and_then(Value::as_str) == Some("empty"));
-                let has_continuation = rows.iter().any(|row| has_cli_continuation(row));
+                let has_continuation = rows.iter().any(|row| has_cli_continuation(row))
+                    || has_clasify_continuation(&value)
+                    || value.pointer("/responsePagination/hasMore") == Some(&Value::Bool(true));
                 // Empty (exit 1) takes precedence over a corrective continuation:
                 // an empty result with a recovery next.* is still "empty", not
                 // "more pages" (exit 6, reserved for results + continuation).
-                exit = if all_empty {
+                // A batch row rejected by input validation is a caller error
+                // even when sibling rows succeeded (row isolation).
+                let rejected_row = rows.iter().any(|row| {
+                    row.get("status").and_then(Value::as_str) == Some("error")
+                        && row.pointer("/data/errorCode").and_then(Value::as_str)
+                            == Some("invalidInput")
+                });
+                // Every clasify resource errored: nothing was judged.
+                let clasify_failed = value["queries"].as_array().is_some_and(|queries| {
+                    !queries.is_empty()
+                        && queries.iter().all(|query| {
+                            query["resources"].as_array().is_some_and(|resources| {
+                                resources
+                                    .iter()
+                                    .all(|resource| resource["coverage"] == "error")
+                            })
+                        })
+                });
+                exit = if rejected_row {
+                    2
+                } else if clasify_failed {
+                    5
+                } else if all_empty {
                     1
                 } else if has_continuation {
                     6
@@ -557,30 +581,51 @@ pub(super) async fn execute(runtime: &ToolRuntime, tool: &str, input: Value, com
     }
 }
 
+/// clasify returns `queries[].next.clasify` (a complete query, not a
+/// `{tool,query}` row continuation); remaining coverage is still exit 6.
+fn has_clasify_continuation(value: &Value) -> bool {
+    value["queries"].as_array().is_some_and(|queries| {
+        queries
+            .iter()
+            .any(|query| query.pointer("/next/clasify").is_some_and(Value::is_object))
+    })
+}
+
+/// `next.*` names that mean more of this result remains. Drill-downs
+/// (`get*`, `read*`, `verify*`) are optional follow-ups on a complete result
+/// and must not turn success into "more pages" (exit 6).
+fn is_continuation_name(name: &str) -> bool {
+    ["next", "continue", "expand", "retry"]
+        .iter()
+        .any(|prefix| name.starts_with(prefix))
+}
+
 fn has_cli_continuation(row: &Value) -> bool {
-    row.pointer("/data/next").is_some()
-        || has_nested_executable_next(&row["data"], false)
+    row.pointer("/data/next")
+        .and_then(Value::as_object)
+        .is_some_and(|calls| calls.keys().any(|name| is_continuation_name(name)))
+        || has_nested_executable_next(&row["data"])
         || (octocode_native::runtime::response::is_partial(&row["data"])
             && row["data"]["content"]
                 .as_str()
                 .is_some_and(|text| !text.is_empty()))
 }
 
-fn has_nested_executable_next(value: &Value, inside_next: bool) -> bool {
+fn has_nested_executable_next(value: &Value) -> bool {
     match value {
-        Value::Object(map) => {
-            if inside_next
-                && map.get("tool").is_some_and(Value::is_string)
-                && map.get("query").is_some_and(Value::is_object)
-            {
-                return true;
+        Value::Object(map) => map.iter().any(|(key, child)| {
+            if key == "next" {
+                return child.as_object().is_some_and(|calls| {
+                    calls.iter().any(|(name, call)| {
+                        is_continuation_name(name)
+                            && call.get("tool").is_some_and(Value::is_string)
+                            && call.get("query").is_some_and(Value::is_object)
+                    })
+                });
             }
-            map.iter()
-                .any(|(key, child)| has_nested_executable_next(child, inside_next || key == "next"))
-        }
-        Value::Array(values) => values
-            .iter()
-            .any(|child| has_nested_executable_next(child, inside_next)),
+            has_nested_executable_next(child)
+        }),
+        Value::Array(values) => values.iter().any(has_nested_executable_next),
         _ => false,
     }
 }
@@ -603,8 +648,35 @@ pub(super) fn write_json(value: &Value, compact: bool) -> u8 {
 
 #[cfg(test)]
 mod tests {
-    use super::{INTERACTIVE_EXECUTION_TIMEOUT_SECS, has_cli_continuation};
+    use super::{
+        INTERACTIVE_EXECUTION_TIMEOUT_SECS, has_clasify_continuation, has_cli_continuation,
+    };
     use serde_json::json;
+
+    #[test]
+    fn optional_drill_downs_are_not_remaining_pages() {
+        let call = json!({"tool":"ghGetHistoryItem","query":{"number":1}});
+        let menu = json!({"data":{"next":{"getBody":call,"readPr":call,"verifyReferences":call}}});
+        assert!(!has_cli_continuation(&menu));
+        for name in ["nextPage", "continue", "expandLimit", "retry"] {
+            let row = json!({"data":{"next":{name:call}}});
+            assert!(has_cli_continuation(&row), "{name}");
+        }
+        let nested = json!({"data":{"semanticRerank":{"next":{"nextPage":call}}}});
+        assert!(has_cli_continuation(&nested));
+    }
+
+    #[test]
+    fn clasify_remaining_coverage_is_partial_cli_output() {
+        let pending = json!({"queries":[
+            {"queryId":"a","results":[]},
+            {"queryId":"b","results":[],"next":{"clasify":{"id":"b","resources":[]}}}
+        ]});
+        assert!(has_clasify_continuation(&pending));
+        assert!(!has_clasify_continuation(
+            &json!({"queries":[{"queryId":"a","results":[]}]})
+        ));
+    }
 
     #[test]
     fn nested_executable_continuation_is_classified_as_partial_cli_output() {

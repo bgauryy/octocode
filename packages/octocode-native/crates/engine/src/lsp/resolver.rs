@@ -42,6 +42,9 @@ struct SymbolCandidate {
     character: usize,
     is_exact: bool,
     is_declaration: bool,
+    /// The match sits inside a string literal (or similar textual node) rather
+    /// than an identifier; ranked after identifiers on the same line.
+    is_literal: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -257,6 +260,7 @@ fn candidate_from_node(
         character: position.column + match_offset,
         is_exact,
         is_declaration: looks_like_declaration_node(node),
+        is_literal: is_literal_node(node.kind()),
     })
 }
 
@@ -265,7 +269,19 @@ fn pick_candidate(
     fuzzy: &JsFuzzyPosition,
     lines: &[&str],
 ) -> Option<JsResolvedSymbol> {
-    candidates.sort_by_key(|candidate| (candidate.line_index, candidate.character));
+    // Nested nodes (e.g. `string` and its `string_fragment` child) can report
+    // the same position; keep one candidate per position, preferring the most
+    // symbol-like reading so an orderHint counts each occurrence once.
+    candidates.sort_by_key(|candidate| {
+        (
+            candidate.line_index,
+            candidate.character,
+            candidate.is_literal,
+            !candidate.is_exact,
+            !candidate.is_declaration,
+        )
+    });
+    candidates.dedup_by_key(|candidate| (candidate.line_index, candidate.character));
     let order_hint = fuzzy.order_hint.unwrap_or(0) as usize;
 
     let selected = match fuzzy.line_hint {
@@ -275,7 +291,10 @@ fn pick_candidate(
                 .iter()
                 .filter(|candidate| candidate.line_index as i32 == target)
                 .collect();
-            same_line.sort_by_key(|candidate| candidate.character);
+            // Identifier occurrences come first (in column order), then
+            // mentions inside string literals, so orderHint indexes real
+            // symbol uses before incidental text matches.
+            same_line.sort_by_key(|candidate| (candidate.is_literal, candidate.character));
             if let Some(candidate) = same_line.get(order_hint) {
                 Some((*candidate).clone())
             } else {
@@ -287,6 +306,7 @@ fn pick_candidate(
                     .min_by_key(|candidate| {
                         (
                             (candidate.line_index as i32 - target).abs(),
+                            candidate.is_literal,
                             !candidate.is_exact,
                             !candidate.is_declaration,
                             candidate.line_index,
@@ -298,6 +318,7 @@ fn pick_candidate(
         _ => candidates.into_iter().min_by_key(|candidate| {
             (
                 !candidate.is_declaration,
+                candidate.is_literal,
                 !candidate.is_exact,
                 candidate.line_index,
                 candidate.character,
@@ -319,6 +340,12 @@ fn pick_candidate(
 
 fn is_ignored_node(kind: &str) -> bool {
     kind.contains("comment") || kind == "ERROR"
+}
+
+fn is_literal_node(kind: &str) -> bool {
+    // `template_string` is covered by "string"; C++ `template_*` kinds are
+    // identifier-like and deliberately not treated as literals.
+    kind.contains("string") || kind.contains("comment")
 }
 
 fn is_symbolish_node(kind: &str) -> bool {
@@ -799,6 +826,32 @@ mod tests {
             Ok(hit) => hit.found_at_line,
             Err(err) => panic!("failed to resolve {symbol_name} in {file_name}: {err}"),
         }
+    }
+
+    fn resolve_with_order(source: &str, symbol_name: &str, line_hint: u32, order: u32) -> u32 {
+        resolve_position_with_path(
+            "demo.ts",
+            source,
+            &JsFuzzyPosition {
+                symbol_name: symbol_name.to_owned(),
+                line_hint: Some(line_hint),
+                order_hint: Some(order),
+            },
+        )
+        .unwrap_or_else(|err| panic!("failed to resolve {symbol_name} order {order}: {err}"))
+        .position
+        .character
+    }
+
+    #[test]
+    fn order_hint_skips_duplicate_string_nodes_and_prefers_identifiers() {
+        // `"foo"` yields a `string` node and a `string_fragment` child that both
+        // point at column 11; they must collapse into one candidate, and the
+        // real identifiers must be ranked before the string-literal mention.
+        let source = "const x = \"foo\"; foo(); foo();\n";
+        assert_eq!(resolve_with_order(source, "foo", 1, 0), 17);
+        assert_eq!(resolve_with_order(source, "foo", 1, 1), 24);
+        assert_eq!(resolve_with_order(source, "foo", 1, 2), 11);
     }
 
     #[test]

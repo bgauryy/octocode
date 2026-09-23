@@ -2,6 +2,7 @@
 
 mod clasify_batch;
 mod clasify_context;
+mod clasify_output;
 pub(crate) mod cursor;
 mod dispatch;
 mod domain_dispatch;
@@ -13,6 +14,7 @@ mod lifecycle;
 mod maintenance;
 pub mod render;
 pub mod response;
+mod semantic_rerank;
 mod session_stats;
 
 pub use cursor::CursorError;

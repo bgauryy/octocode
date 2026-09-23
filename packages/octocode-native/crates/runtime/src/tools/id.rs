@@ -18,7 +18,7 @@ pub enum ToolFamily {
     Local,
     /// GitHub API tools: scoped by API endpoint + home, not local config.
     GitHub,
-    /// Other remote tools (artifact, jev): scoped by home only.
+    /// Other remote tools (artifact, clasify): scoped by home only.
     Remote,
 }
 
@@ -123,6 +123,17 @@ impl ToolId {
         matches!(self, ToolId::Clasify)
     }
 
+    /// Independent read-only queries may execute concurrently. Mutating clone
+    /// and rewrite operations remain ordered; clasify owns its own bounded
+    /// provider scheduler.
+    #[must_use]
+    pub const fn supports_concurrent_queries(self) -> bool {
+        !matches!(
+            self,
+            ToolId::GhCloneRepo | ToolId::AstRewrite | ToolId::Clasify
+        )
+    }
+
     /// Tools hidden from discovery unless the shared beta gate is enabled.
     #[must_use]
     pub const fn is_beta(self) -> bool {
@@ -131,12 +142,11 @@ impl ToolId {
 
     /// Env-var hint shown in the CLI `scheme` catalog when a tool is disabled.
     /// `None` means availability is controlled via `tools.enabled`/`disabled`.
-    /// `ENABLE_CLONE` and `OCTOCODE_ENABLE_CLONE` are accepted aliases
-    /// (resolver.rs); only the canonical short form is shown here.
+    /// Clone is CLI-only and requires persistent storage; MCP never exposes it.
     #[must_use]
     pub const fn availability_env_hint(self) -> Option<&'static str> {
         match self {
-            ToolId::GhCloneRepo => Some("ENABLE_CLONE|OCTOCODE_STORAGE_MODE"),
+            ToolId::GhCloneRepo => Some("OCTOCODE_STORAGE_MODE"),
             ToolId::Clasify => Some("OCTOCODE_CLASSIFICATION_API|OCTOCODE_JEV_KEY"),
             ToolId::AstRewrite | ToolId::AstTopology => Some("OCTOCODE_BETA"),
             ToolId::LocalSearch | ToolId::LocalFetch | ToolId::AstSearch | ToolId::LspSearch => {
@@ -178,6 +188,20 @@ mod tests {
         // Hard cutover: the pre-rename public name no longer resolves to a tool.
         assert_eq!(ToolId::from_name("semanticAssess"), None);
         assert!("semanticAssess".parse::<ToolId>().is_err());
+    }
+
+    #[test]
+    fn concurrent_queries_exclude_mutating_and_self_scheduled_tools() {
+        for id in ToolId::ALL {
+            assert_eq!(
+                id.supports_concurrent_queries(),
+                !matches!(
+                    id,
+                    ToolId::GhCloneRepo | ToolId::AstRewrite | ToolId::Clasify
+                ),
+                "{id}"
+            );
+        }
     }
 
     #[test]
@@ -225,7 +249,7 @@ mod tests {
         // Env-gated tools
         assert_eq!(
             ToolId::GhCloneRepo.availability_env_hint(),
-            Some("ENABLE_CLONE|OCTOCODE_STORAGE_MODE")
+            Some("OCTOCODE_STORAGE_MODE")
         );
         assert_eq!(
             ToolId::Clasify.availability_env_hint(),
@@ -252,8 +276,8 @@ mod tests {
                 .into_iter()
                 .filter(|flag| *flag)
                 .count();
-            // Jev tools are Remote family, so is_jev is orthogonal; assert the
-            // Local/GitHub families are mutually exclusive and cover no jev tool.
+            // Clasify is Remote family, so is_clasify is orthogonal; assert the
+            // Local/GitHub families are mutually exclusive and cover no clasify tool.
             if id.is_clasify() {
                 assert!(!id.is_local() && !id.is_github());
                 assert_eq!(id.family(), ToolFamily::Remote);

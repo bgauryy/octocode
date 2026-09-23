@@ -18,9 +18,7 @@ pub use auth::{
     ResolvedCredential, StaticCredentialResolver, StoredCredentials, delete_platform_credential,
     load_stored_credentials, store_platform_credential, token_from_stored_blob,
 };
-pub use budget::{
-    GitHubBudget, GitHubResource, graphql_is_skipped, session_snapshot, skip_graphql_host,
-};
+pub use budget::{ExecutorConfig, GitHubBudget, GitHubResource, LimiterKey, session_snapshot};
 pub use content::{
     CachePartition, CachedContent, ConditionalCache, ContentRequest, ContentResponse,
     GitHubProvider, NoCache,

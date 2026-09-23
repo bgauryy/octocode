@@ -119,7 +119,7 @@ function structuredRowMetrics(row: Record<string, unknown>): {
     matches: numericField(stats, "totalOccurrences"),
     files: numericField(stats, "filesMatched") || numericField(data, "totalFiles"),
     references: numericField(data, "totalReferences"),
-    chars: numericField(data, "returnedChars"),
+    chars: numericField(data, "returnedChars") || numericField(data, "returnedBytes"),
   };
 }
 

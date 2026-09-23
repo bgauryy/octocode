@@ -1,9 +1,9 @@
 // Node-owned `scheme`: the same composition the MCP server ships — runtime
 // truth (availability, enforcement fingerprint) from the native binary's
-// machine catalog, contract content (schemas, descriptions, instructions)
-// from @octocodeai/octocode-core — reconciled by a fail-closed fingerprint
-// check. The binary keeps only the machine catalog; all presentation is
-// core-delivered here.
+// machine catalog, canonical contract content from @octocodeai/octocode-core,
+// and capability-aware presentation addons from @octocodeai/config/schema —
+// reconciled by a fail-closed core fingerprint check. The binary keeps only
+// the machine catalog; config composes the presentation delivered here.
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { ParsedArgs } from '../types.js';
@@ -140,11 +140,15 @@ export async function runScheme(args: ParsedArgs): Promise<number> {
     return EXIT.TOOL;
   }
 
-  const { getPublicToolCatalog } = await import('@octocodeai/config/schema');
+  const { getPublicToolCatalogWithAddons } =
+    await import('@octocodeai/config/schema');
   const { buildMcpInstructions } = await import('@octocodeai/config/mcp');
-  const catalog = getPublicToolCatalog();
+  const semanticRerank = machine.tools.some(
+    tool => tool.name === 'clasify' && isEnabled(tool.availability)
+  );
+  const catalog = getPublicToolCatalogWithAddons({ semanticRerank });
 
-  // Discovery content comes from core while validation runs against the
+  // Discovery content is composed by config while validation runs against the
   // native enforcement embed; refuse to describe tools a drifted runtime
   // would reject. Same gate and escape hatch as the MCP server.
   if (catalog.fingerprint !== machine.fingerprint) {

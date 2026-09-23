@@ -128,6 +128,7 @@ pub async fn execute<R: CredentialResolver, C: crate::providers::github::Conditi
                 data.incomplete_results && data.items.is_empty(),
                 data.total_count > 1000,
                 current,
+                more,
                 "code",
             );
             let mut output = ToolData::from(value);
@@ -178,9 +179,9 @@ pub async fn execute<R: CredentialResolver, C: crate::providers::github::Conditi
             visibility,
             license,
             topics,
+            concise,
             page,
             page_size,
-            ..
         } => {
             let mut terms = keywords.clone().unwrap_or_default();
             if let Some(v) = topics {
@@ -207,14 +208,18 @@ pub async fn execute<R: CredentialResolver, C: crate::providers::github::Conditi
                     .as_deref()
                     .is_none_or(|v| v == "best-match" || v == "updated");
             let data = if owner_only {
-                let (items, more) = transport
+                let (mut items, more) = transport
                     .list_owner_repositories(
                         owner.as_deref().unwrap_or_default(),
+                        (sort.as_deref() == Some("updated")).then_some("updated"),
                         current,
                         per,
                         context,
                     )
                     .await?;
+                // Search excludes archived repositories by default
+                // (`archived:false`); the owner listing API cannot, so filter.
+                items.retain(|item| !item.archived);
                 let seen = (current - 1) * per + items.len();
                 RepositorySearchPage {
                     total_count: seen + usize::from(more),
@@ -242,7 +247,14 @@ pub async fn execute<R: CredentialResolver, C: crate::providers::github::Conditi
             let more = current < pages;
             let provider_incomplete = data.incomplete_results;
             let provider_capped = data.total_count > 1000;
-            let repositories=data.items.into_iter().map(|r| { let (o,n)=r.full_name.split_once('/').unwrap_or(("",&r.name)); json!({"owner":o,"repo":n,"stars":r.stargazers_count,"forks":r.forks_count,"language":r.language,"license":r.license.and_then(|v|v.spdx_id),"description":r.description,"pushedAt":date(r.pushed_at),"createdAt":date(r.created_at),"updatedAt":date(r.updated_at),"topics":r.topics}) }).collect::<Vec<_>>();
+            let repositories = if *concise == Some(true) {
+                data.items
+                    .into_iter()
+                    .map(|r| json!(r.full_name))
+                    .collect::<Vec<_>>()
+            } else {
+                data.items.into_iter().map(|r| { let (o,n)=r.full_name.split_once('/').unwrap_or(("",&r.name)); json!({"owner":o,"repo":n,"stars":r.stargazers_count,"forks":r.forks_count,"language":r.language,"license":r.license.and_then(|v|v.spdx_id),"description":r.description,"pushedAt":date(r.pushed_at),"createdAt":date(r.created_at),"updatedAt":date(r.updated_at),"topics":r.topics}) }).collect::<Vec<_>>()
+            };
             let repositories_empty = repositories.is_empty();
             let mut value = json!({"operation":"repositories","repositories":repositories,"pagination":{"currentPage":current,"totalPages":pages,"perPage":per,"totalMatches":total,"totalMatchesCapped":provider_capped,"hasMore":more,"nextPage":more.then_some(current+1)}});
             if !more && let Some(page) = value.get_mut("pagination").and_then(Value::as_object_mut)
@@ -261,6 +273,7 @@ pub async fn execute<R: CredentialResolver, C: crate::providers::github::Conditi
                 provider_incomplete,
                 provider_capped,
                 current,
+                more,
                 "repositories",
             );
             Ok(repository_output(
@@ -324,18 +337,24 @@ fn remove_nulls(value: &mut Value) {
         }
     }
 }
+#[allow(clippy::too_many_arguments)]
 fn apply_partial(
     value: &mut Value,
     query: &GhSearchQuery,
     incomplete: bool,
     capped: bool,
     page: usize,
+    has_more: bool,
     operation: &str,
 ) {
     let mut reasons = Vec::new();
     if capped {
         reasons.push("providerResultCap");
-        value["terminalLimit"] = json!(true);
+        // terminalLimit means no executable continuation remains: only the
+        // last reachable page of a capped search ends coverage.
+        if !has_more {
+            value["terminalLimit"] = json!(true);
+        }
         value["providerLimit"] = json!({"reason":"providerResultCap","maxResults":1000});
     }
     if incomplete {
@@ -417,6 +436,345 @@ mod tests {
         }
     }
 
+    mod provider_backed {
+        use super::super::*;
+        use crate::providers::github::{
+            CredentialSource, GitHubEndpoint, GitHubProvider, GitHubTransport, NoCache,
+            RetryPolicy, StaticCredentialResolver,
+        };
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
+        use std::{sync::Arc, time::Duration};
+        use wiremock::{
+            Mock, MockServer, ResponseTemplate,
+            matchers::{method, path, query_param},
+        };
+
+        struct Passthrough;
+        impl ContentScan for Passthrough {
+            fn sanitize(
+                &self,
+                text: &str,
+                _: &std::path::Path,
+            ) -> Result<(String, Vec<String>), (String, String)> {
+                Ok((text.to_owned(), vec![]))
+            }
+        }
+
+        fn provider(server: &MockServer) -> GitHubProvider<StaticCredentialResolver, NoCache> {
+            let endpoint = GitHubEndpoint::new(
+                url::Url::parse(&format!("{}/api/v3", server.uri())).expect("URL"),
+            )
+            .expect("endpoint");
+            GitHubProvider {
+                transport: GitHubTransport::new(
+                    endpoint,
+                    Arc::new(StaticCredentialResolver::new(
+                        "fixture",
+                        CredentialSource::Override,
+                    )),
+                    RetryPolicy {
+                        max_attempts: 1,
+                        ..Default::default()
+                    },
+                )
+                .expect("transport"),
+                cache: NoCache,
+            }
+        }
+
+        async fn run(server: &MockServer, query: Value) -> Result<ToolData, ProviderError> {
+            let query: GhSearchQuery = serde_json::from_value(query).expect("query");
+            let home = std::env::temp_dir().join(format!(
+                "gh-search-test-{}-{}",
+                std::process::id(),
+                server.address().port()
+            ));
+            execute(
+                &provider(server),
+                &query,
+                &RequestContext::with_timeout(Duration::from_secs(5), 1 << 20),
+                &Passthrough,
+                &home,
+            )
+            .await
+        }
+
+        fn repo_item(name: &str, archived: bool) -> Value {
+            json!({
+                "full_name": format!("o/{name}"), "name": name,
+                "html_url": "https://x", "default_branch": "main",
+                "archived": archived
+            })
+        }
+
+        #[tokio::test]
+        async fn renamed_repository_retry_keeps_every_filter() {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/api/v3/search/code"))
+                .respond_with(
+                    ResponseTemplate::new(200).set_body_json(
+                        json!({"total_count":0,"incomplete_results":false,"items":[]}),
+                    ),
+                )
+                .mount(&server)
+                .await;
+            Mock::given(method("GET"))
+                .and(path("/api/v3/repos/a/b"))
+                .respond_with(
+                    ResponseTemplate::new(200)
+                        .set_body_json(json!({"default_branch":"main","full_name":"c/d"})),
+                )
+                .mount(&server)
+                .await;
+            let out = run(
+                &server,
+                json!({"operation":"code","owner":"a","repo":"b","keywords":["needle"],
+                       "extension":"rs","path":"src","language":"rust","page":2,"pageSize":10}),
+            )
+            .await
+            .expect("search");
+            let retry = &out.data["next"]["retryRenamed"]["query"];
+            assert_eq!(retry["owner"], "c", "{}", out.data);
+            assert_eq!(retry["repo"], "d");
+            assert_eq!(retry["extension"], "rs");
+            assert_eq!(retry["path"], "src");
+            assert_eq!(retry["language"], "rust");
+            assert_eq!(retry["pageSize"], 10);
+            assert_eq!(retry["page"], 1);
+        }
+
+        #[tokio::test]
+        async fn concise_repositories_are_flat_rows() {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/api/v3/search/repositories"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "total_count":1,"incomplete_results":false,"items":[repo_item("r", false)]
+                })))
+                .mount(&server)
+                .await;
+            let out = run(
+                &server,
+                json!({"operation":"repositories","keywords":["x"],"concise":true}),
+            )
+            .await
+            .expect("search");
+            assert_eq!(out.data["repositories"], json!(["o/r"]));
+        }
+
+        #[tokio::test]
+        async fn owner_listing_honors_sort_and_excludes_archived() {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/api/v3/orgs/o/repos"))
+                .and(query_param("sort", "updated"))
+                .and(query_param("direction", "desc"))
+                .respond_with(
+                    ResponseTemplate::new(200)
+                        .set_body_json(json!([repo_item("live", false), repo_item("old", true)])),
+                )
+                .mount(&server)
+                .await;
+            let out = run(
+                &server,
+                json!({"operation":"repositories","owner":"o","sort":"updated"}),
+            )
+            .await
+            .expect("owner listing");
+            let names = out.data["repositories"]
+                .as_array()
+                .expect("rows")
+                .iter()
+                .map(|row| row["repo"].as_str().unwrap_or_default().to_owned())
+                .collect::<Vec<_>>();
+            assert_eq!(names, vec!["live".to_owned()], "{}", out.data);
+        }
+
+        #[tokio::test]
+        async fn capped_search_is_terminal_only_on_the_last_reachable_page() {
+            let server = MockServer::start().await;
+            let item = json!({"name":"a.rs","path":"a.rs","sha":"s","html_url":"h",
+                "repository":{"full_name":"o/r","html_url":"h","url":"u"}});
+            Mock::given(method("GET"))
+                .and(path("/api/v3/search/code"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "total_count":5000,"incomplete_results":false,"items":[item]
+                })))
+                .mount(&server)
+                .await;
+            let first = run(
+                &server,
+                json!({"operation":"code","keywords":["x"],"page":1,"pageSize":100}),
+            )
+            .await
+            .expect("page 1");
+            assert!(first.data["next"]["nextPage"].is_object());
+            assert!(first.data.get("terminalLimit").is_none(), "{}", first.data);
+            let last = run(
+                &server,
+                json!({"operation":"code","keywords":["x"],"page":10,"pageSize":100}),
+            )
+            .await
+            .expect("page 10");
+            assert_eq!(last.data["terminalLimit"], true, "{}", last.data);
+            assert!(last.data["next"].get("nextPage").is_none());
+        }
+
+        #[tokio::test]
+        async fn tree_missing_path_on_existing_branch_does_not_fall_back() {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/api/v3/repos/a/b/contents/missing"))
+                .and(query_param("ref", "dev"))
+                .respond_with(
+                    ResponseTemplate::new(404).set_body_json(json!({"message":"Not Found"})),
+                )
+                .mount(&server)
+                .await;
+            // The path exists on the default branch: the old heuristic silently
+            // showed it instead of reporting the path missing on `dev`.
+            Mock::given(method("GET"))
+                .and(path("/api/v3/repos/a/b/contents/missing"))
+                .and(query_param("ref", "main"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+                    {"name":"x.rs","path":"missing/x.rs","type":"file","size":1}
+                ])))
+                .mount(&server)
+                .await;
+            Mock::given(method("GET"))
+                .and(path("/api/v3/repos/a/b/commits/dev"))
+                .respond_with(
+                    ResponseTemplate::new(200).set_body_json(json!({"sha":"0".repeat(40)})),
+                )
+                .mount(&server)
+                .await;
+            Mock::given(method("GET"))
+                .and(path("/api/v3/repos/a/b"))
+                .respond_with(
+                    ResponseTemplate::new(200).set_body_json(json!({"default_branch":"main"})),
+                )
+                .mount(&server)
+                .await;
+            let error = run(
+                &server,
+                json!({"operation":"tree","owner":"a","repo":"b","branch":"dev","path":"missing"}),
+            )
+            .await
+            .expect_err("path missing on an existing branch");
+            assert_eq!(error.kind, ProviderErrorKind::NotFound);
+        }
+
+        #[tokio::test]
+        async fn tree_missing_branch_still_falls_back_to_default() {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/api/v3/repos/a/b/contents"))
+                .and(query_param("ref", "gone"))
+                .respond_with(
+                    ResponseTemplate::new(404).set_body_json(json!({"message":"Not Found"})),
+                )
+                .mount(&server)
+                .await;
+            Mock::given(method("GET"))
+                .and(path("/api/v3/repos/a/b/commits/gone"))
+                .respond_with(
+                    ResponseTemplate::new(422)
+                        .set_body_json(json!({"message":"No commit found for SHA: gone"})),
+                )
+                .mount(&server)
+                .await;
+            Mock::given(method("GET"))
+                .and(path("/api/v3/repos/a/b"))
+                .respond_with(
+                    ResponseTemplate::new(200).set_body_json(json!({"default_branch":"main"})),
+                )
+                .mount(&server)
+                .await;
+            Mock::given(method("GET"))
+                .and(path("/api/v3/repos/a/b/contents"))
+                .and(query_param("ref", "main"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+                    {"name":"x.rs","path":"x.rs","type":"file","size":1}
+                ])))
+                .mount(&server)
+                .await;
+            let out = run(
+                &server,
+                json!({"operation":"tree","owner":"a","repo":"b","branch":"gone"}),
+            )
+            .await
+            .expect("fallback");
+            assert_eq!(out.data["branchFallback"]["actualBranch"], "main");
+        }
+
+        #[tokio::test]
+        async fn tree_on_a_file_path_is_a_clear_error() {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/api/v3/repos/a/b/contents/src%2Flib.rs"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "name":"lib.rs","path":"src/lib.rs","type":"file","size":3,"sha":"1"
+                })))
+                .mount(&server)
+                .await;
+            let error = run(
+                &server,
+                json!({"operation":"tree","owner":"a","repo":"b","branch":"main","path":"src/lib.rs"}),
+            )
+            .await
+            .expect_err("file path");
+            assert_eq!(error.kind, ProviderErrorKind::Validation);
+            assert!(error.message.contains("is a file"), "{}", error.message);
+        }
+
+        #[tokio::test]
+        async fn materialize_skips_binary_files_with_a_warning() {
+            let server = MockServer::start().await;
+            let sha = "0123456789abcdef0123456789abcdef01234567";
+            Mock::given(method("GET"))
+                .and(path("/api/v3/repos/a/b/contents"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+                    {"name":"img.png","path":"img.png","type":"file","size":4},
+                    {"name":"ok.rs","path":"ok.rs","type":"file","size":4}
+                ])))
+                .mount(&server)
+                .await;
+            Mock::given(method("GET"))
+                .and(path(format!("/api/v3/repos/a/b/commits/{sha}")))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({"sha":sha})))
+                .mount(&server)
+                .await;
+            Mock::given(method("GET"))
+                .and(path("/api/v3/repos/a/b/contents/img.png"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "type":"file","encoding":"base64","content":STANDARD.encode([0u8, 1, 2, 3])
+                })))
+                .mount(&server)
+                .await;
+            Mock::given(method("GET"))
+                .and(path("/api/v3/repos/a/b/contents/ok.rs"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "type":"file","encoding":"base64","content":STANDARD.encode("fn x(){}")
+                })))
+                .mount(&server)
+                .await;
+            let out = run(
+                &server,
+                json!({"operation":"tree","owner":"a","repo":"b","branch":sha,"materialize":true}),
+            )
+            .await
+            .expect("materialize continues past binary files");
+            let local = out.data["location"]["localPath"]
+                .as_str()
+                .expect("location");
+            assert!(std::path::Path::new(local).join("ok.rs").exists());
+            let warnings = out.data["warnings"].to_string();
+            assert!(warnings.contains("img.png"), "{}", out.data);
+            let _ = std::fs::remove_dir_all(local);
+        }
+    }
+
     #[test]
     fn incomplete_and_cap_are_losslessly_typed() {
         let query = serde_json::from_str::<GhSearchQuery>(
@@ -424,7 +782,7 @@ mod tests {
         )
         .expect("GitHub search test data should be valid");
         let mut value = json!({"operation":"code","pagination":{"hasMore":false}});
-        apply_partial(&mut value, &query, true, true, 10, "code");
+        apply_partial(&mut value, &query, true, true, 10, false, "code");
         assert_eq!(value["terminalLimit"], true);
         assert_eq!(value["providerLimit"]["maxResults"], 1000);
         assert_eq!(

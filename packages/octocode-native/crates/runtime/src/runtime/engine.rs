@@ -92,6 +92,125 @@ pub struct ToolOutcome {
     pub all_failed: bool,
 }
 
+/// An invalid row of an isolated batch, shaped like any other error row.
+fn rejected_row(
+    tool: &str,
+    index: usize,
+    raw: Value,
+    error: &contracts::ContractValidationError,
+) -> (usize, Value) {
+    let formatted = contracts::format_input_error(tool, error);
+    let data = json!({
+        "error": formatted["error"],
+        "errorCode": "invalidInput",
+        "hints": formatted["details"],
+    });
+    (
+        index,
+        super::response::result_row(tool, index, &raw, data, Some("error")),
+    )
+}
+
+/// Put rejected rows back at their input positions and renumber `index`, so
+/// rows and cursor digests stay aligned with the caller's queries.
+fn merge_rejected_rows(
+    rows: &mut Vec<Value>,
+    source_digests: &mut Vec<Option<String>>,
+    rejected: Vec<(usize, Value)>,
+) {
+    if rejected.is_empty() {
+        return;
+    }
+    for (index, row) in rejected {
+        let position = index.min(rows.len());
+        rows.insert(position, row);
+        source_digests.insert(position.min(source_digests.len()), None);
+    }
+    for (index, row) in rows.iter_mut().enumerate() {
+        row["index"] = json!(index);
+    }
+}
+
+/// Repair malformed result rows before either response channel is rendered.
+/// Envelope violations remain fatal so pagination never snapshots invalid data.
+fn isolate_output_rows(
+    tool: &str,
+    structured: &mut Value,
+) -> Result<bool, contracts::ContractValidationError> {
+    let Err(error) = contracts::validate_output(tool, structured) else {
+        return Ok(false);
+    };
+    let Some(patched) = contracts::isolate_row_violations(tool, structured, &error) else {
+        return Err(error);
+    };
+    *structured = patched;
+    Ok(true)
+}
+
+fn output_contract_error(tool: &str, error: contracts::ContractValidationError) -> RuntimeError {
+    let details = error
+        .issues
+        .iter()
+        .map(|issue| format!("{}: {}", issue.path.join("."), issue.message))
+        .collect::<Vec<_>>()
+        .join("; ");
+    RuntimeError {
+        code: "outputContractViolation".into(),
+        message: format!(
+            "{tool} produced a response that violates its canonical output contract: {details}"
+        ),
+        payload: None,
+        validation_issues: Some(error.issues),
+    }
+}
+
+fn response_all_failed(structured: &Value) -> bool {
+    structured
+        .get("results")
+        .or_else(|| structured.get("queries"))
+        .and_then(Value::as_array)
+        .is_some_and(|rows| {
+            rows.iter()
+                .all(|row| row.get("status").and_then(Value::as_str) == Some("error"))
+        })
+}
+
+fn mcp_result(result: ToolOutcome) -> Result<Value, RuntimeError> {
+    serde_json::to_value(PreparedResponse {
+        content: result.content,
+        structured_content: result.structured_content,
+        is_error: result.all_failed,
+    })
+    .map_err(|_| RuntimeError::new("response", "Cannot serialize response"))
+}
+
+fn execute_ordinary_queries(
+    tool: &str,
+    queries: &[Value],
+    dispatcher: &super::domain_dispatch::DomainDispatcher,
+    context: &ExecutionContext,
+) -> Result<Vec<super::dispatch::DomainResult>, ExecutionError> {
+    let concurrent = queries.len() > 1
+        && ToolId::from_name(tool).is_some_and(ToolId::supports_concurrent_queries);
+    if !concurrent {
+        return queries
+            .iter()
+            .map(|query| dispatcher.execute(tool, query, context))
+            .collect();
+    }
+
+    std::thread::scope(|scope| {
+        let tasks = queries
+            .iter()
+            .map(|query| scope.spawn(move || dispatcher.execute(tool, query, context)))
+            .collect::<Vec<_>>();
+        tasks
+            .into_iter()
+            .map(|task| task.join().map_err(|_| ExecutionError::WorkerFailed)?)
+            .collect()
+    })
+}
+
 impl ToolRuntime {
     pub fn from_host(options: HostOptions) -> Result<Self, RuntimeError> {
         let cwd = options
@@ -260,15 +379,17 @@ impl ToolRuntime {
     fn classification_key(&self) -> Option<&str> {
         let vendor = self.config.resolved.classification.r#type.as_str();
         let provider = crate::providers::classification::provider_for(vendor);
-        self.config
-            .env_value("OCTOCODE_CLASSIFICATION_API")
-            .filter(|value| !value.trim().is_empty())
-            .or_else(|| self.config.env_value(provider.key_env()))
+        // Present but blank is an explicit opt-out: no vendor-key fallback.
+        match self.config.env_value("OCTOCODE_CLASSIFICATION_API") {
+            Some(value) if value.trim().is_empty() => None,
+            Some(value) => Some(value),
+            None => self.config.env_value(provider.key_env()),
+        }
     }
 
     pub fn is_available(&self, tool: &str) -> bool {
         let local = self.config.resolved.local.enabled;
-        let clone = self.config.resolved.local.enable_clone
+        let clone = self.input.runtime_surface == RuntimeSurface::Cli
             && self.config.resolved.storage.mode == "persistent";
         let id = ToolId::from_name(tool);
         // GitHub read tools are always enabled; cloning has an extra gate below.
@@ -379,12 +500,7 @@ impl ToolRuntime {
             Ok(result) => result,
             Err(error) => return super::error::mcp_input_error(&tool, &input, &error).ok_or(error),
         };
-        serde_json::to_value(PreparedResponse {
-            content: result.content,
-            structured_content: result.structured_content,
-            is_error: result.all_failed,
-        })
-        .map_err(|_| RuntimeError::new("response", "Cannot serialize response"))
+        mcp_result(result)
     }
 
     async fn execute_channel(
@@ -394,6 +510,14 @@ impl ToolRuntime {
         input: Value,
         mcp: bool,
     ) -> Result<ToolOutcome, RuntimeError> {
+        // The CLI may clone into its persistent cache. MCP never exposes the
+        // mutating clone operation, even if an embedder used a CLI host surface.
+        if mcp && tool == "ghCloneRepo" {
+            return Err(RuntimeError::new(
+                "toolUnavailable",
+                "Tool ghCloneRepo is not available through MCP",
+            ));
+        }
         if !self.is_available(&tool) {
             if !mcp
                 && ToolId::from_name(&tool).is_some_and(ToolId::is_beta)
@@ -467,6 +591,18 @@ impl ToolRuntime {
             }
             None => (tool, input, false),
         };
+        let (input, mut semantic_rerank_specs) = super::semantic_rerank::extract(&tool, input)
+            .map_err(|error| RuntimeError::new("invalidInput", error.0))?;
+        if super::semantic_rerank::has_requests(&semantic_rerank_specs) {
+            if !self.is_available("clasify") {
+                return Err(RuntimeError::new(
+                    "missingConfiguration",
+                    "Search semantic reranking requires an available classification provider. Set OCTOCODE_CLASSIFICATION_API (or the configured vendor key), restart the process, and retry.",
+                ));
+            }
+            super::semantic_rerank::sanitize_specs(&mut semantic_rerank_specs, &self.security)
+                .map_err(|error| RuntimeError::new("securityValidationFailed", error.0))?;
+        }
         // Semantic assessment is nondeterministic and billed per evaluation. Query replay cannot
         // serve a page of the original judgment, including authenticated cursors.
         if tool == "clasify"
@@ -486,6 +622,7 @@ impl ToolRuntime {
         // Parse response-paging options before contract validation.
         let options: ResponsePageOptions =
             serde_json::from_value(input.clone()).unwrap_or_default();
+        let mut rejected_rows: Vec<(usize, Value)> = Vec::new();
         let prepared_queries = if from_cursor {
             vec![
                 input
@@ -495,14 +632,58 @@ impl ToolRuntime {
                     .unwrap_or(input),
             ]
         } else {
-            contracts::prepare_many_and_validate(&tool, input, PrepareOptions::default()).map_err(
-                |error| RuntimeError {
-                    code: "invalidInput".into(),
-                    message: error.to_string(),
-                    payload: Some(Box::new(contracts::format_input_error(&tool, &error))),
-                    validation_issues: Some(error.issues),
-                },
-            )?
+            match contracts::prepare_many_and_validate(
+                &tool,
+                input.clone(),
+                PrepareOptions::default(),
+            ) {
+                Ok(prepared) => prepared,
+                // Row isolation: when only some rows are invalid, execute the
+                // valid rows and return the rest as indexed error rows.
+                Err(error) => {
+                    let Some(rows) =
+                        contracts::prepare_rows(&tool, &input, PrepareOptions::default())
+                    else {
+                        return Err(RuntimeError {
+                            code: "invalidInput".into(),
+                            message: error.to_string(),
+                            payload: Some(Box::new(contracts::format_input_error(&tool, &error))),
+                            validation_issues: Some(error.issues),
+                        });
+                    };
+                    let raw_rows = input
+                        .get("queries")
+                        .or(Some(&input))
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .unwrap_or_default();
+                    let mut prepared = Vec::with_capacity(rows.len());
+                    for (index, row) in rows.into_iter().enumerate() {
+                        match row {
+                            Ok(query) => prepared.push(query),
+                            Err(error) => rejected_rows.push(rejected_row(
+                                &tool,
+                                index,
+                                raw_rows.get(index).cloned().unwrap_or(Value::Null),
+                                &error,
+                            )),
+                        }
+                    }
+                    if !semantic_rerank_specs.is_empty() {
+                        let rejected = rejected_rows
+                            .iter()
+                            .map(|(index, _)| *index)
+                            .collect::<std::collections::HashSet<_>>();
+                        semantic_rerank_specs = std::mem::take(&mut semantic_rerank_specs)
+                            .into_iter()
+                            .enumerate()
+                            .filter(|(index, _)| !rejected.contains(index))
+                            .map(|(_, spec)| spec)
+                            .collect();
+                    }
+                    prepared
+                }
+            }
         };
         let mut queries = Vec::with_capacity(prepared_queries.len());
         for query in prepared_queries {
@@ -518,11 +699,8 @@ impl ToolRuntime {
             }
             queries.push(Value::Object(checked.sanitized_params));
         }
-        let response_query = if queries.len() == 1 {
-            queries[0].clone()
-        } else {
-            json!({"queries": queries.clone()})
-        };
+        let response_query =
+            super::semantic_rerank::response_query(&queries, &semantic_rerank_specs);
         let paths = self.paths.clone();
         let security = self.security.clone();
         let regex = LocalFetchRegex::new(self.regex.clone());
@@ -571,18 +749,21 @@ impl ToolRuntime {
         let classification_timeout =
             Duration::from_millis(self.config.resolved.network.timeout as u64);
         let classification_retries = self.config.resolved.network.max_retries as u32;
+        let classification_max_concurrency =
+            self.config.resolved.classification.max_concurrency as usize;
         let stats_enabled = config::is_stats_enabled(&self.config.resolved);
         let redact_emails = self.config.resolved.output.redact_emails;
+        let auto_page_chars = self.config.resolved.output.pagination.default_char_length as usize;
         let output_tool = tool.clone();
         let cursor_scope = scope;
-        let mut outcome = self
+        let outcome = self
             .requests
             .execute_blocking_admitted(admission, move |context| {
                 let mut rows = Vec::with_capacity(queries.len());
                 let mut source_digest = None;
                 let mut source_digests = Vec::with_capacity(queries.len());
                 let mut failure = None;
-                let mut classification_rows = if tool == "clasify" {
+                let evaluated = if tool == "clasify" {
                     let _enter = handle.enter();
                     let Some(key) = classification_key_secret.as_ref() else {
                         return Err(ExecutionError::WorkerFailed);
@@ -593,7 +774,7 @@ impl ToolRuntime {
                             .min(Instant::now() + classification_timeout),
                         ..context.clone()
                     };
-                    let evaluated = super::clasify_batch::execute(
+                    super::clasify_batch::execute(
                         &queries,
                         &dispatcher,
                         &evaluation_context,
@@ -604,25 +785,23 @@ impl ToolRuntime {
                             model: &classification_model,
                             provider: classification_provider,
                             retries: classification_retries,
+                            max_concurrency: classification_max_concurrency,
                         },
                         |usage| {
-                            super::session_stats::record_jev(
+                            super::session_stats::record_classification(
                                 &home,
                                 stats_enabled,
-                                &json!({"usage":usage}),
+                                usage,
                             );
                         },
-                    )?;
-                    Some(evaluated.into_iter())
+                    )?
                 } else {
-                    None
+                    execute_ordinary_queries(&tool, &queries, &dispatcher, &context)?
                 };
+                let mut evaluated = evaluated.into_iter();
                 for (index, query) in queries.iter().enumerate() {
                     context.check()?;
-                    let result = match classification_rows.as_mut() {
-                        Some(rows) => rows.next().ok_or(ExecutionError::WorkerFailed)?,
-                        None => dispatcher.execute(&tool, query, &context)?,
-                    };
+                    let result = evaluated.next().ok_or(ExecutionError::WorkerFailed)?;
                     context.check()?;
                     let row_source_digest = result.source_digest;
                     if queries.len() == 1 {
@@ -643,10 +822,8 @@ impl ToolRuntime {
                     response::apply_hint_policy(&mut row, &tool, query);
                     rows.push(row);
                 }
-                let all_failed = rows.iter().all(|row| {
-                    row.get("status").and_then(serde_json::Value::as_str) == Some("error")
-                });
-                // Jev receipts and caller-authored rubric values are opaque JSON:
+                merge_rejected_rows(&mut rows, &mut source_digests, rejected_rows);
+                // Clasify receipts and caller-authored rubric values are opaque JSON:
                 // path compaction would mutate their identity and meaning.
                 let mut structured = if tool == "clasify" {
                     json!({"queries": rows})
@@ -669,6 +846,69 @@ impl ToolRuntime {
                     &context,
                     redact_emails,
                 )?;
+                let rerank_jobs = super::semantic_rerank::build_jobs(
+                    &mut structured,
+                    &tool,
+                    &semantic_rerank_specs,
+                );
+                if !rerank_jobs.is_empty() {
+                    context.check()?;
+                    let matrices = rerank_jobs
+                        .iter()
+                        .map(|job| job.matrix.clone())
+                        .collect::<Vec<_>>();
+                    let Some(key) = classification_key_secret.as_ref() else {
+                        return Err(ExecutionError::WorkerFailed);
+                    };
+                    let evaluation_context = ExecutionContext {
+                        deadline: context
+                            .deadline
+                            .min(Instant::now() + classification_timeout),
+                        ..context.clone()
+                    };
+                    match super::clasify_batch::execute(
+                        &matrices,
+                        &dispatcher,
+                        &evaluation_context,
+                        super::clasify_batch::ProviderConfig {
+                            key,
+                            base_url: &classification_base_url,
+                            endpoint_path: &classification_endpoint_path,
+                            model: &classification_model,
+                            provider: classification_provider,
+                            retries: classification_retries,
+                            max_concurrency: classification_max_concurrency,
+                        },
+                        |usage| {
+                            super::session_stats::record_classification(
+                                &home,
+                                stats_enabled,
+                                usage,
+                            );
+                        },
+                    ) {
+                        Ok(assessments) => super::semantic_rerank::apply_assessments(
+                            &mut structured,
+                            &semantic_rerank_specs,
+                            &rerank_jobs,
+                            &assessments,
+                        ),
+                        Err(_) => {
+                            context.check()?;
+                            super::semantic_rerank::apply_failure(&mut structured, &rerank_jobs);
+                        }
+                    }
+                }
+                // Validate the complete, sanitized rows before deriving text,
+                // error state, or a pagination snapshot from them.
+                let repaired = match isolate_output_rows(&tool, &mut structured) {
+                    Ok(repaired) => repaired,
+                    Err(error) => return Ok(Err(error)),
+                };
+                if repaired && failure.is_none() {
+                    failure = Some(FailureKind::Execution);
+                }
+                let all_failed = response_all_failed(&structured);
                 context.check()?;
                 let render = options.render_text.unwrap_or(mcp)
                     || failure.is_some()
@@ -679,6 +919,16 @@ impl ToolRuntime {
                     render.then(|| super::render::render_tool(&tool, &structured, &response_query));
                 context.check()?;
                 let is_clasify_output = tool == "clasify";
+                let mut options = options;
+                // clasify pages at the evidence level (next.clasify); replay
+                // would re-run inference, so it never auto-paginates.
+                // Model-scored rerank output is nondeterministic too: a page
+                // replay would re-score and never match the snapshot.
+                if !is_clasify_output
+                    && !super::semantic_rerank::has_requests(&semantic_rerank_specs)
+                {
+                    options.auto_paginate(rendered_text.as_deref(), &structured, auto_page_chars);
+                }
                 let prepared = ResponsePager::new(ResponsePagerConfig::default())
                     .prepare(
                         ResponseInput {
@@ -695,51 +945,27 @@ impl ToolRuntime {
                 // Stamp cursor tokens on the final envelope, which now includes
                 // responsePagination.next added by the pager.
                 let mut structured_content = prepared.structured_content;
-                // Jev receipts retain executable tool/query pairs. Their tool
-                // scopes differ from the outer Jev request's cursor scope.
+                // Clasify receipts retain executable tool/query pairs. Their tool
+                // scopes differ from the outer clasify request's cursor scope.
                 if !is_clasify_output {
                     inject_cursors(&mut structured_content, &cursor_scope, &source_digests);
                 }
                 context.check()?;
-                Ok(ToolOutcome {
+                Ok(Ok(ToolOutcome {
                     structured_content,
                     content: prepared.content,
                     source_digest,
                     failure,
                     all_failed,
-                })
+                }))
             })
             .await
-            .map_err(runtime_execution_error)?;
-        if let Err(error) = contracts::validate_output(&output_tool, &outcome.structured_content) {
-            // Row-scoped violations degrade to row-level errors so one
-            // drifting emitter cannot discard the batch's healthy rows; the
-            // rendered text keeps its pre-patch form. Envelope-level
-            // violations still fail the whole call.
-            match contracts::isolate_row_violations(
-                &output_tool,
-                &outcome.structured_content,
-                &error,
-            ) {
-                Some(patched) => outcome.structured_content = patched,
-                None => {
-                    let details = error
-                        .issues
-                        .iter()
-                        .map(|issue| format!("{}: {}", issue.path.join("."), issue.message))
-                        .collect::<Vec<_>>()
-                        .join("; ");
-                    return Err(RuntimeError {
-                        code: "outputContractViolation".into(),
-                        message: format!(
-                            "{output_tool} produced a response that violates its canonical output contract: {details}"
-                        ),
-                        payload: None,
-                        validation_issues: Some(error.issues),
-                    });
-                }
-            }
-        }
+            .map_err(runtime_execution_error)?
+            .map_err(|error| output_contract_error(&output_tool, error))?;
+        // Cursor insertion and page shaping also cross the public contract.
+        // They must validate, but must not mutate an already-rendered response.
+        contracts::validate_output(&output_tool, &outcome.structured_content)
+            .map_err(|error| output_contract_error(&output_tool, error))?;
         Ok(outcome)
     }
 }
@@ -773,21 +999,23 @@ fn inject_cursors_inner<'a>(
                 map.get("tool").and_then(Value::as_str),
                 map.get("query").filter(|v| v.is_object()),
             ) {
-                let tool = tool_str.to_owned();
-                let query = query_val.clone();
-                let token = if matches!(tool.as_str(), "localFetch" | "localSearch") {
-                    row_source_digest.and_then(|digest| {
+                // A cursor re-encodes the whole query (~1 KB), and replaying
+                // `query` ignores it, so emit one only where it adds a check the
+                // query lacks: localFetch source-change detection. localSearch
+                // queries carry `snapshot`, which replay already verifies.
+                // `{cursor}` resume stays accepted for older callers.
+                let token = (tool_str == "localFetch")
+                    .then_some(row_source_digest)
+                    .flatten()
+                    .and_then(|digest| {
                         super::cursor::ReadCursor::create(
-                            &tool,
-                            query.clone(),
+                            tool_str,
+                            query_val.clone(),
                             digest.to_owned(),
                             scope.to_owned(),
                         )
                         .ok()
-                    })
-                } else {
-                    super::cursor::UniversalCursor::create(&tool, query, scope.to_owned()).ok()
-                };
+                    });
                 if let Some(token) = token {
                     map.insert("cursor".into(), Value::String(token));
                 }
@@ -842,10 +1070,97 @@ impl CancellationCheck for ExecutionContext {
 }
 
 #[cfg(test)]
+mod output_recovery_tests {
+    use super::*;
+
+    fn mcp_from_rows(mut structured: Value) -> Value {
+        assert!(isolate_output_rows("ghCloneRepo", &mut structured).expect("row isolation"));
+        let all_failed = response_all_failed(&structured);
+        let text = super::super::render::render_tool(
+            "ghCloneRepo",
+            &structured,
+            &json!({"owner":"a","repo":"b"}),
+        );
+        mcp_result(ToolOutcome {
+            structured_content: structured,
+            content: vec![TextContent {
+                r#type: "text".into(),
+                text,
+            }],
+            source_digest: None,
+            failure: Some(FailureKind::Execution),
+            all_failed,
+        })
+        .expect("MCP response")
+    }
+
+    #[test]
+    fn malformed_single_row_is_an_error_in_both_mcp_channels() {
+        let result = mcp_from_rows(json!({"results":[
+            {"index":0,"data":{"owner":"a"}}
+        ]}));
+        assert_eq!(result["isError"], true);
+        assert_eq!(
+            result["structuredContent"]["results"][0]["data"]["errorCode"],
+            "outputContractViolation"
+        );
+        assert!(
+            result["content"][0]["text"]
+                .as_str()
+                .is_some_and(|text| text.contains("outputContractViolation")),
+            "{result}"
+        );
+    }
+
+    #[test]
+    fn malformed_row_in_mixed_batch_keeps_healthy_row_and_mcp_success_flag() {
+        let result = mcp_from_rows(json!({"results":[
+            {"index":0,"data":{"owner":"a"}},
+            {"index":1,"data":{
+                "owner":"a","repo":"b","totalSize":0,
+                "location":{
+                    "kind":"repo","localPath":"/tmp/repo","source":"clone",
+                    "cached":false,"commitSha":"abc","verified":true,
+                    "complete":true,"resolvedBranch":"main"
+                }
+            }}
+        ]}));
+        assert_eq!(result["isError"], false);
+        assert_eq!(
+            result["structuredContent"]["results"][0]["data"]["errorCode"],
+            "outputContractViolation"
+        );
+        assert_eq!(
+            result["structuredContent"]["results"][1]["data"]["location"]["commitSha"],
+            "abc"
+        );
+        assert!(
+            result["content"][0]["text"]
+                .as_str()
+                .is_some_and(|text| text.contains("outputContractViolation")),
+            "{result}"
+        );
+    }
+}
+
+#[cfg(test)]
 mod cursor_tests {
     use super::*;
     use crate::policy::path::PathPolicyConfig;
     use sha2::{Digest, Sha256};
+
+    #[test]
+    fn only_local_fetch_continuations_carry_a_cursor() {
+        let mut structured = json!({"results":[{"index":0,"data":{"next":{
+            "search":{"tool":"localSearch","query":{"searchText":"x","snapshot":"s"}},
+            "remote":{"tool":"ghSearch","query":{"operation":"code","keywords":["x"]}}
+        }}}]});
+        inject_cursors(&mut structured, "scope", &[Some("digest".into())]);
+        assert!(
+            !structured.to_string().contains("\"cursor\""),
+            "replayable queries must not be duplicated into a cursor: {structured}"
+        );
+    }
 
     #[test]
     fn local_fetch_continuations_are_bound_to_their_result_row_digest() {

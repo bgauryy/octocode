@@ -169,6 +169,14 @@ impl GitHubContentCache {
     }
 }
 
+/// `GitHubProvider::get_file_content` keys bodies as `github-content:<digest>`
+/// over owner/repo/path and the resolved 40-hex commit SHA (never a branch
+/// name), so those entries are immutable. Other namespaces (for example
+/// `github-tree:` listings keyed by a movable ref) keep ETag revalidation.
+fn is_commit_pinned_content(key: &str) -> bool {
+    key.starts_with("github-content:")
+}
+
 impl ConditionalCache for GitHubContentCache {
     fn get<'a>(
         &'a self,
@@ -176,8 +184,9 @@ impl ConditionalCache for GitHubContentCache {
         key: &'a str,
     ) -> Pin<Box<dyn Future<Output = Option<CachedContent>> + Send + 'a>> {
         Box::pin(async move {
+            let immutable = is_commit_pinned_content(key);
             let key = Self::key(partition, key);
-            match self.cache.lock().unwrap_or_else(|p| p.into_inner()).get(
+            let value = match self.cache.lock().unwrap_or_else(|p| p.into_inner()).get(
                 &key,
                 self.revision,
                 None,
@@ -185,7 +194,17 @@ impl ConditionalCache for GitHubContentCache {
             ) {
                 CacheLookup::Hit { value, .. } => Some((*value).clone()),
                 CacheLookup::Miss(_) => self.read_disk(&key),
-            }
+            };
+            // File bodies are keyed by the resolved commit SHA, so a hit can
+            // never go stale. Dropping the ETag makes the provider serve it as
+            // is instead of spending one conditional (304) round trip per read;
+            // clasify pages a large file through ~20 such reads.
+            value.map(|mut value| {
+                if immutable {
+                    value.etag = None;
+                }
+                value
+            })
         })
     }
 
@@ -237,6 +256,34 @@ mod tests {
         assert_eq!(cache().get(&first, "file").await, Some(content));
         assert_eq!(cache().get(&other_credential, "file").await, None);
         assert_eq!(cache().get(&other_endpoint, "file").await, None);
+    }
+
+    #[tokio::test]
+    async fn commit_pinned_file_bodies_skip_revalidation_but_trees_keep_etags() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = || GitHubContentCache::new(CacheConfig::default(), 7, Some(dir.path().into()));
+        let part = ProviderPartition("endpoint/credential".into());
+        let content = CachedContent {
+            bytes: b"source".to_vec(),
+            etag: Some("v1".into()),
+            resolved_ref: "sha".into(),
+        };
+        let memory = cache();
+        memory
+            .put(&part, "github-content:abc".into(), content.clone())
+            .await;
+        memory
+            .put(&part, "github-tree:abc".into(), content.clone())
+            .await;
+        for tier in [&memory, &cache()] {
+            let file = tier.get(&part, "github-content:abc").await.unwrap();
+            assert_eq!(file.etag, None, "immutable body must be served as is");
+            assert_eq!(file.bytes, content.bytes);
+            assert_eq!(
+                tier.get(&part, "github-tree:abc").await.unwrap().etag,
+                Some("v1".into())
+            );
+        }
     }
 
     #[tokio::test]

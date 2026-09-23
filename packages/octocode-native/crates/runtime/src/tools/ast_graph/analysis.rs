@@ -147,7 +147,14 @@ pub(crate) fn analyze(
             json!({"restartDiagnostics":{"tool":"astTopology","query":restart_query,"why":"Restart diagnostic pagination from the current diagnostic snapshot.","confidence":"exact"}}),
         );
     } else {
-        add_next(&mut base, q, limit_truncated, b.truncated, terminal);
+        add_next(
+            &mut base,
+            q,
+            &b.root,
+            limit_truncated,
+            b.truncated,
+            terminal,
+        );
     }
     let result_state = if base["pagination"]["hasMore"] == true {
         "pageable"
@@ -1034,6 +1041,7 @@ fn add_coverage(
 fn add_next(
     base: &mut Map<String, Value>,
     q: &AstGraphQuery,
+    root: &Path,
     limit_truncated: bool,
     scan_truncated: bool,
     _terminal: bool,
@@ -1104,12 +1112,12 @@ fn add_next(
         && let (Some(file), Some(name), Some(line)) =
             (c["file"].as_str(), c["name"].as_str(), c["line"].as_u64())
     {
-        let root = q.path.as_deref().unwrap_or("").trim_end_matches('/');
-        // The output contract validates this advisory continuation against the
-        // lspSearch anchored-query schema, whose serialization requires every
-        // defaulted field. Emit them explicitly (contract defaults) so the hint
-        // is a valid, directly-executable lspSearch query.
-        next.insert("verifyReferences".into(),json!({"tool":"lspSearch","query":{"operation":"references","uri":format!("{root}/{file}"),"symbolName":name,"lineHint":line,"includeDeclaration":false,"groupByFile":true,"orderHint":0,"page":1,"format":"structured","debug":false},"why":format!("Verify candidate \"{name}\" before deletion; repeat for each result, prioritizing viaHeuristic:\"reexport-chain\"."),"confidence":"high"}));
+        // The uri anchors on the canonical graph root (inferred when `path` is
+        // omitted). The output contract validates this advisory continuation
+        // against the lspSearch anchored-query schema, whose serialization
+        // requires every defaulted field; emit exactly those contract fields.
+        let uri = root.join(file).to_string_lossy().into_owned();
+        next.insert("verifyReferences".into(),json!({"tool":"lspSearch","query":{"operation":"references","uri":uri,"symbolName":name,"lineHint":line,"includeDeclaration":false,"groupByFile":true,"orderHint":0,"page":1,"debug":false},"why":format!("Verify candidate \"{name}\" before deletion; repeat for each result, prioritizing viaHeuristic:\"reexport-chain\"."),"confidence":"high"}));
     }
     if !next.is_empty() {
         base.insert("next".into(), Value::Object(next));
@@ -1373,7 +1381,7 @@ mod tests {
         .cloned()
         .expect("result object");
 
-        add_next(&mut result, &query, false, false, false);
+        add_next(&mut result, &query, Path::new("/repo"), false, false, false);
 
         assert_eq!(result["next"]["nextDiagnostics"]["tool"], "astTopology");
         assert_eq!(

@@ -59,7 +59,7 @@ mod tests {
         assert_eq!(body["stats"]["totalOccurrences"], 3);
         assert_eq!(body["stats"]["matchedLines"], 3);
         assert_eq!(body["stats"]["capped"], false);
-        assert_eq!(body["files"][0]["totalMatchRows"], 2);
+        assert_eq!(body["files"][0]["pagination"]["totalMatches"], 2);
         assert!(
             first
                 .warnings
@@ -82,11 +82,11 @@ mod tests {
         assert_eq!(matched["originalChars"], 4107);
         assert_eq!(matched["returnedChars"], 30);
         assert_eq!(matched["count"], 1);
-        assert_eq!(body["files"][0]["totalMatchRows"], 2);
-        assert_eq!(body["files"][0]["pagination"]["hasMore"], false);
+        // The last match page has nowhere further to route: no per-file paging.
+        assert!(body["files"][0].get("pagination").is_none(), "{body}");
         assert!(body.get("next").is_none());
 
-        for (limit, expected_chars) in [(None, 500), (Some(1), 1), (Some(4105), 4105)] {
+        for (limit, expected_chars) in [(None, 200), (Some(1), 1), (Some(4105), 4105)] {
             let bounded = LocalSearchRequest {
                 match_page: Some(1),
                 snapshot: None,
@@ -470,5 +470,403 @@ mod tests {
         assert!(hint.contains("skipped"), "{hint}");
         assert!(hint.contains("maxFileSize"), "{hint}");
         assert!(hint.contains("localFetch"), "{hint}");
+    }
+
+    fn search_fixture(files: &[(&str, &str)], request: LocalSearchRequest) -> serde_json::Value {
+        let root = tempfile::tempdir().expect("fixture directory");
+        for (name, body) in files {
+            let path = root.path().join(name);
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent).expect("fixture dir");
+            }
+            fs::write(path, body).expect("fixture");
+        }
+        let policy = PathPolicy::new(PathPolicyConfig {
+            workspace_root: Some(root.path().to_path_buf()),
+            ..Default::default()
+        })
+        .expect("policy");
+        let security = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+        let request = LocalSearchRequest {
+            path: root.path().to_string_lossy().into_owned(),
+            ..request
+        };
+        let result =
+            execute_local_search(&request, &policy, &security, &NeverCancel).expect("search");
+        serde_json::to_value(&result).expect("serialize")
+    }
+
+    fn all_values(body: &serde_json::Value) -> String {
+        body["files"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .flat_map(|f| f["matches"].as_array().cloned().unwrap_or_default())
+            .map(|m| m["value"].as_str().unwrap_or_default().to_owned())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    // A clipped value (matchOnly span, matchWindow, matchContentLength) must not
+    // leak a partial secret that no longer matches the secret patterns.
+    #[test]
+    fn clipped_values_never_leak_partial_secrets() {
+        let token = "ghp_1234567890abcdefghijklmnopqrstuvwxyzAB";
+        let file = format!("token: {token} end\n");
+        let cases = [
+            LocalSearchRequest {
+                search_text: "ghp_[0-9a-z]{20}".into(),
+                result_view: Some(ResultView::MatchOnly),
+                ..Default::default()
+            },
+            LocalSearchRequest {
+                search_text: "token".into(),
+                result_view: Some(ResultView::MatchOnly),
+                match_window: Some(20),
+                ..Default::default()
+            },
+            LocalSearchRequest {
+                search_text: "end".into(),
+                result_view: Some(ResultView::MatchOnly),
+                match_window: Some(30),
+                ..Default::default()
+            },
+            LocalSearchRequest {
+                search_text: "token".into(),
+                match_content_length: Some(30),
+                ..Default::default()
+            },
+        ];
+        for request in cases {
+            let body = search_fixture(&[("sec.txt", &file)], request);
+            let values = all_values(&body);
+            assert!(!values.is_empty());
+            for fragment in ["1234567890", "klmnopqrstuvwxyz"] {
+                assert!(!values.contains(fragment), "leaked {fragment}: {values}");
+            }
+        }
+        // Clean lines in the same file keep their exact values.
+        let body = search_fixture(
+            &[("sec.txt", &format!("{file}plain needle line\n"))],
+            LocalSearchRequest {
+                search_text: "needle".into(),
+                result_view: Some(ResultView::MatchOnly),
+                ..Default::default()
+            },
+        );
+        assert_eq!(all_values(&body), "needle");
+    }
+
+    #[test]
+    fn short_spans_inside_private_key_bodies_are_redacted() {
+        let file = "-----BEGIN RSA PRIVATE KEY-----\nMIIEpQIBAAKCAQEAinteriorKeyBodyQWERTYAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n-----END RSA PRIVATE KEY-----\n";
+        let body = search_fixture(
+            &[("key.rs", file)],
+            LocalSearchRequest {
+                search_text: "interior".into(),
+                result_view: Some(ResultView::MatchOnly),
+                match_window: Some(6),
+                ..Default::default()
+            },
+        );
+        assert!(!all_values(&body).contains("interior"), "{body}");
+    }
+
+    #[test]
+    fn next_page_restarts_match_rows_and_next_match_page_tracks_shown_files() {
+        let many = "foo\n".repeat(5);
+        let files = [
+            ("a.txt", many.as_str()),
+            ("b.txt", "foo\n"),
+            ("c.txt", many.as_str()),
+        ];
+        let body = search_fixture(
+            &files,
+            LocalSearchRequest {
+                search_text: "foo".into(),
+                page_size: Some(2),
+                match_page: Some(3),
+                max_matches_per_file: Some(2),
+                context_lines: Some(0),
+                sort: Some(SortMode::Path),
+                ..Default::default()
+            },
+        );
+        // Page 1 at matchPage 3: a.txt's 5th row is shown, nothing is left over.
+        assert!(
+            body["next"].get("nextMatchPage").is_none(),
+            "{}",
+            body["next"]
+        );
+        assert_eq!(body["next"]["nextPage"]["query"]["matchPage"], 1);
+        let body = search_fixture(
+            &files,
+            LocalSearchRequest {
+                search_text: "foo".into(),
+                page_size: Some(2),
+                page: Some(2),
+                max_matches_per_file: Some(2),
+                context_lines: Some(0),
+                sort: Some(SortMode::Path),
+                ..Default::default()
+            },
+        );
+        assert_eq!(body["next"]["nextMatchPage"]["query"]["matchPage"], 2);
+    }
+
+    #[test]
+    fn binary_files_do_not_mark_a_search_partial_or_terminal() {
+        let body = search_fixture(
+            &[("bin.dat", "foo\u{0}foo\n"), ("a.txt", "foo\n")],
+            LocalSearchRequest {
+                search_text: "foo".into(),
+                ..Default::default()
+            },
+        );
+        assert!(body.get("terminalLimit").is_none(), "{body}");
+        assert!(body.get("next").is_none_or(|next| next.is_null()), "{body}");
+        assert_eq!(body["stats"]["capReason"], "binaryQuit");
+    }
+
+    #[test]
+    fn reverse_applies_to_default_relevance_order() {
+        let files = [("a.txt", "foo\nfoo\nfoo\n"), ("b.txt", "foo\n")];
+        let order = |reverse| {
+            let body = search_fixture(
+                &files,
+                LocalSearchRequest {
+                    search_text: "foo".into(),
+                    reverse,
+                    ..Default::default()
+                },
+            );
+            body["files"]
+                .as_array()
+                .expect("files")
+                .iter()
+                .map(|f| f["path"].as_str().unwrap_or_default().to_owned())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(order(None), ["a.txt", "b.txt"]);
+        assert_eq!(order(Some(true)), ["b.txt", "a.txt"]);
+    }
+
+    // Lean defaults: the paginated view returns only the hit line, 10 rows per
+    // file page and 20 files per page; `detailed` keeps a ±3 context window.
+    #[test]
+    fn default_paginated_view_is_lean_and_detailed_keeps_context() {
+        let file = numbered(30, &(1..=12).collect::<Vec<_>>());
+        let many: Vec<(String, String)> = (0..25)
+            .map(|i| (format!("f{i:02}.txt"), "line 1 needle\n".to_owned()))
+            .collect();
+        let mut fixtures: Vec<(&str, &str)> = vec![("a.txt", file.as_str())];
+        fixtures.extend(many.iter().map(|(p, c)| (p.as_str(), c.as_str())));
+        let body = search_fixture(
+            &fixtures,
+            LocalSearchRequest {
+                search_text: "needle".into(),
+                sort: Some(SortMode::Path),
+                ..Default::default()
+            },
+        );
+        let files = body["files"].as_array().expect("files");
+        assert_eq!(files.len(), 20, "{body}");
+        let a = &files[0];
+        assert_eq!(a["matches"].as_array().expect("rows").len(), 10, "{body}");
+        assert_eq!(a["matches"][0]["value"], "line 1 needle");
+        assert_eq!(a["pagination"]["totalMatches"], 12);
+        let detailed = search_fixture(
+            &[("a.txt", &numbered(30, &[20]))],
+            LocalSearchRequest {
+                search_text: "needle".into(),
+                result_view: Some(ResultView::Detailed),
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            detailed["files"][0]["matches"][0]["value"],
+            "line 17\nline 18\nline 19\nline 20 needle\nline 21\nline 22\nline 23"
+        );
+    }
+
+    fn numbered(lines: u32, needles: &[u32]) -> String {
+        (1..=lines)
+            .map(|n| {
+                if needles.contains(&n) {
+                    format!("line {n} needle\n")
+                } else {
+                    format!("line {n}\n")
+                }
+            })
+            .collect()
+    }
+
+    // Overlapping/adjacent ±contextLines windows are emitted once: every source
+    // line appears exactly once, in order, and every matched line is recorded.
+    #[test]
+    fn overlapping_context_windows_merge_into_one_block() {
+        let file = numbered(30, &[5, 7, 12, 25]);
+        let body = search_fixture(
+            &[("a.txt", &file)],
+            LocalSearchRequest {
+                search_text: "needle".into(),
+                context_lines: Some(2),
+                ..Default::default()
+            },
+        );
+        let matches = body["files"][0]["matches"].as_array().expect("matches");
+        // 5 and 7 overlap (3..=9), 12 is adjacent (10..=14 follows 9), 25 is apart.
+        assert_eq!(matches.len(), 2, "{body}");
+        assert_eq!(matches[0]["line"], 5);
+        assert_eq!(matches[0]["matchLines"], serde_json::json!([5, 7, 12]));
+        let expected: String = (3..=14)
+            .map(|n| {
+                if [5, 7, 12].contains(&n) {
+                    format!("line {n} needle")
+                } else {
+                    format!("line {n}")
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_eq!(matches[0]["value"], expected);
+        assert_eq!(matches[1]["line"], 25);
+        assert!(matches[1].get("matchLines").is_none(), "{body}");
+        assert_eq!(
+            matches[1]["value"],
+            "line 23\nline 24\nline 25 needle\nline 26\nline 27"
+        );
+        // Counts stay per matched line.
+        assert_eq!(body["stats"]["matchedLines"], 4);
+    }
+
+    #[test]
+    fn windows_merge_at_file_edges_and_stay_apart_when_disjoint() {
+        let file = numbered(6, &[1, 2, 6]);
+        let body = search_fixture(
+            &[("a.txt", &file)],
+            LocalSearchRequest {
+                search_text: "needle".into(),
+                context_lines: Some(1),
+                ..Default::default()
+            },
+        );
+        let matches = body["files"][0]["matches"].as_array().expect("matches");
+        assert_eq!(matches.len(), 2, "{body}");
+        assert_eq!(matches[0]["value"], "line 1 needle\nline 2 needle\nline 3");
+        assert_eq!(matches[0]["matchLines"], serde_json::json!([1, 2]));
+        assert_eq!(matches[1]["value"], "line 5\nline 6 needle");
+        // matchOnly never merges: it carries spans, not windows.
+        let body = search_fixture(
+            &[("a.txt", &file)],
+            LocalSearchRequest {
+                search_text: "needle".into(),
+                result_view: Some(ResultView::MatchOnly),
+                ..Default::default()
+            },
+        );
+        let matches = body["files"][0]["matches"].as_array().expect("matches");
+        assert_eq!(matches.len(), 3, "{body}");
+        assert!(matches.iter().all(|m| m.get("matchLines").is_none()));
+    }
+
+    // A truncated window must never be merged (its line structure is unknown).
+    #[test]
+    fn truncated_windows_are_not_merged() {
+        let long = "x".repeat(200);
+        let file = format!("{long}\nneedle a\n{long}\nneedle b\n{long}\n");
+        let body = search_fixture(
+            &[("a.txt", &file)],
+            LocalSearchRequest {
+                search_text: "needle".into(),
+                match_content_length: Some(100),
+                ..Default::default()
+            },
+        );
+        let matches = body["files"][0]["matches"].as_array().expect("matches");
+        assert_eq!(matches.len(), 2, "{body}");
+        assert!(matches.iter().all(|m| m.get("matchLines").is_none()));
+    }
+
+    // Single-page results carry no redundant accounting: no engine constant,
+    // no pagination block, no per-file row counters or per-file pagination
+    // unless that file has more match pages.
+    #[test]
+    fn single_page_results_omit_redundant_accounting() {
+        let body = search_fixture(
+            &[("a.txt", "foo\n"), ("b.txt", &"foo\n".repeat(3))],
+            LocalSearchRequest {
+                search_text: "foo".into(),
+                max_matches_per_file: Some(2),
+                context_lines: Some(0),
+                ..Default::default()
+            },
+        );
+        assert!(body.get("searchEngine").is_none(), "{body}");
+        assert!(body.get("pagination").is_none(), "{body}");
+        let files = body["files"].as_array().expect("files");
+        for file in files {
+            assert!(file.get("totalMatchRows").is_none(), "{file}");
+            assert!(file.get("returnedMatchRows").is_none(), "{file}");
+        }
+        let b = files.iter().find(|f| f["path"] == "b.txt").expect("b");
+        let a = files.iter().find(|f| f["path"] == "a.txt").expect("a");
+        assert!(a.get("pagination").is_none(), "{a}");
+        assert_eq!(b["pagination"]["hasMore"], true);
+        assert_eq!(b["pagination"]["totalMatches"], 3);
+        assert!(b["pagination"].get("matchesPerPage").is_none(), "{b}");
+        let next = &body["next"]["nextMatchPage"]["query"];
+        assert!(next["snapshot"].is_string(), "{body}");
+        // Multi-page file results still carry file pagination.
+        let body = search_fixture(
+            &[("a.txt", "foo\n"), ("b.txt", "foo\n")],
+            LocalSearchRequest {
+                search_text: "foo".into(),
+                page_size: Some(1),
+                ..Default::default()
+            },
+        );
+        assert_eq!(body["pagination"]["totalPages"], 2, "{body}");
+        assert!(body["pagination"]["snapshot"].is_string(), "{body}");
+    }
+
+    // Continuations re-materialize only the context default the view uses: none
+    // for context-free views, and the detailed view's own default (3) — a
+    // hard-coded 2 changed the fingerprint and made every continuation stale.
+    #[test]
+    fn continuations_carry_the_view_context_default() {
+        let file = "foo\n".repeat(3);
+        let make = |view| LocalSearchRequest {
+            search_text: "foo".into(),
+            result_view: Some(view),
+            max_matches_per_file: Some(1),
+            ..Default::default()
+        };
+        let body = search_fixture(&[("a.txt", &file)], make(ResultView::MatchOnly));
+        let next = &body["next"]["nextMatchPage"]["query"];
+        assert!(next.get("contextLines").is_none(), "{next}");
+
+        let root = tempfile::tempdir().expect("fixture directory");
+        fs::write(root.path().join("a.txt"), &file).expect("fixture");
+        let policy = PathPolicy::new(PathPolicyConfig {
+            workspace_root: Some(root.path().to_path_buf()),
+            ..Default::default()
+        })
+        .expect("policy");
+        let security = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+        let request = LocalSearchRequest {
+            path: root.path().to_string_lossy().into_owned(),
+            ..make(ResultView::Detailed)
+        };
+        let first =
+            execute_local_search(&request, &policy, &security, &NeverCancel).expect("first page");
+        let body = serde_json::to_value(&first).expect("serialize");
+        let next = body["next"]["nextMatchPage"]["query"].clone();
+        assert_eq!(next["contextLines"], 3, "{next}");
+        let mut continued: LocalSearchRequest =
+            serde_json::from_value(next).expect("continuation parses");
+        continued.path = request.path.clone();
+        execute_local_search(&continued, &policy, &security, &NeverCancel)
+            .expect("detailed continuation is not stale");
     }
 }

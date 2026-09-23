@@ -72,3 +72,13 @@ test('auto-selected cdp transport failure falls back to direct', () => {
   assert.ok(res.parsed, res.stderr);
   assert.equal(res.parsed.route, 'direct:html', JSON.stringify(res.parsed));
 });
+
+test('crawl treats fragment and trailing-slash variants as one page and skips non-http links', () => {
+  writeFileSync(join(root, 'body.html'), '<html><body><h1>Doc</h1><p>one</p><p>two</p><a href="#top">t</a><a href="/a/">a</a><a href="/b">b</a><a href="/b#s">bs</a><a href="mailto:x@ex.test">m</a></body></html>');
+  const res = run(mockArgs('https://ex.test/a', ['--crawl', '--same-domain', '--max-pages', '10', '--delay-ms', '0']));
+  assert.equal(res.status, 0, res.stderr);
+  const rows = readFileSync(join(res.parsed.sessionDir, 'sources.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  assert.deepEqual(rows.map((r) => r.url), ['https://ex.test/a', 'https://ex.test/b']);
+  const text = readFileSync(join(res.parsed.sessionDir, 'text', 'page-001.clean.part-001.md'), 'utf8');
+  assert.match(text, /^# Doc\n\none\n\ntwo/, 'HTML text keeps block structure as lines');
+});

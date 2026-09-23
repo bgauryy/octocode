@@ -1,5 +1,5 @@
 {
-  "contractFingerprint": "f26c61b46e0f80e67e1248511194143313ed38e4de8b807eea8b02c4fca9b959",
+  "contractFingerprint": "5a51123439bf3d9f0d6bdc7f8723f97ec221c22290322c39e163357eeb9e7e8a",
   "coverageClasses": [
     "validated",
     "consumed",
@@ -63,6 +63,27 @@
         ],
         "resources[].context.query": [
           "consumed"
+        ],
+        "resources[].context.query.branch": [
+          "forwarded"
+        ],
+        "resources[].context.query.endLine": [
+          "forwarded"
+        ],
+        "resources[].context.query.owner": [
+          "forwarded"
+        ],
+        "resources[].context.query.path": [
+          "forwarded"
+        ],
+        "resources[].context.query.reasoning": [
+          "forwarded"
+        ],
+        "resources[].context.query.repo": [
+          "forwarded"
+        ],
+        "resources[].context.query.startLine": [
+          "forwarded"
         ],
         "resources[].context.tool": [
           "consumed"

@@ -823,9 +823,13 @@ fn prepare_matches(
         {
             return Err(RewriteError::new(
                 "ast.rewrite.overlap",
-                "The rewrite engine returned overlapping replacement ranges; no changes were prepared.",
+                "The rewrite pattern matched overlapping syntax ranges. Narrow the pattern so each match selects one non-overlapping syntax node, then preview again; no changes were prepared.",
             )
-            .detail(json!({"path":path})));
+            .detail(json!({
+                "path": path,
+                "firstRange": {"start": pair[0].start, "end": pair[0].end},
+                "secondRange": {"start": pair[1].start, "end": pair[1].end}
+            })));
         }
     }
     Ok(matches)
@@ -1302,6 +1306,46 @@ mod tests {
         sync::Arc,
         time::{SystemTime, UNIX_EPOCH},
     };
+
+    #[test]
+    fn overlap_error_identifies_ranges_and_how_to_narrow_the_preview() {
+        let matched = |start, end| RawMatch {
+            file: "a.ts".into(),
+            text: "matched".into(),
+            replacement: "replaced".into(),
+            range: RawRange {
+                byte_offset: RawByteRange { start, end },
+                start: RawPosition {
+                    line: 0,
+                    column: start as u32,
+                },
+                end: RawPosition {
+                    line: 0,
+                    column: end as u32,
+                },
+            },
+            replacement_offsets: None,
+            meta_variables: RawMetaVariables::default(),
+        };
+        let error = prepare_matches("a.ts", "before", vec![matched(0, 12), matched(5, 14)])
+            .expect_err("overlap must reject preview");
+        let value = error.value();
+        assert_eq!(value["errorCode"], "ast.rewrite.overlap");
+        assert!(
+            value["error"].as_str().is_some_and(|message| {
+                message.contains("Narrow the pattern") && message.contains("preview again")
+            }),
+            "{value}"
+        );
+        assert_eq!(
+            value["details"]["firstRange"],
+            json!({"start": 0, "end": 12})
+        );
+        assert_eq!(
+            value["details"]["secondRange"],
+            json!({"start": 5, "end": 14})
+        );
+    }
 
     #[test]
     fn unified_patch_preserves_crlf_line_endings() {

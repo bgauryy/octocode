@@ -103,6 +103,22 @@ describe('project', () => {
     expect(full.outputSchema).toBeUndefined();
   });
 
+  it('full view prints querySchema once instead of repeating it in inputSchema', () => {
+    const tool = toolNamed('localSearch');
+    const full = project(tool, 'full');
+    const queries = (full.inputSchema as Record<string, any>).properties
+      .queries;
+    expect(queries.items).toEqual({
+      description: 'Each item is one querySchema object.',
+    });
+    expect(queries.maxItems).toBe(
+      (tool.inputSchema as Record<string, any>).properties.queries.maxItems
+    );
+    expect(JSON.stringify(full).length).toBeLessThan(
+      JSON.stringify(tool).length * 0.7
+    );
+  });
+
   it('variants view exposes compact branch selectors before schema details', () => {
     const searchVariants = project(toolNamed('astSearch'), 'variants');
     expect(searchVariants.name).toBe('astSearch');

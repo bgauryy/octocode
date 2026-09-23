@@ -65,14 +65,19 @@ if (provider.requiresApiKey && !apiKey && !config.mockStatus) {
 const sessionDir = await initCorpus(config);
 const startedAt = new Date().toISOString();
 const sources = [], pageMaps = [], linksAll = [], headingsAll = [], elementsAll = [], resourcesAll = [], costs = [], failures = [];
+// Crawl identity: fragment and trailing-slash variants are one page.
+const crawlKey = (u) => {
+  try { const x = new URL(u); return `${x.origin}${x.pathname.replace(/\/+$/, '')}${x.search}`; } catch { return u; }
+};
 const seen = new Set();
 const queue = [config.targetUrl];
+const queued = new Set([crawlKey(config.targetUrl)]);
 
 // --append: keep the prior roster and continue pageId numbering after it.
 let basePageCount = 0;
 if (priorSources.length) {
   sources.push(...priorSources);
-  for (const row of priorSources) if (row.url) seen.add(row.url);
+  for (const row of priorSources) if (row.url) seen.add(crawlKey(row.url));
   basePageCount = priorSources.reduce((max, row) => {
     const n = Number((String(row.pageId || '').match(/^page-(\d+)$/) || [])[1] || 0);
     return Math.max(max, n);
@@ -86,14 +91,17 @@ if (priorSources.length) {
 if (config.crawl && config.sitemap) {
   const { discovered, error } = await discoverSitemap(config);
   if (error) failures.push(error);
-  for (const loc of discovered) if (queue.length < config.maxPages) queue.push(loc);
+  for (const loc of discovered) {
+    if (queue.length >= config.maxPages) break;
+    if (!queued.has(crawlKey(loc))) { queued.add(crawlKey(loc)); queue.push(loc); }
+  }
 }
 
 let pageIndex = 0;
 while (queue.length && pageIndex < config.maxPages) {
   const url = queue.shift();
-  if (seen.has(url)) continue;
-  seen.add(url);
+  if (seen.has(crawlKey(url))) continue;
+  seen.add(crawlKey(url));
   pageIndex += 1;
   const pageNumber = basePageCount + pageIndex;
   const pageId = `page-${String(pageNumber).padStart(3, '0')}`;
@@ -121,7 +129,10 @@ while (queue.length && pageIndex < config.maxPages) {
       if (queue.length + seen.size >= config.maxPages) break;
       try {
         const next = new URL(link.href);
-        if ((!config.sameDomain || next.hostname === new URL(config.targetUrl).hostname) && !seen.has(next.href)) queue.push(next.href);
+        next.hash = '';
+        const key = crawlKey(next.href);
+        if (!/^https?:$/.test(next.protocol) || seen.has(key) || queued.has(key)) continue;
+        if (!config.sameDomain || next.hostname === new URL(config.targetUrl).hostname) { queued.add(key); queue.push(next.href); }
       } catch {}
     }
   }

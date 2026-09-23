@@ -8,12 +8,16 @@ use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
 const MAX_RECEIPT_BYTES: usize = 16 * 1024;
+/// Receipt limitation for a page whose continuation was not followed.
+pub(super) const PAGE_ONLY_LIMITATION: &str =
+    "Only the returned tool page was evaluated; continue explicitly for additional evidence.";
 
 fn error(code: &str, message: impl Into<String>) -> ClassificationError {
     ClassificationError {
         code: code.into(),
         message: message.into(),
         hints: vec!["Run the ordinary context tool to inspect or correct its request.".into()],
+        ..Default::default()
     }
 }
 
@@ -181,11 +185,31 @@ pub(super) fn resolve(
             .pointer("/results/0/data/errorCode")
             .and_then(Value::as_str)
             .unwrap_or("classificationContextFailed");
+        // Surface the read tool's own (already sanitized) reason and repair
+        // hints; a bare "returned an error" hides e.g. a sandbox refusal.
+        let reason = state
+            .pointer("/results/0/data/error")
+            .and_then(Value::as_str)
+            .map_or_else(String::new, |reason| format!(": {reason}"));
+        let mut failure = error(
+            code,
+            format!("Context tool {tool} failed{reason}; classification was not called."),
+        );
+        if let Some(hints) = state
+            .pointer("/results/0/data/hints")
+            .and_then(Value::as_array)
+        {
+            let hints = hints
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect::<Vec<_>>();
+            if !hints.is_empty() {
+                failure.hints = hints;
+            }
+        }
         return Err(ContextFailure {
-            error: error(
-                code,
-                format!("Context tool {tool} returned an error; classification was not called."),
-            ),
+            error: failure,
             receipt: Some(receipt),
         });
     }
@@ -205,7 +229,7 @@ fn page_scope(state: &Value) -> Option<Value> {
         .and_then(|rows| rows.first())
         .and_then(|row| row.get("data"))
         .and_then(Value::as_object)?;
-    let data = if data.contains_key("pagination") {
+    let data = if data.contains_key("pagination") || data.contains_key("totalLines") {
         data
     } else {
         data.get("files")
@@ -213,21 +237,43 @@ fn page_scope(state: &Value) -> Option<Value> {
             .and_then(|files| files.first())
             .and_then(Value::as_object)?
     };
-    let pagination = data.get("pagination").and_then(Value::as_object)?;
+    let first_source_range = || {
+        data.get("sourceLineRanges")
+            .and_then(Value::as_array)
+            .and_then(|r| r.first())
+            .and_then(Value::as_object)
+            .and_then(|r| Some((r.get("start")?.as_u64()?, r.get("end")?.as_u64()?)))
+    };
+    // Reads omit `pagination` when one page covers the whole view, and omit
+    // `length`/view totals when they equal `chunkSize`/the source totals.
+    let Some(pagination) = data.get("pagination").and_then(Value::as_object) else {
+        let (start, end) = first_source_range()
+            .or_else(|| {
+                Some((
+                    data.get("startLine")?.as_u64()?,
+                    data.get("endLine")?.as_u64()?,
+                ))
+            })
+            .or_else(|| Some((1, data.get("returnedLines")?.as_u64()?)))?;
+        let total_lines = data.get("totalLines")?.as_u64()?;
+        // Always scoped, even for a complete small file: agents read `scope`
+        // to decide what to open, and a missing one read as an error in evals.
+        return (start >= 1 && end >= start && total_lines >= 1)
+            .then(|| json!({"startLine": start, "endLine": end, "totalLines": total_lines}));
+    };
+    let length = || {
+        pagination
+            .get("length")
+            .or_else(|| pagination.get("chunkSize"))?
+            .as_u64()
+    };
     let chunk_type = pagination.get("chunkType").and_then(Value::as_str)?;
     match chunk_type {
         "lines" => {
-            let (start, end) = data
-                .get("sourceLineRanges")
-                .and_then(Value::as_array)
-                .and_then(|r| r.first())
-                .and_then(Value::as_object)
-                .and_then(|r| Some((r.get("start")?.as_u64()?, r.get("end")?.as_u64()?)))
-                .or_else(|| {
-                    let offset = pagination.get("offset")?.as_u64()?;
-                    let length = pagination.get("length")?.as_u64()?;
-                    Some((offset + 1, offset + length))
-                })?;
+            let (start, end) = first_source_range().or_else(|| {
+                let offset = pagination.get("offset")?.as_u64()?;
+                Some((offset + 1, offset + length()?))
+            })?;
             let total_lines = data
                 .get("totalLines")
                 .or_else(|| pagination.get("totalLines"))?
@@ -239,11 +285,11 @@ fn page_scope(state: &Value) -> Option<Value> {
             let byte_end = pagination
                 .get("nextOffset")
                 .and_then(Value::as_u64)
-                .or_else(|| {
-                    let length = pagination.get("length")?.as_u64()?;
-                    Some(byte_offset + length)
-                })?;
-            let total_bytes = pagination.get("totalBytes")?.as_u64()?;
+                .or_else(|| Some(byte_offset + length()?))?;
+            let total_bytes = pagination
+                .get("totalBytes")
+                .or_else(|| data.get("sourceBytes"))?
+                .as_u64()?;
             Some(json!({"byteOffset": byte_offset, "byteEnd": byte_end, "totalBytes": total_bytes}))
         }
         _ => None,
@@ -269,7 +315,7 @@ fn receipt_with_evaluation(tool: &str, state: &Value, evaluation_completed: bool
     let mut next = Map::new();
     let mut terminal = false;
     let mut partial = response::is_partial(state);
-    inspect(state, &mut next, &mut partial, &mut terminal);
+    inspect(state, tool, &mut next, &mut partial, &mut terminal);
     let mut receipt = json!({"source":"tool","tool":tool,"resultHash":hex::encode(Sha256::digest(state.to_string().as_bytes())),"coverage":if partial {"partial"}else{"bounded"}});
     if let Some(scope) = page_scope(state) {
         receipt["scope"] = scope;
@@ -282,7 +328,7 @@ fn receipt_with_evaluation(tool: &str, state: &Value, evaluation_completed: bool
             "The context tool reported a terminal limit; this result does not cover all matching evidence."
         } else if receipt.get("next").is_some() {
             if evaluation_completed {
-                "Only the returned tool page was evaluated; continue explicitly for additional evidence."
+                PAGE_ONLY_LIMITATION
             } else {
                 "Context retrieval failed after returning a partial page; continue explicitly to recover additional evidence."
             }
@@ -353,7 +399,16 @@ pub(super) fn exact_continuation(receipt: &Value) -> Option<Value> {
     }))
 }
 
-fn inspect(value: &Value, next: &mut Map<String, Value>, partial: &mut bool, terminal: &mut bool) {
+/// Collect same-resource continuations. Only calls to the source tool can
+/// continue this resource; cross-tool drill-downs (e.g. ghSearchHistory
+/// `readPr` → ghGetHistoryItem) are suggestions, not remaining coverage.
+fn inspect(
+    value: &Value,
+    source_tool: &str,
+    next: &mut Map<String, Value>,
+    partial: &mut bool,
+    terminal: &mut bool,
+) {
     match value {
         Value::Object(object) => {
             if object.get("terminalLimit") == Some(&Value::Bool(true)) {
@@ -371,7 +426,7 @@ fn inspect(value: &Value, next: &mut Map<String, Value>, partial: &mut bool, ter
                     let Some(tool) = candidate
                         .get("tool")
                         .and_then(Value::as_str)
-                        .filter(|tool| is_context_tool(tool))
+                        .filter(|tool| *tool == source_tool && is_context_tool(tool))
                     else {
                         continue;
                     };
@@ -403,13 +458,13 @@ fn inspect(value: &Value, next: &mut Map<String, Value>, partial: &mut bool, ter
             }
             for (key, value) in object {
                 if key != "next" {
-                    inspect(value, next, partial, terminal);
+                    inspect(value, source_tool, next, partial, terminal);
                 }
             }
         }
         Value::Array(values) => {
             for value in values {
-                inspect(value, next, partial, terminal);
+                inspect(value, source_tool, next, partial, terminal);
             }
         }
         _ => {}
@@ -563,6 +618,23 @@ mod tests {
             );
         }
         Value::Object(next)
+    }
+
+    #[test]
+    fn cross_tool_drill_downs_are_not_same_resource_continuations() {
+        let search = json!({"reasoning":"r","operation":"pullRequest","owner":"o","repo":"r",
+            "keywords":["k"],"page":2});
+        let state = json!({"results":[{"index":0,"data":{"next":{
+            "readPr":{"tool":"ghGetHistoryItem","confidence":"low","query":{
+                "reasoning":"r","operation":"pullRequest","owner":"o","repo":"r","number":7}},
+            "nextPage":{"tool":"ghSearchHistory","confidence":"exact","query":search}
+        }}}]});
+        let receipt = receipt("ghSearchHistory", &state);
+        let next = receipt["next"]
+            .as_object()
+            .expect("same-tool continuation kept");
+        assert_eq!(next.len(), 1, "{receipt}");
+        assert_eq!(next["nextPage"]["tool"], "ghSearchHistory");
     }
 
     #[test]
@@ -774,11 +846,22 @@ mod tests {
     }
 
     #[test]
-    fn complete_and_value_receipts_have_no_scope() {
+    fn file_receipts_are_always_scoped_and_value_receipts_never() {
         let complete = json!({"results": [{"data": {
             "content": "all here", "totalLines": 5, "returnedLines": 5
         }}]});
-        assert!(receipt("localFetch", &complete).get("scope").is_none());
+        assert_eq!(
+            receipt("localFetch", &complete)["scope"],
+            json!({"startLine": 1, "endLine": 5, "totalLines": 5})
+        );
+        // A complete bounded read (no pagination emitted) still reports its window.
+        let window = json!({"results": [{"data": {
+            "content": "x", "totalLines": 132, "sourceLineRanges": [{"start": 25, "end": 31}]
+        }}]});
+        assert_eq!(
+            receipt("localFetch", &window)["scope"],
+            json!({"startLine": 25, "endLine": 31, "totalLines": 132})
+        );
         assert!(value_receipt(&json!({"key": "val"})).get("scope").is_none());
     }
 }

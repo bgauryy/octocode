@@ -107,4 +107,31 @@ describe('generated config contract', () => {
     expect(resolved.lsp.configPath).toBe('/tmp/lsp.json');
     expect(resolved.output.format).toBe('json');
   });
+
+  it('resolves classification.maxConcurrency with default 10, env override, and 1..64 clamping', () => {
+    expect(resolveConfigFields({}, {}).classification.maxConcurrency).toBe(10);
+    expect(
+      resolveConfigFields({ classification: { maxConcurrency: 3 } }, {})
+        .classification.maxConcurrency
+    ).toBe(3);
+    for (const [raw, expected] of [
+      ['4', 4],
+      ['0', 1],
+      ['1000', 64],
+      ['nope', 10],
+    ] as const) {
+      expect(
+        resolveConfigFields(
+          {},
+          { OCTOCODE_CLASSIFICATION_CONCURRENCY: raw }
+        ).classification.maxConcurrency
+      ).toBe(expected);
+    }
+    expect(
+      resolveConfigFields(
+        { classification: { maxConcurrency: 3 } },
+        { OCTOCODE_CLASSIFICATION_CONCURRENCY: '12' }
+      ).classification.maxConcurrency
+    ).toBe(12);
+  });
 });

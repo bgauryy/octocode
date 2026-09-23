@@ -20,11 +20,15 @@ pub(super) fn flatten_document_symbol(
         .get("range")
         .or_else(|| symbol.get("location")?.get("range"));
     if let (Some(name), Some(range)) = (symbol.get("name").and_then(Value::as_str), range) {
+        // `line`/`character` point at the symbol NAME (`selectionRange`), not the
+        // start of the full range (which includes doc comments/attributes), so
+        // they can be fed back as `lineHint`. `endLine` keeps the full extent.
+        let anchor = symbol.get("selectionRange").unwrap_or(range);
         let mut compact = json!({
             "name": name,
             "kind": kind,
-            "line": range.pointer("/start/line").and_then(Value::as_u64).unwrap_or(0) + 1,
-            "character": range.pointer("/start/character").and_then(Value::as_u64).unwrap_or(0),
+            "line": anchor.pointer("/start/line").and_then(Value::as_u64).unwrap_or(0) + 1,
+            "character": anchor.pointer("/start/character").and_then(Value::as_u64).unwrap_or(0),
             "endLine": range.pointer("/end/line").and_then(Value::as_u64).unwrap_or(0) + 1,
             "childCount": symbol.get("children").and_then(Value::as_array).map_or(0, Vec::len)
         });
@@ -96,15 +100,22 @@ pub(super) fn paginate(items: &[Value], page: u32, page_size: u32) -> (Vec<Value
     let page_size = page_size.max(1);
     let total = items.len() as u32;
     let total_pages = total.div_ceil(page_size).max(1);
-    let current = page.clamp(1, total_pages);
-    let start = ((current - 1) * page_size) as usize;
+    // A page past the end is an empty, terminal, explicitly out-of-range page —
+    // never silently clamped to the last page (which would duplicate results).
+    let out_of_range = page > total_pages;
+    let current = page.max(1);
+    let start = if out_of_range {
+        items.len()
+    } else {
+        ((current - 1) * page_size) as usize
+    };
     let page_items = items
         .iter()
         .skip(start)
         .take(page_size as usize)
         .cloned()
         .collect::<Vec<_>>();
-    let has_more = current < total_pages;
+    let has_more = !out_of_range && current < total_pages;
     let mut pagination = json!({
         "currentPage": current,
         "totalPages": total_pages,
@@ -114,6 +125,9 @@ pub(super) fn paginate(items: &[Value], page: u32, page_size: u32) -> (Vec<Value
     });
     if has_more {
         pagination["nextPage"] = json!(current + 1);
+    }
+    if out_of_range {
+        pagination["outOfRange"] = json!(true);
     }
     (page_items, pagination)
 }

@@ -3,7 +3,7 @@ mod cache;
 mod git;
 mod process;
 
-use crate::policy::path::PathPolicy;
+use crate::policy::{PolicyErrorCode, path::PathPolicy};
 use crate::providers::github::{GitHubEndpoint, ResolvedCredential};
 use crate::tools::local_fetch::CancellationCheck;
 use serde::{Deserialize, Serialize};
@@ -156,7 +156,33 @@ pub fn execute_clone(
         ));
     }
     let repository_url = repository_url(context.endpoint, &query.owner, &query.repo)?;
-    context.git.assert_available(&control(context))?;
+    // Existing homes and homes below an allowed workspace must pass the
+    // ordinary policy check. The one exception is an explicitly configured
+    // root that does not exist yet: its parent lies outside that root until
+    // creation. Do not create a cache directory for any other denied path.
+    match context
+        .path_policy
+        .validate_output(&context.config.cache_home)
+    {
+        Ok(_) => {}
+        Err(error)
+            if error.code == PolicyErrorCode::OutsideAllowedRoots
+                && !context.config.cache_home.exists()
+                && context
+                    .path_policy
+                    .allowed_roots()
+                    .contains(&context.config.cache_home) => {}
+        Err(error) => return Err(CloneError::new("clone.policy.denied", error.message)),
+    }
+    // The configured Octocode home is an explicit cache root. Create it
+    // before validating a clone target below it: otherwise a fresh home has
+    // only an existing parent outside the allowed roots to canonicalize.
+    std::fs::create_dir_all(&context.config.cache_home).map_err(|error| {
+        CloneError::new(
+            "clone.cache.unavailable",
+            format!("Could not initialize the configured clone cache home: {error}"),
+        )
+    })?;
     let clone_dir = cache::clone_dir(
         &context.config.cache_home,
         &query.owner,
@@ -169,10 +195,17 @@ pub fn execute_clone(
         .path_policy
         .validate_output(&clone_dir)
         .map_err(|error| CloneError::new("clone.policy.denied", error.message))?;
+    context.git.assert_available(&control(context))?;
     let _lock = cache::CloneLock::acquire(&clone_dir, context)?;
     if !query.force_refresh
         && let Some(meta) = cache::valid_clone(&clone_dir, context.config.cache_ttl)
         && meta.source == "clone"
+        && meta.matches(
+            &query.owner,
+            &query.repo,
+            &branch,
+            query.sparse_path.as_deref(),
+        )
         && let Ok(commit_sha) = git::read_head(context, &clone_dir)
         && (!is_commit(&branch) || commit_sha == branch.to_ascii_lowercase())
     {

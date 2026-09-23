@@ -1,0 +1,468 @@
+//! Compact, resource-major clasify output and provider-page coalescing.
+//!
+//! Output is `queries[] → resources[] → pages[] → answers[questionId]`: the
+//! resolved model and summed usage appear once per query, page receipts appear
+//! once per page (not once per question), and answers carry only the typed
+//! verdict. Receipts stay internal; the caller sees `scope` and limitations.
+use super::clasify_context::PAGE_ONLY_LIMITATION;
+use crate::tools::clasify::transport::ClassificationError;
+use serde_json::{Map, Value, json};
+
+/// Provider state budget for coalesced file pages (~600 lines of code,
+/// ~6–8k tokens). Evidence-only state makes page count nearly free in tokens,
+/// so the budget is set for localization: a 1k-line file still yields two
+/// scoped verdicts instead of one whole-file scope (48 KiB judged a 1,079-line
+/// README as a single page in the GitHub eval).
+pub(super) const COALESCE_BYTES: usize = 24 * 1024;
+
+/// Probabilities below this are dropped from Choice/Score answers.
+const MIN_PROBABILITY: f64 = 0.01;
+
+/// Outcome of one assessed (or failed) page, before rendering.
+pub(super) enum PageOutcome {
+    Failed {
+        error: ClassificationError,
+        receipt: Value,
+    },
+    Assessed {
+        receipt: Value,
+        answers: Vec<Result<Value, ClassificationError>>,
+        /// Best ~40-line window of a high-scoring page, when narrowed.
+        focus: Option<Value>,
+    },
+}
+
+fn error_value(error: &ClassificationError) -> Value {
+    let mut value = json!({"code":error.code,"message":error.message});
+    if !error.hints.is_empty() {
+        value["hints"] = json!(error.hints);
+    }
+    value
+}
+
+fn trimmed_probabilities(value: &Value) -> Value {
+    let Some(probabilities) = value.as_object() else {
+        return value.clone();
+    };
+    Value::Object(
+        probabilities
+            .iter()
+            .filter(|(_, probability)| probability.as_f64().is_some_and(|p| p >= MIN_PROBABILITY))
+            .map(|(label, probability)| (label.clone(), rounded(probability)))
+            .collect(),
+    )
+}
+
+/// Three decimals: provider floats such as 0.9400000000000001 carry no
+/// signal beyond that and cost bytes.
+fn rounded(value: &Value) -> Value {
+    value.as_f64().map_or_else(
+        || value.clone(),
+        |number| json!((number * 1000.0).round() / 1000.0),
+    )
+}
+
+/// Project a provider answer (`{type, noul|choice|score, ...}`) to the typed
+/// verdict only: no `type`, no echoed `legend`, no near-zero probabilities.
+pub(super) fn compact_answer(answer: &Value) -> Value {
+    match answer["type"].as_str() {
+        Some("noul") => json!({"noul":rounded(&answer["noul"])}),
+        Some("choice") => json!({
+            "choice":answer["choice"],
+            "confidence":rounded(&answer["confidence"]),
+            "probabilities":trimmed_probabilities(&answer["probabilities"])
+        }),
+        Some("score") => json!({
+            "score":rounded(&answer["score"]),
+            "confidence":rounded(&answer["confidence"]),
+            "probabilities":trimmed_probabilities(&answer["probabilities"])
+        }),
+        _ => answer.clone(),
+    }
+}
+
+fn limitations(receipt: &Value) -> Option<Value> {
+    let kept = receipt
+        .get("limitations")?
+        .as_array()?
+        .iter()
+        .filter(|limitation| limitation.as_str() != Some(PAGE_ONLY_LIMITATION))
+        .cloned()
+        .collect::<Vec<_>>();
+    (!kept.is_empty()).then(|| Value::Array(kept))
+}
+
+fn page_base(receipt: &Value) -> Map<String, Value> {
+    let mut page = Map::new();
+    if let Some(scope) = receipt.get("scope") {
+        page.insert("scope".into(), scope.clone());
+    }
+    if let Some(limitations) = limitations(receipt) {
+        page.insert("limitations".into(), limitations);
+    }
+    page
+}
+
+/// Render one resource. `question_ids` orders the per-page answer map.
+pub(super) fn resource(
+    resource_id: &Value,
+    question_ids: &[&Value],
+    pages: Vec<PageOutcome>,
+    has_continuation: bool,
+) -> Value {
+    let mut answered = false;
+    let mut failed = false;
+    let mut terminal_partial = false;
+    let rendered = pages
+        .into_iter()
+        .map(|page| match page {
+            PageOutcome::Failed { error, receipt } => {
+                failed = true;
+                terminal_partial = receipt["coverage"] == "partial";
+                let mut page = page_base(&receipt);
+                page.insert("error".into(), error_value(&error));
+                Value::Object(page)
+            }
+            PageOutcome::Assessed {
+                receipt,
+                answers,
+                focus,
+            } => {
+                terminal_partial = receipt["coverage"] == "partial";
+                let mut page = page_base(&receipt);
+                let mut by_question = Map::new();
+                for (id, answer) in question_ids.iter().zip(answers) {
+                    let key = id.as_str().unwrap_or_default().to_owned();
+                    let value = match answer {
+                        Ok(data) => {
+                            answered = true;
+                            compact_answer(&data["answer"])
+                        }
+                        Err(error) => {
+                            failed = true;
+                            json!({"error":error_value(&error)})
+                        }
+                    };
+                    by_question.insert(key, value);
+                }
+                page.insert("answers".into(), Value::Object(by_question));
+                if let Some(focus) = focus {
+                    page.insert("focus".into(), focus);
+                }
+                Value::Object(page)
+            }
+        })
+        .collect::<Vec<_>>();
+    let coverage = if !answered {
+        "error"
+    } else if failed || has_continuation || terminal_partial {
+        "partial"
+    } else {
+        "complete"
+    };
+    json!({"resourceId":resource_id,"coverage":coverage,"pages":rendered})
+}
+
+fn merge_scope(first: Option<&Value>, last: Option<&Value>) -> Option<Value> {
+    let (first, last) = (first?, last?);
+    if let (Some(start), Some(end)) = (first.get("startLine"), last.get("endLine")) {
+        return Some(json!({"startLine":start,"endLine":end,"totalLines":last["totalLines"]}));
+    }
+    if let (Some(start), Some(end)) = (first.get("byteOffset"), last.get("byteEnd")) {
+        return Some(json!({"byteOffset":start,"byteEnd":end,"totalBytes":last["totalBytes"]}));
+    }
+    None
+}
+
+fn merge_receipts(receipts: &[Value]) -> Value {
+    let (Some(first), Some(last)) = (receipts.first(), receipts.last()) else {
+        return Value::Null;
+    };
+    let mut merged = last.clone();
+    match merge_scope(first.get("scope"), last.get("scope")) {
+        Some(scope) => merged["scope"] = scope,
+        None => {
+            if let Some(object) = merged.as_object_mut() {
+                object.remove("scope");
+            }
+        }
+    }
+    let mut all = Vec::new();
+    for receipt in receipts {
+        for limitation in receipt
+            .get("limitations")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            if !all.contains(limitation) {
+                all.push(limitation.clone());
+            }
+        }
+    }
+    if let Some(object) = merged.as_object_mut() {
+        if all.is_empty() {
+            object.remove("limitations");
+        } else {
+            object.insert("limitations".into(), Value::Array(all));
+        }
+    }
+    merged
+}
+
+/// Adjacent pages of one file read as one contiguous `{path, lines, content}`
+/// so the provider judges a single excerpt instead of an array of fragments.
+fn merge_file_evidence(states: &[Value]) -> Option<Value> {
+    let first = states.first()?.as_object()?;
+    first.get("path")?;
+    let mut content = String::new();
+    for state in states {
+        let entry = state.as_object()?;
+        if entry.get("path") != first.get("path") || entry.get("repo") != first.get("repo") {
+            return None;
+        }
+        content.push_str(entry.get("content")?.as_str()?);
+    }
+    let mut merged = first.clone();
+    let start = first.get("lines").and_then(|lines| lines.get(0)).cloned();
+    let end = states
+        .last()
+        .and_then(|state| state.get("lines"))
+        .and_then(|lines| lines.get(1))
+        .cloned();
+    match (start, end) {
+        (Some(start), Some(end)) => {
+            merged.insert("lines".into(), json!([start, end]));
+        }
+        _ => {
+            merged.remove("lines");
+        }
+    }
+    merged.insert("content".into(), json!(content));
+    Some(Value::Object(merged))
+}
+
+/// Join adjacent same-resource pages into provider states of at most
+/// `max_bytes` serialized JSON, so one judgment covers a larger contiguous
+/// scope. A page larger than the budget stays alone.
+pub(super) fn coalesce(pages: Vec<(Value, Value)>, max_bytes: usize) -> Vec<(Value, Value)> {
+    let mut output = Vec::new();
+    let mut states: Vec<Value> = Vec::new();
+    let mut receipts: Vec<Value> = Vec::new();
+    let mut bytes = 0usize;
+    let flush =
+        |states: &mut Vec<Value>, receipts: &mut Vec<Value>, output: &mut Vec<(Value, Value)>| {
+            match states.len() {
+                0 => {}
+                1 => output.push((states.remove(0), receipts.remove(0))),
+                _ => {
+                    let joined = std::mem::take(states);
+                    let state = merge_file_evidence(&joined).unwrap_or(Value::Array(joined));
+                    output.push((state, merge_receipts(receipts)));
+                    receipts.clear();
+                }
+            }
+        };
+    for (state, receipt) in pages {
+        let size = state.to_string().len();
+        if !states.is_empty() && bytes.saturating_add(size) > max_bytes {
+            flush(&mut states, &mut receipts, &mut output);
+            bytes = 0;
+        }
+        bytes = bytes.saturating_add(size);
+        states.push(state);
+        receipts.push(receipt);
+    }
+    flush(&mut states, &mut receipts, &mut output);
+    output
+}
+
+/// Sum provider usage records and pick the resolved model for the query.
+pub(super) fn query_meta(
+    usage_records: &[Value],
+    resolved_model: Option<&str>,
+) -> Map<String, Value> {
+    let mut meta = Map::new();
+    if let Some(model) = resolved_model {
+        meta.insert("model".into(), json!(model));
+    }
+    if !usage_records.is_empty() {
+        let sum = |field: &str| {
+            usage_records
+                .iter()
+                .filter_map(|record| record[field].as_u64())
+                .sum::<u64>()
+        };
+        meta.insert(
+            "usage".into(),
+            json!({"input_tokens":sum("input_tokens"),"output_tokens":sum("output_tokens")}),
+        );
+    }
+    meta
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn provider_error(code: &str) -> ClassificationError {
+        ClassificationError {
+            code: code.into(),
+            message: "failed".into(),
+            hints: Vec::new(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn answers_drop_type_legend_and_near_zero_probabilities() {
+        assert_eq!(
+            compact_answer(&json!({"type":"noul","noul":0.97})),
+            json!({"noul":0.97})
+        );
+        assert_eq!(
+            compact_answer(&json!({"type":"choice","choice":"a","confidence":0.9,
+                "probabilities":{"a":0.95,"b":0.05,"c":0.0,"d":0.004}})),
+            json!({"choice":"a","confidence":0.9,"probabilities":{"a":0.95,"b":0.05}})
+        );
+        assert_eq!(
+            compact_answer(&json!({"type":"score","score":2.1,"confidence":0.8,
+                "probabilities":{"0":0.0,"1":0.1,"2":0.7,"3":0.2},"legend":{"0":"low"}})),
+            json!({"score":2.1,"confidence":0.8,"probabilities":{"1":0.1,"2":0.7,"3":0.2}})
+        );
+    }
+
+    #[test]
+    fn resource_is_rendered_once_per_page_with_answers_keyed_by_question() {
+        let ids = [json!("retry"), json!("role")];
+        let ids = ids.iter().collect::<Vec<_>>();
+        let receipt = json!({"source":"tool","tool":"localFetch","resultHash":"x","coverage":"bounded",
+            "scope":{"startLine":1,"endLine":9,"totalLines":9}});
+        let rendered = resource(
+            &json!("file"),
+            &ids,
+            vec![PageOutcome::Assessed {
+                receipt,
+                answers: vec![
+                    Ok(json!({"answer":{"type":"noul","noul":0.9},"resolvedModel":"m"})),
+                    Err(provider_error("timeout")),
+                ],
+                focus: Some(json!({"startLine":3,"endLine":5,"confidence":0.9})),
+            }],
+            false,
+        );
+        assert_eq!(
+            rendered,
+            json!({"resourceId":"file","coverage":"partial","pages":[{
+                "scope":{"startLine":1,"endLine":9,"totalLines":9},
+                "answers":{"retry":{"noul":0.9},"role":{"error":{"code":"timeout","message":"failed"}}},
+                "focus":{"startLine":3,"endLine":5,"confidence":0.9}
+            }]})
+        );
+    }
+
+    #[test]
+    fn coverage_is_error_without_answers_and_partial_with_continuation() {
+        let ids = [json!("q")];
+        let ids = ids.iter().collect::<Vec<_>>();
+        let failed = resource(
+            &json!("r"),
+            &ids,
+            vec![PageOutcome::Failed {
+                error: provider_error("classificationContextFailed"),
+                receipt: json!({"coverage":"partial","limitations":["Context retrieval failed; classification was not run."]}),
+            }],
+            false,
+        );
+        assert_eq!(failed["coverage"], "error");
+        assert_eq!(
+            failed["pages"][0]["error"]["code"],
+            "classificationContextFailed"
+        );
+        assert_eq!(
+            failed["pages"][0]["limitations"],
+            json!(["Context retrieval failed; classification was not run."])
+        );
+        let pending = resource(
+            &json!("r"),
+            &ids,
+            vec![PageOutcome::Assessed {
+                focus: None,
+                receipt: json!({"coverage":"partial","limitations":[PAGE_ONLY_LIMITATION]}),
+                answers: vec![Ok(json!({"answer":{"type":"noul","noul":0.1}}))],
+            }],
+            true,
+        );
+        assert_eq!(pending["coverage"], "partial");
+        assert!(pending["pages"][0].get("limitations").is_none());
+    }
+
+    #[test]
+    fn adjacent_pages_coalesce_within_budget_and_merge_scope() {
+        let page = |start: u64, end: u64, body: &str| {
+            (
+                json!({"data":{"content":body}}),
+                json!({"coverage":"bounded","scope":{"startLine":start,"endLine":end,"totalLines":300}}),
+            )
+        };
+        let body = "x".repeat(100);
+        let merged = coalesce(
+            vec![
+                page(1, 100, &body),
+                page(101, 200, &body),
+                page(201, 300, &body),
+            ],
+            250,
+        );
+        assert_eq!(merged.len(), 2);
+        assert!(merged[0].0.is_array());
+        assert_eq!(
+            merged[0].1["scope"],
+            json!({"startLine":1,"endLine":200,"totalLines":300})
+        );
+        assert_eq!(merged[1].1["scope"]["startLine"], 201);
+        assert!(
+            merged[1].0.is_object(),
+            "a lone page keeps its original state"
+        );
+    }
+
+    #[test]
+    fn adjacent_file_evidence_merges_into_one_excerpt() {
+        let page = |start: u64, end: u64, text: &str| {
+            (
+                json!({"path":"a.rs","lines":[start,end],"content":text}),
+                json!({"coverage":"bounded","scope":{"startLine":start,"endLine":end,"totalLines":20}}),
+            )
+        };
+        let merged = coalesce(vec![page(1, 10, "one\n"), page(11, 20, "two\n")], 1_000);
+        assert_eq!(merged.len(), 1);
+        assert_eq!(
+            merged[0].0,
+            json!({"path":"a.rs","lines":[1,20],"content":"one\ntwo\n"})
+        );
+    }
+
+    #[test]
+    fn oversized_page_is_never_merged() {
+        let big = (json!("y".repeat(500)), json!({"coverage":"bounded"}));
+        let small = (json!("z"), json!({"coverage":"bounded"}));
+        let merged = coalesce(vec![small.clone(), big, small], 100);
+        assert_eq!(merged.len(), 3);
+    }
+
+    #[test]
+    fn query_meta_sums_usage_and_reports_one_model() {
+        let meta = query_meta(
+            &[
+                json!({"input_tokens":10,"output_tokens":2}),
+                json!({"input_tokens":5,"output_tokens":1}),
+            ],
+            Some("jev-1.13.0"),
+        );
+        assert_eq!(
+            Value::Object(meta),
+            json!({"model":"jev-1.13.0","usage":{"input_tokens":15,"output_tokens":3}})
+        );
+    }
+}

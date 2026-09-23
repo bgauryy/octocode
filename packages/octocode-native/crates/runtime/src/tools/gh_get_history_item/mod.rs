@@ -181,9 +181,7 @@ async fn graphql_pull_request<R: CredentialResolver>(
     context: &RequestContext,
     wants: &ContentWants,
 ) -> Result<Option<GraphqlPr>, ProviderError> {
-    if !transport.graphql_enabled
-        || crate::providers::github::graphql_is_skipped(transport.endpoint().credential_host())
-    {
+    if !transport.graphql_enabled || !transport.graphql_available(context).await {
         return Ok(None);
     }
     let Some(number) = query.number else {
@@ -711,7 +709,27 @@ fn pr_next_menu(
     patch_mode: &str,
     first_path: Option<&str>,
 ) -> Value {
-    let target = json!({"operation":"pullRequest","owner":query.owner,"repo":query.repo,"number":query.number});
+    // Start from the base public query so contract-required fields (pageSize,
+    // minify) are present, then drop the current content selection and every
+    // per-surface cursor: each menu entry is a fresh first-page fetch.
+    let mut target = base_public_query(query, ItemOperation::PullRequest);
+    if let Some(object) = target.as_object_mut() {
+        for key in [
+            "content",
+            "charOffset",
+            "charLength",
+            "commentBodyOffset",
+            "commentPage",
+            "commitPage",
+            "reviewPage",
+            "filePage",
+            "page",
+            "collectionPages",
+            "matchString",
+        ] {
+            object.remove(key);
+        }
+    }
     let mut next = Map::new();
     let call = |content: Value| json!({"tool":"ghGetHistoryItem","query":merge(target.clone(),json!({"content":content})),"confidence":"exact"});
     if !content_flag(content, "body") {
@@ -1577,10 +1595,29 @@ fn promote_pr_continuations(out: &mut Value, q: &GhGetHistoryItemQuery) {
                 retain_unresolved_patch_selection(&mut nq, unresolved);
                 nq["filePage"] = json!(1);
             }
-            if (axis == "changedFiles" || axis == "filePaths" || axis == "reviews")
-                && let Some(nq) = nq.as_object_mut()
-            {
-                nq.remove("charOffset");
+            // charOffset is a single field shared by the body, review-body and
+            // patch windows. A char-window continuation therefore narrows
+            // content to the surface it continues, and page continuations
+            // restart every char window, so one surface's offset never skews
+            // another's.
+            if let Some(nq) = nq.as_object_mut() {
+                match axis.as_str() {
+                    "body" => {
+                        nq.insert("content".into(), json!({"body":true}));
+                    }
+                    "reviewBody" => {
+                        nq.insert("content".into(), json!({"reviews":true}));
+                    }
+                    "patches" => {
+                        if let Some(content) = nq.get_mut("content").and_then(Value::as_object_mut)
+                        {
+                            content.retain(|key, _| key == "patches" || key == "changedFiles");
+                        }
+                    }
+                    _ => {
+                        nq.remove("charOffset");
+                    }
+                }
             }
             if axis == "comments"
                 && let Some(nq) = nq.as_object_mut()
@@ -2177,5 +2214,71 @@ mod tests {
             error.message.as_ref(),
             "GitHub history item response exceeds 4 bytes"
         );
+    }
+
+    #[test]
+    fn compact_truncates_multibyte_text_on_char_boundaries() {
+        let body = "修复内存泄漏".repeat(200);
+        let out = compact(&body, 500);
+        assert!(out.ends_with("..."));
+        assert_eq!(out.chars().count(), 500);
+        assert_eq!(compact("短", 500), "短");
+        assert_eq!(compact("🦀🦀🦀🦀🦀", 4), "🦀...");
+    }
+
+    #[test]
+    fn pr_next_menu_carries_required_defaults_and_drops_cursors() {
+        let query: GhGetHistoryItemQuery = serde_json::from_value(json!({
+            "operation":"pullRequest","owner":"o","repo":"r","number":5,
+            "content":{"body":true},"charOffset":100,"commentPage":2,
+            "collectionPages":{"discussion":2},"reasoning":"r"
+        }))
+        .expect("query");
+        let content = query.content.as_ref().and_then(Value::as_object);
+        let menu = pr_next_menu(&query, content, "none", Some("src/a.rs"));
+        let reviews = &menu["getReviews"]["query"];
+        assert_eq!(reviews["pageSize"], 30);
+        assert_eq!(reviews["minify"], "standard");
+        assert_eq!(reviews["content"], json!({"reviews":true}));
+        for key in ["charOffset", "commentPage", "collectionPages", "reasoning"] {
+            assert!(reviews.get(key).is_none(), "{key} leaked: {reviews}");
+        }
+        assert!(menu.get("getBody").is_none());
+    }
+
+    #[test]
+    fn char_offset_continuations_narrow_content_to_their_own_surface() {
+        // charOffset is one shared field: continuing the body must not skew
+        // review bodies or patches by the body offset (and vice versa).
+        let query: GhGetHistoryItemQuery = serde_json::from_value(json!({
+            "operation":"pullRequest","owner":"o","repo":"r","number":5,
+            "content":{"body":true,"reviews":true,"patches":{"mode":"all"},"comments":{"discussion":true}},
+            "charOffset":0
+        }))
+        .expect("query");
+        let mut out = json!({"type":"pullRequests","pullRequests":[{"contentPagination":{
+            "body":{"hasMore":true,"nextCharOffset":12000},
+            "reviewBody":{"hasMore":true,"nextCharOffset":300},
+            "patches":{"hasMore":true,"nextCharOffset":900},
+            "comments":{"hasMore":true,"nextPage":2}
+        }}]});
+        promote_pr_continuations(&mut out, &query);
+        let next = &out["next"];
+        assert_eq!(
+            next["continueBody"]["query"]["content"],
+            json!({"body":true})
+        );
+        assert_eq!(next["continueBody"]["query"]["charOffset"], 12000);
+        assert_eq!(
+            next["continueReviewBody"]["query"]["content"],
+            json!({"reviews":true})
+        );
+        assert_eq!(
+            next["continuePatch"]["query"]["content"],
+            json!({"patches":{"mode":"all"}})
+        );
+        let comments = &next["nextCommentsPage"]["query"];
+        assert!(comments.get("charOffset").is_none(), "{comments}");
+        assert_eq!(comments["commentPage"], 2);
     }
 }

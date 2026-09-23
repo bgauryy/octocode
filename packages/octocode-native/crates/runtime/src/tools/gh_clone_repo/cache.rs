@@ -61,6 +61,29 @@ impl CacheMeta {
     }
 }
 
+impl CacheMeta {
+    /// Whether this persisted checkout describes the requested identity. A
+    /// cache directory whose meta disagrees (hash collision, manual edit,
+    /// layout drift) must be re-cloned rather than served.
+    pub fn matches(
+        &self,
+        owner: &str,
+        repo: &str,
+        branch: &str,
+        sparse_path: Option<&str>,
+    ) -> bool {
+        let branch_matches = if super::is_commit(branch) {
+            self.branch.eq_ignore_ascii_case(branch)
+        } else {
+            self.branch == branch
+        };
+        self.owner.eq_ignore_ascii_case(owner)
+            && self.repo.eq_ignore_ascii_case(repo)
+            && branch_matches
+            && self.sparse_path.as_deref() == sparse_path
+    }
+}
+
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct LockMeta {
@@ -76,6 +99,15 @@ pub(super) fn clone_dir(
     sparse_path: Option<&str>,
     endpoint: &str,
 ) -> PathBuf {
+    // Full commit SHAs are case-insensitive; key them lowercase so FOO and foo
+    // share one checkout.
+    let lowered;
+    let branch = if super::is_commit(branch) {
+        lowered = branch.to_ascii_lowercase();
+        lowered.as_str()
+    } else {
+        branch
+    };
     let safe_branch =
         if branch == "." || branch == ".." || branch.contains('/') || branch.contains('\\') {
             format!(
@@ -546,5 +578,52 @@ mod tests {
                 Some(branch)
             );
         }
+    }
+
+    #[test]
+    fn full_sha_cache_keys_ignore_case() {
+        let home = Path::new("/tmp/octocode-cache-root");
+        let sha = "ABCDEF0123456789ABCDEF0123456789ABCDEF01";
+        assert_eq!(
+            clone_dir(home, "o", "r", sha, None, "https://example.test"),
+            clone_dir(
+                home,
+                "o",
+                "r",
+                &sha.to_ascii_lowercase(),
+                None,
+                "https://example.test"
+            )
+        );
+        // Non-SHA refs stay case-sensitive (Git branch names are).
+        assert_ne!(
+            clone_dir(home, "o", "r", "Main", None, "https://example.test"),
+            clone_dir(home, "o", "r", "main", None, "https://example.test")
+        );
+    }
+
+    #[test]
+    fn cache_meta_matches_only_the_requested_identity() {
+        let meta = CacheMeta::new(
+            "Owner",
+            "Repo",
+            "main",
+            Some("src"),
+            &"a".repeat(40),
+            Duration::from_secs(60),
+        );
+        assert!(meta.matches("owner", "repo", "main", Some("src")));
+        assert!(!meta.matches("owner", "other", "main", Some("src")));
+        assert!(!meta.matches("owner", "repo", "dev", Some("src")));
+        assert!(!meta.matches("owner", "repo", "main", None));
+        let pinned = CacheMeta::new(
+            "o",
+            "r",
+            &"b".repeat(40),
+            None,
+            &"b".repeat(40),
+            Duration::from_secs(60),
+        );
+        assert!(pinned.matches("o", "r", &"B".repeat(40), None));
     }
 }

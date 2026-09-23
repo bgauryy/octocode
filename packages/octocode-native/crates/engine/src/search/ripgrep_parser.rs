@@ -120,6 +120,37 @@ pub(crate) fn strip_trailing_newline(mut s: String) -> String {
 
 /// Truncates a string to at most `max_chars` Unicode scalar values, appending
 /// `...` when truncated. Avoids `[...value]` spread allocation from JS.
+/// Chars kept after the match start when a snippet must be clipped.
+const MATCH_TAIL_CHARS: usize = 20;
+
+/// Char index for a UTF-16 `column` within `line` (clamped to the line).
+fn utf16_to_char_index(line: &str, column: u32) -> usize {
+    let mut units = 0usize;
+    for (index, ch) in line.chars().enumerate() {
+        if units >= column as usize {
+            return index;
+        }
+        units += ch.len_utf16();
+    }
+    line.chars().count()
+}
+
+/// Clip `line` to `max_chars`, keeping the match at UTF-16 `column` visible.
+/// Lines whose match already fits the head are truncated as before; otherwise
+/// the window starts a quarter-snippet before the match and is marked with `…`.
+fn clip_around_match(line: &str, column: u32, max_chars: usize) -> String {
+    let match_char = utf16_to_char_index(line, column);
+    if max_chars <= 3 || match_char + MATCH_TAIL_CHARS.min(max_chars / 2) < max_chars {
+        return truncate_unicode(line, max_chars);
+    }
+    let start_char = match_char.saturating_sub(max_chars / 4);
+    let start_byte = line
+        .char_indices()
+        .nth(start_char)
+        .map_or(line.len(), |(byte, _)| byte);
+    format!("…{}", truncate_unicode(&line[start_byte..], max_chars - 1))
+}
+
 pub(crate) fn truncate_unicode(s: &str, max_chars: usize) -> String {
     if max_chars == 0 {
         return String::new();
@@ -159,13 +190,6 @@ fn entry_for_path<'a>(
     }
 }
 
-pub(crate) fn push_joined_line(out: &mut String, line: &str) {
-    if !out.is_empty() {
-        out.push('\n');
-    }
-    out.push_str(line);
-}
-
 /// Assembles a single file's matches into the final `RipgrepFile`, joining each
 /// match line with its surrounding `context_lines` and truncating the resulting
 /// snippet to `max_snippet` chars. Shared by the `--json` parser and the native
@@ -176,35 +200,66 @@ pub(crate) fn assemble_file(
     context_lines: u32,
     max_snippet: usize,
 ) -> RipgrepFile {
+    // Neighbouring match lines are context too (rg -C prints them); without this
+    // lookup a snippet silently skipped them and joined non-adjacent lines.
+    let match_lines: HashMap<u32, &str> = if context_lines == 0 {
+        HashMap::new()
+    } else {
+        entry
+            .raw_matches
+            .iter()
+            .map(|m| (m.line_number, m.line_text.as_str()))
+            .collect()
+    };
+    let neighbour = |line: u32| {
+        entry
+            .contexts
+            .get(&line)
+            .map(String::as_str)
+            .or_else(|| match_lines.get(&line).copied())
+    };
     let matches: Vec<RipgrepMatch> = entry
         .raw_matches
         .iter()
         .map(|m| {
-            // Fast path for the common `context_lines == 0` case: the joined
-            // buffer would just be a copy of `line_text`, so truncate it
-            // directly and avoid one intermediate allocation per match.
             let (value, original_chars) = if context_lines == 0 {
                 let chars = m.line_text.chars().count();
                 (
-                    truncate_unicode(&m.line_text, max_snippet),
+                    clip_around_match(&m.line_text, m.column, max_snippet),
                     (chars > max_snippet).then(|| u32::try_from(chars).unwrap_or(u32::MAX)),
                 )
             } else {
-                let mut joined = String::new();
-                for i in (1..=context_lines).rev() {
-                    if let Some(ctx) = entry.contexts.get(&m.line_number.saturating_sub(i)) {
-                        push_joined_line(&mut joined, ctx);
-                    }
-                }
-                push_joined_line(&mut joined, &m.line_text);
-                for i in 1..=context_lines {
-                    if let Some(ctx) = entry.contexts.get(&m.line_number.saturating_add(i)) {
-                        push_joined_line(&mut joined, ctx);
-                    }
-                }
+                // Contiguous context only: stop at the first line that is absent.
+                // Join by line slot (not by buffer emptiness) so a blank
+                // leading line keeps its place and line numbers stay aligned.
+                let mut window: Vec<&str> = (1..=context_lines)
+                    .map_while(|i| m.line_number.checked_sub(i).and_then(neighbour))
+                    .collect();
+                window.reverse();
+                let prefix_chars = window
+                    .iter()
+                    .map(|line| line.chars().count() + 1)
+                    .sum::<usize>();
+                window.push(&m.line_text);
+                window.extend(
+                    (1..=context_lines)
+                        .map_while(|i| m.line_number.checked_add(i).and_then(neighbour)),
+                );
+                let joined = window.join("\n");
                 let chars = joined.chars().count();
+                let value = if chars <= max_snippet {
+                    joined
+                } else if prefix_chars + utf16_to_char_index(&m.line_text, m.column)
+                    < max_snippet.saturating_sub(MATCH_TAIL_CHARS)
+                {
+                    truncate_unicode(&joined, max_snippet)
+                } else {
+                    // Leading context/line would push the match out of the
+                    // snippet: show a window of the match line instead.
+                    clip_around_match(&m.line_text, m.column, max_snippet)
+                };
                 (
-                    truncate_unicode(&joined, max_snippet),
+                    value,
                     (chars > max_snippet).then(|| u32::try_from(chars).unwrap_or(u32::MAX)),
                 )
             };
@@ -439,6 +494,30 @@ mod tests {
         assert!(val.contains("before"));
         assert!(val.contains("match"));
         assert!(val.contains("after"));
+    }
+
+    /// Regression: a blank leading context line (or blank match line) was
+    /// dropped because the joiner skipped the separator while the buffer was
+    /// still empty, shifting every later line off its line number.
+    #[test]
+    fn blank_leading_context_lines_keep_their_line_slot() {
+        let stdout = [
+            make_context_line("f.ts", "\n", 8),
+            make_context_line("f.ts", "\n", 9),
+            make_match_line("f.ts", "match\n", 10, 0),
+            make_context_line("f.ts", "\n", 11),
+            make_match_line("f.ts", "\n", 12, 0),
+        ]
+        .join("\n");
+        let r = parse_ripgrep_json_inner(
+            &stdout,
+            Some(RipgrepParseOptions {
+                context_lines: Some(2),
+                max_snippet_chars: None,
+            }),
+        );
+        assert_eq!(r.files[0].matches[0].value, "\n\nmatch\n\n");
+        assert_eq!(r.files[0].matches[1].value, "match\n\n");
     }
 
     /// Regression: a match at `u32::MAX` with forward context lines must not

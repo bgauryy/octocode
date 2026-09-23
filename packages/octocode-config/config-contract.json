@@ -91,12 +91,12 @@
         "enableClone": {
           "type": "boolean",
           "default": false,
-          "description": "Enable ghCloneRepo and directory materialization.",
+          "description": "Legacy clone setting retained for config compatibility; CLI cloning requires persistent storage and MCP cloning is unavailable.",
           "env": {
             "ENABLE_CLONE": { "priority": 0 },
             "OCTOCODE_ENABLE_CLONE": { "priority": 1 }
           },
-          "notes": "Opt-in and requires persistent storage. ENABLE_CLONE is canonical."
+          "notes": "This setting no longer gates ghCloneRepo. ENABLE_CLONE is canonical over OCTOCODE_ENABLE_CLONE."
         },
         "beta": {
           "type": "boolean",
@@ -243,7 +243,7 @@
           "boundsName": "OUTPUT_DEFAULT_CHAR_LENGTH",
           "minimum": 1000,
           "span": 49000,
-          "defaultOffset": 19000,
+          "defaultOffset": 49000,
           "description": "Automatic pagination character budget.",
           "env": {
             "OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH": { "priority": 0 }
@@ -335,6 +335,18 @@
           },
           "displayDefault": "vendor default (jev: https://api.typesafe.ai)",
           "notes": "Requires HTTP or HTTPS at config validation; provider policy may require HTTPS except loopback."
+        },
+        "maxConcurrency": {
+          "type": "number",
+          "constantName": "CLASSIFICATION_MAX_CONCURRENCY",
+          "boundsName": "CLASSIFICATION_CONCURRENCY",
+          "minimum": 1,
+          "span": 63,
+          "defaultOffset": 9,
+          "description": "Process-wide maximum in-flight classification provider requests per provider endpoint.",
+          "env": {
+            "OCTOCODE_CLASSIFICATION_CONCURRENCY": { "priority": 0 }
+          }
         }
       }
     },

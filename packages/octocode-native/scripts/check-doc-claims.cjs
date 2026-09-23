@@ -176,7 +176,6 @@ const ignoredDirs = new Set([
   'octocode-benchmark',
 ]);
 const ignoredFiles = new Set([
-  path.join(repoRoot, 'docs/JEV_BENCHMARK.md'),
   path.join(repoRoot, 'packages/octocode-native/scripts/check-doc-claims.cjs'),
   path.join(repoRoot, 'skills/octocode-research/scripts/check-guidance.mjs'),
   path.join(repoRoot, 'packages/octocode/skills/octocode-research/scripts/check-guidance.mjs'),

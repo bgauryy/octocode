@@ -8,6 +8,11 @@ use super::SecurityRegistry;
 use crate::policy::{PolicyError, PolicyErrorCode};
 
 const MAX_STRING_LENGTH: usize = 10_000;
+/// clasify `context.value` is evidence to judge, not a tool parameter; the
+/// 4 MiB request cap bounds it, so its subtree gets an evidence-sized limit
+/// (self-review drafts and supplied excerpts routinely exceed 10k chars).
+/// Secret redaction still applies to every leaf.
+const MAX_EVIDENCE_STRING_LENGTH: usize = 1_000_000;
 const MAX_ARRAY_LENGTH: usize = 100;
 const MAX_DEPTH: usize = 20;
 
@@ -357,10 +362,15 @@ impl ContentSecurity {
                 warnings: vec!["Invalid parameters: must be an object".to_owned()],
             };
         };
-        self.validate_object(object, 0)
+        self.validate_object(object, 0, MAX_STRING_LENGTH)
     }
 
-    fn validate_object(&self, object: &Map<String, Value>, depth: usize) -> ValidationResult {
+    fn validate_object(
+        &self,
+        object: &Map<String, Value>,
+        depth: usize,
+        limit: usize,
+    ) -> ValidationResult {
         if depth > MAX_DEPTH {
             return ValidationResult {
                 sanitized_params: Map::new(),
@@ -374,6 +384,11 @@ impl ContentSecurity {
         let mut valid = true;
         let mut has_secrets = false;
         for (key, value) in object {
+            let limit = if key == "value" {
+                MAX_EVIDENCE_STRING_LENGTH
+            } else {
+                limit
+            };
             if key.trim().is_empty() {
                 warnings.push(format!("Invalid parameter key: {key}"));
                 valid = false;
@@ -386,9 +401,9 @@ impl ContentSecurity {
             }
             match value {
                 Value::String(text) => {
-                    if text.encode_utf16().count() > MAX_STRING_LENGTH {
+                    if text.encode_utf16().count() > limit {
                         warnings.push(format!(
-                            "Parameter {key} exceeds maximum length (10,000 characters)"
+                            "Parameter {key} exceeds maximum length ({limit} characters)"
                         ));
                         valid = false;
                         continue;
@@ -413,11 +428,9 @@ impl ContentSecurity {
                     let mut array = Vec::new();
                     for item in values {
                         match item {
-                            Value::String(text)
-                                if text.encode_utf16().count() > MAX_STRING_LENGTH =>
-                            {
+                            Value::String(text) if text.encode_utf16().count() > limit => {
                                 warnings.push(format!(
-                                    "Parameter {key}[] exceeds maximum length (10,000 characters)"
+                                    "Parameter {key}[] exceeds maximum length ({limit} characters)"
                                 ));
                                 valid = false;
                             }
@@ -427,7 +440,7 @@ impl ContentSecurity {
                                 array.push(Value::String(result.content));
                             }
                             Value::Object(nested) => {
-                                let result = self.validate_object(nested, depth + 1);
+                                let result = self.validate_object(nested, depth + 1, limit);
                                 has_secrets |= result.has_secrets;
                                 valid &= result.is_valid;
                                 warnings.extend(
@@ -454,7 +467,7 @@ impl ContentSecurity {
                     sanitized.insert(key.clone(), Value::Array(array));
                 }
                 Value::Object(nested) => {
-                    let result = self.validate_object(nested, depth + 1);
+                    let result = self.validate_object(nested, depth + 1, limit);
                     has_secrets |= result.has_secrets;
                     valid &= result.is_valid;
                     warnings.extend(result.warnings.iter().map(|warning| {
@@ -499,7 +512,7 @@ impl ContentSecurity {
                     Value::String(result.content)
                 }
                 Value::Object(nested) => {
-                    let result = self.validate_object(nested, depth + 1);
+                    let result = self.validate_object(nested, depth + 1, MAX_STRING_LENGTH);
                     *has_secrets |= result.has_secrets;
                     Value::Object(result.sanitized_params)
                 }
@@ -593,6 +606,16 @@ mod tests {
         assert!(changed, "unterminated block must redact");
         assert!(!out.contains(body), "unterminated key body leaked: {out}");
         assert!(out.contains("ok"), "pre-block content dropped: {out}");
+    }
+
+    #[test]
+    fn clasify_evidence_values_may_exceed_the_parameter_length_cap() {
+        let policy = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+        let long = "x".repeat(20_000);
+        let evidence = serde_json::json!({"resources":[{"context":{"value":{"draft":long}}}]});
+        assert!(policy.validate_input_parameters(&evidence).is_valid);
+        let parameter = serde_json::json!({"searchText":"y".repeat(20_000)});
+        assert!(!policy.validate_input_parameters(&parameter).is_valid);
     }
 
     #[test]

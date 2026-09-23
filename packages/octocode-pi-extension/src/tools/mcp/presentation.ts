@@ -88,10 +88,12 @@ export function summarizeMcpBatchResult(result: ToolCallResult): string {
     );
   }
   if (matches.length > 0) return matches.join(" · ");
-  if (values["returnedChars"] && values["totalLines"])
-    return `${values["returnedChars"]} chars · ${values["totalLines"]} lines`;
+  // localFetch omits returnedChars when it equals returnedBytes (ASCII).
+  const chars = values["returnedChars"] || values["returnedBytes"];
+  if (chars && values["totalLines"])
+    return `${chars} chars · ${values["totalLines"]} lines`;
   if (values["totalLines"]) return `${values["totalLines"]} lines`;
-  if (values["returnedChars"]) return `${values["returnedChars"]} chars`;
+  if (chars) return `${chars} chars`;
   if (values["totalEntries"]) return `${values["totalEntries"]} entries`;
 
   const structuralKey =

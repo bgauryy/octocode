@@ -207,6 +207,58 @@ fn scoped(target: &Path, args: &[&str]) -> Vec<OsString> {
     result
 }
 
+/// Global options prepended to every git invocation. `core.symlinks=false`
+/// makes clone/fetch/checkout materialize repository symlinks as plain files
+/// holding the link text, so a hostile repo cannot point into other
+/// `~/.octocode` state that localFetch would then read through the clone.
+const HARDENING_ARGS: [&str; 2] = ["-c", "core.symlinks=false"];
+
+/// Longest cooldown a clone waits out before failing fast.
+const GIT_COOLDOWN_CAP: Duration = Duration::from_secs(10);
+
+fn git_permit(
+    context: &CloneContext<'_>,
+    repository_url: &str,
+    token: Option<&str>,
+) -> Result<tokio::sync::OwnedSemaphorePermit, CloneError> {
+    use crate::providers::github::{GitHubBudget, LimiterKey, ProviderErrorKind};
+    let Ok(url) = url::Url::parse(repository_url) else {
+        return Err(CloneError::new(
+            "clone.input.invalid",
+            "Repository URL could not be parsed",
+        ));
+    };
+    let budget = GitHubBudget::global();
+    let state_dir = context
+        .config
+        .persistent
+        .then(|| context.config.cache_home.join("tmp").join("ratelimit"));
+    let state = budget.key_state(&LimiterKey::for_url(&url, token), state_dir.as_deref());
+    state
+        .acquire_git_blocking(budget.config(), GIT_COOLDOWN_CAP, context.deadline, &|| {
+            context.cancellation.check().is_err()
+        })
+        .map_err(|error| match error.kind {
+            ProviderErrorKind::Cancelled => {
+                CloneError::new("clone.execution.cancelled", error.message.to_string())
+            }
+            ProviderErrorKind::Timeout => {
+                CloneError::new("clone.execution.timeout", error.message.to_string())
+            }
+            _ => CloneError::new(
+                "clone.rateLimited",
+                format!(
+                    "{} Retry after {}s.",
+                    error.message,
+                    error
+                        .rate_limit
+                        .and_then(|rate| rate.retry_after_seconds)
+                        .unwrap_or(60)
+                ),
+            ),
+        })
+}
+
 fn run(
     context: &CloneContext<'_>,
     args: Vec<OsString>,
@@ -214,7 +266,18 @@ fn run(
     label: &str,
     authorization_url: Option<&str>,
 ) -> Result<super::GitOutput, CloneError> {
+    let args = HARDENING_ARGS
+        .iter()
+        .map(OsString::from)
+        .chain(args)
+        .collect();
     let authorization = context.credential.map(|credential| credential.expose());
+    // Network git operations share the host/token executor: honor its
+    // secondary-limit cooldown and cap concurrent clones via the `git` group.
+    let _git_permit = match authorization_url {
+        Some(url) => Some(git_permit(context, url, authorization)?),
+        None => None,
+    };
     context.git.run(
         &GitRunRequest {
             args,

@@ -83,6 +83,71 @@ pub fn prepare_and_validate(
     Ok(query)
 }
 
+/// One row of a batch whose envelope failed validation as a whole.
+pub type RowValidation = Result<serde_json::Value, ContractValidationError>;
+
+/// Re-validate each row of a failed bulk envelope on its own so valid rows can
+/// still execute. Returns `None` when isolation does not apply: a flat or
+/// single-row input, clasify (matrices share batch-level rules), every row
+/// invalid, or an envelope-level failure that persists without the invalid
+/// rows. Rejected rows carry issue paths rebased to their original index.
+pub fn prepare_rows(
+    tool_name: &str,
+    input: &serde_json::Value,
+    options: PrepareOptions<'_>,
+) -> Option<Vec<RowValidation>> {
+    if tool_name == "clasify" {
+        return None;
+    }
+    let (envelope, rows) = match input {
+        serde_json::Value::Array(rows) => (serde_json::Map::new(), rows),
+        serde_json::Value::Object(object) => (object.clone(), object.get("queries")?.as_array()?),
+        _ => return None,
+    };
+    if rows.len() < 2 {
+        return None;
+    }
+    let with_rows = |rows: Vec<serde_json::Value>| {
+        let mut single = envelope.clone();
+        single.insert("queries".into(), serde_json::Value::Array(rows));
+        serde_json::Value::Object(single)
+    };
+    let results = rows
+        .iter()
+        .enumerate()
+        .map(|(index, row)| {
+            prepare_many_and_validate(tool_name, with_rows(vec![row.clone()]), options.clone())
+                .map(|mut prepared| prepared.pop().unwrap_or(serde_json::Value::Null))
+                .map_err(|mut error| {
+                    for issue in &mut error.issues {
+                        match issue.path.first().map(String::as_str) {
+                            Some("queries") if issue.path.len() > 1 => {
+                                issue.path[1] = index.to_string();
+                            }
+                            _ => {
+                                issue
+                                    .path
+                                    .splice(0..0, ["queries".to_owned(), index.to_string()]);
+                            }
+                        }
+                    }
+                    error
+                })
+        })
+        .collect::<Vec<_>>();
+    let valid = rows
+        .iter()
+        .zip(&results)
+        .filter(|(_, result)| result.is_ok())
+        .map(|(row, _)| row.clone())
+        .collect::<Vec<_>>();
+    if valid.is_empty() || valid.len() == rows.len() {
+        return None;
+    }
+    prepare_many_and_validate(tool_name, with_rows(valid), options).ok()?;
+    Some(results)
+}
+
 /// Prepare and validate every query in the canonical bulk envelope. A flat
 /// object and a single-element array remain accepted for direct CLI parity.
 /// Defaults are applied per query before validating the complete envelope, so

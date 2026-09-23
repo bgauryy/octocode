@@ -577,7 +577,7 @@ code and add only config you trust.
 | `OCTOCODE_TOKEN` / `GH_TOKEN` / `GITHUB_TOKEN` | GitHub authentication (priority order)                                              |
 | `GITHUB_API_URL`                               | GitHub Enterprise API base URL                                                      |
 | `ENABLE_LOCAL`                                 | Set `false` to disable all local tools                                              |
-| `ENABLE_CLONE`                                 | Enables `ghCloneRepo`                        |
+| `ENABLE_CLONE`                                 | Legacy setting; cloning is CLI-only with persistent storage |
 | `OCTOCODE_CDP_DEBUG`                           | Set `1` to write CDP events to `~/.octocode/chrome-debug/port-<N>/cdp-events.jsonl` |
 
 Loaded via `@octocodeai/config`. Run `npx @octocodeai/config --keys` to inspect active values.

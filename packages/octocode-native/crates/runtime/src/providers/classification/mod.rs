@@ -15,8 +15,31 @@
 //! clasify engine are all vendor-agnostic.
 pub mod jev;
 
-use octocode_engine::jev::JevError;
+pub(crate) mod gate;
+
 use serde_json::Value;
+
+/// Vendor-neutral response-contract violation reported by
+/// [`ClassificationProvider::validate_response`]. Vendors map their own
+/// validator errors into this so vendor names never reach public error codes.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProviderContractError {
+    /// `true` when the request (not the vendor response) broke the contract.
+    pub request: bool,
+    pub message: String,
+}
+
+impl ProviderContractError {
+    /// Stable public error code for this violation.
+    #[must_use]
+    pub fn code(&self) -> &'static str {
+        if self.request {
+            "invalidClassificationRequest"
+        } else {
+            "invalidClassificationResponse"
+        }
+    }
+}
 
 /// A classification vendor: its built-in defaults, wire format, and response
 /// contract. Every method is called from the generic clasify engine; vendor
@@ -66,16 +89,18 @@ pub trait ClassificationProvider: Send + Sync {
     fn batch_answer_key(&self, index: usize) -> String;
 
     /// Validate the vendor's answer shape against the requested rubric.
-    fn validate_response(&self, request: &Value, response: &Value) -> Result<(), JevError>;
+    fn validate_response(
+        &self,
+        request: &Value,
+        response: &Value,
+    ) -> Result<(), ProviderContractError>;
 }
 
 /// Resolve the provider for a `classification.type` selector. Unknown values
 /// fall back to the default vendor (`jev`); config validation constrains the
 /// resolved value to the declared enum, so the fallback only guards misuse.
 #[must_use]
-pub fn provider_for(vendor: &str) -> &'static dyn ClassificationProvider {
-    match vendor {
-        "jev" => &jev::JEV,
-        _ => &jev::JEV,
-    }
+pub fn provider_for(_vendor: &str) -> &'static dyn ClassificationProvider {
+    // Only `jev` is registered today; add a `match` arm per vendor id here.
+    &jev::JEV
 }

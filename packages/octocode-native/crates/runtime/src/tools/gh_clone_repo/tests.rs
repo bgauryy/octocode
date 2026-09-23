@@ -221,6 +221,68 @@ fn query() -> GhCloneRepoQuery {
 }
 
 #[test]
+fn creates_a_new_configured_home_before_authorizing_the_clone_target() {
+    let fixture = Fixture::new();
+    let root = Temp::new("new-home");
+    let cache_home = root.0.join("new").join("home");
+    let policy = PathPolicy::new(PathPolicyConfig {
+        workspace_root: Some(fixture.work.clone()),
+        additional_roots: vec![cache_home.clone()],
+        ..Default::default()
+    })
+    .expect("policy");
+    let endpoint = GitHubEndpoint::github_com();
+    let runner = RewriteRunner::new(
+        "https://github.com/fixture-owner/fixture-repo.git",
+        &fixture.bare_url,
+    );
+    let config = CloneConfig::persistent(&cache_home);
+    let context = setup(
+        &root.0,
+        &runner,
+        &config,
+        &endpoint,
+        &policy,
+        &NeverCancel,
+        None,
+    );
+
+    assert!(!cache_home.exists());
+    let result = execute_clone(&query(), &context).expect("new home clone");
+    assert!(cache_home.is_dir());
+    assert_eq!(result.location.commit_sha, fixture.first_commit);
+    assert!(Path::new(&result.location.local_path).starts_with(cache_home));
+}
+
+#[test]
+fn denied_cache_home_is_not_created() {
+    let root = Temp::new("allowed");
+    let outside = Temp::new("denied");
+    let cache_home = outside.0.join("home");
+    let policy = PathPolicy::new(PathPolicyConfig {
+        workspace_root: Some(root.0.clone()),
+        ..Default::default()
+    })
+    .expect("policy");
+    let endpoint = GitHubEndpoint::github_com();
+    let runner = SystemGit::default();
+    let config = CloneConfig::persistent(&cache_home);
+    let context = setup(
+        &root.0,
+        &runner,
+        &config,
+        &endpoint,
+        &policy,
+        &NeverCancel,
+        None,
+    );
+
+    let error = execute_clone(&query(), &context).expect_err("deny cache home");
+    assert_eq!(error.code, "clone.policy.denied");
+    assert!(!cache_home.exists(), "denied home must not be created");
+}
+
+#[test]
 fn clones_caches_refreshes_sparse_tag_and_commit_without_token_argv() {
     let fixture = Fixture::new();
     let root = Temp::new("cache");
@@ -798,4 +860,147 @@ fn concurrent_requests_publish_once_and_validation_fails_closed() {
             "clone.input.invalid"
         );
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn repository_symlinks_are_checked_out_as_plain_files() {
+    // A repo symlink pointing at another ~/.octocode file would otherwise be
+    // readable through localFetch inside the clone root.
+    let fixture = Fixture::new();
+    std::os::unix::fs::symlink("../../secret.json", fixture.work.join("escape")).expect("symlink");
+    git(&fixture.work, &["add", "escape"]);
+    git(&fixture.work, &["commit", "-m", "symlink"]);
+    git(&fixture.work, &["push", "origin", "main"]);
+    let head = git_output(&fixture.work, &["rev-parse", "HEAD"])
+        .trim()
+        .to_owned();
+
+    let root = Temp::new("symlinks");
+    let cache_home = root.0.join("home");
+    fs::create_dir_all(&cache_home).expect("home");
+    let policy = PathPolicy::new(PathPolicyConfig {
+        workspace_root: Some(root.0.clone()),
+        ..Default::default()
+    })
+    .expect("policy");
+    let endpoint = GitHubEndpoint::github_com();
+    let runner = RewriteRunner::new(
+        "https://github.com/fixture-owner/fixture-repo.git",
+        &fixture.bare_url,
+    );
+    let mut config = CloneConfig::persistent(&cache_home);
+    config.cache_ttl = Duration::from_secs(60);
+    let context = setup(
+        &root.0,
+        &runner,
+        &config,
+        &endpoint,
+        &policy,
+        &NeverCancel,
+        None,
+    );
+    for (branch, sparse) in [("main", None), (head.as_str(), None), ("main", Some("src"))] {
+        let clone = execute_clone(
+            &GhCloneRepoQuery {
+                branch: Some(branch.into()),
+                sparse_path: sparse.map(str::to_owned),
+                ..query()
+            },
+            &context,
+        )
+        .expect("clone");
+        let link = Path::new(&clone.location.local_path).join("escape");
+        if sparse.is_none() {
+            let meta = fs::symlink_metadata(&link).expect("escape entry");
+            assert!(
+                !meta.file_type().is_symlink(),
+                "{branch}: symlink materialized"
+            );
+        }
+    }
+    let seen = runner
+        .seen
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    for step in [
+        "full clone",
+        "sparse clone",
+        "fetch requested commit",
+        "check out requested commit",
+        "set sparse checkout paths",
+    ] {
+        let request = seen
+            .iter()
+            .find(|value| value.contains(step))
+            .unwrap_or_else(|| panic!("{step} not run: {seen:?}"));
+        assert!(
+            request.contains("core.symlinks=false"),
+            "{step} lacks core.symlinks=false: {request}"
+        );
+    }
+}
+
+#[test]
+fn uppercase_commit_refs_share_the_cache_and_mismatched_meta_is_a_miss() {
+    let fixture = Fixture::new();
+    let root = Temp::new("sha-case");
+    let cache_home = root.0.join("home");
+    fs::create_dir_all(&cache_home).expect("home");
+    let policy = PathPolicy::new(PathPolicyConfig {
+        workspace_root: Some(root.0.clone()),
+        ..Default::default()
+    })
+    .expect("policy");
+    let endpoint = GitHubEndpoint::github_com();
+    let runner = RewriteRunner::new(
+        "https://github.com/fixture-owner/fixture-repo.git",
+        &fixture.bare_url,
+    );
+    let mut config = CloneConfig::persistent(&cache_home);
+    config.cache_ttl = Duration::from_secs(60);
+    let context = setup(
+        &root.0,
+        &runner,
+        &config,
+        &endpoint,
+        &policy,
+        &NeverCancel,
+        None,
+    );
+    let lower = execute_clone(
+        &GhCloneRepoQuery {
+            branch: Some(fixture.first_commit.clone()),
+            ..query()
+        },
+        &context,
+    )
+    .expect("lowercase sha clone");
+    let upper = execute_clone(
+        &GhCloneRepoQuery {
+            branch: Some(fixture.first_commit.to_ascii_uppercase()),
+            ..query()
+        },
+        &context,
+    )
+    .expect("uppercase sha clone");
+    assert!(upper.location.cached, "uppercase SHA missed the cache");
+    assert_eq!(upper.location.local_path, lower.location.local_path);
+
+    // Tamper the persisted meta so it describes a different checkout: the
+    // next request must re-clone rather than trust the directory.
+    let meta_path = Path::new(&lower.location.local_path).join(cache::META_FILE);
+    let mut meta: serde_json::Value =
+        serde_json::from_slice(&fs::read(&meta_path).expect("meta")).expect("meta json");
+    meta["repo"] = serde_json::json!("some-other-repo");
+    fs::write(&meta_path, serde_json::to_vec(&meta).expect("json")).expect("write meta");
+    let again = execute_clone(
+        &GhCloneRepoQuery {
+            branch: Some(fixture.first_commit.clone()),
+            ..query()
+        },
+        &context,
+    )
+    .expect("re-clone");
+    assert!(!again.location.cached, "mismatched meta served from cache");
 }

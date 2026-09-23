@@ -10,7 +10,8 @@
  *   node scripts/dedupe-deps.mjs          # report mismatches (exit 1 if any)
  *   node scripts/dedupe-deps.mjs --fix    # rewrite all to the highest version
  *
- * Local protocols (workspace:/file:/link:/portal:/npm: alias) are left as-is,
+ * Local protocols (workspace:/file:/link:/portal:/npm: alias) and `*` peer
+ * ranges (host-provided "any version", e.g. Pi extension peers) are left as-is,
  * and only the top-level packages/<pkg>/package.json + root are scanned (the
  * exact-pinned native platform sub-packages under the per-package npm folders
  * are intentionally excluded).
@@ -74,6 +75,7 @@ for (const { json } of pkgs) {
   for (const kind of DEP_KINDS) {
     for (const [name, range] of Object.entries(json[kind] || {})) {
       if (SKIP_PROTOCOL.test(range)) continue;
+      if (kind === 'peerDependencies' && range === '*') continue;
       (declared[name] ??= {});
       (declared[name][range] ??= []).push(`${who}:${kind}`);
     }
@@ -151,6 +153,7 @@ for (const { file, json } of pkgs) {
       if (
         target[name] &&
         !SKIP_PROTOCOL.test(block[name]) &&
+        !(kind === 'peerDependencies' && block[name] === '*') &&
         block[name] !== target[name]
       ) {
         block[name] = target[name];

@@ -215,6 +215,9 @@ export interface ApplyOctocodeEnvOptions {
   sources?: Record<string, 'global' | 'project'>;
 }
 
+/** Present-but-blank in the process env disables every classification feature. */
+export const CLASSIFICATION_KILL_SWITCH = 'OCTOCODE_CLASSIFICATION_API';
+
 export interface ApplyOctocodeEnvResult {
   applied: string[];
   skippedProtected: string[];
@@ -242,7 +245,11 @@ export function applyOctocodeEnv(
       continue;
     }
     const existing = env[key];
-    if (existing !== undefined && existing !== '') {
+    // A present-but-blank classification key is an explicit opt-out.
+    if (
+      (existing !== undefined && existing !== '') ||
+      (key === CLASSIFICATION_KILL_SWITCH && existing !== undefined)
+    ) {
       skippedExisting.push(key);
       continue;
     }

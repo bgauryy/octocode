@@ -15,7 +15,7 @@ Run `scheme` once per session or tool-version change to discover enabled tools; 
 
 Pass arguments as an object. Direct MCP uses `{ "queries": [query] }`; CLI also accepts a single query or array. A host gateway may add its own outer envelope; follow its schema. Omit optional fields until the task needs them. On validation failure, correct the named field or selector using the live schema before retrying.
 
-## 12 public tools
+## 13 public tools
 
 | Evidence question | Tool |
 |---|---|
@@ -23,11 +23,11 @@ Pass arguments as an object. Direct MCP uses `{ "queries": [query] }`; CLI also 
 | Known GitHub file | `ghGetFileContent` |
 | GitHub history discovery / known item | `ghSearchHistory` / `ghGetHistoryItem` |
 | Repeated cross-file GitHub analysis | `ghCloneRepo` when enabled |
-| Local text / syntax or topology / structural rewrite / exact content / symbol identity | `localSearch` / `astSearch` / `astRewrite` / `localFetch` / `lspSearch` |
+| Local text / syntax / file-graph topology / structural rewrite / exact content / symbol identity | `localSearch` / `astSearch` / `astTopology` / `astRewrite` / `localFetch` / `lspSearch` |
 | Package metadata or capability discovery | `artifactSearch` |
 | Provisional typed judgment at an unresolved evidence fork | `clasify` when a nonblank `OCTOCODE_CLASSIFICATION_API` is resolved |
 
-The default catalog contains 10 tools. The full CLI discovery catalog also includes opt-in `ghCloneRepo` and credential-gated `clasify`. MCP omits `clasify` when the resolved `OCTOCODE_CLASSIFICATION_API` is missing or blank; a direct CLI assessment names the missing key. Local access, clone, storage, credentials, and tool filters determine availability. Check the live catalog before using a follow-up. Check auth only when needed. If the current interface is unavailable, state the fallback and its coverage; do not present an unsupported call as an empty result.
+The default catalog contains 9 tools. The full CLI discovery catalog also includes opt-in `ghCloneRepo`, beta-gated `astTopology` and `astRewrite` (`OCTOCODE_BETA`), and credential-gated `clasify`. MCP omits `clasify` when the resolved `OCTOCODE_CLASSIFICATION_API` is missing or blank; a direct CLI assessment names the missing key. Local access, clone, storage, credentials, and tool filters determine availability. Check the live catalog before using a follow-up. Check auth only when needed. If the current interface is unavailable, state the fallback and its coverage; do not present an unsupported call as an empty result.
 
 ## Output and recovery
 - CLI output is structured JSON (indented by default; `--compact` for one line). MCP returns text plus structured data. Inspect per-row status: error is failure, empty is scoped absence, and exit 0 alone does not establish success for every row.

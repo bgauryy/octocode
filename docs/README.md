@@ -22,7 +22,6 @@ Use this page to find the document that owns each topic. The root [README](../RE
 | Carrying evidence and continuations between tools | [Tool data and handoff contract](TOOL_DATA_CONTRACT.md) |
 | Evidence grades and agent routing rules | [Octocode research manifest](OCTOCODE_RESEARCH_MANIFEST.md) |
 | Judge candidates before reading them — the `clasify` contract, research loop, and examples | [Semantic assessment reference](OCTOCODE_CLASIFY.md) |
-| Historical Jev provider measurements | [Jev benchmark](JEV_BENCHMARK.md) |
 | The broader research-driven development philosophy | [Research-driven development manifest](../MANIFEST.md) |
 
 ## Contributor and quality guides

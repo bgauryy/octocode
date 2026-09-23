@@ -27,7 +27,6 @@ pub(super) async fn empty_scope<R: CredentialResolver>(
     let GhSearchQuery::Code {
         owner: Some(owner),
         repo: Some(repo),
-        keywords,
         ..
     } = query
     else {
@@ -58,10 +57,15 @@ pub(super) async fn empty_scope<R: CredentialResolver>(
         {
             let name = metadata.full_name.as_deref().unwrap_or_default();
             let (new_owner, new_repo) = name.split_once('/').unwrap_or((name, ""));
-            let mut next = json!({"operation":"code","owner":new_owner,"repo":new_repo});
-            if let Some(keywords) = keywords {
-                next["keywords"] = json!(keywords);
-            }
+            // Re-run the same normalized query (every filter) against the new
+            // name, from page 1.
+            let mut next = serde_json::to_value(query).map_err(|error| {
+                ProviderError::new(ProviderErrorKind::Decode, error.to_string())
+            })?;
+            super::remove_nulls(&mut next);
+            next["owner"] = json!(new_owner);
+            next["repo"] = json!(new_repo);
+            next["page"] = json!(1);
             (
                 "retryRenamed",
                 next,

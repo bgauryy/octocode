@@ -790,7 +790,7 @@ fn search_files_prefilters_rule_by_inner_pattern() {
 }
 
 #[test]
-fn search_files_prefilters_operator_anchor_before_structural_match() {
+fn search_files_operator_only_pattern_parses_every_candidate() {
     let root = temp_root("operatoranchor");
     fs::write(root.join("match.js"), "foo && foo();\n").expect("match");
     fs::write(root.join("nomatch.js"), "foo || foo();\n").expect("nomatch");
@@ -810,9 +810,43 @@ fn search_files_prefilters_operator_anchor_before_structural_match() {
     })
     .expect("operator anchor search");
 
-    assert_eq!(result.skipped_by_pre_filter, 1);
+    assert_eq!(result.skipped_by_pre_filter, 0);
     assert_eq!(result.files.len(), 1);
     assert!(result.files[0].path.ends_with("match.js"));
+    fs::remove_dir_all(root).expect("cleanup");
+}
+
+#[test]
+fn operator_spacing_does_not_split_directory_and_file_results() {
+    let root = temp_root("operatorspacing");
+    let source = "if (a && !b) { run(); }\nx = y - 1;\n";
+    fs::write(root.join("spaced.js"), source).expect("spaced");
+    for pattern in ["$A&&!$B", "$A && !$B", "$A=$B-1"] {
+        let file_matches = search(source, "js", Some(pattern), None).expect("file search");
+        let result = search_files(StructuralSearchFilesOptions {
+            path: root.to_string_lossy().to_string(),
+            pattern: Some(pattern.to_owned()),
+            rule: None,
+            include: None,
+            exclude_dir: None,
+            exclude: None,
+            hidden: None,
+            no_ignore: None,
+            max_depth: None,
+            max_files: Some(50),
+            max_file_bytes: None,
+        })
+        .expect("directory search");
+        assert_eq!(result.skipped_by_pre_filter, 0, "{pattern}");
+        let dir_count = result.files.iter().map(|f| f.matches.len()).sum::<usize>();
+        assert_eq!(dir_count, file_matches.len(), "{pattern}");
+    }
+    assert_eq!(
+        search(source, "js", Some("$A&&!$B"), None)
+            .expect("file")
+            .len(),
+        1
+    );
     fs::remove_dir_all(root).expect("cleanup");
 }
 

@@ -143,12 +143,7 @@ pub(super) fn invalid_query_explanation(
 fn derive_literal_anchor(pattern: &str) -> Option<&str> {
     literal_anchor_candidates(pattern)
         .into_iter()
-        .max_by_key(|token| {
-            (
-                token.chars().any(|ch| ch.is_ascii_alphanumeric()),
-                token.len(),
-            )
-        })
+        .max_by_key(|token| token.len())
 }
 
 fn literal_anchor_candidates(pattern: &str) -> Vec<&str> {
@@ -199,29 +194,18 @@ fn push_anchor_candidate<'a>(
     }
 }
 
+/// Only identifier-like runs can anchor: the AST ignores operator spacing, so
+/// an operator run such as `&&!` in `$A&&!$B` is absent from `a && !b`.
 fn is_anchor_char(ch: char) -> bool {
-    ch == '_'
-        || ch.is_ascii_alphanumeric()
-        || matches!(
-            ch,
-            '&' | '|' | '=' | '!' | '<' | '>' | '+' | '-' | '*' | '/' | '%' | '?' | ':'
-        )
+    ch == '_' || ch.is_ascii_alphanumeric()
 }
 
 fn is_safe_anchor_token(token: &str) -> bool {
-    if token.len() >= 3
+    token.len() >= 3
         && token.chars().any(|ch| ch.is_ascii_lowercase())
         && token
             .chars()
             .all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
-    {
-        return true;
-    }
-
-    token.len() >= 2
-        && token
-            .chars()
-            .all(|ch| !ch.is_ascii_alphanumeric() && !ch.is_whitespace())
 }
 
 /// Infer necessary file literals from the same parsed rule that compilation uses.
@@ -360,12 +344,23 @@ mod tests {
     }
 
     #[test]
-    fn literal_anchor_uses_operator_when_pattern_has_no_identifier_anchor() {
+    fn literal_anchor_never_uses_operator_runs_whose_spacing_the_ast_ignores() {
+        // `$A&&!$B` must still match `a && !b`; operator text is not a
+        // necessary file literal, so only identifier-like tokens anchor.
+        for pattern in ["$A && $A()", "$A&&!$B", "$A=-1", "$A>>$B", "$A::$B"] {
+            assert_eq!(
+                StructuralQuery::new(Some(pattern), None)
+                    .expect("valid query")
+                    .prefilter(),
+                Prefilter::None,
+                "{pattern}"
+            );
+        }
         assert_eq!(
-            StructuralQuery::new(Some("$A && $A()"), None)
+            StructuralQuery::new(Some("$A&&!foo($B)"), None)
                 .expect("valid query")
                 .prefilter(),
-            Prefilter::Single("&&".to_owned())
+            Prefilter::Single("foo".to_owned())
         );
     }
 

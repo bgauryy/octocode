@@ -60,7 +60,7 @@ fn descendant_policy_precedes_discovery_totals_and_line_reads() {
     )
     .expect("files");
     assert_eq!(files["pagination"]["totalFiles"], 1);
-    assert_eq!(files["files"][0]["lineCount"], 3);
+    assert_eq!(files["files"][0]["lineCount"], 2);
     assert!(!files.to_string().contains("credentials"));
     assert!(!files.to_string().contains("locked"));
     let symbols = execute_ast(
@@ -89,7 +89,11 @@ fn descendant_policy_precedes_discovery_totals_and_line_reads() {
     .expect("structural matches");
     assert_eq!(matches["stats"]["totalStructuralMatches"], 1);
     assert_eq!(matches["files"].as_array().expect("files").len(), 1);
-    assert_eq!(matches["files"][0]["path"], "visible.ts");
+    let root_name = root.0.file_name().expect("root name").to_string_lossy();
+    assert_eq!(
+        matches["files"][0]["path"],
+        format!("{root_name}/visible.ts")
+    );
     assert!(!matches.to_string().contains("hidden.ts"));
     assert!(!matches.to_string().contains("locked.ts"));
 }
@@ -405,4 +409,331 @@ fn match_continuation_rejects_stale_snapshot() {
         json!("ast.snapshot.changed"),
         "got {page2}"
     );
+}
+
+fn run(
+    root: &std::path::Path,
+    query: serde_json::Value,
+) -> Result<serde_json::Value, super::AstError> {
+    let (paths, security) = simple_policy(root);
+    execute_ast(query, &paths, &security, &Active)
+}
+
+#[test]
+fn directory_pattern_that_compiles_in_no_file_is_an_error_not_empty() {
+    let root = Fixture::new();
+    for name in ["a.rs", "b.rs"] {
+        std::fs::write(root.0.join(name), "fn main() {}\n").expect("file");
+    }
+    let error = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"langType":"rust","pattern":"fn ???"}),
+    )
+    .expect_err("uncompilable pattern must fail loudly");
+    assert_eq!(error.code, "structural.query.compileFailed");
+}
+
+#[test]
+fn match_pagination_limits_next_match_page_to_the_current_file_page() {
+    let root = Fixture::new();
+    std::fs::write(root.0.join("a.rs"), "fn a() { hit(1); }\n").expect("a");
+    std::fs::write(root.0.join("b.rs"), "fn b() { hit(1); hit(2); hit(3); }\n").expect("b");
+    let base = json!({
+        "operation":"match","path":root.0,"langType":"rust","pattern":"hit($A)",
+        "pageSize":1,"maxMatchesPerFile":2
+    });
+    let page1 = run(&root.0, base.clone()).expect("page1");
+    assert_eq!(page1["files"][0]["totalMatchRows"], 1, "{page1}");
+    assert!(
+        page1["next"].get("nextMatchPage").is_none(),
+        "page 1 has no truncated file, so no nextMatchPage: {page1}"
+    );
+    let next = page1["next"]["nextPage"]["query"].clone();
+    let page2 = run(&root.0, next).expect("page2");
+    assert_eq!(page2["files"][0]["returnedMatchRows"], 2, "{page2}");
+    assert_eq!(
+        page2["complete"], false,
+        "unreturned matches remain: {page2}"
+    );
+    let deeper = page2["next"]["nextMatchPage"]["query"].clone();
+    assert_eq!(deeper["matchPage"], 2, "{page2}");
+    assert_eq!(deeper["page"], 2, "{page2}");
+    let page2b = run(&root.0, deeper.clone()).expect("page2 matchPage2");
+    assert_eq!(page2b["files"][0]["returnedMatchRows"], 1, "{page2b}");
+
+    // A nextPage continuation always restarts per-file match pagination.
+    let mut mid = base;
+    mid["matchPage"] = json!(2);
+    mid["snapshot"] = page1["snapshot"].clone();
+    let mid = run(&root.0, mid).expect("page1 matchPage2");
+    assert_eq!(mid["next"]["nextPage"]["query"]["matchPage"], 1, "{mid}");
+}
+
+#[test]
+fn single_file_with_unreturned_matches_is_not_complete() {
+    let root = Fixture::new();
+    let source = root.0.join("many.rs");
+    std::fs::write(&source, "fn m() { hit(1); hit(2); hit(3); }\n").expect("source");
+    let out = run(
+        &root.0,
+        json!({"operation":"match","path":source,"pattern":"hit($A)","maxMatchesPerFile":2}),
+    )
+    .expect("match");
+    assert_eq!(out["complete"], false, "{out}");
+    assert!(out["next"]["nextMatchPage"].is_object(), "{out}");
+}
+
+#[test]
+fn lang_type_is_validated_and_intersected_with_include() {
+    let root = Fixture::new();
+    std::fs::write(root.0.join("a.ts"), "oldCall(x);\n").expect("ts");
+    std::fs::write(root.0.join("b.py"), "oldCall(x)\n").expect("py");
+    let unknown = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"langType":"klingon","pattern":"oldCall($A)"}),
+    )
+    .expect_err("unknown langType");
+    assert_eq!(unknown.code, "ast.language.unsupported");
+
+    let out = run(
+        &root.0,
+        json!({
+            "operation":"match","path":root.0,"langType":"typescript",
+            "include":["*.ts","*.py"],"pattern":"oldCall($A)"
+        }),
+    )
+    .expect("intersected include");
+    let files = out["files"].as_array().expect("files");
+    assert_eq!(files.len(), 1, "{out}");
+    assert!(
+        files[0]["path"]
+            .as_str()
+            .is_some_and(|p| p.ends_with("a.ts")),
+        "{out}"
+    );
+
+    let mismatch = run(
+        &root.0,
+        json!({"operation":"match","path":root.0.join("b.py"),"langType":"typescript","pattern":"oldCall($A)"}),
+    )
+    .expect_err("single file outside langType");
+    assert_eq!(mismatch.code, "ast.language.mismatch");
+
+    std::fs::write(root.0.join("notes.txt"), "oldCall(x)\n").expect("txt");
+    let unsupported = run(
+        &root.0,
+        json!({"operation":"match","path":root.0.join("notes.txt"),"pattern":"oldCall($A)"}),
+    )
+    .expect("unsupported single file");
+    assert_eq!(unsupported["complete"], false, "{unsupported}");
+    assert_ne!(unsupported["status"], "empty", "{unsupported}");
+}
+
+#[test]
+fn match_content_length_bounds_each_match_value() {
+    let root = Fixture::new();
+    let source = root.0.join("long.rs");
+    let args = (0..200)
+        .map(|i| format!("arg{i}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    std::fs::write(&source, format!("fn m() {{ call({args}); }}\n")).expect("source");
+    let value_len = |length: Option<u32>| {
+        let mut query = json!({"operation":"match","path":source,"pattern":"call($$$A)"});
+        if let Some(length) = length {
+            query["matchContentLength"] = json!(length);
+        }
+        let out = run(&root.0, query).expect("match");
+        out["files"][0]["matches"][0]["value"]
+            .as_str()
+            .expect("value")
+            .chars()
+            .count()
+    };
+    assert_eq!(value_len(Some(40)), 40);
+    assert!(value_len(Some(5_000)) > 300);
+    assert_eq!(value_len(None), 500);
+}
+
+#[test]
+fn files_line_count_counts_lines_not_newlines_plus_one() {
+    let root = Fixture::new();
+    std::fs::write(root.0.join("two.rs"), "a\nb\n").expect("two");
+    std::fs::write(root.0.join("partial.rs"), "a\nb").expect("partial");
+    std::fs::write(root.0.join("empty.rs"), "").expect("empty");
+    let out = run(
+        &root.0,
+        json!({"operation":"files","path":root.0,"detail":"full","entryType":"f"}),
+    )
+    .expect("files");
+    let count = |name: &str| {
+        out["files"]
+            .as_array()
+            .expect("files")
+            .iter()
+            .find(|f| f["path"].as_str().is_some_and(|p| p.ends_with(name)))
+            .map(|f| f["lineCount"].clone())
+            .unwrap_or_else(|| panic!("{name} in {out}"))
+    };
+    assert_eq!(count("two.rs"), 2);
+    assert_eq!(count("partial.rs"), 2);
+    // Zero-line files omit lineCount rather than reporting an extra line.
+    assert!(count("empty.rs").is_null());
+}
+
+#[test]
+fn unknown_symbol_kinds_are_rejected_and_source_limits_are_errors() {
+    let root = Fixture::new();
+    let source = root.0.join("lib.rs");
+    std::fs::write(&source, "pub fn visible() {}\n").expect("source");
+    let error = run(
+        &root.0,
+        json!({"operation":"symbols","path":source,"kinds":["functoin"]}),
+    )
+    .expect_err("unknown kind");
+    assert_eq!(error.code, "ast.symbols.invalidKind");
+    let ok = run(
+        &root.0,
+        json!({"operation":"symbols","path":source,"kinds":["function"]}),
+    )
+    .expect("known kind");
+    assert_eq!(ok["declarations"][0]["name"], "visible");
+
+    let large = root.0.join("large.rs");
+    std::fs::write(&large, "// x\n".repeat(250_001)).expect("large");
+    for query in [
+        json!({"operation":"symbols","path":large}),
+        json!({"operation":"tree","treeKind":"syntax","path":large}),
+    ] {
+        let out = run(&root.0, query).expect("limit row");
+        assert_eq!(out["errorCode"], "ast.source.limit", "{out}");
+        assert_eq!(out["status"], "error", "{out}");
+    }
+}
+
+#[test]
+fn single_file_symbols_are_compact_and_path_free() {
+    let root = Fixture::new();
+    let source = root.0.join("shapes.rs");
+    std::fs::write(
+        &source,
+        "struct A;\nimpl A {\n    fn run() {}\n}\nstruct B; impl B { fn run() {} }\n",
+    )
+    .expect("source");
+    let out = run(&root.0, json!({"operation":"symbols","path":source})).expect("symbols");
+    let text = out.to_string();
+    let root_text = root.0.to_string_lossy();
+    assert!(
+        !text.contains(root_text.as_ref()),
+        "absolute path leaked: {out}"
+    );
+    assert!(out.get("complete").is_none(), "{out}");
+    assert_eq!(out["isPartial"], false, "{out}");
+    let rows = out["declarations"].as_array().expect("declarations");
+    for row in rows {
+        for dropped in ["path", "range", "selectionRange"] {
+            assert!(row.get(dropped).is_none(), "{dropped} in {row}");
+        }
+    }
+    let impl_a = rows
+        .iter()
+        .find(|r| r["kind"] == "impl" && r["line"] == 2)
+        .expect("impl A");
+    assert_eq!(impl_a["endLine"], 4, "{impl_a}");
+    let run_a = rows
+        .iter()
+        .find(|r| r["name"] == "run" && r["line"] == 3)
+        .expect("run in impl A");
+    assert_eq!(run_a["character"], 7, "{run_a}");
+    assert_eq!(run_a["id"], "run@3:7", "{run_a}");
+    assert!(run_a.get("endLine").is_none(), "{run_a}");
+    assert_eq!(run_a["parent"], impl_a["id"], "{out}");
+    // Same name on one line stays distinguishable by column.
+    let line5_runs = rows
+        .iter()
+        .filter(|r| r["name"] == "run" && r["line"] == 5)
+        .count();
+    assert_eq!(line5_runs, 1, "{out}");
+    let mut ids = rows
+        .iter()
+        .filter_map(|r| r["id"].as_str())
+        .collect::<Vec<_>>();
+    let total = ids.len();
+    ids.sort_unstable();
+    ids.dedup();
+    assert_eq!(ids.len(), total, "ids must be unique: {out}");
+    let notes = out["diagnostics"]
+        .as_array()
+        .expect("diagnostics")
+        .iter()
+        .filter(|d| {
+            d["message"]
+                .as_str()
+                .is_some_and(|m| m.contains("syntax-only"))
+        })
+        .count();
+    assert_eq!(notes, 1, "{out}");
+}
+
+#[test]
+fn directory_symbols_keep_row_paths_and_emit_the_syntax_note_once() {
+    let root = Fixture::new();
+    std::fs::write(root.0.join("a.rs"), "fn a() {}\n").expect("a");
+    std::fs::write(root.0.join("b.rs"), "fn b() {}\n").expect("b");
+    let out = run(&root.0, json!({"operation":"symbols","path":root.0})).expect("symbols");
+    let rows = out["declarations"].as_array().expect("declarations");
+    assert_eq!(rows.len(), 2, "{out}");
+    assert!(rows.iter().all(|r| r["path"].is_string()), "{out}");
+    let diagnostics = out["diagnostics"].as_array().expect("diagnostics");
+    assert_eq!(diagnostics.len(), 1, "{out}");
+    assert!(diagnostics[0].get("path").is_none(), "{out}");
+}
+
+#[test]
+fn match_rows_emit_captures_once_and_omit_single_line_end() {
+    let root = Fixture::new();
+    let source = root.0.join("calls.ts");
+    std::fs::write(&source, "oldCall(one);\noldCall(\n  two\n);\n").expect("source");
+    let out = run(
+        &root.0,
+        json!({"operation":"match","path":source,"pattern":"oldCall($A)"}),
+    )
+    .expect("match");
+    let matches = out["files"][0]["matches"].as_array().expect("matches");
+    assert_eq!(matches.len(), 2, "{out}");
+    for m in matches {
+        assert!(m.get("metavars").is_none(), "duplicate capture map: {m}");
+    }
+    let single = &matches[0];
+    assert!(single.get("endLine").is_none(), "{single}");
+    assert_eq!(single["metavarRanges"]["A"][0]["text"], "one", "{single}");
+    assert!(
+        single["metavarRanges"]["A"][0].get("endLine").is_none(),
+        "{single}"
+    );
+    assert_eq!(matches[1]["endLine"], 4, "{}", matches[1]);
+}
+
+#[test]
+fn file_rows_omit_the_default_file_type() {
+    let root = Fixture::new();
+    std::fs::create_dir(root.0.join("dir")).expect("dir");
+    std::fs::write(root.0.join("dir/a.rs"), "fn a() {}\n").expect("a");
+    let out = run(
+        &root.0,
+        json!({"operation":"files","path":root.0,"sort":"path"}),
+    )
+    .expect("files");
+    let rows = out["files"].as_array().expect("files");
+    let file = rows
+        .iter()
+        .find(|r| r["path"].as_str().is_some_and(|p| p.ends_with("a.rs")))
+        .expect("file row");
+    assert!(file.get("type").is_none(), "{file}");
+    if let Some(dir) = rows
+        .iter()
+        .find(|r| r["path"].as_str().is_some_and(|p| p.ends_with("/dir")))
+    {
+        assert_eq!(dir["type"], "directory", "{dir}");
+    }
 }

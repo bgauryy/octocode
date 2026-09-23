@@ -53,7 +53,7 @@ The CLI and MCP server expose the same canonical contracts from `@octocodeai/oct
 | `queries` | Required outer field | Array of 1–5 queries for the **same tool**. Queries are independent and response rows retain their zero-based input `index`. Default execution concurrency is 3, so batching reduces round trips but does not create dependencies between rows. |
 | `goal` | Optional per query | States the result the query should accomplish. It is agent-facing context, not a ranking instruction or proof of correctness. |
 | `reasoning` | Optional per query | States why this query advances the goal. Use a short, decision-relevant sentence; do not put secrets, hidden chain-of-thought, or required runtime data here. |
-| `responseCharLength` | Optional outer field | Limits the rendered whole-response text window to 1–50,000 characters. It does not replace a tool's own result pagination. |
+| `responseCharLength` | Optional outer field | Limits the rendered whole-response text window to 1–50,000 characters. It does not replace a tool's own result pagination. When omitted, responses larger than `output.pagination.defaultCharLength` (default 50,000) are paged automatically; follow `responsePagination.next`. |
 | `responseCharOffset` | Optional outer field | Continues a whole-response text window. Copy the returned executable `responsePagination.next` call instead of constructing an offset by hand. |
 
 For ordinary tools, `goal` and `reasoning` are the shared query fields. All other fields belong to a specific tool variant. The schemas are strict: fields from different `operation` branches cannot be mixed, selector pairs such as `startLine`/`endLine` must be complete, and mutually exclusive selectors must not be combined. `clasify` has its own matrix contract and required query-level `reasoning` field.
@@ -113,7 +113,7 @@ Row fields are `index`, optional `status`, optional `cache`, `meta`, and `data`.
 | `lspSearch` | Internal/local with a language-server process | Resolves an anchored symbol and asks a real language server for definitions, references, calls, types, symbols, hierarchy, or diagnostics. It reports unavailable capabilities instead of returning a syntactic approximation as semantic proof. |
 | `clasify` | External Jev provider | Executes unread read-tool requests or accepts supplied state, applies Noul, Choice, or Score questions across a resource-question matrix, and returns correlated typed pages without retrieved bodies. |
 
-Remote GitHub tools require provider runtime and credentials. `artifactSearch` uses official registry APIs; `type:"npm"` honors the effective npm registry configuration. Local tools require `ENABLE_LOCAL`; clone/materialization additionally requires `ENABLE_CLONE` and persistent storage. `astRewrite` and `astTopology` additionally require `OCTOCODE_BETA=true` (the sole gate for both preview and apply). LSP availability also depends on a compatible server for the file language. `clasify` requires a nonblank resolved `OCTOCODE_CLASSIFICATION_API`; without one, MCP omits it and a CLI call returns an actionable missing-key error.
+Remote GitHub tools require provider runtime and credentials. `artifactSearch` uses official registry APIs; `type:"npm"` honors the effective npm registry configuration. Local tools require `ENABLE_LOCAL`; `ghCloneRepo` is CLI-only and requires persistent storage. `astRewrite` and `astTopology` additionally require `OCTOCODE_BETA=true` (the sole gate for both preview and apply). LSP availability also depends on a compatible server for the file language. `clasify` requires a nonblank resolved `OCTOCODE_CLASSIFICATION_API`; without one, MCP omits it and a CLI call returns an actionable missing-key error.
 
 ## Text, AST, graph, and LSP: choose the evidence you need
 
@@ -172,7 +172,7 @@ Concise reference for Octocode MCP remote research tools: GitHub code/repo/PR se
 | `GITHUB_PERSONAL_ACCESS_TOKEN` | Lowest-priority GitHub token env var. |
 | `GITHUB_API_URL` | GitHub Enterprise API base URL. |
 | `ENABLE_LOCAL` | Turns local tools on or off. Defaults to `true` on both CLI and MCP. |
-| `ENABLE_CLONE` | Controls `ghCloneRepo`. Defaults to `false`; set `true` to enable it. Persistent storage and local access are also required. |
+| `ENABLE_CLONE` | Legacy setting retained for config compatibility. Defaults to `false`; CLI cloning requires persistent storage and MCP cloning is unavailable. |
 
 Every tool accepts bulk input (`{ "queries": [...] }`), up to 5 queries per call. Page-based tools use `page` and `pageSize`; `limit` is a pre-pagination cap where that distinct control exists. When more results remain, run the matching schema-valid `next.*` call: `nextPage`/`nextMatchPage`, `expandLimit`/`expandScan`, or a content continuation. At an unexpandable public or provider cap, metadata reports `terminalLimitReached` and omits unusable continuations. Numeric page, offset, cursor, and raw `nextQuery` fields are not executable by themselves. `matchString` selects all matching slices; file chunks page that selected view without changing the selector. `ghCloneRepo` is atomic and does not paginate its input. Use `npx octocode scheme <toolName> --compact` for the exact active schema and operation scopes.
 
@@ -487,7 +487,7 @@ Useful local-tool environment variables:
 | `ENABLE_LOCAL` | Enables local filesystem tools. Defaults to `true` on both CLI and MCP; set `false` to disable them. |
 | `WORKSPACE_ROOT` | Root used to resolve relative local paths. Overrides `local.workspaceRoot` in config. |
 | `ALLOWED_PATHS` | Optional comma-separated allowlist of extra roots, added on top of the always-allowed home directory. Empty means home directory only (paths outside home are denied). |
-| `ENABLE_CLONE` | Enables `ghCloneRepo` workflows. Defaults to `false`; set `true` to enable cloning. Persistent storage and local access are also required. |
+| `ENABLE_CLONE` | Legacy setting retained for config compatibility; it no longer gates cloning. |
 | `TOOLS_TO_RUN` | Strict tool allowlist; include every tool that must remain enabled. Removed compatibility names are rejected. |
 
 Config reference: [Configuration Reference](CONFIGURATION.md).
@@ -569,10 +569,10 @@ Lexical local search. The query is selected by `searchText` and `regex`; use
 | `rule` | Use `astSearch(operation:"match")` for YAML relational rules. |
 | `matchWindow` | With `resultView:"matchOnly"`, widen each matched span by this many characters of context on each side (… marks trimmed sides). 0 = bare match. |
 | `unique` | With `resultView:"matchOnly"`, use `list` for distinct match values per file or `count` for frequencies. |
-| `contextLines` | Lines around each match. Max 100. |
-| `matchContentLength` | Max characters per individual match snippet. Default 500, max 100000. |
-| `pageSize` | Files returned per lexical result page. |
-| `maxMatchesPerFile` | Per-file match page size. Pair with `matchPage` to continue. |
+| `contextLines` | Lines around each match. Default 0 (`detailed`: 3), max 100. |
+| `matchContentLength` | Max characters per match snippet, clipped around the hit. Default 200, max 100000. |
+| `pageSize` | Files per lexical result page. Default 20 (100 for path/count views). |
+| `maxMatchesPerFile` | Per-file match page size. Default 10. Pair with `matchPage` to continue. |
 | `page` | Result page across matched files. |
 | `matchPage` | Per-file match page when a file has more matches. |
 
@@ -958,7 +958,7 @@ This is a beta feature, disabled by default. Set `OCTOCODE_BETA=true` (or
 | `postconditions` | Check a required `remainingMatches` count in the staged selected files before commit. |
 
 ```bash
-node packages/octocode/out/octocode.js astRewrite '{"reasoning":"<why>","path":"/ABS/repo/src","langType":"typescript","ruleKind":"pattern","pattern":"console.log($A)","rewrite":"logger.info($A)"}' --compact
+node packages/octocode/out/octocode.js astRewrite '{"reasoning":"<why>","path":"/ABS/repo/src","langType":"typescript","ruleKind":"pattern","pattern":"console.log($A)","rewrite":"logger.info($A)"}'
 ```
 
 Use the preview's identities and diff to review the change. Inspect `scheme astRewrite --compact` for the current operation constraints before applying. A successful preview alone does not verify applied behavior.
@@ -1041,7 +1041,7 @@ Semantic types:
 | `operation` | Best for | Output |
 |--------|----------|--------|
 | `definition` | Jumping from usage/import to declaration. TypeScript uses the full semantic server from its first request, so imports and path aliases resolve without a synthetic location. Unresolved provider locations are preserved unchanged. | `payload.kind="definition"`, `locations[]`. |
-| `references` | Affected references for functions, types, variables, constants, and classes. | `locations[]`, `totalReferences`, `totalFiles`, optional `byFile`. |
+| `references` | Affected references for functions, types, variables, constants, and classes. | `locations[]` (or, with `groupByFile`, `byFile[]` of `{path, references, lines}` instead), `totalReferences`, `totalFiles`. |
 | `callers` | Static incoming calls to a callable symbol. | Compact `calls[]`, `summary.incomingCalls`, pagination. |
 | `callees` | Static outgoing calls made by a callable symbol. | Compact `calls[]`, `summary.outgoingCalls`, pagination. |
 | `callHierarchy` | Bidirectional call-flow snapshot. | Incoming and outgoing calls in one compact page. |
@@ -1304,11 +1304,11 @@ Workspace-symbol search:
 
 ## Semantic assessment reference
 
-Use `octocode clasify --input request.json`; inspect `octocode scheme clasify --compact` before hand-authoring a call. Pass one complete `SemanticQuery` directly or batch one to five complete matrices in `queries[]`. Within a query, every question sees every resource, each resource is captured once, and every result carries `queryId`, `resourceId`, and `questionId`. Keep a matrix at 25 cells or fewer and the batch at 50 cells or fewer.
+Use `octocode clasify --input request.json`; inspect `octocode scheme clasify --compact` before hand-authoring a call. Pass one complete `SemanticQuery` directly or batch one to five complete matrices in `queries[]`. Within a query, every question sees every resource, each resource is captured once, and every result is keyed by `queryId`, `resourceId`, and `questionId`. Keep a matrix at 25 cells or fewer and the batch at 50 cells or fewer.
 
 Context is supplied non-empty `{value}` state or one unread `{tool,query}` request. `instructions` is always a non-null, non-empty string, object, or array. Noul criteria are optional; when present, both `true` and `false` are required and their descriptions may be null. Choice requires 2–255 labels whose descriptions may be null. Score requires 2–10 ordered, non-null, non-empty string/object/array levels.
 
-The runtime executes supported read requests under normal policy and automatically retains ordered same-resource results in `pages[]`; it never silently averages or reduces them. Successful pages report `requestedModel` and `resolvedModel` separately. Follow an executable `next.clasify` unchanged, retain error pages, and never use partial coverage to establish global absence. See the [complete contract, research workflow, and examples](OCTOCODE_CLASIFY.md).
+The runtime executes supported read requests under normal policy and returns resource-major results: `resources[].pages[].answers[questionId]`, with the resolved `model` and summed `usage` once per query; it never silently averages or reduces pages. Follow an executable `next.clasify` unchanged, retain error pages, and never use partial coverage to establish global absence. See the [complete contract, research workflow, and examples](OCTOCODE_CLASIFY.md).
 
 ---
 
@@ -1372,7 +1372,7 @@ ghCloneRepo(owner="microsoft", repo="TypeScript", sparsePath="src/compiler")
 
 ### Path validation: why it works
 
-Clones live under `<octocode-home>/tmp/...`, and both the path and execution-context validators automatically add the Octocode home as an allowed root, so a returned `location.localPath` is valid for all local and LSP tools even outside your shell workspace. LSP picks project context from the target file: inside `WORKSPACE_ROOT` it keeps that root; otherwise it walks up to the nearest marker (`package.json`, `tsconfig.json`, `.git`, `Cargo.toml`, `go.mod`, `pyproject.toml`). Set `ENABLE_CLONE=true` and leave local tools on (clone defaults off on both surfaces). For TS/JS LSP, Octocode uses its bundled `typescript-language-server`; if unavailable, install it (plus `typescript`) on `PATH` or set `OCTOCODE_TS_SERVER_PATH`. LSP can read minified `.js`, but quality is far better on original source.
+Clones live under `<octocode-home>/tmp/...`, and both the path and execution-context validators automatically add the Octocode home as an allowed root, so a returned `location.localPath` is valid for all local and LSP tools even outside your shell workspace. LSP picks project context from the target file: inside `WORKSPACE_ROOT` it keeps that root; otherwise it walks up to the nearest marker (`package.json`, `tsconfig.json`, `.git`, `Cargo.toml`, `go.mod`, `pyproject.toml`). Clone through the CLI with persistent storage; MCP does not expose `ghCloneRepo`. For TS/JS LSP, Octocode uses its bundled `typescript-language-server`; if unavailable, install it (plus `typescript`) on `PATH` or set `OCTOCODE_TS_SERVER_PATH`. LSP can read minified `.js`, but quality is far better on original source.
 
 ### Quick reference
 

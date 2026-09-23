@@ -387,11 +387,29 @@ fn add_root(roots: &mut Vec<PathBuf>, root: &Path) {
     if !roots.contains(&absolute) {
         roots.push(absolute.clone());
     }
-    if let Ok(real) = std::fs::canonicalize(absolute)
+    if let Some(real) = projected_canonical_root(&absolute)
         && !roots.contains(&real)
     {
         roots.push(real);
     }
+}
+
+/// Resolve an allowed root even when its final components do not exist yet.
+/// The missing tail is lexical; any existing symlinked ancestor is resolved.
+/// Once the root is created, validation still canonicalizes the actual target
+/// and rejects a symlink that redirects it outside this projected root.
+fn projected_canonical_root(root: &Path) -> Option<PathBuf> {
+    let mut ancestor = root;
+    let mut missing = Vec::new();
+    while !ancestor.exists() {
+        missing.push(ancestor.file_name()?.to_os_string());
+        ancestor = ancestor.parent()?;
+    }
+    let mut projected = std::fs::canonicalize(ancestor).ok()?;
+    for name in missing.into_iter().rev() {
+        projected.push(name);
+    }
+    Some(projected)
 }
 
 fn absolutize(path: impl AsRef<Path>) -> PathBuf {
@@ -445,6 +463,41 @@ mod tests {
         ));
         std::fs::create_dir_all(&root).expect("path policy test setup should succeed");
         root
+    }
+
+    #[test]
+    fn newly_created_allowed_root_uses_its_resolved_parent_without_allowing_siblings() {
+        let root = fixture();
+        let allowed = root.join("new").join("home");
+        let sibling = root.join("new").join("other");
+        let policy = PathPolicy::new(PathPolicyConfig {
+            additional_roots: vec![allowed.clone()],
+            ..Default::default()
+        })
+        .expect("policy");
+        assert!(!allowed.exists());
+        std::fs::create_dir_all(&allowed).expect("new root");
+        assert!(policy.validate_output(allowed.join("tmp/clone")).is_ok());
+        assert!(policy.validate_output(&sibling).is_err());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn new_allowed_root_redirected_by_symlink_is_still_denied() {
+        let root = fixture();
+        let allowed = root.join("new").join("home");
+        let outside = fixture();
+        let policy = PathPolicy::new(PathPolicyConfig {
+            additional_roots: vec![allowed.clone()],
+            ..Default::default()
+        })
+        .expect("policy");
+        std::fs::create_dir_all(allowed.parent().expect("parent")).expect("parent directory");
+        std::os::unix::fs::symlink(&outside, &allowed).expect("redirect root");
+        assert!(policy.validate_output(allowed.join("tmp/clone")).is_err());
+        let _ = std::fs::remove_dir_all(root);
+        let _ = std::fs::remove_dir_all(outside);
     }
 
     #[test]

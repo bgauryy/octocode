@@ -24,6 +24,9 @@ pub struct RateLimit {
     pub remaining: Option<u64>,
     pub reset_epoch_seconds: Option<u64>,
     pub retry_after_seconds: Option<u64>,
+    /// GitHub `x-ratelimit-resource` (core, search, code_search, graphql).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resource: Option<Box<str>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -46,7 +49,14 @@ impl ProviderError {
             request_id: None,
             documentation_url: None,
             rate_limit: None,
-            retryable: false,
+            // Timeouts, dropped connections, and 5xx are transient by nature;
+            // an identical retry of a 60 s timeout succeeded in 2 s in evals.
+            retryable: matches!(
+                kind,
+                ProviderErrorKind::Timeout
+                    | ProviderErrorKind::Transport
+                    | ProviderErrorKind::Server
+            ),
         }
     }
 }

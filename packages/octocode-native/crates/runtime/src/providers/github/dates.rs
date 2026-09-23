@@ -7,6 +7,27 @@ pub struct DateWindow {
     pub warning: Option<String>,
 }
 
+impl DateWindow {
+    /// True when both bounds resolved and `self` falls strictly after `other`
+    /// (used to reject `since` > `until`). Date-only values compare as
+    /// midnight UTC; timezone offsets are not normalized.
+    pub fn is_after(&self, other: &DateWindow) -> bool {
+        match (self.value.as_deref(), other.value.as_deref()) {
+            (Some(left), Some(right)) => comparable(left) > comparable(right),
+            _ => false,
+        }
+    }
+}
+
+fn comparable(value: &str) -> String {
+    let mut out: String = value.chars().take(19).collect();
+    const MIDNIGHT: &str = "0000-00-00T00:00:00";
+    if out.len() < MIDNIGHT.len() {
+        out.push_str(&MIDNIGHT[out.len()..]);
+    }
+    out
+}
+
 pub fn resolve_date_window(value: &str) -> DateWindow {
     let trimmed = value.trim();
     let bytes = trimmed.as_bytes();
@@ -59,7 +80,28 @@ fn invalid(value: &str) -> DateWindow {
 }
 
 fn looks_like_iso(value: &str) -> bool {
-    value.len() >= 10 && value.as_bytes()[4] == b'-' && value.as_bytes().get(7) == Some(&b'-')
+    let bytes = value.as_bytes();
+    if bytes.len() < 10 || bytes[4] != b'-' || bytes[7] != b'-' {
+        return false;
+    }
+    let digits = |range: std::ops::Range<usize>| -> Option<u32> {
+        let part = &bytes[range];
+        part.iter()
+            .all(u8::is_ascii_digit)
+            .then(|| part.iter().fold(0, |acc, d| acc * 10 + u32::from(d - b'0')))
+    };
+    let (Some(year), Some(month), Some(day)) = (digits(0..4), digits(5..7), digits(8..10)) else {
+        return false;
+    };
+    let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+    let max_day = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if leap => 29,
+        2 => 28,
+        _ => return false,
+    };
+    (1..=max_day).contains(&day)
 }
 
 fn iso8601(epoch: i64) -> String {
@@ -121,5 +163,32 @@ mod tests {
     fn quotes_multiword_keywords() {
         assert_eq!(quote_search_keyword("fix login"), "\"fix login\"");
         assert_eq!(quote_search_keyword("already"), "already");
+    }
+
+    #[test]
+    fn rejects_out_of_range_iso_months_and_days() {
+        for bad in [
+            "2030-13-45",
+            "2030-00-10",
+            "2030-02-30",
+            "2030-04-31",
+            "2030-1x-01",
+        ] {
+            let window = resolve_date_window(bad);
+            assert!(window.value.is_none(), "{bad} accepted");
+            assert!(window.warning.is_some(), "{bad} not warned");
+        }
+        for good in ["2024-02-29", "2030-12-31", "2030-01-01T10:00:00Z"] {
+            assert_eq!(resolve_date_window(good).value.as_deref(), Some(good));
+        }
+    }
+
+    #[test]
+    fn detects_inverted_windows_across_formats() {
+        let after = |a: &str, b: &str| resolve_date_window(a).is_after(&resolve_date_window(b));
+        assert!(after("2026-05-01", "2026-01-01T00:00:00Z"));
+        assert!(!after("2026-01-01", "2026-01-01T12:00:00Z"));
+        assert!(!after("2026-01-01T00:00:00Z", "2026-05-01"));
+        assert!(!after("garbage", "2026-05-01"));
     }
 }

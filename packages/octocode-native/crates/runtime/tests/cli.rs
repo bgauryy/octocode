@@ -104,6 +104,67 @@ fn clasify_missing_key_is_actionable() {
 }
 
 #[test]
+fn tool_output_is_compact_by_default_and_pretty_on_request() {
+    let workspace = Workspace::new();
+    let query = serde_json::json!({
+        "id":"decision",
+        "reasoning":"Exercise output formatting.",
+        "resources":[{"id":"observed","context":{"value":{"fact":"present"}}}],
+        "questions":[{"id":"relevant","question":{"type":"noul","instructions":"Is it relevant?"}}]
+    })
+    .to_string();
+    let compact = workspace.cli().args(["clasify", &query]).output().unwrap();
+    assert_eq!(
+        stdout(&compact).trim_end().lines().count(),
+        1,
+        "{}",
+        stdout(&compact)
+    );
+    let pretty = workspace
+        .cli()
+        .args(["clasify", &query, "--pretty"])
+        .output()
+        .unwrap();
+    assert!(stdout(&pretty).lines().count() > 1, "{}", stdout(&pretty));
+    let legacy = workspace
+        .cli()
+        .args(["clasify", &query, "--compact"])
+        .output()
+        .unwrap();
+    assert_eq!(stdout(&legacy), stdout(&compact));
+}
+
+#[test]
+fn blank_classification_key_disables_clasify_despite_home_and_vendor_keys() {
+    let workspace = Workspace::new();
+    std::fs::write(
+        workspace.home.join(".env"),
+        "OCTOCODE_CLASSIFICATION_API=from-home-env\n",
+    )
+    .unwrap();
+    let query = serde_json::json!({
+        "id":"decision",
+        "reasoning":"Exercise the opt-out.",
+        "resources":[{"id":"observed","context":{"value":{"fact":"present"}}}],
+        "questions":[{"id":"relevant","question":{"type":"noul","instructions":"Is it relevant?"}}]
+    })
+    .to_string();
+    let output = workspace
+        .cli()
+        .env("OCTOCODE_CLASSIFICATION_API", "")
+        .env("OCTOCODE_JEV_KEY", "vendor-key")
+        .args(["clasify", &query])
+        .output()
+        .unwrap();
+    assert_eq!(exit_code(&output), Some(5), "{}", stdout(&output));
+    assert!(
+        stdout(&output).contains("missingConfiguration"),
+        "{}",
+        stdout(&output)
+    );
+}
+
+#[test]
 fn tool_help_uses_canonical_core_short_descriptions() {
     let workspace = Workspace::new();
     let contract = octocode_native::contracts::parsed_contract().expect("embedded contract");
@@ -696,12 +757,7 @@ fn scheme_lists_the_compact_discovery_catalog() {
         .iter()
         .find(|tool| tool["name"] == "ghCloneRepo")
         .expect("clone tool");
-    if clone_tool["availability"]["enabled"] == false {
-        assert_eq!(
-            clone_tool["availability"]["envVar"],
-            "ENABLE_CLONE|OCTOCODE_STORAGE_MODE"
-        );
-    }
+    assert_eq!(clone_tool["availability"]["enabled"], true);
     assert!(first.get("inputSchema").is_none());
     assert!(first.get("outputSchema").is_none());
 }
@@ -853,7 +909,9 @@ fn localsearch_emits_structured_results() {
     assert!(output.status.success(), "{}", stderr(&output));
     let value: serde_json::Value =
         serde_json::from_str(stdout(&output)).expect("one JSON document");
-    assert_eq!(value["results"][0]["data"]["searchEngine"], "rg");
+    let data = &value["results"][0]["data"];
+    assert_eq!(data["stats"]["matchedLines"], 1, "{data}");
+    assert_eq!(data["files"][0]["matches"][0]["value"], "needle", "{data}");
 }
 
 #[test]

@@ -34,10 +34,10 @@ FRAME → POLICY → ROUTE → FETCH → CORPUS → SCREEN → CITE → RECOVER
 2. **FETCH** — `scripts/fetch.mjs` (or `fetch-and-brief.mjs` for a quick summary)
 3. **CORPUS** — pages land in `.octocode/tmp/scrape/<sessionId>/text/`, extracts in `/extracts/`
 4. **SCREEN** — clasify all corpus pages *before* reading any body (prevents context bloat)
-   - Skip 0-byte files before building the clasify matrix
-   - Use `maxChars: 20000` per resource
-   - Accept route choices only when `confidence >= 0.5`
-   - On `consider`: run `corpus-find.mjs` first, then re-clasify matching spans
+   - Drop 0-byte files (they return `classificationContextEmpty`) and duplicate pages first
+   - ≤ 25 cells per matrix (split across root `queries[]`); omit `maxChars` so parts are not truncated
+   - Accept route choices only when `confidence >= 0.5`; `insufficient` (auto-added to every Choice) or `partial` → `consider`
+   - On `consider`: `corpus-run --regex <term> --flags i` for file/line, then read or re-clasify that line window
 5. **LITERAL VERIFY** — after SCREEN, run `corpus-run.mjs --regex <pattern>` to confirm target data is present in the text; zero matches + `has-target-data > 0.6` → escalate to CDP
 6. **CITE** — report artifact paths + URL metadata; never paste raw HTML into chat
 
@@ -58,7 +58,7 @@ If `corpus-run --regex` returns zero matches for your target data (e.g. fee perc
 
 Always include for web research:
 
-- **`content-type`** (Choice): `pricing-table` / `api-reference` / `docs-guide` / `marketing` / `listing`
+- **`content-type`** (Choice): `pricing-table` / `api-reference` / `docs-guide` / `marketing` / `listing` / `other`
 - **`has-target-data`** (Noul): one specific question per goal, e.g. *"Does this contain Stripe fee percentages?"*
 - **`route`** (Choice): `read` / `consider` / `skip` / `cdp-needed`
 - **`has-text-bodies`** (Noul, on `cdp-network.jsonl`): *"Do any entries have HTML/JSON bodies — not just images or analytics?"*

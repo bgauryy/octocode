@@ -627,10 +627,16 @@ def signal_process_group(proc, requested_signal):
     except ProcessLookupError:
         pass
     except PermissionError:
-        # macOS can report EPERM for a group that disappeared between the read
-        # event and signal. Only ignore it after reaping an already exited child.
+        # macOS reports EPERM for killpg in two cases:
+        # 1. The process group disappeared between the read event and the signal
+        #    (benign — process already exited).
+        # 2. The OS denies killpg on a new-session child even though we own it
+        #    (macOS sandbox / setsid quirk). Fall back to kill(pid) in that case.
         if proc.poll() is None:
-            raise
+            try:
+                os.kill(proc.pid, requested_signal)
+            except (ProcessLookupError, PermissionError):
+                pass
 
 
 def source_manifest(root, paths):

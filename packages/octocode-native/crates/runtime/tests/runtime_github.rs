@@ -6,9 +6,36 @@ mod support;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use serde_json::json;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use support::{Workspace, call, row_data, row_status};
 use wiremock::matchers::{method, path, query_param};
-use wiremock::{Mock, MockServer, ResponseTemplate};
+use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
+
+#[derive(Clone)]
+struct DelayedContentResponse {
+    arrivals: Arc<Mutex<Vec<Instant>>>,
+    path: &'static str,
+}
+
+impl Respond for DelayedContentResponse {
+    fn respond(&self, _: &Request) -> ResponseTemplate {
+        self.arrivals
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(Instant::now());
+        ResponseTemplate::new(200)
+            .set_delay(Duration::from_millis(200))
+            .set_body_json(json!({
+                "type": "file",
+                "encoding": "base64",
+                "content": STANDARD.encode("fn placeholder(){}"),
+                "size": 18,
+                "sha": "a".repeat(40),
+                "path": self.path
+            }))
+    }
+}
 
 #[tokio::test]
 async fn github_file_read_goes_through_execute_and_redacts() {
@@ -147,40 +174,48 @@ async fn github_tree_materialize_is_accepted_and_emits_location() {
 }
 
 #[tokio::test]
-async fn github_clone_is_unavailable_when_disabled() {
+async fn github_clone_is_cli_only_even_when_mcp_enables_clone() {
     let workspace = Workspace::new();
-    let runtime = workspace.runtime(&[("ENABLE_CLONE", "false".into())]);
-    let error = call(&runtime, "ghCloneRepo", json!({"owner":"a","repo":"b"}))
+    let cli = workspace.runtime(&[("ENABLE_CLONE", "false".into())]);
+    assert!(cli.is_available("ghCloneRepo"));
+    let mcp_call = cli
+        .execute_mcp(
+            "mcp-clone".into(),
+            "ghCloneRepo".into(),
+            json!({"queries":[{"owner":"a","repo":"b","reasoning":"check MCP gate"}]}),
+        )
         .await
-        .expect_err("clone disabled");
+        .expect_err("MCP channel cannot clone through a CLI runtime");
+    assert_eq!(mcp_call.code, "toolUnavailable");
+    cli.close().await;
+
+    let mut input = workspace.config(&[("ENABLE_CLONE", "true".into())]);
+    input.runtime_surface = octocode_native::config::RuntimeSurface::Mcp;
+    let mcp = octocode_native::runtime::ToolRuntime::new(input).expect("MCP runtime");
+    assert!(!mcp.is_available("ghCloneRepo"));
+    let error = call(&mcp, "ghCloneRepo", json!({"owner":"a","repo":"b"}))
+        .await
+        .expect_err("clone disabled for MCP");
     assert_eq!(error.code, "toolUnavailable");
-    runtime.close().await;
+    mcp.close().await;
 }
 
-/// Verifies that GitHub queries use the Rust-owned bulk orchestration path.
+/// Verifies that independent GitHub API calls run concurrently while output
+/// rows retain their input order.
 #[tokio::test]
-async fn three_github_bulk_queries_preserve_order() {
+async fn three_github_bulk_queries_are_concurrent_and_preserve_order() {
     let server = MockServer::start().await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
-
-    Mock::given(method("GET"))
-        .and(path("/api/v3/repos/a/b/commits/main"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"sha": sha})))
-        .mount(&server)
-        .await;
+    let arrivals = Arc::new(Mutex::new(Vec::new()));
 
     for name in ["alpha.rs", "beta.rs", "gamma.rs"] {
         Mock::given(method("GET"))
             .and(path(format!("/api/v3/repos/a/b/contents/{name}")))
             .and(query_param("ref", sha))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "type": "file",
-                "encoding": "base64",
-                "content": STANDARD.encode("fn placeholder(){}"),
-                "size": 18,
-                "sha": "a".repeat(40),
-                "path": name
-            })))
+            .respond_with(DelayedContentResponse {
+                arrivals: arrivals.clone(),
+                path: name,
+            })
             .mount(&server)
             .await;
     }
@@ -193,7 +228,7 @@ async fn three_github_bulk_queries_preserve_order() {
             "owner": "a",
             "repo": "b",
             "path": name,
-            "branch": "main",
+            "branch": sha,
             "forceRefresh": true,
             "reasoning": format!("Read {name} through the GitHub bulk path."),
             "debug": true
@@ -217,7 +252,20 @@ async fn three_github_bulk_queries_preserve_order() {
             .collect::<Vec<_>>(),
         [Some(0), Some(1), Some(2)]
     );
-    assert!(rows.iter().all(|row| row.get("status").is_none()));
+    assert!(
+        rows.iter().all(|row| row.get("status").is_none()),
+        "{rows:?}"
+    );
+    {
+        let arrivals = arrivals
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert_eq!(arrivals.len(), 3);
+        assert!(
+            arrivals.last().unwrap().duration_since(arrivals[0]) < Duration::from_millis(150),
+            "GitHub API calls were dispatched serially: {arrivals:?}"
+        );
+    }
 
     runtime.close().await;
 }
@@ -588,6 +636,86 @@ async fn gh_clone_repo_missing_repository_reports_repo_not_found() {
 }
 
 #[tokio::test]
+async fn gh_clone_repo_preserves_metadata_auth_and_rate_limit_failures() {
+    for (status, code, retryable) in [
+        (401, "authentication", false),
+        (429, "rateLimited", true),
+        (503, "server", true),
+    ] {
+        let server = MockServer::start().await;
+        let response =
+            ResponseTemplate::new(status).set_body_json(json!({"message": "metadata unavailable"}));
+        Mock::given(method("GET"))
+            .and(path("/api/v3/repos/a/b"))
+            .respond_with(response)
+            .mount(&server)
+            .await;
+        let workspace = Workspace::new();
+        let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+        let outcome = call(&runtime, "ghCloneRepo", json!({"owner":"a","repo":"b"}))
+            .await
+            .expect("clone metadata error row");
+        let data = row_data(&outcome);
+        assert_eq!(row_status(&outcome), "error", "{data}");
+        assert_eq!(data["errorCode"], code, "{data}");
+        assert_eq!(data["httpStatus"], status, "{data}");
+        assert_eq!(data["retryable"], retryable, "{data}");
+        assert!(data["hints"][0].is_string(), "{data}");
+        assert!(
+            !data.to_string().contains("defaultBranchUnavailable"),
+            "{data}"
+        );
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+        assert!(
+            !workspace.home.join("tmp/clone").exists(),
+            "metadata failure must return before starting Git"
+        );
+        runtime.close().await;
+    }
+}
+
+#[tokio::test]
+async fn gh_clone_repo_preserves_metadata_timeout() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_delay(Duration::from_secs(6))
+                .set_body_json(json!({"default_branch":"main"})),
+        )
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[
+        ("GITHUB_API_URL", format!("{}/api/v3", server.uri())),
+        ("REQUEST_TIMEOUT", "5000".into()),
+    ]);
+    let outcome = call(&runtime, "ghCloneRepo", json!({"owner":"a","repo":"b"}))
+        .await
+        .expect("clone timeout row");
+    let data = row_data(&outcome);
+    assert_eq!(row_status(&outcome), "error", "{data}");
+    assert_eq!(data["errorCode"], "timeout", "{data}");
+    assert!(
+        data["hints"][0]
+            .as_str()
+            .is_some_and(|hint| hint.contains("Retry")),
+        "{data}"
+    );
+    assert!(
+        !data.to_string().contains("defaultBranchUnavailable"),
+        "{data}"
+    );
+    assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    assert!(
+        !workspace.home.join("tmp/clone").exists(),
+        "metadata timeout must return before starting Git"
+    );
+    runtime.close().await;
+}
+
+#[tokio::test]
 async fn artifact_search_lookup_goes_through_execute() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
@@ -627,5 +755,315 @@ async fn artifact_search_lookup_goes_through_execute() {
         rendered.contains("left-pad"),
         "expected package in {rendered}"
     );
+    runtime.close().await;
+}
+
+// ── Audit regressions: ghGetHistoryItem pullRequest ─────────────────────────
+
+#[tokio::test]
+async fn gh_get_history_item_pull_request_without_content_passes_output_contract() {
+    // Regression: the per-row `next` menu omitted required pageSize, so every
+    // plain PR fetch tripped outputContractViolation. A >500-char multibyte
+    // body also exercises the char-boundary-safe bodyPreview.
+    let server = MockServer::start().await;
+    let body = "修复并发缓冲区的内存泄漏问题。".repeat(60);
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/pulls/7"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "number": 7,
+            "title": "Add concurrency buffering",
+            "state": "closed",
+            "merged_at": null,
+            "draft": false,
+            "body": body,
+            "user": {"login": "bob"},
+            "head": {"sha": "def456", "ref": "feat/buf"},
+            "base": {"ref": "main"},
+            "created_at": "2024-01-01T00:00:00Z",
+            "updated_at": "2024-01-02T00:00:00Z"
+        })))
+        .mount(&server)
+        .await;
+
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let outcome = call(
+        &runtime,
+        "ghGetHistoryItem",
+        json!({"operation": "pullRequest", "owner": "a", "repo": "b", "number": 7}),
+    )
+    .await
+    .expect("PR fetch must satisfy the output contract");
+    assert_eq!(
+        row_status(&outcome),
+        "success",
+        "{}",
+        outcome.structured_content
+    );
+    let pr = &row_data(&outcome)["pullRequests"][0];
+    let preview = pr["bodyPreview"].as_str().expect("bodyPreview");
+    assert!(preview.ends_with("..."), "{preview}");
+    assert!(preview.chars().count() <= 500, "{preview}");
+    let get_body = &pr["next"]["getBody"]["query"];
+    assert_eq!(get_body["pageSize"], 30, "{get_body}");
+    assert_eq!(get_body["minify"], "standard", "{get_body}");
+    assert_eq!(get_body["content"], json!({"body": true}), "{get_body}");
+    runtime.close().await;
+}
+
+// ── Audit regressions: ghSearchHistory ──────────────────────────────────────
+
+async fn mount_repo_metadata(server: &MockServer) {
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"full_name":"a/b","default_branch":"main"})),
+        )
+        .mount(server)
+        .await;
+}
+
+#[tokio::test]
+async fn gh_search_history_pull_request_list_defaults_to_all_states_newest_first() {
+    let server = MockServer::start().await;
+    mount_repo_metadata(&server).await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/pulls"))
+        .and(query_param("state", "all"))
+        .and(query_param("direction", "desc"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            {"number": 9, "title": "Newest", "state": "closed", "user": {"login": "bob"}}
+        ])))
+        .mount(&server)
+        .await;
+
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let outcome = call(
+        &runtime,
+        "ghSearchHistory",
+        json!({"operation": "pullRequest", "owner": "a", "repo": "b"}),
+    )
+    .await
+    .expect("PR list");
+    assert_eq!(
+        row_status(&outcome),
+        "success",
+        "{}",
+        outcome.structured_content
+    );
+    let data = row_data(&outcome);
+    assert_eq!(data["pullRequests"][0]["number"], 9, "{data}");
+    assert!(data.get("effectiveQuery").is_none(), "{data}");
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn gh_search_history_pull_request_search_works_across_repositories() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/search/issues"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "total_count": 1,
+            "incomplete_results": false,
+            "items": [{"number": 3, "title": "Cross repo fix", "state": "open", "user": {"login": "eve"}}]
+        })))
+        .mount(&server)
+        .await;
+
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let outcome = call(
+        &runtime,
+        "ghSearchHistory",
+        json!({"operation": "pullRequest", "keywords": ["buffer"]}),
+    )
+    .await
+    .expect("cross-repo PR search");
+    assert_eq!(
+        row_status(&outcome),
+        "success",
+        "{}",
+        outcome.structured_content
+    );
+    let requests = server.received_requests().await.expect("recorded");
+    let q = requests
+        .iter()
+        .find(|r| r.url.path() == "/api/v3/search/issues")
+        .and_then(|r| {
+            r.url
+                .query_pairs()
+                .find(|(k, _)| k == "q")
+                .map(|(_, v)| v.into_owned())
+        })
+        .expect("search q");
+    assert!(q.contains("is:pr") && !q.contains("repo:"), "{q}");
+    assert!(!q.contains("archived:"), "{q}");
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn gh_search_history_commit_list_forwards_committer() {
+    let server = MockServer::start().await;
+    mount_repo_metadata(&server).await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/commits"))
+        .and(query_param("committer", "web-flow"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            {"sha": "abc", "commit": {"message": "merged via UI", "author": {"name": "A", "date": "2024-01-01T00:00:00Z"}}}
+        ])))
+        .mount(&server)
+        .await;
+
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let outcome = call(
+        &runtime,
+        "ghSearchHistory",
+        json!({"operation": "commit", "owner": "a", "repo": "b", "committer": "web-flow"}),
+    )
+    .await
+    .expect("commit list");
+    let rendered = serde_json::to_string(row_data(&outcome)).expect("json");
+    assert!(rendered.contains("merged via UI"), "{rendered}");
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn gh_get_file_content_on_directory_returns_tree_recovery() {
+    let server = MockServer::start().await;
+    let sha = "0123456789abcdef0123456789abcdef01234567";
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/commits/main"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"sha": sha})))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/contents/src"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            {"name":"lib.rs","path":"src/lib.rs","type":"file","size":3,"sha":"1"}
+        ])))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let outcome = call(
+        &runtime,
+        "ghGetFileContent",
+        json!({"owner":"a","repo":"b","path":"src","branch":"main","forceRefresh":true}),
+    )
+    .await
+    .expect("directory read is a row error, not a contract violation");
+    assert_eq!(
+        row_status(&outcome),
+        "error",
+        "{}",
+        outcome.structured_content
+    );
+    let data = row_data(&outcome);
+    assert!(
+        data["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("is a directory"),
+        "{data}"
+    );
+    assert_eq!(data["next"]["viewTree"]["query"]["path"], "src", "{data}");
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn gh_search_concise_repositories_are_contract_valid() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/search/repositories"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "total_count": 1,
+            "incomplete_results": false,
+            "items": [{"full_name":"o/r","name":"r","html_url":"https://x","default_branch":"main"}]
+        })))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let outcome = call(
+        &runtime,
+        "ghSearch",
+        json!({"operation":"repositories","keywords":["x"],"concise":true}),
+    )
+    .await
+    .expect("concise repositories");
+    assert_eq!(row_data(&outcome)["repositories"], json!(["o/r"]));
+    runtime.close().await;
+}
+
+/// A primary rate limit surfaces as a contract-valid error row carrying
+/// rate-limit metadata (incl. resource), and the blocking fact is mirrored to
+/// `<home>/tmp/ratelimit/` for other processes.
+#[tokio::test]
+async fn gh_primary_rate_limit_is_contract_valid_and_persisted_for_other_processes() {
+    let server = MockServer::start().await;
+    let reset = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        + 3600;
+    Mock::given(method("GET"))
+        .respond_with(
+            ResponseTemplate::new(403)
+                .insert_header("x-ratelimit-remaining", "0")
+                .insert_header("x-ratelimit-reset", reset.to_string().as_str())
+                .insert_header("x-ratelimit-resource", "core")
+                .set_body_json(json!({"message": "API rate limit exceeded"})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[
+        ("GITHUB_API_URL", format!("{}/api/v3", server.uri())),
+        ("OCTOCODE_STORAGE_MODE", "persistent".into()),
+    ]);
+    let sha = "0123456789abcdef0123456789abcdef01234567";
+    for name in ["one.rs", "two.rs"] {
+        let outcome = call(
+            &runtime,
+            "ghGetFileContent",
+            json!({"owner": "a", "repo": "b", "path": name, "branch": sha, "forceRefresh": true}),
+        )
+        .await
+        .expect("row-level error");
+        assert_eq!(
+            row_status(&outcome),
+            "error",
+            "{}",
+            outcome.structured_content
+        );
+        let data = row_data(&outcome);
+        assert!(
+            !outcome
+                .structured_content
+                .to_string()
+                .contains("outputContractViolation"),
+            "{}",
+            outcome.structured_content
+        );
+        assert_eq!(data["errorCode"], "rateLimited", "{data}");
+        assert_eq!(data["rateLimit"]["resetEpochSeconds"], reset, "{data}");
+        assert_eq!(data["rateLimit"]["resource"], "core", "{data}");
+    }
+    // The second read was refused before sending (mock expects one hit).
+    let dir = workspace.home.join("tmp").join("ratelimit");
+    let files: Vec<_> = std::fs::read_dir(&dir)
+        .expect("ratelimit dir")
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_name().to_string_lossy().ends_with(".json"))
+        .collect();
+    assert_eq!(files.len(), 1, "{files:?}");
+    let state: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(files[0].path()).unwrap()).unwrap();
+    assert_eq!(state["buckets"]["core"]["remaining"], 0, "{state}");
+    assert_eq!(state["buckets"]["core"]["reset"], reset, "{state}");
     runtime.close().await;
 }

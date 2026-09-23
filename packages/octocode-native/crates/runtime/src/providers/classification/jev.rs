@@ -6,8 +6,7 @@
 //! for single-question requests, and
 //! `{"model": "...", "state": <evidence>, "questions": {"answer_0": q0, ...}}`
 //! for batches. Response: `{"model": "...", "answers": {"answer": {...}}, "usage": {...}}`.
-use super::ClassificationProvider;
-use octocode_engine::jev::JevError;
+use super::{ClassificationProvider, ProviderContractError};
 use serde_json::{Map, Value, json};
 
 pub struct Jev;
@@ -63,7 +62,16 @@ impl ClassificationProvider for Jev {
         format!("answer_{index}")
     }
 
-    fn validate_response(&self, request: &Value, response: &Value) -> Result<(), JevError> {
-        octocode_engine::jev::validate_response(request, response)
+    fn validate_response(
+        &self,
+        request: &Value,
+        response: &Value,
+    ) -> Result<(), ProviderContractError> {
+        octocode_engine::jev::validate_response(request, response).map_err(|error| {
+            ProviderContractError {
+                request: error.code == "invalidJevRequest",
+                message: error.message,
+            }
+        })
     }
 }

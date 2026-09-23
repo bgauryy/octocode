@@ -78,10 +78,14 @@ pub(super) fn validate_schema(
             .map(|v| v.as_str().map_or_else(|| v.to_string(), |s| s.to_owned()))
             .collect::<Vec<_>>()
             .join(", ");
+        let boolean_hint = boolean_enum_hint(values, value);
         return Err(schema_issue(
             "schema.enum",
             path.clone(),
-            format!("Value is outside the allowed enum; allowed: {allowed}"),
+            format!(
+                "Value is outside the allowed enum; allowed: {allowed}{}",
+                boolean_hint.unwrap_or_default()
+            ),
             schema,
             value,
         ));
@@ -377,10 +381,45 @@ fn check_size(
     Ok(())
 }
 
+/// Agents often send a boolean for an on/off enum (`regex:true`,
+/// `minify:false`); name the value that means what they intended.
+pub(super) fn boolean_enum_hint(values: &[Value], received: &Value) -> Option<String> {
+    let on = received.as_bool()?;
+    let off = ["none", "literal", "off"]
+        .iter()
+        .find(|name| values.iter().any(|v| v.as_str() == Some(**name)));
+    let pick = if on {
+        values
+            .iter()
+            .filter_map(Value::as_str)
+            .find(|v| Some(v) != off)
+    } else {
+        off.copied()
+    }?;
+    Some(format!(" — booleans are not accepted; use \"{pick}\""))
+}
+
 #[cfg(test)]
 mod tests {
     use super::validate_schema;
     use serde_json::{Value, json};
+
+    #[test]
+    fn boolean_for_an_on_off_enum_names_the_intended_value() {
+        let regex = json!({"type":"string","enum":["literal","rust","pcre2"]});
+        let minify = json!({"type":"string","enum":["none","standard","symbols"]});
+        let message = |schema: &Value, mut value: Value| {
+            validate_schema(schema, schema, &mut value, &mut vec![])
+                .unwrap_err()
+                .issues[0]
+                .message
+                .clone()
+        };
+        assert!(message(&regex, json!(true)).ends_with("use \"rust\""));
+        assert!(message(&regex, json!(false)).ends_with("use \"literal\""));
+        assert!(message(&minify, json!(false)).ends_with("use \"none\""));
+        assert!(!message(&regex, json!("x")).contains("booleans"));
+    }
 
     #[test]
     fn bounded_records_enforce_property_counts_and_values() {

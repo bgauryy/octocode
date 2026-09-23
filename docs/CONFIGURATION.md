@@ -217,7 +217,6 @@ Configure the MCP server without a shell profile by passing env vars in your cli
       "args": ["-y", "octocode-mcp@latest"],
       "env": {
         "GITHUB_TOKEN": "ghp_...",
-        "ENABLE_CLONE": "true",
         "REQUEST_TIMEOUT": "60000",
         "GITHUB_API_URL": "https://ghe.mycompany.com/api/v3"
       }
@@ -257,7 +256,7 @@ Settings tables, defaults, ranges, enum values, aliases, protected-environment p
 | `OCTOCODE_MAX_CACHE_SIZE` | `2147483648` (2 GB) | Byte cap for the on-disk clone cache. |
 | `OCTOCODE_MAX_CLONES` | `50` | Max repositories the clone cache keeps. |
 
-Response-cache entry counts/sizes and per-surface tool-call timeouts are bounded internally and not configurable via env vars (CLI uses a longer window for LSP cold starts). Network timeout/retries use `REQUEST_TIMEOUT` / `MAX_RETRIES`. Use `octocode cache clear` / `octocode cache status` for the GitHub content cache.
+Response-cache entry counts/sizes and per-surface tool-call timeouts are bounded internally and not configurable via env vars (CLI uses a longer window for LSP cold starts). Network timeout/retries use `REQUEST_TIMEOUT` / `MAX_RETRIES`. Classification provider requests (`clasify` and semantic rerank) share one process-wide gate per provider endpoint: at most `OCTOCODE_CLASSIFICATION_CONCURRENCY` (`classification.maxConcurrency`, default `10`, range 1–64) in flight, one tool call may use up to three quarters of it, and the gate halves itself on provider throttling (429/503/529, `Retry-After` pauses every caller) and recovers gradually. Use `octocode cache clear` / `octocode cache status` for the GitHub content cache.
 
 ### Protected keys — never sourced from `.env`
 
@@ -275,7 +274,7 @@ Octocode always ignores these when loading any `.env`, whatever their values. Se
 | `NODE_OPTIONS` | Node runtime flags — a security risk if `.env` could set them |
 | `PYTHON` | Python interpreter path |
 | `GITHUB_API_URL` | GitHub API root — set via shell or `.octocoderc` (`github.apiUrl`), never `.env`, so an untrusted project can't redirect API traffic |
-| `OCTOCODE_CLASSIFICATION_API` (jev alias `OCTOCODE_JEV_KEY`) | Classification credential — shell, `.octocoderc` (`classification.api`), or the trusted home `.env`; never a project `.env`. Excluded from resolved config |
+| `OCTOCODE_CLASSIFICATION_API` (jev alias `OCTOCODE_JEV_KEY`) | Classification credential — shell, `.octocoderc` (`classification.api`), or the trusted home `.env`; never a project `.env`. Excluded from resolved config. Set it to an empty string in the process env (`OCTOCODE_CLASSIFICATION_API=`) to disable `clasify` and `semanticRerank` for that process; no file or vendor-key fallback applies |
 | `OCTOCODE_CLASSIFICATION_API_HOST` | Vendor API-root override — controls where the key is sent; same placement rules as the key |
 | `OCTOCODE_CLASSIFICATION_TYPE` | Vendor selector (`classification.type`, default `jev`) |
 
@@ -307,11 +306,12 @@ Always start with `npx octocode auth --json` (token source + identity), `npx oct
 | No token / 401 | `npx octocode auth login`, or set `GITHUB_TOKEN` in shell or MCP `env` block |
 | Wrong GitHub account | `npx octocode auth logout` then `auth login` — or `auth login --force` |
 | Env token overriding saved token | Env always wins — unset the env var |
-| `ghCloneRepo` unavailable | Clone is opt-in: set `ENABLE_CLONE=true` or `local.enableClone: true`; materialization also needs `OCTOCODE_STORAGE_MODE=persistent`. Check `npx octocode scheme`. |
+| `ghCloneRepo` unavailable | Use the CLI with `OCTOCODE_STORAGE_MODE=persistent`. MCP never exposes cloning. Check `npx octocode scheme`. |
 | `astRewrite` unavailable | It's a beta feature: set `OCTOCODE_BETA=true` or `local.beta: true` (the sole gate for both preview and apply). MCP registers it only when this gate and local tools are enabled. |
 | Local tools turned off | Ensure neither `ENABLE_LOCAL` nor `local.enabled` is `false` |
 | A tool is missing | Inspect `npx octocode scheme`; check `TOOLS_TO_RUN` / `tools.enabled` (strict allowlists) and `DISABLE_TOOLS` / `tools.disabled`. Removed tool names are not aliases. |
 | Slow / timeouts | Raise `REQUEST_TIMEOUT` (max `300000` ms) |
+| `clasify` returns `classificationRateLimited` | The provider is throttling; wait for the reported retry time, or lower `OCTOCODE_CLASSIFICATION_CONCURRENCY` when several agents share one key |
 | A skill's external search is unavailable | Follow that skill's provider/credential instructions; the catalog exposes no general web-search tool. |
 | `stats.json` never written | Set `OCTOCODE_ENABLE_STATS=1` (off by default) |
 | `.env` key ignored | Token vars are blocked in `.env` — use your shell or the MCP `env` block |

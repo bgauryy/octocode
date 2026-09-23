@@ -68,11 +68,13 @@ pub(super) fn validate(
         })
         .collect::<Vec<_>>();
     if non_aborted.len() == 1 {
+        let mut issues = non_aborted[0].clone();
+        annotate_sibling_branch_fields(&mut issues, root, branches, value);
         return Err(ContractValidationError {
             // Preserve the original unknown-field path and knownFields schema.
             // The stable error projector uses both to produce an actionable
             // spelling suggestion; grouping them here discards that context.
-            issues: non_aborted[0].clone(),
+            issues,
         });
     }
     // Each branch pins its selector fields to distinct literals, so any single
@@ -92,6 +94,7 @@ pub(super) fn validate(
         ));
     };
     widen_literal_issues(&mut selected, &allowed);
+    annotate_sibling_selectors(&mut selected, root, branches, value, path);
     // Branch scoring may group key errors for parity, but the selected branch
     // must retain individual paths and schemas for precise diagnostics.
     Err(ContractValidationError { issues: selected })
@@ -169,7 +172,12 @@ fn widen_literal_issues(issues: &mut [ValidationIssue], allowed: &[(Vec<String>,
             .collect::<Vec<_>>()
             .join(", ");
         item.rule_id = "schema.enum".into();
-        item.message = format!("Value is outside the allowed enum; allowed: {rendered}");
+        let hint = item
+            .received
+            .as_ref()
+            .and_then(|received| super::schema::boolean_enum_hint(literals, received))
+            .unwrap_or_default();
+        item.message = format!("Value is outside the allowed enum; allowed: {rendered}{hint}");
         item.schema = Some(serde_json::json!({ "enum": literals }));
     }
 }
@@ -206,6 +214,126 @@ fn score(issues: &[ValidationIssue], depth: usize) -> [usize; 4] {
         rejected,
         count,
     ]
+}
+
+fn branch_object<'a>(root: &'a Value, branch: &'a Value) -> &'a Value {
+    branch
+        .get("$ref")
+        .and_then(Value::as_str)
+        .and_then(|reference| root.pointer(reference.strip_prefix('#').unwrap_or(reference)))
+        .unwrap_or(branch)
+}
+
+/// An unknown field that a sibling branch declares is a mode mismatch, not a
+/// typo. Record the sibling's missing required fields so the error projector
+/// can say which mode the field belongs to (e.g. discovery-only `pageSize`).
+fn annotate_sibling_branch_fields(
+    issues: &mut [ValidationIssue],
+    root: &Value,
+    branches: &[Value],
+    value: &Value,
+) {
+    for item in issues
+        .iter_mut()
+        .filter(|item| item.rule_id == "schema.unknown-field")
+    {
+        let Some(field) = item.path.last() else {
+            continue;
+        };
+        let requires = branches
+            .iter()
+            .map(|branch| branch_object(root, branch))
+            .find_map(|branch| {
+                branch.get("properties")?.get(field)?;
+                let missing = branch
+                    .get("required")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .filter(|required| value.get(*required).is_none())
+                    .map(|required| Value::String(required.to_owned()))
+                    .collect::<Vec<_>>();
+                (!missing.is_empty()).then_some(missing)
+            });
+        if let (Some(requires), Some(schema)) = (
+            requires,
+            item.schema.as_mut().and_then(Value::as_object_mut),
+        ) {
+            schema.insert("siblingRequires".into(), Value::Array(requires));
+        }
+    }
+}
+
+fn literal_accepts(schema: &Value, value: &Value) -> bool {
+    schema.get("const") == Some(value)
+        || schema
+            .get("enum")
+            .and_then(Value::as_array)
+            .is_some_and(|values| values.contains(value))
+}
+
+fn single_literal(schema: &Value) -> Option<&Value> {
+    schema.get("const").or_else(|| {
+        schema
+            .get("enum")
+            .and_then(Value::as_array)
+            .filter(|values| values.len() == 1)
+            .and_then(|values| values.first())
+    })
+}
+
+fn render_literal(value: &Value) -> String {
+    value.to_string()
+}
+
+/// A literal rejected by the selected branch but accepted by a sibling is a
+/// cross-field rule (e.g. `unique:"list"` needs `resultView:"matchOnly"`).
+/// Name the sibling's selector values instead of only the local constant.
+fn annotate_sibling_selectors(
+    issues: &mut [ValidationIssue],
+    root: &Value,
+    branches: &[Value],
+    value: &Value,
+    path: &[String],
+) {
+    for item in issues.iter_mut().filter(|item| {
+        matches!(item.rule_id.as_str(), "schema.const" | "schema.enum")
+            && item.path.len() == path.len() + 1
+    }) {
+        let Some(field) = item.path.last() else {
+            continue;
+        };
+        let Some(received) = value.get(field) else {
+            continue;
+        };
+        let requirement = branches
+            .iter()
+            .map(|branch| branch_object(root, branch))
+            .find_map(|branch| {
+                let properties = branch.get("properties")?.as_object()?;
+                if !literal_accepts(properties.get(field)?, received) {
+                    return None;
+                }
+                let selectors = properties
+                    .iter()
+                    .filter(|(name, _)| *name != field)
+                    .filter_map(|(name, schema)| {
+                        let literal = single_literal(schema)?;
+                        (value.get(name) != Some(literal))
+                            .then(|| format!("{name}:{}", render_literal(literal)))
+                    })
+                    .collect::<Vec<_>>();
+                (!selectors.is_empty()).then(|| selectors.join(" and "))
+            });
+        if let Some(requirement) = requirement {
+            item.message = format!(
+                "{} ({field}:{} requires {requirement})",
+                item.message,
+                render_literal(received)
+            );
+        }
+    }
 }
 
 fn group_unknown_fields(issues: Vec<ValidationIssue>) -> Vec<ValidationIssue> {

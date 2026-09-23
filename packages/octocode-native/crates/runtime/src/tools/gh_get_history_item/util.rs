@@ -19,11 +19,14 @@ pub(super) fn usize_at(value: &Value, pointer: &str) -> usize {
 pub(super) fn nonzero(value: Option<&Value>) -> Option<u64> {
     value.and_then(Value::as_u64).filter(|v| *v > 0)
 }
+/// Truncates to at most `max` characters (not bytes), appending `...` when
+/// shortened. Char-based so multibyte (e.g. CJK) text never splits a code point.
 pub(super) fn compact(value: &str, max: usize) -> String {
-    if value.len() <= max {
+    if value.chars().count() <= max {
         value.into()
     } else {
-        format!("{}...", &value[..max - 3])
+        let head: String = value.chars().take(max.saturating_sub(3)).collect();
+        format!("{head}...")
     }
 }
 pub(super) fn map_comments(values: Vec<Value>, kind: &str, include_bots: bool) -> Vec<Value> {

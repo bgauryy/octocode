@@ -46,7 +46,9 @@ pub(super) fn map_graphql_pr_metadata(pr: &Value) -> Value {
         "number": pr.get("number"),
         "title": pr.get("title"),
         "html_url": pr.get("url"),
-        "state": pr.get("state"),
+        // GraphQL reports OPEN/CLOSED/MERGED; the public contract (and the REST
+        // shape this projects into) uses lowercase open/closed/merged.
+        "state": str_at(pr, "/state").map(str::to_ascii_lowercase),
         "body": pr.get("body"),
         "draft": pr.get("isDraft"),
         "merged_at": pr.get("mergedAt"),
@@ -137,4 +139,17 @@ pub(super) fn map_graphql_commits(pr: &Value) -> Vec<Value> {
             })
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn graphql_pr_state_is_lowercased_to_the_contract_enum() {
+        for (raw, want) in [("OPEN", "open"), ("CLOSED", "closed"), ("MERGED", "merged")] {
+            let mapped = map_graphql_pr_metadata(&json!({"state": raw}));
+            assert_eq!(mapped["state"], want);
+        }
+    }
 }

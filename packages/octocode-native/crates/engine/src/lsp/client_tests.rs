@@ -420,3 +420,141 @@ fn temp_file(name: &str) -> PathBuf {
         .unwrap_or(0);
     std::env::temp_dir().join(format!("{name}-{}-{nanos}", std::process::id()))
 }
+
+/// Minimal stdio LSP server (node) that, like tsserver, emits NO progress on
+/// `initialized` but starts a project-load `$/progress` wave ~100 ms AFTER the
+/// first `didOpen`. `references` answers empty until that load finishes.
+#[cfg(unix)]
+const DEFERRED_PROJECT_LOAD_SERVER: &str = r#"#!/usr/bin/env node
+let buf = Buffer.alloc(0);
+let loaded = false;
+function send(m) {
+  const s = JSON.stringify(m);
+  process.stdout.write('Content-Length: ' + Buffer.byteLength(s) + '\r\n\r\n' + s);
+}
+function handle(msg) {
+  if (msg.method === 'initialize') {
+    send({ jsonrpc: '2.0', id: msg.id, result: { capabilities: { referencesProvider: true, textDocumentSync: 1 } } });
+  } else if (msg.method === 'textDocument/didOpen') {
+    setTimeout(() => {
+      send({ jsonrpc: '2.0', method: '$/progress', params: { token: 'load', value: { kind: 'begin', title: 'Loading project' } } });
+      setTimeout(() => {
+        loaded = true;
+        send({ jsonrpc: '2.0', method: '$/progress', params: { token: 'load', value: { kind: 'end' } } });
+      }, 400);
+    }, 100);
+  } else if (msg.method === 'textDocument/references') {
+    const uri = msg.params.textDocument.uri;
+    send({ jsonrpc: '2.0', id: msg.id, result: loaded
+      ? [{ uri, range: { start: { line: 0, character: 9 }, end: { line: 0, character: 12 } } }]
+      : [] });
+  } else if (msg.method === 'exit') {
+    process.exit(0);
+  } else if (msg.id !== undefined && msg.method) {
+    send({ jsonrpc: '2.0', id: msg.id, result: null });
+  }
+}
+process.stdin.on('data', (d) => {
+  buf = Buffer.concat([buf, d]);
+  for (;;) {
+    const i = buf.indexOf('\r\n\r\n');
+    if (i < 0) return;
+    const m = /Content-Length: (\d+)/i.exec(buf.slice(0, i).toString());
+    const n = Number(m[1]);
+    if (buf.length < i + 4 + n) return;
+    const msg = JSON.parse(buf.slice(i + 4, i + 4 + n).toString());
+    buf = buf.slice(i + 4 + n);
+    handle(msg);
+  }
+});
+"#;
+
+#[cfg(unix)]
+#[test]
+fn first_open_waits_for_the_project_load_the_open_triggers() {
+    use std::os::unix::fs::PermissionsExt;
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
+        let root = temp_file("octocode-engine-deferred-load");
+        std::fs::create_dir_all(&root).unwrap();
+        let script = root.join("fake-lsp.js");
+        std::fs::write(&script, DEFERRED_PROJECT_LOAD_SERVER).unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let source = root.join("a.ts");
+        std::fs::write(&source, "function foo() {}\nfoo();\n").unwrap();
+        let root_path = root.canonicalize().unwrap();
+        let source_path = source
+            .canonicalize()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+
+        let client = NativeLspClient::new(JsLanguageServerConfig {
+            command: script.to_string_lossy().into_owned(),
+            args: Some(Vec::new()),
+            workspace_root: root_path.to_string_lossy().into_owned(),
+            language_id: Some("typescript".into()),
+            initialization_options: None,
+            env: None,
+            max_memory_mb: None,
+        });
+        client.start().await.expect("fake server starts");
+        // No progress on initialized: the initial readiness wait only settles.
+        assert_eq!(
+            client.wait_for_ready(Some(300)).await.unwrap(),
+            "silentServer"
+        );
+
+        let readiness = client
+            .open_document_and_wait(
+                source_path.clone(),
+                "function foo() {}\nfoo();\n".into(),
+                Some(400),
+                Some(5_000),
+            )
+            .await
+            .expect("document syncs");
+        assert_eq!(readiness.as_deref(), Some("progressIdle"));
+        let references = client
+            .get_references(source_path.clone(), 0, 9, Some(true))
+            .await
+            .expect("references");
+        assert_eq!(
+            references.len(),
+            1,
+            "references must not race the load the didOpen triggered"
+        );
+
+        // A re-sync of an already-open document does not wait again.
+        let again = client
+            .open_document_and_wait(
+                source_path,
+                "function foo() {}\nfoo();\n".into(),
+                Some(400),
+                Some(5_000),
+            )
+            .await
+            .expect("document re-syncs");
+        assert_eq!(again, None);
+        client.stop().await.unwrap();
+        let _ = std::fs::remove_dir_all(root);
+    });
+}
+
+#[test]
+fn initialize_advertises_push_diagnostics_so_servers_publish_them() {
+    let config = JsLanguageServerConfig {
+        command: "typescript-language-server".into(),
+        args: Some(vec!["--stdio".into()]),
+        workspace_root: std::env::temp_dir().to_string_lossy().into_owned(),
+        language_id: Some("typescript".into()),
+        initialization_options: None,
+        env: None,
+        max_memory_mb: None,
+    };
+    let params = initialize_params(&config).expect("initialize params");
+    assert_eq!(
+        params.pointer("/capabilities/textDocument/publishDiagnostics/versionSupport"),
+        Some(&json!(true)),
+        "{params}"
+    );
+}

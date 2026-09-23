@@ -544,7 +544,7 @@ impl NativeLspClient {
     /// Wait for the server to finish any post-`initialized` indexing, returning
     /// a readiness descriptor so JS can tell a confirmed-idle server apart from
     /// one that never reported progress or is still busy. The returned string
-    /// is one of `"progressIdle"`, `"settledFallback"`, or `"timeout"`.
+    /// is one of `"progressIdle"`, `"silentServer"`, or `"timeout"`.
     #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn wait_for_ready(&self, timeout_ms: Option<u32>) -> Result<String> {
         let timeout_ms = u64::from(timeout_ms.unwrap_or(45_000));
@@ -684,69 +684,42 @@ impl NativeLspClient {
     /// changed content resolve against the stale original.
     #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn open_document(&self, file_path: String, content: String) -> Result<()> {
-        let uri = path_to_uri(&file_path)?;
+        self.sync_document(&file_path, content).await.map(|_| ())
+    }
 
-        // Acquire the connection FIRST: if the client isn't started this fails
-        // without mutating `open_docs`, so a doc is never marked open when its
-        // didOpen/didChange was never actually sent.
-        let connection = self.connection_handle().await?;
-        // A content sync invalidates any push diagnostics for the prior
-        // document version. The next diagnostic read waits for a fresh publish.
-        connection.clear_push_diagnostics(&uri);
-
-        // Decide didOpen-vs-didChange and reserve the version under the lock,
-        // then release it before awaiting the notify (never hold a std mutex
-        // across an await). `reserve` also enforces the LRU cap, handing back
-        // the URI of any evicted least-recently-synced document so we can close
-        // it out below and keep the open-document set bounded.
-        let (next_version, evicted) = {
-            let mut open_docs = self
-                .inner
-                .open_docs
-                .lock()
-                .map_err(|_| Error::new(Status::GenericFailure, "open_docs lock poisoned"))?;
-            open_docs.reserve(&uri)
-        };
-
-        let notification = if next_version == 1 {
-            let language_id = crate::lsp::config::detect_language_id(file_path.clone())
-                .or_else(|| self.inner.config.language_id.clone())
-                .unwrap_or_else(|| "plaintext".to_owned());
-            let params = json!({
-                "textDocument": {
-                    "uri": uri,
-                    "languageId": language_id,
-                    "version": next_version,
-                    "text": content
-                }
-            });
-            connection.notify("textDocument/didOpen", params).await
-        } else {
-            let params = json!({
-                "textDocument": { "uri": uri, "version": next_version },
-                "contentChanges": [{ "text": content }]
-            });
-            connection.notify("textDocument/didChange", params).await
-        };
-        if notification.is_err()
-            && let Ok(mut open_docs) = self.inner.open_docs.lock()
-        {
-            open_docs.rollback(&uri, next_version);
+    /// [`Self::open_document`], then — only when this sync was the document's
+    /// first `didOpen` — wait for any project load the open triggered to go
+    /// idle before returning. Servers like `typescript-language-server` start
+    /// loading the project only after a `didOpen` (`$/progress begin` arrives
+    /// ~100 ms later); querying immediately races that load and returns
+    /// incomplete references. `settle_ms` bounds how long to wait for such a
+    /// wave to start (default 400 ms) and `timeout_ms` bounds the whole wait
+    /// (default 15 s, capped at 60 s).
+    ///
+    /// Returns the readiness string (`progressIdle`, `silentServer`, or
+    /// `timeout`) for a first open, and `None` for a re-sync of an already open
+    /// document, which does not wait.
+    #[cfg_attr(feature = "napi-addon", napi)]
+    pub async fn open_document_and_wait(
+        &self,
+        file_path: String,
+        content: String,
+        settle_ms: Option<u32>,
+        timeout_ms: Option<u32>,
+    ) -> Result<Option<String>> {
+        let observed = self.inner.progress.subscribe();
+        let version = self.sync_document(&file_path, content).await?;
+        if version != 1 {
+            return Ok(None);
         }
-        // Close the document the cap evicted (if any) so both our bookkeeping
-        // and the server's document set stay bounded. Best-effort: a stopped or
-        // wedged connection makes this moot, and it must not mask the primary
-        // notification result.
-        if let Some(evicted_uri) = evicted {
-            connection.clear_push_diagnostics(&evicted_uri);
-            let _ = connection
-                .notify(
-                    "textDocument/didClose",
-                    json!({ "textDocument": { "uri": evicted_uri } }),
-                )
-                .await;
-        }
-        notification
+        let settle_ms = u64::from(settle_ms.unwrap_or(400));
+        let timeout_ms = u64::from(timeout_ms.unwrap_or(15_000).min(60_000));
+        let readiness = self
+            .inner
+            .progress
+            .wait_until_idle_after(observed, settle_ms, timeout_ms)
+            .await;
+        Ok(Some(readiness.as_str().to_owned()))
     }
 
     /// Close a previously opened document (`textDocument/didClose`) and forget
@@ -987,6 +960,75 @@ impl Drop for NativeLspClientInner {
 }
 
 impl NativeLspClient {
+    /// Sync `content` for `file_path` and return the version that was sent
+    /// (`1` means a fresh `didOpen`).
+    async fn sync_document(&self, file_path: &str, content: String) -> Result<i32> {
+        let file_path = file_path.to_owned();
+        let uri = path_to_uri(&file_path)?;
+
+        // Acquire the connection FIRST: if the client isn't started this fails
+        // without mutating `open_docs`, so a doc is never marked open when its
+        // didOpen/didChange was never actually sent.
+        let connection = self.connection_handle().await?;
+        // A content sync invalidates any push diagnostics for the prior
+        // document version. The next diagnostic read waits for a fresh publish.
+        connection.clear_push_diagnostics(&uri);
+
+        // Decide didOpen-vs-didChange and reserve the version under the lock,
+        // then release it before awaiting the notify (never hold a std mutex
+        // across an await). `reserve` also enforces the LRU cap, handing back
+        // the URI of any evicted least-recently-synced document so we can close
+        // it out below and keep the open-document set bounded.
+        let (next_version, evicted) = {
+            let mut open_docs = self
+                .inner
+                .open_docs
+                .lock()
+                .map_err(|_| Error::new(Status::GenericFailure, "open_docs lock poisoned"))?;
+            open_docs.reserve(&uri)
+        };
+
+        let notification = if next_version == 1 {
+            let language_id = crate::lsp::config::detect_language_id(file_path.clone())
+                .or_else(|| self.inner.config.language_id.clone())
+                .unwrap_or_else(|| "plaintext".to_owned());
+            let params = json!({
+                "textDocument": {
+                    "uri": uri,
+                    "languageId": language_id,
+                    "version": next_version,
+                    "text": content
+                }
+            });
+            connection.notify("textDocument/didOpen", params).await
+        } else {
+            let params = json!({
+                "textDocument": { "uri": uri, "version": next_version },
+                "contentChanges": [{ "text": content }]
+            });
+            connection.notify("textDocument/didChange", params).await
+        };
+        if notification.is_err()
+            && let Ok(mut open_docs) = self.inner.open_docs.lock()
+        {
+            open_docs.rollback(&uri, next_version);
+        }
+        // Close the document the cap evicted (if any) so both our bookkeeping
+        // and the server's document set stay bounded. Best-effort: a stopped or
+        // wedged connection makes this moot, and it must not mask the primary
+        // notification result.
+        if let Some(evicted_uri) = evicted {
+            connection.clear_push_diagnostics(&evicted_uri);
+            let _ = connection
+                .notify(
+                    "textDocument/didClose",
+                    json!({ "textDocument": { "uri": evicted_uri } }),
+                )
+                .await;
+        }
+        notification.map(|()| next_version)
+    }
+
     /// Clones the connection handle out from under the lock, releasing the
     /// guard before the caller awaits any request. This keeps the
     /// `connection` mutex uncontended (held only for the clone) so concurrent
@@ -1157,8 +1199,15 @@ async fn initialize(
     connection: &JsonRpcConnection<ChildStdin>,
     config: &JsLanguageServerConfig,
 ) -> Result<Value> {
+    let params = initialize_params(config)?;
+    connection
+        .request("initialize", params, REQUEST_TIMEOUT_MS)
+        .await
+}
+
+fn initialize_params(config: &JsLanguageServerConfig) -> Result<Value> {
     let root_uri = path_to_uri(&config.workspace_root)?;
-    let params = json!({
+    Ok(json!({
         "processId": std::process::id(),
         "clientInfo": { "name": "octocode-engine", "version": env!("CARGO_PKG_VERSION") },
         "locale": "en",
@@ -1189,6 +1238,11 @@ async fn initialize(
                 // LSP 3.17: pull diagnostics — agent/CLI requests errors on demand instead
                 // of receiving an unprompted push stream after every didChange.
                 "diagnostic": { "dynamicRegistration": false, "relatedDocumentSupport": false },
+                // Push diagnostics: servers without pull support (e.g.
+                // typescript-language-server) publish nothing unless the client
+                // advertises this. versionSupport lets them tag the document
+                // version each report belongs to.
+                "publishDiagnostics": { "versionSupport": true, "relatedInformation": false },
                 "synchronization": { "didSave": true, "willSave": false, "willSaveWaitUntil": false }
             },
             "workspace": {
@@ -1201,10 +1255,7 @@ async fn initialize(
             }
         },
         "initializationOptions": config.initialization_options.clone().unwrap_or(Value::Null)
-    });
-    connection
-        .request("initialize", params, REQUEST_TIMEOUT_MS)
-        .await
+    }))
 }
 
 async fn snippets_from_locations(value: Value) -> Result<Vec<JsCodeSnippet>> {

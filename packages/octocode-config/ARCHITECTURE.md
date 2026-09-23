@@ -44,9 +44,10 @@ known-key lists.
 - `config` owns structured `.octocoderc` loading.
 - `policy` owns protected keys and project-level override restrictions.
 - The CLI exposes inspection only; it does not add a second configuration model.
-- `@octocodeai/octocode-core` owns tool contracts and Zod tool schemas. Config
-  neither imports nor re-exports core; joining those packages would couple
-  environment policy to the independently versioned public tool contract.
+- `@octocodeai/octocode-core` owns every tool contract, Zod schema, description,
+  and capability-gated schema variant (such as search `semanticRerank`). The
+  `./schema` and `./mcp` subpaths only re-export core so interfaces import
+  contracts from one place; the root `.` entry never imports core.
 
 ## Invariants
 

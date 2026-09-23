@@ -118,6 +118,10 @@ pub struct SearchMatch {
     pub line: u32,
     pub column: u32,
     pub value: String,
+    /// Every matched line inside a merged context block, in order; present
+    /// only when overlapping/adjacent windows were merged into this one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub match_lines: Option<Vec<u32>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub count: Option<u32>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
@@ -133,8 +137,6 @@ pub struct SearchMatch {
 pub struct ItemPagination {
     pub current_page: u32,
     pub total_pages: u32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub matches_per_page: Option<u32>,
     pub total_matches: u32,
     pub has_more: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -153,10 +155,6 @@ pub struct SearchFile {
     pub total_occurrences: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total_matched_lines: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub total_match_rows: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub returned_match_rows: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pagination: Option<ItemPagination>,
 }
@@ -205,7 +203,6 @@ pub struct FilePagination {
 pub struct LocalSearchResult {
     #[serde(skip)]
     pub status: SearchStatus,
-    pub search_engine: String,
     pub stats: SearchStats,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub files: Vec<SearchFile>,

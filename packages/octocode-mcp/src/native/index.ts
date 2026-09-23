@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/server';
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 import {
-  DIRECT_TOOL_DEFINITIONS,
+  getDirectToolDefinitionsWithAddons,
   getNativeContractFingerprint,
 } from '@octocodeai/config/schema';
 import { buildMcpInstructions } from '@octocodeai/config/mcp';
@@ -15,8 +15,9 @@ import packageJson from '../../package.json';
  * A tool as reported by the native runtime catalog: runtime truth only —
  * names, availability, and the enforcement contract fingerprint. Everything
  * agent-facing (`title`/`description`/`inputSchema` for `registerTool`,
- * server instructions) is sourced from core through the
- * `@octocodeai/config` contract hub; the native embed carries no presentation.
+ * server instructions) is composed by the `@octocodeai/config` contract hub
+ * from canonical core contracts plus capability-aware addons; the native embed
+ * carries no presentation.
  */
 export interface NativeCatalogTool {
   name: string;
@@ -99,6 +100,69 @@ type RegisterTool = (
     context?: { signal?: AbortSignal; requestId?: string }
   ) => Promise<unknown>
 ) => void;
+
+type StandardResult =
+  { value: unknown; issues?: undefined } | { issues: readonly unknown[] };
+type StandardSchema = {
+  '~standard': {
+    version: 1;
+    vendor: string;
+    validate: (value: unknown) => StandardResult | Promise<StandardResult>;
+    jsonSchema?: unknown;
+  };
+};
+
+// CLI and the native runtime accept a bare single query (the envelope rule
+// wraps it); normalize the same convenience before SDK validation.
+export function wrapBareQuery(input: unknown): unknown {
+  return input &&
+    typeof input === 'object' &&
+    !Array.isArray(input) &&
+    !('queries' in input) &&
+    Object.keys(input).length > 0
+    ? { queries: [input] }
+    : input;
+}
+
+/**
+ * Advertise the canonical bulk schema unchanged, but let a batch whose
+ * envelope is valid and that has at least one valid row reach the native
+ * runtime, which executes the valid rows and returns indexed invalidInput
+ * rows for the rest (CLI parity). Every other failure keeps the SDK issues.
+ */
+export function rowIsolatingSchema(
+  inputSchema: StandardSchema,
+  querySchema: { safeParse(value: unknown): { success: boolean } },
+  envelopeSchema: { safeParse(value: unknown): { success: boolean } }
+): StandardSchema {
+  const standard = inputSchema['~standard'];
+  if (!standard.jsonSchema) return inputSchema;
+  return {
+    '~standard': {
+      version: standard.version,
+      vendor: standard.vendor,
+      jsonSchema: standard.jsonSchema,
+      validate: async value => {
+        const result = await standard.validate(value);
+        if (!result.issues) return result;
+        const envelope = wrapBareQuery(value);
+        if (
+          !envelope ||
+          typeof envelope !== 'object' ||
+          Array.isArray(envelope)
+        )
+          return result;
+        const rows = (envelope as { queries?: unknown }).queries;
+        if (!Array.isArray(rows) || rows.length < 2) return result;
+        const valid = rows.filter(row => querySchema.safeParse(row).success);
+        if (valid.length === 0 || valid.length === rows.length) return result;
+        return envelopeSchema.safeParse({ ...envelope, queries: valid }).success
+          ? { value: envelope }
+          : result;
+      },
+    },
+  };
+}
 
 export function createNativeMcp({
   env = process.env,
@@ -185,7 +249,9 @@ export function createNativeMcp({
   const registerTool = server.registerTool.bind(server) as RegisterTool;
 
   const definitions = new Map(
-    DIRECT_TOOL_DEFINITIONS.map(definition => [definition.name, definition])
+    getDirectToolDefinitionsWithAddons({
+      semanticRerank: availableTools.some(tool => tool.name === 'clasify'),
+    }).map(definition => [definition.name, definition])
   );
 
   for (const tool of availableTools) {
@@ -194,23 +260,19 @@ export function createNativeMcp({
       void runtime.close();
       throw new Error(`Native catalog tool has no contract: ${tool.name}`);
     }
-    // CLI and the native runtime accept a bare single query (the envelope
-    // rule wraps it). Normalize the same convenience here before SDK
-    // validation so one working query ports across surfaces; the advertised
-    // contract stays the canonical queries[] envelope, and clasify keeps its
-    // own bare-or-batch union.
+    // One working query ports across surfaces: bare queries are wrapped and
+    // partially invalid batches reach native row isolation. The advertised
+    // contract stays the canonical queries[] envelope; clasify keeps its own
+    // bare-or-batch union and whole-batch validation.
     const inputSchema =
       tool.name === 'clasify'
         ? definition.inputSchema
-        : z.preprocess(
-            input =>
-              input &&
-              typeof input === 'object' &&
-              !Array.isArray(input) &&
-              !('queries' in input) &&
-              Object.keys(input).length > 0
-                ? { queries: [input] }
-                : input,
+        : rowIsolatingSchema(
+            z.preprocess(
+              wrapBareQuery,
+              definition.inputSchema
+            ) as unknown as StandardSchema,
+            definition.schema,
             definition.inputSchema
           );
     registerTool(

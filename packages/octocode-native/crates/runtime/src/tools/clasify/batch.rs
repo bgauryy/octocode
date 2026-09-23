@@ -6,12 +6,17 @@ use super::{
     transport::{ClassificationError, check_budget, endpoint, post},
 };
 use crate::providers::RequestBudget;
+use crate::providers::classification::gate::GateLease;
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::{Value, json};
 
-// Conservative UTF-8 headroom, not a model-token admission guarantee.
-const MAX_STATE_AND_QUESTION_BYTES: usize = 24 * 1024;
-const MAX_GROUP_BYTES: usize = 48 * 1024;
+// UTF-8 headroom, not a model-token admission guarantee. The provider ingests
+// state once per request (32k tokens for state + longest question, 64k in
+// total), so a coalesced 48 KiB file page still shares one request across its
+// questions. Serialized code measured ~3.5–7 bytes/token; 72 KiB stays under
+// 32k tokens even at ~2.3 bytes/token.
+const MAX_STATE_AND_QUESTION_BYTES: usize = 72 * 1024;
+const MAX_GROUP_BYTES: usize = 120 * 1024;
 
 fn request(
     state: &Value,
@@ -46,6 +51,7 @@ fn response_error(message: impl Into<String>) -> ClassificationError {
         code: "invalidClassificationResponse".into(),
         message: message.into(),
         hints: vec!["Inspect provider compatibility before using the answer.".into()],
+        ..Default::default()
     }
 }
 
@@ -60,6 +66,7 @@ pub(crate) async fn execute(
     provider: &dyn crate::providers::classification::ClassificationProvider,
     budget: &RequestBudget,
     retries: u32,
+    gate: &GateLease,
 ) -> Result<GroupResponse, ClassificationError> {
     check_budget(budget)?;
     if !fits(state, questions, model, provider) {
@@ -72,6 +79,7 @@ pub(crate) async fn execute(
             code: "invalidClassificationConfiguration".into(),
             message: "OCTOCODE_CLASSIFICATION_API contains invalid control characters.".into(),
             hints: vec!["Replace the configured key.".into()],
+            ..Default::default()
         });
     }
     let req = request(state, questions, model, provider);
@@ -81,6 +89,7 @@ pub(crate) async fn execute(
         endpoint(base_url, endpoint_path)?,
         budget,
         retries,
+        gate,
     )
     .await?;
     project_response(&req, &response, questions, model, provider)
@@ -159,7 +168,7 @@ mod tests {
             "m",
             provider,
         ));
-        let wide = json!({"type":"noul","instructions":"x".repeat(12*1024)});
+        let wide = json!({"type":"noul","instructions":"x".repeat(30*1024)});
         assert!(!fits(
             &Value::Null,
             &[(0, &wide), (1, &wide), (2, &wide), (3, &wide), (4, &wide)],

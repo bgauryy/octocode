@@ -176,6 +176,16 @@ fn error_fallback_hint(tool: &str, query: &Value, row: &Value) -> Option<&'stati
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_ascii_lowercase();
+    let message = row
+        .pointer("/data/error")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    // A sandbox refusal is about where the process runs, not the query.
+    if message.contains("outside allowed directories") {
+        return Some(
+            "The path is outside the allowed roots: run from inside the workspace, or add it to ALLOWED_PATHS / WORKSPACE_ROOT.",
+        );
+    }
     if code.contains("auth") {
         return Some("Authenticate or correct credentials; do not broaden the query.");
     }
@@ -196,7 +206,33 @@ fn error_fallback_hint(tool: &str, query: &Value, row: &Value) -> Option<&'stati
             "Verify the path with astSearch operation:\"files\", then retry the exact path.",
         );
     }
+    if tool == "astSearch"
+        && let Some(hint) = ast_search_error_hint(&code)
+    {
+        return Some(hint);
+    }
     fallback_hint(tool, query)
+}
+
+/// astSearch failures whose recovery is not "broaden the query".
+fn ast_search_error_hint(code: &str) -> Option<&'static str> {
+    if code.contains("outsideallowedroots") || code.contains("symlinkescape") {
+        return Some("Use a path inside an allowed root; broadening will not help.");
+    }
+    if code.contains("compilefailed") {
+        return Some(
+            "Make the pattern a complete node (add `;` or the body), or inspect its shape with treeKind:\"syntax\".",
+        );
+    }
+    if code.contains("inputtoolarge") || code.contains("source.limit") {
+        return Some("Target a smaller file or narrower directory scope.");
+    }
+    if code.starts_with("ast.language.") {
+        return Some(
+            "Set langType to the grammar of the source files (e.g. \"typescript\", \"rust\").",
+        );
+    }
+    None
 }
 
 fn add_fallback_hint(row: &mut Value, position: usize, tool: &str, queries: &[Value]) {
@@ -1175,6 +1211,28 @@ mod tests {
                 .is_some_and(|hint| hint.contains("astSearch operation:\"files\"")),
             "{missing_path}"
         );
+    }
+
+    #[test]
+    fn ast_search_error_hints_are_code_specific() {
+        let query = json!({"operation":"match","path":"/repo","pattern":"foo($A)"});
+        for (code, expected) in [
+            ("ast.policy.outsideAllowedRoots", "allowed root"),
+            ("structural.query.compileFailed", "treeKind"),
+            ("ast.policy.inputTooLarge", "smaller"),
+            ("ast.language.required", "langType"),
+            ("ast.language.unsupported", "langType"),
+        ] {
+            let mut row = json!({
+                "index": 0,
+                "status": "error",
+                "data": {"error":"failed","errorCode":code}
+            });
+            apply_hint_policy(&mut row, "astSearch", &query);
+            let hint = row["data"]["hints"][0].as_str().expect("hint");
+            assert!(hint.contains(expected), "{code}: {hint}");
+            assert!(!hint.contains("Broaden the syntax"), "{code}: {hint}");
+        }
     }
 
     fn sanitize_context() -> crate::runtime::ExecutionContext {

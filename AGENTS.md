@@ -195,6 +195,6 @@ yarn install && yarn prepublish       # lockfile + final guard + readme sync
 | CLI | [`packages/octocode/docs/OCTOCODE_CLI.md`](packages/octocode/docs/OCTOCODE_CLI.md) |
 | Engine / LSP | [`LSP_SERVER_LIFECYCLE.md`](packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md) · [`SUPPORTED_LANGUAGES_AND_FEATURES.md`](packages/octocode-native/docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md) |
 | Research | [`docs/OCTOCODE_RESEARCH_MANIFEST.md`](docs/OCTOCODE_RESEARCH_MANIFEST.md) |
-| Semantic assessment | [`docs/OCTOCODE_CLASIFY.md`](docs/OCTOCODE_CLASIFY.md) (contract + research loop) · [`docs/JEV_BENCHMARK.md`](docs/JEV_BENCHMARK.md) (historical provider benchmark) |
+| Semantic assessment | [`docs/OCTOCODE_CLASIFY.md`](docs/OCTOCODE_CLASIFY.md) (contract + research loop) |
 | Benchmarks | [`BENCHMARK.md`](packages/octocode-benchmark/skills/octocode-benchmark/references/BENCHMARK.md) · [`SCORING.md`](packages/octocode-benchmark/skills/octocode-benchmark/references/SCORING.md) |
 | Skills (repo) | [`skills/`](skills/) → linked into [`.agents/skills/`](.agents/skills/) |

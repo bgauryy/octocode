@@ -202,6 +202,60 @@ describe('createNativeMcp registration + execution', () => {
     await instance.close();
   });
 
+  it.each([
+    ['disabled', false],
+    ['enabled', true],
+  ])(
+    'advertises semanticRerank when provider capability is %s',
+    async (_label, clasifyAvailable) => {
+      const instance = createNativeMcp({
+        env: clasifyAvailable
+          ? {
+              OCTOCODE_CLASSIFICATION_API: 'test-key',
+              OCTOCODE_CLASSIFICATION_API_HOST:
+                'https://classification.example.test',
+            }
+          : {
+              OCTOCODE_CLASSIFICATION_API_HOST:
+                'https://classification.example.test',
+            },
+        binding: bindingFor(() => ({
+          fingerprint: getNativeContractFingerprint(),
+          tools: [
+            tool('ghSearch', true),
+            tool('localSearch', true),
+            tool(TOOL_NAMES.CLASIFY, clasifyAvailable),
+          ],
+        })),
+      });
+      const client = new Client({
+        name: 'semantic-rerank-addon',
+        version: '1',
+      });
+      const [serverTransport, clientTransport] =
+        InMemoryTransport.createLinkedPair();
+      await Promise.all([
+        instance.server.connect(serverTransport),
+        client.connect(clientTransport),
+      ]);
+      const listed = await client.listTools();
+      expect(
+        listed.tools.some(candidate => candidate.name === TOOL_NAMES.CLASIFY)
+      ).toBe(clasifyAvailable);
+      for (const name of ['ghSearch', 'localSearch']) {
+        const schema = JSON.stringify(
+          listed.tools.find(candidate => candidate.name === name)?.inputSchema
+        );
+        expect(schema.includes('semanticRerank')).toBe(clasifyAvailable);
+        expect(schema).not.toContain('minScore');
+        expect(schema).not.toContain('clasifyContext');
+        expect(schema).not.toContain('clasifyMinScore');
+      }
+      await client.close();
+      await instance.close();
+    }
+  );
+
   it('registers only available tools and routes calls to executeMcp', async () => {
     const instance = createNativeMcp({
       env: {},

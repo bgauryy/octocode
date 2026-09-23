@@ -7,7 +7,7 @@ Compact JSON only: `ok`, `sessionId`, `sessionDir`, `route`, `status`, `pages`, 
 
 Bridge helpers also emit compact JSON (never raw HAR/HTML):
 - `har-ingest.mjs`: `ok`, `flow` (`cdp→scrape` | `scrape→cdp-packet`), `sessionDir`, `thinHints`, `cdpFiles`, `extracts`, `next`
-- `corpus-run.mjs`: `ok`, `flow` (`local-iterate`), `sessionDir`/`artifactDir`, `matchCount`, `matches[]` (path/line/snippet), optional `script.result`
+- `corpus-run.mjs`: `ok`, `flow` (`local-iterate`), `sessionDir`/`artifactDir`, `matchCount`, `matches[]` (`file`/`abs`/`line`/`column`/`match`/`snippet`), `next[]` (`file`/`line`/`match`), optional `script.result`; `--regex` is a JavaScript regex (`--flags i`, not `(?i)`)
 
 ## Corpus contract
 - Default folder: `.octocode/tmp/scrape/{sessionId}`.

@@ -104,6 +104,99 @@ pub fn default_server_for_file_with_options(
     spec.map(|spec| config_from_spec(spec, workspace_root))
 }
 
+/// Project markers checked (in priority order) to pick a language server for a
+/// workspace root that has no file of its own. `tsconfig.json` is the strongest
+/// TypeScript signal; a bare `package.json` ranks last because npm wrappers
+/// commonly sit beside Rust/Go/Python projects.
+const WORKSPACE_ROOT_MARKERS: &[(&str, &str)] = &[
+    ("tsconfig.json", ".ts"),
+    ("Cargo.toml", ".rs"),
+    ("go.mod", ".go"),
+    ("pyproject.toml", ".py"),
+    ("setup.py", ".py"),
+    ("jsconfig.json", ".js"),
+    ("package.json", ".ts"),
+];
+
+/// Resolve the language server for a workspace root directory (the
+/// `workspaceRoot`-only query shape), inferring the language from project
+/// markers since a directory has no file extension. Returns `None` when no
+/// marker is present.
+pub fn default_server_for_workspace_root_with_options(
+    workspace_root: String,
+    options: &LspDiscoveryOptions,
+) -> Option<JsLanguageServerConfig> {
+    let root = Path::new(&workspace_root);
+    let extension = WORKSPACE_ROOT_MARKERS
+        .iter()
+        .find(|(marker, _)| root.join(marker).is_file())
+        .map(|(_, extension)| *extension)?;
+    // A synthetic representative path: discovery keys only on its extension,
+    // and the file is never opened or synced.
+    let representative = root
+        .join(format!("workspace{extension}"))
+        .to_string_lossy()
+        .into_owned();
+    default_server_for_file_with_options(representative, workspace_root, options)
+}
+
+/// A source file inside `workspace_root` (in the language its project markers
+/// imply) to open so servers that need an open document before answering
+/// workspace-wide queries (tsserver: "No Project") have a project loaded.
+/// Bounded breadth-first walk that skips hidden, vendored, and build dirs.
+pub fn workspace_root_representative_source(workspace_root: &str) -> Option<String> {
+    const MAX_ENTRIES: usize = 2_000;
+    const MAX_DEPTH: usize = 6;
+    const SKIPPED_DIRS: &[&str] = &["node_modules", "target", "dist", "build", "out", "vendor"];
+    let root = Path::new(workspace_root);
+    let extension = WORKSPACE_ROOT_MARKERS
+        .iter()
+        .find(|(marker, _)| root.join(marker).is_file())
+        .map(|(_, extension)| *extension)?;
+    let family: &[&str] = match extension {
+        ".ts" | ".js" => &["ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs"],
+        ".rs" => &["rs"],
+        ".go" => &["go"],
+        ".py" => &["py"],
+        _ => return None,
+    };
+    let mut queue = std::collections::VecDeque::from([(root.to_path_buf(), 0usize)]);
+    let mut seen = 0usize;
+    while let Some((dir, depth)) = queue.pop_front() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        let mut entries = entries.filter_map(Result::ok).collect::<Vec<_>>();
+        entries.sort_by_key(std::fs::DirEntry::file_name);
+        for entry in entries {
+            seen += 1;
+            if seen > MAX_ENTRIES {
+                return None;
+            }
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let Ok(file_type) = entry.file_type() else {
+                continue;
+            };
+            if file_type.is_dir() {
+                if depth < MAX_DEPTH
+                    && !name.starts_with('.')
+                    && !SKIPPED_DIRS.contains(&name.as_str())
+                {
+                    queue.push_back((entry.path(), depth + 1));
+                }
+            } else if file_type.is_file()
+                && !name.ends_with(".d.ts")
+                && Path::new(&name)
+                    .extension()
+                    .is_some_and(|ext| family.contains(&ext.to_string_lossy().as_ref()))
+            {
+                return Some(entry.path().to_string_lossy().into_owned());
+            }
+        }
+    }
+    None
+}
+
 fn spec_has_env_override(spec: &ServerSpec) -> bool {
     spec.env_var
         .and_then(|key| std::env::var(key).ok())
@@ -552,10 +645,11 @@ fn find_python_user_script(script_name: &str) -> Option<String> {
 mod tests {
     use super::{
         LspDiscoveryOptions, command_is_tsgo, command_resolves_to_executable, current_node_command,
-        default_server_for_file, default_server_for_file_with_options, detect_language_id,
-        is_command_available, is_node_executable, is_rust_analyzer_command,
-        resolve_known_server_command, resolve_server_invocation,
-        resolve_server_invocation_with_environment,
+        default_server_for_file, default_server_for_file_with_options,
+        default_server_for_workspace_root_with_options, detect_language_id, is_command_available,
+        is_node_executable, is_rust_analyzer_command, resolve_known_server_command,
+        resolve_server_invocation, resolve_server_invocation_with_environment,
+        workspace_root_representative_source,
     };
     use std::path::PathBuf;
 
@@ -629,14 +723,12 @@ mod tests {
     #[test]
     fn builtin_routes_cover_the_exact_first_class_extension_set() {
         // Intersection of the native grammar registry with the built-in server
-        // routes. CUDA (`cu`/`cuh`) left the default registry (optional
-        // `tree-sitter-cuda` feature), so it is no longer part of this
-        // intersection — the ServerSpec table still routes `.cu`/`.cuh` to
-        // clangd (see `all_cuda_extensions_resolve_to_clangd`), that route is
-        // simply no longer grammar-backed by default.
+        // routes. CUDA (`cu`/`cuh`) re-joined the default registry in 19.1.3,
+        // so it is now part of this intersection again.
         let expected = [
-            "c", "cc", "cjs", "cpp", "cs", "cts", "cxx", "go", "h", "hh", "hpp", "hxx", "java",
-            "js", "jsx", "mjs", "mts", "py", "pyi", "rs", "sbt", "sc", "scala", "ts", "tsx",
+            "c", "cc", "cjs", "cpp", "cs", "cts", "cu", "cuh", "cxx", "go", "h", "hh", "hpp",
+            "hxx", "java", "js", "jsx", "mjs", "mts", "py", "pyi", "rs", "sbt", "sc", "scala",
+            "ts", "tsx",
         ];
         let mut actual: Vec<_> = crate::signatures::languages::supported_extensions()
             .into_iter()
@@ -655,6 +747,75 @@ mod tests {
             assert_eq!(config.command, "clangd");
             assert_eq!(config.language_id.as_deref(), Some("cpp"));
         }
+    }
+
+    #[test]
+    fn workspace_root_infers_its_server_from_project_markers() {
+        let base = std::env::temp_dir().join(format!(
+            "octocode-lsp-root-markers-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|elapsed| elapsed.as_nanos())
+                .unwrap_or(0)
+        ));
+        let cases = [
+            ("rust", &["Cargo.toml"][..], "rust"),
+            ("ts", &["tsconfig.json"][..], "typescript"),
+            ("node", &["package.json"][..], "typescript"),
+            // A tsconfig is the strongest TypeScript signal; Cargo beats a bare
+            // package.json (npm wrappers around Rust crates).
+            ("mixed", &["package.json", "Cargo.toml"][..], "rust"),
+        ];
+        let options = LspDiscoveryOptions::default();
+        for (name, markers, expected) in cases {
+            let root = base.join(name);
+            std::fs::create_dir_all(&root).expect("root");
+            for marker in markers {
+                std::fs::write(root.join(marker), "").expect("marker");
+            }
+            let root = root.to_string_lossy().into_owned();
+            let config = default_server_for_workspace_root_with_options(root.clone(), &options)
+                .unwrap_or_else(|| panic!("{name}: no server inferred"));
+            assert_eq!(config.language_id.as_deref(), Some(expected), "{name}");
+            assert_eq!(config.workspace_root, root, "{name}");
+        }
+        let empty = base.join("empty");
+        std::fs::create_dir_all(&empty).expect("empty root");
+        assert!(
+            default_server_for_workspace_root_with_options(
+                empty.to_string_lossy().into_owned(),
+                &options
+            )
+            .is_none()
+        );
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn workspace_root_representative_source_skips_vendored_dirs() {
+        let root = std::env::temp_dir().join(format!(
+            "octocode-lsp-root-representative-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|elapsed| elapsed.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(root.join("node_modules/dep")).expect("node_modules");
+        std::fs::create_dir_all(root.join("src/nested")).expect("src");
+        std::fs::write(root.join("tsconfig.json"), "{}").expect("tsconfig");
+        std::fs::write(root.join("node_modules/dep/index.ts"), "").expect("vendored");
+        std::fs::write(root.join("README.md"), "").expect("readme");
+        std::fs::write(root.join("src/nested/app.ts"), "").expect("source");
+        let found = workspace_root_representative_source(&root.to_string_lossy())
+            .expect("a representative TypeScript source");
+        assert!(found.ends_with("app.ts"), "{found}");
+
+        let empty = root.join("src/nested");
+        std::fs::remove_file(empty.join("app.ts")).expect("remove");
+        assert!(workspace_root_representative_source(&root.to_string_lossy()).is_none());
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

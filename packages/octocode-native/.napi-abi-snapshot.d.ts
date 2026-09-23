@@ -17,7 +17,7 @@ export declare class NativeLspClient {
    * Wait for the server to finish any post-`initialized` indexing, returning
    * a readiness descriptor so JS can tell a confirmed-idle server apart from
    * one that never reported progress or is still busy. The returned string
-   * is one of `"progressIdle"`, `"settledFallback"`, or `"timeout"`.
+   * is one of `"progressIdle"`, `"silentServer"`, or `"timeout"`.
    */
   waitForReady(timeoutMs?: number | undefined | null): Promise<string>
   /**
@@ -47,6 +47,21 @@ export declare class NativeLspClient {
    * changed content resolve against the stale original.
    */
   openDocument(filePath: string, content: string): Promise<void>
+  /**
+   * [`Self::open_document`], then — only when this sync was the document's
+   * first `didOpen` — wait for any project load the open triggered to go
+   * idle before returning. Servers like `typescript-language-server` start
+   * loading the project only after a `didOpen` (`$/progress begin` arrives
+   * ~100 ms later); querying immediately races that load and returns
+   * incomplete references. `settle_ms` bounds how long to wait for such a
+   * wave to start (default 400 ms) and `timeout_ms` bounds the whole wait
+   * (default 15 s, capped at 60 s).
+   *
+   * Returns the readiness string (`progressIdle`, `silentServer`, or
+   * `timeout`) for a first open, and `None` for a re-sync of an already open
+   * document, which does not wait.
+   */
+  openDocumentAndWait(filePath: string, content: string, settleMs?: number | undefined | null, timeoutMs?: number | undefined | null): Promise<string | null>
   /**
    * Close a previously opened document (`textDocument/didClose`) and forget
    * its version, so a later `open_document` starts a fresh `didOpen`.

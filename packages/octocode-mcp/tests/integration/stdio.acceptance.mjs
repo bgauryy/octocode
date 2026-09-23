@@ -4,6 +4,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
+import { z } from 'zod';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { createLocalAcceptanceFixture } from './local-acceptance-fixture.mjs';
@@ -31,11 +32,10 @@ const acceptanceCwd = path.resolve(values.cwd);
 const acceptanceEnv = {
   ...process.env,
   ENABLE_LOCAL: 'true',
-  ENABLE_CLONE: 'true',
   OCTOCODE_BETA: 'true',
   OCTOCODE_STORAGE_MODE: 'persistent',
 };
-const { DIRECT_TOOL_DEFINITIONS, TOOL_NAMES } = await import('@octocodeai/config/schema');
+const { DIRECT_TOOL_DEFINITIONS, TOOL_NAMES, getDirectToolDefinitionsWithAddons } = await import('@octocodeai/config/schema');
 const canonicalTools = DIRECT_TOOL_DEFINITIONS.map(tool => tool.name);
 let expectedTools = [];
 const receipt = {
@@ -204,7 +204,7 @@ try {
   await check('initialize and list every available canonical direct tool', () =>
     assert.deepEqual(
       expectedTools.filter(name => name !== TOOL_NAMES.CLASIFY).sort(),
-      canonicalTools.filter(name => name !== TOOL_NAMES.CLASIFY).sort()
+      canonicalTools.filter(name => name !== TOOL_NAMES.CLASIFY && name !== 'ghCloneRepo').sort()
     )
   );
   await check('MCP tool catalog stays below the production transport budget', () =>
@@ -236,20 +236,27 @@ try {
       assert.equal(row?.data?.usage, undefined);
     });
   }
-  await check('CLI and MCP input schema parity for every tool', () => {
+  await check('CLI catalog and MCP input schemas match the canonical contracts', () => {
+    const definitions = new Map(getDirectToolDefinitionsWithAddons({
+      semanticRerank: expectedTools.includes(TOOL_NAMES.CLASIFY),
+    }).map(definition => [definition.name, definition]));
     for (const tool of list.tools) {
       const cli = JSON.parse(
         execFileSync(
           values.node,
-          [path.resolve(values.cli), 'scheme', tool.name, '--compact'],
+          [path.resolve(values.cli), 'scheme', tool.name],
           { encoding: 'utf8', timeout: 10_000, cwd: acceptanceCwd, env: acceptanceEnv }
         )
       );
-      assert.deepEqual(
-        tool.inputSchema,
-        cli.inputSchema,
-        `${tool.name} input schemas differ`
-      );
+      assert.equal(cli.name, tool.name);
+      assert.equal(cli.availability.enabled, true);
+      assert.ok(cli.querySchema, `${tool.name} has no CLI query contract`);
+      const definition = definitions.get(tool.name);
+      assert.ok(definition, `${tool.name} has no canonical contract`);
+      assert.deepEqual(tool.inputSchema, z.toJSONSchema(definition.inputSchema, {
+        target: 'draft-2020-12',
+        io: 'input',
+      }), `${tool.name} MCP input schema differs from the canonical contract`);
     }
   });
   await check(
@@ -813,8 +820,8 @@ try {
       assert.ok(data.next?.nextPage);
       await nextCall(data.next.nextPage);
     });
-    await check('GitHub clone pinned revision positive', async () => {
-      const data = await call('ghCloneRepo', { ...repo, branch: sha });
+    await check('CLI clone pinned revision positive', async () => {
+      const data = executeCliTool('ghCloneRepo', [{ ...repo, branch: sha, reasoning: 'Verify CLI-only clone.' }]).results[0].data;
       assert.ok(data.location.localPath);
       assert.equal(data.location.commitSha, sha);
       assert.equal(
@@ -830,7 +837,7 @@ try {
       const cacheVolatileTools = new Set([
         'ghSearch', 'ghGetFileContent', 'ghSearchHistory', 'ghGetHistoryItem', 'artifactSearch',
       ]);
-      const liveOnlyTools = new Set([...cacheVolatileTools, 'ghCloneRepo']);
+      const liveOnlyTools = cacheVolatileTools;
       for (const name of expectedTools) {
         if (name === TOOL_NAMES.CLASIFY) {
           const executionVerified = receipt.calls.some(call =>
@@ -877,25 +884,6 @@ try {
         const mcpResults = selected.response.structuredContent.results;
         const mcpBase = selected.response.structuredContent.base;
         const cliBase = cliResponse?.base;
-        let cloneVerification;
-        if (name === 'ghCloneRepo') {
-          const mcpLocation = mcpResults[0]?.data?.location;
-          const cliLocation = cliResults[0]?.data?.location;
-          assert.ok(mcpLocation?.localPath && cliLocation?.localPath, 'ghCloneRepo: missing warmed checkout location');
-          assert.equal(mcpLocation.commitSha, cliLocation.commitSha, 'ghCloneRepo: commit identity differs');
-          const [mcpBytes, cliBytes] = await Promise.all([
-            readFile(path.join(mcpLocation.localPath, 'README')),
-            readFile(path.join(cliLocation.localPath, 'README')),
-          ]);
-          assert.deepEqual(mcpBytes, cliBytes, 'ghCloneRepo: checkout source bytes differ');
-          cloneVerification = {
-            authorizedContext: 'replayed the exact base-live pinned clone query against an already warmed persistent cache',
-            commitSha: mcpLocation.commitSha,
-            mcpLocalPath: mcpLocation.localPath,
-            cliLocalPath: cliLocation.localPath,
-            readmeSha256: (await import('node:crypto')).createHash('sha256').update(mcpBytes).digest('hex'),
-          };
-        }
         const differences = differingFields(mcpResults, cliResults);
         // Provider cache state depends on which cross-process arm reached the
         // provider first. For these five provider tools it is receipt metadata,
@@ -927,7 +915,6 @@ try {
             : undefined,
           differingFields: contractDifferences,
           passesContract: contractDifferences.length === 0 && baseEqual,
-          cloneVerification,
         });
       }
       receipt.cliMcpParitySummary = {

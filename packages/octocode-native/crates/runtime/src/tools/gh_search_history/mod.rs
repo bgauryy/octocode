@@ -96,7 +96,7 @@ pub async fn execute<R: CredentialResolver>(
             "GitHub search page exceeds the 1,000-result search window",
         ));
     }
-    let terms = build_query(&query)?;
+    let (terms, query_warnings) = build_query_with_warnings(&query)?;
     let request = HistoryRequest {
         query: terms,
         page,
@@ -122,29 +122,25 @@ pub async fn execute<R: CredentialResolver>(
         }
         HistoryOperation::Commit => {
             let (o, r) = required_repo(&query)?;
-            let since = query.since.as_deref().map(resolve_date_window);
-            let until = query.until.as_deref().map(resolve_date_window);
+            // Invalid-value warnings were already collected by build_query.
+            let (since, until) = resolve_commit_window(&query, &mut Vec::new())?;
             let mut listed = transport
-                .list_commits(
+                .list_commits_by_committer(
                     &CommitListRequest {
                         owner: o.into(),
                         repo: r.into(),
                         branch: query.branch.clone(),
                         path: query.path.clone(),
                         author: query.author.clone(),
-                        since: since.as_ref().and_then(|w| w.value.clone()),
-                        until: until.as_ref().and_then(|w| w.value.clone()),
+                        since,
+                        until,
                         page,
                         per_page: per,
                     },
+                    query.committer.as_deref(),
                     context,
                 )
                 .await?;
-            for window in [since, until].into_iter().flatten() {
-                if let Some(warning) = window.warning {
-                    listed.warnings.push(warning);
-                }
-            }
             if listed.items.is_empty() && (query.since.is_some() || query.until.is_some()) {
                 listed.warnings.push(
                     "since/until matched no commits (GitHub commit listing uses committer date and does not follow renames).".into(),
@@ -195,6 +191,7 @@ pub async fn execute<R: CredentialResolver>(
         _ => transport.search_issues(&request, context).await?,
     };
     result.warnings.splice(0..0, rename_warnings);
+    result.warnings.extend(query_warnings);
     for item in &mut result.items {
         for key in ["title", "body"] {
             if let Some(text) = item.get(key).and_then(Value::as_str) {
@@ -343,13 +340,20 @@ pub async fn execute<R: CredentialResolver>(
     }
     if matches!(query.operation, HistoryOperation::Issue)
         && let Some(map) = value.as_object_mut()
+        && !more
     {
-        if !more {
-            map.remove("pagination");
-        }
-        if result.listed {
-            map.remove("effectiveQuery");
-        }
+        map.remove("pagination");
+    }
+    // List mode runs the REST endpoint, not the search terms: reporting them
+    // as the effective query would misdescribe what executed.
+    if result.listed
+        && matches!(
+            query.operation,
+            HistoryOperation::Issue | HistoryOperation::PullRequest
+        )
+        && let Some(map) = value.as_object_mut()
+    {
+        map.remove("effectiveQuery");
     }
     if matches!(query.operation, HistoryOperation::Commit) && more {
         value["pagination"]["nextPage"] = json!(current_page + 1);
@@ -450,7 +454,10 @@ fn should_use_search_for_issues(q: &GhSearchHistoryQuery) -> bool {
         || matches!(q.sort.as_deref(), Some("comments" | "reactions"))
 }
 fn should_use_search_for_prs(q: &GhSearchHistoryQuery) -> bool {
-    should_use_search_for_issues(q)
+    // The REST list endpoint needs owner+repo; anything broader is search.
+    q.owner.is_none()
+        || q.repo.is_none()
+        || should_use_search_for_issues(q)
         || q.draft.is_some()
         || q.reviewed_by.is_some()
         || q.review_requested.is_some()
@@ -475,7 +482,46 @@ fn map_commit(v: Value) -> Value {
     json!({"sha":v["sha"],"url":v["html_url"],"messageHeadline":message,"date":v.pointer("/commit/author/date"),"author":{"name":v.pointer("/commit/author/name"),"email":v.pointer("/commit/author/email"),"login":v.pointer("/author/login")}})
 }
 
+#[cfg(test)]
 fn build_query(q: &GhSearchHistoryQuery) -> Result<String, ProviderError> {
+    build_query_with_warnings(q).map(|(terms, _)| terms)
+}
+
+/// Resolves `since`/`until`, collecting invalid-value warnings and rejecting
+/// an inverted window (since after until) as a validation error.
+fn resolve_commit_window(
+    q: &GhSearchHistoryQuery,
+    warnings: &mut Vec<String>,
+) -> Result<(Option<String>, Option<String>), ProviderError> {
+    let since = q.since.as_deref().map(resolve_date_window);
+    let until = q.until.as_deref().map(resolve_date_window);
+    if let (Some(since), Some(until)) = (&since, &until)
+        && since.is_after(until)
+    {
+        return Err(ProviderError::new(
+            ProviderErrorKind::Validation,
+            format!(
+                "since ({}) is after until ({}); swap them or widen the window",
+                q.since.as_deref().unwrap_or_default().trim(),
+                q.until.as_deref().unwrap_or_default().trim()
+            ),
+        ));
+    }
+    let mut values = [None, None];
+    for (slot, window) in values.iter_mut().zip([since, until]) {
+        if let Some(window) = window {
+            warnings.extend(window.warning);
+            *slot = window.value;
+        }
+    }
+    let [since, until] = values;
+    Ok((since, until))
+}
+
+fn build_query_with_warnings(
+    q: &GhSearchHistoryQuery,
+) -> Result<(String, Vec<String>), ProviderError> {
+    let mut warnings = Vec::new();
     let mut out = q
         .keywords
         .clone()
@@ -505,12 +551,8 @@ fn build_query(q: &GhSearchHistoryQuery) -> Result<String, ProviderError> {
                     out.push(format!("{key}:{value}"));
                 }
             }
-            let since = q.since.as_deref().map(resolve_date_window);
-            let until = q.until.as_deref().map(resolve_date_window);
-            match (
-                since.as_ref().and_then(|w| w.value.as_deref()),
-                until.as_ref().and_then(|w| w.value.as_deref()),
-            ) {
+            let (since, until) = resolve_commit_window(q, &mut warnings)?;
+            match (since.as_deref(), until.as_deref()) {
                 (Some(since), Some(until)) => {
                     out.push(format!("committer-date:{since}..{until}"));
                 }
@@ -531,8 +573,16 @@ fn build_query(q: &GhSearchHistoryQuery) -> Result<String, ProviderError> {
                 }
                 .into(),
             );
-            let (o, r) = required_repo(q)?;
-            out.push(format!("repo:{o}/{r}"));
+            match (q.owner.as_deref(), q.repo.as_deref(), q.operation) {
+                (Some(o), Some(r), _) => out.push(format!("repo:{o}/{r}")),
+                // Pull-request search is cross-repo capable (contract: owner and
+                // repo optional); issue search stays repository-scoped.
+                (Some(o), None, HistoryOperation::PullRequest) => out.push(format!("user:{o}")),
+                (None, _, HistoryOperation::PullRequest) => {}
+                _ => {
+                    required_repo(q)?;
+                }
+            }
             if let Some(state) = &q.state {
                 out.push(format!("is:{state}"));
             }
@@ -563,11 +613,13 @@ fn build_query(q: &GhSearchHistoryQuery) -> Result<String, ProviderError> {
                     out.push(format!("label:\"{label}\""));
                 }
             }
-            out.push(format!("archived:{}", q.archived.unwrap_or(false)));
+            if let Some(archived) = q.archived {
+                out.push(format!("archived:{archived}"));
+            }
             push(&mut out, "status", q.checks.as_deref());
         }
     }
-    Ok(out.join(" "))
+    Ok((out.join(" "), warnings))
 }
 
 fn map_commit_list(v: Value) -> Value {
@@ -617,7 +669,16 @@ mod tests {
         let q: GhSearchHistoryQuery=serde_json::from_str(r#"{"operation":"issue","owner":"a","repo":"b","keywords":["x"],"state":"closed","match":["title"],"label":["bug"]}"#).expect("GitHub history search test data should be valid");
         assert_eq!(
             build_query(&q).expect("GitHub history search test data should be valid"),
-            "x in:title is:issue repo:a/b is:closed label:\"bug\" archived:false"
+            "x in:title is:issue repo:a/b is:closed label:\"bug\""
+        );
+        let archived: GhSearchHistoryQuery = serde_json::from_str(
+            r#"{"operation":"issue","owner":"a","repo":"b","keywords":["x"],"archived":true}"#,
+        )
+        .expect("valid");
+        assert!(
+            build_query(&archived)
+                .expect("valid")
+                .ends_with("archived:true")
         );
     }
     #[test]
@@ -696,5 +757,70 @@ mod tests {
         }));
         assert_eq!(closed["state"], "closed");
         assert!(closed.get("mergedAt").is_none());
+    }
+
+    fn parse(json: &str) -> GhSearchHistoryQuery {
+        serde_json::from_str(json).expect("GitHub history search test data should be valid")
+    }
+
+    #[test]
+    fn pull_request_search_allows_cross_repo_and_owner_scopes() {
+        let both = build_query(&parse(
+            r#"{"operation":"pullRequest","owner":"a","repo":"b","keywords":["x"]}"#,
+        ))
+        .expect("scoped");
+        assert!(both.contains("repo:a/b"), "{both}");
+        let owner = build_query(&parse(
+            r#"{"operation":"pullRequest","owner":"a","keywords":["x"]}"#,
+        ))
+        .expect("owner-scoped PR search");
+        assert!(
+            owner.contains("user:a") && !owner.contains("repo:"),
+            "{owner}"
+        );
+        let global = build_query(&parse(r#"{"operation":"pullRequest","keywords":["x"]}"#))
+            .expect("cross-repo PR search");
+        assert!(
+            !global.contains("repo:") && !global.contains("user:"),
+            "{global}"
+        );
+        assert!(!global.contains("archived:"), "{global}");
+        // Without a full repo scope the REST list endpoint is unusable, so the
+        // PR path must route through search.
+        assert!(should_use_search_for_prs(&parse(
+            r#"{"operation":"pullRequest","owner":"a"}"#
+        )));
+        assert!(!should_use_search_for_prs(&parse(
+            r#"{"operation":"pullRequest","owner":"a","repo":"b"}"#
+        )));
+        // Issues still require the repository scope.
+        assert!(build_query(&parse(r#"{"operation":"issue","keywords":["x"]}"#)).is_err());
+    }
+
+    #[test]
+    fn commit_search_surfaces_invalid_date_warnings() {
+        let q = parse(
+            r#"{"operation":"commit","owner":"a","repo":"b","keywords":["fix"],"since":"yesterday-ish"}"#,
+        );
+        let (terms, warnings) = build_query_with_warnings(&q).expect("valid");
+        assert!(!terms.contains("committer-date"), "{terms}");
+        assert!(
+            warnings.iter().any(|w| w.contains("yesterday-ish")),
+            "{warnings:?}"
+        );
+    }
+
+    #[test]
+    fn inverted_since_until_is_a_validation_error() {
+        let q = parse(
+            r#"{"operation":"commit","owner":"a","repo":"b","keywords":["fix"],"since":"2026-05-01","until":"2026-01-01"}"#,
+        );
+        let error = build_query(&q).expect_err("since after until");
+        assert_eq!(error.kind, ProviderErrorKind::Validation);
+        assert!(error.message.contains("since"), "{}", error.message);
+        let listed = parse(
+            r#"{"operation":"commit","owner":"a","repo":"b","since":"2026-05-01","until":"2026-01-01"}"#,
+        );
+        assert!(build_query(&listed).is_err());
     }
 }

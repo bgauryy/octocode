@@ -107,6 +107,67 @@ mod tests {
         assert_eq!(joined, "one\ntwo 😀\nthree\n")
     }
     #[test]
+    fn wire_form_omits_metadata_derivable_from_emitted_fields() {
+        let t = Temp::new();
+        let p = t.0.join("a.txt");
+        fs::write(&p, "zero\none\nneedle\nthree\nfour\n")
+            .expect("test fixture operation should succeed");
+        let paths = Paths(t.0.clone());
+        let mut req = q(&p);
+        req.match_string = Some("needle".into());
+        req.context_lines = Some(1);
+        let wire = serde_json::to_value(execute_local_fetch(&req, &paths, &Safe, &NeverCancel))
+            .expect("serializable");
+        assert_eq!(wire["content"], "one\nneedle\nthree\n");
+        assert_eq!(
+            wire["sourceLineRanges"],
+            serde_json::json!([{"start":2,"end":4}])
+        );
+        assert_eq!(wire["matchedLines"], serde_json::json!([3]));
+        assert_eq!(wire["totalLines"], 5);
+        assert_eq!(wire["sourceBytes"], 27);
+        assert_eq!(wire["returnedBytes"], 17);
+        for redundant in [
+            "contentView",
+            "startLine",
+            "endLine",
+            "matchRanges",
+            "selectedMatchCount",
+            "sourceChars",
+            "returnedChars",
+            "returnedLines",
+            "pagination",
+        ] {
+            assert!(wire.get(redundant).is_none(), "{redundant}: {wire}");
+        }
+
+        let mut paged = q(&p);
+        paged.chunk_size = Some(2);
+        let wire = serde_json::to_value(execute_local_fetch(&paged, &paths, &Safe, &NeverCancel))
+            .expect("serializable");
+        assert_eq!(
+            wire["pagination"],
+            serde_json::json!({"chunkType":"lines","offset":0,"chunkSize":2,"hasMore":true,"nextOffset":2})
+        );
+        assert!(wire["next"]["continue"].is_object());
+        paged.offset = Some(4);
+        let last = serde_json::to_value(execute_local_fetch(&paged, &paths, &Safe, &NeverCancel))
+            .expect("serializable");
+        assert_eq!(
+            last["pagination"],
+            serde_json::json!({"chunkType":"lines","offset":4,"length":1,"chunkSize":2,"hasMore":false})
+        );
+
+        let wide = t.0.join("wide.txt");
+        fs::write(&wide, "a😀\n").expect("test fixture operation should succeed");
+        let wire =
+            serde_json::to_value(execute_local_fetch(&q(&wide), &paths, &Safe, &NeverCancel))
+                .expect("serializable");
+        assert_eq!(wire["sourceChars"], 4);
+        assert_eq!(wire["sourceBytes"], 6);
+        assert_eq!(wire["returnedChars"], 4);
+    }
+    #[test]
     fn byte_pages_preserve_utf8_and_use_byte_offsets() {
         let t = Temp::new();
         let p = t.0.join("a.txt");

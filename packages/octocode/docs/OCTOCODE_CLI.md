@@ -85,7 +85,7 @@ resolve from the command cwd, which may differ from the repository root.
 | Local Code | `localSearch` · `astSearch` · `localFetch` · `lspSearch` |
 | Package | `artifactSearch` |
 
-`ghCloneRepo` is opt-in with `ENABLE_CLONE=true`. `astRewrite` and
+`ghCloneRepo` is available in the CLI with persistent storage. `astRewrite` and
 `astTopology` are beta tools and require `OCTOCODE_BETA=true` or
 `local.beta:true`. `clasify` is available when
 `OCTOCODE_CLASSIFICATION_API` is nonblank. All four remain discoverable in the
@@ -120,8 +120,8 @@ npx octocode ghCloneRepo '{"owner":"vercel","repo":"next.js","sparsePath":"packa
 ```
 
 Use `ghCloneRepo` when you need to inspect several files, run structural (AST)
-search, or use LSP on remote code. Cloning is opt-in in both CLI and MCP with
-`ENABLE_CLONE=true`. After cloning, run `localSearch`,
+search, or use LSP on remote code. Cloning is CLI-only and requires persistent
+storage. After cloning, run `localSearch`,
 `localFetch`, or `lspSearch` on the returned absolute local path.
 
 The CLI and MCP server share cache data under the configured Octocode home:
@@ -314,11 +314,11 @@ tool from discovery until the key is available.
 |---:|---|
 | `0` | Successful execution, including a typed empty semantic payload. |
 | `1` | Empty result / no matches. |
-| `2` | Invalid input or unsupported flags. |
+| `2` | Invalid input or unsupported flags, including any batch row rejected as `invalidInput` while other rows ran. |
 | `3` | A command or tool execution failed with a classified not-found error. |
 | `4` | Authentication failure. |
 | `5` | Tool or API execution error. |
-| `6` | Partial result — the response carries a re-runnable `next.*` continuation. |
+| `6` | Partial result — the response carries a re-runnable `next.*`, `next.clasify`, or `responsePagination.next` continuation. |
 | `7` | Rate limited. |
 | `130` | Interrupted (Ctrl-C). |
 
@@ -331,7 +331,7 @@ tool from discovery until the key is available.
 | `GITHUB_TOKEN` | GitHub token fallback. |
 | `OCTOCODE_HOME` | Override Octocode data and cache location. |
 | `ENABLE_LOCAL` | Enable local filesystem tools. Defaults to `true`. |
-| `ENABLE_CLONE` | Enable clone/materialization. Defaults to `false` on CLI and MCP. |
+| `ENABLE_CLONE` | Legacy config setting; CLI cloning requires persistent storage and MCP cloning is unavailable. |
 | `TOOLS_TO_RUN` | Strict allowlist for CLI and MCP tools. |
 | `DISABLE_TOOLS` | Remove named tools from the default set when `TOOLS_TO_RUN` is unset. |
 | `NO_COLOR` | Disable terminal color. |

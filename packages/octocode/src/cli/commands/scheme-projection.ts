@@ -87,6 +87,47 @@ function pruneUnreachableDefs(schema: JsonObject): void {
   }
 }
 
+/**
+ * The bulk inputSchema embeds querySchema verbatim as `queries.items` (with
+ * its $defs hoisted). Replace that copy with a pointer so the full view does
+ * not print the same schema twice; leave any non-identical envelope intact.
+ */
+function dedupeInputSchema(
+  inputSchema: JsonValue | undefined,
+  querySchema: JsonValue | undefined
+): JsonValue | undefined {
+  if (
+    !inputSchema ||
+    typeof inputSchema !== 'object' ||
+    Array.isArray(inputSchema)
+  )
+    return inputSchema;
+  if (
+    !querySchema ||
+    typeof querySchema !== 'object' ||
+    Array.isArray(querySchema)
+  )
+    return inputSchema;
+  const queries = (inputSchema.properties as JsonObject | undefined)?.queries;
+  if (!queries || typeof queries !== 'object' || Array.isArray(queries))
+    return inputSchema;
+  const { $schema: _schema, $defs: queryDefs, ...queryBody } = querySchema;
+  if (
+    !deepEqual(queries.items, queryBody) ||
+    JSON.stringify(inputSchema.$defs ?? null) !==
+      JSON.stringify(queryDefs ?? null)
+  )
+    return inputSchema;
+  const deduped = cloneJson(inputSchema) as JsonObject;
+  const dedupedQueries = (deduped.properties as JsonObject)
+    .queries as JsonObject;
+  dedupedQueries.items = {
+    description: 'Each item is one querySchema object.',
+  };
+  pruneUnreachableDefs(deduped);
+  return deduped;
+}
+
 export function project(tool: JsonObject, view: SchemeView): JsonObject {
   if (view === 'full') {
     // Put branch selectors before the large schema so bounded renderers do not
@@ -100,13 +141,16 @@ export function project(tool: JsonObject, view: SchemeView): JsonObject {
       querySchema,
       ...published
     } = tool;
-    return {
+    const projected: JsonObject = {
       name,
       variants,
       usage: usageLines(tool),
       querySchema,
       ...published,
     };
+    const inputSchema = dedupeInputSchema(published.inputSchema, querySchema);
+    if (inputSchema !== undefined) projected.inputSchema = inputSchema;
+    return projected;
   }
   if (view === 'variants') {
     const projected: JsonObject = { name: tool.name, variants: tool.variants };

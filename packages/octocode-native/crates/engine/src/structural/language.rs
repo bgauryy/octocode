@@ -46,7 +46,7 @@ impl AgLanguage {
             ts: entry.language.clone(),
             expando: Expando::for_ext(ext),
             class_wrap: ext == "cs",
-            terminated_fragment_kind: (ext == "java").then_some("method_invocation"),
+            terminated_fragment_kind: terminated_fragment_kind_for_ext(ext),
         }
     }
 
@@ -76,6 +76,19 @@ impl AgLanguage {
         } else {
             substituted
         }
+    }
+}
+
+/// Node kind a bare call fragment (`foo($A)`) must parse to once a `;`
+/// terminator supplies statement context. Without it, C/C++ reject the
+/// fragment and Go parses it as a type conversion, so calls silently miss.
+fn terminated_fragment_kind_for_ext(ext: &str) -> Option<&'static str> {
+    match ext {
+        "java" => Some("method_invocation"),
+        "rs" | "c" | "h" | "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" | "go" => {
+            Some("call_expression")
+        }
+        _ => None,
     }
 }
 

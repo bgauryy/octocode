@@ -99,6 +99,27 @@ fn shared_pattern_context_accepts_bare_java_calls() {
 }
 
 #[test]
+fn shared_pattern_context_accepts_bare_calls_in_c_family_rust_and_go() {
+    let cases = [
+        ("rs", "fn run() { target(value); other(value); }"),
+        ("c", "void run(void) { target(value); other(value); }"),
+        ("h", "void run(void) { target(value); other(value); }"),
+        ("cpp", "void run() { target(value); other(value); }"),
+        (
+            "go",
+            "package main\nfunc run() { target(value); other(value) }",
+        ),
+    ];
+    for (ext, source) in cases {
+        assert_fragment_context(ext, source, "target($VALUE)", "target(value)");
+        assert!(
+            run_pattern(source, ext, "absent($VALUE)").is_empty(),
+            "{ext}"
+        );
+    }
+}
+
+#[test]
 fn point_column_uses_utf16_code_units_not_code_points() {
     // "🌍" is one Unicode scalar value but TWO UTF-16 code units (surrogate
     // pair) and FOUR UTF-8 bytes. Columns must agree with the resolver /

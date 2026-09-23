@@ -94,6 +94,15 @@ impl<R: CredentialResolver> GitHubTransport<R> {
         r: &CommitListRequest,
         context: &RequestContext,
     ) -> Result<HistoryPage, ProviderError> {
+        self.list_commits_by_committer(r, None, context).await
+    }
+    /// `list_commits` plus GitHub's `committer` filter (login or email).
+    pub async fn list_commits_by_committer(
+        &self,
+        r: &CommitListRequest,
+        committer: Option<&str>,
+        context: &RequestContext,
+    ) -> Result<HistoryPage, ProviderError> {
         let mut url = self
             .endpoint()
             .rest(&["repos", &r.owner, &r.repo, "commits"])?;
@@ -105,6 +114,7 @@ impl<R: CredentialResolver> GitHubTransport<R> {
                 ("sha", r.branch.as_deref()),
                 ("path", r.path.as_deref()),
                 ("author", r.author.as_deref()),
+                ("committer", committer),
                 ("since", r.since.as_deref()),
                 ("until", r.until.as_deref()),
             ] {
@@ -259,10 +269,11 @@ impl<R: CredentialResolver> GitHubTransport<R> {
             let mut q = url.query_pairs_mut();
             q.append_pair("page", &request.page.to_string())
                 .append_pair("per_page", &request.per_page.to_string());
+            // Match the issue listing: an unset state means every lifecycle state.
             let state = match request.state.as_deref() {
-                Some("closed") | Some("open") => request.state.as_deref().unwrap_or("open"),
+                Some(state @ ("closed" | "open")) => state,
                 Some("merged") => "closed",
-                _ => "open",
+                _ => "all",
             };
             q.append_pair("state", state);
             q.append_pair(
@@ -273,9 +284,9 @@ impl<R: CredentialResolver> GitHubTransport<R> {
                     "created"
                 },
             );
-            if let Some(order) = &request.order {
-                q.append_pair("direction", order);
-            }
+            // GitHub defaults sort=created to ascending (oldest first); an
+            // unset order should surface the newest pull requests.
+            q.append_pair("direction", request.order.as_deref().unwrap_or("desc"));
             if let Some(head) = &request.head {
                 q.append_pair("head", head);
             }

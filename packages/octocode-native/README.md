@@ -231,7 +231,7 @@ Hidden maintenance commands (not part of the agent surface, still available):
 |---|---|
 | `0` | Success |
 | `1` | Empty result / no matches |
-| `2` | Invalid input (also clap argument errors) |
+| `2` | Invalid input, including any rejected batch row (also clap argument errors) |
 | `3` | Not found |
 | `4` | Auth required |
 | `5` | Execution error |

@@ -29,6 +29,17 @@ const RESPONSE_VALUE_CHAR_BUDGET: usize = 1_000_000;
 /// matches still shows a useful slice of each rather than a few characters.
 const MIN_MATCH_VALUE_CHARS: usize = 40;
 
+/// Lean agent-facing defaults (caller values always win). A/B over realistic
+/// locate-the-code queries kept every target file+line on page 1 while cutting
+/// default response bytes ~54% versus the old 100 files / 20 rows / 500 chars /
+/// ±2 lines: one clipped-around-the-hit line per row is enough to pick the
+/// file+line, and `detailed`/`contextLines` or localFetch add surrounding code.
+const DEFAULT_MATCH_CONTENT_LENGTH: u32 = 200;
+const DEFAULT_MAX_MATCHES_PER_FILE: u32 = 10;
+/// Files per page for snippet views; path-only list views stay at 100.
+const DEFAULT_SNIPPET_PAGE_SIZE: u32 = 20;
+const DEFAULT_LIST_PAGE_SIZE: u32 = 100;
+
 pub fn execute_local_search(
     query: &LocalSearchRequest,
     paths: &PathPolicy,
@@ -81,6 +92,9 @@ pub fn execute_local_search(
     let regex = query.regex.unwrap_or_default();
     let multiline = query.multiline.unwrap_or_default();
     let requested_sort = query.sort.unwrap_or_default();
+    let context_lines = query
+        .context_lines
+        .unwrap_or_else(|| default_context_lines(view));
     let path_sort = matches!(
         query.sort,
         Some(SortMode::Modified | SortMode::Accessed | SortMode::Created | SortMode::Path)
@@ -100,11 +114,7 @@ pub fn execute_local_search(
         files_without_match: Some(view == ResultView::FilesWithout),
         count_lines_per_file: Some(view == ResultView::CountLines),
         count_matches_per_file: Some(view == ResultView::CountMatches),
-        context_lines: Some(
-            query
-                .context_lines
-                .unwrap_or(if view == ResultView::Detailed { 3 } else { 2 }),
-        ),
+        context_lines: Some(context_lines),
         lang_type: query.lang_type.clone(),
         include: query.include.clone(),
         exclude: Some(
@@ -147,7 +157,11 @@ pub fn execute_local_search(
             })
         },
         sort_reverse: query.reverse,
-        max_snippet_chars: query.match_content_length,
+        max_snippet_chars: Some(
+            query
+                .match_content_length
+                .unwrap_or(DEFAULT_MATCH_CONTENT_LENGTH),
+        ),
         classify_matches: Some(false),
         only_matching: Some(view == ResultView::MatchOnly),
         match_window: query.match_window,
@@ -177,9 +191,9 @@ pub fn execute_local_search(
     } else {
         (
             search_ripgrep_filtered(options, Arc::new(PolicyFilter(paths.clone()))).map_err(|error| {
-        let message=error.to_string(); let invalid=message.contains("regex parse error") || message.contains("PCRE2");
+        let message=error.to_string(); let invalid=message.contains("regex parse error") || message.contains("PCRE2"); let bad_filter=message.contains("glob") || message.contains("unrecognized file type");
         let next=invalid.then(||{let mut repaired=normalized_query(query);repaired["regex"]=json!("literal");Box::new(json!({"repair":{"tool":"localSearch","query":repaired,"why":"Start a new search treating searchText as literal text, if that was intended."}}))});
-        LocalSearchError{code:if invalid{"invalidRegex"}else{"toolExecutionFailed"},message,hints:if invalid{vec!["Use regex:\"literal\" for exact text, or escape metacharacters/fix searchText to keep regex matching.".into()]}else{vec![]},next}
+        LocalSearchError{code:if invalid{"invalidRegex"}else if bad_filter{"invalidQuery"}else{"toolExecutionFailed"},message,hints:if invalid{vec!["Use regex:\"literal\" for exact text, or escape metacharacters/fix searchText to keep regex matching.".into()]}else{vec![]},next}
     })?,
             false,
         )
@@ -287,12 +301,21 @@ pub fn execute_local_search(
         SortMode::Traversal => {}
         _ => {}
     }
+    // Engine-side time sorts already honour `reverse`; every order the runtime
+    // (re)establishes — path, matchCount, relevance (the default), traversal —
+    // is reversed here, as the schema promises ("after sort, before pagination").
     if query.reverse.unwrap_or(false)
-        && matches!(query.sort, Some(SortMode::Path | SortMode::MatchCount))
+        && !matches!(
+            requested_sort,
+            SortMode::Modified | SortMode::Accessed | SortMode::Created
+        )
     {
         parsed.files.reverse();
     }
-    let page_size = query.page_size.unwrap_or(100).max(1);
+    let page_size = query
+        .page_size
+        .unwrap_or_else(|| default_page_size(view))
+        .max(1);
     let page = query.page.unwrap_or(1).max(1);
     let total_files = parsed.files.len() as u32;
     let total_pages = total_files.div_ceil(page_size).max(1);
@@ -305,8 +328,28 @@ pub fn execute_local_search(
             | ResultView::CountLines
             | ResultView::CountMatches
     );
-    let matches_per = query.max_matches_per_file.unwrap_or(20).max(1);
+    let matches_per = query
+        .max_matches_per_file
+        .unwrap_or(DEFAULT_MAX_MATCHES_PER_FILE)
+        .max(1);
     let match_page = query.match_page.unwrap_or(1).max(1);
+    let page_end = start
+        .saturating_add(page_size as usize)
+        .min(parsed.files.len());
+    let page_range = start.min(page_end)..page_end;
+    if !list {
+        let match_skip = (match_page - 1).saturating_mul(matches_per) as usize;
+        for file in &mut parsed.files[page_range.clone()] {
+            cancel.check().map_err(cancelled)?;
+            guard_clipped_secrets(
+                file,
+                &output_root.join(&file.path),
+                match_skip..match_skip.saturating_add(matches_per as usize),
+                security,
+                view == ResultView::MatchOnly,
+            );
+        }
+    }
     let total_matches = if list {
         parsed.stats.match_count.unwrap_or(0)
     } else {
@@ -325,23 +368,26 @@ pub fn execute_local_search(
     } else {
         None
     };
-    let leftover_matches = parsed
-        .files
+    // Leftover rows only count on the files this page shows: another page's
+    // files are reached by `nextPage` (which restarts at matchPage 1).
+    let leftover_matches = parsed.files[page_range.clone()]
         .iter()
         .any(|file| file.matches.len() as u32 > match_page.saturating_mul(matches_per));
     let next = build_next(
         query,
         page,
         total_pages,
+        leftover_matches,
         match_page,
-        matches_per,
-        &parsed.files,
         snapshot.as_deref(),
     );
     // Keep full values for identity, unique grouping and counts. The engine's
     // match-only path emits exact spans, so apply the public display bound here.
-    let match_only_limit = (view == ResultView::MatchOnly)
-        .then_some(query.match_content_length.unwrap_or(500) as usize);
+    let match_only_limit = (view == ResultView::MatchOnly).then_some(
+        query
+            .match_content_length
+            .unwrap_or(DEFAULT_MATCH_CONTENT_LENGTH) as usize,
+    );
     // OUT-1: distribute the response value-char budget across the matches shown
     // on this page. `display_cap` is the tighter of the matchOnly display bound
     // and the budget-derived per-match cap; a giant match is clipped (flagged
@@ -364,7 +410,23 @@ pub fn execute_local_search(
         (Some(a), None) => Some(a),
         (None, b) => b,
     };
-    let budget_binds = budget_cap.is_some() && display_cap == budget_cap;
+    // The budget only "binds" when it is tighter than the caller's own
+    // per-match limit; otherwise truncation is plain matchContentLength.
+    let budget_binds = budget_cap.is_some_and(|cap| {
+        cap < query
+            .match_content_length
+            .unwrap_or(DEFAULT_MATCH_CONTENT_LENGTH) as usize
+            && display_cap == Some(cap)
+    });
+    // Content views emit a ±contextLines window per match row; windows of
+    // nearby rows overlap, so merge them into one block per run of lines.
+    // matchOnly carries exact spans and multiline rows span several lines, so
+    // neither has per-row windows to merge.
+    let merge_context = (!list
+        && view != ResultView::MatchOnly
+        && multiline == MultilineMode::Off
+        && context_lines > 0)
+        .then_some(context_lines);
     let files = parsed
         .files
         .into_iter()
@@ -380,24 +442,34 @@ pub fn execute_local_search(
                 .take(matches_per as usize)
                 .map(|m| project_match(m, display_cap))
                 .collect::<Vec<_>>();
+            let shown = match merge_context {
+                Some(context) => merge_context_windows(
+                    shown,
+                    context,
+                    query
+                        .match_content_length
+                        .unwrap_or(DEFAULT_MATCH_CONTENT_LENGTH) as usize,
+                ),
+                None => shown,
+            };
+            let total_pages = total.div_ceil(matches_per).max(1);
+            let has_more = match_page < total_pages;
+            let out_of_range = ms >= total as usize && total > 0;
             SearchFile {
                 path: f.path,
-                matches: (!list).then_some(shown.clone()),
+                matches: (!list).then_some(shown),
                 total_occurrences: (view == ResultView::CountMatches).then_some(f.match_count),
                 total_matched_lines: (view == ResultView::CountLines).then_some(f.match_count),
-                total_match_rows: (!list).then_some(total),
-                returned_match_rows: (!list).then_some(shown.len() as u32),
-                pagination: (!list && (total > matches_per || ms >= total as usize && total > 0))
-                    .then_some(ItemPagination {
-                        current_page: match_page,
-                        total_pages: total.div_ceil(matches_per).max(1),
-                        matches_per_page: Some(matches_per),
-                        total_matches: total,
-                        has_more: match_page < total.div_ceil(matches_per),
-                        next_match_page: (match_page < total.div_ceil(matches_per))
-                            .then_some(match_page + 1),
-                        out_of_range: ms >= total as usize && total > 0,
-                    }),
+                // Per-file paging is only reported while it routes somewhere:
+                // more match pages remain, or the requested page is past the end.
+                pagination: (!list && (has_more || out_of_range)).then_some(ItemPagination {
+                    current_page: match_page,
+                    total_pages,
+                    total_matches: total,
+                    has_more,
+                    next_match_page: has_more.then_some(match_page + 1),
+                    out_of_range,
+                }),
             }
         })
         .collect::<Vec<_>>();
@@ -442,9 +514,16 @@ pub fn execute_local_search(
         );
     }
     let has_more = page < total_pages;
+    // Skipping binary files (rg's default) is normal coverage, not a cap a
+    // continuation could lift; it stays visible as capReason only.
+    let capped = stats.capped.unwrap_or(false)
+        && stats
+            .cap_reason
+            .as_deref()
+            .is_none_or(|reason| reason.split(", ").any(|r| r != "binaryQuit"));
     let (status, terminal_limit) = classify_search(
         empty,
-        stats.capped.unwrap_or(false),
+        capped,
         has_more,
         leftover_matches,
         stats.error_count.unwrap_or(0),
@@ -458,34 +537,35 @@ pub fn execute_local_search(
     );
     Ok(LocalSearchResult {
         status,
-        search_engine: "rg".into(),
         stats,
         files,
-        pagination: (!empty).then_some(FilePagination {
-            snapshot: snapshot.clone(),
-            current_page: page,
-            total_pages,
-            files_per_page: page_size,
-            total_files,
-            total_matches: (!matches!(
-                view,
-                ResultView::Files | ResultView::FilesWithout | ResultView::Discovery
-            ))
-            .then_some(total_matches),
-            has_more,
-            // Hard ceiling: never advertise a next page past page 1000. Beyond
-            // this, deep file pagination is refused by contract (matched in
-            // `build_next`) — narrow the search rather than paging indefinitely.
-            next_page: (page < total_pages && page < 1000).then_some(page + 1),
-            out_of_range: start >= total_files as usize && total_files > 0,
-        }),
+        // File paging is only reported when it routes somewhere: more file pages,
+        // or a requested page past the end. Single-page totals live in `stats`,
+        // and match-row continuations carry the snapshot in `next.*.query`.
+        pagination: (!empty && (total_pages > 1 || start >= total_files as usize)).then_some(
+            FilePagination {
+                snapshot: snapshot.clone(),
+                current_page: page,
+                total_pages,
+                files_per_page: page_size,
+                total_files,
+                total_matches: (!matches!(
+                    view,
+                    ResultView::Files | ResultView::FilesWithout | ResultView::Discovery
+                ))
+                .then_some(total_matches),
+                has_more,
+                // Hard ceiling: never advertise a next page past page 1000. Beyond
+                // this, deep file pagination is refused by contract (matched in
+                // `build_next`) — narrow the search rather than paging indefinitely.
+                next_page: (page < total_pages && page < 1000).then_some(page + 1),
+                out_of_range: start >= total_files as usize && total_files > 0,
+            },
+        ),
         hints: if empty {
             match skip_hint {
                 Some(hint) => vec![hint],
-                None => vec![
-                    "No matches. Try caseMode:\"insensitive\", a shorter term, or regex:\"rust\"."
-                        .into(),
-                ],
+                None => vec![empty_hint(query)],
             }
         } else {
             vec![]
@@ -508,11 +588,119 @@ fn skipped_target_hint(
     cap_reason: Option<&str>,
 ) -> Option<String> {
     let reason = cap_reason?;
+    if single_file && reason.contains("binaryQuit") {
+        return Some(
+            "The target file is binary (NUL byte found); it was not searched past that point. Use localFetch to inspect it."
+                .into(),
+        );
+    }
     (single_file && files_searched == 0).then(|| {
         format!(
             "The target file was skipped ({reason}): nothing was searched. Raise limits or read it with localFetch chunks."
         )
     })
+}
+
+fn empty_hint(query: &LocalSearchRequest) -> String {
+    let mut tips = Vec::new();
+    if query.case_mode != Some(CaseMode::Insensitive) {
+        tips.push("caseMode:\"insensitive\"");
+    }
+    tips.push("a shorter term");
+    if query.regex == Some(RegexMode::Literal) {
+        tips.push("regex:\"rust\"");
+    } else {
+        tips.push("regex:\"literal\" if searchText has metacharacters");
+    }
+    format!("No matches. Try {}.", tips.join(", "))
+}
+
+/// Remove `…` window markers and `...` truncation suffixes from a value line.
+fn strip_clip_markers(line: &str) -> &str {
+    let line = line.strip_prefix('…').unwrap_or(line);
+    let line = line.strip_suffix("...").unwrap_or(line);
+    line.strip_suffix('…').unwrap_or(line)
+}
+
+/// Security: the engine clips values (matchOnly spans, matchWindow,
+/// matchContentLength, long-line windows) *before* sanitization, so a clipped
+/// secret no longer matches any secret pattern and leaks verbatim. For each
+/// shown match, sanitize the full source lines the value was cut from; a value
+/// line not literally present in that sanitized text overlapped a redaction and
+/// is replaced (placeholder for spans, the sanitized match line otherwise).
+/// Private-key blocks are detected from the file prefix, not a snippet heuristic.
+fn guard_clipped_secrets(
+    file: &mut octocode_engine::types::RipgrepFile,
+    source: &std::path::Path,
+    shown: std::ops::Range<usize>,
+    security: &ContentSecurity,
+    match_only: bool,
+) {
+    use std::io::BufRead;
+    let end = shown.end.min(file.matches.len());
+    let start = shown.start.min(end);
+    let shown = &mut file.matches[start..end];
+    let Some(last_line) = shown
+        .iter()
+        .map(|m| m.line as usize + m.value.lines().count().max(1))
+        .max()
+    else {
+        return;
+    };
+    let Ok(handle) = std::fs::File::open(source) else {
+        return;
+    };
+    let mut reader = std::io::BufReader::new(handle);
+    let mut lines: Vec<String> = Vec::new();
+    let mut buf = Vec::new();
+    while lines.len() < last_line {
+        buf.clear();
+        match reader.read_until(b'\n', &mut buf) {
+            Ok(0) | Err(_) => break,
+            Ok(_) => {
+                let text = String::from_utf8_lossy(&buf);
+                lines.push(text.trim_end_matches(['\n', '\r']).to_owned());
+            }
+        }
+    }
+    let key_ranges = crate::security::private_key_block_line_ranges(&lines.join("\n"));
+    for matched in shown {
+        if !key_ranges.is_empty()
+            && crate::security::match_window_intersects_key_block(
+                matched.line,
+                &matched.value,
+                &key_ranges,
+            )
+        {
+            matched.value = crate::security::key_fragment_placeholder();
+            continue;
+        }
+        let span = matched.value.lines().count().max(1);
+        let line = matched.line as usize;
+        let lo = line.saturating_sub(span).max(1);
+        let hi = (line + span).min(lines.len());
+        if lo > hi || line == 0 || line > lines.len() {
+            continue;
+        }
+        let window = lines[lo - 1..hi].join("\n");
+        let sanitized = security.sanitize_text(&window, Some(source));
+        if !sanitized.has_secrets {
+            continue;
+        }
+        let exposed = matched.value.lines().any(|value_line| {
+            let core = strip_clip_markers(value_line);
+            !core.is_empty() && !sanitized.content.contains(core)
+        });
+        if exposed {
+            matched.value = if match_only {
+                "[REDACTED]".to_owned()
+            } else {
+                security
+                    .sanitize_text(&lines[line - 1], Some(source))
+                    .content
+            };
+        }
+    }
 }
 
 fn project_match(
@@ -532,6 +720,7 @@ fn project_match(
             line: matched.line,
             column: matched.column,
             value: matched.value[..byte].into(),
+            match_lines: None,
             count: matched.count,
             truncated: true,
             original_chars: Some(matched.value.chars().count()),
@@ -547,11 +736,107 @@ fn project_match(
         line: matched.line,
         column: matched.column,
         value: matched.value.clone(),
+        match_lines: None,
         count: matched.count,
         truncated,
         original_chars: matched.original_chars.map(|chars| chars as usize),
         returned_chars: truncated.then(|| matched.value.chars().count()),
     }
+}
+
+/// Source line range and lines of a content-view row's ±`context` window, or
+/// `None` when the value is not a plain, untruncated window (clipped,
+/// redacted, grouped, or a shape the window arithmetic cannot account for).
+/// The engine joins up to `context` contiguous lines on each side of the match
+/// line, clamped at the file start/end.
+fn context_window(matched: &SearchMatch, context: u32) -> Option<(u32, Vec<&str>)> {
+    if matched.truncated || matched.count.is_some() || matched.line == 0 {
+        return None;
+    }
+    let lines: Vec<&str> = matched.value.split('\n').collect();
+    let before = context.min(matched.line - 1);
+    let after = u32::try_from(lines.len()).ok()?.checked_sub(before + 1)?;
+    (after <= context).then_some((matched.line - before, lines))
+}
+
+/// Merge rows whose context windows overlap or touch into one block, so each
+/// source line is emitted once. A merged block keeps the first row's
+/// `line`/`column`, and `matchLines` lists every matched line it holds. Rows
+/// merge only when both windows are plain and their shared lines are
+/// byte-identical, so a clipped or redacted window is never spliced.
+/// Merges overlapping windows while the joined block stays within
+/// `max_chars` (`matchContentLength`); a block never exceeds what one match
+/// could have returned.
+fn merge_context_windows(
+    rows: Vec<SearchMatch>,
+    context: u32,
+    max_chars: usize,
+) -> Vec<SearchMatch> {
+    struct Block {
+        head: SearchMatch,
+        start: u32,
+        lines: Vec<String>,
+        match_lines: Vec<u32>,
+    }
+    fn flush(block: Block) -> SearchMatch {
+        let mut head = block.head;
+        if block.match_lines.len() > 1 {
+            head.value = block.lines.join("\n");
+            head.match_lines = Some(block.match_lines);
+        }
+        head
+    }
+    let mut out = Vec::with_capacity(rows.len());
+    let mut open: Option<Block> = None;
+    for row in rows {
+        let Some((start, lines)) = context_window(&row, context) else {
+            out.extend(open.take().map(flush));
+            out.push(row);
+            continue;
+        };
+        if let Some(block) = open.as_mut() {
+            let end = block.start + block.lines.len() as u32; // exclusive
+            let last_match = block.match_lines.last().copied().unwrap_or(0);
+            let shared_agrees = (start..end.min(start + lines.len() as u32))
+                .all(|n| block.lines[(n - block.start) as usize] == lines[(n - start) as usize]);
+            let fresh = (end.saturating_sub(start) as usize).min(lines.len());
+            let grown: usize = block
+                .lines
+                .iter()
+                .map(|l| l.chars().count() + 1)
+                .sum::<usize>()
+                + lines
+                    .iter()
+                    .skip(fresh)
+                    .map(|l| l.chars().count() + 1)
+                    .sum::<usize>();
+            if row.line > last_match
+                && start >= block.start
+                && start <= end
+                && shared_agrees
+                && grown.saturating_sub(1) <= max_chars
+            {
+                block
+                    .lines
+                    .extend(lines.iter().skip(fresh).map(|l| (*l).to_owned()));
+                block.match_lines.push(row.line);
+                continue;
+            }
+        }
+        let lines = lines.into_iter().map(str::to_owned).collect();
+        let line = row.line;
+        out.extend(
+            open.replace(Block {
+                head: row,
+                start,
+                lines,
+                match_lines: vec![line],
+            })
+            .map(flush),
+        );
+    }
+    out.extend(open.map(flush));
+    out
 }
 
 struct PolicyFilter(PathPolicy);
@@ -601,6 +886,32 @@ fn rank_relevance(files: &mut [octocode_engine::types::RipgrepFile], view: Resul
     });
 }
 
+/// Default ±context window per match row: the hit line alone, except the
+/// `detailed` view, which exists to show surrounding code.
+fn default_context_lines(view: ResultView) -> u32 {
+    if view == ResultView::Detailed { 3 } else { 0 }
+}
+
+/// Default files per page: snippet views stay lean; path-only views are cheap.
+fn default_page_size(view: ResultView) -> u32 {
+    match view {
+        ResultView::Files
+        | ResultView::FilesWithout
+        | ResultView::Discovery
+        | ResultView::CountLines
+        | ResultView::CountMatches => DEFAULT_LIST_PAGE_SIZE,
+        _ => DEFAULT_SNIPPET_PAGE_SIZE,
+    }
+}
+
+/// Views whose match rows carry a context window (so `contextLines` matters).
+fn uses_context(view: ResultView) -> bool {
+    matches!(
+        view,
+        ResultView::Paginated | ResultView::Content | ResultView::Detailed
+    )
+}
+
 fn normalized_query(q: &LocalSearchRequest) -> Value {
     let mut value = serde_json::to_value(q).unwrap_or_else(|_| json!({}));
     // `LocalSearchRequest` serializes to a JSON object.
@@ -609,15 +920,21 @@ fn normalized_query(q: &LocalSearchRequest) -> Value {
     o.retain(|_, v| !v.is_null());
     o.entry("regex").or_insert(json!("rust"));
     o.entry("caseMode").or_insert(json!("smart"));
-    o.entry("contextLines").or_insert(json!(2));
-    o.entry("matchContentLength").or_insert(json!(500));
+    let view = q.result_view.unwrap_or_default();
+    if uses_context(view) {
+        o.entry("contextLines")
+            .or_insert(json!(default_context_lines(view)));
+    }
+    o.entry("matchContentLength")
+        .or_insert(json!(DEFAULT_MATCH_CONTENT_LENGTH));
     o.entry("multiline").or_insert(json!("off"));
     o.entry("sort").or_insert(json!("relevance"));
     o.entry("unique").or_insert(json!("off"));
     o.entry("matchPage").or_insert(json!(1));
     o.entry("page").or_insert(json!(1));
     o.entry("resultView").or_insert(json!("paginated"));
-    o.entry("pageSize").or_insert(json!(100));
+    o.entry("pageSize")
+        .or_insert(json!(default_page_size(view)));
     value
 }
 pub(crate) fn classify_search(
@@ -646,9 +963,8 @@ fn build_next(
     q: &LocalSearchRequest,
     page: u32,
     total_pages: u32,
+    leftover_matches: bool,
     match_page: u32,
-    matches_per: u32,
-    files: &[octocode_engine::types::RipgrepFile],
     snapshot: Option<&str>,
 ) -> Option<Value> {
     let mut map = serde_json::Map::new();
@@ -659,6 +975,8 @@ fn build_next(
     if page < total_pages && page < 1000 {
         let mut n = base.clone();
         n["page"] = json!(page + 1);
+        // A new file page starts at each file's first match row.
+        n["matchPage"] = json!(1);
         if let Some(s) = snapshot {
             n["snapshot"] = json!(s)
         };
@@ -667,10 +985,7 @@ fn build_next(
             json!({"tool":"localSearch","query":n,"confidence":"exact"}),
         );
     }
-    if files
-        .iter()
-        .any(|f| f.matches.len() as u32 > match_page * matches_per)
-    {
+    if leftover_matches {
         let mut n = base;
         n["matchPage"] = json!(match_page + 1);
         if let Some(s) = snapshot {
@@ -718,16 +1033,15 @@ fn fingerprint(
         "contextLines".into(),
         json!(
             q.context_lines
-                .unwrap_or(if q.result_view == Some(ResultView::Detailed) {
-                    3
-                } else {
-                    2
-                })
+                .unwrap_or_else(|| default_context_lines(q.result_view.unwrap_or_default()))
         ),
     );
     identity.insert(
         "matchContentLength".into(),
-        json!(q.match_content_length.unwrap_or(500)),
+        json!(
+            q.match_content_length
+                .unwrap_or(DEFAULT_MATCH_CONTENT_LENGTH)
+        ),
     );
     identity.insert(
         "multiline".into(),
@@ -838,5 +1152,54 @@ fn canonicalize(value: Value) -> Value {
         }
         Value::Array(a) => Value::Array(a.into_iter().map(canonicalize).collect()),
         v => v,
+    }
+}
+
+#[cfg(test)]
+mod merge_tests {
+    use super::*;
+
+    fn row(line: u32, value: &str) -> SearchMatch {
+        SearchMatch {
+            line,
+            column: 0,
+            value: value.into(),
+            match_lines: None,
+            count: None,
+            truncated: false,
+            original_chars: None,
+            returned_chars: None,
+        }
+    }
+
+    #[test]
+    fn splices_only_when_shared_lines_agree() {
+        // Rows 5 and 6 with ±1 context share lines 5..=6.
+        let merged =
+            merge_context_windows(vec![row(5, "l4\nl5\nl6"), row(6, "l5\nl6\nl7")], 1, 500);
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].value, "l4\nl5\nl6\nl7");
+        assert_eq!(merged[0].match_lines, Some(vec![5, 6]));
+        // A redacted/rewritten shared line keeps both rows verbatim.
+        let apart = merge_context_windows(
+            vec![row(5, "l4\nl5\nl6"), row(6, "l5\n[REDACTED]\nl7")],
+            1,
+            500,
+        );
+        assert_eq!(apart.len(), 2);
+        assert!(apart.iter().all(|m| m.match_lines.is_none()));
+        // A value whose line count cannot be a ±1 window is never spliced.
+        let odd = merge_context_windows(vec![row(5, "l4\nl5\nl6"), row(6, "one line")], 1, 500);
+        assert_eq!(odd.len(), 2);
+        assert_eq!(odd[1].value, "one line");
+        // Disjoint windows (gap at line 7..) stay separate rows.
+        let gap = merge_context_windows(vec![row(2, "l1\nl2\nl3"), row(9, "l8\nl9\nl10")], 1, 500);
+        assert_eq!(gap.len(), 2);
+        let capped = merge_context_windows(vec![row(5, "l4\nl5\nl6"), row(6, "l5\nl6\nl7")], 1, 8);
+        assert_eq!(
+            capped.len(),
+            2,
+            "a merge must not exceed matchContentLength"
+        );
     }
 }

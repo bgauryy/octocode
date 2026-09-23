@@ -2,7 +2,10 @@
 use crate::policy::path::PathPolicy;
 use crate::tools::local_fetch::CancellationCheck;
 use octocode_engine::lsp::client::NativeLspClient;
-use octocode_engine::lsp::config::{LspDiscoveryOptions, default_server_for_file_with_options};
+use octocode_engine::lsp::config::{
+    LspDiscoveryOptions, default_server_for_file_with_options,
+    default_server_for_workspace_root_with_options, workspace_root_representative_source,
+};
 use octocode_engine::lsp::pool::LspClientPool;
 use octocode_engine::lsp::resolver::resolve_position;
 use octocode_engine::lsp::types::{JsFuzzyPosition, JsLanguageServerConfig};
@@ -23,6 +26,12 @@ use render::{as_array, decode_uri_path, flatten_document_symbol, paginate, uri_t
 /// uncapped and streamed to the server.
 const MAX_LSP_DIDOPEN_BYTES: u64 = 1_000_000;
 const DEFINITION_ALIAS_SETTLE_MS: u64 = 50;
+/// After the first `didOpen` of a document, how long to wait for a project
+/// load the open triggers to START (tsserver begins ~100 ms after didOpen),
+/// and the bound on the whole post-open wait.
+const DIDOPEN_SETTLE_MS: u32 = 400;
+const DIDOPEN_READY_TIMEOUT_MS: u32 = 15_000;
+const PUSH_DIAGNOSTICS_WAIT_MS: u32 = 1_500;
 
 /// Whether a source of `len` bytes exceeds the didOpen sync cap. Extracted as a
 /// pure seam so the cap decision is unit-testable without touching the fs.
@@ -112,6 +121,9 @@ pub async fn execute(
 ) -> Result<Value, String> {
     cancel.check()?;
     let mut query = query;
+    // `debug` asks for the provider receipt (server identity, fingerprints,
+    // capabilities); ordinary rows carry only the answer.
+    let debug = query.get("debug").and_then(Value::as_bool) == Some(true);
     if let Some(object) = query.as_object_mut() {
         object.remove("goal");
         object.remove("reasoning");
@@ -178,14 +190,24 @@ pub async fn execute(
         config_path,
         trust_project_config: execution_config.trust_project_config,
     };
-    let Some(mut config) =
+    // A `workspaceRoot`-only query has a directory, not a file: infer the
+    // server from project markers instead of the (absent) file extension.
+    let root_only = Path::new(&path).is_dir();
+    let discovered = if root_only {
+        default_server_for_workspace_root_with_options(workspace, &discovery)
+    } else {
         default_server_for_file_with_options(path.clone(), workspace, &discovery)
-    else {
+    };
+    let Some(mut config) = discovered else {
         return Ok(failure(
             &query,
             &canonical_uri,
             "lsp.serverUnavailable",
-            "No language server is configured for this file.",
+            if root_only {
+                "No language server could be inferred for this workspace root (no tsconfig.json, Cargo.toml, go.mod, pyproject.toml, setup.py, jsconfig.json, or package.json)."
+            } else {
+                "No language server is configured for this file."
+            },
             false,
         ));
     };
@@ -232,6 +254,7 @@ pub async fn execute(
             true,
         ));
     }
+    let mut open_readiness = None;
     if Path::new(&path).is_file() {
         // Size-gate BEFORE reading: an uncapped `read_to_string` of a huge file
         // then a `didOpen` under a payload-scaled write deadline can still stall
@@ -272,14 +295,45 @@ pub async fn execute(
                 ));
             }
         };
-        if let Err(error) = client.open_document(path.clone(), content).await {
-            return Ok(failure(
-                &query,
-                &canonical_uri,
-                "lsp.documentSyncFailed",
-                &format!("The source document could not be synchronized: {error}"),
-                true,
-            ));
+        // The first didOpen of a document can trigger a project load (tsserver
+        // starts one only then); wait for it so queries do not race it.
+        match client
+            .open_document_and_wait(
+                path.clone(),
+                content,
+                Some(DIDOPEN_SETTLE_MS),
+                Some(DIDOPEN_READY_TIMEOUT_MS),
+            )
+            .await
+        {
+            Ok(readiness) => open_readiness = readiness,
+            Err(error) => {
+                return Ok(failure(
+                    &query,
+                    &canonical_uri,
+                    "lsp.documentSyncFailed",
+                    &format!("The source document could not be synchronized: {error}"),
+                    true,
+                ));
+            }
+        }
+    } else if root_only
+        && let Some(representative) = workspace_root_representative_source(&path)
+        && let Some(source) = read_hop_source(paths, &representative)
+    {
+        // Some servers (tsserver: "No Project") cannot answer workspace-wide
+        // queries until a document of the project is open. Best-effort: a
+        // failed sync just leaves the server to answer (or error) as before.
+        if let Ok(readiness) = client
+            .open_document_and_wait(
+                representative,
+                source,
+                Some(DIDOPEN_SETTLE_MS),
+                Some(DIDOPEN_READY_TIMEOUT_MS),
+            )
+            .await
+        {
+            open_readiness = readiness;
         }
     }
     let (line, character) = match resolve_anchor(&query, &path) {
@@ -295,13 +349,15 @@ pub async fn execute(
         }
     };
     let resolved_symbol = present_resolved_symbol(&query, &path, &canonical_uri);
+    let workspace_root = receipt_config.workspace_root.as_str();
     let mut result = match query.operation.as_str() {
         "definition" => locations(
             &query,
             paths,
+            workspace_root,
             "definition",
             "definitionProvider",
-            resolve_definition_chain(&client, &path, line, character).await?,
+            resolve_definition_chain(&client, paths, &path, line, character).await?,
         ),
         "references" => {
             let snippets = client
@@ -314,10 +370,17 @@ pub async fn execute(
                 .await
                 .map_err(|error| error.to_string())?;
             let recovered =
-                recover_aliases(&client, &query, &path, line, character, &snippets).await;
+                recover_aliases(&client, paths, &query, &path, line, character, &snippets).await;
             let mut all = snippets;
             all.extend(recovered);
-            locations(&query, paths, "references", "referencesProvider", all)
+            locations(
+                &query,
+                paths,
+                workspace_root,
+                "references",
+                "referencesProvider",
+                all,
+            )
         }
         "hover" => json!({
             "type": query.operation,
@@ -328,6 +391,7 @@ pub async fn execute(
         "typeDefinition" => locations(
             &query,
             paths,
+            workspace_root,
             "typeDefinition",
             "typeDefinitionProvider",
             client
@@ -338,6 +402,7 @@ pub async fn execute(
         "implementation" => locations(
             &query,
             paths,
+            workspace_root,
             "implementation",
             "implementationProvider",
             client
@@ -367,19 +432,35 @@ pub async fn execute(
             items_payload(&query, "symbols", filter_authorized_items(symbols, paths))
         }
         "diagnostic" => {
-            let diagnostics = if client.has_capability("diagnosticProvider".to_owned()) {
-                client
-                    .get_diagnostics(path.clone())
-                    .await
-                    .map_err(|error| error.to_string())?
+            let report = if client.has_capability("diagnosticProvider".to_owned()) {
+                Some(
+                    client
+                        .get_diagnostics(path.clone())
+                        .await
+                        .map_err(|error| error.to_string())?,
+                )
             } else {
                 client
-                    .get_push_diagnostics(path.clone(), Some(1_500))
+                    .get_push_diagnostics(path.clone(), Some(PUSH_DIAGNOSTICS_WAIT_MS))
                     .await
                     .map_err(|error| error.to_string())?
-                    .unwrap_or_else(|| serde_json::json!({"kind":"full","items":[]}))
             };
-            items_payload(&query, "diagnostics", diagnostics)
+            let published = report.is_some();
+            let (items, truncated) = diagnostic_items(report);
+            let mut row = items_payload(&query, "diagnostics", items);
+            if !published && row.pointer("/payload/kind").and_then(Value::as_str) == Some("empty") {
+                row["payload"]["category"] = json!("diagnosticsNotPublished");
+                row["payload"]["reason"] = json!(format!(
+                    "The language server published no diagnostics for this document within {PUSH_DIAGNOSTICS_WAIT_MS} ms."
+                ));
+                row["hints"] = json!([empty_hint("diagnosticsNotPublished")]);
+            }
+            if truncated {
+                row["isPartial"] = json!(true);
+                row["terminalLimit"] = json!(true);
+                row["partialReasons"] = json!(["diagnosticsTruncated"]);
+            }
+            row
         }
         "callers" | "callees" | "callHierarchy" => {
             hierarchy(&client, &query, paths, &path, line, character).await?
@@ -392,6 +473,17 @@ pub async fn execute(
             true,
         ),
     };
+    if open_readiness.as_deref() == Some("timeout") && result.get("status") != Some(&json!("error"))
+    {
+        mark_partial(
+            &mut result,
+            &query,
+            "languageServerIndexing",
+            &[format!(
+                "The language server was still loading the project after {DIDOPEN_READY_TIMEOUT_MS} ms; results may be incomplete."
+            )],
+        );
+    }
     attach_provider_context(
         &mut result,
         &query,
@@ -399,23 +491,18 @@ pub async fn execute(
         resolved_symbol,
         &receipt_config,
         &client,
+        debug,
     );
     Ok(with_next(&query, result))
 }
 
 fn required_capability(operation: &str) -> Option<&'static str> {
-    match operation {
-        "definition" => Some("definitionProvider"),
-        "references" => Some("referencesProvider"),
-        "hover" => Some("hoverProvider"),
-        "typeDefinition" => Some("typeDefinitionProvider"),
-        "implementation" => Some("implementationProvider"),
-        "documentSymbols" => Some("documentSymbolProvider"),
-        "workspaceSymbol" => Some("workspaceSymbolProvider"),
-        "callers" | "callees" | "callHierarchy" => Some("callHierarchyProvider"),
-        "supertypes" | "subtypes" => Some("typeHierarchyProvider"),
-        _ => None,
-    }
+    // Diagnostics may arrive as server pushes even when diagnosticProvider is
+    // not advertised. Every other operation uses the same provider metadata
+    // for capability admission and for the returned receipt.
+    (operation != "diagnostic")
+        .then(|| provider_for_operation(operation))
+        .flatten()
 }
 
 fn apply_rust_context(
@@ -553,10 +640,20 @@ fn attach_provider_context(
     resolved_symbol: Option<Value>,
     config: &JsLanguageServerConfig,
     client: &NativeLspClient,
+    debug: bool,
 ) {
     let Some(envelope) = value.as_object_mut() else {
         return;
     };
+    // `type` echoes the operation; drop it when `payload.kind` already says so.
+    if envelope.get("type").is_some()
+        && envelope.get("type")
+            == envelope
+                .get("payload")
+                .and_then(|payload| payload.get("kind"))
+    {
+        envelope.shift_remove("type");
+    }
     envelope.insert("uri".into(), json!(canonical_uri));
     let anchored = !matches!(
         query.operation.as_str(),
@@ -579,7 +676,14 @@ fn attach_provider_context(
         } else {
             lsp.insert("source".into(), json!("lsp"));
         }
-        lsp.insert("receipt".into(), resolved_server_receipt(config, client));
+        if debug {
+            let mut receipt = resolved_server_receipt(config, client);
+            // Anchored rows already carry `workspaceRoot` at the top level.
+            if anchored && let Some(receipt) = receipt.as_object_mut() {
+                receipt.remove("workspaceRoot");
+            }
+            lsp.insert("receipt".into(), receipt);
+        }
     }
     if anchored {
         let mut ordered = serde_json::Map::new();
@@ -706,7 +810,10 @@ fn with_next(query: &LspSearchQuery, mut value: Value) -> Value {
         });
     } else if value.pointer("/payload/kind").and_then(Value::as_str) == Some("empty") {
         value["status"] = json!("empty");
-        attach_recovery_next(&mut value, query);
+        // A workspaceRoot-only query has no file to fall back to reading.
+        if query.uri.is_some() {
+            attach_recovery_next(&mut value, query);
+        }
     }
     if let Some(context) = &query.rust_context {
         value["rustContext"] = json!({
@@ -739,15 +846,20 @@ async fn hierarchy(
     let depth = query.depth.unwrap_or(1).max(1);
     let mut incoming = Vec::new();
     let mut outgoing = Vec::new();
+    let mut failures = Vec::new();
     for item in &roots {
         if matches!(query.operation.as_str(), "callers" | "callHierarchy") {
-            incoming.extend(walk_calls(client, item.clone(), true, depth).await);
+            let (calls, failed) = walk_calls(client, item.clone(), true, depth).await;
+            incoming.extend(calls);
+            failures.extend(failed);
         }
         if matches!(query.operation.as_str(), "callees" | "callHierarchy") {
-            outgoing.extend(walk_calls(client, item.clone(), false, depth).await);
+            let (calls, failed) = walk_calls(client, item.clone(), false, depth).await;
+            outgoing.extend(calls);
+            failures.extend(failed);
         }
     }
-    let mut items = match query.operation.as_str() {
+    let items = match query.operation.as_str() {
         "callers" => incoming,
         "callees" => outgoing,
         _ => {
@@ -756,19 +868,79 @@ async fn hierarchy(
             both
         }
     };
+    let (mut items, failures) = expansion_outcome(items, failures)?;
     // Call targets carry server-controlled `from`/`to` URIs; drop any that fall
     // outside the read policy before emitting them.
     items.retain(|item| item_uri_is_authorized(item, paths));
-    Ok(items_payload(query, query.operation.as_str(), json!(items)))
+    let mut row = items_payload(query, query.operation.as_str(), json!(items));
+    mark_partial_expansion(&mut row, query, &failures);
+    Ok(row)
 }
 
+/// Combine what a hierarchy expansion found with the provider failures it hit.
+/// A failure with nothing found is an error (never a silent empty answer); a
+/// failure after some results is a partial answer the caller must mark.
+fn expansion_outcome(
+    items: Vec<Value>,
+    failures: Vec<String>,
+) -> Result<(Vec<Value>, Vec<String>), String> {
+    if items.is_empty()
+        && let Some(first) = failures.first()
+    {
+        return Err(first.clone());
+    }
+    Ok((items, failures))
+}
+
+fn mark_partial_expansion(row: &mut Value, query: &LspSearchQuery, failures: &[String]) {
+    if failures.is_empty() {
+        return;
+    }
+    let reason = if matches!(query.operation.as_str(), "supertypes" | "subtypes") {
+        "typeHierarchyExpansionFailed"
+    } else {
+        "callHierarchyExpansionFailed"
+    };
+    let warnings = failures
+        .iter()
+        .take(5)
+        .map(|failure| format!("Hierarchy expansion failed for some items: {failure}"))
+        .collect::<Vec<_>>();
+    mark_partial(row, query, reason, &warnings);
+}
+
+/// Flag a row as incomplete with a machine-readable reason, human warnings,
+/// and an executable `next.retry` of the same query.
+fn mark_partial(row: &mut Value, query: &LspSearchQuery, reason: &str, warnings: &[String]) {
+    let Some(object) = row.as_object_mut() else {
+        return;
+    };
+    object.insert("isPartial".into(), json!(true));
+    let reasons = object.entry("partialReasons").or_insert_with(|| json!([]));
+    if let Some(reasons) = reasons.as_array_mut() {
+        reasons.push(json!(reason));
+    }
+    let existing = object.entry("warnings").or_insert_with(|| json!([]));
+    if let Some(existing) = existing.as_array_mut() {
+        existing.extend(warnings.iter().map(|warning| json!(warning)));
+    }
+    row["next"]["retry"] = json!({
+        "tool": "lspSearch",
+        "query": serde_json::to_value(query).unwrap_or_else(|_| json!({})),
+        "confidence": "exact"
+    });
+}
+
+/// Breadth-limited call walk. Returns the calls found plus the provider
+/// failures hit on the way (never silently dropped).
 async fn walk_calls(
     client: &NativeLspClient,
     root: Value,
     incoming: bool,
     depth: u32,
-) -> Vec<Value> {
+) -> (Vec<Value>, Vec<String>) {
     let mut items = Vec::new();
+    let mut failures = Vec::new();
     let mut frontier = vec![(root, 1u32)];
     let mut seen = std::collections::HashSet::new();
     while let Some((item, level)) = frontier.pop() {
@@ -776,12 +948,17 @@ async fn walk_calls(
         if !seen.insert(key) {
             continue;
         }
-        let next = if incoming {
+        let next = match if incoming {
             client.incoming_calls(item.clone()).await
         } else {
             client.outgoing_calls(item.clone()).await
-        }
-        .unwrap_or_else(|_| Value::Array(vec![]));
+        } {
+            Ok(next) => next,
+            Err(error) => {
+                failures.push(error.to_string());
+                continue;
+            }
+        };
         for call in as_array(&next) {
             items.push(call.clone());
             if level < depth
@@ -794,7 +971,7 @@ async fn walk_calls(
             }
         }
     }
-    items
+    (items, failures)
 }
 
 async fn types(
@@ -811,24 +988,31 @@ async fn types(
         .map_err(|error| error.to_string())?;
     let roots = as_array(&prepared);
     let mut items = Vec::new();
+    let mut failures = Vec::new();
     for item in roots {
         let next = if query.operation == "supertypes" {
             client.type_hierarchy_supertypes(item).await
         } else {
             client.type_hierarchy_subtypes(item).await
+        };
+        match next {
+            Ok(next) => items.extend(as_array(&next)),
+            Err(error) => failures.push(error.to_string()),
         }
-        .unwrap_or_else(|_| Value::Array(vec![]));
-        items.extend(as_array(&next));
     }
+    let (mut items, failures) = expansion_outcome(items, failures)?;
     // Type-hierarchy items carry a server-controlled `uri`; drop any that fall
     // outside the read policy before emitting them.
     items.retain(|item| item_uri_is_authorized(item, paths));
-    Ok(items_payload(query, query.operation.as_str(), json!(items)))
+    let mut row = items_payload(query, query.operation.as_str(), json!(items));
+    mark_partial_expansion(&mut row, query, &failures);
+    Ok(row)
 }
 
 fn locations(
     query: &LspSearchQuery,
     paths: &PathPolicy,
+    workspace_root: &str,
     kind: &str,
     provider: &str,
     snippets: Vec<impl serde::Serialize>,
@@ -843,8 +1027,8 @@ fn locations(
             apply_context_lines(location, context_lines, paths);
         }
     }
-    // The public structured contract is already compact: exact provider ranges
-    // plus one-based display ranges, without engine-only fields.
+    // Internal shape (exact provider ranges, without engine-only fields) drives
+    // ordering, snapshots and grouping; `public_location` shapes emitted rows.
     locations = locations.into_iter().map(compact_location).collect();
     locations.sort_by_key(location_sort_key);
     if locations.is_empty() {
@@ -859,13 +1043,40 @@ fn locations(
     if snapshot_mismatch(query, &snapshot) {
         return snapshot_changed(query, snapshot);
     }
+    // groupByFile summarizes per file INSTEAD of returning every location, so
+    // the page unit becomes a file summary.
+    let grouped = query.group_by_file == Some(true);
+    let entries = if grouped {
+        group_by_file(&locations, workspace_root)
+    } else {
+        locations.clone()
+    };
     let (page, mut pagination) = paginate(
-        &locations,
+        &entries,
         query.page.unwrap_or(1),
         query.page_size.unwrap_or(40),
     );
     pagination["snapshot"] = json!(snapshot);
-    let mut payload = json!({ "kind": kind, "locations": page });
+    let mut payload = if grouped {
+        json!({ "kind": kind, "byFile": page })
+    } else {
+        let mut page = page.into_iter().map(public_location).collect::<Vec<_>>();
+        let shared_uri = shared_location_uri(&page);
+        if shared_uri.is_some() {
+            for location in &mut page {
+                if let Some(location) = location.as_object_mut() {
+                    location.shift_remove("uri");
+                }
+            }
+        }
+        let mut payload = json!({ "kind": kind });
+        // Every location on this page is in one file: state it once.
+        if let Some(uri) = shared_uri {
+            payload["uri"] = json!(uri);
+        }
+        payload["locations"] = json!(page);
+        payload
+    };
     if kind == "references" {
         let total_references = locations.len();
         let total_files = locations
@@ -875,21 +1086,7 @@ fn locations(
             .len();
         payload["totalReferences"] = json!(total_references);
         payload["totalFiles"] = json!(total_files);
-        payload["warmup"] = json!({
-            "candidates": total_files,
-            "warmedFiles": 0,
-            "skippedLarge": 0,
-            "possiblyTruncated": false
-        });
         payload["coverage"] = json!({ "scope": "languageServer", "exhaustive": false });
-    }
-    if query.group_by_file == Some(true) {
-        payload["byFile"] = group_by_file(
-            payload["locations"]
-                .as_array()
-                .map(Vec::as_slice)
-                .unwrap_or(&[]),
-        );
     }
     json!({
         "type": query.operation,
@@ -1079,6 +1276,64 @@ fn compact_location(value: Value) -> Value {
     Value::Object(compact)
 }
 
+/// Public location: one one-based `displayRange` (`startLine`,
+/// `startCharacter`, `endLine`) for the symbol itself instead of the raw
+/// zero-based LSP `range` plus a line-only copy. When `contextLines` widened
+/// `content`, `contentStartLine` says where that content begins.
+fn public_location(internal: Value) -> Value {
+    let Value::Object(mut internal) = internal else {
+        return internal;
+    };
+    let range = internal.shift_remove("range");
+    let window = internal.shift_remove("displayRange");
+    let mut public = serde_json::Map::new();
+    if let Some(uri) = internal.shift_remove("uri") {
+        public.insert("uri".into(), uri);
+    }
+    let point = |key: &str, field: &str| {
+        range
+            .as_ref()
+            .and_then(|range| range.get(key)?.get(field)?.as_u64())
+    };
+    let display = match (point("start", "line"), point("start", "character")) {
+        (Some(line), Some(character)) => Some(json!({
+            "startLine": line + 1,
+            "startCharacter": character + 1,
+            "endLine": point("end", "line").unwrap_or(line) + 1,
+        })),
+        _ => window.clone(),
+    };
+    let symbol_start = display
+        .as_ref()
+        .and_then(|display| display.get("startLine"))
+        .and_then(Value::as_u64);
+    if let Some(display) = display {
+        public.insert("displayRange".into(), display);
+    }
+    if let Some(content) = internal.shift_remove("content") {
+        public.insert("content".into(), content);
+        if let Some(content_start) = window
+            .as_ref()
+            .and_then(|window| window.get("startLine"))
+            .and_then(Value::as_u64)
+            .filter(|start| Some(*start) != symbol_start)
+        {
+            public.insert("contentStartLine".into(), json!(content_start));
+        }
+    }
+    public.append(&mut internal);
+    Value::Object(public)
+}
+
+fn shared_location_uri(locations: &[Value]) -> Option<String> {
+    let first = locations.first()?.get("uri")?.as_str()?;
+    (locations.len() > 1
+        && locations
+            .iter()
+            .all(|location| location.get("uri").and_then(Value::as_str) == Some(first)))
+    .then(|| first.to_owned())
+}
+
 fn normalize_display_range(value: &Value) -> Option<Value> {
     let start = value
         .get("startLine")
@@ -1117,26 +1372,42 @@ fn location_sort_key(location: &Value) -> (String, u64, u64, u64, u64) {
     )
 }
 
-fn group_by_file(locations: &[Value]) -> Value {
-    let mut files = serde_json::Map::new();
+/// Per-file summaries `{path, references, lines}` in path order, with `path`
+/// relative to the workspace root (absolute when outside it) and one-based
+/// start `lines`.
+fn group_by_file(locations: &[Value], workspace_root: &str) -> Vec<Value> {
+    let mut files: std::collections::BTreeMap<String, Vec<u64>> = std::collections::BTreeMap::new();
     for location in locations {
-        let key = location
+        let path = location
             .get("uri")
             .and_then(Value::as_str)
-            .unwrap_or("unknown")
-            .to_owned();
-        files
-            .entry(key)
-            .or_insert_with(|| json!([]))
-            .as_array_mut()
-            .into_iter()
-            .for_each(|rows| rows.push(location.clone()));
+            .map(uri_to_path)
+            .unwrap_or_else(|| "unknown".to_owned());
+        let relative = Path::new(&path)
+            .strip_prefix(workspace_root)
+            .ok()
+            .filter(|relative| !relative.as_os_str().is_empty())
+            .map(|relative| relative.to_string_lossy().replace('\\', "/"))
+            .unwrap_or(path);
+        let line = location
+            .pointer("/range/start/line")
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+            + 1;
+        files.entry(relative).or_default().push(line);
     }
-    Value::Object(files)
+    files
+        .into_iter()
+        .map(|(path, mut lines)| {
+            lines.sort_unstable();
+            json!({ "path": path, "references": lines.len(), "lines": lines })
+        })
+        .collect()
 }
 
 async fn resolve_definition_chain(
     client: &NativeLspClient,
+    paths: &PathPolicy,
     path: &str,
     line: u32,
     character: u32,
@@ -1156,9 +1427,14 @@ async fn resolve_definition_chain(
                 continue;
             }
             let target = uri_to_path(&snippet.uri);
-            if let Ok(source) = fs::read_to_string(&target) {
-                let _ = client.open_document(target.clone(), source).await;
-            }
+            // The hop target is server-supplied: only an authorized, bounded
+            // source is read and synced. An unauthorized target is not followed
+            // (its location is dropped later by `locations`).
+            let Some(source) = read_hop_source(paths, &target) else {
+                next.push(snippet);
+                continue;
+            };
+            let _ = client.open_document(target.clone(), source).await;
             let mut nested = client
                 .get_definition(
                     target.clone(),
@@ -1202,6 +1478,17 @@ async fn resolve_definition_chain(
     Ok(current)
 }
 
+/// Read a server-supplied definition-hop target only when it passes the read
+/// policy and fits the didOpen size cap.
+fn read_hop_source(paths: &PathPolicy, target: &str) -> Option<String> {
+    let validated = paths.validate_read(target).ok()?;
+    let metadata = fs::metadata(&validated.canonical).ok()?;
+    if didopen_exceeds_cap(metadata.len()) {
+        return None;
+    }
+    fs::read_to_string(&validated.canonical).ok()
+}
+
 fn should_retry_definition_hop(
     depth: usize,
     source_path: &str,
@@ -1213,6 +1500,7 @@ fn should_retry_definition_hop(
 
 async fn recover_aliases(
     client: &NativeLspClient,
+    paths: &PathPolicy,
     query: &LspSearchQuery,
     path: &str,
     line: u32,
@@ -1249,7 +1537,7 @@ async fn recover_aliases(
         if inspected >= 32 {
             break;
         }
-        let Ok(source) = fs::read_to_string(&file) else {
+        let Some(source) = read_hop_source(paths, &file) else {
             continue;
         };
         let Some(facts) = octocode_engine::portable::extract_graph_facts(&source, &file) else {
@@ -1346,6 +1634,22 @@ fn snippet_identity(snippet: &octocode_engine::lsp::types::JsCodeSnippet) -> Str
     )
 }
 
+/// Flatten a pull (`DocumentDiagnosticReport`) or cached push report into the
+/// list of diagnostics it carries, plus whether the push cache truncated it.
+/// `unchanged` pull reports and absent reports carry no items.
+fn diagnostic_items(report: Option<Value>) -> (Value, bool) {
+    let Some(report) = report else {
+        return (json!([]), false);
+    };
+    let truncated = report.get("truncated").and_then(Value::as_bool) == Some(true);
+    let items = match report {
+        Value::Array(items) => Value::Array(items),
+        Value::Object(mut object) => object.remove("items").unwrap_or_else(|| json!([])),
+        _ => json!([]),
+    };
+    (items, truncated)
+}
+
 fn items_payload(query: &LspSearchQuery, kind: &str, value: Value) -> Value {
     let raw_items = as_array(&value);
     if kind == "documentSymbols" {
@@ -1406,6 +1710,14 @@ fn items_payload(query: &LspSearchQuery, kind: &str, value: Value) -> Value {
     }
 
     if raw_items.is_empty() {
+        if kind == "diagnostics" {
+            return empty(
+                query,
+                "noDiagnostics",
+                "The language server reported no diagnostics for this document.",
+                true,
+            );
+        }
         return empty(
             query,
             "noLocations",
@@ -1485,6 +1797,12 @@ fn empty_hint(category: &str) -> &'static str {
             "Verify the symbol and anchor; then try references/definition alternatives or exact syntax/text search."
         }
         "unsupportedOperation" => "Choose an operation advertised by the lspSearch schema.",
+        "noDiagnostics" => {
+            "No errors or warnings were reported; confirm with the project's own type-check or build if it matters."
+        }
+        "diagnosticsNotPublished" => {
+            "Retry once the server has analyzed the file, or run the project's type-check/build for authoritative errors."
+        }
         _ => "Use astSearch or localSearch to locate candidates, then localFetch exact source.",
     }
 }
@@ -1728,6 +2046,31 @@ mod tests {
 
     #[test]
     fn semantic_operations_require_their_advertised_lsp_capability() {
+        for operation in [
+            "definition",
+            "references",
+            "hover",
+            "typeDefinition",
+            "implementation",
+            "documentSymbols",
+            "workspaceSymbol",
+            "callers",
+            "callees",
+            "callHierarchy",
+            "supertypes",
+            "subtypes",
+        ] {
+            assert_eq!(
+                super::required_capability(operation),
+                super::provider_for_operation(operation),
+                "{operation}"
+            );
+        }
+        assert_eq!(super::required_capability("diagnostic"), None);
+        assert_eq!(
+            super::provider_for_operation("diagnostic"),
+            Some("diagnosticProvider")
+        );
         assert_eq!(
             super::required_capability("references"),
             Some("referencesProvider")
@@ -1773,6 +2116,19 @@ mod tests {
                     "end": {"line": 3, "character": 10}
                 }
             }]
+        }, {
+            // Doc comment / attribute lines are part of `range` but the name
+            // (and a usable lineHint) is on `selectionRange`.
+            "name": "documented",
+            "kind": 12,
+            "range": {
+                "start": {"line": 10, "character": 0},
+                "end": {"line": 14, "character": 1}
+            },
+            "selectionRange": {
+                "start": {"line": 12, "character": 7},
+                "end": {"line": 12, "character": 17}
+            }
         }]);
 
         let envelope = super::items_payload(&query, "documentSymbols", raw);
@@ -1783,18 +2139,25 @@ mod tests {
                 .as_array()
                 .expect("symbols should be an array")
                 .len(),
-            2
+            3
         );
         assert_eq!(envelope["payload"]["symbols"][0]["kind"], "class");
         assert_eq!(envelope["payload"]["symbols"][0]["line"], 3);
+        assert_eq!(envelope["payload"]["symbols"][0]["character"], 7);
         assert_eq!(envelope["payload"]["symbols"][1]["kind"], "method");
+        assert_eq!(envelope["payload"]["symbols"][1]["character"], 5);
+        let documented = &envelope["payload"]["symbols"][2];
+        assert_eq!(documented["name"], "documented");
+        assert_eq!(documented["line"], 13, "line must come from selectionRange");
+        assert_eq!(documented["character"], 7);
+        assert_eq!(documented["endLine"], 15, "endLine keeps the full range");
         assert_eq!(
             envelope["summary"],
             serde_json::json!({
-                "totalSymbols": 2,
-                "returnedSymbols": 2,
-                "topLevelSymbols": 1,
-                "kinds": {"class": 1, "method": 1}
+                "totalSymbols": 3,
+                "returnedSymbols": 3,
+                "topLevelSymbols": 2,
+                "kinds": {"class": 1, "method": 1, "function": 1}
             })
         );
     }
@@ -1822,6 +2185,42 @@ mod tests {
         assert!(location.get("symbolKind").is_none());
         assert!(location.get("path").is_none());
         assert!(location.get("line").is_none());
+
+        let public = super::public_location(location);
+        assert!(public.get("range").is_none(), "one coordinate form only");
+        assert_eq!(
+            public["displayRange"],
+            serde_json::json!({"startLine": 6, "startCharacter": 4, "endLine": 6})
+        );
+        assert!(public.get("contentStartLine").is_none());
+    }
+
+    #[test]
+    fn widened_content_reports_its_first_line_and_single_file_pages_hoist_the_uri() {
+        let widened = super::public_location(serde_json::json!({
+            "uri": "file:///repo/src/lib.rs",
+            "range": {
+                "start": {"line": 5, "character": 3},
+                "end": {"line": 5, "character": 8}
+            },
+            "content": "a\nb\nc\n",
+            "displayRange": {"startLine": 5, "endLine": 7}
+        }));
+        assert_eq!(widened["displayRange"]["startLine"], 6);
+        assert_eq!(widened["contentStartLine"], 5);
+
+        let same = [widened.clone(), widened.clone()];
+        assert_eq!(
+            super::shared_location_uri(&same).as_deref(),
+            Some("file:///repo/src/lib.rs")
+        );
+        let mut other = widened.clone();
+        other["uri"] = serde_json::json!("file:///repo/src/main.rs");
+        assert!(super::shared_location_uri(&[widened.clone(), other]).is_none());
+        assert!(
+            super::shared_location_uri(&[widened]).is_none(),
+            "a single location keeps its own uri"
+        );
     }
 
     #[test]
@@ -1974,6 +2373,28 @@ mod tests {
     }
 
     #[test]
+    fn workspace_root_empty_results_do_not_emit_a_pathless_read_recovery() {
+        let q = query(serde_json::json!({
+            "operation": "workspaceSymbol",
+            "workspaceRoot": "/repo",
+            "symbolName": "nothing"
+        }));
+        let mut row = super::with_next(
+            &q,
+            super::items_payload(&q, "symbols", serde_json::json!([])),
+        );
+        assert_eq!(row["status"], "empty");
+        assert!(row.get("next").is_none(), "{row}");
+        // execute() stamps the canonical root URI on every row.
+        row["uri"] = serde_json::json!("file:///repo");
+        crate::contracts::validate_output(
+            "lspSearch",
+            &serde_json::json!({"results":[{"index":0,"data":row}]}),
+        )
+        .expect("empty workspace-root row satisfies the output contract");
+    }
+
+    #[test]
     fn server_controlled_item_uris_are_authorized_before_emission() {
         use crate::policy::path::{PathPolicy, PathPolicyConfig};
         // A policy with no configured roots authorizes no real path, so any
@@ -2004,5 +2425,217 @@ mod tests {
             super::filter_authorized_items(serde_json::Value::Null, &paths),
             serde_json::Value::Null
         );
+    }
+
+    fn query(value: serde_json::Value) -> super::LspSearchQuery {
+        serde_json::from_value(value).expect("lsp query")
+    }
+
+    #[test]
+    fn diagnostic_reports_are_listed_as_individual_diagnostics() {
+        let q = query(serde_json::json!({"operation": "diagnostic", "uri": "file:///repo/a.ts"}));
+        let report = serde_json::json!({
+            "kind": "full",
+            "items": [
+                {"message": "first", "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}}},
+                {"message": "second", "range": {"start": {"line": 1, "character": 0}, "end": {"line": 1, "character": 1}}}
+            ],
+            "version": 3,
+            "source": "push",
+            "truncated": false
+        });
+        let (items, truncated) = super::diagnostic_items(Some(report));
+        assert!(!truncated);
+        let envelope = super::items_payload(&q, "diagnostics", items);
+        let listed = envelope["payload"]["items"].as_array().expect("items");
+        assert_eq!(listed.len(), 2, "{envelope}");
+        assert_eq!(listed[0]["message"], "first");
+        assert_eq!(envelope["pagination"]["totalResults"], 2);
+
+        // A clean file (or a pull `unchanged` report) is an empty result, not
+        // a one-element list wrapping the report object.
+        for report in [
+            Some(serde_json::json!({"kind": "full", "items": []})),
+            Some(serde_json::json!({"kind": "unchanged", "resultId": "1"})),
+        ] {
+            let (items, _) = super::diagnostic_items(report);
+            let envelope = super::with_next(&q, super::items_payload(&q, "diagnostics", items));
+            assert_eq!(envelope["status"], "empty", "{envelope}");
+            assert_eq!(envelope["payload"]["category"], "noDiagnostics");
+        }
+        let (_, truncated) = super::diagnostic_items(Some(serde_json::json!({
+            "kind": "full", "items": [{"message": "x"}], "truncated": true
+        })));
+        assert!(truncated);
+    }
+
+    #[test]
+    fn pages_past_the_end_are_empty_and_flagged_out_of_range() {
+        let items = vec![
+            serde_json::json!({"name": "one"}),
+            serde_json::json!({"name": "two"}),
+        ];
+        let (page, pagination) = super::paginate(&items, 5, 1);
+        assert!(page.is_empty(), "must not clamp to the last page");
+        assert_eq!(pagination["currentPage"], 5);
+        assert_eq!(pagination["totalPages"], 2);
+        assert_eq!(pagination["hasMore"], false);
+        assert_eq!(pagination["outOfRange"], true);
+        assert!(pagination.get("nextPage").is_none());
+
+        let (page, pagination) = super::paginate(&items, 2, 1);
+        assert_eq!(page.len(), 1);
+        assert!(pagination.get("outOfRange").is_none());
+    }
+
+    #[test]
+    fn group_by_file_summarizes_per_file_with_workspace_relative_paths() {
+        let root = std::env::temp_dir().join(format!("octocode-lsp-group-{}", std::process::id()));
+        let root_str = root.to_string_lossy().into_owned();
+        let uri = |name: &str| {
+            octocode_engine::lsp::uri::path_to_uri(&root.join(name).to_string_lossy()).expect("uri")
+        };
+        let location = |name: &str, line: u64| {
+            serde_json::json!({
+                "uri": uri(name),
+                "range": {"start": {"line": line, "character": 0}, "end": {"line": line, "character": 3}}
+            })
+        };
+        let summaries = super::group_by_file(
+            &[
+                location("src/a.ts", 4),
+                location("src/a.ts", 9),
+                location("src/b.ts", 0),
+            ],
+            &root_str,
+        );
+        assert_eq!(
+            summaries,
+            vec![
+                serde_json::json!({"path": "src/a.ts", "references": 2, "lines": [5, 10]}),
+                serde_json::json!({"path": "src/b.ts", "references": 1, "lines": [1]}),
+            ]
+        );
+    }
+
+    #[test]
+    fn grouped_references_replace_locations_with_file_summaries() {
+        use crate::policy::path::{PathPolicy, PathPolicyConfig};
+        let root =
+            std::env::temp_dir().join(format!("octocode-lsp-grouped-{}", std::process::id()));
+        std::fs::create_dir_all(&root).expect("root");
+        let root = root.canonicalize().expect("canonical root");
+        std::fs::write(root.join("a.ts"), "foo\nfoo\n").expect("a.ts");
+        let paths = PathPolicy::new(PathPolicyConfig {
+            workspace_root: Some(root.clone()),
+            ..Default::default()
+        })
+        .expect("path policy");
+        let uri = octocode_engine::lsp::uri::path_to_uri(&root.join("a.ts").to_string_lossy())
+            .expect("uri");
+        let q = query(serde_json::json!({
+            "operation": "references",
+            "uri": uri,
+            "position": {"line": 0, "character": 0},
+            "groupByFile": true
+        }));
+        let snippets = (0..2)
+            .map(|line| {
+                serde_json::json!({
+                    "uri": uri,
+                    "range": {"start": {"line": line, "character": 0}, "end": {"line": line, "character": 3}}
+                })
+            })
+            .collect::<Vec<_>>();
+        let result = super::locations(
+            &q,
+            &paths,
+            &root.to_string_lossy(),
+            "references",
+            "referencesProvider",
+            snippets,
+        );
+        assert!(result["payload"].get("locations").is_none(), "{result}");
+        assert_eq!(
+            result["payload"]["byFile"],
+            serde_json::json!([{"path": "a.ts", "references": 2, "lines": [1, 2]}])
+        );
+        assert_eq!(result["payload"]["totalReferences"], 2);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn definition_hops_only_read_authorized_bounded_sources() {
+        use crate::policy::path::{PathPolicy, PathPolicyConfig};
+        let root = std::env::temp_dir().join(format!("octocode-lsp-hop-{}", std::process::id()));
+        std::fs::create_dir_all(&root).expect("root");
+        let root = root.canonicalize().expect("canonical root");
+        let inside = root.join("inside.ts");
+        std::fs::write(&inside, "export const x = 1;\n").expect("inside");
+        let large = root.join("large.ts");
+        std::fs::write(
+            &large,
+            vec![b'a'; (super::MAX_LSP_DIDOPEN_BYTES + 1) as usize],
+        )
+        .expect("large");
+        let paths = PathPolicy::new(PathPolicyConfig {
+            workspace_root: Some(root.clone()),
+            ..Default::default()
+        })
+        .expect("path policy");
+
+        assert!(super::read_hop_source(&paths, &inside.to_string_lossy()).is_some());
+        assert!(
+            super::read_hop_source(&paths, &large.to_string_lossy()).is_none(),
+            "oversized hop targets must not be read or synced"
+        );
+        assert!(
+            super::read_hop_source(&paths, "/etc/hosts").is_none(),
+            "server-supplied targets outside the read policy must not be read"
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn failed_hierarchy_expansion_is_an_error_or_a_marked_partial_row() {
+        // Nothing expanded and the provider failed: surface the error.
+        assert!(super::expansion_outcome(Vec::new(), vec!["boom".into()]).is_err());
+        // Nothing expanded and nothing failed: a genuine empty result.
+        assert_eq!(
+            super::expansion_outcome(Vec::new(), Vec::new()),
+            Ok((Vec::new(), Vec::new()))
+        );
+
+        let q = query(serde_json::json!({
+            "operation": "callers",
+            "uri": "file:///repo/a.ts",
+            "position": {"line": 0, "character": 0},
+            "depth": 3
+        }));
+        let (items, failures) = super::expansion_outcome(
+            vec![serde_json::json!({"from": {"name": "caller"}})],
+            vec!["LSP error: deeper level".into()],
+        )
+        .expect("partial expansion keeps what was found");
+        let mut row = super::items_payload(&q, "callers", serde_json::json!(items));
+        super::mark_partial_expansion(&mut row, &q, &failures);
+        assert_eq!(row["isPartial"], true);
+        assert_eq!(
+            row["partialReasons"],
+            serde_json::json!(["callHierarchyExpansionFailed"])
+        );
+        assert!(
+            row["warnings"][0]
+                .as_str()
+                .is_some_and(|w| w.contains("deeper level"))
+        );
+        assert_eq!(row["next"]["retry"]["tool"], "lspSearch");
+        // The runtime envelope copies the caller's reasoning into continuations.
+        row["next"]["retry"]["query"]["reasoning"] = serde_json::json!("retry");
+        crate::contracts::validate_output(
+            "lspSearch",
+            &serde_json::json!({"results":[{"index":0,"data":row}]}),
+        )
+        .expect("partial hierarchy row satisfies the output contract");
     }
 }

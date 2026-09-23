@@ -98,13 +98,15 @@ impl PushDiagnosticsStore {
         let state = self.state.lock().ok()?;
         let record = state.records.get(uri)?;
         if let Some(min_version) = min_version {
-            // A caller that asked for a minimum version wants diagnostics it can
-            // prove correspond to the synced document. A record whose version is
-            // older — OR entirely absent — cannot make that guarantee, so it does
-            // not satisfy the request and must not be returned as if it did.
-            match record.params.get("version").and_then(Value::as_i64) {
-                Some(version) if version >= min_version => {}
-                _ => return None,
+            // A record tagged with an older version belongs to a superseded
+            // sync and must not be returned. A record WITHOUT a version (e.g.
+            // typescript-language-server never sends one) is accepted as
+            // current: every document sync clears the cached record first, so
+            // any record present afterwards was published after that sync.
+            if let Some(version) = record.params.get("version").and_then(Value::as_i64)
+                && version < min_version
+            {
+                return None;
             }
         }
         Some(json!({

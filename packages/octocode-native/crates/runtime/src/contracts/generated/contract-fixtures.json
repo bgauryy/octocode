@@ -45,10 +45,10 @@
           "context": {
             "tool": "ghGetFileContent",
             "query": {
+              "reasoning": "Screen this candidate without a host body read.",
               "owner": "axios",
               "repo": "axios",
               "path": "lib/core/Axios.js",
-              "reasoning": "Screen this candidate without a host body read.",
               "fullContent": true
             }
           },
@@ -298,8 +298,8 @@
           "context": {
             "tool": "localFetch",
             "query": {
-              "path": "/ABS/repo/src/httpClient.ts",
               "reasoning": "Screen this candidate without a host body read.",
+              "path": "/ABS/repo/src/httpClient.ts",
               "fullContent": true
             }
           },
@@ -1152,7 +1152,7 @@
           "searchText": "buildDirectToolCommandPatterns",
           "path": "/ABS/repo/src",
           "caseMode": "smart",
-          "matchContentLength": 500,
+          "matchContentLength": 200,
           "multiline": "off",
           "sort": "relevance",
           "matchPage": 1,
@@ -1183,7 +1183,7 @@
           "searchText": "toolSchemas",
           "path": ".",
           "caseMode": "smart",
-          "matchContentLength": 500,
+          "matchContentLength": 200,
           "multiline": "off",
           "sort": "relevance",
           "matchPage": 1,
@@ -2604,7 +2604,7 @@
           "searchText": "x",
           "path": "/r",
           "caseMode": "smart",
-          "matchContentLength": 500,
+          "matchContentLength": 200,
           "multiline": "off",
           "sort": "relevance",
           "matchPage": 1,
@@ -2637,7 +2637,7 @@
           "searchText": "x",
           "path": "/r",
           "caseMode": "smart",
-          "matchContentLength": 500,
+          "matchContentLength": 200,
           "multiline": "off",
           "sort": "relevance",
           "matchPage": 1,
@@ -2669,7 +2669,7 @@
           "searchText": "x",
           "path": "/r",
           "caseMode": "smart",
-          "matchContentLength": 500,
+          "matchContentLength": 200,
           "multiline": "off",
           "sort": "relevance",
           "matchPage": 1,
@@ -2700,7 +2700,7 @@
           "searchText": "x",
           "path": "/r",
           "caseMode": "smart",
-          "matchContentLength": 500,
+          "matchContentLength": 200,
           "multiline": "off",
           "sort": "traversal",
           "matchPage": 1,

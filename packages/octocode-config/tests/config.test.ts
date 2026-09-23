@@ -294,6 +294,18 @@ describe('applyOctocodeEnv', () => {
     expect(res.skippedExisting).toContain('EXISTING');
   });
 
+  it('keeps a blank OCTOCODE_CLASSIFICATION_API as an explicit opt-out', () => {
+    const env: Record<string, string | undefined> = {
+      OCTOCODE_CLASSIFICATION_API: '',
+    };
+    const res = applyOctocodeEnv(
+      { OCTOCODE_CLASSIFICATION_API: 'from-home' },
+      { env, sources: { OCTOCODE_CLASSIFICATION_API: 'global' } }
+    );
+    expect(env.OCTOCODE_CLASSIFICATION_API).toBe('');
+    expect(res.skippedExisting).toContain('OCTOCODE_CLASSIFICATION_API');
+  });
+
   it('overwrites empty-string env vars (treated as unset)', () => {
     const env: Record<string, string | undefined> = { FOO: '' };
     applyOctocodeEnv({ FOO: 'filled' }, { env });

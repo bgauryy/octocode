@@ -4,6 +4,7 @@ pub(crate) mod batch;
 pub(crate) mod transport;
 
 use self::transport::{ClassificationError, check_budget, endpoint, post};
+use crate::providers::classification::gate::GateLease;
 use crate::{providers::RequestBudget, tools::id::ToolId};
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::{Value, json};
@@ -15,6 +16,7 @@ fn request_error(message: &str) -> ClassificationError {
         code: "invalidClassificationRequest".into(),
         message: message.into(),
         hints: vec!["Inspect the current clasify query schema.".into()],
+        ..Default::default()
     }
 }
 
@@ -45,6 +47,16 @@ pub(crate) fn is_context_tool(tool: &str) -> bool {
                 | ToolId::AstTopology
                 | ToolId::LspSearch
         )
+    )
+}
+
+/// Context tools whose continuations move within one document. Search and
+/// discovery continuations reach new candidates instead, so clasify captures
+/// only the requested page and returns the rest through `next.clasify`.
+pub(crate) fn pages_within_resource(tool: &str) -> bool {
+    matches!(
+        ToolId::from_name(tool),
+        Some(ToolId::LocalFetch | ToolId::GhGetFileContent | ToolId::GhGetHistoryItem)
     )
 }
 
@@ -172,6 +184,26 @@ fn validate_question(question: &Value) -> Result<(), ClassificationError> {
     Ok(())
 }
 
+/// Label added to Choice questions that lack one, so missing evidence is not
+/// forced into a substantive class (live: forced answers reached confidence 1.0).
+pub(crate) const INSUFFICIENT_LABEL: &str = "insufficient";
+const INSUFFICIENT_DESCRIPTION: &str =
+    "The supplied content does not contain enough evidence to choose.";
+
+/// Return a matrix question (`{id, question}`) whose Choice criteria include
+/// `insufficient`; other questions and full criteria sets are unchanged.
+pub(crate) fn with_insufficient_choice(entry: &Value) -> Value {
+    let mut entry = entry.clone();
+    if entry["question"]["type"] == "choice"
+        && let Some(criteria) = entry["question"]["criteria"].as_object_mut()
+        && !criteria.contains_key(INSUFFICIENT_LABEL)
+        && criteria.len() < 255
+    {
+        criteria.insert(INSUFFICIENT_LABEL.into(), json!(INSUFFICIENT_DESCRIPTION));
+    }
+    entry
+}
+
 /// Build and validate the provider request for one state × question cell.
 /// Delegates wire format to the vendor's [`ClassificationProvider::build_request`].
 fn prepare(
@@ -196,7 +228,7 @@ fn prepare(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub async fn execute(
+pub(crate) async fn execute(
     state: &Value,
     question: &Value,
     key: SecretString,
@@ -206,6 +238,7 @@ pub async fn execute(
     provider: &dyn crate::providers::classification::ClassificationProvider,
     budget: RequestBudget,
     retries: u32,
+    gate: &GateLease,
 ) -> Result<Value, ClassificationError> {
     check_budget(&budget)?;
     let request = prepare(state, question, model, provider)?;
@@ -214,6 +247,7 @@ pub async fn execute(
             code: "invalidClassificationConfiguration".into(),
             message: "OCTOCODE_CLASSIFICATION_API contains invalid control characters.".into(),
             hints: vec!["Replace the configured key.".into()],
+            ..Default::default()
         });
     }
     let response = post(
@@ -222,14 +256,16 @@ pub async fn execute(
         endpoint(base_url, endpoint_path)?,
         &budget,
         retries,
+        gate,
     )
     .await?;
     provider
         .validate_response(&request, &response)
         .map_err(|error| ClassificationError {
-            code: error.code.into(),
+            code: error.code().into(),
             message: error.message,
             hints: vec!["Inspect provider compatibility before using the answer.".into()],
+            ..Default::default()
         })?;
     let answer = provider
         .extract_answer(&response)
@@ -237,6 +273,7 @@ pub async fn execute(
             code: "invalidClassificationResponse".into(),
             message: "Classification provider response is missing the expected answer.".into(),
             hints: vec!["Inspect provider compatibility before using the response.".into()],
+            ..Default::default()
         })?;
     project(
         question,
@@ -308,6 +345,30 @@ mod tests {
 
     fn jev_provider() -> &'static dyn crate::providers::classification::ClassificationProvider {
         &crate::providers::classification::jev::JEV
+    }
+
+    fn test_gate() -> GateLease {
+        crate::providers::classification::gate::lease("test://clasify-mod", 64)
+    }
+
+    #[test]
+    fn choice_questions_gain_an_insufficient_label_once() {
+        let choice = json!({"id":"q","question":{"type":"choice","instructions":"Pick",
+            "criteria":{"a":"A","b":null}}});
+        let normalized = with_insufficient_choice(&choice);
+        assert_eq!(
+            normalized["question"]["criteria"][INSUFFICIENT_LABEL],
+            INSUFFICIENT_DESCRIPTION
+        );
+        assert!(validate_question(&normalized["question"]).is_ok());
+        assert_eq!(with_insufficient_choice(&normalized), normalized);
+        let noul = json!({"id":"n","question":question()});
+        assert_eq!(with_insufficient_choice(&noul), noul);
+        let full: serde_json::Map<String, Value> =
+            (0..255).map(|i| (i.to_string(), Value::Null)).collect();
+        let full =
+            json!({"id":"f","question":{"type":"choice","instructions":"Pick","criteria":full}});
+        assert_eq!(with_insufficient_choice(&full), full);
     }
 
     #[test]
@@ -494,6 +555,7 @@ mod tests {
                 provider,
                 budget(),
                 0,
+                &test_gate(),
             )
             .await
             .unwrap();
@@ -523,7 +585,8 @@ mod tests {
                 "m",
                 jev_provider(),
                 budget(),
-                0
+                0,
+                &test_gate(),
             )
             .await
             .is_err()
@@ -540,7 +603,8 @@ mod tests {
                 "m",
                 jev_provider(),
                 cancelled,
-                0
+                0,
+                &test_gate(),
             )
             .await
             .unwrap_err()
@@ -568,12 +632,13 @@ mod tests {
                     "m",
                     jev_provider(),
                     budget(),
-                    0
+                    0,
+                    &test_gate(),
                 )
                 .await
                 .unwrap_err()
                 .code,
-                "invalidJevResponse"
+                "invalidClassificationResponse"
             );
         }
     }

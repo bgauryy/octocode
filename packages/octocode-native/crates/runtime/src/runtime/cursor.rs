@@ -245,6 +245,9 @@ impl CursorFields for UniversalCursor {
 }
 
 impl UniversalCursor {
+    /// Outputs no longer mint universal cursors (replaying `query` is
+    /// equivalent and ~1 KB smaller); decoding stays for tokens already issued.
+    #[cfg(test)]
     pub fn create(tool: &str, query: Value, scope: String) -> Result<String, CursorError> {
         encode_to_token(&Self {
             version: 1,

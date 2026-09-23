@@ -100,7 +100,10 @@ pub enum PartialReason {
     SecuritySelectedViewSizeLimit,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// Internal read result. Rust callers see every field; the wire form (the
+/// manual `Serialize` below) omits values an agent can already derive from
+/// another emitted field.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LocalFetchResult {
     #[serde(skip_serializing_if = "String::is_empty")]
@@ -201,6 +204,161 @@ impl LocalFetchResult {
             metadata_unavailable: vec![],
             next: None,
         }
+    }
+}
+
+impl LocalFetchResult {
+    /// The emitted `[startLine, endLine]` span equals the single emitted
+    /// source-line range, so repeating it is redundant.
+    fn window_is_source_range(&self) -> bool {
+        match (
+            self.start_line,
+            self.end_line,
+            self.source_line_ranges.as_slice(),
+        ) {
+            (Some(start), Some(end), [range]) => range.start == start && range.end == end,
+            _ => false,
+        }
+    }
+    fn match_ranges_are_redundant(&self) -> bool {
+        self.match_ranges == self.source_line_ranges
+            || match (self.start_line, self.end_line, self.match_ranges.as_slice()) {
+                (Some(start), Some(end), [range]) => range.start == start && range.end == end,
+                _ => false,
+            }
+    }
+    /// A single complete page (offset 0, nothing more) carries no information
+    /// beyond the top-level totals and the absence of `next`.
+    fn pagination_is_redundant(&self) -> bool {
+        self.pagination
+            .as_ref()
+            .is_none_or(|page| page.offset == 0 && !page.has_more)
+    }
+    fn returned_lines_are_derivable(&self) -> bool {
+        !self.source_line_ranges.is_empty()
+            && self.returned_lines
+                == Some(
+                    self.source_line_ranges
+                        .iter()
+                        .map(|range| range.end + 1 - range.start)
+                        .sum(),
+                )
+    }
+}
+
+/// Wire view of [`Pagination`]: `length` only when it differs from
+/// `chunkSize`, and only the view total in `chunkType` units when it differs
+/// from the source total already emitted at the top level.
+struct PaginationWire<'a> {
+    page: &'a Pagination,
+    source_lines: Option<usize>,
+    source_bytes: Option<usize>,
+}
+impl Serialize for PaginationWire<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let page = self.page;
+        let mut map = serializer.serialize_map(None)?;
+        map.serialize_entry("chunkType", &page.chunk_type)?;
+        map.serialize_entry("offset", &page.offset)?;
+        if page.length != page.chunk_size {
+            map.serialize_entry("length", &page.length)?;
+        }
+        map.serialize_entry("chunkSize", &page.chunk_size)?;
+        match page.chunk_type {
+            ChunkType::Lines if self.source_lines != Some(page.total_lines) => {
+                map.serialize_entry("totalLines", &page.total_lines)?
+            }
+            ChunkType::Bytes if self.source_bytes != Some(page.total_bytes) => {
+                map.serialize_entry("totalBytes", &page.total_bytes)?
+            }
+            _ => {}
+        }
+        map.serialize_entry("hasMore", &page.has_more)?;
+        if let Some(next_offset) = page.next_offset {
+            map.serialize_entry("nextOffset", &next_offset)?;
+        }
+        map.end()
+    }
+}
+
+impl Serialize for LocalFetchResult {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let mut map = serializer.serialize_map(None)?;
+        macro_rules! opt {
+            ($key:literal, $value:expr) => {
+                if let Some(value) = &$value {
+                    map.serialize_entry($key, value)?;
+                }
+            };
+        }
+        macro_rules! list {
+            ($key:literal, $value:expr) => {
+                if !$value.is_empty() {
+                    map.serialize_entry($key, &$value)?;
+                }
+            };
+        }
+        if !self.path.is_empty() {
+            map.serialize_entry("path", &self.path)?;
+        }
+        opt!("content", self.content);
+        // `none` is the default view; only a transformed view is news.
+        if let Some(view) = self.content_view.filter(|view| *view != MinifyMode::None) {
+            map.serialize_entry("contentView", &view)?;
+        }
+        opt!("minifyFallback", self.minify_fallback);
+        opt!("errorCode", self.error_code);
+        opt!("error", self.error);
+        opt!("resolvedPath", self.resolved_path);
+        list!("warnings", self.warnings);
+        list!("hints", self.hints);
+        opt!("totalLines", self.total_lines);
+        if !self.window_is_source_range() {
+            opt!("startLine", self.start_line);
+            opt!("endLine", self.end_line);
+        }
+        list!("sourceLineRanges", self.source_line_ranges);
+        if !self.match_ranges_are_redundant() {
+            list!("matchRanges", self.match_ranges);
+        }
+        list!("matchedLines", self.matched_lines);
+        if self.selected_match_count != Some(self.matched_lines.len()) {
+            opt!("selectedMatchCount", self.selected_match_count);
+        }
+        opt!("modified", self.modified);
+        // UTF-16 char counts only when they differ from the UTF-8 byte counts
+        // (non-ASCII text); bytes are the unit offsets and chunks use.
+        if self.source_chars != self.source_bytes {
+            opt!("sourceChars", self.source_chars);
+        }
+        opt!("sourceBytes", self.source_bytes);
+        if self.returned_chars != self.returned_bytes {
+            opt!("returnedChars", self.returned_chars);
+        }
+        opt!("returnedBytes", self.returned_bytes);
+        if !self.returned_lines_are_derivable() {
+            opt!("returnedLines", self.returned_lines);
+        }
+        if !self.pagination_is_redundant()
+            && let Some(page) = &self.pagination
+        {
+            map.serialize_entry(
+                "pagination",
+                &PaginationWire {
+                    page,
+                    source_lines: self.total_lines,
+                    source_bytes: self.source_bytes,
+                },
+            )?;
+        }
+        opt!("isPartial", self.is_partial);
+        list!("partialReasons", self.partial_reasons);
+        opt!("terminalLimit", self.terminal_limit);
+        list!("metadataUnavailable", self.metadata_unavailable);
+        opt!("next", self.next);
+        map.end()
     }
 }
 

@@ -20,6 +20,46 @@ impl ResponsePageOptions {
     pub fn structured_scope(&self) -> bool {
         self.response_scope.as_deref() == Some("structured") && self.response_char_length.is_some()
     }
+
+    /// Row-aware paging of structuredContent: every page is a complete JSON
+    /// envelope holding whole result rows (or whole elements of a split row).
+    pub fn rows_scope(&self) -> bool {
+        self.response_scope.as_deref() == Some("rows") && self.response_char_length.is_some()
+    }
+
+    fn explicit(&self) -> bool {
+        self.response_char_length.is_some()
+            || self.response_char_offset.is_some()
+            || self.response_snapshot.is_some()
+    }
+
+    /// Apply the configured `output.pagination.defaultCharLength` budget when
+    /// the caller did not page explicitly. Rendered text (MCP) pages as text;
+    /// structured-only output (CLI JSON) pages by whole rows.
+    /// Returns whether automatic pagination was enabled.
+    pub fn auto_paginate(
+        &mut self,
+        rendered_text: Option<&str>,
+        structured: &Value,
+        budget: usize,
+    ) -> bool {
+        if self.explicit() || budget == 0 {
+            return false;
+        }
+        let oversized = match rendered_text {
+            Some(text) => text.encode_utf16().count() > budget,
+            None => {
+                self.response_scope = Some("rows".into());
+                structured.to_string().encode_utf16().count() > budget
+            }
+        };
+        if oversized {
+            self.response_char_length = Some(budget);
+        } else if rendered_text.is_none() {
+            self.response_scope = None;
+        }
+        oversized
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -118,6 +158,33 @@ impl ResponsePager {
             .as_object()
             .cloned()
             .ok_or(ResponseError::StructuredContentMustBeObject)?;
+        if input.options.rows_scope() {
+            let full = Value::Object(structured.clone()).to_string();
+            if full.len() > self.config.max_rendered_bytes {
+                return Err(ResponseError::RenderedTextTooLarge);
+            }
+            let (mut envelope, mut pagination) = paginate_rows(structured, &full, &input.options);
+            if cancelled.load(Ordering::Acquire) {
+                return Err(ResponseError::Cancelled);
+            }
+            pagination.next =
+                build_continuation(&input.tool, &input.query, &input.options, &pagination);
+            // pagination is a plain serializable struct
+            #[allow(clippy::expect_used)]
+            envelope.insert(
+                "responsePagination".into(),
+                serde_json::to_value(&pagination).expect("serializable pagination"),
+            );
+            let text = Value::Object(envelope.clone()).to_string();
+            return Ok(PreparedResponse {
+                content: vec![TextContent {
+                    r#type: "text".into(),
+                    text,
+                }],
+                structured_content: Value::Object(envelope),
+                is_error: input.is_error,
+            });
+        }
         // Opt-in structured windowing: page the serialized envelope itself so
         // MCP clients can stream a large structuredContent. The window text
         // carries no page header — concatenating `responseWindow` pages in
@@ -180,6 +247,12 @@ impl ResponsePager {
         if let Some(mut pagination) = page.pagination {
             pagination.next =
                 build_continuation(&input.tool, &input.query, &input.options, &pagination);
+            // The text page carries this window of the payload; repeating the
+            // whole payload in structuredContent would defeat pagination.
+            if let Some(results) = structured.get_mut("results") {
+                *results = Value::Array(Vec::new());
+            }
+            structured.remove("shared");
             // pagination is a plain serializable struct
             #[allow(clippy::expect_used)]
             structured.insert(
@@ -285,6 +358,191 @@ fn paginate_units(text: &str, options: &ResponsePageOptions, with_header: bool) 
             next: None,
         }),
     }
+}
+
+fn json_chars(value: &Value) -> usize {
+    value.to_string().encode_utf16().count()
+}
+
+fn escape_pointer(key: &str) -> String {
+    key.replace('~', "~0").replace('/', "~1")
+}
+
+/// The largest array with at least two elements reachable from `value`
+/// through objects and single-element arrays, as (JSON pointer, size).
+fn largest_array(value: &Value, pointer: &str) -> Option<(String, usize)> {
+    let mut best: Option<(String, usize)> = None;
+    let mut consider = |candidate: Option<(String, usize)>| {
+        if let Some(candidate) = candidate
+            && best.as_ref().is_none_or(|current| candidate.1 > current.1)
+        {
+            best = Some(candidate);
+        }
+    };
+    match value {
+        Value::Object(map) => {
+            for (key, child) in map {
+                consider(largest_array(
+                    child,
+                    &format!("{pointer}/{}", escape_pointer(key)),
+                ));
+            }
+        }
+        Value::Array(items) if items.len() >= 2 => {
+            consider(Some((pointer.to_owned(), json_chars(value))));
+        }
+        Value::Array(items) => {
+            if let Some(item) = items.first() {
+                consider(largest_array(item, &format!("{pointer}/0")));
+            }
+        }
+        _ => {}
+    }
+    best
+}
+
+/// Split one oversized row into row fragments that each keep every field
+/// except a slice of the row's largest array. Fragments recurse into an
+/// element that alone exceeds the budget; an indivisible element becomes one
+/// oversized fragment rather than being cut mid-value.
+fn split_row(row: &Value, budget: usize) -> Vec<Value> {
+    if json_chars(row) <= budget {
+        return vec![row.clone()];
+    }
+    let Some(data) = row.get("data") else {
+        return vec![row.clone()];
+    };
+    let Some((relative, _)) = largest_array(data, "") else {
+        return vec![row.clone()];
+    };
+    let pointer = format!("/data{relative}");
+    let Some(items) = row.pointer(&pointer).and_then(Value::as_array).cloned() else {
+        return vec![row.clone()];
+    };
+    let with_items = |chunk: Vec<Value>| {
+        let mut fragment = row.clone();
+        if let Some(slot) = fragment.pointer_mut(&pointer) {
+            *slot = Value::Array(chunk);
+        }
+        fragment
+    };
+    let base = json_chars(&with_items(Vec::new()));
+    let mut fragments = Vec::new();
+    let mut chunk = Vec::new();
+    let mut chunk_chars = base;
+    for item in items {
+        let item_chars = json_chars(&item) + 1;
+        if base + item_chars > budget {
+            if !chunk.is_empty() {
+                fragments.push(with_items(std::mem::take(&mut chunk)));
+                chunk_chars = base;
+            }
+            fragments.extend(split_row(&with_items(vec![item]), budget));
+            continue;
+        }
+        if !chunk.is_empty() && chunk_chars + item_chars > budget {
+            fragments.push(with_items(std::mem::take(&mut chunk)));
+            chunk_chars = base;
+        }
+        chunk_chars += item_chars;
+        chunk.push(item);
+    }
+    if !chunk.is_empty() {
+        fragments.push(with_items(chunk));
+    }
+    fragments
+}
+
+/// Row-aware pages: pack whole rows (or fragments of one oversized row) into
+/// complete envelopes. `responseCharOffset` addresses the zero-based page.
+fn paginate_rows(
+    mut structured: Map<String, Value>,
+    full: &str,
+    options: &ResponsePageOptions,
+) -> (Map<String, Value>, ResponsePagination) {
+    let budget = options.response_char_length.unwrap_or(1).max(1);
+    let rows = match structured.remove("results") {
+        Some(Value::Array(rows)) => rows,
+        _ => Vec::new(),
+    };
+    let overhead = json_chars(&Value::Object(structured.clone())) + "\"results\":[],".len();
+    let row_budget = budget.saturating_sub(overhead).max(1);
+    let mut pages: Vec<Vec<Value>> = Vec::new();
+    let mut page: Vec<Value> = Vec::new();
+    let mut page_chars = 0usize;
+    for row in &rows {
+        let mut fragments = split_row(row, row_budget);
+        let parts = fragments.len();
+        if parts > 1 {
+            for (index, fragment) in fragments.iter_mut().enumerate() {
+                fragment["rowPart"] = json!({"part": index + 1, "of": parts});
+            }
+        }
+        for fragment in fragments {
+            let chars = json_chars(&fragment) + 1;
+            if !page.is_empty() && page_chars + chars > row_budget {
+                pages.push(std::mem::take(&mut page));
+                page_chars = 0;
+            }
+            page_chars += chars;
+            page.push(fragment);
+        }
+    }
+    if !page.is_empty() || pages.is_empty() {
+        pages.push(page);
+    }
+    let total = full.encode_utf16().count();
+    let snapshot = format!(
+        "response-rows-v1:{}",
+        hex::encode(Sha256::digest(full.as_bytes()))
+    );
+    let requested = options.response_char_offset.unwrap_or(0);
+    let changed = options.response_snapshot.as_deref() != Some(&snapshot);
+    if requested > 0 && (changed || requested >= pages.len()) {
+        let expected = options.response_snapshot.clone();
+        structured.insert("results".into(), Value::Array(Vec::new()));
+        return (
+            structured,
+            ResponsePagination {
+                scope: "rows".into(),
+                current_page: 1,
+                total_pages: pages.len(),
+                has_more: true,
+                char_offset: requested,
+                char_length: 0,
+                total_chars: total,
+                snapshot,
+                expected_snapshot: expected.clone(),
+                changed: Some(expected.is_some() && changed),
+                restart: Some(true),
+                next_char_offset: Some(0),
+                next: None,
+            },
+        );
+    }
+    let total_pages = pages.len();
+    let selected = pages.swap_remove(requested);
+    let has_more = requested + 1 < total_pages;
+    structured.insert("results".into(), Value::Array(selected));
+    let char_length = json_chars(&Value::Object(structured.clone()));
+    (
+        structured,
+        ResponsePagination {
+            scope: "rows".into(),
+            current_page: requested + 1,
+            total_pages,
+            has_more,
+            char_offset: requested,
+            char_length,
+            total_chars: total,
+            snapshot,
+            expected_snapshot: None,
+            changed: None,
+            restart: None,
+            next_char_offset: has_more.then_some(requested + 1),
+            next: None,
+        },
+    )
 }
 
 fn build_continuation(
@@ -734,5 +992,56 @@ mod tests {
             pager.prepare(input, &AtomicBool::new(true)),
             Err(ResponseError::Cancelled)
         ));
+    }
+
+    #[test]
+    fn rows_scope_splits_nested_arrays_into_complete_json_pages() {
+        let matches = (0..200)
+            .map(|line| json!({"line":line,"value":"x".repeat(40)}))
+            .collect::<Vec<_>>();
+        let structured = json!({"results":[{"index":0,"data":{
+            "stats":{"total":400},
+            "files":[{"path":"a","matches":matches.clone()},{"path":"b","matches":matches}]
+        }}]});
+        let options = ResponsePageOptions {
+            response_char_length: Some(2000),
+            response_scope: Some("rows".into()),
+            ..Default::default()
+        };
+        let full = structured.to_string();
+        let (first, pagination) =
+            paginate_rows(structured.as_object().unwrap().clone(), &full, &options);
+        assert!(pagination.total_pages > 2 && pagination.has_more);
+        let row = &first["results"][0];
+        assert_eq!(
+            row["data"]["stats"]["total"], 400,
+            "non-split fields are kept"
+        );
+        assert_eq!(row["data"]["files"].as_array().unwrap().len(), 1);
+        assert!(json_chars(&Value::Object(first.clone())) <= 2000 + 200);
+        let mut seen = 0;
+        for page in 0..pagination.total_pages {
+            let options = ResponsePageOptions {
+                response_char_offset: Some(page),
+                response_snapshot: Some(pagination.snapshot.clone()),
+                ..options.clone()
+            };
+            let (envelope, _) =
+                paginate_rows(structured.as_object().unwrap().clone(), &full, &options);
+            for row in envelope["results"].as_array().unwrap() {
+                for file in row["data"]["files"].as_array().unwrap() {
+                    seen += file["matches"].as_array().unwrap().len();
+                }
+            }
+        }
+        assert_eq!(seen, 400, "every match appears exactly once");
+        let stale = ResponsePageOptions {
+            response_char_offset: Some(1),
+            response_snapshot: Some("response-rows-v1:stale".into()),
+            ..options
+        };
+        let (_, restart) = paginate_rows(structured.as_object().unwrap().clone(), &full, &stale);
+        assert_eq!(restart.restart, Some(true));
+        assert_eq!(restart.next_char_offset, Some(0));
     }
 }

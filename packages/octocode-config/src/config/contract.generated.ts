@@ -18,8 +18,8 @@ export interface LocalConfigOptions {
   /** ENABLE_LOCAL is canonical; OCTOCODE_ENABLE_LOCAL is an alias. */
   enabled?: boolean;
 
-  /** Enable ghCloneRepo and directory materialization. */
-  /** Opt-in and requires persistent storage. ENABLE_CLONE is canonical. */
+  /** Legacy clone setting retained for config compatibility; CLI cloning requires persistent storage and MCP cloning is unavailable. */
+  /** This setting no longer gates ghCloneRepo. ENABLE_CLONE is canonical over OCTOCODE_ENABLE_CLONE. */
   enableClone?: boolean;
 
   /** Enable beta features. Currently the sole gate for the astRewrite tool (both preview and apply); off by default on every surface. */
@@ -98,6 +98,9 @@ export interface ClassificationConfigOptions {
   /** Optional override of the selected vendor's default API root. */
   /** Requires HTTP or HTTPS at config validation; provider policy may require HTTPS except loopback. */
   apiHost?: string | null;
+
+  /** Process-wide maximum in-flight classification provider requests per provider endpoint. */
+  maxConcurrency?: number;
 }
 
 export interface OctocodeConfig {
@@ -177,6 +180,7 @@ export interface RequiredExtensionStorageConfig {
 
 export interface RequiredClassificationConfig {
   type: ClassificationVendor;
+  maxConcurrency: number;
 }
 
 export interface RequiredSessionConfig {
@@ -305,8 +309,8 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "file": true,
     "resolved": true,
     "credential": false,
-    "description": "Enable ghCloneRepo and directory materialization.",
-    "notes": "Opt-in and requires persistent storage. ENABLE_CLONE is canonical.",
+    "description": "Legacy clone setting retained for config compatibility; CLI cloning requires persistent storage and MCP cloning is unavailable.",
+    "notes": "This setting no longer gates ghCloneRepo. ENABLE_CLONE is canonical over OCTOCODE_ENABLE_CLONE.",
     "env": [
       {
         "name": "ENABLE_CLONE",
@@ -537,7 +541,7 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
         "priority": 0
       }
     ],
-    "defaultValue": 20000,
+    "defaultValue": 50000,
     "minimum": 1000,
     "maximum": 50000
   },
@@ -661,6 +665,25 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "defaultValue": null
   },
   {
+    "path": "classification.maxConcurrency",
+    "section": "classification",
+    "key": "maxConcurrency",
+    "type": "number",
+    "file": true,
+    "resolved": true,
+    "credential": false,
+    "description": "Process-wide maximum in-flight classification provider requests per provider endpoint.",
+    "env": [
+      {
+        "name": "OCTOCODE_CLASSIFICATION_CONCURRENCY",
+        "priority": 0
+      }
+    ],
+    "defaultValue": 10,
+    "minimum": 1,
+    "maximum": 64
+  },
+  {
     "path": "session.enableStats",
     "section": "session",
     "key": "enableStats",
@@ -688,9 +711,9 @@ export const ENV_TOKEN_VARS = ["OCTOCODE_TOKEN","GH_TOKEN","GITHUB_TOKEN","GITHU
 export type EnvTokenVar = (typeof ENV_TOKEN_VARS)[number];
 export const PROTECTED_KEY_NAMES = ["PATH","HOME","SHELL","USER","LOGNAME","PWD","TMPDIR","NODE_OPTIONS","PYTHON","GH_HOST","OCTOCODE_TOKEN","GH_TOKEN","GITHUB_TOKEN","GITHUB_PERSONAL_ACCESS_TOKEN","OCTOCODE_HOME","GITHUB_API_URL","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_CLASSIFICATION_TYPE","OCTOCODE_CLASSIFICATION_API","OCTOCODE_JEV_KEY","OCTOCODE_CLASSIFICATION_API_HOST"] as const;
 export const HOME_TRUSTED_ENV_KEYS = ["OCTOCODE_CLASSIFICATION_TYPE","OCTOCODE_CLASSIFICATION_API","OCTOCODE_JEV_KEY","OCTOCODE_CLASSIFICATION_API_HOST"] as const;
-export const CONFIG_SOURCE_ENV_KEYS = ["OCTOCODE_GITHUB_CLIENT_ID","GITHUB_API_URL","OCTOCODE_GITHUB_GRAPHQL","ENABLE_LOCAL","OCTOCODE_ENABLE_LOCAL","ENABLE_CLONE","OCTOCODE_ENABLE_CLONE","OCTOCODE_BETA","ALLOWED_PATHS","WORKSPACE_ROOT","TOOLS_TO_RUN","DISABLE_TOOLS","REQUEST_TIMEOUT","MAX_RETRIES","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_LSP_CONFIG","OCTOCODE_OUTPUT_FORMAT","OCTOCODE_REDACT_EMAILS","OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH","OCTOCODE_STORAGE_MODE","OCTOCODE_EXTENSION_STORAGE_MODE","OCTOCODE_CLASSIFICATION_TYPE","OCTOCODE_CLASSIFICATION_API","OCTOCODE_JEV_KEY","OCTOCODE_CLASSIFICATION_API_HOST","OCTOCODE_ENABLE_STATS"] as const;
+export const CONFIG_SOURCE_ENV_KEYS = ["OCTOCODE_GITHUB_CLIENT_ID","GITHUB_API_URL","OCTOCODE_GITHUB_GRAPHQL","ENABLE_LOCAL","OCTOCODE_ENABLE_LOCAL","ENABLE_CLONE","OCTOCODE_ENABLE_CLONE","OCTOCODE_BETA","ALLOWED_PATHS","WORKSPACE_ROOT","TOOLS_TO_RUN","DISABLE_TOOLS","REQUEST_TIMEOUT","MAX_RETRIES","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_LSP_CONFIG","OCTOCODE_OUTPUT_FORMAT","OCTOCODE_REDACT_EMAILS","OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH","OCTOCODE_STORAGE_MODE","OCTOCODE_EXTENSION_STORAGE_MODE","OCTOCODE_CLASSIFICATION_TYPE","OCTOCODE_CLASSIFICATION_API","OCTOCODE_JEV_KEY","OCTOCODE_CLASSIFICATION_API_HOST","OCTOCODE_CLASSIFICATION_CONCURRENCY","OCTOCODE_ENABLE_STATS"] as const;
 export type ConfigSourceEnvKey = (typeof CONFIG_SOURCE_ENV_KEYS)[number];
-export const DEFAULT_CONFIG_VALUE: ResolvedConfigData = { "session": { "enableStats": false }, "classification": { "type": "jev" }, "storage": { "mode": "persistent" }, "output": { "pagination": { "defaultCharLength": 20000 }, "redactEmails": false, "format": "yaml" }, "lsp": { "configPath": undefined }, "network": { "allowPrivateRegistry": false, "maxRetries": 3, "timeout": 30000 }, "tools": { "disabled": null, "enabled": null }, "local": { "workspaceRoot": undefined, "allowedPaths": [], "beta": false, "enableClone": false, "enabled": true }, "github": { "graphqlEnabled": true, "apiUrl": "https://api.github.com" }, "version": 1, "extension": { "storage": { "mode": "persistent" } } };
+export const DEFAULT_CONFIG_VALUE: ResolvedConfigData = { "session": { "enableStats": false }, "classification": { "maxConcurrency": 10, "type": "jev" }, "storage": { "mode": "persistent" }, "output": { "pagination": { "defaultCharLength": 50000 }, "redactEmails": false, "format": "yaml" }, "lsp": { "configPath": undefined }, "network": { "allowPrivateRegistry": false, "maxRetries": 3, "timeout": 30000 }, "tools": { "disabled": null, "enabled": null }, "local": { "workspaceRoot": undefined, "allowedPaths": [], "beta": false, "enableClone": false, "enabled": true }, "github": { "graphqlEnabled": true, "apiUrl": "https://api.github.com" }, "version": 1, "extension": { "storage": { "mode": "persistent" } } };
 export const DEFAULT_GITHUB_API_URL = "https://api.github.com" as const;
 export const DEFAULT_GITHUB_GRAPHQL_ENABLED = true as const;
 export const DEFAULT_LOCAL_ENABLED = true as const;
@@ -711,11 +734,14 @@ export const DEFAULT_LSP_CONFIG_PATH = null;
 export const DEFAULT_OUTPUT_FORMAT = "yaml" as const;
 export const OUTPUT_FORMATS = ["yaml","json"] as const;
 export const DEFAULT_OUTPUT_REDACT_EMAILS = false as const;
-export const DEFAULT_OUTPUT_DEFAULT_CHAR_LENGTH = 20000 as const;
+export const DEFAULT_OUTPUT_DEFAULT_CHAR_LENGTH = 50000 as const;
 export const MIN_OUTPUT_DEFAULT_CHAR_LENGTH = 1000;
 export const MAX_OUTPUT_DEFAULT_CHAR_LENGTH = 50000;
 export const DEFAULT_STORAGE_MODE = "persistent" as const;
 export const STORAGE_MODES = ["persistent","memory"] as const;
 export const DEFAULT_CLASSIFICATION_TYPE = "jev" as const;
 export const CLASSIFICATION_VENDORS = ["jev"] as const;
+export const DEFAULT_CLASSIFICATION_MAX_CONCURRENCY = 10 as const;
+export const MIN_CLASSIFICATION_CONCURRENCY = 1;
+export const MAX_CLASSIFICATION_CONCURRENCY = 64;
 export const DEFAULT_SESSION_ENABLE_STATS = false as const;

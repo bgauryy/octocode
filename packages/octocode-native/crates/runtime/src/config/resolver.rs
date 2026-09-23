@@ -206,6 +206,14 @@ pub fn resolve_env_token(e: &BTreeMap<String, String>) -> Option<PrivateTokenSel
 /// Apply trusted file fallbacks for fields explicitly marked as credentials.
 /// They are written only to the effective child environment and never enter
 /// `ResolvedConfig`, so inspection and `config get` cannot print their values.
+/// An explicit blank classification key is an opt-out, not a missing value.
+fn effective_disables_classification(effective: &BTreeMap<String, String>, key: &str) -> bool {
+    key == super::dotenv::CLASSIFICATION_KILL_SWITCH
+        && effective
+            .get(key)
+            .is_some_and(|value| value.trim().is_empty())
+}
+
 fn apply_credential_file_fallbacks(file: Option<&Value>, effective: &mut BTreeMap<String, String>) {
     let Some(file) = file else { return };
     for field in CONFIG_FIELDS.iter().filter(|field| field.credential) {
@@ -215,6 +223,7 @@ fn apply_credential_file_fallbacks(file: Option<&Value>, effective: &mut BTreeMa
         if effective
             .get(binding.name)
             .is_some_and(|value| !value.trim().is_empty())
+            || effective_disables_classification(effective, binding.name)
         {
             continue;
         }
@@ -409,6 +418,43 @@ mod tests {
             .iter()
             .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
             .collect()
+    }
+
+    #[test]
+    fn blank_classification_key_in_env_is_an_opt_out_not_a_missing_value() {
+        use super::{ConfigInput, FileInput, RuntimeSurface, resolve_config};
+        let home = std::path::PathBuf::from("/synthetic/home");
+        let input = |env: BTreeMap<String, String>| ConfigInput {
+            env,
+            cwd: "/synthetic/cwd".into(),
+            os_home: "/synthetic".into(),
+            trusted_project: false,
+            global_env: FileInput::Read {
+                path: home.join(".env"),
+                text: "OCTOCODE_CLASSIFICATION_API=from-home-env".into(),
+            },
+            project_env: FileInput::Missing {
+                path: "/synthetic/cwd/.octocode/.env".into(),
+            },
+            config_file: FileInput::Read {
+                path: home.join(".octocoderc"),
+                text: "{\"classification\":{\"api\":\"from-config-file\"}}".into(),
+            },
+            runtime_surface: RuntimeSurface::Mcp,
+            revision: 1,
+        };
+        assert_eq!(
+            resolve_config(&input(BTreeMap::new())).env_value("OCTOCODE_CLASSIFICATION_API"),
+            Some("from-home-env")
+        );
+        for blank in ["", "  "] {
+            let out = resolve_config(&input(env(&[("OCTOCODE_CLASSIFICATION_API", blank)])));
+            assert_eq!(
+                out.env_value("OCTOCODE_CLASSIFICATION_API").map(str::trim),
+                Some(""),
+                "blank {blank:?} must not be refilled from .env or .octocoderc"
+            );
+        }
     }
 
     #[test]

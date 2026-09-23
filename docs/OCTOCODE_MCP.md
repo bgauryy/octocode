@@ -58,10 +58,9 @@ At startup, the Node adapter loads the platform-specific Rust N-API addon (`@oct
 ## Tool catalog
 
 The full discovery catalog contains 13 tools. With default settings and no
-provider key, the MCP server registers 9: it omits the four gated tools until
-each gate is set — `clasify` (needs a nonblank `OCTOCODE_CLASSIFICATION_API`),
-`ghCloneRepo` (needs `ENABLE_CLONE=true` plus persistent storage), and
-`astRewrite` plus `astTopology` (need `OCTOCODE_BETA=true`). Unavailable tools
+provider key, the MCP server registers 9: `ghCloneRepo` is CLI-only and is
+always omitted. `clasify` needs a nonblank `OCTOCODE_CLASSIFICATION_API`;
+`astRewrite` and `astTopology` need `OCTOCODE_BETA=true`. Unavailable tools
 are omitted from MCP discovery entirely, not registered as failing calls.
 
 | Family | Tools |
@@ -98,15 +97,15 @@ Use environment variables for per-client or per-project settings. Use `<octocode
 | `GITHUB_TOKEN` / `GH_TOKEN` / `OCTOCODE_TOKEN` | — | GitHub API auth. |
 | `GITHUB_API_URL` | `https://api.github.com` | GitHub Enterprise endpoint. |
 | `ENABLE_LOCAL` | `true` | Turns local filesystem and LSP tools on or off. |
-| `ENABLE_CLONE` | `false` | Opt-in. Set `true` to enable `ghCloneRepo` and directory materialization. Also requires `OCTOCODE_STORAGE_MODE` to not be `memory`. |
+| `ENABLE_CLONE` | `false` | Legacy setting retained for config compatibility; it does not expose cloning through MCP. |
 | `TOOLS_TO_RUN` | unset | Strict allowlist — replaces the default set. Every tool you need must be named explicitly. |
 | `DISABLE_TOOLS` | unset | Remove specific tools from the default set. |
 | `WORKSPACE_ROOT`, `ALLOWED_PATHS` | — | Bound local path resolution and validation. |
 | `REQUEST_TIMEOUT` | `30000` ms | Per-request timeout (5 000 – 300 000). |
 | `MAX_RETRIES` | `3` | Retries on transient GitHub failures (0 – 10). |
-| `OCTOCODE_STORAGE_MODE` | `persistent` | Set `memory` to disable all disk writes. Disables clone even if `ENABLE_CLONE=true`. |
+| `OCTOCODE_STORAGE_MODE` | `persistent` | Set `memory` to disable all disk writes and CLI cloning. |
 | `OCTOCODE_OUTPUT_FORMAT` | `yaml` | Tool response format: `yaml` or `json`. |
-| `OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH` | `20000` | Default response size budget (1 000 – 50 000). |
+| `OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH` | `50000` | Automatic response pagination budget (1 000 – 50 000). A larger response without explicit `responseCharLength` is paged: MCP pages the rendered text (structuredContent then carries only `responsePagination`); the CLI returns complete JSON pages of whole result rows (`responseScope:"rows"`; an oversized row is split on its largest array and marked `rowPart`). Follow `responsePagination.next` unchanged. |
 | `OCTOCODE_LSP_CONFIG` | unset | Path to a custom `lsp-servers.json`. |
 | `OCTOCODE_CLASSIFICATION_API` | unset | Classification provider API key (jev default: TypeSafe). A nonblank resolved value registers `clasify`; keep it in the environment or a protected secret source. |
 | `OCTOCODE_CLASSIFICATION_TYPE` | `jev` | Classification vendor selector; per-vendor model/host/endpoint defaults are built in (jev → model `jev-latest`). Results preserve both requested and resolved model names. |

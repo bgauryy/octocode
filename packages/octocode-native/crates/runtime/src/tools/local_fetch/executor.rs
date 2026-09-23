@@ -194,6 +194,17 @@ pub fn process_fetched_content(
             "Redacted private-key block(s) found in the source before selecting the window.".into(),
         );
     }
+    // matchString runs on redacted text: sanitize the whole source (line-count
+    // preserving) before matching so a probe cannot confirm a secret that the
+    // returned window would redact (exact-prefix oracle).
+    let (raw, match_redacted) = if q.match_string.is_some() {
+        match redact_source_lines(&raw, source_path, security) {
+            Ok(value) => value,
+            Err((code, message)) => return LocalFetchResult::error(q.path.clone(), &code, message),
+        }
+    } else {
+        (raw, false)
+    };
     let mode = q.minify.unwrap_or_default();
     let match_blocks = q.match_string.is_some() && mode != MinifyMode::None;
     let applied = if match_blocks { MinifyMode::None } else { mode };
@@ -339,7 +350,10 @@ pub fn process_fetched_content(
     };
     let (chars, ret_bytes, ret_lines) = result_counts(&pg.text);
     let next = continuation(q, &pg.pagination);
-    let source_ranges = if !safe.is_empty() && content_view == MinifyMode::None && safe == selected
+    let source_ranges = if !safe.is_empty()
+        && !match_redacted
+        && content_view == MinifyMode::None
+        && safe == selected
     {
         if let Some(lines) = ext.source_lines.as_ref() {
             let page_lines =
@@ -394,6 +408,35 @@ pub fn process_fetched_content(
         metadata_unavailable: vec![],
         next,
     }
+}
+/// Sanitize the full source while preserving its line structure so match line
+/// numbers stay source-accurate. Falls back to per-line sanitization when a
+/// whole-source redaction would change the line count (multi-line pattern) or
+/// the whole source exceeds the scanner size limit.
+fn redact_source_lines(
+    raw: &str,
+    source_path: &std::path::Path,
+    security: &impl ContentScan,
+) -> Result<(String, bool), (String, String)> {
+    if let Ok((whole, _)) = security.sanitize(raw, source_path) {
+        if whole == raw {
+            return Ok((whole, false));
+        }
+        if line_count(&whole) == line_count(raw) {
+            return Ok((whole, true));
+        }
+    }
+    let mut out = String::with_capacity(raw.len());
+    for segment in raw.split_inclusive('\n') {
+        let (body, newline) = segment
+            .strip_suffix('\n')
+            .map_or((segment, ""), |body| (body, "\n"));
+        let (clean, _) = security.sanitize(body, source_path)?;
+        out.push_str(&clean.replace('\n', " "));
+        out.push_str(newline);
+    }
+    let changed = out != raw;
+    Ok((out, changed))
 }
 fn bounded_continuation(q: &LocalFetchRequest) -> NextCalls {
     let mut query = q.clone();
@@ -590,6 +633,43 @@ mod source_size_tests {
             "private key body leaked from an interior window: {content}"
         );
 
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // matchString must run on redacted text: a line-level secret that the
+    // window sanitizer redacts must not be confirmable by probing matchString
+    // (an exact-prefix oracle). Matching the true secret and a wrong guess must
+    // be indistinguishable, and line numbers must stay source-accurate.
+    #[test]
+    fn match_string_cannot_probe_line_level_secrets() {
+        use crate::security::{ContentSecurity, SecurityRegistry};
+        use std::sync::Arc;
+        let dir = temp_dir();
+        let path = dir.join("config.txt");
+        let secret = "AKIAIOSFODNN7EXAMPLE";
+        fs::write(
+            &path,
+            format!("header\naws_access_key_id = {secret}\nneedle after\n"),
+        )
+        .expect("write file");
+        let security = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+        let probe = |needle: &str| {
+            let req = LocalFetchRequest {
+                path: path.to_string_lossy().into_owned(),
+                match_string: Some(needle.into()),
+                context_lines: Some(0),
+                ..Default::default()
+            };
+            execute_local_fetch(&req, &Paths(dir.clone()), &security, &NeverCancel)
+        };
+        let right = probe("AKIAIOSFODNN7EXAMPL");
+        let wrong = probe("AKIAIOSFODNN7EXAMPQ");
+        assert_eq!(right.selected_match_count, wrong.selected_match_count);
+        assert_eq!(right.error_code, wrong.error_code);
+        assert_eq!(right.selected_match_count, Some(0), "{right:?}");
+        let after = probe("needle");
+        assert_eq!(after.match_ranges, vec![LineRange { start: 3, end: 3 }]);
+        assert_eq!(after.total_lines, Some(3));
         let _ = fs::remove_dir_all(&dir);
     }
 

@@ -38,7 +38,7 @@ This reference is generated from [`packages/octocode-config/config-contract.json
     "format": "yaml",
     "redactEmails": false,
     "pagination": {
-      "defaultCharLength": 20000
+      "defaultCharLength": 50000
     }
   },
   "storage": {
@@ -52,7 +52,8 @@ This reference is generated from [`packages/octocode-config/config-contract.json
   "classification": {
     "type": "jev",
     "api": null,
-    "apiHost": null
+    "apiHost": null,
+    "maxConcurrency": 10
   }
 }
 ```
@@ -67,7 +68,7 @@ Environment values take precedence over `.octocoderc`. Aliases are listed in pri
 | `github.apiUrl` | `GITHUB_API_URL` | `"https://api.github.com"` | url | GitHub REST API root. GitHub Enterprise commonly uses /api/v3. GITHUB_API_URL: shell/MCP only |
 | `github.graphqlEnabled` | `OCTOCODE_GITHUB_GRAPHQL` | `true` | boolean | Use GitHub GraphQL where supported; false forces REST-only access. |
 | `local.enabled` | `ENABLE_LOCAL`<br>`OCTOCODE_ENABLE_LOCAL` | `true` | boolean | Enable local filesystem tools on every runtime surface. ENABLE_LOCAL is canonical; OCTOCODE_ENABLE_LOCAL is an alias. |
-| `local.enableClone` | `ENABLE_CLONE`<br>`OCTOCODE_ENABLE_CLONE` | `false` | boolean | Enable ghCloneRepo and directory materialization. Opt-in and requires persistent storage. ENABLE_CLONE is canonical. |
+| `local.enableClone` | `ENABLE_CLONE`<br>`OCTOCODE_ENABLE_CLONE` | `false` | boolean | Legacy clone setting retained for config compatibility; CLI cloning requires persistent storage and MCP cloning is unavailable. This setting no longer gates ghCloneRepo. ENABLE_CLONE is canonical over OCTOCODE_ENABLE_CLONE. |
 | `local.beta` | `OCTOCODE_BETA` | `false` | boolean | Enable beta features. Currently the sole gate for the astRewrite tool (both preview and apply); off by default on every surface. |
 | `local.allowedPaths` | `ALLOWED_PATHS` | `[]` | string array | Extra absolute or home-relative roots added to the allowed home directory. The environment value is a comma-separated list. |
 | `local.workspaceRoot` | `WORKSPACE_ROOT` | process.cwd() | path | Optional absolute or home-relative workspace root. |
@@ -79,12 +80,13 @@ Environment values take precedence over `.octocoderc`. Aliases are listed in pri
 | `lsp.configPath` | `OCTOCODE_LSP_CONFIG` | unset | string | Optional path to a custom lsp-servers.json. |
 | `output.format` | `OCTOCODE_OUTPUT_FORMAT` | `"yaml"` | `yaml` or `json` | Rendered response format. |
 | `output.redactEmails` | `OCTOCODE_REDACT_EMAILS` | `false` | boolean | Mask email addresses such as GitHub commit authors. |
-| `output.pagination.defaultCharLength` | `OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH` | `20000` | integer (1000–50000) | Automatic pagination character budget. |
+| `output.pagination.defaultCharLength` | `OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH` | `50000` | integer (1000–50000) | Automatic pagination character budget. |
 | `storage.mode` | `OCTOCODE_STORAGE_MODE` | `"persistent"` | `persistent` or `memory` | Whether caches and runtime state may persist on disk. |
 | `extension.storage.mode` | `OCTOCODE_EXTENSION_STORAGE_MODE` | inherits storage.mode | `persistent` or `memory` | Pi extension storage mode override. |
 | `classification.type` | `OCTOCODE_CLASSIFICATION_TYPE` | jev | `jev` | Classification vendor. Per-vendor defaults (host, model, endpoint) are built in. OCTOCODE_CLASSIFICATION_TYPE: shell or trusted home .env |
 | `classification.api` | `OCTOCODE_CLASSIFICATION_API`<br>`OCTOCODE_JEV_KEY` | unset | string | Classification provider API key (bearer credential). Never appears in ResolvedConfig; shell environment wins over the trusted home config file. OCTOCODE_JEV_KEY is the vendor-native alias for the jev provider. OCTOCODE_CLASSIFICATION_API: shell or trusted home .env; OCTOCODE_JEV_KEY: shell or trusted home .env Credential-only; excluded from ResolvedConfig. |
 | `classification.apiHost` | `OCTOCODE_CLASSIFICATION_API_HOST` | vendor default (jev: https://api.typesafe.ai) | url | Optional override of the selected vendor's default API root. Requires HTTP or HTTPS at config validation; provider policy may require HTTPS except loopback. OCTOCODE_CLASSIFICATION_API_HOST: shell or trusted home .env Credential-only; excluded from ResolvedConfig. |
+| `classification.maxConcurrency` | `OCTOCODE_CLASSIFICATION_CONCURRENCY` | `10` | integer (1–64) | Process-wide maximum in-flight classification provider requests per provider endpoint. |
 | — | `OCTOCODE_ENABLE_STATS` | `false` | boolean | Write stats.json on flush; stats remain in memory either way. Environment-only setting. |
 
 ## GitHub token priority

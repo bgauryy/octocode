@@ -55,7 +55,7 @@ pub fn execute_syntax(
     let bytes = std::fs::read(&p.canonical).map_err(super::io_error)?;
     if bytes.len() > MAX_SOURCE {
         return Ok(
-            json!({"path":p.canonical.file_name().unwrap_or_default().to_string_lossy(),"errorCode":"ast.source.limit","error":"Source exceeds the native parser byte limit.","complete":false,"terminalLimit":true}),
+            json!({"status":"error","path":p.canonical.file_name().unwrap_or_default().to_string_lossy(),"errorCode":"ast.source.limit","error":"Source exceeds the native parser byte limit.","complete":false,"terminalLimit":true}),
         );
     }
     let sanitized = security
@@ -90,7 +90,7 @@ pub fn execute_syntax(
         .file_name()
         .unwrap_or_default()
         .to_string_lossy();
-    let mut out = json!({"operation":"tree","treeKind":"syntax","path":display_path,"nodes":nodes,"totalNodes":r.total_nodes,"snapshot":snapshot,"complete":complete,"isPartial":!complete});
+    let mut out = json!({"operation":"tree","treeKind":"syntax","path":display_path,"nodes":nodes,"totalNodes":r.total_nodes,"snapshot":snapshot,"isPartial":!complete});
     if !diagnostics.is_empty() {
         out["diagnostics"] = json!(diagnostics);
     }

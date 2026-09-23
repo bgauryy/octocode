@@ -6,7 +6,12 @@ use super::{
 
 use reqwest::header::{ACCEPT, USER_AGENT};
 use serde::Deserialize;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::{
+    future::Future,
+    sync::OnceLock,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+};
+use tokio_util::sync::CancellationToken;
 
 pub const GITHUB_APP_CLIENT_ID: &str = "178c6fc778ccc68e1d6a";
 
@@ -107,40 +112,116 @@ pub async fn login_device_flow_with_client_id(
     endpoints: &LoginEndpoints,
     client_id: &str,
 ) -> Result<StoredCredentials, ProviderError> {
+    login_device_flow_cancellable(endpoints, client_id, &CancellationToken::new()).await
+}
+
+const LOGIN_HTTP_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// One pooled client for OAuth web-origin calls (device code, polling,
+/// refresh); admission goes through the executor's `auth` group.
+fn login_client() -> Result<&'static reqwest::Client, ProviderError> {
+    static CLIENT: OnceLock<Option<reqwest::Client>> = OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .timeout(LOGIN_HTTP_TIMEOUT)
+                .build()
+                .ok()
+        })
+        .as_ref()
+        .ok_or_else(|| {
+            ProviderError::new(
+                ProviderErrorKind::Transport,
+                "failed to initialize login HTTP client",
+            )
+        })
+}
+
+fn login_cancelled() -> ProviderError {
+    ProviderError::new(ProviderErrorKind::Cancelled, "GitHub login cancelled")
+}
+
+/// Run one OAuth call under the host's `auth` throttling group (anonymous
+/// key: these calls authenticate with the client id, not a token).
+async fn auth_call<T>(
+    endpoints: &LoginEndpoints,
+    cancellation: &CancellationToken,
+    call: impl Future<Output = Result<T, ProviderError>>,
+) -> Result<T, ProviderError> {
+    let origin = url::Url::parse(&endpoints.api_origin)
+        .or_else(|_| url::Url::parse(&endpoints.web_origin))
+        .map_err(|_| {
+            ProviderError::new(
+                ProviderErrorKind::Configuration,
+                "invalid GitHub login origin",
+            )
+        })?;
+    let budget = super::GitHubBudget::global();
+    let state = budget.key_state(&super::LimiterKey::for_url(&origin, None), None);
+    let deadline = Instant::now() + LOGIN_HTTP_TIMEOUT * 2;
+    // OAuth web-origin calls have no API bucket; only the key's secondary
+    // cooldown and circuit apply.
+    state
+        .wait_unblocked(
+            "auth",
+            budget.config(),
+            Duration::from_secs(10),
+            deadline,
+            cancellation,
+        )
+        .await?;
+    let _admission = state
+        .admit(
+            Some(super::budget::Group::Auth),
+            budget.config(),
+            false,
+            Duration::from_secs(10),
+            deadline,
+            cancellation,
+        )
+        .await?;
+    super::budget::count_call();
+    tokio::select! {
+        _ = cancellation.cancelled() => Err(login_cancelled()),
+        result = call => result,
+    }
+}
+
+/// Device flow whose polling sleep ends on `cancellation` or Ctrl-C.
+pub async fn login_device_flow_cancellable(
+    endpoints: &LoginEndpoints,
+    client_id: &str,
+    cancellation: &CancellationToken,
+) -> Result<StoredCredentials, ProviderError> {
     if client_id.trim().is_empty() {
         return Err(ProviderError::new(
             ProviderErrorKind::Configuration,
             "GitHub OAuth client ID is required",
         ));
     }
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(15))
-        .build()
-        .map_err(|_| {
-            ProviderError::new(
-                ProviderErrorKind::Transport,
-                "failed to initialize login HTTP client",
+    let client = login_client()?;
+    let device: DeviceCode = auth_call(endpoints, cancellation, async {
+        client
+            .post(format!("{}/login/device/code", endpoints.web_origin))
+            .header(ACCEPT, "application/json")
+            .header(USER_AGENT, "octocode-native")
+            .header(
+                reqwest::header::CONTENT_TYPE,
+                "application/x-www-form-urlencoded",
             )
-        })?;
-    let device: DeviceCode = client
-        .post(format!("{}/login/device/code", endpoints.web_origin))
-        .header(ACCEPT, "application/json")
-        .header(USER_AGENT, "octocode-native")
-        .header(
-            reqwest::header::CONTENT_TYPE,
-            "application/x-www-form-urlencoded",
-        )
-        .body(device_code_form(client_id))
-        .send()
-        .await
-        .map_err(|_| {
-            ProviderError::new(ProviderErrorKind::Transport, "device code request failed")
-        })?
-        .json()
-        .await
-        .map_err(|_| {
-            ProviderError::new(ProviderErrorKind::Decode, "invalid device code response")
-        })?;
+            .body(device_code_form(client_id))
+            .send()
+            .await
+            .map_err(|_| {
+                ProviderError::new(ProviderErrorKind::Transport, "device code request failed")
+            })?
+            .json()
+            .await
+            .map_err(|_| {
+                ProviderError::new(ProviderErrorKind::Decode, "invalid device code response")
+            })
+    })
+    .await?;
     eprintln!(
         "Open {} and enter code {}",
         device.verification_uri, device.user_code
@@ -148,24 +229,31 @@ pub async fn login_device_flow_with_client_id(
     let deadline = Instant::now() + Duration::from_secs(device.expires_in.unwrap_or(900).min(900));
     let mut interval = Duration::from_secs(device.interval.unwrap_or(5).max(1));
     while Instant::now() < deadline {
-        tokio::time::sleep(interval).await;
-        let token: TokenResponse = client
-            .post(format!("{}/login/oauth/access_token", endpoints.web_origin))
-            .header(ACCEPT, "application/json")
-            .header(USER_AGENT, "octocode-native")
-            .header(
-                reqwest::header::CONTENT_TYPE,
-                "application/x-www-form-urlencoded",
-            )
-            .body(token_poll_form(client_id, &device.device_code))
-            .send()
-            .await
-            .map_err(|_| ProviderError::new(ProviderErrorKind::Transport, "token poll failed"))?
-            .json()
-            .await
-            .map_err(|_| {
-                ProviderError::new(ProviderErrorKind::Decode, "invalid token poll response")
-            })?;
+        tokio::select! {
+            _ = cancellation.cancelled() => return Err(login_cancelled()),
+            _ = tokio::signal::ctrl_c() => return Err(login_cancelled()),
+            _ = tokio::time::sleep(interval) => {}
+        }
+        let token: TokenResponse = auth_call(endpoints, cancellation, async {
+            client
+                .post(format!("{}/login/oauth/access_token", endpoints.web_origin))
+                .header(ACCEPT, "application/json")
+                .header(USER_AGENT, "octocode-native")
+                .header(
+                    reqwest::header::CONTENT_TYPE,
+                    "application/x-www-form-urlencoded",
+                )
+                .body(token_poll_form(client_id, &device.device_code))
+                .send()
+                .await
+                .map_err(|_| ProviderError::new(ProviderErrorKind::Transport, "token poll failed"))?
+                .json()
+                .await
+                .map_err(|_| {
+                    ProviderError::new(ProviderErrorKind::Decode, "invalid token poll response")
+                })
+        })
+        .await?;
         if token.error.as_deref() == Some("authorization_pending") {
             continue;
         }
@@ -174,9 +262,10 @@ pub async fn login_device_flow_with_client_id(
             continue;
         }
         if let Some(access) = token.access_token.clone().filter(|value| !value.is_empty()) {
-            let username = fetch_username(&client, &endpoints.api_origin, &access)
-                .await
-                .unwrap_or_default();
+            let username =
+                fetch_authenticated_login(&endpoints.api_origin, &access, LOGIN_HTTP_TIMEOUT)
+                    .await
+                    .unwrap_or_default();
             let now_secs = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map(|value| value.as_secs())
@@ -216,18 +305,34 @@ pub async fn login_device_flow_with_client_id(
     ))
 }
 
-async fn fetch_username(client: &reqwest::Client, api_origin: &str, token: &str) -> Option<String> {
-    let value: serde_json::Value = client
-        .get(format!("{api_origin}/user"))
-        .header(ACCEPT, "application/vnd.github+json")
-        .header(USER_AGENT, "octocode-native")
-        .bearer_auth(token)
-        .send()
-        .await
-        .ok()?
-        .json()
+/// `GET /user` through the shared executor (throttling, rate-limit
+/// bookkeeping, bounded retries); returns the `login` or `None` on failure.
+pub async fn fetch_authenticated_login(
+    api_url: &str,
+    token: &str,
+    timeout: Duration,
+) -> Option<String> {
+    let endpoint = super::GitHubEndpoint::new(url::Url::parse(api_url).ok()?).ok()?;
+    let transport = super::GitHubTransport::new(
+        endpoint.clone(),
+        std::sync::Arc::new(super::StaticCredentialResolver::new(
+            token.to_owned(),
+            super::CredentialSource::Override,
+        )),
+        super::RetryPolicy {
+            max_attempts: 2,
+            ..Default::default()
+        },
+    )
+    .ok()?;
+    let page = transport
+        .execute(
+            super::RequestSpec::get(endpoint.rest(&["user"]).ok()?),
+            &super::RequestContext::with_timeout(timeout, 1024 * 1024),
+        )
         .await
         .ok()?;
+    let value: serde_json::Value = serde_json::from_slice(&page.body).ok()?;
     value
         .get("login")
         .and_then(|value| value.as_str())
@@ -489,44 +594,39 @@ async fn exchange_refresh_token(
     client_id: &str,
     refresh_token: &str,
 ) -> Result<RefreshedToken, ProviderError> {
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(15))
-        .build()
-        .map_err(|_| {
-            ProviderError::new(
-                ProviderErrorKind::Transport,
-                "failed to initialize refresh HTTP client",
+    let client = login_client()?;
+    let token: TokenResponse = auth_call(endpoints, &CancellationToken::new(), async {
+        client
+            .post(format!("{}/login/oauth/access_token", endpoints.web_origin))
+            .header(ACCEPT, "application/json")
+            .header(USER_AGENT, "octocode-native")
+            .header(
+                reqwest::header::CONTENT_TYPE,
+                "application/x-www-form-urlencoded",
             )
-        })?;
-    let token: TokenResponse = client
-        .post(format!("{}/login/oauth/access_token", endpoints.web_origin))
-        .header(ACCEPT, "application/json")
-        .header(USER_AGENT, "octocode-native")
-        .header(
-            reqwest::header::CONTENT_TYPE,
-            "application/x-www-form-urlencoded",
-        )
-        .body(refresh_token_form(client_id, refresh_token))
-        .send()
-        .await
-        .map_err(|_| {
-            ProviderError::new(ProviderErrorKind::Transport, "token refresh request failed")
-        })?
-        .error_for_status()
-        .map_err(|error| {
-            let status = error.status().map(|value| value.as_u16());
-            let mut failed = ProviderError::new(
-                ProviderErrorKind::Authentication,
-                "credential.refreshFailed",
-            );
-            failed.status = status;
-            failed
-        })?
-        .json()
-        .await
-        .map_err(|_| {
-            ProviderError::new(ProviderErrorKind::Decode, "invalid token refresh response")
-        })?;
+            .body(refresh_token_form(client_id, refresh_token))
+            .send()
+            .await
+            .map_err(|_| {
+                ProviderError::new(ProviderErrorKind::Transport, "token refresh request failed")
+            })?
+            .error_for_status()
+            .map_err(|error| {
+                let status = error.status().map(|value| value.as_u16());
+                let mut failed = ProviderError::new(
+                    ProviderErrorKind::Authentication,
+                    "credential.refreshFailed",
+                );
+                failed.status = status;
+                failed
+            })?
+            .json()
+            .await
+            .map_err(|_| {
+                ProviderError::new(ProviderErrorKind::Decode, "invalid token refresh response")
+            })
+    })
+    .await?;
     if let Some(error) = token.error.filter(|value| !value.is_empty()) {
         return Err(ProviderError::new(
             ProviderErrorKind::Authentication,

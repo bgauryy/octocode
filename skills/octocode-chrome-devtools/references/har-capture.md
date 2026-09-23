@@ -18,7 +18,7 @@ node <skill>/scripts/cdp-checks/har-pager.mjs live-network.har --filter failures
 node <skill>/scripts/cdp-checks/har-redact.mjs live-network.har --strip-bodies
 ```
 
-Token budget: summary <2KB; page 10–50 HAR rows; search `.octocode/tmp/chrome-devtools/` before re-browser; `prune-artifacts.mjs` for retention. For several unread response bodies, bridge them into one scrape session and call `octocode clasify` directly: put each body in one `resources[] × questions[]` matrix as an unread `localFetch` resource, follow its bounded `next.clasify` pagination, and retain partial/insufficient/error pages. Do not paste an enormous HAR or infer from its first page. A semantic answer only routes attention; read exact retained spans for proof.
+Token budget: summary <2KB; page 10–50 HAR rows; search `.octocode/tmp/chrome-devtools/` before re-browser; `prune-artifacts.mjs` for retention. For several unread response bodies, bridge them into one scrape session and call `octocode clasify` directly: screen each non-empty body as an unread `localFetch` resource (≤ 25 cells per matrix, default `maxChars`), run `next.clasify` unchanged on exit 6, and retain partial/insufficient/error pages. Do not paste an enormous HAR or infer from its first page. A semantic answer only routes attention; read exact retained spans for proof.
 
 ## Bridge
 Same scrape `sessionId` + one CDP port → `har-ingest-to-scrape` → `corpus-run-local --regex`. These bridges require the optional `octocode-scraping` skill beside this folder or an explicit `--scraping-skill-dir <dir>`. Thin pages: trust processed API bodies over clean markdown. Playbook: scraping skill `browser-scraping`.

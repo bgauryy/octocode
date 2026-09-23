@@ -154,6 +154,32 @@ mod tests {
         )
     }
     #[test]
+    fn classification_max_concurrency_defaults_overrides_and_clamps() {
+        let out = resolve_config(&input(BTreeMap::new(), None));
+        assert_eq!(out.resolved.classification.max_concurrency, 10.);
+        for (raw, expected) in [("4", 4.), ("0", 1.), ("1000", 64.), ("nope", 10.)] {
+            let env =
+                BTreeMap::from([("OCTOCODE_CLASSIFICATION_CONCURRENCY".into(), raw.to_owned())]);
+            assert_eq!(
+                resolve_config(&input(env, None))
+                    .resolved
+                    .classification
+                    .max_concurrency,
+                expected,
+                "OCTOCODE_CLASSIFICATION_CONCURRENCY={raw}"
+            );
+        }
+        let file = resolve_config(&input(
+            BTreeMap::new(),
+            Some("{\"classification\":{\"maxConcurrency\":3}}"),
+        ));
+        assert_eq!(file.resolved.classification.max_concurrency, 3.);
+        assert_eq!(
+            get_config_value(&file.resolved, "classification.maxConcurrency"),
+            Some(json!(3.0))
+        );
+    }
+    #[test]
     fn invalid_file_is_all_or_nothing_and_diagnostic() {
         let out = resolve_config(&input(
             BTreeMap::new(),

@@ -76,31 +76,15 @@ fn resolve_auth(
 }
 
 /// Call `GET /user` on the GitHub API with the given token and return the
-/// `login` field. Times out after 5 s and silently returns `None` on any error.
+/// `login` field. Goes through the shared GitHub executor (throttling and
+/// rate-limit state); times out after 5 s and returns `None` on any error.
 async fn fetch_github_username(token: &str, api_base: &str) -> Option<String> {
-    let url = format!("{}/user", api_base.trim_end_matches('/'));
-    let resp = tokio::time::timeout(
+    octocode_native::providers::github::login::fetch_authenticated_login(
+        api_base,
+        token,
         std::time::Duration::from_secs(5),
-        reqwest::Client::new()
-            .get(&url)
-            .header("Authorization", format!("Bearer {token}"))
-            .header(
-                "User-Agent",
-                concat!("octocode-native/", env!("CARGO_PKG_VERSION")),
-            )
-            .header("Accept", "application/vnd.github.v3+json")
-            .send(),
     )
     .await
-    .ok()?
-    .ok()?;
-    if !resp.status().is_success() {
-        return None;
-    }
-    let json: serde_json::Value = resp.json().await.ok()?;
-    json.get("login")
-        .and_then(|v| v.as_str())
-        .map(str::to_owned)
 }
 
 pub async fn auth_status(runtime: &ToolRuntime, json_out: bool) -> u8 {

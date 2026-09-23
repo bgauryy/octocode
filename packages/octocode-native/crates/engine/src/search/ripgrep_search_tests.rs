@@ -727,3 +727,78 @@ fn only_matching_default_off_keeps_whole_line_value() {
     // Without only_matching the value is the full line, unchanged.
     assert_eq!(r.files[0].matches[0].value, "prefix_NEEDLE_suffix");
 }
+
+#[test]
+fn exclude_dir_trailing_slash_prunes_directory() {
+    let t = TmpDir::new();
+    t.write("keep/a.txt", "target\n");
+    t.write("skip/b.txt", "target\n");
+    let mut o = opts(t.path(), "target");
+    o.exclude_dir = Some(vec!["skip/".to_owned()]);
+    let r = search(o).expect("ok");
+    assert_eq!(r.files.len(), 1);
+    assert!(r.files[0].path.contains("keep"));
+}
+
+#[test]
+fn files_without_match_omits_binary_files_quit_before_matching() {
+    let t = TmpDir::new();
+    t.write("data.bin", "\u{0}needle\n");
+    t.write("plain.txt", "nothing here\n");
+    t.write("hit.txt", "needle\n");
+    let mut o = opts(t.path(), "needle");
+    o.files_without_match = Some(true);
+    let r = search(o).expect("ok");
+    let paths: Vec<_> = r.files.iter().map(|f| f.path.as_str()).collect();
+    assert_eq!(paths.len(), 1, "{paths:?}");
+    assert!(paths[0].ends_with("plain.txt"));
+}
+
+#[test]
+fn non_utf8_line_spans_and_columns_map_through_lossy_decoding() {
+    let t = TmpDir::new();
+    fs::write(t.0.join("latin.txt"), b"caf\xe9\xe9\xe9 foo bar\n").expect("write");
+    let mut o = opts(t.path(), "foo");
+    o.only_matching = Some(true);
+    let r = search(o).expect("ok");
+    let m = &r.files[0].matches[0];
+    assert_eq!(m.value, "foo");
+    assert_eq!(m.column, 7);
+    let r = search(opts(t.path(), "bar")).expect("ok");
+    assert_eq!(r.files[0].matches[0].column, 11);
+}
+
+#[test]
+fn context_snippet_is_contiguous_and_includes_neighbouring_match_lines() {
+    let t = TmpDir::new();
+    t.write("a.txt", "alpha foo\nFoo bar\nfoo foo foo\nbaz\n");
+    let mut o = opts(t.path(), "foo");
+    o.context_lines = Some(1);
+    o.case_sensitive = Some(false);
+    let r = search(o).expect("ok");
+    let m = &r.files[0].matches;
+    assert_eq!(m[0].value, "alpha foo\nFoo bar");
+    assert_eq!(m[2].value, "Foo bar\nfoo foo foo\nbaz");
+}
+
+#[test]
+fn long_line_snippet_keeps_the_match_visible() {
+    let t = TmpDir::new();
+    t.write("long.txt", &format!("{}foo tail\n", "x".repeat(5000)));
+    let r = search(opts(t.path(), "foo")).expect("ok");
+    let m = &r.files[0].matches[0];
+    assert!(m.value.contains("foo"), "{}", &m.value[..60]);
+    assert!(m.value.starts_with('…'));
+    assert!(m.value.chars().count() <= 500);
+    assert!(m.original_chars.is_some());
+}
+
+#[test]
+fn long_leading_context_does_not_hide_the_match() {
+    let t = TmpDir::new();
+    t.write("ctx.txt", &format!("{}\ntarget here\n", "C".repeat(600)));
+    let mut o = opts(t.path(), "target");
+    o.context_lines = Some(1);
+    let r = search(o).expect("ok");
+    assert!(r.files[0].matches[0].value.contains("target"));
+}

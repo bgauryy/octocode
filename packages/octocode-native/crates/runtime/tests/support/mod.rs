@@ -9,11 +9,20 @@ use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// Per-fixture token suffix. The GitHub rate-limit budget is process-wide and
+/// keyed by API host + token digest; wiremock pools its servers, so a later
+/// test can reuse an earlier test's `127.0.0.1:<port>`. A distinct token per
+/// workspace keeps one test's simulated limits, cooldowns, pacing, and circuit
+/// state from leaking into another.
+static FIXTURE_SEQ: AtomicU64 = AtomicU64::new(0);
 
 pub struct Workspace {
     _root: tempfile::TempDir,
     pub workspace: PathBuf,
     pub home: PathBuf,
+    pub token: String,
 }
 
 impl Workspace {
@@ -23,10 +32,15 @@ impl Workspace {
         let home = root.path().join("home");
         std::fs::create_dir_all(&workspace).expect("workspace directory");
         std::fs::create_dir_all(&home).expect("home directory");
+        let token = format!(
+            "fixture-token-{}",
+            FIXTURE_SEQ.fetch_add(1, Ordering::Relaxed)
+        );
         Self {
             _root: root,
             workspace,
             home,
+            token,
         }
     }
 
@@ -68,7 +82,7 @@ impl Workspace {
                 "OCTOCODE_HOME".into(),
                 self.home.to_string_lossy().into_owned(),
             ),
-            ("OCTOCODE_TOKEN".into(), "fixture-token".into()),
+            ("OCTOCODE_TOKEN".into(), self.token.clone()),
             ("OCTOCODE_ENABLE_STATS".into(), "false".into()),
             ("MAX_RETRIES".into(), "0".into()),
             ("REQUEST_TIMEOUT".into(), "5000".into()),

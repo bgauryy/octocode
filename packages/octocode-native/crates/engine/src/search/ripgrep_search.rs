@@ -177,6 +177,17 @@ fn ceil_char_boundary(s: &str, i: usize) -> usize {
     i
 }
 
+/// Map a byte offset in the raw line `bytes` to the matching byte offset in
+/// `String::from_utf8_lossy(bytes)`. Each invalid byte becomes a 3-byte U+FFFD,
+/// so raw offsets must not be applied to the lossy text directly.
+fn lossy_offset(bytes: &[u8], offset: usize) -> usize {
+    let offset = offset.min(bytes.len());
+    match std::str::from_utf8(bytes) {
+        Ok(_) => offset,
+        Err(_) => String::from_utf8_lossy(&bytes[..offset]).len(),
+    }
+}
+
 /// Slice the matched span `[start, end)` (byte offsets) out of `line`,
 /// optionally widened by `window` characters on each side. Always returns a
 /// valid UTF-8 substring; trimmed sides are marked with `…`.
@@ -348,9 +359,11 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
                 .find_iter(bytes, |m| {
                     count = count.saturating_add(1);
                     if count <= MAX_ONLY_MATCHING_PER_LINE {
-                        let value = span_value(&line_text, m.start(), m.end(), window);
+                        let (start, end) =
+                            (lossy_offset(bytes, m.start()), lossy_offset(bytes, m.end()));
+                        let value = span_value(&line_text, start, end, window);
                         let column =
-                            byte_to_char_offset_inner(&line_text, m.start().min(line_text.len()))
+                            byte_to_char_offset_inner(&line_text, start.min(line_text.len()))
                                 as u32;
                         om.push(RipgrepMatch {
                             line: line_number,
@@ -397,7 +410,7 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
                 let line_text = strip_trailing_newline(line_cow.into_owned());
                 let column = byte_to_char_offset_inner(
                     &line_text,
-                    first_byte_col.unwrap_or(0).min(line_text.len()),
+                    lossy_offset(bytes, first_byte_col.unwrap_or(0)).min(line_text.len()),
                 ) as u32;
                 self.entry.raw_matches.push(RawMatch {
                     line_text,
@@ -479,6 +492,11 @@ fn build_walk_builder(opts: &RipgrepSearchOptions) -> Result<WalkBuilder> {
         }
         if let Some(exclude_dir) = &opts.exclude_dir {
             for dir in exclude_dir {
+                // `excludeDir: ["sub/"]` must behave like `["sub"]`, not build `!sub//`.
+                let dir = dir.trim_end_matches('/');
+                if dir.is_empty() {
+                    continue;
+                }
                 ob.add(&format!("!{dir}/")).map_err(to_napi_err)?;
             }
         }
@@ -707,6 +725,11 @@ fn collect<M: Matcher + Sync>(
             }
 
             let has_match = matched_lines > 0;
+            // A binary file quit before any match is *unknown*, not "without
+            // match": rg --files-without-match never lists it either.
+            if was_binary && !has_match && keep_unmatched {
+                return WalkState::Continue;
+            }
             if has_match == keep_unmatched {
                 // Normal/files-only/count modes keep matched files;
                 // files-without-match keeps the rest.

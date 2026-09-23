@@ -18,11 +18,12 @@ const PUBLIC_TOOL_NAMES = DIRECT_TOOL_DEFINITIONS.map(
   definition => definition.name
 );
 const DISCOVERABLE_TOOL_COUNT = PUBLIC_TOOL_NAMES.length;
+// Mirrors native `ToolId::is_beta` (crates/runtime/src/tools/id.rs): hidden
+// unless OCTOCODE_BETA / local.beta is enabled.
+const BETA_TOOL_NAMES = new Set([TOOL_NAMES.AST_TOPOLOGY, TOOL_NAMES.AST_REWRITE]);
 const DEFAULT_TOOL_NAMES = PUBLIC_TOOL_NAMES.filter(name => {
-  if (
-    name === TOOL_NAMES.CLASIFY
-  )
-    return false;
+  if (name === TOOL_NAMES.CLASIFY) return false;
+  if (BETA_TOOL_NAMES.has(name)) return DEFAULT_CONFIG.local.beta;
   return name === 'ghCloneRepo' ? DEFAULT_CONFIG.local.enableClone : true;
 });
 const DEFAULT_TOOL_COUNT = DEFAULT_TOOL_NAMES.length;
@@ -267,8 +268,8 @@ function validatePrimaryToolGuidance() {
       file: 'README.md',
       required: [
         `**${DISCOVERABLE_TOOL_COUNT} tools in the full discovery catalog.**`,
-        `| MCP, no flags | ${DEFAULT_TOOL_COUNT} |`,
-        `| CLI, no flags | ${DEFAULT_TOOL_COUNT} |`,
+        `| MCP, no flags | ${DEFAULT_TOOL_COUNT} of ${DISCOVERABLE_TOOL_COUNT} |`,
+        `| CLI, no flags | ${DISCOVERABLE_TOOL_COUNT} discoverable |`,
         '| `ghSearch` |',
       ],
       forbidden: [
@@ -359,7 +360,7 @@ function validatePrimaryToolGuidance() {
     },
     {
       file: 'docs/CONFIGURATION.md',
-      required: ['Example: ["ghSearch", "localSearch", "artifactSearch"]'],
+      required: ['(e.g. `["ghSearch","localSearch"]`)'],
       forbidden: ['Example: `["ghSearchCode", "localSearch"]`'],
     },
   ];

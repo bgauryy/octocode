@@ -26,7 +26,7 @@ async fn github_cache_survives_runtime_close_until_explicitly_cleared() {
                     }))
             }
         })
-        .expect(3)
+        .expect(2)
         .mount(&server)
         .await;
     let workspace = Workspace::new();
@@ -50,8 +50,10 @@ async fn github_cache_survives_runtime_close_until_explicitly_cleared() {
         .iter()
         .filter(|request| request.url.path().contains("/contents/"))
         .collect();
+    // The body is keyed by the commit SHA, so the surviving disk entry is
+    // served as is: no conditional (304) round trip after a restart.
+    assert_eq!(contents.len(), 1);
     assert!(contents[0].headers.get("if-none-match").is_none());
-    assert_eq!(contents[1].headers.get("if-none-match").unwrap(), "\"v1\"");
 
     second.clear_github_cache();
     let outcome = call(&second, "ghGetFileContent", query).await.unwrap();

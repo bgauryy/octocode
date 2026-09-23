@@ -164,17 +164,21 @@ impl<R: CredentialResolver, C: ConditionalCache> GitHubProvider<R, C> {
                 raw_response_bytes: 0,
             });
         }
-        let raw_response_bytes = page.body.len();
-        let payload: ContentPayload = serde_json::from_slice(&page.body).map_err(|_| {
-            ProviderError::new(ProviderErrorKind::Decode, "invalid GitHub content response")
-        })?;
-        if payload.kind.as_deref() != Some("file") {
-            return Err(ProviderError::new(
-                ProviderErrorKind::Validation,
-                "GitHub path is not a file",
-            ));
-        }
-        let bytes = decode_bytes(payload.encoding.as_deref(), payload.content)?;
+        let mut raw_response_bytes = page.body.len();
+        let payload = parse_content_payload(&page.body, &request.path)?;
+        // Files between 1 MB and 100 MB come back 200 with `encoding:"none"`
+        // and an empty body; their bytes are only available as a git blob.
+        let needs_blob = payload.encoding.as_deref() == Some("none")
+            || (payload.content.as_deref().is_none_or(str::is_empty)
+                && payload.size.unwrap_or(0) > 0);
+        let bytes = match payload.sha.as_deref().filter(|_| needs_blob) {
+            Some(sha) => {
+                let (bytes, blob_bytes) = self.fetch_blob(request, sha, context).await?;
+                raw_response_bytes = raw_response_bytes.saturating_add(blob_bytes);
+                bytes
+            }
+            None => decode_bytes(payload.encoding.as_deref(), payload.content)?,
+        };
         let etag = page
             .headers
             .get("etag")
@@ -354,27 +358,80 @@ impl<R: CredentialResolver, C: ConditionalCache> GitHubProvider<R, C> {
                     "file was not present in its parent directory",
                 )
             })?;
+        let (bytes, blob_bytes) = self.fetch_blob(request, &entry.sha, context).await?;
+        Ok((bytes, directory.body.len().saturating_add(blob_bytes)))
+    }
+
+    async fn fetch_blob(
+        &self,
+        request: &ContentRequest,
+        sha: &str,
+        context: &RequestContext,
+    ) -> Result<(Vec<u8>, usize), ProviderError> {
         let blob_url = self.transport.endpoint().rest(&[
             "repos",
             &request.owner,
             &request.repo,
             "git",
             "blobs",
-            &entry.sha,
+            sha,
         ])?;
         let blob = self
             .transport
             .execute(RequestSpec::get(blob_url), context)
             .await?;
-        let raw_response_bytes = directory.body.len().saturating_add(blob.body.len());
         let payload: BlobPayload = serde_json::from_slice(&blob.body).map_err(|_| {
             ProviderError::new(ProviderErrorKind::Decode, "invalid GitHub blob response")
         })?;
         Ok((
             decode_bytes(Some(&payload.encoding), Some(payload.content))?,
-            raw_response_bytes,
+            blob.body.len(),
         ))
     }
+}
+
+/// Parse a Contents API response for a single file. Directories (arrays),
+/// symlinks and submodules get their own actionable validation errors instead
+/// of an opaque decode failure.
+fn parse_content_payload(body: &[u8], path: &str) -> Result<ContentPayload, ProviderError> {
+    let value: serde_json::Value = serde_json::from_slice(body).map_err(|_| {
+        ProviderError::new(ProviderErrorKind::Decode, "invalid GitHub content response")
+    })?;
+    if value.is_array() {
+        return Err(not_a_file(format!(
+            "Path \"{path}\" {IS_A_DIRECTORY}, not a file; list it with ghSearch operation:\"tree\"."
+        )));
+    }
+    let payload: ContentPayload = serde_json::from_value(value).map_err(|_| {
+        ProviderError::new(ProviderErrorKind::Decode, "invalid GitHub content response")
+    })?;
+    match payload.kind.as_deref() {
+        Some("file") => Ok(payload),
+        Some("dir") => Err(not_a_file(format!(
+            "Path \"{path}\" {IS_A_DIRECTORY}, not a file; list it with ghSearch operation:\"tree\"."
+        ))),
+        Some("symlink") => Err(not_a_file(match payload.target.as_deref() {
+            Some(target) => format!(
+                "Path \"{path}\" is a symlink to \"{target}\"; read the target path instead."
+            ),
+            None => format!("Path \"{path}\" is a symlink; read its target path instead."),
+        })),
+        Some("submodule") => Err(not_a_file(match payload.submodule_git_url.as_deref() {
+            Some(url) => format!(
+                "Path \"{path}\" is a git submodule ({url}); read files from the submodule repository instead."
+            ),
+            None => format!(
+                "Path \"{path}\" is a git submodule; read files from the submodule repository instead."
+            ),
+        })),
+        _ => Err(not_a_file(format!("GitHub path \"{path}\" is not a file"))),
+    }
+}
+/// Message fragment identifying a directory read; `runtime::github::file_error`
+/// keys its tree-listing recovery hint off this exact text.
+const IS_A_DIRECTORY: &str = "is a directory";
+fn not_a_file(message: String) -> ProviderError {
+    ProviderError::new(ProviderErrorKind::Validation, message)
 }
 #[derive(Deserialize)]
 struct ContentPayload {
@@ -382,6 +439,14 @@ struct ContentPayload {
     kind: Option<String>,
     encoding: Option<String>,
     content: Option<String>,
+    #[serde(default)]
+    size: Option<u64>,
+    #[serde(default)]
+    sha: Option<String>,
+    #[serde(default)]
+    target: Option<String>,
+    #[serde(default)]
+    submodule_git_url: Option<String>,
 }
 #[derive(Deserialize)]
 struct RepositoryPayload {

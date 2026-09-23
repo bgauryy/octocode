@@ -98,6 +98,8 @@ pub struct RepositorySearchItem {
     pub language: Option<String>,
     pub homepage: Option<String>,
     pub license: Option<License>,
+    #[serde(default)]
+    pub archived: bool,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct License {
@@ -203,9 +205,13 @@ impl<R: CredentialResolver> GitHubTransport<R> {
             "invalid GitHub repository search response",
         )
     }
+    /// List an owner's repositories. `sort` is a list-API sort key
+    /// (`created`, `updated`, `pushed`, `full_name`); when set, results are
+    /// ordered descending (newest first) like the search API's date sorts.
     pub async fn list_owner_repositories(
         &self,
         owner: &str,
+        sort: Option<&str>,
         page: usize,
         per_page: usize,
         context: &RequestContext,
@@ -215,9 +221,17 @@ impl<R: CredentialResolver> GitHubTransport<R> {
             if kind == "orgs" {
                 url = self.endpoint().rest(&["orgs", name, "repos"])?;
             }
-            url.query_pairs_mut()
-                .append_pair("page", &page.to_string())
-                .append_pair("per_page", &per_page.to_string());
+            {
+                let mut pairs = url.query_pairs_mut();
+                pairs
+                    .append_pair("page", &page.to_string())
+                    .append_pair("per_page", &per_page.to_string());
+                if let Some(sort) = sort {
+                    pairs
+                        .append_pair("sort", sort)
+                        .append_pair("direction", "desc");
+                }
+            }
             Ok(RequestSpec::get(url))
         };
         let response = match self.execute(fetch("orgs", owner)?, context).await {
@@ -259,6 +273,25 @@ impl<R: CredentialResolver> GitHubTransport<R> {
                 .as_ref(),
             "invalid GitHub tree response",
         )
+    }
+    /// Whether `reference` (branch, tag, or SHA) resolves to a commit.
+    /// `Ok(false)` only on the provider's definitive not-found answers (404, or
+    /// 422 "No commit found"); every other failure propagates.
+    pub async fn ref_exists(
+        &self,
+        owner: &str,
+        repo: &str,
+        reference: &str,
+        context: &RequestContext,
+    ) -> Result<bool, ProviderError> {
+        let url = self
+            .endpoint()
+            .rest(&["repos", owner, repo, "commits", reference])?;
+        match self.execute(RequestSpec::get(url), context).await {
+            Ok(_) => Ok(true),
+            Err(error) if matches!(error.status, Some(404 | 422)) => Ok(false),
+            Err(error) => Err(error),
+        }
     }
     pub async fn repository_metadata(
         &self,

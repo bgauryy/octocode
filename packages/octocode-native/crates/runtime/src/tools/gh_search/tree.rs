@@ -93,6 +93,15 @@ pub(super) async fn execute<
     {
         Ok(value) => value,
         Err(error) if error.status == Some(404) && requested_branch.is_some() => {
+            // A 404 means the ref OR the path is missing. Only fall back to the
+            // default branch when the requested ref itself does not resolve;
+            // otherwise report the missing path on the requested ref.
+            if transport
+                .ref_exists(owner, repo, &resolved_branch, context)
+                .await?
+            {
+                return Err(error);
+            }
             let actual = transport
                 .repository_metadata(owner, repo, context)
                 .await?
@@ -225,6 +234,9 @@ pub(super) async fn execute<
             });
         }
         value["location"] = outcome.location;
+        if !outcome.warnings.is_empty() {
+            value["warnings"] = json!(outcome.warnings);
+        }
     }
 
     let metadata_page = metadata_page.unwrap_or(1);
@@ -310,6 +322,7 @@ async fn traverse<R: CredentialResolver, C: crate::providers::github::Conditiona
             && let Ok(tree) =
                 serde_json::from_slice::<crate::providers::github::TreeResponse>(&cached.bytes)
         {
+            root_is_directory(&tree, root)?;
             return Ok(traversal_from_git_tree(tree, root, max_depth));
         }
         match provider
@@ -326,6 +339,7 @@ async fn traverse<R: CredentialResolver, C: crate::providers::github::Conditiona
             .await
         {
             Ok(tree) if !tree.truncated => {
+                root_is_directory(&tree, root)?;
                 if let Ok(partition) = provider.transport.cache_partition(context, None).await
                     && let Ok(bytes) = serde_json::to_vec(&tree)
                 {
@@ -385,6 +399,16 @@ async fn traverse<R: CredentialResolver, C: crate::providers::github::Conditiona
             Err(error) => return Err(error),
         };
         traversal.contents_limit |= listing.raw_entry_count >= CONTENTS_LIMIT;
+        // The Contents API answers a file path with a single object whose
+        // path is the requested path itself; a tree cannot list a file.
+        if required
+            && !path.is_empty()
+            && let [entry] = listing.entries.as_slice()
+            && entry.path == path
+            && entry.kind != "dir"
+        {
+            return Err(not_a_directory(&path, &entry.kind));
+        }
         for entry in listing.entries {
             let Some(kind) = entry_kind(&entry) else {
                 continue;
@@ -404,6 +428,35 @@ async fn traverse<R: CredentialResolver, C: crate::providers::github::Conditiona
         }
     }
     Ok(traversal)
+}
+
+fn root_is_directory(
+    tree: &crate::providers::github::TreeResponse,
+    root: &str,
+) -> Result<(), ProviderError> {
+    match tree
+        .tree
+        .iter()
+        .find(|entry| !root.is_empty() && entry.path == root && entry.kind != "tree")
+    {
+        Some(entry) => Err(not_a_directory(root, &entry.kind)),
+        None => Ok(()),
+    }
+}
+
+fn not_a_directory(path: &str, kind: &str) -> ProviderError {
+    let kind = match kind {
+        "blob" | "file" => "a file",
+        "commit" | "submodule" => "a git submodule",
+        "symlink" => "a symlink",
+        _ => "an unsupported entry",
+    };
+    ProviderError::new(
+        ProviderErrorKind::Validation,
+        format!(
+            "Path \"{path}\" is {kind}, not a directory; read files with ghGetFileContent, or list its parent directory."
+        ),
+    )
 }
 
 fn traversal_from_git_tree(
@@ -884,6 +937,7 @@ struct MaterializeOutcome {
     location: Value,
     next_offset: Option<usize>,
     reason: &'static str,
+    warnings: Vec<String>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -916,6 +970,7 @@ async fn materialize_tree<R: CredentialResolver, C: crate::providers::github::Co
     let mut total_bytes = 0usize;
     let mut cursor = offset;
     let mut reason = "listing";
+    let mut warnings = Vec::new();
     while cursor < entries.len() {
         if written >= MATERIALIZE_FILE_CAP {
             reason = "writeCap";
@@ -930,7 +985,20 @@ async fn materialize_tree<R: CredentialResolver, C: crate::providers::github::Co
         if entry.kind != EntryKind::File {
             continue;
         }
-        let acquired = provider
+        if entry
+            .size
+            .is_some_and(|size| size > MATERIALIZE_FILE_BYTES as u64)
+        {
+            warnings.push(format!(
+                "Skipped {}: larger than the {} KiB materialize per-file limit.",
+                entry.path,
+                MATERIALIZE_FILE_BYTES / 1024
+            ));
+            continue;
+        }
+        // One unreadable file (binary, oversized, unsupported entry) must not
+        // abort the batch; only auth/rate/timeout/cancel failures propagate.
+        let acquired = match provider
             .get_file_content(
                 &crate::providers::github::ContentRequest {
                     owner: owner.to_owned(),
@@ -942,8 +1010,30 @@ async fn materialize_tree<R: CredentialResolver, C: crate::providers::github::Co
                 },
                 context,
             )
-            .await?;
+            .await
+        {
+            Ok(acquired) => acquired,
+            Err(error)
+                if !matches!(
+                    error.kind,
+                    ProviderErrorKind::Authentication
+                        | ProviderErrorKind::Permission
+                        | ProviderErrorKind::RateLimited
+                        | ProviderErrorKind::Timeout
+                        | ProviderErrorKind::Cancelled
+                ) =>
+            {
+                warnings.push(format!("Skipped {}: {}.", entry.path, error.message));
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
         if acquired.bytes.len() > MATERIALIZE_FILE_BYTES {
+            warnings.push(format!(
+                "Skipped {}: larger than the {} KiB materialize per-file limit.",
+                entry.path,
+                MATERIALIZE_FILE_BYTES / 1024
+            ));
             continue;
         }
         if total_bytes.saturating_add(acquired.bytes.len()) > MATERIALIZE_TOTAL_BYTES {
@@ -985,6 +1075,7 @@ async fn materialize_tree<R: CredentialResolver, C: crate::providers::github::Co
         location,
         next_offset: has_more.then_some(cursor),
         reason,
+        warnings,
     }))
 }
 

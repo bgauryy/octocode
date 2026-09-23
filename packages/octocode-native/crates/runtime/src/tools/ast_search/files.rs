@@ -253,7 +253,12 @@ fn make_row(
         "symlink" => "symlink",
         _ => "file",
     };
-    let mut output = json!({"path":path,"type":kind});
+    // `type` is omitted for regular files (the common case); only directories
+    // and symlinks carry it.
+    let mut output = json!({"path":path});
+    if kind != "file" {
+        output["type"] = json!(kind);
+    }
     if kind != "directory"
         && let Some(size) = e.size
     {
@@ -323,16 +328,19 @@ fn line_count(
         return Ok(0);
     };
     let mut buffer = [0_u8; 16 * 1024];
-    let mut lines = 1_usize;
+    // Newlines terminate lines; a non-empty final line without one still counts.
+    let mut lines = 0_usize;
+    let mut last_byte = None;
     loop {
         cancel.check().map_err(super::cancelled)?;
         match file.read(&mut buffer) {
-            Ok(0) => return Ok(lines),
+            Ok(0) => return Ok(lines + usize::from(last_byte.is_some_and(|b| b != b'\n'))),
             Ok(bytes) => {
                 lines += buffer[..bytes]
                     .iter()
                     .filter(|byte| **byte == b'\n')
-                    .count()
+                    .count();
+                last_byte = buffer[..bytes].last().copied();
             }
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
             Err(_) => return Ok(0),

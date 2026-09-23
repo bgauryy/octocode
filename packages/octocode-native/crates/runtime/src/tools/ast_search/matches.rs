@@ -55,6 +55,20 @@ pub fn execute_match(
             "match requires exactly one of pattern or rule",
         ));
     }
+    let lang_extensions = q
+        .lang_type
+        .as_deref()
+        .map(|language| {
+            language_extensions(language).ok_or_else(|| {
+                super::AstError::new(
+                    "ast.language.unsupported",
+                    format!(
+                        "langType \"{language}\" is not a supported structural grammar. Use a language name, id, or extension such as \"typescript\", \"rust\", or \"py\"."
+                    ),
+                )
+            })
+        })
+        .transpose()?;
     let p = paths.validate(&q.path).map_err(super::AstError::from)?;
     let meta = std::fs::metadata(&p.canonical).map_err(super::io_error)?;
     if meta.is_dir() && q.lang_type.is_none() {
@@ -70,6 +84,17 @@ pub fn execute_match(
     let mut scan_skips = (0_u32, 0_u32, 0_u32);
     let mut skipped_by_prefilter = 0_u32;
     let mut files = if meta.is_file() {
+        if let (Some(extensions), Some(language)) = (&lang_extensions, q.lang_type.as_deref())
+            && !has_extension_in(&p.canonical, extensions)
+        {
+            return Err(super::AstError::new(
+                "ast.language.mismatch",
+                format!(
+                    "{} is not a {language} source file; omit langType or choose the grammar matching its extension.",
+                    super::display_name(&p.canonical)
+                ),
+            ));
+        }
         let bytes = std::fs::read(&p.canonical).map_err(super::io_error)?;
         let s = security
             .validate_text_bytes(&bytes, Some(&p.canonical), 1_000_000)
@@ -100,10 +125,11 @@ pub fn execute_match(
                 path: p.canonical.to_string_lossy().into_owned(),
                 pattern: q.pattern.clone(),
                 rule: q.rule.clone(),
-                include: q
-                    .include
-                    .clone()
-                    .or_else(|| q.lang_type.as_deref().and_then(language_include_globs)),
+                include: q.include.clone().or_else(|| {
+                    lang_extensions
+                        .as_ref()
+                        .map(|extensions| extensions.iter().map(|ext| format!("*.{ext}")).collect())
+                }),
                 exclude: q.exclude.clone(),
                 exclude_dir: q.exclude_dir.clone(),
                 hidden: q.hidden,
@@ -112,7 +138,15 @@ pub fn execute_match(
                 max_files: Some(q.max_files.unwrap_or(2_000)),
                 max_file_bytes: Some(1_000_000),
             },
-            &|path| super::allow_discovery(path, paths, cancel),
+            &|path| {
+                // Explicit include globs are intersected with langType: files
+                // outside the selected grammar are never candidates.
+                Ok(super::allow_discovery(path, paths, cancel)?
+                    && (q.include.is_none()
+                        || lang_extensions.as_ref().is_none_or(|extensions| {
+                            !path.is_file() || has_extension_in(path, extensions)
+                        })))
+            },
         )
         .map_err(super::native_error)?;
         if let Some(error) = diagnostic_error(&r.diagnostics) {
@@ -186,28 +220,50 @@ pub fn execute_match(
     let matches_per_page = q.max_matches_per_file.unwrap_or(100).clamp(1, 1_000) as usize;
     let match_page = q.match_page.max(1) as usize;
     let match_start = (match_page - 1).saturating_mul(matches_per_page);
-    let mut has_more_matches = false;
-    let mut has_truncated_captures = false;
+    let content_length = q.match_content_length.unwrap_or(500).clamp(1, 100_000) as usize;
+    // Per-file coverage: files that parsed, files whose query failed to
+    // compile, and files cut short (execution limit, unreadable, unsupported).
+    let mut parsed_files = 0_u32;
+    let mut compile_error: Option<super::AstError> = None;
+    let mut compile_failed_files = 0_u32;
+    let mut unevaluated_files = 0_u32;
     for (path, matches, diagnostics, status) in files {
+        match status.as_str() {
+            "ok" => parsed_files += 1,
+            "skippedByPreFilter" => {}
+            _ => {
+                if let Some(diagnostic) = diagnostics
+                    .iter()
+                    .find(|diagnostic| diagnostic.code == "structural.query.compileFailed")
+                {
+                    compile_failed_files += 1;
+                    compile_error.get_or_insert_with(|| {
+                        super::AstError::new(diagnostic.code.clone(), diagnostic.message.clone())
+                    });
+                } else {
+                    unevaluated_files += 1;
+                }
+            }
+        }
         let matches = matches
             .into_iter()
-            .map(|value| match_value(value, q.capture_text.unwrap_or(false)))
+            .map(|value| match_value(value, q.capture_text.unwrap_or(false), content_length))
             .collect::<Vec<_>>();
         if !matches.is_empty() {
             let total = matches.len();
             total_matches += total as u64;
             if file_list {
                 if q.result_view.as_deref() == Some("countMatches") {
-                    groups.push(json!({"path":path,"totalOccurrences":total}));
+                    groups.push((json!({"path":path,"totalOccurrences":total}), false, false));
                 } else {
-                    groups.push(json!({"path":path}));
+                    groups.push((json!({"path":path}), false, false));
                 }
                 continue;
             }
             let match_end = match_start.saturating_add(matches_per_page).min(total);
             let selected = matches.get(match_start..match_end).unwrap_or(&[]).to_vec();
-            has_more_matches |= match_end < total;
-            has_truncated_captures |= selected
+            let more_matches = match_end < total;
+            let truncated_captures = selected
                 .iter()
                 .any(|value| value["capturesTruncated"] == true);
             let out_of_range = match_start >= total;
@@ -234,7 +290,7 @@ pub fn execute_match(
                     group["pagination"]["outOfRange"] = json!(true);
                 }
             }
-            groups.push(group);
+            groups.push((group, more_matches, truncated_captures));
         }
         if status != "ok" || !diagnostics.is_empty() {
             // A literal prefilter can skip thousands of files. Preserve the
@@ -247,6 +303,15 @@ pub fn execute_match(
                     .map(diag),
             );
         }
+    }
+    if total_matches == 0
+        && parsed_files == 0
+        && compile_failed_files > 0
+        && let Some(error) = compile_error
+    {
+        // The query compiled in no candidate file: an empty result would read
+        // as proof of absence, so surface the compile failure instead.
+        return Err(error);
     }
     if skipped_by_prefilter > 0 {
         all_diagnostics.push(json!({
@@ -275,9 +340,17 @@ pub fn execute_match(
     let size = q.page_size.unwrap_or(20).clamp(1, 1_000) as usize;
     let page = q.page.max(1) as usize;
     let start = (page - 1) * size;
-    let selected = groups
+    let page_groups = groups
         .get(start..(start + size).min(groups.len()))
         .unwrap_or(&[]);
+    // Match-level pagination is page-local: only files shown on this page can
+    // continue with nextMatchPage.
+    let has_more_matches = page_groups.iter().any(|group| group.1);
+    let has_truncated_captures = page_groups.iter().any(|group| group.2);
+    let selected = page_groups
+        .iter()
+        .map(|group| group.0.clone())
+        .collect::<Vec<_>>();
     let more = start + size < groups.len();
     let mut out = json!({"searchEngine":"structural","snapshot":snapshot,"stats":{"totalStructuralMatches":total_matches}});
     if !groups.is_empty() {
@@ -306,10 +379,14 @@ pub fn execute_match(
             "path":path
         }]);
     }
-    let incomplete =
-        scan_truncated || skipped_unsupported > 0 || skipped_unreadable > 0 || skipped_large > 0;
+    let incomplete = scan_truncated
+        || skipped_unsupported > 0
+        || skipped_unreadable > 0
+        || skipped_large > 0
+        || compile_failed_files > 0
+        || unevaluated_files > 0;
     out["truncated"] = json!(scan_truncated);
-    out["complete"] = json!(!more && !incomplete);
+    out["complete"] = json!(!more && !incomplete && !has_more_matches);
     if groups.is_empty() && !more && !incomplete {
         out["status"] = json!("empty");
     }
@@ -333,12 +410,45 @@ pub fn execute_match(
     }
     Ok(out)
 }
-fn match_value(m: StructuralDetailedMatch, capture_text: bool) -> Value {
-    let text = compact_match(&m.text);
+/// One match row. Captures are emitted once, in `metavarRanges` (text plus
+/// 1-based position); the parallel engine `metavars` text map is only used as a
+/// fallback for a capture that carries no range. `endLine` is omitted when the
+/// span is single-line (it equals `line`).
+fn match_value(m: StructuralDetailedMatch, capture_text: bool, content_length: usize) -> Value {
+    let text = compact_match(&m.text, content_length);
     let mut ranges = serde_json::Map::new();
     let mut metavars = serde_json::Map::new();
     let mut truncated = false;
+    for (name, values) in m.metavar_ranges {
+        let list = values.len() > 1;
+        let mut budgeted = Vec::new();
+        for range in values {
+            if !capture_text && list && is_comment(&range.text) {
+                truncated = true;
+                continue;
+            }
+            if !capture_text && range.text.chars().count() > 120 {
+                truncated = true;
+            }
+            let mut row = json!({
+                "text":truncate_capture(range.text, capture_text),
+                "line":range.line,
+                "column":range.column,
+                "endColumn":range.end_column
+            });
+            if range.end_line != range.line {
+                row["endLine"] = json!(range.end_line);
+            }
+            budgeted.push(row);
+        }
+        if !budgeted.is_empty() {
+            ranges.insert(name, Value::Array(budgeted));
+        }
+    }
     for (name, values) in m.metavars {
+        if ranges.contains_key(&name) || values.is_empty() {
+            continue;
+        }
         if capture_text || values.len() <= 1 {
             let budgeted = values
                 .into_iter()
@@ -354,36 +464,15 @@ fn match_value(m: StructuralDetailedMatch, capture_text: bool) -> Value {
             truncated = true;
         }
     }
-    for (name, values) in m.metavar_ranges {
-        let list = values.len() > 1;
-        let mut budgeted = Vec::new();
-        for range in values {
-            if !capture_text && list && is_comment(&range.text) {
-                truncated = true;
-                continue;
-            }
-            if !capture_text && range.text.chars().count() > 120 {
-                truncated = true;
-            }
-            budgeted.push(json!({
-                "text":truncate_capture(range.text, capture_text),
-                "line":range.line,
-                "column":range.column,
-                "endLine":range.end_line,
-                "endColumn":range.end_column
-            }));
-        }
-        if !budgeted.is_empty() {
-            ranges.insert(name, Value::Array(budgeted));
-        }
-    }
     let mut value = json!({
         "line":m.start_line,
-        "endLine":m.end_line,
         "value":text,
         "column":m.start_col,
         "endColumn":m.end_col
     });
+    if m.end_line != m.start_line {
+        value["endLine"] = json!(m.end_line);
+    }
     if !metavars.is_empty() {
         value["metavars"] = Value::Object(metavars);
     }
@@ -396,10 +485,15 @@ fn match_value(m: StructuralDetailedMatch, capture_text: bool) -> Value {
     value
 }
 
-fn compact_match(text: &str) -> String {
+/// Whitespace-normalized match text bounded to `limit` characters
+/// (`matchContentLength`), including the trailing ellipsis when cut.
+fn compact_match(text: &str, limit: usize) -> String {
     let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    if normalized.chars().count() > 300 {
-        let mut output = normalized.chars().take(299).collect::<String>();
+    if normalized.chars().count() > limit {
+        let mut output = normalized
+            .chars()
+            .take(limit.saturating_sub(1))
+            .collect::<String>();
         output.push('…');
         output
     } else {
@@ -427,17 +521,13 @@ fn is_comment(text: &str) -> bool {
 
 fn match_display_path(root: &std::path::Path, path: &str) -> String {
     let candidate = std::path::Path::new(path);
-    candidate
-        .strip_prefix(root)
-        .ok()
-        .filter(|relative| !relative.as_os_str().is_empty())
-        .unwrap_or(candidate)
-        .to_string_lossy()
-        .into_owned()
+    let relative = candidate.strip_prefix(root).unwrap_or(candidate);
+    super::rooted_display(root, relative)
 }
 
 fn continuation(q: &AstMatchQuery, page: usize, snapshot: &str) -> Value {
-    continuation_with(q, json!({"page":page}), snapshot)
+    // A new file page restarts per-file match pagination.
+    continuation_with(q, json!({"page":page,"matchPage":1}), snapshot)
 }
 
 fn continuation_with(q: &AstMatchQuery, changes: Value, snapshot: &str) -> Value {
@@ -456,7 +546,7 @@ fn continuation_with(q: &AstMatchQuery, changes: Value, snapshot: &str) -> Value
     json!({"tool":"astSearch","query":query,"confidence":"exact"})
 }
 
-fn language_include_globs(language: &str) -> Option<Vec<String>> {
+fn language_extensions(language: &str) -> Option<std::collections::BTreeSet<String>> {
     let selector = language.trim().trim_start_matches('.').to_ascii_lowercase();
     let extensions: std::collections::BTreeSet<String> =
         octocode_engine::portable::grammar_capabilities()
@@ -477,13 +567,18 @@ fn language_include_globs(language: &str) -> Option<Vec<String>> {
                         .any(|extension| extension.eq_ignore_ascii_case(&selector))
             })
             .flat_map(|capability| capability.extensions)
+            .map(|extension| extension.to_ascii_lowercase())
             .collect();
-    (!extensions.is_empty()).then(|| {
-        extensions
-            .into_iter()
-            .map(|extension| format!("*.{extension}"))
-            .collect()
-    })
+    (!extensions.is_empty()).then_some(extensions)
+}
+
+fn has_extension_in(
+    path: &std::path::Path,
+    extensions: &std::collections::BTreeSet<String>,
+) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| extensions.contains(&ext.to_ascii_lowercase()))
 }
 
 fn diag(d: StructuralDiagnostic) -> Value {
@@ -499,7 +594,14 @@ fn diagnostic_error(diagnostics: &[StructuralDiagnostic]) -> Option<super::AstEr
 
 #[cfg(test)]
 mod language_glob_tests {
-    use super::language_include_globs;
+    fn language_include_globs(language: &str) -> Option<Vec<String>> {
+        super::language_extensions(language).map(|extensions| {
+            extensions
+                .into_iter()
+                .map(|extension| format!("*.{extension}"))
+                .collect()
+        })
+    }
 
     #[test]
     fn directory_language_globs_derive_from_the_canonical_grammar_registry() {

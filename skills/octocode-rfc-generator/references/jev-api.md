@@ -19,7 +19,7 @@ Submit one SemanticQuery directly or batch independent complete SemanticQueries 
 
 Every question is assessed against every resource: `resources[] × questions[]`. IDs correlate query, resource, question, and page; they do not carry instructions. Keep the matrix at or below 25 cells. A `{tool, query}` context is one unexecuted ordinary read request; `{value}` is non-empty state already held by the host. The RFC debate preflight deliberately permits exactly one `{value}` resource so unreviewed retrieval cannot enter the frozen worker snapshot.
 
-`maxChars` is at most 80,000 characters. When a resource needs multiple pages, the runtime assesses the same resource/question cell page by page and returns every page explicitly. Treat each page as a local judgment. There is no hidden averaging, voting, or whole-resource conclusion; partial pages cannot prove global absence or support.
+`maxChars` is at most 80,000 characters (file reads count content only). When a resource needs multiple pages, the runtime judges each ~600-line page against every question and returns every page explicitly with its line `scope`. Treat each page as a local judgment. There is no hidden averaging, voting, or whole-resource conclusion; partial pages cannot prove global absence or support.
 
 ## Native question types
 
@@ -43,7 +43,7 @@ The worker packet contains the exact resource `review` and `admission` objects, 
 
 ## Interpret and verify
 
-Inspect `queries[]`, then every resource/question result and every `pages[]` entry. Correlate by `queryId`, `resourceId`, and `questionId`; inspect page coverage, limitations, errors, typed answer, usage, `requestedModel`, and provider `resolvedModel`. Never report the configured/requested model as the model that actually answered. A successful command with an errored or partial page is not complete coverage.
+Inspect `queries[]` → `resources[]` → every `pages[]` entry and its `answers.<questionId>`. Correlate by `queryId`, `resourceId`, and `questionId`; inspect resource coverage, page scope, limitations, errors, and typed answers. `model` (the provider-resolved model) and summed `usage` appear once per query; report that model, never the configured alias. A successful command with an errored or partial page is not complete coverage.
 
 For answers, Noul near 0.5 means uncertainty. Choice `confidence` measures distribution concentration, not probability of correctness. Score is an expected ordered level, not a yes/no probability. Preserve raw typed provider answers, including distributions and provider fields; the host may add a separate disposition but must not rewrite the provider response into free-form reasoning.
 

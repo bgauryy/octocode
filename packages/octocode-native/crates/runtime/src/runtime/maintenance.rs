@@ -24,6 +24,8 @@ pub fn run_if_due(home: &Path) -> bool {
     sweep_dir(&tmp.join("response"), INTERVAL);
     sweep_dir(&tmp.join("tree"), INTERVAL);
     sweep_dir(&tmp.join("search-snapshots"), Duration::from_secs(60));
+    // Rate-limit mirrors only hold facts that expire within ~1h.
+    sweep_dir(&tmp.join("ratelimit"), INTERVAL);
     let epoch = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap_or_default()

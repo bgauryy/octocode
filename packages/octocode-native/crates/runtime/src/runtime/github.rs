@@ -67,7 +67,15 @@ fn apply_provider_error_metadata(data: &mut Value, error: &ProviderError) {
         data["documentationUrl"] = json!(documentation_url);
     }
     if let Some(rate_limit) = &error.rate_limit {
-        data["rateLimit"] = json!(rate_limit);
+        // Public output is camelCase; the provider struct stays snake_case.
+        data["rateLimit"] = json!({
+            "remaining": rate_limit.remaining,
+            "resetEpochSeconds": rate_limit.reset_epoch_seconds,
+            "retryAfterSeconds": rate_limit.retry_after_seconds,
+        });
+        if let Some(resource) = &rate_limit.resource {
+            data["rateLimit"]["resource"] = json!(resource);
+        }
         if let Some(retry_after) = rate_limit.retry_after_seconds {
             data["retryAfterSeconds"] = json!(retry_after);
         }
@@ -84,6 +92,9 @@ pub(super) struct GitHubServices {
     home: PathBuf,
     oauth_client_id: Option<String>,
     refresh_lock: std::sync::Mutex<()>,
+    /// Sanitized full views of recently paged files (scoped to this runtime's
+    /// single security policy), so each `next.continue` skips a full rescan.
+    sanitized_views: gh_get_file_content::SanitizedViewMemo,
 }
 
 impl GitHubServices {
@@ -105,6 +116,12 @@ impl GitHubServices {
             },
         )?;
         transport.graphql_enabled = config.resolved.github.graphql_enabled;
+        // Same persistence switch as the response cache: cross-process
+        // rate-limit facts live under ~/.octocode/tmp/ratelimit.
+        transport.set_rate_limit_state_dir(
+            crate::config::is_persistent_storage_enabled(&config.resolved)
+                .then(|| home.join("tmp").join("ratelimit")),
+        );
         let timeout = Duration::from_secs_f64(config.resolved.network.timeout / 1000.0);
         let oauth_client_id = config
             .env_value("OCTOCODE_GITHUB_CLIENT_ID")
@@ -122,6 +139,7 @@ impl GitHubServices {
             home,
             oauth_client_id,
             refresh_lock: std::sync::Mutex::new(()),
+            sanitized_views: gh_get_file_content::SanitizedViewMemo::new(),
         })
     }
 
@@ -140,7 +158,9 @@ impl GitHubServices {
         let request_context = match self.request_context(context, handle) {
             Ok(value) => value,
             Err(error) => {
-                return Ok(if tool == "ghGetFileContent" {
+                return Ok(if tool == "ghCloneRepo" {
+                    provider_error(error)
+                } else if tool == "ghGetFileContent" {
                     file_error(error, query)
                 } else if tool == "ghSearch" {
                     search_error(error)
@@ -446,7 +466,7 @@ impl GitHubServices {
                         failure: Some(FailureKind::NotFound),
                     });
                 }
-                Err(_) => None,
+                Err(error) => return Ok(provider_error(error)),
             }
         } else {
             None
@@ -502,7 +522,7 @@ impl GitHubServices {
             &query,
             request_context,
             None,
-            security,
+            &gh_get_file_content::MemoizedScan::new(security, &self.sanitized_views),
             context,
             regex,
         )
@@ -596,13 +616,16 @@ fn file_error(error: ProviderError, query: &Value) -> DomainResult {
         ProviderErrorKind::Authentication => "GitHub authentication required".into(),
         ProviderErrorKind::Permission => PERMISSION_DENIED_MESSAGE.into(),
         ProviderErrorKind::NotFound => "Repository, resource, or path not found".into(),
+        // Provider-local validation (no HTTP status) carries a specific,
+        // actionable message (directory/symlink/submodule path, bad name).
+        ProviderErrorKind::Validation if error.status.is_none() => error.message.to_string(),
         ProviderErrorKind::Validation => "Invalid search query or request parameters".into(),
         ProviderErrorKind::Server if matches!(error.status, Some(502..=504)) => {
             "GitHub API temporarily unavailable".into()
         }
         ProviderErrorKind::Transport => "Network connection failed".into(),
         ProviderErrorKind::Timeout => "Request timeout".into(),
-        _ if error.message.as_ref() == "binary files are not supported" => {
+        _ if error.message.as_ref() == BINARY_FILE_MESSAGE => {
             "Binary file detected. Cannot display as text - download directly from GitHub".into()
         }
         _ => error.message.to_string(),
@@ -611,37 +634,28 @@ fn file_error(error: ProviderError, query: &Value) -> DomainResult {
     if error.kind == ProviderErrorKind::Authentication {
         data["hints"] = json!(["octocode login, or set GITHUB_TOKEN / GH_TOKEN"]);
     }
-    if error.kind == ProviderErrorKind::NotFound {
+    let requested = query["path"].as_str().unwrap_or_default();
+    if error.message.as_ref() == BINARY_FILE_MESSAGE {
+        data["hints"] = json!([
+            "Binary content cannot be returned as text; retrying will not help. Use ghCloneRepo for a local copy, or read a text file instead."
+        ]);
+    } else if error.kind == ProviderErrorKind::Validation
+        && error.status.is_none()
+        && error.message.contains("is a directory")
+    {
+        data["hints"] =
+            json!(["The path is a directory; list its entries with the viewTree continuation."]);
+        data["next"] = json!({ "viewTree": tree_recovery(owner, repo, requested, query) });
+    } else if error.kind == ProviderErrorKind::NotFound {
         data["hints"] = json!([format!(
             "verify the path (exact case, no leading slash) and branch; use ghSearch with operation:\"tree\", owner:\"{owner}\", repo:\"{repo}\""
         )]);
-        let requested = query["path"].as_str().unwrap_or_default();
         let parent = std::path::Path::new(requested)
             .parent()
             .map(|path| path.to_string_lossy().into_owned())
             .filter(|path| !path.is_empty())
             .unwrap_or_else(|| ".".into());
-        // The output contract validates this recovery hint against the ghSearch
-        // tree-continuation schema, which requires the paginated defaulted
-        // fields. Stamp the contract defaults (fresh page 1 — this is an
-        // advisory "start a new bounded query", not a next-page of the fetch).
-        let mut tree = json!({
-            "tool": "ghSearch",
-            "query": {
-                "operation": "tree",
-                "owner": owner,
-                "repo": repo,
-                "path": parent,
-                "page": 1,
-                "pageSize": 100,
-                "debug": false
-            },
-            "confidence": "low"
-        });
-        if let Some(branch) = query["branch"].as_str() {
-            tree["query"]["branch"] = json!(branch);
-        }
-        data["next"] = json!({ "viewTree": tree });
+        data["next"] = json!({ "viewTree": tree_recovery(owner, repo, &parent, query) });
     }
     apply_provider_error_metadata(&mut data, &error);
     DomainResult {
@@ -652,6 +666,32 @@ fn file_error(error: ProviderError, query: &Value) -> DomainResult {
         cache: false,
         failure: Some(failure_kind(error.kind)),
     }
+}
+
+const BINARY_FILE_MESSAGE: &str = "binary files are not supported";
+
+/// Advisory ghSearch tree query for ghGetFileContent recovery. The output
+/// contract validates it against the ghSearch tree-continuation schema, which
+/// requires the paginated defaulted fields: stamp the contract defaults (fresh
+/// page 1 — this starts a new bounded query, not a next-page of the fetch).
+fn tree_recovery(owner: &str, repo: &str, path: &str, query: &Value) -> Value {
+    let mut tree = json!({
+        "tool": "ghSearch",
+        "query": {
+            "operation": "tree",
+            "owner": owner,
+            "repo": repo,
+            "path": path,
+            "page": 1,
+            "pageSize": 100,
+            "debug": false
+        },
+        "confidence": "low"
+    });
+    if let Some(branch) = query["branch"].as_str() {
+        tree["query"]["branch"] = json!(branch);
+    }
+    tree
 }
 
 pub(super) fn provider_error(error: ProviderError) -> DomainResult {
@@ -849,6 +889,7 @@ mod tests {
                 remaining: Some(11),
                 reset_epoch_seconds: Some(1_700_000_000),
                 retry_after_seconds: None,
+                resource: None,
             }),
             retryable: false,
         };
@@ -946,6 +987,48 @@ mod tests {
             result.data["error"].as_str(),
             Some("Repository, resource, or path not found")
         );
+    }
+
+    #[test]
+    fn file_error_directory_and_binary_get_accurate_recovery() {
+        let query = json!({"owner":"a","repo":"b","path":"src","branch":"main"});
+        let error = ProviderError::new(
+            ProviderErrorKind::Validation,
+            "Path \"src\" is a directory, not a file; list it with ghSearch operation:\"tree\".",
+        );
+        let result = file_error(error, &query);
+        let data = &result.data;
+        assert!(
+            data["error"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("is a directory"),
+            "{data}"
+        );
+        assert_eq!(data["next"]["viewTree"]["query"]["path"], "src");
+        assert_eq!(data["next"]["viewTree"]["query"]["branch"], "main");
+
+        let error = ProviderError::new(ProviderErrorKind::Decode, "binary files are not supported");
+        let result = file_error(error, &json!({"owner":"a","repo":"b","path":"x.png"}));
+        let hint = result.data["hints"][0].as_str().unwrap_or_default();
+        assert!(!hint.contains("Retry once"), "{hint}");
+        assert!(hint.contains("Binary"), "{hint}");
+    }
+
+    #[test]
+    fn rate_limit_metadata_is_camel_case() {
+        let mut error = ProviderError::new(ProviderErrorKind::RateLimited, "slow down");
+        error.rate_limit = Some(RateLimit {
+            remaining: Some(0),
+            reset_epoch_seconds: Some(1_700_000_000),
+            retry_after_seconds: Some(30),
+            resource: Some("core".into()),
+        });
+        let mut data = json!({});
+        apply_provider_error_metadata(&mut data, &error);
+        assert_eq!(data["rateLimit"]["resetEpochSeconds"], 1_700_000_000);
+        assert_eq!(data["rateLimit"]["retryAfterSeconds"], 30);
+        assert!(data["rateLimit"].get("reset_epoch_seconds").is_none());
     }
 
     /// ghGetHistoryItem is not a search endpoint: a bogus commit SHA (GitHub

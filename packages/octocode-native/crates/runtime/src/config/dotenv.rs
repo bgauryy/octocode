@@ -1,6 +1,11 @@
 use super::types::{EnvApplyReport, HOME_TRUSTED_ENV_KEYS, PROTECTED_KEYS};
 use std::collections::BTreeMap;
 
+/// Present-but-blank in the process env disables clasify and every
+/// classification feature: no home `.env`, config-file, or vendor-key fallback
+/// may refill it.
+pub const CLASSIFICATION_KILL_SWITCH: &str = "OCTOCODE_CLASSIFICATION_API";
+
 pub fn parse_env(text: Option<&str>) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
     let Some(text) = text else { return out };
@@ -59,7 +64,9 @@ pub fn apply_env(
                     .any(|protected| protected.eq_ignore_ascii_case(key)));
         if protected_key && !home_trusted {
             report.skipped_protected.push(key.clone());
-        } else if target.get(key).is_some_and(|v| !v.is_empty()) {
+        } else if target.get(key).is_some_and(|v| !v.is_empty())
+            || (key == CLASSIFICATION_KILL_SWITCH && target.contains_key(key))
+        {
             report.skipped_existing.push(key.clone());
         } else {
             target.insert(key.clone(), value.clone());

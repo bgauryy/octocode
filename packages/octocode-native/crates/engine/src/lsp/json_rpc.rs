@@ -112,9 +112,10 @@ pub enum Readiness {
     /// Saw at least one `$/progress` cycle and drained it to idle — the server
     /// announced indexing and we waited for it to finish.
     ProgressIdle,
-    /// Never saw any `$/progress`; only the settle window elapsed. The server
-    /// does not report indexing, so we cannot confirm it has finished.
-    SettledFallback,
+    /// Never saw any `$/progress`; only the settle window elapsed. Normal for
+    /// servers that do not report indexing (e.g. typescript-language-server),
+    /// so completion cannot be confirmed — not an error.
+    SilentServer,
     /// `$/progress` was still active when `timeout_ms` expired — the server is
     /// (as far as we know) still indexing.
     Timeout,
@@ -125,7 +126,7 @@ impl Readiness {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::ProgressIdle => "progressIdle",
-            Self::SettledFallback => "settledFallback",
+            Self::SilentServer => "silentServer",
             Self::Timeout => "timeout",
         }
     }
@@ -222,14 +223,59 @@ impl ProgressTracker {
             if !became_active {
                 // Server does not use progress -- we only waited the settle
                 // window, so we cannot confirm indexing actually finished.
-                return Readiness::SettledFallback;
+                return Readiness::SilentServer;
             }
         }
 
-        // Phase 2 -- drain + quiesce loop: repeat until we observe a full
-        // QUIESCE_MS window with no active tokens and no new ones starting.
+        Self::drain_until_quiet(&mut rx, deadline, QUIESCE_MS).await
+    }
+
+    /// Snapshot the progress stream so a later [`Self::wait_until_idle_after`]
+    /// observes every `begin`/`end` that arrives from this point on — even one
+    /// that starts and finishes before the waiter is polled.
+    pub fn subscribe(&self) -> watch::Receiver<usize> {
+        let mut rx = self.count_rx.clone();
+        rx.borrow_and_update();
+        rx
+    }
+
+    /// Like [`Self::wait_until_idle`] but scoped to progress that starts AFTER
+    /// `rx` was taken via [`Self::subscribe`], with a caller-chosen settle.
+    ///
+    /// Servers such as `typescript-language-server` announce nothing on
+    /// `initialized` and only start loading a project once a document is
+    /// opened (`$/progress begin` ~100 ms after `didOpen`). Waiting here after
+    /// the first `didOpen` keeps queries from racing that load. The settle is
+    /// short because the triggering event is known; servers that never report
+    /// progress pay only `settle_ms`.
+    pub async fn wait_until_idle_after(
+        &self,
+        mut rx: watch::Receiver<usize>,
+        settle_ms: u64,
+        timeout_ms: u64,
+    ) -> Readiness {
+        const QUIESCE_MS: u64 = 200;
+        let deadline = Instant::now() + Duration::from_millis(timeout_ms);
+        if *rx.borrow() == 0 {
+            let settle = Duration::from_millis(settle_ms.min(timeout_ms));
+            // Any update since `subscribe` counts: a begin/end pair that already
+            // completed still bumps the channel version.
+            if tokio::time::timeout(settle, rx.changed()).await.is_err() {
+                return Readiness::SilentServer;
+            }
+        }
+        Self::drain_until_quiet(&mut rx, deadline, QUIESCE_MS).await
+    }
+
+    /// Drain + quiesce loop: repeat until a full `quiesce_ms` window passes
+    /// with no active tokens and no new ones starting, or `deadline` expires.
+    async fn drain_until_quiet(
+        rx: &mut watch::Receiver<usize>,
+        deadline: Instant,
+        quiesce_ms: u64,
+    ) -> Readiness {
         loop {
-            // 2a. Wait for count to reach zero.
+            // Wait for count to reach zero.
             let remaining = deadline.saturating_duration_since(Instant::now());
             if tokio::time::timeout(remaining, rx.wait_for(|c| *c == 0))
                 .await
@@ -238,9 +284,9 @@ impl ProgressTracker {
                 return Readiness::Timeout; // Deadline expired while tokens active.
             }
 
-            // 2b. Quiesce: wait briefly to see if a new wave starts.
+            // Quiesce: wait briefly to see if a new wave starts.
             let remaining = deadline.saturating_duration_since(Instant::now());
-            let full_quiescence = Duration::from_millis(QUIESCE_MS);
+            let full_quiescence = Duration::from_millis(quiesce_ms);
             let quiesce = full_quiescence.min(remaining);
             // Any update breaks quiescence, including a short begin/end wave
             // whose active count was coalesced back to zero before we woke.
@@ -1033,17 +1079,24 @@ mod tests {
     }
 
     #[test]
-    fn push_diagnostics_rejects_a_versionless_report_when_min_requested() {
-        // When the server omits `version`, a min_version request cannot be proven
-        // satisfied, so the (possibly stale) record must NOT be returned. Without a
-        // min_version the same record is still readable.
+    fn push_diagnostics_accepts_a_versionless_report_as_current() {
+        // Servers such as typescript-language-server omit `version` from
+        // publishDiagnostics. Every document sync clears the cached record
+        // first, so a versionless record present afterwards was published
+        // after the sync and is treated as current. An explicit older version
+        // is still rejected (see push_diagnostics_rejects_an_older_document_version).
         let store = PushDiagnosticsStore::new();
         store.record(&json!({
             "uri": "file:///workspace/a.ts",
             "diagnostics": [{ "message": "no-version" }]
         }));
 
-        assert!(store.report("file:///workspace/a.ts", Some(3)).is_none());
+        assert_eq!(
+            store
+                .report("file:///workspace/a.ts", Some(3))
+                .expect("versionless report accepted for a min version")["items"][0]["message"],
+            "no-version"
+        );
         assert_eq!(
             store
                 .report("file:///workspace/a.ts", None)
@@ -1555,7 +1608,7 @@ mod tests {
                 "must not exceed caller timeout, got {elapsed} ms"
             );
             // Never saw progress -> only the settle window elapsed.
-            assert_eq!(readiness, Readiness::SettledFallback);
+            assert_eq!(readiness, Readiness::SilentServer);
         });
     }
 
@@ -1575,8 +1628,8 @@ mod tests {
                 "must not return after the old aggressive 100 ms window, got {elapsed} ms"
             );
             assert!(elapsed < 5_000, "must stay bounded, got {elapsed} ms");
-            // No progress events ever arrived -> settledFallback, not progressIdle.
-            assert_eq!(readiness, Readiness::SettledFallback);
+            // No progress events ever arrived -> silentServer, not progressIdle.
+            assert_eq!(readiness, Readiness::SilentServer);
         });
     }
 

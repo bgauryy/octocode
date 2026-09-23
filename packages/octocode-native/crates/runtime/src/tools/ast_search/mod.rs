@@ -124,6 +124,18 @@ pub(super) fn display_name(path: &std::path::Path) -> String {
         .into_owned()
 }
 
+/// Row path for a descendant of a directory scope: `{root_name}/{relative}`.
+/// The runtime attaches `base = parent(scope)`, so `base + path` resolves to
+/// the real file for every operation (files, match, symbols).
+pub(super) fn rooted_display(root: &std::path::Path, relative: &std::path::Path) -> String {
+    let root_name = display_name(root);
+    if relative.as_os_str().is_empty() {
+        root_name
+    } else {
+        format!("{root_name}/{}", relative.to_string_lossy())
+    }
+}
+
 /// Shared `ast.snapshot.changed` continuation guard payload. Emitted when a
 /// page>1 request carries a snapshot that no longer matches the freshly
 /// computed digest of the query shape and ordered result set — i.e. the corpus

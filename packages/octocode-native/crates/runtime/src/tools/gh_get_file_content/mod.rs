@@ -219,13 +219,17 @@ where
         content.content_view = Some(query.minify.unwrap_or_default());
     }
     if content.error.is_none() {
-        content.status =
-            if match_not_found || content.content.as_ref().is_some_and(|s| !s.is_empty()) {
-                "success"
-            } else {
-                "empty"
-            }
-            .into();
+        content.status = if match_not_found
+                || content.content.as_ref().is_some_and(|s| !s.is_empty())
+                // An oversized fullContent read is partial (next.continue
+                // pages the same view), not an empty file.
+                || content.error_code.as_deref() == Some("fullContentLimit")
+        {
+            "success"
+        } else {
+            "empty"
+        }
+        .into();
     }
     let next = rewrite_continuations(&mut content, query, &acquired.resolved_ref);
     let (last_modified, last_modified_by) = if query.offset.unwrap_or(0) == 0 {
@@ -411,6 +415,121 @@ fn rewrite_continuations(
     Some(value)
 }
 
+/// Remembers the secret-scanner output for recently read views so paging one
+/// large file does not rescan the whole blob on every `next.continue`.
+///
+/// A line/byte page is cut from the sanitized full view, so each page
+/// otherwise re-runs `sanitize` over the entire file (~55 ms release for a
+/// 176 KB file, dominating a cache-hit read). Entries are keyed by a SHA-256
+/// of the scanned text and path, so a hit needs the exact bytes in hand and
+/// returns exactly what the scanner produced for them; redaction is unchanged.
+/// One memo must only ever wrap one scanner (the owning runtime's policy).
+pub struct SanitizedViewMemo {
+    entries: std::sync::Mutex<std::collections::VecDeque<MemoEntry>>,
+}
+
+type ScanOutcome = Result<(String, Vec<String>), (String, String)>;
+
+struct MemoEntry {
+    key: [u8; 32],
+    bytes: usize,
+    outcome: std::sync::Arc<ScanOutcome>,
+}
+
+impl SanitizedViewMemo {
+    const MAX_ENTRIES: usize = 8;
+    const MAX_BYTES: usize = 32 * 1024 * 1024;
+    /// Small views are cheap to rescan; memoizing them only churns entries.
+    const MIN_TEXT_BYTES: usize = 16 * 1024;
+
+    pub fn new() -> Self {
+        Self {
+            entries: std::sync::Mutex::new(std::collections::VecDeque::new()),
+        }
+    }
+
+    fn key(text: &str, path: &Path) -> [u8; 32] {
+        use sha2::{Digest, Sha256};
+        let mut digest = Sha256::new();
+        let path = path.to_string_lossy();
+        digest.update((path.len() as u64).to_le_bytes());
+        digest.update(path.as_bytes());
+        digest.update(text.as_bytes());
+        digest.finalize().into()
+    }
+
+    fn scan(&self, text: &str, path: &Path, inner: &impl ContentScan) -> ScanOutcome {
+        if text.len() < Self::MIN_TEXT_BYTES {
+            return inner.sanitize(text, path);
+        }
+        let key = Self::key(text, path);
+        {
+            let mut entries = self.entries.lock().unwrap_or_else(|p| p.into_inner());
+            if let Some(entry) = entries
+                .iter()
+                .position(|entry| entry.key == key)
+                .and_then(|index| entries.remove(index))
+            {
+                let outcome = std::sync::Arc::clone(&entry.outcome);
+                entries.push_back(entry);
+                return (*outcome).clone();
+            }
+        }
+        let outcome = inner.sanitize(text, path);
+        let bytes = text.len().saturating_add(match &outcome {
+            Ok((safe, warnings)) => safe.len() + warnings.iter().map(String::len).sum::<usize>(),
+            Err((code, message)) => code.len() + message.len(),
+        });
+        if bytes <= Self::MAX_BYTES {
+            let mut entries = self.entries.lock().unwrap_or_else(|p| p.into_inner());
+            if !entries.iter().any(|entry| entry.key == key) {
+                entries.push_back(MemoEntry {
+                    key,
+                    bytes,
+                    outcome: std::sync::Arc::new(outcome.clone()),
+                });
+            }
+            let mut total: usize = entries.iter().map(|entry| entry.bytes).sum();
+            while entries.len() > Self::MAX_ENTRIES || total > Self::MAX_BYTES {
+                let Some(evicted) = entries.pop_front() else {
+                    break;
+                };
+                total = total.saturating_sub(evicted.bytes);
+            }
+        }
+        outcome
+    }
+}
+
+impl Default for SanitizedViewMemo {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// `ContentScan` adapter that routes `sanitize` through a [`SanitizedViewMemo`]
+/// and forwards everything else (full-file key-block redaction still runs on
+/// every read) to the wrapped scanner.
+pub struct MemoizedScan<'a, S> {
+    inner: &'a S,
+    memo: &'a SanitizedViewMemo,
+}
+
+impl<'a, S: ContentScan> MemoizedScan<'a, S> {
+    pub fn new(inner: &'a S, memo: &'a SanitizedViewMemo) -> Self {
+        Self { inner, memo }
+    }
+}
+
+impl<S: ContentScan> ContentScan for MemoizedScan<'_, S> {
+    fn sanitize(&self, text: &str, path: &Path) -> ScanOutcome {
+        self.memo.scan(text, path, self.inner)
+    }
+    fn redact_key_blocks(&self, content: &str) -> (String, bool) {
+        self.inner.redact_key_blocks(content)
+    }
+}
+
 pub fn continuation_query(
     source: &GhGetFileContentQuery,
     local_query: &LocalFetchRequest,
@@ -452,6 +571,65 @@ mod tests {
         ) -> Result<(String, Vec<String>), (String, String)> {
             Ok((text.replace("TOKEN", "[REDACTED]"), vec![]))
         }
+    }
+
+    #[derive(Default)]
+    struct Counting {
+        scans: std::sync::atomic::AtomicUsize,
+    }
+    impl ContentScan for Counting {
+        fn sanitize(
+            &self,
+            text: &str,
+            path: &Path,
+        ) -> Result<(String, Vec<String>), (String, String)> {
+            self.scans.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Safe.sanitize(text, path)
+        }
+        fn redact_key_blocks(&self, content: &str) -> (String, bool) {
+            (content.replace("KEYBODY", "[KEY]"), true)
+        }
+    }
+
+    #[test]
+    fn paging_one_file_scans_the_full_view_once_and_keeps_redaction() {
+        let body = format!("TOKEN KEYBODY\n{}", "line of text\n".repeat(4000));
+        let scanner = Counting::default();
+        let memo = SanitizedViewMemo::new();
+        let security = MemoizedScan::new(&scanner, &memo);
+        let mut pages = Vec::new();
+        for offset in [0, 100, 200] {
+            let request = LocalFetchRequest {
+                path: "big.txt".into(),
+                chunk_type: Some(ChunkType::Lines),
+                offset: Some(offset),
+                chunk_size: Some(100),
+                ..Default::default()
+            };
+            let page = process_fetched_content(
+                &request,
+                body.as_bytes(),
+                Path::new("big.txt"),
+                None,
+                &security,
+                &NeverCancel,
+                &LocalFetchRegex::default(),
+            );
+            pages.push(page.content.unwrap_or_default());
+        }
+        assert_eq!(
+            scanner.scans.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "later pages reuse the sanitized full view"
+        );
+        assert!(pages[0].starts_with("[REDACTED] [KEY]\n"), "{}", pages[0]);
+        assert_eq!(pages[1], "line of text\n".repeat(100));
+        // A different view (another path or changed bytes) is scanned afresh.
+        memo.scan("x".repeat(20_000).as_str(), Path::new("other"), &scanner)
+            .expect("scan");
+        memo.scan("x".repeat(20_000).as_str(), Path::new("other"), &scanner)
+            .expect("scan");
+        assert_eq!(scanner.scans.load(std::sync::atomic::Ordering::SeqCst), 2);
     }
 
     #[tokio::test]
@@ -520,5 +698,109 @@ mod tests {
         assert_eq!(next["continue"]["tool"], "ghGetFileContent");
         assert_eq!(next["continue"]["query"]["owner"], "a");
         assert_eq!(next["continue"]["query"]["branch"], sha);
+    }
+
+    #[tokio::test]
+    async fn match_string_runs_on_redacted_text() {
+        let server = MockServer::start().await;
+        let sha = "0123456789abcdef0123456789abcdef01234567";
+        Mock::given(method("GET"))
+            .and(path("/api/v3/repos/a/b/commits/main"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"sha":sha})))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/api/v3/repos/a/b/contents/src%2Flib.rs"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"type":"file","encoding":"base64","content":STANDARD.encode("one\nkey TOKEN\nthree\n")})))
+            .mount(&server)
+            .await;
+        let endpoint =
+            GitHubEndpoint::new(url::Url::parse(&format!("{}/api/v3", server.uri())).expect("URL"))
+                .expect("endpoint");
+        let transport = GitHubTransport::new(
+            endpoint,
+            Arc::new(StaticCredentialResolver::new(
+                "fixture",
+                CredentialSource::Override,
+            )),
+            RetryPolicy::default(),
+        )
+        .expect("transport");
+        let provider = GitHubProvider {
+            transport,
+            cache: NoCache,
+        };
+        let query: GhGetFileContentQuery = serde_json::from_value(serde_json::json!({
+            "owner": "a", "repo": "b", "path": "src/lib.rs", "branch": "main",
+            "matchString": "TOKEN", "contextLines": 0
+        }))
+        .expect("query");
+        let result = execute_default_regex(
+            &provider,
+            &query,
+            &RequestContext::with_timeout(Duration::from_secs(2), 4096),
+            Some("s"),
+            &Safe,
+            &NeverCancel,
+        )
+        .await
+        .expect("result");
+        assert_eq!(
+            result.files[0].match_not_found,
+            Some(true),
+            "{:?}",
+            result.files[0].content
+        );
+    }
+
+    #[tokio::test]
+    async fn oversized_full_content_is_partial_not_empty() {
+        let server = MockServer::start().await;
+        let sha = "0123456789abcdef0123456789abcdef01234567";
+        Mock::given(method("GET"))
+            .and(path("/api/v3/repos/a/b/contents/big.txt"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"type":"file","encoding":"base64","content":STANDARD.encode("line of text\n".repeat(6000))})))
+            .mount(&server)
+            .await;
+        let endpoint =
+            GitHubEndpoint::new(url::Url::parse(&format!("{}/api/v3", server.uri())).expect("URL"))
+                .expect("endpoint");
+        let transport = GitHubTransport::new(
+            endpoint,
+            Arc::new(StaticCredentialResolver::new(
+                "fixture",
+                CredentialSource::Override,
+            )),
+            RetryPolicy::default(),
+        )
+        .expect("transport");
+        let provider = GitHubProvider {
+            transport,
+            cache: NoCache,
+        };
+        let query: GhGetFileContentQuery = serde_json::from_value(serde_json::json!({
+            "owner": "a", "repo": "b", "path": "big.txt", "branch": sha,
+            "fullContent": true
+        }))
+        .expect("query");
+        let result = execute_default_regex(
+            &provider,
+            &query,
+            &RequestContext::with_timeout(Duration::from_secs(2), 1 << 20),
+            Some("s"),
+            &Safe,
+            &NeverCancel,
+        )
+        .await
+        .expect("result");
+        let file = &result.files[0];
+        assert_eq!(file.content.error_code.as_deref(), Some("fullContentLimit"));
+        assert_ne!(file.content.status, "empty");
+        assert_eq!(file.content.is_partial, Some(true));
+        assert!(
+            file.next
+                .as_ref()
+                .is_some_and(|next| next.get("continue").is_some())
+        );
     }
 }

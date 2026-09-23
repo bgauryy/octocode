@@ -19,6 +19,20 @@ pub struct ValidationIssue {
     pub received: Option<Value>,
 }
 
+/// `siblingRequires` is set by union validation when another branch declares
+/// the unknown field; it names the fields that select that branch.
+fn sibling_requirement(issue: &ValidationIssue) -> Option<String> {
+    let fields = issue
+        .schema
+        .as_ref()?
+        .get("siblingRequires")?
+        .as_array()?
+        .iter()
+        .filter_map(Value::as_str)
+        .collect::<Vec<_>>();
+    (!fields.is_empty()).then(|| fields.join(" and "))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ContractValidationError {
     pub issues: Vec<ValidationIssue>,
@@ -59,12 +73,14 @@ pub fn format_input_error(tool_name: &str, error: &ContractValidationError) -> V
                 .flatten()
                 .filter_map(|v| v.as_str())
                 .collect();
-            let suggestion = suggest_field(field, &known);
-            let msg = match suggestion {
-                Some(s) => format!(
+            let msg = match (sibling_requirement(issue), suggest_field(field, &known)) {
+                (Some(requires), _) => {
+                    format!("Remove '{field}' from query {query}: it applies only with {requires}.")
+                }
+                (None, Some(s)) => format!(
                     "Remove unknown field '{field}' from query {query} (did you mean '{s}'?)"
                 ),
-                None => format!("Remove unknown field(s) from query {query}: {field}"),
+                (None, None) => format!("Remove unknown field(s) from query {query}: {field}"),
             };
             details.push(msg);
         }
@@ -1042,8 +1058,38 @@ fn internal(message: String) -> ContractValidationError {
 
 /// Return the closest name from `known` that differs from `unknown` by at most
 /// `max_dist` edits (Levenshtein distance), or `None` if no match is close enough.
+/// Legacy or commonly guessed field names agents send (observed in blind
+/// evals), mapped to the canonical field when the query accepts it.
+const FIELD_ALIASES: [(&str, &str); 8] = [
+    ("type", "operation"),
+    ("keywordsToSearch", "keywords"),
+    ("matchStringContextLines", "contextLines"),
+    ("pattern", "searchText"),
+    ("filesOnly", "resultView"),
+    ("filePath", "path"),
+    ("maxResults", "pageSize"),
+    ("limit", "pageSize"),
+];
+
 fn suggest_field<'a>(unknown: &str, known: &[&'a str]) -> Option<&'a str> {
     const MAX_DIST: usize = 3;
+    let accepted = |name: &str| known.iter().copied().find(|k| *k == name);
+    if let Some(target) = FIELD_ALIASES
+        .iter()
+        .find(|(alias, _)| *alias == unknown)
+        .and_then(|(_, target)| accepted(target))
+    {
+        return Some(target);
+    }
+    // `keywordsToSearch` → `keywords`: a known field that prefixes the guess.
+    if let Some(prefix) = known
+        .iter()
+        .copied()
+        .filter(|k| k.len() >= 4 && unknown.starts_with(*k) && unknown != *k)
+        .max_by_key(|k| k.len())
+    {
+        return Some(prefix);
+    }
     known
         .iter()
         .filter_map(|&k| {
@@ -1080,6 +1126,25 @@ fn levenshtein(a: &str, b: &str) -> usize {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn guessed_legacy_fields_point_at_the_accepted_field() {
+        let known = ["operation", "keywords", "contextLines", "reasoning"];
+        assert_eq!(super::suggest_field("type", &known), Some("operation"));
+        assert_eq!(
+            super::suggest_field("keywordsToSearch", &known),
+            Some("keywords")
+        );
+        assert_eq!(
+            super::suggest_field("matchStringContextLines", &known),
+            Some("contextLines")
+        );
+        assert_eq!(
+            super::suggest_field("pattern", &known),
+            None,
+            "searchText not accepted here"
+        );
+    }
+
     use super::{format_input_error, validate};
     use crate::contracts::{PrepareOptions, prepare_and_validate};
     use serde_json::{Value, json};
@@ -1276,6 +1341,40 @@ mod tests {
                 "kind":"octocode.toolError","version":1,"tool":"localFetch","error":"Unknown field(s): madeUp",
                 "details":["Remove unknown field(s) from query 1: madeUp", "Run scheme localFetch --view query --compact to see valid fields."]
             })
+        );
+    }
+
+    #[test]
+    fn names_the_selector_a_sibling_branch_needs_for_a_rejected_literal() {
+        let error = validate(
+            "localSearch",
+            json!({"queries":[{"path":"/tmp","searchText":"foo","unique":"list","reasoning":"List values."}]}),
+        )
+        .expect_err("unique:list needs matchOnly");
+        let formatted = format_input_error("localSearch", &error);
+        assert!(
+            formatted["details"][0].as_str().is_some_and(
+                |detail| detail.contains("unique:\"list\" requires resultView:\"matchOnly\"")
+            ),
+            "{formatted}"
+        );
+    }
+
+    #[test]
+    fn names_the_mode_of_a_field_declared_by_a_sibling_branch() {
+        let error = validate(
+            "artifactSearch",
+            json!({"queries":[{"type":"npm","packageName":"zod","pageSize":3,"reasoning":"Exact lookup."}]}),
+        )
+        .expect_err("pageSize is discovery-only");
+        let formatted = format_input_error("artifactSearch", &error);
+        assert_eq!(
+            formatted["error"], "Unknown field(s): pageSize",
+            "{formatted}"
+        );
+        assert_eq!(
+            formatted["details"][0],
+            "Remove 'pageSize' from query 1: it applies only with keywords."
         );
     }
 

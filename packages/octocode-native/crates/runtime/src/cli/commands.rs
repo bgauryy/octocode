@@ -14,9 +14,12 @@ pub(super) struct ToolArgs {
     /// Read the JSON query from a file instead of inline shell-quoted JSON.
     #[arg(long, value_name = "FILE", conflicts_with = "query")]
     pub input: Option<std::path::PathBuf>,
-    /// Emit compact single-line JSON instead of indented JSON.
-    #[arg(long)]
+    /// Accepted for compatibility; single-line JSON is already the default.
+    #[arg(long, conflicts_with = "pretty")]
     pub compact: bool,
+    /// Emit indented JSON for humans (costs 25–55% more bytes for agents).
+    #[arg(long)]
+    pub pretty: bool,
 }
 
 impl ToolArgs {

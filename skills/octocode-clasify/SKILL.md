@@ -1,45 +1,57 @@
 ---
 name: octocode-clasify
-description: "Judge supplied context, or screen unread candidates/large resources if reading would consume model context and bounded judgment can choose what to inspect. Not for exact facts, deterministic checks, proof, global absence, or free-form summaries. Returns body-free verdicts with confidence, coverage, and page scopes. Next: act, or read deciding scopes with the exact tool; verify exact/absence claims."
+description: "Use when supplied context needs judgment, or unread candidates/large resources need screening before deciding what to inspect. Not for exact facts, deterministic checks, proof, global absence, or free-form summaries. Returns body-free verdicts with confidence, coverage, and page scopes. Next: act, or read deciding scopes with the exact tool; verify exact/absence claims."
 ---
 # Semantic assessment
 
 tools: `npx octocode` / `octocode-mcp`
-related-skill: `octocode-research` · `octocode-scraping` · `octocode-chrome-devtools`
+related-skill: `octocode-research`
 output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
 routes: load/run a reference, doc, or script only when it changes the next action; otherwise keep the rule here.
 
-Flow: `INSPECT → SHAPE → ASSESS → VERIFY`.
+Flow: `INSPECT → SHAPE → ASSESS → VERIFY`. Clasify exists to keep unread bodies out of your context: the provider reads them, you get verdicts plus line scopes, then you read only the deciding scope.
 
-**Use when** bounded judgment over supplied context or unread resources can change the next action — especially when reading all candidates would consume model context, or one large resource needs region selection before reading. Pass unread resources as delegated read queries (not fetched bodies). Use supplied state to judge evidence already held, synthesize, or self-review.
+## When — pick by where the deciding evidence is (measured 2026-09-23)
 
-**Not for:** exact facts (use grep/localFetch/lspSearch); deterministic checks (version match, syntax valid, auth test, path exists); global absence claims; free-form summaries. Never assert a claim or write a report/audit finding from a score — confirm on fetched bytes first. Use `corpus-run --regex` for literal text presence; `localSearch`/`astSearch`/`lspSearch` for structural or symbol evidence.
+| Situation | Do | Measured effect |
+|---|---|---|
+| Deciding region is inside **large unread files** and one exact search (`matchString`/`searchText`) already **missed** | `resources[]` of whole-file `localFetch`/`ghGetFileContent` queries × 1 Noul; read the page `focus` window | −60% to −70% host bytes (focus hit 4/4 on unfamiliar code); +155% when forced where a remembered anchor existed |
+| **Many candidate files** (>8 after one exact search) and their snippets do not show the implementer | `files` view → up to 25 whole-file resources × 1 Noul | −84% host bytes on the hardest local question; right file 0.97 |
+| Judge **long evidence you already hold** (diff, draft, many claims × criteria; >~80 lines) | `context.value` + one Choice `supported`/`overclaimed`/`contradicted` | 11/12 correct; judge short excerpts yourself — clasify added 20 s and no accuracy there |
+| Several package READMEs on one capability | README resources × 1 Noul per capability | −92% host bytes (4 READMEs, 15k provider tokens) |
+| Lexical page likely buries the implementer **and** its code will show in matched snippets | search `semanticRerank` (1 question; 2 when a second aspect shows in snippets) — ordering hint only | top-3 20/20; MRR 0.48→0.92 on held-out queries |
 
-**Invoked from other tools** (authoritative “clasify when:” patterns):
-- `ghSearch` — many unread repos, paths, or code hits precede a pick
-- `ghGetFileContent` / `localFetch` — unread files compete for a read, or a large file’s region must be found first
-- `ghSearchHistory` / `ghGetHistoryItem` — unread PRs, issues, or commits need triage
-- `artifactSearch` — several candidate packages need relevance triage
-- `ghCloneRepo` — screening repos before a costly clone
-- `localSearch` — many matched files need triage before reads
-- `astSearch` — many candidate files, matches, or topology edges need triage
-- `lspSearch` — unread reference sites need triage
-- `octocode-scraping` SCREEN step — triage corpus pages; route to `read`/`consider`/`skip`/`cdp-needed`
-- `octocode-chrome-devtools` SCREEN step — triage DOM snapshots, HAR bodies, and network summaries
-- `octocode-research` — file triage when many candidates compete
-- Any agent — self-review: context.value holds a draft plus rationale, evidence, and assumptions
+**Miss rule:** when your first exact search (`matchString`, `searchText`) on a file over ~800 lines returns no match, do not guess a second literal — screen the file with clasify (1 Noul) and read its `focus` window (focus hit 4/4 on unfamiliar code, −70% host bytes vs. reading).
 
-**Question types:** Noul = P(yes) for one proposition · Choice = one named class or `insufficient` · Score = one ordered dimension (2–10 described levels). Several aspects = several questions; never hide a checklist inside one instruction.
+**Skip clasify** when one literal anchor — including one you remember (a well-known function or constant name) — a title, or a returned snippet already decides (forcing clasify there cost ~3× host bytes; blind agents skipped correctly), for ≤2 candidates you would read anyway, and for exact facts, counts, dates, versions, paths, auth — use exact tools. Every call costs provider tokens (~2.5k per 200-line file, ~27k for three 1k-line files) and 1–15 s.
 
-**Matrix rules:**
-- `resources[] × questions[]` when every question applies to every resource (one rubric)
-- root `queries[]` only for independent matrices whose cross-product would be wrong
-- Max 25 cells per query; batch independent matrices in parallel
-- Front-load the decision, hypothesis, and constraints into question instructions — the provider sees only state, instructions, and criteria; reasoning is trace-only
+## Questions (the provider reads literally)
+- **Noul** = P(yes) of one proposition about the content: "Does this content show/implement X?" — never "Is X true?" (leaks priors on absent evidence). Skip ≤0.2, read 0.2–0.8; ≥0.8 means "read this first", not "this is it" — when several pages clear 0.8, read the highest and compare (callers and similar flows also score high).
+- **Choice** = one named class; the runtime adds `insufficient` when absent. No other label may also mean absence ("none", "other") — write "explicitly disables auth". Accept confidence ≥0.9; 0.5–0.9 is a lead.
+- **Score** = one ordered dimension, 2–10 described levels (prefer 3 for relevance: as stable as 4, one fewer ambiguous boundary); round the expected level, never interpolate magnitudes.
+- One aspect per question; put the decision and constraints in `instructions` (the provider sees only state, instructions, and criteria; `reasoning` is trace-only) — but never the expected answer or an example of it (that primes the verdict: a supported claim scored 0.76 "overclaim" when the question argued for it). No counting or arithmetic.
+- Several outcomes that exclude each other (supported / overclaimed / contradicted) = one Choice, not several Nouls — separate Nouls overlap (overclaim fired 0.69–0.90 on contradicted claims).
+- `resources × questions` ≤ 25 cells; independent matrices go in root `queries[]` and run in parallel.
 
-**Results:** Large resources auto-page; use each page’s scope, answer, confidence, and coverage together. Aggregate page-local verdicts before judging a file. Confidence calibrates the answer, not the question. Insufficient, uncertain, partial, or errored means narrow/read, not no.
+## Shapes
+```json
+{"id":"find-retry","reasoning":"Pick the file to read","resources":[
+  {"id":"a","context":{"tool":"localFetch","query":{"reasoning":"candidate","path":"/abs/a.rs"}}},
+  {"id":"b","context":{"tool":"ghGetFileContent","query":{"reasoning":"candidate","owner":"o","repo":"r","path":"src/b.ts"}}}],
+ "questions":[{"id":"impl","question":{"type":"noul","instructions":"Does this content implement the retry loop for provider HTTP calls?"}}]}
+```
+Rerank question shape is `{id, question}` (a string), not a clasify question: `"semanticRerank":{"questions":[{"id":"impl","question":"Does this file implement X rather than only calling or testing it?"}]}`. For a named symbol ask "Does this file contain the definition of X (not a call site like X(...))?" — callers otherwise outrank the definition.
 
-**Safety:** Every verdict routes reading — it never proves identity, reachability, absence, or mutation safety. Do not use for deterministic recovery: invalid syntax, missing paths, auth/rate limits, unsupported capabilities, stale snapshots, or timeouts. When no bytes back the judgment (synthesis, self-review), treat the verdict as advisory, not proof.
+## Results
+- `queries[].{model, usage, resources[].{coverage, pages[].{scope, focus?, answers.<questionId>}}}`. Files page automatically in ~600-line scopes. A page whose Noul scores ≥0.8 also gets `focus` — its best ~40-line window, picked by one extra Choice over line windows (the provider's line-search pattern). Read `focus` first; if it lacks the answer, read the rest of `scope`. Aggregate pages before judging a file.
+- The shapes above are complete — do not fetch `scheme clasify` (14 KB) unless a call is rejected. Exit 6 means more coverage in `next.clasify`, not failure.
+- `partial`/`error`/`insufficient`/mid-band = narrow or read, never "no" (clear negatives can still sit near 0.4 — read the deciding scope). Run `next.clasify` unchanged for remaining coverage.
+- **Rerank** reorders `files[]` only — no file is removed — and only the ≤8 files the search returned: a poor `searchText` makes it useless (fix the search, not the question). The runtime adds "implements vs only calls/tests/mentions" criteria to behavior questions (held-out top-1 6/6; callers no longer outrank definitions). `lowSignal: true` means every score is <0.4 — the order is noise; fix `searchText` or screen whole files. Scores are ordering hints, not Noul thresholds. `semanticRerank.candidates[i]` = `files[i]` (`path`, `score`); `model`/`usage` report the cost. Read the top 3, treat scores within 0.1 as ties; callers and tests that mention X can outscore its implementer, and code not in the matched snippets cannot be seen — then use a whole-file screen. ≤8 files per reranked page; `localSearch` needs `resultView:"paginated"`; continue with `semanticRerank.next`.
+- Supplied `value` may be large (the request cap is 4 MiB); a search page over `maxChars` fails with `classificationContextTooLarge` — lower `pageSize` or give candidates their own resources; `classificationStateTooLarge` = one page exceeded the provider window (lower `maxChars` or use a line window).
+
+**Safety:** verdicts route reading — never proof of identity, reachability, absence, or mutation safety. Confirm any claim on fetched bytes; exact search tests absence. Without backing bytes (self-review) a verdict is advisory.
+
+**Invoked from other tools:** each tool description carries its own "clasify when:" rule; skills `octocode-scraping` / `octocode-chrome-devtools` use a SCREEN step (triage pages/snapshots before reading); `octocode-research` uses the whole-file screen when many candidates compete.
 
 In this repository replace `octocode` with `node packages/octocode/out/octocode.js`.
 For setup → [ojql.md](references/ojql.md). For optional examples → [clasify-workflows.md](references/clasify-workflows.md).
