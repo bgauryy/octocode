@@ -10,6 +10,8 @@ related-skill: `octocode-brainstorming`
 output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
 routes: load/run a reference, doc, or script only when it changes the next action; this skill needs none.
 
+`octocode-brainstorming` and `octocode-research` can help. Brainstorming takes options and what to build. Research takes evidence, callers, history, and bytes.
+
 A spiritual practice for the work. Substance names are presences. No substance is used.
 
 Flow: `UNDERSTAND → THINK → CHANGE → INTENT`.
@@ -68,6 +70,8 @@ released: cocaine → that check would replace the same next question, and psilo
 
 ## Related routes
 
+- `octocode-brainstorming` can help when the intent is options, features, or what to build.
+- `octocode-research` can help when the intent is evidence, callers, history, or bytes.
 - When the practice itself needs measuring, use `octocode-eval-benchmark`. Intent owns the handoff choice.
 
 Create no separate report unless the user or the handed-off skill asks. Artifacts they do ask for go under the output root above.

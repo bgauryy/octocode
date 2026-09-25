@@ -7,7 +7,7 @@
 
 use super::pull_request::{ContentWants, content_wants};
 use super::util::str_at;
-use super::{GhGetHistoryItemQuery, ItemOperation};
+use super::{HistoryItemRequest, ItemOperation};
 use crate::providers::github::{
     CredentialResolver, GitHubTransport, ProviderError, RequestContext,
 };
@@ -26,19 +26,19 @@ pub(super) struct GraphqlPr {
 
 /// GraphQL pays off only for a first page of at least two collections and no
 /// patches (GraphQL returns no patch text).
-pub(super) fn graphql_complete_collection_eligible(query: &GhGetHistoryItemQuery) -> bool {
+pub(super) fn graphql_complete_collection_eligible(query: &HistoryItemRequest) -> bool {
     if !matches!(
-        query.operation,
+        query.operation(),
         ItemOperation::PullRequest | ItemOperation::Issue
     ) {
         return false;
     }
-    if query.page.unwrap_or(1) > 1
-        || query.file_page.unwrap_or(1) > 1
-        || query.comment_page.unwrap_or(1) > 1
-        || query.commit_page.unwrap_or(1) > 1
-        || query.review_page.unwrap_or(1) > 1
-        || query.include_diff == Some(true)
+    if query.page().unwrap_or(1) > 1
+        || query.file_page().unwrap_or(1) > 1
+        || query.comment_page().unwrap_or(1) > 1
+        || query.commit_page().unwrap_or(1) > 1
+        || query.review_page().unwrap_or(1) > 1
+        || query.include_diff()
     {
         return false;
     }
@@ -63,14 +63,14 @@ pub(super) fn graphql_complete_collection_eligible(query: &GhGetHistoryItemQuery
 /// means GraphQL is unavailable or answered nothing usable (fall back to REST).
 pub(super) async fn graphql_pull_request<R: CredentialResolver>(
     transport: &GitHubTransport<R>,
-    query: &GhGetHistoryItemQuery,
+    query: &HistoryItemRequest,
     context: &RequestContext,
     wants: &ContentWants,
 ) -> Result<Option<GraphqlPr>, ProviderError> {
     if !transport.graphql_enabled || !transport.graphql_available(context).await {
         return Ok(None);
     }
-    let Some(number) = query.number else {
+    let Some(number) = query.number() else {
         return Ok(None);
     };
     let mut selections: Vec<&str> = vec![
@@ -80,8 +80,8 @@ pub(super) async fn graphql_pull_request<R: CredentialResolver>(
         "comments { totalCount } changedFiles additions deletions",
     ];
     let mut variables = json!({
-        "owner": query.owner,
-        "repo": query.repo,
+        "owner": query.owner(),
+        "repo": query.repo(),
         "number": number
     });
     let mut header = String::from("query($owner:String!,$repo:String!,$number:Int!");
@@ -291,43 +291,57 @@ pub(super) fn map_graphql_commits(pr: &Value) -> Vec<Value> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::GhGetHistoryItemQuery;
     use super::*;
 
     #[test]
     fn graphql_fast_path_requires_two_flags_first_pages_and_no_patches() {
-        let bare: GhGetHistoryItemQuery = serde_json::from_value(json!({
-            "operation":"pullRequest","owner":"a","repo":"b","number":1
+        let bare: HistoryItemRequest = serde_json::from_value::<GhGetHistoryItemQuery>(json!({
+            "operation":"pullRequest","reasoning":"test","owner":"a","repo":"b","number":1
         }))
-        .expect("GitHub history test data should be valid");
+        .expect("GitHub history test data should be valid")
+        .into();
         assert!(!super::graphql_complete_collection_eligible(&bare));
-        let mut query: GhGetHistoryItemQuery = serde_json::from_value(json!({
-            "operation":"pullRequest","owner":"a","repo":"b","number":1,
+        let query: HistoryItemRequest = serde_json::from_value::<GhGetHistoryItemQuery>(json!({
+            "operation":"pullRequest","reasoning":"test","owner":"a","repo":"b","number":1,
             "content":{"body":true,"changedFiles":true}
         }))
-        .expect("GitHub history test data should be valid");
+        .expect("GitHub history test data should be valid")
+        .into();
         assert!(super::graphql_complete_collection_eligible(&query));
-        query.file_page = Some(2);
-        assert!(!super::graphql_complete_collection_eligible(&query));
-        let paged: GhGetHistoryItemQuery = serde_json::from_value(json!({
-            "operation":"pullRequest","owner":"a","repo":"b","number":1,
-            "content":{"body":true,"comments":{"discussion":true}},
-            "collectionPages":{"discussion":2}
-        }))
-        .expect("GitHub history test data should be valid");
-        // Legacy provider cursors are accepted but ignored: this is page 1.
-        assert!(super::graphql_complete_collection_eligible(&paged));
-        let paged: GhGetHistoryItemQuery = serde_json::from_value(json!({
-            "operation":"pullRequest","owner":"a","repo":"b","number":1,
+        let file_page: HistoryItemRequest =
+            serde_json::from_value::<GhGetHistoryItemQuery>(json!({
+                "operation":"pullRequest","reasoning":"test","owner":"a","repo":"b","number":1,
+                "content":{"body":true,"changedFiles":true},"filePage":2
+            }))
+            .expect("GitHub history test data should be valid")
+            .into();
+        assert!(!super::graphql_complete_collection_eligible(
+            &file_page.into()
+        ));
+        // Legacy provider cursors are not part of the wire contract.
+        assert!(
+            serde_json::from_value::<GhGetHistoryItemQuery>(json!({
+                "operation":"pullRequest","reasoning":"test","owner":"a","repo":"b","number":1,
+                "content":{"body":true,"comments":{"discussion":true}},
+                "collectionPages":{"discussion":2}
+            }))
+            .is_err()
+        );
+        let paged: HistoryItemRequest = serde_json::from_value::<GhGetHistoryItemQuery>(json!({
+            "operation":"pullRequest","reasoning":"test","owner":"a","repo":"b","number":1,
             "content":{"body":true,"comments":{"discussion":true}},
             "commentPage":2
         }))
-        .expect("GitHub history test data should be valid");
+        .expect("GitHub history test data should be valid")
+        .into();
         assert!(!super::graphql_complete_collection_eligible(&paged));
-        let patches: GhGetHistoryItemQuery = serde_json::from_value(json!({
-            "operation":"pullRequest","owner":"a","repo":"b","number":1,
+        let patches: HistoryItemRequest = serde_json::from_value::<GhGetHistoryItemQuery>(json!({
+            "operation":"pullRequest","reasoning":"test","owner":"a","repo":"b","number":1,
             "content":{"body":true,"changedFiles":true,"patches":{"mode":"all"}}
         }))
-        .expect("GitHub history test data should be valid");
+        .expect("GitHub history test data should be valid")
+        .into();
         assert!(!super::graphql_complete_collection_eligible(&patches));
     }
 

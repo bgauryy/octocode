@@ -31,7 +31,7 @@ From the repository root:
 
 ```bash
 yarn workspace @octocodeai/config generate:config-contract
-yarn workspace @octocodeai/config generate:tool-types   # needs cargo-typify 0.8.0
+yarn contracts:regen   # repo root: refresh core, regenerate contract/ (needs cargo-typify 0.8.0)
 yarn workspace @octocodeai/config build
 yarn workspace @octocodeai/config test
 yarn workspace @octocodeai/config lint
@@ -47,9 +47,10 @@ settings reference.
 Tool input/output types are generated, never hand-written: TypeScript
 consumers import `ToolQuery<'localFetch'>`, `LocalSearchQuery`,
 `GhSearchOutput`, and the rest from `@octocodeai/config/schema`, and
-`@octocodeai/octocode-native` compiles the matching Rust types from
-`rust/tool_types.rs`. Change the Zod schema in `@octocodeai/octocode-core`,
-then regenerate. See [ARCHITECTURE.md](./ARCHITECTURE.md#tool-types).
+`@octocodeai/octocode-native` embeds `contract/` (enforcement contract,
+fixtures, and Rust types) directly at build time. Change the Zod schema in
+`@octocodeai/octocode-core`, then run `yarn contracts:regen` — that one step
+updates every consumer. See [ARCHITECTURE.md](./ARCHITECTURE.md#tool-types).
 
 See the repository [configuration reference](../../docs/CONFIGURATION.md),
 [generated settings reference](../../docs/generated/CONFIG_SETTINGS.md),

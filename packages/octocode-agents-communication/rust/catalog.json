@@ -680,7 +680,7 @@
     },
     {
       "name": "record_usage",
-      "description": "Record available host token telemetry once per key, without conversation text. scope distinguishes per-request from cumulative totals; never sum cumulative snapshots. Missing metrics mean unknown, not zero.",
+      "description": "Record available host token telemetry once per key, without conversation text. scope distinguishes request, aggregate turn, and cumulative totals; never sum cumulative snapshots. Missing metrics mean unknown, not zero.",
       "usage": "record_usage [json] --session <id> --workspace <path> [--database <file>]",
       "inputSchema": {
         "type": "object",
@@ -715,6 +715,10 @@
             "minimum": 0
           },
           "contextTokens": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cacheWriteTokens": {
             "type": "integer",
             "minimum": 0
           }

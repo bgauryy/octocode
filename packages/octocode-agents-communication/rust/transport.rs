@@ -57,7 +57,11 @@ pub fn validate(transport: &str, endpoint: Option<&str>) -> Result<()> {
 }
 fn address(endpoint: &str) -> Result<SocketAddr> {
     let uri: tungstenite::http::Uri = endpoint.parse()?;
-    if uri.scheme_str() != Some("ws") || uri.query().is_some() || uri.path() != "/" {
+    if uri.scheme_str() != Some("ws")
+        || uri.query().is_some()
+        || uri.path() != "/"
+        || uri.authority().is_some_and(|a| a.as_str().contains('@'))
+    {
         bail!(
             "Codex endpoint must be ws://loopback:port or unix:///absolute/socket; no credentials or query"
         );

@@ -261,6 +261,11 @@ rl.on('line',line=>{const c=JSON.parse(line);
  if(c.type==='prompt'){capture(c.message);send({id:c.id,type:'response',success:true});send({type:'message_end',message:{role:'assistant',usage:{input:12}}});send({type:'agent_settled'});}
 });
 `,{mode:0o755});
+  // Keep the Node interpreter stable and pass vendor flags only to the fixture.
+  const script = join(bin, `${vendor}.cjs`);
+  writeFileSync(script, readFileSync(join(bin, vendor)));
+  const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
+  writeFileSync(join(bin, vendor), `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(script)} "$@"\n`, { mode: 0o755 });
   // These Node programs emulate vendor CLIs; they must not inherit the test runner protocol.
   const vendorEnv={...process.env,PATH:bin,COMMUNICATION_CAPTURE:capture};delete vendorEnv.NODE_TEST_CONTEXT;
   const events=execFileSync(binary,['run','--vendor',vendor,'--model','test','--prompt','Task sentinel','--trace','--duration-ms','10000','--workspace',f.workspace,'--database',f.database],{env:vendorEnv,encoding:'utf8',timeout:15000}).trim().split('\n').map(JSON.parse);
@@ -305,6 +310,9 @@ test('idle proxy exits and reaps its vendor when the database is removed', {skip
   setTimeout(()=>fs.renameSync(process.env.COMMUNICATION_DB,process.env.COMMUNICATION_DB+'.removed'),100);
  });
  `,{mode:0o755});
+ const script=join(bin,'claude.cjs');writeFileSync(script,readFileSync(join(bin,'claude')));
+ const quote=value=>"'"+value.replaceAll("'","'\\''")+"'";
+ writeFileSync(join(bin,'claude'),`#!/bin/sh\nexec ${quote(process.execPath)} ${quote(script)} "$@"\n`,{mode:0o755});
  const env={...process.env,PATH:bin,COMMUNICATION_PID:pidFile,COMMUNICATION_DB:f.database};delete env.NODE_TEST_CONTEXT;
  assert.throws(()=>invoke(f,['run','--vendor','claude','--model','test','--prompt','wait','--duration-ms','10000'],{env,timeout:15000}),e=>{
   assert.equal(e.status,1);assert.match(e.stderr.toString(),/database disappeared/);return true;

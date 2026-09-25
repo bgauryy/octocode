@@ -5,9 +5,7 @@ use crate::security::ContentSecurity;
 use crate::tools::ast_graph::{AstGraphQuery, execute_topology};
 use crate::tools::ast_rewrite::{AstRewriteRuntimeOptions, execute_ast_rewrite_with_options};
 use crate::tools::ast_search::execute_ast;
-use crate::tools::local_fetch::{
-    LocalFetchRegex, LocalFetchQuery, execute_local_fetch_with_regex,
-};
+use crate::tools::local_fetch::{LocalFetchQuery, LocalFetchRegex, execute_local_fetch_with_regex};
 use crate::tools::local_search::{LocalSearchQuery, SearchStatus, execute_local_search};
 use serde_json::{Value, json};
 

@@ -273,47 +273,25 @@ impl GitHubServices {
         regex: &LocalFetchRegex,
         paths: &PathPolicy,
     ) -> Result<DomainResult, ExecutionError> {
-        let mut execution_query = query.clone();
-        if let Some(object) = execution_query.as_object_mut() {
-            object.remove("goal");
-            object.remove("reasoning");
-            object.remove("debug");
-        }
+        // Generated query types carry the meta fields, so every tool parses
+        // the validated row as-is.
         match tool {
             "ghGetFileContent" => {
-                self.execute_file_resolved(
-                    query,
-                    request_context,
-                    context,
-                    security,
-                    regex,
-                )
-                .await
+                self.execute_file_resolved(query, request_context, context, security, regex)
+                    .await
             }
             "ghGetHistoryItem" => {
-                self.execute_history_item_resolved(
-                    &execution_query,
-                    request_context,
-                    context,
-                    security,
-                )
-                .await
+                self.execute_history_item_resolved(query, request_context, context, security)
+                    .await
             }
             "ghSearch" => {
                 self.execute_search_resolved(query, request_context, context, security)
                     .await
             }
             "ghSearchHistory" => {
-                self.execute_search_history_resolved(
-                    query,
-                    request_context,
-                    context,
-                    security,
-                )
-                .await
+                self.execute_search_history_resolved(query, request_context, context, security)
+                    .await
             }
-            // Generated query types carry the meta fields, so they parse the
-            // validated row as-is.
             "ghCloneRepo" => {
                 self.execute_clone_resolved(query, request_context, context, paths)
                     .await
@@ -331,12 +309,13 @@ impl GitHubServices {
     ) -> Result<DomainResult, ExecutionError> {
         context.check()?;
         let raw_query = query;
-        let mut query: gh_get_history_item::GhGetHistoryItemQuery =
-            match super::dispatch::parse_query(query.clone()) {
+        let query = gh_get_history_item::HistoryItemRequest {
+            query: match super::dispatch::parse_query(query.clone()) {
                 Ok(query) => query,
                 Err(row) => return Ok(*row),
-            };
-        query.auto_page_chars = Some(self.auto_page_chars);
+            },
+            auto_page_chars: Some(self.auto_page_chars),
+        };
         // History items are mutable; bypass ConditionalCache intentionally.
         // See gh_get_history_item module-level doc for the full rationale.
         let result = gh_get_history_item::execute(

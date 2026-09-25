@@ -1,5 +1,7 @@
 # Communication mesh reviews
 
+Historical managed-worker evidence. Current schema is v2 and the skill is 49 lines; see [attached transport validation](VENDOR_MESSAGES.md#production-db-first-adapters).
+
 September 24, 2026. Scope: trusted cooperating processes sharing a local SQLite
 database. Two real Codex Luna workers, two Claude Haiku workers, and two Pi workers
 using the configured Haiku provider. A seventh participant uses Python's SQLite

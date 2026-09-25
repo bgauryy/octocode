@@ -1,14 +1,14 @@
 //! `next.*` builders: exact follow-up `ghGetHistoryItem` queries derived from
 //! the public query and the page objects of a shaped response.
 use super::util::{content_flag, merge};
-use super::{DEFAULT_PAGE_SIZE, GhGetHistoryItemQuery, ItemOperation};
+use super::{DEFAULT_PAGE_SIZE, HistoryItemRequest, ItemOperation};
 use crate::tools::result::remove_nulls;
 use serde_json::{Map, Value, json};
 use std::collections::HashSet;
 
 /// The caller's query as a replayable public query for `operation`.
-pub(super) fn base_public_query(q: &GhGetHistoryItemQuery, operation: ItemOperation) -> Value {
-    let mut v = serde_json::to_value(q).unwrap_or_default();
+pub(super) fn base_public_query(q: &HistoryItemRequest, operation: ItemOperation) -> Value {
+    let mut v = serde_json::to_value(&q.query).unwrap_or_default();
     remove_nulls(&mut v);
     if let Some(m) = v.as_object_mut() {
         m.insert(
@@ -23,19 +23,18 @@ pub(super) fn base_public_query(q: &GhGetHistoryItemQuery, operation: ItemOperat
         m.remove("goal");
         m.remove("reasoning");
         m.remove("debug");
-        // Provider batches are derived from the public page cursors; legacy
-        // batch cursors are accepted on input but never re-emitted.
-        m.remove("collectionPages");
-        m.remove("fileBatch");
         match operation {
             ItemOperation::PullRequest => {
                 m.insert(
                     "pageSize".into(),
-                    json!(q.page_size.unwrap_or(DEFAULT_PAGE_SIZE)),
+                    json!(q.page_size().unwrap_or(DEFAULT_PAGE_SIZE)),
                 );
                 m.insert(
                     "minify".into(),
-                    json!(q.minify.as_deref().unwrap_or("standard")),
+                    json!(
+                        q.minify()
+                            .map_or_else(|| "standard".to_owned(), |m| m.to_string())
+                    ),
                 );
                 if let Some(Value::Object(content)) = m.get_mut("content")
                     && content.get("patches").is_some()
@@ -44,11 +43,11 @@ pub(super) fn base_public_query(q: &GhGetHistoryItemQuery, operation: ItemOperat
                 }
             }
             ItemOperation::Compare => {
-                m.insert("page".into(), json!(q.page.unwrap_or(1)));
-                m.insert("filePage".into(), json!(q.file_page.unwrap_or(1)));
+                m.insert("page".into(), json!(q.page().unwrap_or(1)));
+                m.insert("filePage".into(), json!(q.file_page().unwrap_or(1)));
                 m.insert(
                     "pageSize".into(),
-                    json!(q.page_size.unwrap_or(DEFAULT_PAGE_SIZE)),
+                    json!(q.page_size().unwrap_or(DEFAULT_PAGE_SIZE)),
                 );
             }
             _ => {}
@@ -63,7 +62,7 @@ fn continuation(q: Value) -> Value {
 
 /// Per-row menu of first-page fetches for content the call did not request.
 pub(super) fn pr_next_menu(
-    query: &GhGetHistoryItemQuery,
+    query: &HistoryItemRequest,
     content: Option<&Map<String, Value>>,
     patch_mode: &str,
     first_path: Option<&str>,
@@ -83,7 +82,6 @@ pub(super) fn pr_next_menu(
             "reviewPage",
             "filePage",
             "page",
-            "collectionPages",
             "matchString",
         ] {
             object.remove(key);
@@ -140,7 +138,7 @@ fn pr_axis(axis: &str) -> Option<(&'static str, &'static str, &'static str)> {
     })
 }
 
-pub(super) fn promote_pr_continuations(out: &mut Value, q: &GhGetHistoryItemQuery) {
+pub(super) fn promote_pr_continuations(out: &mut Value, q: &HistoryItemRequest) {
     let unresolved_selected_paths = selected_patch_paths(q).map(|requested| {
         let returned = out
             .pointer("/pullRequests/0/changedFiles")
@@ -234,9 +232,9 @@ pub(super) fn promote_pr_continuations(out: &mut Value, q: &GhGetHistoryItemQuer
 
 /// Narrow a patch char-window continuation to the patch surface and to the
 /// files whose window has more; completed files are not re-emitted.
-fn narrow_patch_continuation(nq: &mut Value, entry: &mut Value, q: &GhGetHistoryItemQuery) {
+fn narrow_patch_continuation(nq: &mut Value, entry: &mut Value, q: &HistoryItemRequest) {
     let changed_files_requested = q
-        .content
+        .content_value()
         .as_ref()
         .and_then(|value| value.get("changedFiles"))
         .and_then(Value::as_bool)
@@ -280,8 +278,9 @@ fn remove_key(value: &mut Value, key: &str) {
     }
 }
 
-fn selected_patch_paths(query: &GhGetHistoryItemQuery) -> Option<Vec<String>> {
-    let patches = query.content.as_ref()?.get("patches")?;
+fn selected_patch_paths(query: &HistoryItemRequest) -> Option<Vec<String>> {
+    let content = query.content_value()?;
+    let patches = content.get("patches")?;
     if patches.get("mode").and_then(Value::as_str) != Some("selected") {
         return None;
     }
@@ -330,14 +329,14 @@ fn retain_unresolved_patch_selection(query: &mut Value, unresolved: &[String]) {
     }
 }
 
-pub(super) fn promote_issue_continuations(out: &mut Value, q: &GhGetHistoryItemQuery) {
+pub(super) fn promote_issue_continuations(out: &mut Value, q: &HistoryItemRequest) {
     let Some(pages) = out
         .pointer("/issues/0/contentPagination")
         .and_then(Value::as_object)
     else {
         return;
     };
-    let comments = || json!({"comments":q.content.as_ref().and_then(|v|v.get("comments")).cloned().unwrap_or(json!({"discussion":true}))});
+    let comments = || json!({"comments":q.content_value().and_then(|v|v.get("comments").cloned()).unwrap_or(json!({"discussion":true}))});
     let mut next = Map::new();
     for (axis, entry) in pages {
         if entry.get("hasMore").and_then(Value::as_bool) != Some(true) {
@@ -386,14 +385,14 @@ pub(super) fn promote_issue_continuations(out: &mut Value, q: &GhGetHistoryItemQ
 /// when `with_why`).
 pub(super) fn attach_diff_continuations(
     out: &mut Value,
-    q: &GhGetHistoryItemQuery,
+    q: &HistoryItemRequest,
     operation: ItemOperation,
     resolved_ref: Option<&str>,
     with_why: bool,
 ) {
     let mut next = Map::new();
     let mut base = if matches!(operation, ItemOperation::Commit) {
-        json!({"operation":"commit","owner":q.owner,"repo":q.repo,"ref":resolved_ref.or(q.reference.as_deref()),"includeDiff":with_why || q.include_diff == Some(true),"path":q.path,"filePage":q.file_page.or((!with_why).then_some(1)),"pageSize":q.page_size,"charOffset":q.char_offset,"charLength":q.char_length})
+        json!({"operation":"commit","owner":q.owner(),"repo":q.repo(),"ref":resolved_ref.or(q.reference()),"includeDiff":with_why || q.include_diff(),"path":q.path(),"filePage":q.file_page().or((!with_why).then_some(1)),"pageSize":q.page_size(),"charOffset":q.char_offset(),"charLength":q.char_length()})
     } else {
         base_public_query(q, operation)
     };
@@ -477,15 +476,17 @@ pub(super) fn attach_diff_continuations(
 
 #[cfg(test)]
 mod tests {
+    use super::super::GhGetHistoryItemQuery;
     use super::*;
 
     #[test]
     fn selected_patch_continuation_stops_after_every_requested_path_is_returned() {
-        let query: GhGetHistoryItemQuery = serde_json::from_value(json!({
-            "operation":"pullRequest","owner":"a","repo":"b","number":1,
+        let query: HistoryItemRequest = serde_json::from_value::<GhGetHistoryItemQuery>(json!({
+            "operation":"pullRequest","reasoning":"test","owner":"a","repo":"b","number":1,
             "content":{"patches":{"mode":"selected","files":["src/lib.rs"]}}
         }))
-        .expect("selected patch query");
+        .expect("selected patch query")
+        .into();
         let mut output = json!({
             "type":"pullRequests",
             "pullRequests":[{
@@ -512,11 +513,12 @@ mod tests {
 
     #[test]
     fn selected_patch_continuation_carries_only_unresolved_paths() {
-        let query: GhGetHistoryItemQuery = serde_json::from_value(json!({
-            "operation":"pullRequest","owner":"a","repo":"b","number":1,
+        let query: HistoryItemRequest = serde_json::from_value::<GhGetHistoryItemQuery>(json!({
+            "operation":"pullRequest","reasoning":"test","owner":"a","repo":"b","number":1,
             "content":{"patches":{"mode":"selected","files":["src/a.rs","src/b.rs"]}}
         }))
-        .expect("selected patch query");
+        .expect("selected patch query")
+        .into();
         let mut output = json!({
             "type":"pullRequests",
             "pullRequests":[{
@@ -542,14 +544,15 @@ mod tests {
 
     #[test]
     fn selected_patch_continuation_filters_resolved_range_selectors() {
-        let query: GhGetHistoryItemQuery = serde_json::from_value(json!({
-            "operation":"pullRequest","owner":"a","repo":"b","number":1,
+        let query: HistoryItemRequest = serde_json::from_value::<GhGetHistoryItemQuery>(json!({
+            "operation":"pullRequest","reasoning":"test","owner":"a","repo":"b","number":1,
             "content":{"patches":{"mode":"selected","ranges":[
                 {"file":"src/a.rs","additions":[1]},
                 {"file":"src/b.rs","deletions":[2]}
             ]}}
         }))
-        .expect("selected patch range query");
+        .expect("selected patch range query")
+        .into();
         let mut output = json!({
             "type":"pullRequests",
             "pullRequests":[{
@@ -575,19 +578,21 @@ mod tests {
 
     #[test]
     fn pr_next_menu_carries_required_defaults_and_drops_cursors() {
-        let query: GhGetHistoryItemQuery = serde_json::from_value(json!({
-            "operation":"pullRequest","owner":"o","repo":"r","number":5,
+        let query: HistoryItemRequest = serde_json::from_value::<GhGetHistoryItemQuery>(json!({
+            "operation":"pullRequest","reasoning":"test","owner":"o","repo":"r","number":5,
             "content":{"body":true},"charOffset":100,"commentPage":2,
-            "collectionPages":{"discussion":2},"reasoning":"r"
+            "reasoning":"r"
         }))
-        .expect("query");
-        let content = query.content.as_ref().and_then(Value::as_object);
+        .expect("query")
+        .into();
+        let content_value = query.content_value();
+        let content = content_value.as_ref().and_then(Value::as_object);
         let menu = pr_next_menu(&query, content, "none", Some("src/a.rs"));
         let reviews = &menu["getReviews"]["query"];
         assert_eq!(reviews["pageSize"], 30);
         assert_eq!(reviews["minify"], "standard");
         assert_eq!(reviews["content"], json!({"reviews":true}));
-        for key in ["charOffset", "commentPage", "collectionPages", "reasoning"] {
+        for key in ["charOffset", "commentPage", "reasoning"] {
             assert!(reviews.get(key).is_none(), "{key} leaked: {reviews}");
         }
         assert!(menu.get("getBody").is_none());
@@ -597,12 +602,13 @@ mod tests {
     fn char_offset_continuations_narrow_content_to_their_own_surface() {
         // charOffset is one shared field: continuing the body must not skew
         // review bodies or patches by the body offset (and vice versa).
-        let query: GhGetHistoryItemQuery = serde_json::from_value(json!({
-            "operation":"pullRequest","owner":"o","repo":"r","number":5,
+        let query: HistoryItemRequest = serde_json::from_value::<GhGetHistoryItemQuery>(json!({
+            "operation":"pullRequest","reasoning":"test","owner":"o","repo":"r","number":5,
             "content":{"body":true,"reviews":true,"patches":{"mode":"all"},"comments":{"discussion":true}},
             "charOffset":0
         }))
-        .expect("query");
+        .expect("query")
+            .into();
         let mut out = json!({"type":"pullRequests","pullRequests":[{"contentPagination":{
             "body":{"hasMore":true,"nextCharOffset":12000},
             "reviewBody":{"hasMore":true,"nextCharOffset":300},

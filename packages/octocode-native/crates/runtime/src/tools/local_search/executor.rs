@@ -171,10 +171,7 @@ pub fn execute_local_search(
         classify_matches: Some(false),
         only_matching: Some(view == ResultView::MatchOnly),
         match_window: query.match_window(),
-        unique: Some(matches!(
-            query.unique,
-            UniqueMode::List | UniqueMode::Count
-        )),
+        unique: Some(matches!(query.unique, UniqueMode::List | UniqueMode::Count)),
         count_unique: Some(query.unique == UniqueMode::Count),
         // The engine keeps the first 10k matched files in the engine sort order
         // above (by match count for relevance/matchCount), chosen across every
@@ -1231,7 +1228,10 @@ fn fingerprint(
     opt!("invertMatch", q.invert_match);
     opt!("include", (!q.include.is_empty()).then_some(&q.include));
     opt!("exclude", (!q.exclude.is_empty()).then_some(&q.exclude));
-    opt!("excludeDir", (!q.exclude_dir.is_empty()).then_some(&q.exclude_dir));
+    opt!(
+        "excludeDir",
+        (!q.exclude_dir.is_empty()).then_some(&q.exclude_dir)
+    );
     opt!("noIgnore", q.no_ignore);
     opt!("hidden", q.hidden);
     opt!("maxDepth", q.max_depth);

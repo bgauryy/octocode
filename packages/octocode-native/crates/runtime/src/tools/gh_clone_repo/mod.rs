@@ -304,7 +304,10 @@ fn result(
 }
 
 pub(crate) fn validate_query(query: &GhCloneRepoQuery) -> Result<(), CloneError> {
-    for (name, value) in [("owner", query.owner.as_str()), ("repo", query.repo.as_str())] {
+    for (name, value) in [
+        ("owner", query.owner.as_str()),
+        ("repo", query.repo.as_str()),
+    ] {
         if value.trim().is_empty()
             || value.contains('/')
             || value.contains('\\')

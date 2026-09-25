@@ -11,16 +11,16 @@ Load before editing and before reporting done. Why: changes cross two repos and 
 
 | Change in | Steps |
 |---|---|
-| Core (schema, description, instructions) | edit `CORE` → core `yarn test && yarn lint` → `yarn install` in the monorepo (core resolves via `file:` as a **copy**, not a link) → `OCTOCODE_CORE_DIR=<abs CORE> yarn workspace @octocodeai/octocode-native contracts:regen` → update `field-effect-coverage.json` (fingerprint + new/removed fields) → native rebuild |
+| Core (schema, description, instructions) | edit `CORE` → core `yarn test && yarn lint` → `yarn contracts:regen` at the monorepo root (refreshes the `file:` core **copy**, then regenerates `packages/octocode-config/contract/`) → declare any new field in `field-effect-coverage.json` → native rebuild (build.rs embeds `contract/` in place) |
 | Native runtime / engine | edit → `cargo fmt` + clippy on touched crate → `yarn workspace @octocodeai/octocode-native test:rust` (or nextest) → `yarn workspace @octocodeai/octocode-native build:dev` |
 | Config contract | edit `config-contract.json` → `yarn workspace @octocodeai/config generate:config-contract` → native rebuild (build.rs regenerates the struct) |
 | CLI / MCP | `yarn workspace octocode build:dev` / `yarn workspace octocode-mcp build:dev`; MCP tests `test:contracts` |
 
-Regen provenance records `sourceDirty`; a dirty-core regen is fine for local verification but note it in the report — release needs a clean core commit + regen (owned by the human).
+Provenance records the core package version; release needs the matching core published first (`check:core-contract-sync:published`, owned by the human).
 
 ## Verify through the real path
 
-1. `yarn workspace @octocodeai/octocode-native contracts:check` — embed matches core.
+1. `yarn workspace @octocodeai/config check:tool-contract` — `contract/` matches core.
 2. `$OCTO scheme <tool> --view query` shows the changed contract.
 3. Re-run the reproducing call from the finding via CLI; it now passes.
 4. Re-run via MCP. **A running MCP server keeps the old binary/contract until restarted** — restart the host's server (or spawn a fresh stdio session) before claiming MCP behavior.

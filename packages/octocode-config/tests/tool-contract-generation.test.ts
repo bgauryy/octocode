@@ -12,32 +12,32 @@ import type { ToolInput, ToolOutput, ToolQuery } from '../src/contracts/schema.j
 import { TOOL_TYPES_CONTRACT_FINGERPRINT } from '../src/contracts/schema.js';
 import {
   buildToolTypesBundle,
-  generateToolTypes,
-} from '../scripts/generate-tool-types.ts';
+  generateToolContract,
+} from '../scripts/generate-tool-contract.ts';
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (path: string): string => readFileSync(resolve(packageRoot, path), 'utf8');
 
 describe('generated tool types', () => {
-  it('are current with the core Zod contract (TS, bundle, and Rust header)', async () => {
-    const { files, rustHeader } = await generateToolTypes();
+  it('are current with the core Zod contract (embed, fixtures, TS, bundle, Rust header)', async () => {
+    const { files, rustHeader } = await generateToolContract();
     for (const [path, content] of files) {
       expect(readFileSync(path, 'utf8'), path).toBe(content);
     }
-    expect(read('rust/tool_types.rs').startsWith(rustHeader)).toBe(true);
+    expect(read('contract/tool_types.rs').startsWith(rustHeader)).toBe(true);
     expect(TOOL_TYPES_CONTRACT_FINGERPRINT).toBe(getNativeContractFingerprint());
   });
 
   it('pins the Rust types to the exact bundle they were generated from', () => {
-    const digest = createHash('sha256').update(read('tool-types.schema.json')).digest('hex');
-    expect(read('rust/tool_types.rs')).toContain(
+    const digest = createHash('sha256').update(read('contract/tool-types.schema.json')).digest('hex');
+    expect(read('contract/tool_types.rs')).toContain(
       `pub const TOOL_TYPES_SCHEMA_SHA256: &str = "${digest}";`
     );
   });
 
   it('declares a query, input, and output type for every catalog tool in both languages', () => {
     const ts = read('src/contracts/toolTypes.generated.ts');
-    const rust = read('rust/tool_types.rs');
+    const rust = read('contract/tool_types.rs');
     for (const tool of Object.values(TOOL_NAMES)) {
       const base = `${tool.charAt(0).toUpperCase()}${tool.slice(1)}`;
       for (const suffix of ['Query', 'Input', 'Output']) {

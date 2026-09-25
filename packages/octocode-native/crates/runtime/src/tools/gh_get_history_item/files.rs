@@ -1,6 +1,6 @@
 //! Changed files: selection filters, path scopes, per-file shaping and the
 //! shared patch char window.
-use super::GhGetHistoryItemQuery;
+use super::HistoryItemRequest;
 use super::util::{minified_view, needle, paginate_text, str_at, string, usize_at};
 use super::window::WindowState;
 use crate::tools::result::remove_nulls;
@@ -72,7 +72,7 @@ pub(super) fn shape_pr_files(
     pagination: &mut Map<String, Value>,
     files: Vec<Value>,
     state: WindowState,
-    query: &GhGetHistoryItemQuery,
+    query: &HistoryItemRequest,
     selector: Option<&Map<String, Value>>,
     patch_mode: &str,
 ) -> bool {
@@ -92,7 +92,7 @@ pub(super) fn shape_pr_files(
         .into_iter()
         .filter(|file| filter.matches(file))
         .collect::<Vec<_>>();
-    let (slice, page) = state.paginate(filtered, query.file_page, query.page_size);
+    let (slice, page) = state.paginate(filtered, query.file_page(), query.page_size());
     let files_on_page = slice.len();
     let shaped = slice
         .into_iter()
@@ -148,7 +148,7 @@ pub(super) fn shape_pr_files(
     selection_requested && !selected_path_matched && state.exhausted
 }
 
-fn history_patch_view(value: &str, query: &GhGetHistoryItemQuery) -> String {
+fn history_patch_view(value: &str, query: &HistoryItemRequest) -> String {
     if minified_view(query) {
         octocode_engine::portable::filter_patch(
             value,
@@ -169,7 +169,7 @@ fn history_patch_view(value: &str, query: &GhGetHistoryItemQuery) -> String {
 pub(super) fn shape_file(
     file: &Value,
     include_patch: bool,
-    query: &GhGetHistoryItemQuery,
+    query: &HistoryItemRequest,
     files_on_page: usize,
 ) -> Value {
     let mut out = json!({"filename":str_at(file,"/filename").unwrap_or(""),"status":string(file.get("status")),"additions":usize_at(file,"/additions"),"deletions":usize_at(file,"/deletions"),"previousFilename":file.get("previous_filename")});
@@ -178,15 +178,15 @@ pub(super) fn shape_file(
             let patch = history_patch_view(patch, query);
             let (text, page) = paginate_text(
                 &patch,
-                query.char_offset,
+                query.char_offset(),
                 Some(patch_window(
-                    query.char_length,
+                    query.char_length(),
                     files_on_page,
                     query.auto_page_chars,
                 )),
             );
             out["patch"] = json!(text);
-            if query.char_offset.unwrap_or(0) > 0 || page["hasMore"] == true {
+            if query.char_offset().unwrap_or(0) > 0 || page["hasMore"] == true {
                 out["patchPagination"] = page;
             }
         } else {
@@ -203,7 +203,7 @@ pub(super) fn shape_file(
 pub(super) fn shape_files(
     files: Vec<Value>,
     include_patch: bool,
-    query: &GhGetHistoryItemQuery,
+    query: &HistoryItemRequest,
 ) -> Value {
     let count = files.len();
     Value::Array(
@@ -269,20 +269,26 @@ pub(super) fn scope_files(files: Vec<Value>, path: Option<&str>) -> Vec<Value> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::GhGetHistoryItemQuery;
     use super::super::continuations::promote_pr_continuations;
     use super::*;
 
-    fn patch_query(offset: usize) -> GhGetHistoryItemQuery {
-        serde_json::from_value(json!({
+    fn patch_query(offset: usize) -> HistoryItemRequest {
+        patch_request(json!({"charOffset":offset,"charLength":2}))
+    }
+
+    fn patch_request(fields: serde_json::Value) -> HistoryItemRequest {
+        let base = json!({
             "operation":"pullRequest",
+            "reasoning":"test",
             "owner":"a",
             "repo":"b",
             "number":1,
-            "charOffset":offset,
-            "charLength":2,
             "minify":"none"
-        }))
-        .expect("patch query fixture should be valid")
+        });
+        serde_json::from_value::<GhGetHistoryItemQuery>(super::super::util::merge(base, fields))
+            .expect("patch query fixture should be valid")
+            .into()
     }
 
     #[test]
@@ -407,11 +413,12 @@ mod tests {
             "all",
         );
         assert_eq!(pagination["patches"]["files"], json!(["a.rs", "b.rs"]));
-        let request: GhGetHistoryItemQuery = serde_json::from_value(json!({
-            "operation":"pullRequest","owner":"o","repo":"r","number":5,
+        let request: HistoryItemRequest = serde_json::from_value::<GhGetHistoryItemQuery>(json!({
+            "operation":"pullRequest","reasoning":"test","owner":"o","repo":"r","number":5,
             "content":{"patches":{"mode":"all"}},"filePage":2
         }))
-        .expect("query");
+        .expect("query")
+        .into();
         let mut out = json!({"type":"pullRequests","pullRequests":[{"contentPagination":{
             "patches": pagination["patches"].clone()
         }}]});
@@ -443,8 +450,7 @@ mod tests {
         assert_eq!(patch_window(None, 1, Some(1_000)), 400);
         assert_eq!(patch_window(None, 4, Some(1_000)), 100);
         assert_eq!(patch_window(Some(5_000), 1, Some(1_000)), 600);
-        let mut query = patch_query(0);
-        query.char_length = None;
+        let mut query = patch_request(json!({"charOffset":0}));
         query.auto_page_chars = Some(1_000);
         let patch = "+x\n".repeat(2_000);
         let shaped = shape_file(

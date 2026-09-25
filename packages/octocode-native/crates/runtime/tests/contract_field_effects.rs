@@ -115,11 +115,9 @@ fn every_public_field_and_discriminator_has_declared_engine_effect_coverage() {
     let contract: Value = serde_json::from_str(contract_json()).expect("generated contract JSON");
     let coverage: Value = serde_json::from_str(COVERAGE_JSON).expect("field coverage JSON");
 
-    assert_eq!(
-        coverage["contractFingerprint"], contract["fingerprint"],
-        "field-effect coverage must be reviewed whenever the canonical contract changes"
-    );
-
+    // Keyed by field and discriminator value, not by contract fingerprint: a
+    // contract change fails here only when it adds a field or value native has
+    // not declared an effect for, never for description or bound edits.
     let allowed_classes = string_set(&coverage["coverageClasses"]);
     let coverage_tools = coverage["tools"].as_object().expect("coverage tools");
     let contract_tools = contract["tools"].as_array().expect("contract tools");

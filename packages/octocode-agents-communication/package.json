@@ -19,11 +19,12 @@
     "build:release": "node scripts/build-skill.mjs --release",
     "typecheck": "cargo check --locked",
     "lint": "cargo fmt --check && cargo clippy --all-targets --locked -- -D warnings",
-    "test": "yarn build && cargo test --locked && node --test tests/native.test.mjs",
+    "test": "yarn build && cargo test --locked && node --test tests/*.test.mjs",
     "test:quiet": "yarn test",
     "verify": "yarn lint && yarn test",
     "poc": "yarn build && node scripts/poc.mjs",
     "pack:skill": "node scripts/pack-skill.mjs",
-    "poc:mesh": "yarn build && node scripts/mesh-poc.mjs"
+    "poc:mesh": "yarn build && node scripts/mesh-poc.mjs",
+    "poc:attached": "yarn build && node scripts/attached-poc.mjs"
   }
 }

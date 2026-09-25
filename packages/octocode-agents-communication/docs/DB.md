@@ -228,7 +228,10 @@ a process with filesystem access can still replace the database or schema.
 `record_usage` stores available host metrics once per session/key; a changed payload
 under the same key fails. Preserve `scope`: `request` is one model request, `turn`
 is an aggregate result, and `cumulative` is a session snapshot. Never sum cumulative
-snapshots or overlapping scopes. Missing counters are unknown. Attached Pi and
+snapshots or overlapping scopes. Cache reads and cache writes are separate counters.
+Input counters retain vendor semantics (Codex includes cache hits; Anthropic input
+excludes cache read/write tokens); use `contextTokens` when available for the current
+request and do not infer it from an aggregate turn. Missing counters are unknown. Attached Pi and
 managed workers report available usage automatically. Native Claude/Codex injection
 does not expose the owner's inference usage: that host must call `record_usage`.
 Routing itself makes zero model calls and adds only new peer data, not the skill

@@ -1,8 +1,8 @@
 //! Generated public tool contracts and transport-neutral input preparation.
 
 pub mod generated;
-pub mod tool_types;
 mod prepare;
+pub mod tool_types;
 mod validate;
 
 pub use prepare::{ContractInputError, PrepareOptions, prepare};
@@ -910,12 +910,12 @@ mod contract_owner_tests {
         assert_eq!(query["materializeOffset"], 12);
     }
 
-    /// Schema single-source guard: assert that no `.rs` source file outside `contracts/generated/` defines
+    /// Schema single-source guard: assert that no `.rs` source file defines
     /// inline JSON Schema vocabulary (`"$schema"`, `"inputSchema"` as an object
     /// key inside a `json!()` macro call, or `"properties"` as an *lvalue* in a
-    /// JSON literal). The provenance check above ensures generated schemas
-    /// came from an official clean build of `octocode-core`; this complementary
-    /// scan catches accidental copy-paste of schema fragments into tool runners.
+    /// JSON literal). Schemas are embedded from `@octocodeai/config`'s
+    /// generated `contract/`; this scan catches accidental copy-paste of schema
+    /// fragments into tool runners.
     ///
     /// Patterns checked (as substrings in non-comment, non-test lines):
     ///   - `json!({"$schema":` — top-level JSON Schema declaration
@@ -925,7 +925,7 @@ mod contract_owner_tests {
     fn no_inline_schema_literals_outside_generated_contracts() {
         let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
         let src_dir = manifest_dir.join("src");
-        let generated_dir = src_dir.join("contracts").join("generated");
+        let generated_dir = src_dir.join("contracts").join("generated.rs");
 
         // Patterns that indicate inline (hand-authored) JSON Schema definition.
         // We do not check for "properties" broadly because it appears in
@@ -942,8 +942,8 @@ mod contract_owner_tests {
 
         assert!(
             violations.is_empty(),
-            "Hand-authored JSON Schema literals found outside contracts/generated/ \
-             — move them to octocode-core and regenerate:\n{}",
+            "Hand-authored JSON Schema literals found in native sources \
+             — move them to octocode-core and run `yarn contracts:regen`:\n{}",
             violations.join("\n")
         );
     }

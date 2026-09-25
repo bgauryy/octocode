@@ -4,7 +4,7 @@ Load when evaluating file placement, folder cohesion, or size limits. Why: detec
 
 ## God file
 
-A file is a god file when it exceeds **400 LOC** AND owns more than one conceptual responsibility. Size alone is not the signal — a 600-line pure-data file is fine; a 200-line file doing IO + parsing + formatting is a god file.
+A file is a god file when it exceeds **400 LOC** AND owns more than one conceptual responsibility. Size alone is not the signal — a 600-line pure-data file is fine; a 200-line file doing IO + parsing + formatting is a god file. Tangled control flow inside a function is spaghetti — load `references/spaghetti.md` before splitting or editing it.
 
 Split protocol:
 1. Name each responsibility.

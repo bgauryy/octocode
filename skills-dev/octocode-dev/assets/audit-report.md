@@ -24,7 +24,7 @@ Scope: <tools> · Mode: audit | audit+fix · Core rev: <sha> (dirty?) · Contrac
 
 | Check | Command | Result |
 |---|---|---|
-| Contract sync | `yarn workspace @octocodeai/octocode-native contracts:check` | passed / failed / skipped |
+| Contract sync | `yarn workspace @octocodeai/config check:tool-contract` | passed / failed / skipped |
 | Rust tests | … | … |
 | CLI repro | … | … |
 | MCP repro (fresh server) | … | … |

@@ -24,7 +24,7 @@ function findRoot(start) {
 
 const root = rootIdx >= 0 ? resolve(args[rootIdx + 1]) : findRoot(process.cwd());
 const runtime = join(root, 'packages/octocode-native/crates/runtime');
-const contract = JSON.parse(readFileSync(join(runtime, 'src/contracts/generated/tool-contract.json'), 'utf8'));
+const contract = JSON.parse(readFileSync(join(runtime, '../../../octocode-config/contract/tool-contract.json'), 'utf8'));
 const coverage = JSON.parse(readFileSync(join(runtime, 'src/contracts/field-effect-coverage.json'), 'utf8'));
 
 // Native module dirs whose names do not follow camel→snake of the tool name.

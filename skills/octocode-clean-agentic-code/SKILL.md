@@ -1,6 +1,6 @@
 ---
 name: octocode-clean-agentic-code
-description: "Use when behavior-preserving cleanup must remove dead exports, shims, aliases, duplicate logic, patch kludges, stale prose/config/schemas/dependencies/tests, misplaced or oversized files/folders, or agent residue such as reinvention, scope creep, narration, error masking, and special-cased tests. Triggers include clean up, remove legacy, dead code audit, god file, unused deps, test hygiene, remove AI slop/metadata, and stale numbers. Not for feature work, behavioral refactors, or critique-only requests → octocode-roast."
+description: "Use when behavior-preserving cleanup must remove dead exports, shims, aliases, duplicate logic, patch kludges, stale prose/config/schemas/dependencies/tests, misplaced or oversized files/folders, or agent residue such as reinvention, scope creep, narration, error masking, and special-cased tests. Triggers include clean up, remove legacy, dead code audit, god file, spaghetti code, unused deps, test hygiene, remove AI slop/metadata, and stale numbers. Not for feature work, behavioral refactors, or critique-only requests → octocode-roast."
 ---
 
 # Octocode clean agentic code
@@ -23,6 +23,7 @@ Reports: `<output>/octocode-clean-agentic-code/`; scratch: `<output>/tmp/octocod
 - Use safe batches; run the repo's checks after each. Read their output, never a summary.
 - Keep edits within the requested cleanup scope. Reuse existing authorization for that scope; ask only when a proposed deletion or behavior change exceeds it.
 - Config cleanup that affects runtime behavior needs explicit consent. Never touch lockfiles, generated output, or build artifacts.
+- Spaghetti is forbidden. Detect tangled control flow, and refuse any edit that creates or extends it: a new flag, nested branch, wrapper, or copied function. Report the knot and leave it out of the batch.
 
 ## Smell classes
 
@@ -37,6 +38,7 @@ Reports: `<output>/octocode-clean-agentic-code/`; scratch: `<output>/tmp/octocod
 | Dependency junk | unused deps, duplicate declarations, version misalignment, phantom deps, unresolvable names |
 | Test debt | numbered/dated iteration files, skipped tests with no ticket, rigid mocks coupling to private internals, redundant stubs with no expect reference, environment-coupled tests, unused beforeEach/afterEach setup |
 | Agent residue | scope-creep leftovers, zero-dependent new files, error-masking catch blocks, special-cased tests |
+| Spaghetti | tangled control flow: crossed phases, flag-driven branches, nesting that mixes unrelated decisions |
 
 ## Smart routes — load only what the current step needs
 - At startup or when choosing a phase (SCOPE, AUDIT, INVENTORY, TRIAGE, CONSENT, EXCISE, VERIFY), load `references/cleanup-playbook.md` — per-phase steps, class-specific audit queries, inventory table, and check contract.
@@ -44,6 +46,7 @@ Reports: `<output>/octocode-clean-agentic-code/`; scratch: `<output>/tmp/octocod
 - When the target was written or edited by a coding agent, load `references/agentic-defects.md` — reinvention, scope-creep, and narration signatures that differ from human debt; when ordering that audit, load `references/agentic-evidence.md` — measured prevalence per class and the claims that stay unproven.
 - When a smell hides a wrong result rather than dead weight, load `references/agentic-correctness.md` — the report-only tier with its escalation protocol.
 - When evaluating file placement, folder cohesion, god-file size, or god-folder concerns, load `references/hierarchy-rules.md` — one-file-one-concern, one-folder-one-domain, size limits, and move protocol.
+- When a target or a proposed edit has tangled control flow, or a cleanup would add a branch, flag, wrapper, or copy to keep a knot alive, load `references/spaghetti.md` — detection signals and which knots may still enter an excision batch.
 - When reviewing inline comments or docs for verbosity, dead prose, or god-doc patterns, load `references/doc-hygiene.md` — cut/keep rules for comments, JSDoc, and docs; when inspecting config files for length, redundant keys, or misplaced settings, load `references/config-hygiene.md` — length limits and consent gate.
 - When reviewing type definitions, interfaces, enums, schemas, or protocol shapes for redundancy or aliasing, load `references/schema-hygiene.md` — type-alias rules and duplicate interface detection; when auditing package.json files for unused, duplicate, misaligned, or phantom dependencies, load `references/dependency-hygiene.md` — unused-dep checks, version alignment, and consent gate.
 - When code, comments, skills, or docs record how a decision was made — probe output, provenance, process metadata, or counts nobody re-derives — load `references/decision-residue.md` — residue types, the number test, and what to keep.

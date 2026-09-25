@@ -237,10 +237,26 @@ pub(super) fn resolve(
     }
     checked(context).map_err(ContextFailure::from)?;
     let mut receipt = receipt(tool, &state);
-    if let Some(reference) = source.pointer("/query/ref").and_then(Value::as_str) {
+    attach_requested_reference(tool, source, &mut receipt);
+    Ok((state, Some(receipt)))
+}
+
+fn attach_requested_reference(tool: &str, request: &Value, receipt: &mut Value) {
+    if receipt.pointer("/source/ref").is_some() {
+        return;
+    }
+    let field = if tool == "ghGetFileContent" {
+        "branch"
+    } else {
+        "ref"
+    };
+    if let Some(reference) = request
+        .get("query")
+        .and_then(|query| query.get(field))
+        .and_then(Value::as_str)
+    {
         receipt["source"]["ref"] = json!(reference);
     }
-    Ok((state, Some(receipt)))
 }
 
 /// Extracts the line or byte range of this page from a localFetch (or
@@ -684,12 +700,28 @@ mod tests {
             }]
         }}]});
         let mut receipt = receipt("ghGetFileContent", &state);
-        receipt["source"]["ref"] = json!("main");
+        attach_requested_reference(
+            "ghGetFileContent",
+            &json!({"tool":"ghGetFileContent","query":{
+                "branch":"6ed472b6fe023cd0e6283badda231b84e45582d0"
+            }}),
+            &mut receipt,
+        );
         assert_eq!(
             receipt["source"]["path"],
             "fastify/fastify/docs/Reference/Hooks.md"
         );
-        assert_eq!(receipt["source"]["ref"], "main");
+        assert_eq!(
+            receipt["source"]["ref"],
+            "6ed472b6fe023cd0e6283badda231b84e45582d0"
+        );
+        receipt["source"]["ref"] = json!("returned-commit");
+        attach_requested_reference(
+            "ghGetFileContent",
+            &json!({"query":{"branch":"main"}}),
+            &mut receipt,
+        );
+        assert_eq!(receipt["source"]["ref"], "returned-commit");
     }
 
     #[test]

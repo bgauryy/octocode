@@ -7,7 +7,7 @@ use super::window::{
     MAX_FILE_BATCHES, WindowSpec, commit_file_items, commit_files_pagination, load_window_with,
     mark_capped, paginate_collection, paginate_window,
 };
-use super::{DEFAULT_PAGE_SIZE, GhGetHistoryItemQuery, ItemOperation, fetch, validation};
+use super::{DEFAULT_PAGE_SIZE, HistoryItemRequest, ItemOperation, fetch, validation};
 use crate::providers::github::{
     CredentialResolver, GitHubTransport, ProviderError, RequestContext,
 };
@@ -19,23 +19,22 @@ const COMPARE_FILE_LIMIT: usize = 300;
 
 pub(super) async fn commit<R: CredentialResolver>(
     transport: &GitHubTransport<R>,
-    query: &GhGetHistoryItemQuery,
+    query: &HistoryItemRequest,
     context: &RequestContext,
 ) -> Result<Value, ProviderError> {
     let reference = query
-        .reference
-        .as_deref()
+        .reference()
         .ok_or_else(|| validation("ref is required"))?;
-    let path = query.path.as_deref();
+    let path = query.path();
     // File batches are derived from filePage×pageSize; a path scope hides
     // files, so it scans from the first batch.
     let loaded = load_window_with(
         transport,
-        &["repos", &query.owner, &query.repo, "commits", reference],
+        &["repos", query.owner(), query.repo(), "commits", reference],
         WindowSpec {
             max_batches: MAX_FILE_BATCHES,
-            page: query.file_page.unwrap_or(1),
-            page_size: query.page_size.unwrap_or(DEFAULT_PAGE_SIZE).clamp(1, 100),
+            page: query.file_page().unwrap_or(1),
+            page_size: query.page_size().unwrap_or(DEFAULT_PAGE_SIZE).clamp(1, 100),
             filtered: path.is_some(),
         },
         |file| in_path_scope(file, path),
@@ -49,7 +48,7 @@ pub(super) async fn commit<R: CredentialResolver>(
     let sha = string(raw.get("sha"));
     let message = str_at(raw, "/commit/message").unwrap_or("");
     let mut out = json!({
-        "type":"commit","owner":query.owner,"repo":query.repo,"ref":reference,"sha":sha,
+        "type":"commit","owner":query.owner(),"repo":query.repo(),"ref":reference,"sha":sha,
         "message":message,"messageHeadline":message.lines().next().unwrap_or(message),
         "author":identity(raw,"author"),"committer":identity(raw,"committer"),
         "parents":raw.get("parents").and_then(Value::as_array).into_iter().flatten().filter_map(|v|str_at(v,"/sha").map(str::to_owned)).collect::<Vec<_>>(),
@@ -62,14 +61,14 @@ pub(super) async fn commit<R: CredentialResolver>(
         scoped,
         state.skipped,
         state.exhausted,
-        query.file_page,
-        query.page_size,
+        query.file_page(),
+        query.page_size(),
     );
     let mut page = commit_files_pagination(page);
     mark_capped(&mut page, state.capped);
     // Without includeDiff the page still lists paths and line stats (no
     // patches) so the agent can pick files before paying for diffs.
-    out["files"] = shape_files(files, query.include_diff.unwrap_or(false), query);
+    out["files"] = shape_files(files, query.include_diff(), query);
     out["filesPagination"] = page;
     attach_diff_continuations(&mut out, query, ItemOperation::Commit, Some(&sha), false);
     Ok(out)
@@ -77,23 +76,17 @@ pub(super) async fn commit<R: CredentialResolver>(
 
 pub(super) async fn compare<R: CredentialResolver>(
     transport: &GitHubTransport<R>,
-    query: &GhGetHistoryItemQuery,
+    query: &HistoryItemRequest,
     context: &RequestContext,
 ) -> Result<Value, ProviderError> {
-    let page = query.page.unwrap_or(1);
-    let per = query.page_size.unwrap_or(DEFAULT_PAGE_SIZE).clamp(1, 100);
-    let base = query
-        .base
-        .as_deref()
-        .ok_or_else(|| validation("base is required"))?;
-    let head = query
-        .head
-        .as_deref()
-        .ok_or_else(|| validation("head is required"))?;
+    let page = query.page().unwrap_or(1);
+    let per = query.page_size().unwrap_or(DEFAULT_PAGE_SIZE).clamp(1, 100);
+    let base = query.base().ok_or_else(|| validation("base is required"))?;
+    let head = query.head().ok_or_else(|| validation("head is required"))?;
     let refs = format!("{base}...{head}");
     let (raw, link_more) = fetch(
         transport,
-        &["repos", &query.owner, &query.repo, "compare", &refs],
+        &["repos", query.owner(), query.repo(), "compare", &refs],
         &[("page", page.to_string()), ("per_page", per.to_string())],
         context,
     )
@@ -107,8 +100,8 @@ pub(super) async fn compare<R: CredentialResolver>(
     })).collect::<Vec<_>>();
     let all_files = array(raw.get("files").cloned().unwrap_or(json!([])));
     let file_limit = all_files.len() >= COMPARE_FILE_LIMIT;
-    let scoped = scope_files(all_files, query.path.as_deref());
-    let mut out = json!({"type":"compare","owner":query.owner,"repo":query.repo,"base":base,"head":head,
+    let scoped = scope_files(all_files, query.path());
+    let mut out = json!({"type":"compare","owner":query.owner(),"repo":query.repo(),"base":base,"head":head,
         "status": raw.get("status"),
         "aheadBy":usize_at(&raw,"/ahead_by"),"behindBy":usize_at(&raw,"/behind_by"),"totalCommits":total,"commits":commits,
         "pagination":{"currentPage":page,"perPage":per,"hasMore":more,"nextPage":more.then_some(page+1)},"isPartial":(more||file_limit).then_some(true)});
@@ -124,12 +117,12 @@ pub(super) async fn compare<R: CredentialResolver>(
         out.remove("pagination");
     }
     if page == 1 {
-        let include_diff = query.include_diff.unwrap_or(false);
+        let include_diff = query.include_diff();
         if !include_diff {
             out["changedFiles"] = json!(scoped.len());
         }
         // Without includeDiff the page lists paths and line stats only.
-        let (files, page) = paginate_collection(scoped, query.file_page, query.page_size);
+        let (files, page) = paginate_collection(scoped, query.file_page(), query.page_size());
         out["files"] = shape_files(files, include_diff, query);
         out["filesPagination"] = commit_files_pagination(page);
     }

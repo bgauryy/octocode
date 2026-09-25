@@ -19,6 +19,7 @@ State the target paths, which smell classes are in scope, and what is explicitly
 | Dependency junk | `localFetch` minify:none on each package.json | unused, duplicate, misaligned, phantom deps |
 | Test debt | `astSearch` with `operation:"files"` and a name/path filter on the candidate package + `localFetch` with `minify:"symbols"` on each hit | numbered/dated files, skip blocks, rigid mocks, redundant stubs, env-coupled setup |
 | Agent residue | `astTopology` dependents/deadCode (beta; else `lspSearch` references), then `localSearch` | zero-dependent new files, reinvented helpers, narration comments, masked failures |
+| Spaghetti | `astSearch` on the function body, then an exact read; `lspSearch` callers for flag or mode arguments | phase-crossing and deep nesting inside one function; apply `references/spaghetti.md` |
 
 ## INVENTORY
 
@@ -32,7 +33,7 @@ Assign confidence from completed evidence in the relevant scope. Missing edges o
 
 ## TRIAGE
 
-Rank: safe deletions (high confidence) → prose-only config/doc trims → hierarchy moves → medium-confidence items needing further proof. Never include low-confidence items without additional verification. Route anything that disguises a failure to `references/agentic-correctness.md` instead of a batch.
+Rank: safe deletions (high confidence) → prose-only config/doc trims → hierarchy moves → medium-confidence items needing further proof. Never include low-confidence items without additional verification. Route anything that disguises a failure to `references/agentic-correctness.md` instead of a batch. Route tangled control flow through `references/spaghetti.md` and keep that knot out of the excision batch.
 
 ## CONSENT
 

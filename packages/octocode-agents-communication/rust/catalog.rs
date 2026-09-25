@@ -31,7 +31,7 @@ pub fn help() -> Result<Value> {
     Ok(json!({
         "package":"@octocodeai/octocode-agents-communication", "implementation":"Rust", "skill":skill(),
         "usage":"scripts/agents-communication <command> [json] --workspace <path> [--database <file>] [--session <id>]",
-        "workflow":["Use the host session, or join and heartbeat every 15 seconds.", "peers → send_message → inbox → ack", "lock → edit → renew before expiry → unlock", "leave when a manual session finishes."],
+        "workflow":["Use the host identity, or join → attach raw/native → listen for presence.", "peers → send_message → hook/native delivery → handle → ack; inbox is recovery.", "lock → edit → renew before expiry → unlock", "Without listen: heartbeat every 15 seconds; leave when finished."],
         "commands":commands,
         "discover":["<command> --help", "schema <command>", "schema entities", "schema entity <name>", "db info", "db protocol", "skill"],
         "run":all["commands"].as_array().and_then(|items| items.iter().find(|c| c["name"] == "run")).map(|c| &c["usage"])

@@ -14,7 +14,7 @@ Paths are relative to the monorepo root; `CORE` = `../octocode-mcp-host/packages
 | MCP + CLI instructions | `CORE/src/toolContract/instructions.ts` (`buildMcpInstructions`), `cliContext.ts` (`buildCliToolContext`), `CORE/src/systemPrompt.ts` | Shared workflow guidance |
 | Output schemas / limits | `CORE/src/toolContract/outputSchemas.ts`, `limits.ts` | Internal validation of produced results |
 | Contract hub (re-export only) | `packages/octocode-config/src/contracts/{schema,mcp}.ts` | Must stay a thin `export *` |
-| Native embed (generated) | `packages/octocode-native/crates/runtime/src/contracts/generated/{tool-contract.json,contract-provenance.json,contract-fixtures.json}` | Never hand-edit; regen |
+| Tool contract (generated, embedded by native build.rs) | `packages/octocode-config/contract/{tool-contract.json,provenance.json,contract-fixtures.json,tool-types.schema.json,tool_types.rs}` | Never hand-edit; `yarn contracts:regen` |
 | Field-effect claims | `packages/octocode-native/crates/runtime/src/contracts/field-effect-coverage.json` + `tests/contract_field_effects.rs` | Hand-maintained labels: verify against code |
 | Prepare / dispatch | `crates/runtime/src/contracts/{prepare,validate}.rs`, `src/runtime/{dispatch,domain_dispatch,engine}.rs` | Defaults, normalization, routing |
 | Tool implementation | `crates/runtime/src/tools/<snake_tool>/` (`astTopology` → `ast_graph/`; `localFetch` also `tools/local_fetch.rs`; `clasify` also `runtime/clasify_*.rs`) | Business logic |

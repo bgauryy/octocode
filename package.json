@@ -68,7 +68,8 @@
     "typecheck:ci": "node ./scripts/workspace-health.mjs run typecheck --exclude @octocodeai/octocode-benchmark",
     "verify": "node ./scripts/workspace-health.mjs verify",
     "release": "node scripts/release.mjs --target mcp && node scripts/release.mjs --target cli",
-    "dev": "node scripts/dev-setup.mjs"
+    "dev": "node scripts/dev-setup.mjs",
+    "contracts:regen": "yarn install && yarn workspace @octocodeai/config generate:tool-contract"
   },
   "type": "module",
   "workspaces": [

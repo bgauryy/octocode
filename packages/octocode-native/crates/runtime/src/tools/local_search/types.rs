@@ -65,7 +65,6 @@ pub struct LocalSearchError {
     pub next: Option<Box<serde_json::Value>>,
 }
 
-
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchMatch {

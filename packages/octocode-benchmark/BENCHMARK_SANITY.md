@@ -543,8 +543,8 @@ the matching tool section.
 ## Maintenance
 
 - Query schemas are authoritative in
-  `packages/octocode-native/crates/runtime/src/contracts/generated/tool-contract.json`.
-  Regenerate from `@octocodeai/octocode-core`; update a section here when a tool's
+  `packages/octocode-config/contract/tool-contract.json`.
+  Regenerate with `yarn contracts:regen`; update a section here when a tool's
   fields change.
 - Regression checks R1–R4 mirror Rust tests in
   `crates/runtime/src/contracts/mod.rs`

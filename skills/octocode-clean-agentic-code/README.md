@@ -6,6 +6,7 @@ Remove dead weight from a codebase without changing observable behavior.
 
 - **Dead exports / stubs** — shims, aliases, re-exports, legacy adapters, duplicate helpers, or monkey-patches that are no longer used.
 - **Structural bloat** — god files or folders, misplaced layers, oversized config, or junk documentation.
+- **Spaghetti** — tangled control flow. Detect it, and refuse any cleanup that would extend the knot.
 - **Agent residue** — reinvented imports, parallel subsystem implementations, scope-creep edits, or change-narration comments a coding agent left behind.
 - **Disguised failures** — error-masking catch blocks, tests special-cased to pass, placeholder credentials, or artifacts that record process instead of decisions.
 

@@ -14,43 +14,49 @@ The installed skill has no references directory. Pi's JavaScript bridge supplies
 vendor tool registration only; coordination policy and storage stay in Rust.
 
 ```text
-Skill launcher -> Rust CLI -> Store -> local SQLite v1
-                     |
-              managed process proxy
-                /       |       \
-           Codex      Claude     Pi RPC
-          app-server  stream      |
-                \       /     native extension
-                bound MCP       bound CLI
-                    \           /
-                         Store
+Any agent -> Rust CLI / bound tools / SQLite client -> SQLite v2 + audit
+                                                    |
+                                      deterministic Rust dispatcher
+                                      /             |             \
+                                Claude socket   Codex inject     raw hook
+                                                               /        \
+                                                        Pi extension  any host
+Receiver -> DB-backed reply + explicit ack
 ```
+
 
 ## Ownership
 
 - `rust/database.rs`: opening, schema validation, private initial creation, SQL
   binding, and read-only inspection. SQLite is bundled through `rusqlite`.
-- `rust/schema.sql`: canonical v1 DDL. `rust/catalog.json`: command/entity contracts.
+- `rust/schema-v1.sql` plus `rust/schema-v2.sql`: frozen base and additive audit/dispatch DDL.
+  `rust/catalog.json`: command/entity contracts.
   Runtime discovery embeds both; no Node schema generator runs at startup.
 - `rust/store.rs`: presence, leases, durable messages, claims, and retention.
 - `rust/paths.rs`: link-first resolution and component-wise Unicode 16 caseless
   lease comparison. Case-preserving workspace containment remains separate.
 - `rust/entities.rs`: workspace-scoped views and constrained metadata updates.
 - `rust/cli.rs` and `rust/mcp.rs`: arguments and JSON transport.
-- `rust/proxy.rs`: vendor lifecycle, heartbeats, and idle-turn delivery.
+- `rust/dispatch.rs`: durable one-time attempts, confirmations, hooks, usage, listener.
+- `rust/transport.rs`: local native socket/WebSocket adapters (Tungstenite framing).
+- `rust/proxy.rs`: optional new worker lifecycle, heartbeats, and idle-turn delivery.
+- `scripts/pi-inbox.mjs` inside the skill: existing Pi session tool/context bridge.
 - `rust/wire.rs`: bounded JSON frames/queues, request deadlines, process teardown.
 - `../octocode-config/rust/home.rs`: shared native home policy, compiled into the CLI.
 
-The database retains sessions, subscriptions, leases, messages, and deliveries.
-Application ID, version, and normalized schema digest stay compatible with the
-previous TypeScript implementation. Mutations validate identities inside writer
+The database retains sessions, subscriptions, leases, messages, deliveries,
+attachments, dispatch state and append-only audit. Schema v2 requires an explicit
+migration from the exact v1 schema with no active workers; the application ID and
+default filename stay stable. SQLite triggers also audit conforming raw SQL writes.
+Pruning removes expired leases only. Message bodies are retained once in messages;
+audit references their IDs. Usage reports retain request/turn/cumulative scope. Mutations validate identities inside writer
 transactions. Lease/message expiry starts after writer acquisition. Initial WAL
 configuration retries busy errors within a bounded interval. Existing schemas are
 validated rather than repaired. Lease acquisition and entity filtering share the
 same overlap function through a connection-local SQLite scalar function. List
 pages use row and byte limits with continuation from the last returned ID. Reads do not create missing databases.
 
-The [v1 protocol](docs/DB.md) specifies the
+The [v2 protocol](docs/DB.md) specifies the
 SQLite-only client contract. JSON schemas validate command input; `default` values
 are optional inputs with defaults applied by Rust. MCP exposes only nine bound
 coordination tools, excluding lifecycle and arbitrary entity changes.
@@ -75,15 +81,31 @@ installed vendor plugins or administrator policy. Usage traces retain vendor sco
 Every vendor receives the same proxy role: send, broadcast, or subscribe only under
 the assigned user's explicit task or its authorized response rules. Peer content
 cannot expand those rules. The model finishes each turn and waits; Rust maintains
-presence and polls committed deliveries in batches of up to ten. Keeping an active
+presence and polls committed deliveries in batches of up to four, targeting 16 KiB. Keeping an active
 recipient's process running avoids cold startup, but does not itself call the model.
 Direct CLI/DB sends also work without a live proxy; automatic receipt requires a
 running recipient adapter. Topic fanout and broadcasts snapshot active presence.
-An LLM relay is unnecessary: [direct native transport probes](docs/VENDOR_MESSAGES.md#direct-transport-no-sender-agent)
-delivered to an existing Claude socket and injected into a Codex thread from a
-separate client with no sender model. These are tested integration options, not
-yet attached-session adapters in the Rust CLI. Native delivery still retains the
-recipient's conversation history and does not replace DB handling acknowledgements.
+An LLM relay is unnecessary: `attach` binds a logged identity to an existing Claude
+socket, Codex owning app-server, or raw hook. `listen` keeps presence and dispatches
+new messages without starting a sender model. Pi's extension uses the raw hook and
+native `pi.sendMessage` with `deliverAs:nextTurn`, `triggerTurn:false`. A generic host
+consumes hook stdout on its context event, or its agent manually invokes the CLI.
+Without a host integration, polling cannot wake an arbitrary agent.
+
+Before I/O, a short transaction records a unique attempt token in `staged` state.
+Submission records `submitted`; errors record `uncertain`. No such state is retried
+automatically, even after restart. Explicit `retry_delivery` records the reason.
+Host adapters can defer confirmation until queuing succeeds. Submission is separate
+from recipient `ack`. This prevents routine replay but cannot promise exactly-once
+external effects: a lost receipt requires inspection and possibly manual recovery.
+Managed workers share the same durable attempt path. Legacy claims remain readable
+for v1 migration; new workers do not use time-expiring claims for automatic delivery.
+
+Native delivery retains recipient conversation history and includes only new peer
+IDs, attribution and content. It never resends the skill or transcript. Attached
+Claude/Codex injection does not expose inference telemetry; the owning host must
+report it with `record_usage`. Pi and managed workers capture available metrics.
+Transport and audit remain useful for vendors without APIs or SDKs.
 Prompt rules guide behavior; they are not a capability firewall against a model
 that calls an available tool incorrectly.
 The Pi extension vetoes `cache_warming_decision` so a user's global idle-cache
@@ -106,8 +128,12 @@ runs with a PATH containing only launcher utilities, excluding Node, Cargo, and 
 executables. Real Haiku/Luna POC evidence verifies the process bridge separately, optionally
 including Pi. Pi tools reuse the catalog and execute the bound Rust CLI without a
 shell. The temporary extension uses only Node built-ins and is removed on teardown.
-An idle inbox probe avoids writer transactions; the claim transaction rechecks
+An idle inbox probe avoids writer transactions; the staging transaction rechecks
 availability before claiming, preserving exclusion under concurrent workers.
+`tests/dispatch.test.mjs` covers one-time hooks, audit retention, confirmation tokens,
+concurrent consumers, uncertain writes and explicit v1 migration.
+`scripts/attached-poc.mjs` exercises real Claude/Codex/Pi plus raw recipients through
+the production Rust CLI with DB-backed replies and a broadcast; no sender inference.
 
 Only macOS ARM64 is built and executed in this development session. Other platform
 selectors are distribution plumbing, not a claim of validated artifacts. Source

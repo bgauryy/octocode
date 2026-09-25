@@ -15,7 +15,7 @@ use super::window::{
     Loaded, MAX_COLLECTION_BATCHES, MAX_FILE_BATCHES, MAX_PR_COMMIT_BATCHES, WindowSpec,
     WindowState, load_window,
 };
-use super::{DEFAULT_PAGE_SIZE, GhGetHistoryItemQuery, fetch, validation};
+use super::{DEFAULT_PAGE_SIZE, HistoryItemRequest, fetch, validation};
 use crate::providers::github::{
     CredentialResolver, GitHubTransport, ProviderError, RequestContext,
 };
@@ -34,8 +34,9 @@ pub(super) struct ContentWants {
     pub(super) patch_mode: String,
 }
 
-pub(super) fn content_wants(query: &GhGetHistoryItemQuery) -> ContentWants {
-    let content = query.content.as_ref().and_then(Value::as_object);
+pub(super) fn content_wants(query: &HistoryItemRequest) -> ContentWants {
+    let content_value = query.content_value();
+    let content = content_value.as_ref().and_then(Value::as_object);
     let patch_mode = content
         .and_then(|c| c.get("patches"))
         .and_then(|p| p.get("mode"))
@@ -84,7 +85,7 @@ async fn load_collection<R: CredentialResolver>(
 
 pub(super) async fn pull_request<R: CredentialResolver>(
     transport: &GitHubTransport<R>,
-    query: &GhGetHistoryItemQuery,
+    query: &HistoryItemRequest,
     context: &RequestContext,
 ) -> Result<Value, ProviderError> {
     let wants = content_wants(query);
@@ -97,16 +98,17 @@ pub(super) async fn pull_request<R: CredentialResolver>(
         None
     };
     let number = query
-        .number
+        .number()
         .ok_or_else(|| validation("number is required"))?
         .to_string();
-    let content = query.content.as_ref().and_then(Value::as_object);
+    let content_value = query.content_value();
+    let content = content_value.as_ref().and_then(Value::as_object);
     let patch_selector = content
         .and_then(|c| c.get("patches"))
         .and_then(Value::as_object);
     let patch_mode = wants.patch_mode.as_str();
     let include_bots = wants.include_bots;
-    let page_size = query.page_size.unwrap_or(DEFAULT_PAGE_SIZE).clamp(1, 100);
+    let page_size = query.page_size().unwrap_or(DEFAULT_PAGE_SIZE).clamp(1, 100);
     let selection = patch_selection(patch_selector);
     let needle = needle(query);
     let file_filter = FileFilter {
@@ -123,8 +125,8 @@ pub(super) async fn pull_request<R: CredentialResolver>(
         page_size,
         filtered,
     };
-    let pulls = ["repos", &query.owner, &query.repo, "pulls", &number];
-    let issues = ["repos", &query.owner, &query.repo, "issues", &number];
+    let pulls = ["repos", query.owner(), query.repo(), "pulls", &number];
+    let issues = ["repos", query.owner(), query.repo(), "issues", &number];
     let files_path = [pulls.as_slice(), &["files"]].concat();
     let discussion_path = [issues.as_slice(), &["comments"]].concat();
     let inline_path = [pulls.as_slice(), &["comments"]].concat();
@@ -154,7 +156,11 @@ pub(super) async fn pull_request<R: CredentialResolver>(
             wants.files,
             complete(|g| g.files, map_graphql_files),
             &files_path,
-            spec(MAX_FILE_BATCHES, query.file_page, !file_filter.is_trivial()),
+            spec(
+                MAX_FILE_BATCHES,
+                query.file_page(),
+                !file_filter.is_trivial()
+            ),
             |value| file_filter.matches(value),
             context,
         ),
@@ -163,7 +169,7 @@ pub(super) async fn pull_request<R: CredentialResolver>(
             wants.discussion,
             complete(|g| g.discussion, map_graphql_comments),
             &discussion_path,
-            spec(MAX_COLLECTION_BATCHES, query.comment_page, true),
+            spec(MAX_COLLECTION_BATCHES, query.comment_page(), true),
             comment_filter,
             context,
         ),
@@ -172,7 +178,7 @@ pub(super) async fn pull_request<R: CredentialResolver>(
             wants.inline,
             None,
             &inline_path,
-            spec(MAX_COLLECTION_BATCHES, query.comment_page, true),
+            spec(MAX_COLLECTION_BATCHES, query.comment_page(), true),
             comment_filter,
             context,
         ),
@@ -181,7 +187,11 @@ pub(super) async fn pull_request<R: CredentialResolver>(
             wants.reviews,
             complete(|g| g.reviews, map_graphql_reviews),
             &reviews_path,
-            spec(MAX_COLLECTION_BATCHES, query.review_page, needle.is_some()),
+            spec(
+                MAX_COLLECTION_BATCHES,
+                query.review_page(),
+                needle.is_some()
+            ),
             body_filter,
             context,
         ),
@@ -190,7 +200,7 @@ pub(super) async fn pull_request<R: CredentialResolver>(
             wants.commits,
             complete(|g| g.commits, map_graphql_commits),
             &commits_path,
-            spec(MAX_PR_COMMIT_BATCHES, query.commit_page, false),
+            spec(MAX_PR_COMMIT_BATCHES, query.commit_page(), false),
             |_| true,
             context,
         ),
@@ -230,7 +240,7 @@ pub(super) async fn pull_request<R: CredentialResolver>(
     let mut content_pagination = Map::new();
     if wants.body {
         let body = history_body_view(raw.get("body").and_then(Value::as_str).unwrap_or(""), query);
-        let (text, pagination) = paginate_text(&body, query.char_offset, query.char_length);
+        let (text, pagination) = paginate_text(&body, query.char_offset(), query.char_length());
         row["body"] = json!(text);
         content_pagination.insert("body".into(), pagination);
     }
@@ -292,7 +302,7 @@ pub(super) async fn pull_request<R: CredentialResolver>(
     Ok(out)
 }
 
-fn pr_metadata(raw: &Value, query: &GhGetHistoryItemQuery, body_requested: bool) -> Value {
+fn pr_metadata(raw: &Value, query: &HistoryItemRequest, body_requested: bool) -> Value {
     let merged = raw.get("merged_at").is_some_and(|v| !v.is_null());
     let labels = raw
         .get("labels")
@@ -328,7 +338,7 @@ fn pr_metadata(raw: &Value, query: &GhGetHistoryItemQuery, body_requested: bool)
         "deletions": nonzero(raw.get("deletions")),
         "bodyPreview": (!body_requested && !body.is_empty()).then(|| compact(body,500)),
     });
-    if query.content.is_none()
+    if query.content_value().is_none()
         && raw.get("draft") == Some(&Value::Bool(false))
         && let Some(row) = row.as_object_mut()
     {

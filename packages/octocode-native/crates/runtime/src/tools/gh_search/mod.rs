@@ -159,7 +159,10 @@ pub async fn execute<R: CredentialResolver, C: crate::providers::github::Conditi
                 && archived.is_none()
                 && visibility.is_none()
                 && license.is_none()
-                && matches!(sort, GhSearchQuerySort::BestMatch | GhSearchQuerySort::Updated);
+                && matches!(
+                    sort,
+                    GhSearchQuerySort::BestMatch | GhSearchQuerySort::Updated
+                );
             // The owner listing pages through the REST list API, which has no
             // 1,000-result search window; only search is bounded by it.
             if !owner_only {
@@ -202,8 +205,7 @@ pub async fn execute<R: CredentialResolver, C: crate::providers::github::Conditi
                     .search_repositories(
                         &RepositorySearchRequest {
                             query: q,
-                            sort: (*sort != GhSearchQuerySort::BestMatch)
-                                .then(|| sort.to_string()),
+                            sort: (*sort != GhSearchQuerySort::BestMatch).then(|| sort.to_string()),
                             page: current,
                             per_page: per,
                         },
@@ -306,12 +308,7 @@ fn reject_window(page: usize, per: usize) -> Result<(), ProviderError> {
         Ok(())
     }
 }
-fn add_next(
-    value: &mut Value,
-    query: &GhSearchQuery,
-    page: usize,
-    has_more: bool,
-) {
+fn add_next(value: &mut Value, query: &GhSearchQuery, page: usize, has_more: bool) {
     if !has_more {
         return;
     }

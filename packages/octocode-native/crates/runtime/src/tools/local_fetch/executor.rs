@@ -6,8 +6,8 @@ use super::types::*;
 use super::validation::{is_binary, validate_request};
 use sha2::{Digest, Sha256};
 use std::fs;
-use std::path::Path;
 use std::io::Read;
+use std::path::Path;
 
 /// Hard ceiling on source bytes read into memory for ANY localFetch path.
 /// Plain, matchString, and line-range reads all slurp the whole source file
@@ -106,7 +106,11 @@ pub fn execute_local_fetch_with_regex(
     let sample_len = match fs::File::open(&path).and_then(|mut file| file.read(&mut sample)) {
         Ok(length) => length,
         Err(error) => {
-            return LocalFetchResult::error(q.path.to_string(), "fileReadFailed", error.to_string());
+            return LocalFetchResult::error(
+                q.path.to_string(),
+                "fileReadFailed",
+                error.to_string(),
+            );
         }
     };
     if is_binary(&sample[..sample_len]) {
@@ -154,7 +158,9 @@ pub fn execute_local_fetch_with_regex(
             return source_too_large(&q.path, b.len() as u64);
         }
         Ok(b) => b,
-        Err(e) => return LocalFetchResult::error(q.path.to_string(), "fileReadFailed", e.to_string()),
+        Err(e) => {
+            return LocalFetchResult::error(q.path.to_string(), "fileReadFailed", e.to_string());
+        }
     };
     process_fetched_content(
         q,
@@ -208,7 +214,9 @@ pub fn process_fetched_content(
     let (raw, match_redacted) = if q.match_string.is_some() {
         match redact_source_lines(&raw, source_path, security) {
             Ok(value) => value,
-            Err((code, message)) => return LocalFetchResult::error(q.path.to_string(), &code, message),
+            Err((code, message)) => {
+                return LocalFetchResult::error(q.path.to_string(), &code, message);
+            }
         }
     } else {
         (raw, false)

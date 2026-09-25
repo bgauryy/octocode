@@ -866,8 +866,7 @@ fn embed_tool_contract() -> Result<(), Box<dyn Error>> {
     ] {
         println!("cargo:rerun-if-changed={}", file(name).display());
     }
-    let contract: Value =
-        serde_json::from_str(&fs::read_to_string(file("tool-contract.json"))?)?;
+    let contract: Value = serde_json::from_str(&fs::read_to_string(file("tool-contract.json"))?)?;
     let fingerprint = string(
         contract
             .get("fingerprint")
@@ -883,7 +882,11 @@ fn embed_tool_contract() -> Result<(), Box<dyn Error>> {
     // All artifacts come from one generator run; a mismatch means a partial or
     // hand edit in octocode-config, so fail the build instead of shipping it.
     let provenance: Value = serde_json::from_str(&fs::read_to_string(file("provenance.json"))?)?;
-    if provenance.get("contractFingerprint").and_then(Value::as_str) != Some(fingerprint) {
+    if provenance
+        .get("contractFingerprint")
+        .and_then(Value::as_str)
+        != Some(fingerprint)
+    {
         return Err(invalid(
             "octocode-config contract/provenance.json does not match tool-contract.json; run `yarn workspace @octocodeai/config generate:tool-contract`",
         ));

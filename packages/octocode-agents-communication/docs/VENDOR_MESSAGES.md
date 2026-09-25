@@ -82,9 +82,8 @@ and standalone archive were rebuilt; the standard skill validator passed.
 
 Native delivery does not imply processing or acknowledgement. Keep DB delivery
 IDs, sender attribution and retry handling across every adapter. Do not write
-vendor transcript files or private mailbox formats to simulate receipt. Current
-production adapters retain their tested idle-turn delivery paths; this API audit
-does not claim the newly examined alternatives have been integrated.
+vendor transcript files or private mailbox formats to simulate receipt. The production Rust CLI now implements these attached-session transports; the
+managed worker adapter remains optional.
 
 ## Direct transport: no sender agent
 
@@ -161,9 +160,9 @@ sender → shared DB → recipient's existing native endpoint → recipient
 No LLM relay is needed to copy a message, fan out a topic, or maintain locks.
 Existing CLI/DB sends already have zero model calls. The managed `run` command
 currently creates a recipient worker; it is not necessary for generic DB use.
-A future attached-session adapter should record an explicit endpoint and session
-binding, send one attributed delivery, and distinguish injected from handled.
-Use DB polling where an existing agent exposes no supported endpoint.
+The attached-session adapter records an explicit endpoint and session binding,
+sends one attributed delivery, and distinguishes submitted from handled. Use the
+bundled hook where a host exposes no native endpoint, or manual CLI/DB inbox reads.
 
 Native injection eliminates an extra relay's conversation, not the recipient's
 history. Codex explicitly retains injected items for later model requests; Claude
@@ -172,3 +171,63 @@ Never retry an uncertain write as a new message ID, and never erase an unread
 broadcast because another recipient acknowledged it. Keep bounded idempotency
 receipts and crash recovery in the DB; native transport alone cannot promise
 exactly-once effects.
+
+## Production DB-first adapters
+
+Implemented in `rust/dispatch.rs` and `rust/transport.rs`; Pi's existing-session
+bridge is `skills/octocode-agents-communication/scripts/pi-inbox.mjs`. These read
+committed DB deliveries and record durable attempt/confirmation state before and
+after native injection. All participants join and all replies return through the DB.
+The skill is 49 lines; command help owns the detailed schemas. No relay model or
+private transcript mutation is involved. Generic `scripts/inbox-hook` emits new
+context for an explicit host event; no host API is required for manual CLI use.
+
+Reproduce with `node scripts/attached-poc.mjs` after building. The
+[latest machine-readable report](../out/attached-poc.json) records the actual build,
+latency and evidence DB location. The probe checks one real recipient per native
+vendor plus a raw agent: request/reply, handling acknowledgements, broadcast to all
+four recipients, no repeated hook delivery, zero sender model calls, passive
+Codex/Pi injection until an explicit prompt, and owned-process cleanup. The retained
+isolated SQLite fixture contains all five identities and nine messages (four
+requests, four replies, one broadcast), twelve recipient rows and dispatch/audit
+receipts. The controller's four reply deliveries need not be acknowledged to prove
+recipient handling. This is a local acceptance test, not a reliability or scale SLO.
+
+An earlier run exposed timing ambiguity between hook stdout and Pi queueing, plus
+a probe that could prompt before Pi settled. Pi now stages the hook, queues native
+context, then confirms the token; the probe waits for `agent_settled`. Unconfirmed
+attempts never replay automatically. Explicit recovery may duplicate a message
+whose host receipt was lost. Per-vendor history and real recipient inference costs
+remain; missing host usage is reported as unknown rather than zero.
+
+### Latest optimized local run
+
+September 25 acceptance passed: Claude socket submission **9.8 ms**, Codex passive
+injection **354.6 ms**, raw CLI hook/reply/ack **40.3 ms**. Full request-to-handled
+times were Claude **3.65 s**, Codex **27.96 s**, Pi **3.01 s**; model/provider latency
+is separate from transport. These are single observations, not benchmarks. Both
+persistent native listeners delivered the broadcast. All owned children were reaped.
+
+The DB contains 13 actual usage reports. Pi's four request contexts were
+3,079–3,585 tokens. Codex's latest request context was 8,077 tokens; its final
+cumulative input was 46,950 with 38,400 cached input tokens across both turns.
+Claude's three result reports are aggregate turn scopes, not single-request context
+sizes. Cache read/write counters are stored separately. Never add cumulative
+snapshots together or call transport's zero model calls zero recipient context.
+The skill is 5,223 UTF-8 bytes and is loaded once; each injection contains only new
+message IDs, sender, optional topic and body.
+
+Assessment: **8/10 for this local POC**, based on working DB-first routing, durable
+audit, one-time offers, generic fallback and live vendor validation. Remaining
+limits are version-sensitive native endpoints, explicit recovery after uncertain
+submissions, manual host integration where no API exists, no automatic audit
+archive, and validation on macOS ARM64 only. This run covers one recipient per
+vendor plus raw; the earlier nine-worker matrix concerns managed workers.
+
+The final managed-worker regression also passed with real Claude Haiku, Codex
+Luna and Pi Haiku using a copied standalone skill. It verified Codex→Claude→Codex
+and Codex→Pi→Codex DB-backed exchanges, actual symlink/case-alias lock conflicts,
+lease release, handling acknowledgements and process cleanup. See the
+[managed receipt](../out/managed-final.json). Deterministic validation passed 15
+Rust contracts plus 26 CLI/process tests, with Python SQLite interop enabled;
+formatting, Clippy, the skill validator and archive checks passed.

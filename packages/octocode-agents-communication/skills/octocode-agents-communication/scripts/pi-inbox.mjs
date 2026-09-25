@@ -75,7 +75,10 @@ export default function (pi) {
     await call('record_usage', { key: `pi-${message.timestamp ?? randomUUID()}`, scope: 'request',
       ...(Number.isInteger(u.input) ? { inputTokens: u.input } : {}),
       ...(Number.isInteger(u.output) ? { outputTokens: u.output } : {}),
-      ...(Number.isInteger(u.cacheRead) ? { cachedInputTokens: u.cacheRead } : {}) });
+      ...(Number.isInteger(u.cacheRead) ? { cachedInputTokens: u.cacheRead } : {}),
+      ...(Number.isInteger(u.cacheWrite) ? { cacheWriteTokens: u.cacheWrite } : {}),
+      ...([u.input, u.cacheRead, u.cacheWrite].every(Number.isInteger)
+        ? { contextTokens: u.input + u.cacheRead + u.cacheWrite } : {}) });
   });
   pi.on('session_shutdown', async () => {
     stopped = true;

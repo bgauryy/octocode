@@ -1,5 +1,8 @@
 # Message cost, latency and proxy behavior
 
+Historical managed-worker measurements below describe newly launched recipients.
+The current attached transport uses no sender/proxy model; see [production validation](VENDOR_MESSAGES.md#production-db-first-adapters). Native recipient history and inference still cost context.
+
 September 25, 2026. macOS ARM64, release binary, Codex Luna, Claude Haiku and
 Pi's configured Haiku provider. These are local probe observations, not latency
 guarantees or a vendor/model cost comparison. Provider load and caches vary.

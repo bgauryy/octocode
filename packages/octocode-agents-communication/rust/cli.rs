@@ -96,7 +96,7 @@ pub fn run() -> Result<()> {
                 }));
             }
             if rest[0] != "info" {
-                bail!("Use db info or db protocol");
+                bail!("Use db info, db protocol, or db migrate");
             }
             return output(&database::inspect(
                 &database::path(args.database.as_deref())?,

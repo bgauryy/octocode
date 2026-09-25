@@ -1,5 +1,5 @@
 //! Pure-value utility helpers shared across history-item shaping functions.
-use super::{GhGetHistoryItemQuery, ItemOperation};
+use super::{HistoryItemRequest, ItemOperation};
 use crate::tools::result::remove_nulls;
 use serde_json::{Map, Value, json};
 
@@ -133,8 +133,8 @@ pub(super) fn paginate_text(
 }
 
 /// Lower-cased `matchString`, the needle every content filter matches.
-pub(super) fn needle(query: &GhGetHistoryItemQuery) -> Option<String> {
-    query.match_string.as_deref().map(str::to_lowercase)
+pub(super) fn needle(query: &HistoryItemRequest) -> Option<String> {
+    query.match_string().map(str::to_lowercase)
 }
 
 /// Whether an item's `body` contains `needle` (always true without one).
@@ -144,13 +144,13 @@ pub(super) fn body_matches(value: &Value, needle: Option<&str>) -> bool {
 
 /// Pull-request text is minified unless `minify:"none"` or a `matchString`
 /// asks for the verbatim text.
-pub(super) fn minified_view(query: &GhGetHistoryItemQuery) -> bool {
-    matches!(query.operation, ItemOperation::PullRequest)
-        && query.minify.as_deref() != Some("none")
-        && query.match_string.is_none()
+pub(super) fn minified_view(query: &HistoryItemRequest) -> bool {
+    matches!(query.operation(), ItemOperation::PullRequest)
+        && query.minify() != Some(super::GhGetHistoryItemQueryMinify::None)
+        && query.match_string().is_none()
 }
 
-pub(super) fn history_body_view(value: &str, query: &GhGetHistoryItemQuery) -> String {
+pub(super) fn history_body_view(value: &str, query: &HistoryItemRequest) -> String {
     if minified_view(query) {
         octocode_engine::portable::apply_content_view_minification(value, "history.md")
     } else {
@@ -163,11 +163,11 @@ pub(super) fn history_body_view(value: &str, query: &GhGetHistoryItemQuery) -> S
 pub(super) fn window_body(
     body: &str,
     offset: Option<usize>,
-    query: &GhGetHistoryItemQuery,
+    query: &HistoryItemRequest,
     first_more: &mut Option<Value>,
 ) -> (String, Value) {
     let view = history_body_view(body, query);
-    let (text, page) = paginate_text(&view, offset, query.char_length);
+    let (text, page) = paginate_text(&view, offset, query.char_length());
     if page["hasMore"] == true && first_more.is_none() {
         *first_more = Some(page.clone());
     }

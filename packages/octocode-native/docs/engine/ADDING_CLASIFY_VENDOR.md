@@ -112,7 +112,7 @@ The `classification.type` enum lives in the shared `octocode-core` contracts rep
 then regenerate:
 
 ```bash
-yarn workspace @octocodeai/octocode-native contracts:regen
+yarn contracts:regen   # repo root: regenerates packages/octocode-config/contract/
 ```
 
 ---
@@ -138,6 +138,6 @@ new `providers/classification/myvendor.rs`.
 - [ ] `pub mod myvendor;` added to `mod.rs`
 - [ ] `"myvendor"` arm added to `provider_for()`
 - [ ] `"myvendor"` added to the `classification.type` enum in `octocode-core`
-- [ ] `contracts:regen` run and output committed
+- [ ] `yarn contracts:regen` run; `packages/octocode-config/contract/` changes committed
 - [ ] At least one integration test exercises `clasify` with a mock of your API
       (see `tests/runtime_clasify.rs` for the existing Jev fixture pattern)

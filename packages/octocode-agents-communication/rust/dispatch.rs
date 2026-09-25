@@ -264,9 +264,9 @@ pub fn once(store: &Store, session: &str, codex: &mut Option<transport::Codex>) 
         .ok_or_else(|| anyhow!("Missing vendorSession"))?;
     // Connection setup precedes staging: an unreachable server cannot consume a message.
     if mode == "codex"
-        && !codex
+        && codex
             .as_ref()
-            .is_some_and(|client| client.endpoint() == endpoint)
+            .is_none_or(|client| client.endpoint() != endpoint)
     {
         *codex = Some(transport::Codex::connect(endpoint)?);
     }

@@ -48,19 +48,39 @@ Note friction, gaps, or wrong defaults and log them (comment/issue) instead of s
 ## Architecture and data flow
 
 ```
- INTERFACES      octocode-mcp  ·  octocode (CLI)  ·  octocode-vscode  ·  octocode-pi-extension
-                       └────────────────────────────┴─── depend on ───┐
- BRAIN           @octocodeai/octocode-native       (Rust runtime + consolidated distribution)
-                       ├── contracts ──▶  @octocodeai/octocode-core    (Zod schemas / descriptions — sibling repo)
-                       ├── primitives ─▶  crates/engine               (Rust: ripgrep, AST, LSP, minify, secrets)
-                       └── config   ───▶  @octocodeai/config           (env + home + generated TS/Rust tool types)
+ AUTHORING       @octocodeai/octocode-core   (sibling repo — Zod schemas, descriptions, instructions)
+                       │  yarn contracts:regen   (the ONLY generation step)
+                       ▼
+ CONTRACT HUB    @octocodeai/config          ./schema ./mcp (re-export core) + GENERATED:
+                       │                       contract/  tool-contract.json · contract-fixtures.json · provenance.json
+                       │                                  tool-types.schema.json · tool_types.rs (Rust types)
+                       │                       src/contracts/toolTypes.generated.ts (TS types)
+                       ├──────────────▶ INTERFACES  octocode-mcp · octocode (CLI) · octocode-vscode · octocode-pi-extension
+                       │                             (import contracts + types from @octocodeai/config/schema|mcp)
+                       └──────────────▶ BRAIN       @octocodeai/octocode-native — build.rs embeds contract/ in place
+                                                     ├── crates/runtime  (validate · execute · secure · shape)
+                                                     └── crates/engine   (ripgrep, AST, LSP, minify, secrets)
 ```
 
 **Flow:** A tool call arrives at MCP or CLI → the native Rust runtime validates, executes, secures, and shapes it → the interface registers or renders the result. Interfaces contain no tool business logic and have no TypeScript execution fallback.
 
-**Contracts:** Public schemas, descriptions, and instructions are **authored** in `@octocodeai/octocode-core` (sibling repo `../octocode-mcp-host/packages/octocode-core`) — the source of truth. In-repo surfaces do **not** import core directly; they go through the `@octocodeai/config` hub — `@octocodeai/config/schema` for names/schemas/relations and `@octocodeai/config/mcp` for `buildMcpInstructions`. Those two subpaths thinly re-export core (`export * from "@octocodeai/octocode-core/…"`), so authoring stays in the sibling repo while every interface imports contracts from one place. Native regenerates its enforcement embed from core via `yarn contracts:regen`. Never hand-write tool guidance in interface packages.
+### Contracts and types — ONE place, ONE pipeline
 
-**Types:** `@octocodeai/config` owns every tool input/output type. `generate:tool-types` derives TypeScript (`@octocodeai/config/schema`: `<Tool>Query`, `<Tool>Input`, `<Tool>Output`, `ToolQuery<N>`) and Rust (`packages/octocode-config/rust/tool_types.rs`, compiled into native as `contracts::tool_types`) from one bundled JSON Schema of the core Zod contract. Never hand-write a tool wire type in TS or Rust — change core, then regenerate (`yarn contracts:regen` does both).
+| Step | Where | Rule |
+|---|---|---|
+| 1. Author | `@octocodeai/octocode-core` (`../octocode-mcp-host/packages/octocode-core`) | Every tool schema (Zod), description, instruction, and limit. Nothing else authors contract content. |
+| 2. Generate | `yarn contracts:regen` (repo root) | Refreshes the `file:` core **copy** (`yarn install`), then runs `@octocodeai/config generate:tool-contract` — the **only** generator. Needs `cargo install cargo-typify --version 0.8.0 --locked`. |
+| 3. Output | `packages/octocode-config/contract/` + `src/contracts/toolTypes.generated.ts` | Committed, never hand-edited. `check:tool-contract` (in `build`/`lint`) fails when stale. |
+| 4a. TS consumers | `@octocodeai/config/schema` · `@octocodeai/config/mcp` | Zod schemas + generated types (`<Tool>Query`, `<Tool>Input`, `<Tool>Output`, `ToolQuery<N>`). Never import core directly. |
+| 4b. Native | `crates/runtime/build.rs` | Embeds `contract/` **in place** (no copy); `contracts::tool_types` includes `contract/tool_types.rs`. Build fails on a fingerprint mismatch; cargo rebuilds when `contract/` changes. |
+
+**Hard rules**
+- Change a contract → edit core → `yarn contracts:regen` → rebuild. That is the whole change; there is no native script, copy, or pin to update.
+- **Never hand-write a tool wire type** — no TS interface/Zod copy in interfaces, no serde query/result struct in native. Native tools parse rows straight into the generated `<Tool>Query` and build continuations from it; they may add accessor `impl` blocks (e.g. `usize` getters) on generated types, nothing more.
+- Generated-output payloads that core leaves open (`unknown[]`) stay open — tighten the Zod output schema in core, don't add a Rust/TS shape.
+- The only native-side follow-up a contract change can force: a **new** field or discriminator value must be declared in `crates/runtime/src/contracts/field-effect-coverage.json` (and implemented). Public limit changes also trip `public_response_and_tree_limits_are_pinned` by design.
+- Release gate: `yarn workspace @octocodeai/config check:core-contract-sync[:published]` — publish core first.
+- Never hand-write tool guidance in interface packages.
 
 **Config:** Everything flows through `@octocodeai/config`. Never reimplement `getOctocodeHome`, `propagateOctocodeEnv`, or `.env` parsing. Skills use injected `octocode-config.mjs`; packages import from `@octocodeai/config`.
 
@@ -74,10 +94,10 @@ Note friction, gaps, or wrong defaults and log them (comment/issue) instead of s
 
 | Package | npm name | Role |
 |---|---|---|
-| [`octocode-config`](packages/octocode-config) | `@octocodeai/config` | **Content/context layer.** Zero-dep env/config loader (`.` entry; single source for home, env, protected keys) **plus the shared tool-contract hub** (`./schema`, `./mcp`) that re-exports `@octocodeai/octocode-core`. Every interface imports contracts from here. Used by everything. |
+| [`octocode-config`](packages/octocode-config) | `@octocodeai/config` | **Content/context layer + the single contract generator.** Zero-dep env/config loader (`.` entry; single source for home, env, protected keys), the tool-contract hub (`./schema`, `./mcp` re-export core), and the generated `contract/` (embed JSON, fixtures, provenance, Rust `tool_types.rs`) + TS tool types. Every interface and native consume contracts from here. |
 | [`octocode-native`](packages/octocode-native) | `@octocodeai/octocode-native` | **Brain and distribution owner.** Two Rust crates: runtime policy/CLI/N-API plus reusable engine primitives. Publishes runtime at `.`/`./runtime` and primitives at `./engine` through one six-platform family. |
 | [`octocode-extension-rust`](packages/octocode-extension-rust) | `@octocodeai/octocode-extension-rust` | Rust primitives for the Pi extension: filesystem snapshots, mutations, durability, line diff. Separate from the research engine. |
-| `@octocodeai/octocode-core` *(external)* | sibling repo | All public tool contracts, schemas, descriptions, examples. Source of truth for what tools exist and how they're described. |
+| `@octocodeai/octocode-core` *(external)* | sibling repo | Authors all public tool contracts (Zod schemas, descriptions, examples). Source of truth; consumed only through `@octocodeai/config` after `yarn contracts:regen`. |
 
 ### Interfaces
 
@@ -101,7 +121,7 @@ Note friction, gaps, or wrong defaults and log them (comment/issue) instead of s
 **Cross-cutting rules:**
 - Pi contracts → `packages/octocode-pi-extension/src/contracts`
 - Awareness host API → build Awareness before rebuilding Pi after any `…/host` change
-- Local core changes → build sibling, refresh `file:` resolution, rebuild consumers
+- Local core changes → build core → `yarn contracts:regen` (refreshes the `file:` copy + regenerates config `contract/`) → rebuild consumers
 
 ---
 

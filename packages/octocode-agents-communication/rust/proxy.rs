@@ -414,6 +414,14 @@ fn persist_usage(
             "cachedInputTokens",
             ["cachedInputTokens", "cache_read_input_tokens", "cacheRead"],
         ),
+        (
+            "cacheWriteTokens",
+            [
+                "cacheWriteTokens",
+                "cache_creation_input_tokens",
+                "cacheWrite",
+            ],
+        ),
     ] {
         if let Some(value) = keys.iter().find_map(|key| usage[*key].as_u64()) {
             record[output] = json!(value);
@@ -421,6 +429,16 @@ fn persist_usage(
     }
     if let Some(value) = event["params"]["tokenUsage"]["last"]["inputTokens"].as_u64() {
         record["contextTokens"] = json!(value);
+    }
+    if vendor == "pi"
+        && let (Some(input), Some(read), Some(write)) = (
+            usage["input"].as_u64(),
+            usage["cacheRead"].as_u64(),
+            usage["cacheWrite"].as_u64(),
+        )
+        && let Some(total) = input.checked_add(read).and_then(|n| n.checked_add(write))
+    {
+        record["contextTokens"] = json!(total);
     }
     store.record_usage(id, &record)?;
     Ok(())

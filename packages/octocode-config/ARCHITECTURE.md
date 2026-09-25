@@ -56,22 +56,32 @@ known-key lists.
 
 One derivation path produces every tool input/output type:
 
+This package is the **only** tool-contract generator. `yarn contracts:regen`
+(repo root: refresh the core copy, then `generate:tool-contract`) is the whole
+change for every consumer:
+
 ```text
-core Zod schemas ── buildEnforcementContractIr ──▶ tool-types.schema.json
-      ├── json-schema-to-typescript ──▶ src/contracts/toolTypes.generated.ts
-      │        (exported from ./schema: <Tool>Query/Input/Output, ToolQuery<N>, …)
-      └── cargo-typify 0.8.0 ─────────▶ rust/tool_types.rs
-               (include!d by octocode-native as contracts::tool_types)
+core Zod schemas ── buildEnforcementContractIr ──▶ contract/tool-contract.json ─┐
+      ├── buildNativeParityFixtures ─────────────▶ contract/contract-fixtures.json├─ embedded by
+      ├── provenance (core version, fingerprint, sha) ▶ contract/provenance.json ─┤  octocode-native
+      └── bundle ──▶ contract/tool-types.schema.json                              │  build.rs, in place
+            ├── json-schema-to-typescript ──▶ src/contracts/toolTypes.generated.ts│
+            │        (./schema: <Tool>Query/Input/Output, ToolQuery<N>, …)        │
+            └── cargo-typify 0.8.0 ─────────▶ contract/tool_types.rs ─────────────┘
 ```
 
-`scripts/generate-tool-types.ts` names each tool's `Query` (one row),
+Native keeps no copy, pin, or regeneration script: cargo reruns `build.rs`
+when `contract/` changes, and the build fails if the files disagree on the
+fingerprint. `scripts/check-core-contract-sync.cjs` (`--published` for the
+npm-published core) gates releases.
+
+`scripts/generate-tool-contract.ts` names each tool's `Query` (one row),
 `Input` (bulk envelope), and `Output` (result envelope), shares identical
 output `$defs` as `Shared*`, and lifts a property enum used by several tools
 (`chunkType`, `minify`, `caseMode`, …) into one named type. Both files carry
 the core contract fingerprint; the Rust header also pins the bundle's SHA-256,
 so `--check` (run by `build` and `lint`) detects staleness without cargo.
-Regenerating needs `cargo install cargo-typify --version 0.8.0 --locked`;
-native's `yarn contracts:regen` runs it after refreshing core. Where core's
+Regenerating needs `cargo install cargo-typify --version 0.8.0 --locked`. Where core's
 output schema is open (`unknown[]` payloads), the generated type is open too:
 tightening a payload shape is a core schema change, never a hand-written type.
 

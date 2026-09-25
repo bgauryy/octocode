@@ -17,7 +17,7 @@ The CLI discovery catalog includes disabled tools: 13 tools are discoverable; wi
 | Shared server instructions | `@octocodeai/octocode-core/mcp`: `buildMcpInstructions(enabledToolNames)` | Workflow and evidence guidance for the exposed tool subset. |
 | Execution, provider mapping, topology algorithms | [native runtime](../packages/octocode-native/crates/runtime/src/runtime/engine.rs) and [tool modules](../packages/octocode-native/crates/runtime/src/tools) | Validated request dispatch, provider calls, and result construction. |
 | Search, syntax, minification, LSP primitives | [engine crate](../packages/octocode-native/ARCHITECTURE.md) | Native and language-server operations used by the runtime. |
-| Response contracts | [generated contract](../packages/octocode-native/crates/runtime/src/contracts/generated/tool-contract.json) and Rust response types | Runtime-validated request and transport-neutral result structures. |
+| Response contracts | [generated contract](../packages/octocode-config/contract/tool-contract.json) and Rust response types | Runtime-validated request and transport-neutral result structures. |
 | Response shaping and pagination | [native response module](../packages/octocode-native/crates/runtime/src/response/mod.rs) | Row status, evidence, presentation, and executable continuations. |
 | MCP registration | [public adapter](../packages/octocode-mcp/src/public.ts) | Publishes Standard Schema definitions and forwards execution to the native runtime. |
 

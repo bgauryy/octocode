@@ -18,7 +18,6 @@ use crate::providers::github::{
 };
 use crate::tools::local_fetch::ContentScan;
 use crate::tools::result::remove_nulls;
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::Path;
 
@@ -35,43 +34,10 @@ mod window;
 const DEFAULT_PAGE_SIZE: usize = 30;
 const DEFAULT_TEXT_WINDOW: usize = 12_000;
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct GhGetHistoryItemQuery {
-    pub operation: ItemOperation,
-    pub owner: String,
-    pub repo: String,
-    pub number: Option<u64>,
-    #[serde(rename = "ref")]
-    pub reference: Option<String>,
-    pub base: Option<String>,
-    pub head: Option<String>,
-    pub content: Option<Value>,
-    pub page: Option<usize>,
-    pub page_size: Option<usize>,
-    pub file_page: Option<usize>,
-    pub file_batch: Option<usize>,
-    pub comment_page: Option<usize>,
-    pub commit_page: Option<usize>,
-    pub review_page: Option<usize>,
-    pub collection_pages: Option<Value>,
-    pub include_diff: Option<bool>,
-    pub path: Option<String>,
-    pub char_offset: Option<usize>,
-    pub char_length: Option<usize>,
-    pub match_string: Option<String>,
-    pub comment_body_offset: Option<usize>,
-    pub minify: Option<String>,
-    pub goal: Option<String>,
-    pub reasoning: Option<String>,
-    /// Effective automatic response page (`output.pagination.defaultCharLength`),
-    /// set by the runtime; never part of the public query.
-    #[serde(skip)]
-    pub auto_page_chars: Option<usize>,
-}
+pub use crate::contracts::tool_types::{GhGetHistoryItemQuery, GhGetHistoryItemQueryMinify};
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
+/// The operation discriminant of a [`GhGetHistoryItemQuery`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ItemOperation {
     PullRequest,
     Issue,
@@ -79,9 +45,197 @@ pub enum ItemOperation {
     Compare,
 }
 
+/// A validated wire query plus runtime-only execution settings.
+#[derive(Clone, Debug)]
+pub struct HistoryItemRequest {
+    pub query: GhGetHistoryItemQuery,
+    /// Effective automatic response page (`output.pagination.defaultCharLength`).
+    pub auto_page_chars: Option<usize>,
+}
+
+impl From<GhGetHistoryItemQuery> for HistoryItemRequest {
+    fn from(query: GhGetHistoryItemQuery) -> Self {
+        Self {
+            query,
+            auto_page_chars: None,
+        }
+    }
+}
+
+impl std::ops::Deref for HistoryItemRequest {
+    type Target = GhGetHistoryItemQuery;
+    fn deref(&self) -> &GhGetHistoryItemQuery {
+        &self.query
+    }
+}
+
+fn usize_of(value: u64) -> usize {
+    usize::try_from(value).unwrap_or(usize::MAX)
+}
+
+/// Operation-independent views over the generated wire query, in the
+/// engine's `usize` units.
+impl GhGetHistoryItemQuery {
+    pub fn operation(&self) -> ItemOperation {
+        match self {
+            Self::PullRequest { .. } => ItemOperation::PullRequest,
+            Self::Issue { .. } => ItemOperation::Issue,
+            Self::Commit { .. } => ItemOperation::Commit,
+            Self::Compare { .. } => ItemOperation::Compare,
+        }
+    }
+    pub fn owner(&self) -> &str {
+        match self {
+            Self::PullRequest { owner, .. }
+            | Self::Issue { owner, .. }
+            | Self::Commit { owner, .. }
+            | Self::Compare { owner, .. } => owner.as_str(),
+        }
+    }
+    pub fn repo(&self) -> &str {
+        match self {
+            Self::PullRequest { repo, .. }
+            | Self::Issue { repo, .. }
+            | Self::Commit { repo, .. }
+            | Self::Compare { repo, .. } => repo.as_str(),
+        }
+    }
+    pub fn number(&self) -> Option<u64> {
+        match self {
+            Self::PullRequest { number, .. } | Self::Issue { number, .. } => Some(number.0.get()),
+            _ => None,
+        }
+    }
+    pub fn reference(&self) -> Option<&str> {
+        match self {
+            Self::Commit { ref_, .. } => Some(ref_.as_str()),
+            _ => None,
+        }
+    }
+    pub fn base(&self) -> Option<&str> {
+        match self {
+            Self::Compare { base, .. } => Some(base),
+            _ => None,
+        }
+    }
+    pub fn head(&self) -> Option<&str> {
+        match self {
+            Self::Compare { head, .. } => Some(head),
+            _ => None,
+        }
+    }
+    /// The `content` selector as JSON, for the shaping code's key lookups.
+    pub fn content_value(&self) -> Option<Value> {
+        match self {
+            Self::PullRequest { content, .. } | Self::Issue { content, .. } => content
+                .as_ref()
+                .and_then(|content| serde_json::to_value(content).ok()),
+            _ => None,
+        }
+    }
+    pub fn page(&self) -> Option<usize> {
+        match self {
+            Self::Compare { page, .. } => Some(usize_of(page.get())),
+            _ => None,
+        }
+    }
+    pub fn page_size(&self) -> Option<usize> {
+        match self {
+            Self::PullRequest { page_size, .. }
+            | Self::Issue { page_size, .. }
+            | Self::Commit { page_size, .. }
+            | Self::Compare { page_size, .. } => {
+                page_size.as_ref().map(|size| usize_of(size.0.get()))
+            }
+        }
+    }
+    pub fn file_page(&self) -> Option<usize> {
+        match self {
+            Self::PullRequest { file_page, .. } => file_page.map(|page| usize_of(page.get())),
+            Self::Commit { file_page, .. } | Self::Compare { file_page, .. } => {
+                file_page.as_ref().map(|page| usize_of(page.0.get()))
+            }
+            Self::Issue { .. } => None,
+        }
+    }
+    pub fn comment_page(&self) -> Option<usize> {
+        match self {
+            Self::PullRequest { comment_page, .. } | Self::Issue { comment_page, .. } => {
+                comment_page.as_ref().map(|page| usize_of(page.0.get()))
+            }
+            _ => None,
+        }
+    }
+    pub fn commit_page(&self) -> Option<usize> {
+        match self {
+            Self::PullRequest { commit_page, .. } => commit_page.map(|page| usize_of(page.get())),
+            _ => None,
+        }
+    }
+    pub fn review_page(&self) -> Option<usize> {
+        match self {
+            Self::PullRequest { review_page, .. } => review_page.map(|page| usize_of(page.get())),
+            _ => None,
+        }
+    }
+    pub fn include_diff(&self) -> bool {
+        match self {
+            Self::Commit { include_diff, .. } | Self::Compare { include_diff, .. } => *include_diff,
+            _ => false,
+        }
+    }
+    pub fn path(&self) -> Option<&str> {
+        match self {
+            Self::Commit { path, .. } | Self::Compare { path, .. } => path.as_deref(),
+            _ => None,
+        }
+    }
+    pub fn char_offset(&self) -> Option<usize> {
+        match self {
+            Self::PullRequest { char_offset, .. } | Self::Issue { char_offset, .. } => {
+                char_offset.map(usize_of)
+            }
+            Self::Commit { char_offset, .. } | Self::Compare { char_offset, .. } => {
+                char_offset.as_ref().map(|offset| usize_of(offset.0))
+            }
+        }
+    }
+    pub fn char_length(&self) -> Option<usize> {
+        match self {
+            Self::PullRequest { char_length, .. } | Self::Issue { char_length, .. } => {
+                char_length.map(|length| usize_of(length.get()))
+            }
+            Self::Commit { char_length, .. } | Self::Compare { char_length, .. } => {
+                char_length.as_ref().map(|length| usize_of(length.0.get()))
+            }
+        }
+    }
+    pub fn match_string(&self) -> Option<&str> {
+        match self {
+            Self::PullRequest { match_string, .. } => match_string.as_deref(),
+            _ => None,
+        }
+    }
+    pub fn comment_body_offset(&self) -> Option<usize> {
+        match self {
+            Self::PullRequest {
+                comment_body_offset,
+                ..
+            } => comment_body_offset.map(usize_of),
+            _ => None,
+        }
+    }
+    pub fn minify(&self) -> Option<GhGetHistoryItemQueryMinify> {
+        match self {
+            Self::PullRequest { minify, .. } => Some(*minify),
+            _ => None,
+        }
+    }
+}
+
 pub async fn execute<R: CredentialResolver>(
     transport: &GitHubTransport<R>,
-    query: &GhGetHistoryItemQuery,
+    query: &HistoryItemRequest,
     context: &RequestContext,
     security: &impl ContentScan,
 ) -> Result<Value, ProviderError> {
@@ -92,10 +246,10 @@ pub async fn execute<R: CredentialResolver>(
             match error.kind {
                 ProviderErrorKind::NotFound => {
                     let canonical = "Repository, resource, or path not found";
-                    error.message = if matches!(query.operation, ItemOperation::PullRequest) {
+                    error.message = if matches!(query.operation(), ItemOperation::PullRequest) {
                         format!(
                             "Failed to fetch pull request #{}: {canonical}",
-                            query.number.unwrap_or_default()
+                            query.number().unwrap_or_default()
                         )
                         .into_boxed_str()
                     } else {
@@ -136,12 +290,12 @@ fn enforce_response_limit(value: &Value, max_body_bytes: usize) -> Result<(), Pr
 
 async fn execute_inner<R: CredentialResolver>(
     transport: &GitHubTransport<R>,
-    query: &GhGetHistoryItemQuery,
+    query: &HistoryItemRequest,
     context: &RequestContext,
 ) -> Result<Value, ProviderError> {
     validate(query)?;
     check_context(context)?;
-    match query.operation {
+    match query.operation() {
         ItemOperation::PullRequest => pull_request::pull_request(transport, query, context).await,
         ItemOperation::Issue => issue::issue(transport, query, context).await,
         ItemOperation::Commit => commit_compare::commit(transport, query, context).await,
@@ -149,20 +303,19 @@ async fn execute_inner<R: CredentialResolver>(
     }
 }
 
-fn validate(query: &GhGetHistoryItemQuery) -> Result<(), ProviderError> {
-    if query.owner.is_empty() || query.repo.is_empty() {
+fn validate(query: &HistoryItemRequest) -> Result<(), ProviderError> {
+    if query.owner().is_empty() || query.repo().is_empty() {
         return Err(validation("owner and repo are required"));
     }
-    match query.operation {
-        ItemOperation::PullRequest | ItemOperation::Issue if query.number.is_none() => {
+    match query.operation() {
+        ItemOperation::PullRequest | ItemOperation::Issue if query.number().is_none() => {
             Err(validation("number is required"))
         }
-        ItemOperation::Commit if query.reference.as_deref().is_none_or(str::is_empty) => {
+        ItemOperation::Commit if query.reference().is_none_or(str::is_empty) => {
             Err(validation("ref is required"))
         }
         ItemOperation::Compare
-            if query.base.as_deref().is_none_or(str::is_empty)
-                || query.head.as_deref().is_none_or(str::is_empty) =>
+            if query.base().is_none_or(str::is_empty) || query.head().is_none_or(str::is_empty) =>
         {
             Err(validation("base and head are required"))
         }
@@ -232,9 +385,11 @@ mod tests {
 
     #[test]
     fn missing_identity_is_rejected() {
-        let q: GhGetHistoryItemQuery =
-            serde_json::from_str(r#"{"operation":"commit","owner":"a","repo":"b"}"#)
-                .expect("GitHub history test data should be valid");
+        let q: HistoryItemRequest = serde_json::from_str::<GhGetHistoryItemQuery>(
+            r#"{"operation":"commit","reasoning":"test","owner":"a","repo":"b"}"#,
+        )
+        .expect("GitHub history test data should be valid")
+        .into();
         assert!(validate(&q).is_err());
     }
 

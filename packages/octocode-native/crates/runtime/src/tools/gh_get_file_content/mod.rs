@@ -151,12 +151,12 @@ where
             chunk_type: local.chunk_type.unwrap_or(ChunkType::Lines),
             offset: 0,
             length: 0,
-            chunk_size: local
-                .chunk_size()
-                .unwrap_or(match local.chunk_type.unwrap_or(ChunkType::Lines) {
+            chunk_size: local.chunk_size().unwrap_or(
+                match local.chunk_type.unwrap_or(ChunkType::Lines) {
                     ChunkType::Lines => 1,
                     ChunkType::Bytes => 16384,
-                }),
+                },
+            ),
             total_lines: 0,
             total_bytes: 0,
             has_more: false,
@@ -180,12 +180,12 @@ where
             chunk_type: local.chunk_type.unwrap_or(ChunkType::Lines),
             offset: 0,
             length: 0,
-            chunk_size: local
-                .chunk_size()
-                .unwrap_or(match local.chunk_type.unwrap_or(ChunkType::Lines) {
+            chunk_size: local.chunk_size().unwrap_or(
+                match local.chunk_type.unwrap_or(ChunkType::Lines) {
                     ChunkType::Lines => 1,
                     ChunkType::Bytes => 16384,
-                }),
+                },
+            ),
             total_lines: 0,
             total_bytes: 0,
             has_more: false,
@@ -585,12 +585,12 @@ pub fn continuation_query(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tools::local_fetch::wire_positive;
     use crate::providers::github::{
         CredentialSource, GitHubEndpoint, GitHubTransport, NoCache, RetryPolicy,
         StaticCredentialResolver,
     };
     use crate::tools::local_fetch::NeverCancel;
+    use crate::tools::local_fetch::wire_positive;
     use base64::{Engine as _, engine::general_purpose::STANDARD};
     use std::{path::Path, sync::Arc, time::Duration};
     use wiremock::{

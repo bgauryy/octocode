@@ -1,5 +1,7 @@
 # Proxy context and deletion review
 
+Historical managed-worker evidence. Current schema is v2 and the skill is 49 lines; see [attached transport validation](VENDOR_MESSAGES.md#production-db-first-adapters).
+
 September 24, 2026. Scope: installed Codex Luna, Claude Haiku and Pi Haiku CLIs on
 macOS ARM64. The core SQLite transport is model-free; vendor models are invoked
 only to perform the supplied task or handle pending messages.
