@@ -309,13 +309,11 @@ impl GitHubServices {
     ) -> Result<DomainResult, ExecutionError> {
         context.check()?;
         let raw_query = query;
-        let query = gh_get_history_item::HistoryItemRequest {
-            query: match super::dispatch::parse_query(query.clone()) {
-                Ok(query) => query,
-                Err(row) => return Ok(*row),
-            },
-            auto_page_chars: Some(self.auto_page_chars),
+        let mut query = match gh_get_history_item::HistoryItemRequest::from_row(query.clone()) {
+            Ok(query) => query,
+            Err(error) => return Ok(super::dispatch::invalid_query(&error)),
         };
+        query.auto_page_chars = Some(self.auto_page_chars);
         // History items are mutable; bypass ConditionalCache intentionally.
         // See gh_get_history_item module-level doc for the full rationale.
         let result = gh_get_history_item::execute(

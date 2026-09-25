@@ -49,16 +49,28 @@ pub enum ItemOperation {
 #[derive(Clone, Debug)]
 pub struct HistoryItemRequest {
     pub query: GhGetHistoryItemQuery,
+    /// The row's `content` selector. typify projects the contract's
+    /// `content.patches` anyOf as flattened optional subtypes that share
+    /// `mode`, which loses selectors on a round trip, so the validated row
+    /// stays authoritative for this one field.
+    content: Option<Value>,
     /// Effective automatic response page (`output.pagination.defaultCharLength`).
     pub auto_page_chars: Option<usize>,
 }
 
-impl From<GhGetHistoryItemQuery> for HistoryItemRequest {
-    fn from(query: GhGetHistoryItemQuery) -> Self {
-        Self {
-            query,
+impl HistoryItemRequest {
+    /// Parses a validated `ghGetHistoryItem` row.
+    pub fn from_row(row: Value) -> Result<Self, serde_json::Error> {
+        let content = row.get("content").cloned();
+        Ok(Self {
+            query: serde_json::from_value(row)?,
+            content,
             auto_page_chars: None,
-        }
+        })
+    }
+    /// The `content` selector as JSON, for the shaping code's key lookups.
+    pub fn content_value(&self) -> Option<Value> {
+        self.content.clone()
     }
 }
 
@@ -121,15 +133,6 @@ impl GhGetHistoryItemQuery {
     pub fn head(&self) -> Option<&str> {
         match self {
             Self::Compare { head, .. } => Some(head),
-            _ => None,
-        }
-    }
-    /// The `content` selector as JSON, for the shaping code's key lookups.
-    pub fn content_value(&self) -> Option<Value> {
-        match self {
-            Self::PullRequest { content, .. } | Self::Issue { content, .. } => content
-                .as_ref()
-                .and_then(|content| serde_json::to_value(content).ok()),
             _ => None,
         }
     }
@@ -385,12 +388,24 @@ mod tests {
 
     #[test]
     fn missing_identity_is_rejected() {
-        let q: HistoryItemRequest = serde_json::from_str::<GhGetHistoryItemQuery>(
-            r#"{"operation":"commit","reasoning":"test","owner":"a","repo":"b"}"#,
+        // The wire contract requires each operation's identity.
+        for row in [
+            json!({"operation":"commit","reasoning":"test","owner":"a","repo":"b"}),
+            json!({"operation":"pullRequest","reasoning":"test","owner":"a","repo":"b"}),
+            json!({"operation":"compare","reasoning":"test","owner":"a","repo":"b","base":"x"}),
+        ] {
+            assert!(HistoryItemRequest::from_row(row).is_err());
+        }
+        let committed = HistoryItemRequest::from_row(
+            json!({"operation":"commit","reasoning":"test","owner":"a","repo":"b","ref":"x"}),
         )
-        .expect("GitHub history test data should be valid")
-        .into();
-        assert!(validate(&q).is_err());
+        .expect("GitHub history test data should be valid");
+        assert!(validate(&committed).is_ok());
+        let blank = HistoryItemRequest::from_row(json!({
+            "operation":"compare","reasoning":"test","owner":"a","repo":"b","base":"","head":"x"
+        }))
+        .expect("GitHub history test data should be valid");
+        assert!(validate(&blank).is_err());
     }
 
     #[test]

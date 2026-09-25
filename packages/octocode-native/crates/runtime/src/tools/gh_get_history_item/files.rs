@@ -269,7 +269,6 @@ pub(super) fn scope_files(files: Vec<Value>, path: Option<&str>) -> Vec<Value> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::GhGetHistoryItemQuery;
     use super::super::continuations::promote_pr_continuations;
     use super::*;
 
@@ -286,9 +285,8 @@ mod tests {
             "number":1,
             "minify":"none"
         });
-        serde_json::from_value::<GhGetHistoryItemQuery>(super::super::util::merge(base, fields))
+        HistoryItemRequest::from_row(super::super::util::merge(base, fields))
             .expect("patch query fixture should be valid")
-            .into()
     }
 
     #[test]
@@ -413,12 +411,11 @@ mod tests {
             "all",
         );
         assert_eq!(pagination["patches"]["files"], json!(["a.rs", "b.rs"]));
-        let request: HistoryItemRequest = serde_json::from_value::<GhGetHistoryItemQuery>(json!({
+        let request: HistoryItemRequest = HistoryItemRequest::from_row(json!({
             "operation":"pullRequest","reasoning":"test","owner":"o","repo":"r","number":5,
             "content":{"patches":{"mode":"all"}},"filePage":2
         }))
-        .expect("query")
-        .into();
+        .expect("query");
         let mut out = json!({"type":"pullRequests","pullRequests":[{"contentPagination":{
             "patches": pagination["patches"].clone()
         }}]});

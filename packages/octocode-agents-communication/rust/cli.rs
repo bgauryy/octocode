@@ -59,6 +59,14 @@ pub fn run() -> Result<()> {
     let command = &args.args[0];
     let rest = &args.args[1..];
     match command.as_str() {
+        "host-hook" | "host-config" => {
+            arity(rest, 0, 0)?;
+            return if command == "host-hook" {
+                crate::host_hooks::run(&args)
+            } else {
+                crate::host_hooks::config(&args)
+            };
+        }
         "skill" => {
             arity(rest, 0, 0)?;
             let mut skill = catalog::skill();

@@ -167,17 +167,19 @@ pub(super) fn execute_local(
 pub(super) fn parse_query<T: serde::de::DeserializeOwned>(
     value: Value,
 ) -> Result<T, Box<DomainResult>> {
-    serde_json::from_value(value).map_err(|error| {
-        Box::new(domain_error(
-            json!({
-                "error": "Check the query fields.",
-                "errorCode": "invalidInput",
-                "hints": [format!("Query does not match the runtime type: {error}.")],
-                "retryable": false
-            }),
-            None,
-        ))
-    })
+    serde_json::from_value(value).map_err(|error| Box::new(invalid_query(&error)))
+}
+
+pub(super) fn invalid_query(error: &serde_json::Error) -> DomainResult {
+    domain_error(
+        json!({
+            "error": "Check the query fields.",
+            "errorCode": "invalidInput",
+            "hints": [format!("Query does not match the runtime type: {error}.")],
+            "retryable": false
+        }),
+        None,
+    )
 }
 
 pub(super) fn value_result(data: Value) -> DomainResult {

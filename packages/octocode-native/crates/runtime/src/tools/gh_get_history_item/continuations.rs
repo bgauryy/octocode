@@ -476,17 +476,15 @@ pub(super) fn attach_diff_continuations(
 
 #[cfg(test)]
 mod tests {
-    use super::super::GhGetHistoryItemQuery;
     use super::*;
 
     #[test]
     fn selected_patch_continuation_stops_after_every_requested_path_is_returned() {
-        let query: HistoryItemRequest = serde_json::from_value::<GhGetHistoryItemQuery>(json!({
+        let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
             "operation":"pullRequest","reasoning":"test","owner":"a","repo":"b","number":1,
             "content":{"patches":{"mode":"selected","files":["src/lib.rs"]}}
         }))
-        .expect("selected patch query")
-        .into();
+        .expect("selected patch query");
         let mut output = json!({
             "type":"pullRequests",
             "pullRequests":[{
@@ -513,12 +511,11 @@ mod tests {
 
     #[test]
     fn selected_patch_continuation_carries_only_unresolved_paths() {
-        let query: HistoryItemRequest = serde_json::from_value::<GhGetHistoryItemQuery>(json!({
+        let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
             "operation":"pullRequest","reasoning":"test","owner":"a","repo":"b","number":1,
             "content":{"patches":{"mode":"selected","files":["src/a.rs","src/b.rs"]}}
         }))
-        .expect("selected patch query")
-        .into();
+        .expect("selected patch query");
         let mut output = json!({
             "type":"pullRequests",
             "pullRequests":[{
@@ -544,15 +541,14 @@ mod tests {
 
     #[test]
     fn selected_patch_continuation_filters_resolved_range_selectors() {
-        let query: HistoryItemRequest = serde_json::from_value::<GhGetHistoryItemQuery>(json!({
+        let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
             "operation":"pullRequest","reasoning":"test","owner":"a","repo":"b","number":1,
             "content":{"patches":{"mode":"selected","ranges":[
                 {"file":"src/a.rs","additions":[1]},
                 {"file":"src/b.rs","deletions":[2]}
             ]}}
         }))
-        .expect("selected patch range query")
-        .into();
+        .expect("selected patch range query");
         let mut output = json!({
             "type":"pullRequests",
             "pullRequests":[{
@@ -578,13 +574,12 @@ mod tests {
 
     #[test]
     fn pr_next_menu_carries_required_defaults_and_drops_cursors() {
-        let query: HistoryItemRequest = serde_json::from_value::<GhGetHistoryItemQuery>(json!({
+        let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
             "operation":"pullRequest","reasoning":"test","owner":"o","repo":"r","number":5,
             "content":{"body":true},"charOffset":100,"commentPage":2,
             "reasoning":"r"
         }))
-        .expect("query")
-        .into();
+        .expect("query");
         let content_value = query.content_value();
         let content = content_value.as_ref().and_then(Value::as_object);
         let menu = pr_next_menu(&query, content, "none", Some("src/a.rs"));
@@ -602,13 +597,12 @@ mod tests {
     fn char_offset_continuations_narrow_content_to_their_own_surface() {
         // charOffset is one shared field: continuing the body must not skew
         // review bodies or patches by the body offset (and vice versa).
-        let query: HistoryItemRequest = serde_json::from_value::<GhGetHistoryItemQuery>(json!({
+        let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
             "operation":"pullRequest","reasoning":"test","owner":"o","repo":"r","number":5,
             "content":{"body":true,"reviews":true,"patches":{"mode":"all"},"comments":{"discussion":true}},
             "charOffset":0
         }))
-        .expect("query")
-            .into();
+        .expect("query");
         let mut out = json!({"type":"pullRequests","pullRequests":[{"contentPagination":{
             "body":{"hasMore":true,"nextCharOffset":12000},
             "reviewBody":{"hasMore":true,"nextCharOffset":300},

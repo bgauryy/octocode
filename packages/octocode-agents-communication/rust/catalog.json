@@ -777,6 +777,16 @@
         ],
         "additionalProperties": false
       }
+    },
+    {
+      "name": "host-hook",
+      "description": "Cursor/Grok lifecycle JSON on stdin. Registers a DB identity and offers messages only on postToolUse/PostToolUseFailure. Prompt validation and passive Grok events do not consume messages. Fails open with diagnostics, never blocks a tool. Host config must set a timeout.",
+      "usage": "host-hook --vendor cursor|grok --workspace <path> [--database <file>]"
+    },
+    {
+      "name": "host-config",
+      "description": "Print a project-scoped hook configuration preview. Merge into .cursor/hooks.json or .grok/hooks/communication.json only where installation is authorized. Does not write host settings. Uses 10-second timeouts and no auto-continuation. Hooks refresh presence on events; raw listen is optional for idle presence.",
+      "usage": "host-config --vendor cursor|grok --workspace <path> [--database <file>]"
     }
   ],
   "tools": [
