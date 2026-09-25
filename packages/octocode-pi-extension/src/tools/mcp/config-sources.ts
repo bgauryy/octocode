@@ -4,7 +4,7 @@ import { getOctocodeHome } from '@octocodeai/config';
 import { repositoryDirectories } from '../../contracts/agent-skills.js';
 import { capabilitySourcePaths } from '../../contracts/capability-sources.js';
 import { getCapabilitySourceStatus, listCapabilitySourceReviews, reviewCapabilitySource, type CapabilitySourceStatus } from '../../contracts/capability-state.js';
-import type { ReadableSqlite } from '@octocodeai/octocode-awareness/host';
+import type { ReadableSqlite } from '../../runtime/agent-store-schema.js';
 import { extensionWorkspaceRoot, extensionHome } from '../../extension-paths.js';
 import { openOctocodeDb } from '../storage-policy.js';
 import { discoverMcpSystem } from './discovery.js';

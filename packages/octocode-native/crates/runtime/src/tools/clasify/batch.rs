@@ -10,11 +10,8 @@ use crate::providers::classification::gate::GateLease;
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::{Value, json};
 
-// UTF-8 headroom, not a model-token admission guarantee. The provider ingests
-// state once per request (32k tokens for state + longest question, 64k in
-// total), so a coalesced 48 KiB file page still shares one request across its
-// questions. Serialized code measured ~3.5–7 bytes/token; 72 KiB stays under
-// 32k tokens even at ~2.3 bytes/token.
+// Conservative serialized-byte headroom for shared-state requests. This is
+// not a token estimate or a guarantee that a provider accepts the request.
 const MAX_STATE_AND_QUESTION_BYTES: usize = 72 * 1024;
 const MAX_GROUP_BYTES: usize = 120 * 1024;
 

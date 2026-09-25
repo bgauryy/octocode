@@ -125,7 +125,7 @@ pub fn execute_local_fetch_with_regex(
         return result;
     }
     if q.full_content == Some(true)
-        && q.minify_mode() == Minify::None
+        && q.minify_mode() == MinifyMode::None
         && q.match_string.is_none()
         && q.start_line().is_none()
         && meta.len() > 100 * 1024
@@ -222,8 +222,8 @@ pub fn process_fetched_content(
         (raw, false)
     };
     let mode = q.minify_mode();
-    let match_blocks = q.match_string.is_some() && mode != Minify::None;
-    let applied = if match_blocks { Minify::None } else { mode };
+    let match_blocks = q.match_string.is_some() && mode != MinifyMode::None;
+    let applied = if match_blocks { MinifyMode::None } else { mode };
     let ext = match extract(q, &raw, regex) {
         Ok(x) => x,
         Err(e) => {
@@ -245,7 +245,7 @@ pub fn process_fetched_content(
             resource_missing: false,
             source_sha256: Some(source_sha256.clone()),
             content: Some(String::new()),
-            content_view: Some(Minify::None),
+            content_view: Some(MinifyMode::None),
             minify_fallback: None,
             error_code: Some("noMatches".into()),
             error: None,
@@ -282,12 +282,12 @@ pub fn process_fetched_content(
     let mut content_view = applied;
     let mut minify_fallback = match_blocks.then(|| MinifyFallback {
         requested: mode,
-        applied: Minify::None,
+        applied: MinifyMode::None,
         reason: "match-evidence".into(),
     });
-    if applied == Minify::Standard {
+    if applied == MinifyMode::Standard {
         selected = octocode_engine::portable::apply_content_view_minification(&selected, &q.path)
-    } else if applied == Minify::Symbols {
+    } else if applied == MinifyMode::Symbols {
         if let Some(s) = octocode_engine::portable::extract_signatures(&selected, &q.path) {
             selected = octocode_engine::portable::apply_content_view_minification(&s, &q.path)
         } else if let Some(outline) = crate::content::markdown_heading_outline(&selected, &q.path) {
@@ -296,10 +296,10 @@ pub fn process_fetched_content(
             warnings.push(format!("No smaller outline is available for {}; using the standard content view. The outline may be unsupported, oversized, or the source may be minified/bundled (single giant lines) — read specific line ranges instead.",q.path));
             selected =
                 octocode_engine::portable::apply_content_view_minification(&selected, &q.path);
-            content_view = Minify::Standard;
+            content_view = MinifyMode::Standard;
             minify_fallback = Some(MinifyFallback {
-                requested: Minify::Symbols,
-                applied: Minify::Standard,
+                requested: MinifyMode::Symbols,
+                applied: MinifyMode::Standard,
                 reason: "outline-unavailable".into(),
             })
         }
@@ -421,7 +421,7 @@ pub fn process_fetched_content(
     let source_ranges = if !out_of_range
         && !view_empty
         && !match_redacted
-        && content_view == Minify::None
+        && content_view == MinifyMode::None
         && !view_redacted
     {
         if let Some(lines) = ext.source_lines.as_ref() {
@@ -466,7 +466,7 @@ pub fn process_fetched_content(
         match_ranges: ext.match_ranges,
         matched_lines,
         selected_match_count: ext.count,
-        modified: (content_view != Minify::Symbols)
+        modified: (content_view != MinifyMode::Symbols)
             .then_some(modified)
             .flatten(),
         source_chars: Some(source_chars),
@@ -517,7 +517,7 @@ fn single_line_query(q: &LocalFetchQuery, line: usize) -> LocalFetchQuery {
     LocalFetchQuery {
         start_line: wire_positive(line),
         end_line: wire_positive(line),
-        minify: Some(Minify::None),
+        minify: Some(MinifyMode::None),
         full_content: None,
         match_string: None,
         match_string_is_regex: None,

@@ -314,8 +314,8 @@ export function isPersistentStorageEnabled(
 }
 
 /**
- * True when the Pi extension may persist Awareness state, SQLite extension
- * state, and session continuity on this machine.
+ * True when the Pi extension may persist SQLite extension state and session
+ * continuity on this machine.
  *
  * Precedence: OCTOCODE_EXTENSION_STORAGE_MODE env > OCTOCODE_STORAGE_MODE env
  * > extension.storage.mode in .octocoderc > storage.mode in .octocoderc > default.

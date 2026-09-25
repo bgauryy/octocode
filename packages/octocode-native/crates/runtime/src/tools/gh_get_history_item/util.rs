@@ -146,7 +146,7 @@ pub(super) fn body_matches(value: &Value, needle: Option<&str>) -> bool {
 /// asks for the verbatim text.
 pub(super) fn minified_view(query: &HistoryItemRequest) -> bool {
     matches!(query.operation(), ItemOperation::PullRequest)
-        && query.minify() != Some(super::GhGetHistoryItemQueryMinify::None)
+        && query.minify().as_deref() != Some("none")
         && query.match_string().is_none()
 }
 

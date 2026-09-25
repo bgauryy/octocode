@@ -12,18 +12,27 @@
     "clasify": {
       "evidence": [
         "src/tools/clasify/mod.rs",
+        "src/tools/clasify/questions.rs",
         "src/runtime/clasify_context.rs",
         "tests/runtime_clasify.rs"
       ],
       "variants": [],
       "discriminators": {
-        "questions[].question.type": [
+        "resources[].context.candidateEvidence": [
+          "fileChunks",
+          "search"
+        ],
+        "questions[].questionType": ["contribution", "addsEvidence", "supportsClaim", "locate"],
+        "questions[].type": [
           "noul",
           "choice",
           "score"
         ]
       },
       "fields": {
+        "questions[].questionType": ["consumed"],
+        "questions[].target": ["consumed"],
+        "questions[].knownEvidence": ["consumed"],
         "id": [
           "consumed"
         ],
@@ -33,22 +42,19 @@
         "questions[].id": [
           "consumed"
         ],
-        "questions[].question": [
+        "questions[].criteria": [
           "consumed"
         ],
-        "questions[].question.criteria": [
+        "questions[].criteria.false": [
           "consumed"
         ],
-        "questions[].question.criteria.false": [
+        "questions[].criteria.true": [
           "consumed"
         ],
-        "questions[].question.criteria.true": [
+        "questions[].instructions": [
           "consumed"
         ],
-        "questions[].question.instructions": [
-          "consumed"
-        ],
-        "questions[].question.type": [
+        "questions[].type": [
           "consumed"
         ],
         "reasoning": [
@@ -58,6 +64,9 @@
           "consumed"
         ],
         "resources[].context": [
+          "consumed"
+        ],
+        "resources[].context.candidateEvidence": [
           "consumed"
         ],
         "resources[].context.query": [
@@ -543,18 +552,6 @@
           "forwarded",
           "output-control"
         ],
-        "content.patches.ranges[].additions": [
-          "forwarded",
-          "output-control"
-        ],
-        "content.patches.ranges[].deletions": [
-          "forwarded",
-          "output-control"
-        ],
-        "content.patches.ranges[].file": [
-          "forwarded",
-          "output-control"
-        ],
         "content.reviews": [
           "forwarded",
           "output-control"
@@ -858,7 +855,8 @@
           "consumed"
         ],
         "debug": [
-          "workflow-metadata"
+          "workflow-metadata",
+          "output-control"
         ],
         "detail": [
           "consumed"
@@ -1150,7 +1148,8 @@
           "consumed"
         ],
         "debug": [
-          "workflow-metadata"
+          "workflow-metadata",
+          "output-control"
         ],
         "exclude": [
           "consumed"

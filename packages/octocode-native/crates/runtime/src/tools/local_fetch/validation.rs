@@ -6,7 +6,7 @@ pub fn validate_request(q: &LocalFetchQuery) -> Result<(), String> {
     if q.path.trim().is_empty() {
         return Err("path is required".into());
     }
-    if q.minify == Some(Minify::Symbols) && (matched || ranged) {
+    if q.minify == Some(MinifyMode::Symbols) && (matched || ranged) {
         return Err("minify:\"symbols\" returns a whole-file signature skeleton and cannot be combined with matchString/startLine/endLine — remove the line/match constraints, or use minify:\"standard\" (or \"none\") to extract a specific range.".into());
     }
     if [full, matched, ranged].iter().filter(|x| **x).count() > 1 {

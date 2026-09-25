@@ -4,59 +4,123 @@ use crate::{
 use octocode_engine::structural::{
     StructuralDetailedMatch, StructuralDiagnostic, StructuralSearchFilesOptions,
 };
-use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct AstMatchQuery {
-    #[serde(default = "op")]
-    pub operation: String,
-    pub path: String,
-    pub pattern: Option<String>,
-    pub rule: Option<String>,
-    pub include: Option<Vec<String>>,
-    pub exclude: Option<Vec<String>>,
-    pub exclude_dir: Option<Vec<String>>,
-    pub hidden: Option<bool>,
-    pub no_ignore: Option<bool>,
-    pub max_depth: Option<u32>,
-    pub max_files: Option<u32>,
-    pub max_matches_per_file: Option<u32>,
-    pub context_lines: Option<u32>,
-    pub match_content_length: Option<u32>,
-    pub sort: Option<String>,
-    pub lang_type: Option<String>,
-    pub capture_text: Option<bool>,
-    pub result_view: Option<String>,
-    pub reverse: Option<bool>,
-    pub page_size: Option<u32>,
-    #[serde(default = "one")]
-    pub page: u32,
-    #[serde(default = "one")]
-    pub match_page: u32,
-    pub snapshot: Option<String>,
+pub use crate::contracts::tool_types::{AstSearchQueryMatchPattern, AstSearchQueryMatchRule};
+
+/// A `match` query in either of its generated forms (pattern or rule).
+#[derive(Clone, Copy, Debug)]
+pub enum MatchQuery<'a> {
+    Pattern(&'a AstSearchQueryMatchPattern),
+    Rule(&'a AstSearchQueryMatchRule),
 }
-fn op() -> String {
-    "match".into()
+
+/// Binds `$field` from whichever form `$query` is.
+macro_rules! either_form {
+    ($query:expr, $field:ident => $value:expr) => {
+        match $query {
+            MatchQuery::Pattern(AstSearchQueryMatchPattern { $field, .. }) => $value,
+            MatchQuery::Rule(AstSearchQueryMatchRule { $field, .. }) => $value,
+        }
+    };
 }
-const fn one() -> u32 {
-    1
+
+fn u32_of(value: std::num::NonZeroU64) -> u32 {
+    u32::try_from(value.get()).unwrap_or(u32::MAX)
 }
+
+fn non_empty(values: &[String]) -> Option<Vec<String>> {
+    (!values.is_empty()).then(|| values.to_vec())
+}
+
+/// Form-independent views in the engine's units.
+impl MatchQuery<'_> {
+    pub fn path(self) -> String {
+        either_form!(self, path => path.to_string())
+    }
+    pub fn pattern(self) -> Option<String> {
+        match self {
+            Self::Pattern(query) => Some(query.pattern.to_string()),
+            Self::Rule(_) => None,
+        }
+    }
+    pub fn rule(self) -> Option<String> {
+        match self {
+            Self::Pattern(_) => None,
+            Self::Rule(query) => Some(query.rule.to_string()),
+        }
+    }
+    pub fn include(self) -> Option<Vec<String>> {
+        either_form!(self, include => non_empty(include))
+    }
+    pub fn exclude(self) -> Option<Vec<String>> {
+        either_form!(self, exclude => non_empty(exclude))
+    }
+    pub fn exclude_dir(self) -> Option<Vec<String>> {
+        either_form!(self, exclude_dir => non_empty(exclude_dir))
+    }
+    pub fn hidden(self) -> Option<bool> {
+        either_form!(self, hidden => *hidden)
+    }
+    pub fn no_ignore(self) -> Option<bool> {
+        either_form!(self, no_ignore => *no_ignore)
+    }
+    pub fn reverse(self) -> Option<bool> {
+        either_form!(self, reverse => *reverse)
+    }
+    pub fn capture_text(self) -> Option<bool> {
+        either_form!(self, capture_text => *capture_text)
+    }
+    pub fn max_depth(self) -> Option<u32> {
+        either_form!(self, max_depth => max_depth.map(|depth| u32::try_from(depth.max(0)).unwrap_or(u32::MAX)))
+    }
+    pub fn max_files(self) -> Option<u32> {
+        either_form!(self, max_files => max_files.map(u32_of))
+    }
+    pub fn max_matches_per_file(self) -> Option<u32> {
+        either_form!(self, max_matches_per_file => max_matches_per_file.map(u32_of))
+    }
+    pub fn match_content_length(self) -> Option<u32> {
+        either_form!(self, match_content_length => Some(u32_of(*match_content_length)))
+    }
+    pub fn lang_type(self) -> Option<String> {
+        either_form!(self, lang_type => lang_type.as_ref().map(ToString::to_string))
+    }
+    pub fn sort(self) -> Option<String> {
+        either_form!(self, sort => Some(sort.to_string()))
+    }
+    pub fn result_view(self) -> Option<String> {
+        either_form!(self, result_view => Some(result_view.to_string()))
+    }
+    pub fn page(self) -> u32 {
+        either_form!(self, page => u32_of(*page))
+    }
+    pub fn match_page(self) -> u32 {
+        either_form!(self, match_page => u32_of(*match_page))
+    }
+    pub fn page_size(self) -> Option<u32> {
+        either_form!(self, page_size => page_size.map(u32_of))
+    }
+    pub fn snapshot(self) -> Option<String> {
+        either_form!(self, snapshot => snapshot.as_ref().map(ToString::to_string))
+    }
+    fn to_value(self) -> Value {
+        match self {
+            Self::Pattern(query) => serde_json::to_value(query),
+            Self::Rule(query) => serde_json::to_value(query),
+        }
+        .unwrap_or_else(|_| json!({}))
+    }
+}
+
 pub fn execute_match(
-    q: &AstMatchQuery,
+    q: MatchQuery<'_>,
     paths: &PathPolicy,
     security: &ContentSecurity,
     cancel: &dyn CancellationCheck,
 ) -> super::AstResult {
     cancel.check().map_err(super::cancelled)?;
-    if q.pattern.is_some() == q.rule.is_some() {
-        return Err(super::AstError::new(
-            "structural.query.invalid",
-            "match requires exactly one of pattern or rule",
-        ));
-    }
     let lang_extensions = q
-        .lang_type
+        .lang_type()
         .as_deref()
         .map(|language| {
             language_extensions(language).ok_or_else(|| {
@@ -69,9 +133,9 @@ pub fn execute_match(
             })
         })
         .transpose()?;
-    let p = paths.validate(&q.path).map_err(super::AstError::from)?;
+    let p = paths.validate(q.path()).map_err(super::AstError::from)?;
     let meta = std::fs::metadata(&p.canonical).map_err(super::io_error)?;
-    if meta.is_dir() && q.lang_type.is_none() {
+    if meta.is_dir() && q.lang_type().is_none() {
         return Err(super::AstError::new(
             "ast.language.required",
             "Directory matching requires langType; choose the grammar from the source files.",
@@ -84,26 +148,26 @@ pub fn execute_match(
     let mut scan_skips = (0_u32, 0_u32, 0_u32);
     let mut skipped_by_prefilter = 0_u32;
     let mut files = if meta.is_file() {
-        super::validate_file_language(&p.canonical, q.lang_type.as_deref())?;
+        super::validate_file_language(&p.canonical, q.lang_type().as_deref())?;
         let bytes = std::fs::read(&p.canonical).map_err(super::io_error)?;
         let s = security
             .validate_text_bytes(&bytes, Some(&p.canonical), 1_000_000)
             .map_err(super::AstError::from)?;
         let source_path = p.canonical.to_string_lossy();
-        let r = if super::cpp_header_override(&p.canonical, q.lang_type.as_deref()) {
+        let r = if super::cpp_header_override(&p.canonical, q.lang_type().as_deref()) {
             octocode_engine::portable::structural_search_detailed_with_extension(
                 &s.content,
                 &source_path,
                 "cpp",
-                q.pattern.as_deref(),
-                q.rule.as_deref(),
+                q.pattern().as_deref(),
+                q.rule().as_deref(),
             )
         } else {
             octocode_engine::portable::structural_search_detailed(
                 &s.content,
                 &source_path,
-                q.pattern.as_deref(),
-                q.rule.as_deref(),
+                q.pattern().as_deref(),
+                q.rule().as_deref(),
             )
         }
         .map_err(super::native_error)?;
@@ -125,32 +189,32 @@ pub fn execute_match(
             octocode_engine::portable::structural_search_files_detailed_filtered_with_extension(
                 StructuralSearchFilesOptions {
                     path: p.canonical.to_string_lossy().into_owned(),
-                    pattern: q.pattern.clone(),
-                    rule: q.rule.clone(),
-                    include: q.include.clone().or_else(|| {
+                    pattern: q.pattern(),
+                    rule: q.rule(),
+                    include: q.include().or_else(|| {
                         lang_extensions.as_ref().map(|extensions| {
                             extensions.iter().map(|ext| format!("*.{ext}")).collect()
                         })
                     }),
-                    exclude: q.exclude.clone(),
-                    exclude_dir: q.exclude_dir.clone(),
-                    hidden: q.hidden,
-                    no_ignore: q.no_ignore,
-                    max_depth: q.max_depth.map(|depth| depth.saturating_add(1)),
-                    max_files: Some(q.max_files.unwrap_or(2_000)),
+                    exclude: q.exclude(),
+                    exclude_dir: q.exclude_dir(),
+                    hidden: q.hidden(),
+                    no_ignore: q.no_ignore(),
+                    max_depth: q.max_depth().map(|depth| depth.saturating_add(1)),
+                    max_files: Some(q.max_files().unwrap_or(2_000)),
                     max_file_bytes: Some(1_000_000),
                 },
                 &|path| {
                     // Explicit include globs are intersected with langType: files
                     // outside the selected grammar are never candidates.
                     Ok(super::allow_discovery(path, paths, cancel)?
-                        && (q.include.is_none()
+                        && (q.include().is_none()
                             || lang_extensions.as_ref().is_none_or(|extensions| {
                                 !path.is_file() || has_extension_in(path, extensions)
                             })))
                 },
                 &|path| {
-                    if super::cpp_header_override(path, q.lang_type.as_deref()) {
+                    if super::cpp_header_override(path, q.lang_type().as_deref()) {
                         "cpp".to_owned()
                     } else {
                         path.extension()
@@ -185,12 +249,12 @@ pub fn execute_match(
     };
     cancel.check().map_err(super::cancelled)?;
     files.sort_by(|a, b| {
-        let ordering = if q.sort.as_deref() == Some("matchCount") {
+        let ordering = if q.sort().as_deref() == Some("matchCount") {
             b.1.len().cmp(&a.1.len()).then_with(|| a.0.cmp(&b.0))
         } else {
             a.0.cmp(&b.0)
         };
-        if q.reverse.unwrap_or(false) {
+        if q.reverse().unwrap_or(false) {
             ordering.reverse()
         } else {
             ordering
@@ -206,33 +270,33 @@ pub fn execute_match(
         .map(|f| (f.0.clone(), f.1.len()))
         .collect::<Vec<_>>();
     let snapshot = super::syntax::digest(&json!([
-        q.path,
-        q.pattern,
-        q.rule,
-        q.include,
-        q.exclude,
-        q.exclude_dir,
-        q.hidden,
-        q.no_ignore,
-        q.max_depth,
-        q.lang_type,
-        q.reverse,
-        q.sort.as_deref().unwrap_or("relevance"),
-        q.result_view.as_deref().unwrap_or("content"),
-        q.max_files.unwrap_or(2_000),
+        q.path(),
+        q.pattern(),
+        q.rule(),
+        q.include(),
+        q.exclude(),
+        q.exclude_dir(),
+        q.hidden(),
+        q.no_ignore(),
+        q.max_depth(),
+        q.lang_type(),
+        q.reverse(),
+        q.sort().as_deref().unwrap_or("relevance"),
+        q.result_view().as_deref().unwrap_or("content"),
+        q.max_files().unwrap_or(2_000),
         ordered
     ]));
-    if (q.page > 1 || q.match_page > 1) && q.snapshot.as_deref() != Some(&snapshot) {
+    if (q.page() > 1 || q.match_page() > 1) && q.snapshot().as_deref() != Some(&snapshot) {
         return Ok(super::snapshot_changed(&snapshot));
     }
     let mut groups = vec![];
     let mut all_diagnostics = vec![];
     let mut total_matches = 0_u64;
-    let file_list = matches!(q.result_view.as_deref(), Some("files" | "countMatches"));
-    let matches_per_page = q.max_matches_per_file.unwrap_or(100).clamp(1, 1_000) as usize;
-    let match_page = q.match_page.max(1) as usize;
+    let file_list = matches!(q.result_view().as_deref(), Some("files" | "countMatches"));
+    let matches_per_page = q.max_matches_per_file().unwrap_or(100).clamp(1, 1_000) as usize;
+    let match_page = q.match_page().max(1) as usize;
     let match_start = (match_page - 1).saturating_mul(matches_per_page);
-    let content_length = q.match_content_length.unwrap_or(500).clamp(1, 100_000) as usize;
+    let content_length = q.match_content_length().unwrap_or(500).clamp(1, 100_000) as usize;
     // Per-file coverage: files that parsed, files whose query failed to
     // compile, and files cut short (execution limit, unreadable, unsupported).
     let mut parsed_files = 0_u32;
@@ -259,13 +323,13 @@ pub fn execute_match(
         }
         let matches = matches
             .into_iter()
-            .map(|value| match_value(value, q.capture_text.unwrap_or(false), content_length))
+            .map(|value| match_value(value, q.capture_text().unwrap_or(false), content_length))
             .collect::<Vec<_>>();
         if !matches.is_empty() {
             let total = matches.len();
             total_matches += total as u64;
             if file_list {
-                if q.result_view.as_deref() == Some("countMatches") {
+                if q.result_view().as_deref() == Some("countMatches") {
                     groups.push((json!({"path":path,"totalOccurrences":total}), false, false));
                 } else {
                     groups.push((json!({"path":path}), false, false));
@@ -339,7 +403,7 @@ pub fn execute_match(
     all_diagnostics.extend(scan_diagnostics.into_iter().map(diag));
     let (skipped_unsupported, skipped_unreadable, skipped_large) = scan_skips;
     if scan_truncated {
-        let limit = q.max_files.unwrap_or(2_000);
+        let limit = q.max_files().unwrap_or(2_000);
         all_diagnostics.push(json!({
             "code":"structural.scan.truncated",
             "severity":"warning",
@@ -349,8 +413,8 @@ pub fn execute_match(
             "recovery":"Narrow the scope with include globs or excludeDir, or raise maxFiles, then re-run."
         }));
     }
-    let size = q.page_size.unwrap_or(20).clamp(1, 1_000) as usize;
-    let page = q.page.max(1) as usize;
+    let size = q.page_size().unwrap_or(20).clamp(1, 1_000) as usize;
+    let page = q.page().max(1) as usize;
     let start = (page - 1) * size;
     let page_groups = groups
         .get(start..(start + size).min(groups.len()))
@@ -368,7 +432,7 @@ pub fn execute_match(
     if !groups.is_empty() {
         out["files"] = json!(selected);
         out["pagination"] = json!({"currentPage":page,"totalPages":groups.len().div_ceil(size).max(1),"filesPerPage":size,"totalFiles":groups.len()});
-        if q.result_view.as_deref() != Some("files") {
+        if q.result_view().as_deref() != Some("files") {
             out["pagination"]["totalMatches"] = json!(total_matches);
         }
         out["pagination"]["hasMore"] = json!(more);
@@ -376,7 +440,7 @@ pub fn execute_match(
     if !all_diagnostics.is_empty() {
         out["diagnostics"] = json!(all_diagnostics)
     }
-    if groups.is_empty() && q.pattern.is_some() && all_diagnostics.is_empty() {
+    if groups.is_empty() && q.pattern().is_some() && all_diagnostics.is_empty() {
         let path = p
             .canonical
             .file_name()
@@ -416,7 +480,7 @@ pub fn execute_match(
             &snapshot,
         );
     }
-    if has_truncated_captures && !q.capture_text.unwrap_or(false) {
+    if has_truncated_captures && !q.capture_text().unwrap_or(false) {
         out["next"]["expandCaptures"] =
             continuation_with(q, json!({"captureText":true}), &snapshot);
     }
@@ -540,20 +604,14 @@ fn match_display_path(root: &std::path::Path, path: &str) -> String {
     super::rooted_display(root, relative)
 }
 
-fn continuation(q: &AstMatchQuery, page: usize, snapshot: &str) -> Value {
+fn continuation(q: MatchQuery<'_>, page: usize, snapshot: &str) -> Value {
     // A new file page restarts per-file match pagination.
     continuation_with(q, json!({"page":page,"matchPage":1}), snapshot)
 }
 
-fn continuation_with(q: &AstMatchQuery, changes: Value, snapshot: &str) -> Value {
-    let mut query = serde_json::to_value(q).unwrap_or_else(|_| json!({}));
-    if let Some(map) = query.as_object_mut() {
-        map.retain(|_, value| !value.is_null());
-    }
-    query["matchContentLength"] = json!(q.match_content_length.unwrap_or(500));
-    query["sort"] = json!(q.sort.as_deref().unwrap_or("relevance"));
-    query["resultView"] = json!(q.result_view.as_deref().unwrap_or("content"));
-    query["maxFiles"] = json!(q.max_files.unwrap_or(2_000));
+fn continuation_with(q: MatchQuery<'_>, changes: Value, snapshot: &str) -> Value {
+    let mut query = q.to_value();
+    query["maxFiles"] = json!(q.max_files().unwrap_or(2_000));
     query["snapshot"] = json!(snapshot);
     if let (Some(target), Some(changes)) = (query.as_object_mut(), changes.as_object()) {
         target.extend(changes.clone());

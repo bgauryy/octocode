@@ -25,7 +25,6 @@ use octocode_engine::lsp::config::{
 use octocode_engine::lsp::pool::LspClientPool;
 use octocode_engine::lsp::uri::path_to_uri as engine_path_to_uri;
 use octocode_engine::lsp::workspace::resolve_workspace_root_for_file;
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::future::Future;
 use std::path::Path;
@@ -33,6 +32,7 @@ use std::time::Duration;
 
 mod anchor;
 mod failure;
+mod inferred_project;
 mod locations;
 mod ops;
 mod receipt;
@@ -54,52 +54,114 @@ const DIDOPEN_READY_TIMEOUT_MS: u32 = 15_000;
 /// How often a long language-server await re-checks cancellation.
 const CANCEL_POLL_MS: u64 = 50;
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct LspPosition {
-    pub line: u32,
-    pub character: u32,
+pub use crate::contracts::tool_types::LspSearchQuery;
+use crate::contracts::tool_types as wire;
+
+/// Binds `$field` from whichever anchor shape `$query` is. The shapes type
+/// shared fields differently, so each gets its own arm.
+macro_rules! each_shape {
+    ($query:expr, $field:ident => $value:expr) => {
+        match $query {
+            LspSearchQuery::Anchored(wire::Anchored { $field, .. }) => $value,
+            LspSearchQuery::Position(wire::Position { $field, .. }) => $value,
+            LspSearchQuery::Document(wire::Document { $field, .. }) => $value,
+            LspSearchQuery::WorkspaceUri(wire::WorkspaceUri { $field, .. }) => $value,
+            LspSearchQuery::WorkspaceRoot(wire::WorkspaceRoot { $field, .. }) => $value,
+        }
+    };
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct LspSearchQuery {
-    pub operation: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub uri: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub workspace_root: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub symbol_name: Option<String>,
-    /// Explicit source anchor, consumed as **zero-based** LSP coordinates
-    /// (UTF-16 columns) and passed straight through to the language server.
-    /// This is the one zero-based coordinate in the contract: every emitted
-    /// coordinate is one-based (lines and UTF-16 columns), so an emitted
-    /// `displayRange`/`resolvedSymbol` point becomes a `position` by
-    /// subtracting 1 from both. `symbolName`+`lineHint` is the one-based
-    /// entry point.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub position: Option<LspPosition>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub line_hint: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub order_hint: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub include_declaration: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub group_by_file: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub depth: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub page: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub page_size: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub snapshot: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub context_lines: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub rust_context: Option<Value>,
+fn u32_of(value: u64) -> u32 {
+    u32::try_from(value).unwrap_or(u32::MAX)
+}
+
+fn u32_of_signed(value: i64) -> u32 {
+    u32::try_from(value.max(0)).unwrap_or(u32::MAX)
+}
+
+/// Shape-independent views over the generated wire query, in LSP `u32`
+/// coordinates.
+impl LspSearchQuery {
+    pub fn operation(&self) -> String {
+        each_shape!(self, operation => operation.to_string())
+    }
+    pub fn uri(&self) -> Option<&str> {
+        match self {
+            Self::Anchored(query) => Some(query.uri.as_str()),
+            Self::Position(query) => Some(query.uri.as_str()),
+            Self::Document(query) => Some(query.uri.as_str()),
+            Self::WorkspaceUri(query) => Some(query.uri.as_str()),
+            Self::WorkspaceRoot(query) => query.uri.as_deref(),
+        }
+    }
+    pub fn workspace_root(&self) -> Option<&str> {
+        match self {
+            Self::WorkspaceRoot(query) => Some(query.workspace_root.as_str()),
+            Self::Anchored(query) => query.workspace_root.as_deref(),
+            Self::Position(query) => query.workspace_root.as_deref(),
+            Self::Document(query) => query.workspace_root.as_deref(),
+            Self::WorkspaceUri(query) => query.workspace_root.as_deref(),
+        }
+    }
+    pub fn symbol_name(&self) -> Option<&str> {
+        match self {
+            Self::Anchored(query) => Some(query.symbol_name.as_str()),
+            Self::WorkspaceUri(query) => Some(query.symbol_name.as_str()),
+            Self::WorkspaceRoot(query) => Some(query.symbol_name.as_str()),
+            Self::Position(_) | Self::Document(_) => None,
+        }
+    }
+    /// The explicit zero-based anchor as `(line, character)`.
+    pub fn position(&self) -> Option<(u32, u32)> {
+        match self {
+            Self::Position(query) => Some((
+                u32_of_signed(query.position.line),
+                u32_of_signed(query.position.character),
+            )),
+            _ => None,
+        }
+    }
+    pub fn line_hint(&self) -> Option<u32> {
+        match self {
+            Self::Anchored(query) => Some(u32_of(query.line_hint.get())),
+            _ => None,
+        }
+    }
+    /// The occurrence index; the default (first occurrence) reads as unset.
+    pub fn order_hint(&self) -> Option<u32> {
+        each_shape!(self, order_hint => (*order_hint != 0).then(|| u32_of_signed(*order_hint)))
+    }
+    pub fn include_declaration(&self) -> Option<bool> {
+        each_shape!(self, include_declaration => Some(*include_declaration))
+    }
+    pub fn group_by_file(&self) -> Option<bool> {
+        each_shape!(self, group_by_file => *group_by_file)
+    }
+    pub fn depth(&self) -> Option<u32> {
+        each_shape!(self, depth => depth.map(u32_of_signed))
+    }
+    pub fn page(&self) -> Option<u32> {
+        each_shape!(self, page => Some(u32_of(page.get())))
+    }
+    pub fn page_size(&self) -> Option<u32> {
+        each_shape!(self, page_size => page_size.map(|size| u32_of(size.get())))
+    }
+    pub fn snapshot(&self) -> Option<&str> {
+        each_shape!(self, snapshot => snapshot.as_ref().map(|snapshot| snapshot.as_str()))
+    }
+    pub fn context_lines(&self) -> Option<u32> {
+        each_shape!(self, context_lines => context_lines.map(u32_of_signed))
+    }
+    /// The Rust build context as JSON, decoded by [`receipt`].
+    pub fn rust_context(&self) -> Option<Value> {
+        each_shape!(self, rust_context => rust_context
+            .as_ref()
+            .and_then(|context| serde_json::to_value(context).ok()))
+    }
+    /// The query as a replayable JSON row.
+    pub fn to_row(&self) -> Value {
+        serde_json::to_value(self).unwrap_or_else(|_| serde_json::json!({}))
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -136,18 +198,12 @@ pub async fn execute(
     execution_config: &LspExecutionConfig,
 ) -> Result<Value, LspFailure> {
     cancel.check().map_err(LspFailure::cancelled)?;
-    let mut query = query;
     // `debug` asks for the provider receipt (server identity, fingerprints,
     // capabilities); ordinary rows carry only the answer.
     let debug = query.get("debug").and_then(Value::as_bool) == Some(true);
-    if let Some(object) = query.as_object_mut() {
-        object.remove("goal");
-        object.remove("reasoning");
-        object.remove("debug");
-    }
     let query: LspSearchQuery = serde_json::from_value(query)
         .map_err(|error| LspFailure::invalid_query(error.to_string()))?;
-    let path = if let Some(uri) = query.uri.as_deref() {
+    let path = if let Some(uri) = query.uri() {
         let decoded = decode_uri_path(uri).map_err(LspFailure::invalid_query)?;
         paths
             .validate_read(&decoded)
@@ -157,7 +213,7 @@ pub async fn execute(
             .into_owned()
     } else {
         paths
-            .validate(query.workspace_root.as_deref().ok_or_else(|| {
+            .validate(query.workspace_root().ok_or_else(|| {
                 LspFailure::invalid_query("lspSearch requires uri or workspaceRoot")
             })?)
             .map_err(LspFailure::path_denied)?
@@ -177,8 +233,8 @@ pub async fn execute(
         ))
     };
     let workspace_candidate = query
-        .workspace_root
-        .clone()
+        .workspace_root()
+        .map(str::to_owned)
         .or_else(|| resolve_workspace_root_for_file(path.clone()).ok())
         .unwrap_or_else(|| {
             Path::new(&path)
@@ -300,7 +356,7 @@ pub async fn execute(
             false,
         );
     }
-    if let Some(capability) = receipt::required_capability(&query.operation)
+    if let Some(capability) = receipt::required_capability(&query.operation())
         && !client.has_capability(capability.to_owned())
     {
         return fail(
@@ -380,6 +436,13 @@ pub async fn execute(
             )],
         );
     }
+    inferred_project::annotate(
+        &mut result,
+        &query,
+        receipt_config.language_id.as_deref(),
+        &path,
+        &receipt_config.workspace_root,
+    );
     receipt::attach_provider_context(
         &mut result,
         &query,

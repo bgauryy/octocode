@@ -7,13 +7,22 @@ use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use std::{
     fs,
+    io::Read,
     path::{Path, PathBuf},
+    sync::OnceLock,
     time::Duration,
 };
 
-pub const VERSION: i64 = 2;
+pub const VERSION: i64 = 6;
 pub const APPLICATION_ID: i64 = 1329678147;
-pub const SQL: &str = concat!(include_str!("schema-v1.sql"), include_str!("schema-v2.sql"));
+pub const SQL: &str = concat!(
+    include_str!("schema-v1.sql"),
+    include_str!("schema-v2.sql"),
+    include_str!("schema-v3.sql"),
+    include_str!("schema-v4.sql"),
+    include_str!("schema-v5.sql"),
+    include_str!("schema-v6.sql")
+);
 
 pub fn values(args: &[Value]) -> Result<Vec<SqlValue>> {
     args.iter()
@@ -98,9 +107,19 @@ pub fn fingerprint(db: &Connection) -> Result<String> {
         .collect())
 }
 pub fn expected() -> Result<String> {
-    let db = Connection::open_in_memory()?;
-    db.execute_batch(SQL)?;
-    fingerprint(&db)
+    static EXPECTED: OnceLock<Result<String, String>> = OnceLock::new();
+    EXPECTED
+        .get_or_init(|| {
+            let compute = || -> Result<String> {
+                let db = Connection::open_in_memory()?;
+                db.execute_batch(SQL)?;
+                fingerprint(&db)
+            };
+            compute().map_err(|error| error.to_string())
+        })
+        .as_ref()
+        .cloned()
+        .map_err(|error| anyhow::anyhow!(error.clone()))
 }
 fn compatible(db: &Connection) -> Result<bool> {
     let info = metadata(db)?;
@@ -111,7 +130,7 @@ fn compatible(db: &Connection) -> Result<bool> {
 fn validate(db: &Connection) -> Result<()> {
     if !compatible(db)? {
         bail!(
-            "Incompatible agents-communication database: expected schema v2. Stop old workers and use db migrate for an intact v1 store. No automatic repair."
+            "Incompatible agents-communication database: expected schema v6. Stop old workers and use db migrate for an intact v1/v2/v3/v4/v5 store. No automatic repair."
         );
     }
     Ok(())
@@ -127,11 +146,24 @@ pub fn migrate(path: &Path) -> Result<Value> {
         let old = Connection::open_in_memory()?;
         old.execute_batch(include_str!("schema-v1.sql"))?;
         let info = metadata(db)?;
+        let version = info["schemaVersion"].as_i64().unwrap_or(0);
+        if version >= 2 {
+            old.execute_batch(include_str!("schema-v2.sql"))?;
+        }
+        if version >= 3 {
+            old.execute_batch(include_str!("schema-v3.sql"))?;
+        }
+        if version >= 4 {
+            old.execute_batch(include_str!("schema-v4.sql"))?;
+        }
+        if version >= 5 {
+            old.execute_batch(include_str!("schema-v5.sql"))?;
+        }
         if info["applicationId"] != APPLICATION_ID
-            || info["schemaVersion"] != 1
+            || !matches!(version, 1..=5)
             || fingerprint(db)? != fingerprint(&old)?
         {
-            bail!("Migration requires an intact v1 store");
+            bail!("Migration requires an intact v1, v2, v3, v4 or v5 store");
         }
         let active: i64 = db.query_row(
             "SELECT count(*) FROM sessions WHERE expiresAt>?",
@@ -141,8 +173,20 @@ pub fn migrate(path: &Path) -> Result<Value> {
         if active != 0 {
             bail!("Stop workers and leave sessions or wait for presence expiry before migration");
         }
-        db.execute_batch(include_str!("schema-v2.sql"))?;
-        db.execute("INSERT INTO audit(session,kind,entityId,at,data) SELECT id,'session.imported',id,?,json_object('name',name,'vendor',vendor,'vendorSession',vendorSession,'workspace',workspace) FROM sessions", [crate::store::now()])?;
+        if version == 1 {
+            db.execute_batch(include_str!("schema-v2.sql"))?;
+            db.execute("INSERT INTO audit(session,kind,entityId,at,data) SELECT id,'session.imported',id,?,json_object('name',name,'vendor',vendor,'vendorSession',vendorSession,'workspace',workspace) FROM sessions", [crate::store::now()])?;
+        }
+        if version < 3 {
+            db.execute_batch(include_str!("schema-v3.sql"))?;
+        }
+        if version < 4 {
+            db.execute_batch(include_str!("schema-v4.sql"))?;
+        }
+        if version < 5 {
+            db.execute_batch(include_str!("schema-v5.sql"))?;
+        }
+        db.execute_batch(include_str!("schema-v6.sql"))?;
         db.pragma_update(None, "user_version", VERSION)?;
         validate(db)?;
         Ok(json!({"schemaVersion":VERSION,"migrated":true}))
@@ -174,6 +218,104 @@ pub fn inspect(path: &Path, workspace: &Path) -> Result<Value> {
         result["compatible"] = json!(compatible(&db)?);
     }
     Ok(result)
+}
+/// Export logical content, including committed WAL pages, without changing the source.
+/// A complete verified file is linked into place; the requested path is never a partial file.
+pub fn export(source: &Path, destination: &Path) -> Result<Value> {
+    if !destination.is_absolute() {
+        bail!("Export path must be absolute");
+    }
+    let filename = destination
+        .file_name()
+        .ok_or_else(|| anyhow::anyhow!("Export path must name a new file"))?;
+    let parent = fs::canonicalize(
+        destination
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("Export parent is required"))?,
+    )?;
+    let destination = parent.join(filename);
+    match fs::symlink_metadata(&destination) {
+        Ok(_) => bail!("Export destination already exists; never overwrite a file or symlink"),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    let source_metadata = fs::symlink_metadata(source)?;
+    if !source_metadata.file_type().is_file() {
+        bail!("Export source must be a regular database file, not a symlink");
+    }
+    let source = fs::canonicalize(source)?;
+    let db = open(&source, true, false)?;
+    let temporary = tempfile::Builder::new()
+        .prefix(".communication-export-")
+        .tempfile_in(&parent)?;
+    // NamedTempFile creates owner-only files on Unix; keep the destination equally private.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        temporary
+            .as_file()
+            .set_permissions(fs::Permissions::from_mode(0o600))?;
+    }
+    db.execute(
+        "VACUUM main INTO ?",
+        [temporary
+            .path()
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("Export path must be UTF-8"))?],
+    )?;
+    let current_metadata = fs::symlink_metadata(&source)?;
+    if !current_metadata.file_type().is_file() {
+        bail!("Source database was replaced during export");
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if (source_metadata.dev(), source_metadata.ino())
+            != (current_metadata.dev(), current_metadata.ino())
+        {
+            bail!("Source database was replaced during export");
+        }
+    }
+    let snapshot = open(temporary.path(), true, false)?;
+    let integrity = query(&snapshot, "PRAGMA integrity_check", &[])?;
+    if integrity.len() != 1 || integrity[0]["integrity_check"] != "ok" {
+        bail!("Export integrity check failed");
+    }
+    if !query(&snapshot, "PRAGMA foreign_key_check", &[])?.is_empty() {
+        bail!("Export foreign key check failed");
+    }
+    drop(snapshot);
+    temporary.as_file().sync_all()?;
+    let bytes = temporary.as_file().metadata()?.len();
+    let mut hash = Sha256::new();
+    let mut reader = temporary.as_file();
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let count = reader.read(&mut buffer)?;
+        if count == 0 {
+            break;
+        }
+        hash.update(&buffer[..count]);
+    }
+    let sha256 = hash
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    // Same-directory hard-link publication is no-clobber, including a destination created
+    // after the preflight check. Drop removes only the temporary name, not the snapshot.
+    fs::hard_link(temporary.path(), &destination)?;
+    drop(temporary);
+    // Once published, a directory-sync limitation must be reported, not hide a valid artifact.
+    let directory_synced = fs::File::open(&parent)
+        .and_then(|directory| directory.sync_all())
+        .is_ok();
+    Ok(
+        json!({"path":destination,"source":source,"schemaVersion":VERSION,"sha256":sha256,
+        "bytes":bytes,"scope":"all-workspaces","includesWorkspaceDocuments":false,
+        "documents":"Preserve referenced workspace .octocode/communication files separately; this snapshot contains their audit metadata only.",
+        "integrity":"ok","directorySynced":directory_synced}),
+    )
 }
 pub fn open(path: &Path, read_only: bool, create: bool) -> Result<Connection> {
     if !path.exists() {

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { contentDigest } from '@octocodeai/octocode-awareness/host';
+import { contentDigest } from '../src/runtime/continuity-contracts.js';
 import { createSessionArtifactContext, writeRehydrationLedger } from '../src/tools/session-artifacts.js';
 import { REHYDRATION_RECEIPT_ENTRY_TYPE, consumeValidatedRehydration, hasPendingRehydration, rehydrateSession, runAndRecordRehydration } from '../src/tools/rehydration-orchestrator.js';
 

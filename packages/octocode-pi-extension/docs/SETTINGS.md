@@ -39,10 +39,9 @@ models, skills, and override state. The layout adapts to narrow screens.
 
 ## Commands
 
-The Commands section snapshots `pi.getCommands()` each time the page opens.
-The extension contributes five entries: `/config`, `/configuration`,
-`/octocode-rewind`, `/octocode-inbox`, and `/octocode-status`.
-Host-provided commands, prompts, and skill commands remain in the inventory.
+The Commands section snapshots `pi.getCommands()` when the page opens.
+The extension contributes `/config`, `/configuration`, `/octocode-inbox` and
+`/octocode-status`. Host commands, prompts and skill commands remain visible.
 
 The page trims and deduplicates names, hides internal names beginning with `_`,
 and sorts entries alphabetically. Each entry shows its description and available

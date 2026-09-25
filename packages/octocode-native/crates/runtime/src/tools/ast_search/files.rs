@@ -2,60 +2,65 @@ use crate::{
     policy::path::PathPolicy, security::ContentSecurity, tools::local_fetch::CancellationCheck,
 };
 use octocode_engine::types::{FileSystemEntry, FileSystemQueryOptions};
-use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 const MAX_WALK: u32 = 10_000;
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct TimeFilters {
-    pub modified_within: Option<String>,
-    pub modified_before: Option<String>,
-    pub accessed_within: Option<String>,
+pub use crate::contracts::tool_types::{AstSearchQueryFiles, AstSearchQueryFilesTime};
+
+/// Engine-unit views over the generated `files` query.
+impl AstSearchQueryFiles {
+    fn depth(value: Option<i64>) -> Option<u32> {
+        value.map(|depth| u32::try_from(depth.max(0)).unwrap_or(u32::MAX))
+    }
+    pub fn max_depth(&self) -> Option<u32> {
+        Self::depth(self.max_depth)
+    }
+    pub fn min_depth(&self) -> Option<u32> {
+        Self::depth(self.min_depth)
+    }
+    fn non_empty(values: &[String]) -> Option<Vec<String>> {
+        (!values.is_empty()).then(|| values.to_vec())
+    }
+    pub fn names(&self) -> Option<Vec<String>> {
+        Self::non_empty(&self.names)
+    }
+    pub fn extensions(&self) -> Option<Vec<String>> {
+        Self::non_empty(&self.extensions)
+    }
+    pub fn exclude_dir(&self) -> Option<Vec<String>> {
+        Self::non_empty(&self.exclude_dir)
+    }
+    pub fn entry_type(&self) -> Option<String> {
+        self.entry_type.map(|kind| kind.to_string())
+    }
+    pub fn permissions(&self) -> Option<String> {
+        self.permissions.as_ref().map(ToString::to_string)
+    }
+    pub fn access(&self) -> Option<String> {
+        self.access.map(|access| access.to_string())
+    }
+    pub fn detail(&self) -> String {
+        self.detail.to_string()
+    }
+    pub fn sort(&self) -> String {
+        self.sort.to_string()
+    }
+    pub fn limit(&self) -> Option<u32> {
+        self.limit
+            .map(|limit| u32::try_from(limit.get()).unwrap_or(u32::MAX))
+    }
+    pub fn page(&self) -> u32 {
+        u32::try_from(self.page.get()).unwrap_or(u32::MAX)
+    }
+    pub fn page_size(&self) -> u32 {
+        self.page_size
+            .map_or(100, |size| u32::try_from(size.get()).unwrap_or(u32::MAX))
+    }
+    pub fn snapshot(&self) -> Option<&str> {
+        self.snapshot.as_deref().map(String::as_str)
+    }
 }
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct SizeFilters {
-    pub greater: Option<String>,
-    pub less: Option<String>,
-}
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct AstFilesQuery {
-    #[serde(default = "files_op")]
-    pub operation: String,
-    pub path: String,
-    pub max_depth: Option<u32>,
-    pub min_depth: Option<u32>,
-    pub names: Option<Vec<String>>,
-    pub extensions: Option<Vec<String>>,
-    pub path_pattern: Option<String>,
-    pub path_regex: Option<String>,
-    pub entry_type: Option<String>,
-    pub empty: Option<bool>,
-    pub time: Option<TimeFilters>,
-    pub size: Option<SizeFilters>,
-    pub permissions: Option<String>,
-    pub access: Option<String>,
-    pub exclude_dir: Option<Vec<String>>,
-    pub limit: Option<u32>,
-    #[serde(default = "one")]
-    pub page: u32,
-    #[serde(default = "hundred")]
-    pub page_size: u32,
-    pub detail: Option<String>,
-    pub sort: Option<String>,
-    pub snapshot: Option<String>,
-}
-fn files_op() -> String {
-    "files".into()
-}
-const fn one() -> u32 {
-    1
-}
-const fn hundred() -> u32 {
-    100
-}
+
 struct Row {
     output: Value,
     path: String,
@@ -66,45 +71,40 @@ struct Row {
 }
 
 pub fn execute_files(
-    q: &AstFilesQuery,
+    q: &AstSearchQueryFiles,
     paths: &PathPolicy,
     security: &ContentSecurity,
     cancel: &dyn CancellationCheck,
 ) -> super::AstResult {
     cancel.check().map_err(super::cancelled)?;
-    if q.operation != "files" {
-        return Err(super::AstError::new(
-            "ast.input.invalid",
-            "operation must be files",
-        ));
-    }
-    let validated = paths.validate(&q.path).map_err(super::AstError::from)?;
+    let validated = paths.validate(q.path.as_str()).map_err(super::AstError::from)?;
     let (time, mut warnings) = valid_time(q.time.clone());
-    let access = q.access.as_deref();
+    let access = q.access();
+    let access = access.as_deref();
     let native = octocode_engine::portable::query_file_system_filtered(
         FileSystemQueryOptions {
             path: validated.canonical.to_string_lossy().into_owned(),
             include_root: Some(true),
             recursive: Some(true),
-            max_depth: q.max_depth,
-            min_depth: q.min_depth,
+            max_depth: q.max_depth(),
+            min_depth: q.min_depth(),
             show_hidden: Some(true),
-            names: q.names.clone(),
-            extensions: q.extensions.clone(),
+            names: q.names(),
+            extensions: q.extensions(),
             path_pattern: q.path_pattern.clone(),
             regex: q.path_regex.clone(),
-            entry_type: q.entry_type.clone(),
+            entry_type: q.entry_type(),
             empty: q.empty,
             modified_within: time.as_ref().and_then(|t| t.modified_within.clone()),
             modified_before: time.as_ref().and_then(|t| t.modified_before.clone()),
             accessed_within: time.as_ref().and_then(|t| t.accessed_within.clone()),
             size_greater: q.size.as_ref().and_then(|s| s.greater.clone()),
             size_less: q.size.as_ref().and_then(|s| s.less.clone()),
-            permissions: q.permissions.clone(),
+            permissions: q.permissions(),
             executable: Some(access == Some("executable")),
             readable: Some(access == Some("readable")),
             writable: Some(access == Some("writable")),
-            exclude_dir: q.exclude_dir.clone(),
+            exclude_dir: q.exclude_dir(),
             stop_at_limit: Some(true),
             limit: Some(MAX_WALK),
         },
@@ -113,12 +113,12 @@ pub fn execute_files(
     .map_err(super::native_error)?;
     cancel.check().map_err(super::cancelled)?;
     warnings.extend(walk_warnings(native.skipped, native.permission_denied));
-    let full = q.detail.as_deref() == Some("full");
+    let full = q.detail() == "full";
     // Modification times are collected for the `modified` sort (the schema
     // default, newest first; ties keep walk order) and `detail` modified/full.
     let collect_modified =
-        full || q.detail.as_deref() == Some("modified") || q.sort.as_deref() == Some("modified");
-    let count_lines = (full || q.sort.as_deref() == Some("lines")) && native.entries.len() <= 2_000;
+        full || q.detail() == "modified" || q.sort() == "modified";
+    let count_lines = (full || q.sort() == "lines") && native.entries.len() <= 2_000;
     let mut rows = native
         .entries
         .iter()
@@ -136,11 +136,11 @@ pub fn execute_files(
         .collect::<Result<Vec<_>, super::AstError>>()?;
     sort_rows(
         &mut rows,
-        q.sort.as_deref().unwrap_or("path"),
+        &q.sort(),
         collect_modified,
     );
     let available = rows.len();
-    let requested = q.limit.unwrap_or(MAX_WALK).min(MAX_WALK) as usize;
+    let requested = q.limit().unwrap_or(MAX_WALK).min(MAX_WALK) as usize;
     rows.truncate(requested);
     let total = rows.len();
     // Snapshot fingerprint over the query shape plus the ordered result set, so
@@ -148,29 +148,29 @@ pub fn execute_files(
     // when the corpus or query drifted between pages.
     let snapshot = super::syntax::digest(&json!([
         q.path,
-        q.max_depth,
-        q.min_depth,
-        q.names,
-        q.extensions,
+        q.max_depth(),
+        q.min_depth(),
+        q.names(),
+        q.extensions(),
         q.path_pattern,
         q.path_regex,
-        q.entry_type,
+        q.entry_type(),
         q.empty,
-        q.permissions,
-        q.access,
-        q.exclude_dir,
+        q.permissions(),
+        q.access(),
+        q.exclude_dir(),
         // Effective (not raw) values: the nextPage continuation injects these
         // defaults, so the digest must match what the follow-up request carries.
-        q.sort.as_deref().unwrap_or("path"),
-        q.detail.as_deref().unwrap_or("basic"),
+        q.sort(),
+        q.detail(),
         requested,
         rows.iter().map(|r| &r.path).collect::<Vec<_>>()
     ]));
-    if q.page > 1 && q.snapshot.as_deref() != Some(&snapshot) {
+    if q.page() > 1 && q.snapshot() != Some(snapshot.as_str()) {
         return Ok(super::snapshot_changed(&snapshot));
     }
-    let page_size = q.page_size.clamp(1, 100) as usize;
-    let page = q.page.max(1) as usize;
+    let page_size = q.page_size().clamp(1, 100) as usize;
+    let page = q.page().max(1) as usize;
     let total_pages = total.div_ceil(page_size).max(1);
     let start = (page - 1).saturating_mul(page_size);
     let files = rows
@@ -282,17 +282,8 @@ fn make_row(
         lines,
     })
 }
-fn continuation(q: &AstFilesQuery, changes: Value) -> Value {
+fn continuation(q: &AstSearchQueryFiles, changes: Value) -> Value {
     let mut query = serde_json::to_value(q).unwrap_or_else(|_| json!({}));
-    if let Some(map) = query.as_object_mut() {
-        map.retain(|_, v| !v.is_null());
-    }
-    if query.get("detail").is_none() {
-        query["detail"] = json!("basic");
-    }
-    if query.get("sort").is_none() {
-        query["sort"] = json!("path");
-    }
     if let (Some(to), Some(from)) = (query.as_object_mut(), changes.as_object()) {
         to.extend(from.clone())
     }
@@ -357,7 +348,9 @@ pub(super) fn format_size(n: i64) -> String {
         format!("{:.1}TB", b / 1_099_511_627_776.)
     }
 }
-fn valid_time(time: Option<TimeFilters>) -> (Option<TimeFilters>, Vec<String>) {
+fn valid_time(
+    time: Option<AstSearchQueryFilesTime>,
+) -> (Option<AstSearchQueryFilesTime>, Vec<String>) {
     let Some(mut t) = time else {
         return (None, vec![]);
     };

@@ -12,7 +12,7 @@ use std::{
 
 pub(crate) fn analyze(
     mut b: BuiltGraph,
-    q: &AstGraphQuery,
+    q: &AstTopologyQuery,
     security: &ContentSecurity,
     cancel: &dyn CancellationCheck,
 ) -> AstGraphResult {
@@ -23,7 +23,7 @@ pub(crate) fn analyze(
     if b.truncated {
         warnings.push(format!(
             "scan stopped at maxFiles ({}) — graph results are partial",
-            q.max_files.unwrap_or(20_000)
+            q.max_files().unwrap_or(20_000)
         ))
     }
     if b.files_skipped > 0 {
@@ -34,7 +34,7 @@ pub(crate) fn analyze(
     base.insert("path".into(), json!(b.display_path));
     base.insert("filesScanned".into(), json!(b.facts.len()));
     base.insert("filesSkipped".into(), json!(b.files_skipped));
-    let (items, mut summary, extra_warnings, mut low) = match q.analysis {
+    let (items, mut summary, extra_warnings, mut low) = match q.analysis() {
         GraphAnalysis::Dependencies | GraphAnalysis::Dependents => traversal(&b, q)?,
         GraphAnalysis::Path => path_analysis(&b, q)?,
         GraphAnalysis::Cycles => cycles(&b),
@@ -50,7 +50,7 @@ pub(crate) fn analyze(
     warnings.extend(extra_warnings);
     // The resolved root list is page-invariant: emit it with the first result
     // page only; later pages keep `entrypointsResolvedCount`.
-    if q.page > 1
+    if q.page() > 1
         && let Some(obj) = summary.as_object_mut()
     {
         obj.remove("entrypointsResolved");
@@ -123,8 +123,8 @@ pub(crate) fn analyze(
         base.insert("partialReasons".into(), json!(reasons));
     }
     let terminal = b.files_skipped > 0
-        || q.max_files.is_some_and(|x| x >= 50_000) && b.truncated
-        || q.limit.is_some_and(|x| x >= 5_000) && limit_truncated;
+        || q.max_files().is_some_and(|x| x >= 50_000) && b.truncated
+        || q.limit().is_some_and(|x| x >= 5_000) && limit_truncated;
     if terminal {
         base.insert("terminalLimit".into(), json!(true));
     }
@@ -176,18 +176,18 @@ pub(crate) fn analyze(
         "complete"
     };
     base.insert("completeness".into(),if gaps.is_empty(){json!({"results":result_state,"graph":graph_state,"diagnostics":diag_state})}else{json!({"results":result_state,"graph":graph_state,"diagnostics":diag_state,"coverageGapReasons":gaps})});
-    base.insert("analysis".into(), json!(q.analysis.as_str()));
+    base.insert("analysis".into(), json!(q.analysis().as_str()));
     Ok(Value::Object(base))
 }
 
 fn traversal(
     b: &BuiltGraph,
-    q: &AstGraphQuery,
+    q: &AstTopologyQuery,
 ) -> Result<(Vec<Value>, Value, Vec<String>, bool), AstGraphError> {
-    let raw = q.file.as_deref().ok_or_else(|| {
+    let raw = q.file().ok_or_else(|| {
         AstGraphError::new(
             "invalidGraphQuery",
-            format!("{} requires file", q.analysis.as_str()),
+            format!("{} requires file", q.analysis().as_str()),
         )
     })?;
     let file = graph_file(raw, &b.root);
@@ -197,7 +197,7 @@ fn traversal(
             missing_file_message(&file, &b.nodes),
         ));
     }
-    let graph = if q.analysis == GraphAnalysis::Dependencies {
+    let graph = if q.analysis() == GraphAnalysis::Dependencies {
         b.nodes.clone()
     } else {
         reverse(&b.nodes)
@@ -206,7 +206,7 @@ fn traversal(
     let layers = layer_map(&c);
     let trans = find_transitive(&c);
     let indegree = in_degree(&b.nodes);
-    let depth = q.depth.unwrap_or(1);
+    let depth = q.depth().unwrap_or(1);
     let idoms = (depth > 1).then(|| dominators(&graph, &file));
     let mut items = traverse(&graph, &file, depth);
     for item in &mut items {
@@ -216,7 +216,7 @@ fn traversal(
         let Some(via) = item["via"].as_str().map(str::to_owned) else {
             continue;
         };
-        let (importer, imported) = if q.analysis == GraphAnalysis::Dependencies {
+        let (importer, imported) = if q.analysis() == GraphAnalysis::Dependencies {
             (via.as_str(), f.as_str())
         } else {
             (f.as_str(), via.as_str())
@@ -243,16 +243,16 @@ fn traversal(
 
 fn path_analysis(
     b: &BuiltGraph,
-    q: &AstGraphQuery,
+    q: &AstTopologyQuery,
 ) -> Result<(Vec<Value>, Value, Vec<String>, bool), AstGraphError> {
     let file = graph_file(
-        q.file.as_deref().ok_or_else(|| {
+        q.file().ok_or_else(|| {
             AstGraphError::new("invalidGraphQuery", "path requires file and target")
         })?,
         &b.root,
     );
     let target = graph_file(
-        q.target.as_deref().ok_or_else(|| {
+        q.target().ok_or_else(|| {
             AstGraphError::new("invalidGraphQuery", "path requires file and target")
         })?,
         &b.root,
@@ -318,7 +318,7 @@ fn cycles(b: &BuiltGraph) -> (Vec<Value>, Value, Vec<String>, bool) {
 
 fn reachability(
     b: &BuiltGraph,
-    q: &AstGraphQuery,
+    q: &AstTopologyQuery,
     security: &ContentSecurity,
 ) -> (Vec<Value>, Value, Vec<String>, bool) {
     let (roots, warnings, low) = entrypoints(b, q, security);
@@ -346,7 +346,7 @@ fn reachability(
 
 fn dead_code(
     b: &BuiltGraph,
-    q: &AstGraphQuery,
+    q: &AstTopologyQuery,
     security: &ContentSecurity,
 ) -> (Vec<Value>, Value, Vec<String>, bool) {
     let (roots, mut warnings, low_entries) = entrypoints(b, q, security);
@@ -410,7 +410,7 @@ fn dead_code(
     for files in components {
         let report = files
             .into_iter()
-            .filter(|f| q.include_tests.unwrap_or(true) || !crate::content::is_test_path(f))
+            .filter(|f| q.include_tests().unwrap_or(true) || !crate::content::is_test_path(f))
             .collect::<Vec<_>>();
         if report.is_empty() || !report.iter().all(|f| !live.contains(f)) {
             continue;
@@ -423,7 +423,7 @@ fn dead_code(
     }
     let mut rows = Vec::new();
     for (file, ff) in &b.facts {
-        if !q.include_tests.unwrap_or(true) && crate::content::is_test_path(file) {
+        if !q.include_tests().unwrap_or(true) && crate::content::is_test_path(file) {
             continue;
         }
         let live_ids = live_declarations(file, ff, &public, &real, &rex, &star);
@@ -593,14 +593,14 @@ fn live_declarations(
 
 fn entrypoints(
     b: &BuiltGraph,
-    q: &AstGraphQuery,
+    q: &AstTopologyQuery,
     security: &ContentSecurity,
 ) -> (Vec<String>, Vec<String>, bool) {
     let mut roots = Vec::new();
     let mut seen_roots = BTreeSet::new();
     let mut warnings = Vec::new();
     let mut low = false;
-    if let Some(explicit) = q.entrypoints.as_ref().filter(|x| !x.is_empty()) {
+    if let Some(explicit) = q.entrypoints().filter(|x| !x.is_empty()) {
         for raw in explicit {
             let p = if Path::new(raw).is_absolute() {
                 Path::new(raw)
@@ -679,7 +679,7 @@ fn entrypoints(
             low = true
         }
     }
-    if q.include_tests.unwrap_or(true) {
+    if q.include_tests().unwrap_or(true) {
         for file in b
             .nodes
             .keys()
@@ -842,19 +842,18 @@ fn source_equivalent(p: &str, nodes: &BTreeMap<String, Node>) -> Option<String> 
 /// report typed structural drift. Builds two independent snapshots and diffs
 /// them through the shared engine so results stay AST-only and deterministic.
 pub(crate) fn drift(
-    q: &AstGraphQuery,
+    q: &AstTopologyQuery,
     paths: &PathPolicy,
     security: &ContentSecurity,
     cancel: &dyn CancellationCheck,
 ) -> AstGraphResult {
     let head = super::graph::build_graph(q, paths, security, cancel)?;
     let baseline_root = q
-        .baseline
-        .clone()
+        .baseline()
+        .map(str::to_owned)
         .ok_or_else(|| AstGraphError::new("invalidGraphQuery", "drift requires baseline"))?;
     let mut base_query = q.clone();
-    base_query.path = Some(baseline_root);
-    base_query.baseline = None;
+    base_query.set_path(baseline_root);
     let mut base = super::graph::build_graph(&base_query, paths, security, cancel)?;
     cancel
         .check()
@@ -971,26 +970,26 @@ pub(crate) fn drift(
         "completeness".into(),
         json!({"results":results_state,"graph":graph_state,"diagnostics":"complete"}),
     );
-    if has_more && q.page < 1000 {
+    if has_more && q.page() < 1000 {
         base_map.insert(
             "next".into(),
-            json!({"nextPage": continuation(q, Some(q.page + 1), None, "Continue topology drift results.")}),
+            json!({"nextPage": continuation(q, Some(q.page() + 1), None, "Continue topology drift results.")}),
         );
     }
     Ok(Value::Object(base_map))
 }
 
-fn paginate(items: Vec<Value>, q: &AstGraphQuery) -> (Vec<Value>, Value, bool, usize) {
+fn paginate(items: Vec<Value>, q: &AstTopologyQuery) -> (Vec<Value>, Value, bool, usize) {
     let total = items.len();
-    let limited = if let Some(l) = q.limit {
+    let limited = if let Some(l) = q.limit() {
         items.into_iter().take(l as usize).collect()
     } else {
         items
     };
     let truncated = limited.len() < total;
-    let size = q.page_size.unwrap_or(50).clamp(1, 100) as usize;
+    let size = q.page_size().unwrap_or(50).clamp(1, 100) as usize;
     let pages = usize::max(1, limited.len().div_ceil(size));
-    let current = (q.page.max(1) as usize).min(pages);
+    let current = (q.page().max(1) as usize).min(pages);
     let start = (current - 1) * size;
     let mut pagination = json!({
         "currentPage": current,
@@ -999,7 +998,7 @@ fn paginate(items: Vec<Value>, q: &AstGraphQuery) -> (Vec<Value>, Value, bool, u
         "totalEntries": limited.len(),
         "hasMore": current < pages
     });
-    if q.page as usize > pages {
+    if q.page() as usize > pages {
         pagination["outOfRange"] = json!(true);
     }
     (
@@ -1010,7 +1009,7 @@ fn paginate(items: Vec<Value>, q: &AstGraphQuery) -> (Vec<Value>, Value, bool, u
     )
 }
 
-fn add_coverage(base: &mut Map<String, Value>, b: &mut BuiltGraph, q: &AstGraphQuery) -> bool {
+fn add_coverage(base: &mut Map<String, Value>, b: &mut BuiltGraph, q: &AstTopologyQuery) -> bool {
     b.diagnostics.sort();
     b.diagnostics.dedup();
     let tuples = b
@@ -1034,7 +1033,7 @@ fn add_coverage(base: &mut Map<String, Value>, b: &mut BuiltGraph, q: &AstGraphQ
     if !counts.is_empty() {
         coverage["diagnosticCounts"] = json!(counts);
     }
-    if q.diagnostic_snapshot.as_ref().is_some_and(|x| x != &id) {
+    if q.diagnostic_snapshot().as_ref().is_some_and(|x| x != &id) {
         base.insert("status".into(), json!("error"));
         base.insert("errorCode".into(), json!("graphDiagnosticsChanged"));
         base.insert("error".into(), json!("Graph diagnostics changed between pages. Restart before combining diagnostic pages."));
@@ -1042,9 +1041,9 @@ fn add_coverage(base: &mut Map<String, Value>, b: &mut BuiltGraph, q: &AstGraphQ
         base.insert("coverage".into(), coverage);
         return true;
     }
-    let size = q.diagnostic_page_size.unwrap_or(25).clamp(1, 100) as usize;
+    let size = q.diagnostic_page_size().unwrap_or(25).clamp(1, 100) as usize;
     let pages = usize::max(1, b.diagnostics.len().div_ceil(size));
-    let current = (q.diagnostic_page.max(1) as usize).min(pages);
+    let current = (q.diagnostic_page().max(1) as usize).min(pages);
     let more = current < pages;
     let ds = b
         .diagnostics
@@ -1053,11 +1052,12 @@ fn add_coverage(base: &mut Map<String, Value>, b: &mut BuiltGraph, q: &AstGraphQ
         .take(size)
         .collect::<Vec<_>>();
     let mut diagnostics_pagination = json!({"currentPage":current,"totalPages":pages,"entriesPerPage":size,"totalEntries":b.diagnostics.len(),"hasMore":more,"resultId":id});
-    if q.diagnostic_page as usize > pages {
+    if q.diagnostic_page() as usize > pages {
         diagnostics_pagination["outOfRange"] = json!(true);
         let warning = format!(
             "diagnosticPage:{} is out of range; returned diagnostic page {}.",
-            q.diagnostic_page, current
+            q.diagnostic_page(),
+            current
         );
         match base.get_mut("warnings") {
             Some(Value::Array(warnings)) => warnings.push(json!(warning)),
@@ -1079,15 +1079,15 @@ fn add_coverage(base: &mut Map<String, Value>, b: &mut BuiltGraph, q: &AstGraphQ
 }
 fn add_next(
     base: &mut Map<String, Value>,
-    q: &AstGraphQuery,
+    q: &AstTopologyQuery,
     root: &Path,
     limit_truncated: bool,
     scan_truncated: bool,
     _terminal: bool,
 ) {
     let mut next = Map::new();
-    if base["pagination"]["hasMore"] == true && q.page < 1000 {
-        let why = match q.analysis {
+    if base["pagination"]["hasMore"] == true && q.page() < 1000 {
+        let why = match q.analysis() {
             GraphAnalysis::Dependencies => "Continue dependencies.",
             GraphAnalysis::Dependents => "Continue dependents.",
             GraphAnalysis::Path => "Continue path results.",
@@ -1098,13 +1098,13 @@ fn add_next(
         };
         next.insert(
             "nextPage".into(),
-            continuation(q, Some(q.page + 1), None, why),
+            continuation(q, Some(q.page() + 1), None, why),
         );
     }
-    if base["coverage"]["diagnosticsPagination"]["hasMore"] == true && q.diagnostic_page < 1000 {
+    if base["coverage"]["diagnosticsPagination"]["hasMore"] == true && q.diagnostic_page() < 1000 {
         let mut value = clean_query(q);
-        value["diagnosticPage"] = json!(q.diagnostic_page + 1);
-        value["diagnosticPageSize"] = json!(q.diagnostic_page_size.unwrap_or(25));
+        value["diagnosticPage"] = json!(q.diagnostic_page() + 1);
+        value["diagnosticPageSize"] = json!(q.diagnostic_page_size().unwrap_or(25));
         value["diagnosticSnapshot"] = base["coverage"]["diagnosticsPagination"]["resultId"].clone();
         next.insert(
             "nextDiagnostics".into(),
@@ -1122,8 +1122,8 @@ fn add_next(
             json!({"tool":"astTopology","query":value,"why":"Restart diagnostic pagination from the current diagnostic snapshot.","confidence":"exact"}),
         );
     }
-    if scan_truncated && q.max_files.unwrap_or(20_000) < 50_000 {
-        let cur = q.max_files.unwrap_or(20_000);
+    if scan_truncated && q.max_files().unwrap_or(20_000) < 50_000 {
+        let cur = q.max_files().unwrap_or(20_000);
         next.insert(
             "expandScan".into(),
             continuation(
@@ -1134,7 +1134,7 @@ fn add_next(
             ),
         );
     }
-    if let Some(limit) = q.limit.filter(|limit| *limit < 5_000)
+    if let Some(limit) = q.limit().filter(|limit| *limit < 5_000)
         && limit_truncated
     {
         let mut value = clean_query(q);
@@ -1146,7 +1146,7 @@ fn add_next(
         }
         next.insert("expandLimit".into(),json!({"tool":"astTopology","query":value,"why":"Re-run with a larger result limit because additional graph results exist.","confidence":"exact"}));
     }
-    if q.analysis == GraphAnalysis::DeadCode
+    if q.analysis() == GraphAnalysis::DeadCode
         && let Some(c) = base["results"].as_array().and_then(|x| x.first())
         && let (Some(file), Some(name), Some(line)) =
             (c["file"].as_str(), c["name"].as_str(), c["line"].as_u64())
@@ -1162,24 +1162,17 @@ fn add_next(
         base.insert("next".into(), Value::Object(next));
     }
 }
-fn clean_query(q: &AstGraphQuery) -> Value {
+fn clean_query(q: &AstTopologyQuery) -> Value {
     let mut v = serde_json::to_value(q).unwrap_or_else(|_| json!({}));
     if let Some(m) = v.as_object_mut() {
         m.retain(|_, x| !x.is_null());
         if m.get("diagnosticPage") == Some(&json!(1)) {
             m.remove("diagnosticPage");
         }
-        if matches!(
-            q.analysis,
-            GraphAnalysis::Reachability | GraphAnalysis::DeadCode
-        ) && q.include_tests.is_none()
-        {
-            m.insert("includeTests".into(), json!(true));
-        }
     }
     v
 }
-fn continuation(q: &AstGraphQuery, page: Option<u32>, max: Option<u32>, why: &str) -> Value {
+fn continuation(q: &AstTopologyQuery, page: Option<u32>, max: Option<u32>, why: &str) -> Value {
     let mut v = clean_query(q);
     if let Some(x) = page {
         v["page"] = json!(x)
@@ -1416,8 +1409,8 @@ mod tests {
 
     #[test]
     fn diagnostic_continuation_stays_on_ast_topology() {
-        let query: AstGraphQuery = serde_json::from_value(json!({
-            "operation":"topology",
+        let query: AstTopologyQuery = serde_json::from_value(json!({
+            "operation":"topology","reasoning":"test",
             "analysis":"dependencies",
             "path":".",
             "file":"src/index.ts",

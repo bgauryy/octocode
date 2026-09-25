@@ -113,49 +113,14 @@ describe('Pi physiology observer', () => {
     });
   });
 
-  test('excludes Awareness inspection/internal operations without retaining their payloads', async () => {
+  test('excludes host-internal tools without retaining payloads', async () => {
     const observer = createPiPhysiologyObserver({ now: () => 10 });
     const ctx = context('session');
     await observer.sessionStart(ctx);
-    await observer.toolStart({ toolCallId: 'internal', toolName: 'bash', args: { command: 'npx @octocodeai/octocode-awareness context orient --compact' } }, ctx);
-    await observer.toolTerminal({ toolCallId: 'internal', toolName: 'bash', isError: false }, ctx);
-    await observer.toolStart({
-      toolCallId: 'internal-env',
-      toolName: 'bash',
-      args: { queries: [{ reasoning: 'inspect', command: '"$OCTOCODE_NODE" "$OCTOCODE_AWARENESS_CLI" status', timeout: 10 }] },
-    }, ctx);
-    await observer.toolTerminal({ toolCallId: 'internal-env', toolName: 'bash', result: { details: { code: 0 } }, isError: false }, ctx);
-    await observer.toolTerminal({
-      toolCallId: 'internal-env',
-      toolName: 'bash',
-      input: { queries: [{ command: '"$OCTOCODE_NODE" "$OCTOCODE_AWARENESS_CLI" status' }] },
-      isError: false,
-    }, ctx);
-    await observer.toolTerminal({
-      toolCallId: 'internal-terminal-only',
-      toolName: 'bash',
-      input: { queries: [{ reasoning: 'inspect coordination', command: '"$OCTOCODE_NODE" "$OCTOCODE_AWARENESS_CLI" context orient --compact' }] },
-      isError: false,
-    }, ctx);
-    await observer.toolTerminal({
-      toolCallId: 'mixed-batch',
-      toolName: 'bash',
-      input: { queries: [
-        { command: '"$OCTOCODE_NODE" "$OCTOCODE_AWARENESS_CLI" status' },
-        { command: 'git status --short' },
-      ] },
-      isError: false,
-    }, ctx);
+    await observer.toolTerminal({ toolCallId: 'internal', toolName: '__inspection', isError: false }, ctx);
     await observer.toolTerminal({ toolCallId: 'visible', toolName: 'file', isError: false }, ctx);
-    assert.deepEqual(observer.read(ctx)?.tools, {
-      window: 32,
-      observed: 2,
-      total_observed: 2,
-      latest_outcome: 'succeeded',
-      failed: 0,
-      cancelled: 0,
-      blocked: 0,
-    });
+    assert.equal(observer.read(ctx)?.tools?.observed, 1);
+    assert.equal(observer.read(ctx)?.tools?.total_observed, 1);
   });
 
   test('rejects stale and foreign contexts', async () => {

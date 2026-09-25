@@ -1,24 +1,28 @@
 //! Typed artifact registry discovery and exact metadata lookup.
 use crate::providers::RequestBudget;
 use crate::providers::artifact::{
-    ArtifactError, ArtifactProviderContext, ArtifactQuery, SystemArtifactHttp, execute_artifact,
+    ArtifactError, ArtifactProviderContext, ArtifactSearchQuery, SystemArtifactHttp, execute_artifact,
 };
 use serde_json::{Value, json};
 use std::time::Instant;
 use tokio_util::sync::CancellationToken;
 
-pub use crate::providers::artifact::{ArtifactItem, ArtifactType, ResolvedNpmRegistry};
+pub use crate::providers::artifact::{ArtifactItem, ArtifactSearchQueryType, ResolvedNpmRegistry};
 
 /// Signature scope for a query's cursor: a digest of the normalized query
 /// with the cursor itself removed, so a token lifted onto a different query
 /// fails verification while every page of one query shares a scope.
-fn cursor_scope(query: &ArtifactQuery) -> Result<String, ArtifactError> {
+fn cursor_scope(query: &ArtifactSearchQuery) -> Result<String, ArtifactError> {
     let mut bare = query.clone();
     bare.cursor = None;
     let mut value = serde_json::to_value(&bare)
         .map_err(|_| ArtifactError::new("provider_error", "Failed to derive cursor scope."))?;
     if let Some(object) = value.as_object_mut() {
-        object.retain(|_, v| !v.is_null());
+        // Caller intent and diagnostics do not change which results a page
+        // holds; a replayed page may restate them freely.
+        for meta in ["goal", "reasoning", "debug"] {
+            object.remove(meta);
+        }
     }
     crate::runtime::cursor::scope_digest(&value)
         .map_err(|_| ArtifactError::new("provider_error", "Failed to derive cursor scope."))
@@ -43,13 +47,7 @@ pub async fn execute(
     // (both reads and writes).  Mirrors `storage.mode == "persistent"`.
     cache_enabled: bool,
 ) -> Result<Value, ArtifactError> {
-    let mut query = query.clone();
-    if let Some(object) = query.as_object_mut() {
-        object.remove("goal");
-        object.remove("reasoning");
-        object.remove("debug");
-    }
-    let mut query: ArtifactQuery = serde_json::from_value(query)
+    let mut query: ArtifactSearchQuery = serde_json::from_value(query.clone())
         .map_err(|error| ArtifactError::new("invalid_query", error.to_string()))?;
     let signing_key = crate::runtime::cursor::user_signing_key(octocode_home);
     // Signed cursors (issued by us) must verify against this query's scope.
@@ -61,7 +59,8 @@ pub async fn execute(
         let scope = cursor_scope(&query)?;
         let payload = crate::runtime::cursor::verify_state(signing_key, &scope, &cursor)
             .map_err(|_| unrecognized_cursor())?;
-        query.cursor = Some(String::from_utf8(payload).map_err(|_| unrecognized_cursor())?);
+        let state = String::from_utf8(payload).map_err(|_| unrecognized_cursor())?;
+        query.cursor = Some(state.parse().map_err(|_| unrecognized_cursor())?);
     }
     let http = SystemArtifactHttp::new()?;
     let budget = RequestBudget {
@@ -101,12 +100,12 @@ pub async fn execute(
     let mut data = json!({
         "artifacts": page.artifacts,
         "pagination": {
-            "perPage": query.page_size.unwrap_or(page.artifacts.len()),
+            "perPage": query.page_size().unwrap_or(page.artifacts.len()),
             "returned": page.artifacts.len(),
             "hasMore": has_more,
             "totalFound": page.total,
         },
-        "type": query.artifact_type,
+        "type": query.type_,
     });
     if let Some(state) = page.next_state {
         let state_json = serde_json::to_string(&state).map_err(|_| {
@@ -118,16 +117,10 @@ pub async fn execute(
             .map_err(|_| {
                 ArtifactError::new("provider_error", "Failed to encode pagination cursor.")
             })?;
-        next.cursor = Some(cursor);
-        if let Ok(mut next_query) = serde_json::to_value(next) {
-            // Keyword-discovery queries leave packageName/registry as `None`,
-            // which serialize to JSON `null` and fail the canonical
-            // continuation contract (its exact-lookup branch expects strings).
-            // Drop null fields so the query matches the keyword+cursor branch,
-            // mirroring gh_search's `remove_null_fields` before building `nextPage`.
-            if let Some(object) = next_query.as_object_mut() {
-                object.retain(|_, value| !value.is_null());
-            }
+        next.cursor = Some(cursor.parse().map_err(|_| {
+            ArtifactError::new("provider_error", "Failed to encode pagination cursor.")
+        })?);
+        if let Ok(next_query) = serde_json::to_value(next) {
             data["next"] = json!({
                 "nextPage": {
                     "tool": "artifactSearch",
@@ -253,19 +246,15 @@ mod github_repo_tests {
 #[cfg(test)]
 mod cursor_signing_tests {
     use super::*;
-    use crate::providers::artifact::ArtifactType;
+    use crate::providers::artifact::ArtifactSearchQueryType;
     use crate::runtime::cursor;
     use std::time::Duration;
 
-    fn keyword_query(keywords: &[&str]) -> ArtifactQuery {
-        ArtifactQuery {
-            artifact_type: ArtifactType::Npm,
-            package_name: None,
-            keywords: Some(keywords.iter().map(|s| (*s).to_owned()).collect()),
-            page_size: Some(10),
-            cursor: None,
-            registry: None,
-        }
+    fn keyword_query(keywords: &[&str]) -> ArtifactSearchQuery {
+        crate::providers::artifact::artifact_query(
+            serde_json::json!({"type": ArtifactSearchQueryType::Npm, "keywords": keywords, "pageSize": 10}),
+            None,
+        )
     }
 
     #[test]
@@ -307,6 +296,7 @@ mod cursor_signing_tests {
                 "type": "npm",
                 "keywords": ["http"],
                 "cursor": cursor_value,
+                "reasoning": "test",
             });
             async move {
                 execute(&query, dead, CancellationToken::new(), false, None, 0, true)
@@ -322,11 +312,14 @@ mod cursor_signing_tests {
         // A genuinely issued token for this query verifies and reaches the
         // provider.
         let key = cursor::user_signing_key(None);
-        let mut typed = keyword_query(&["http"]);
-        typed.page_size = None;
+        let typed = crate::providers::artifact::artifact_query(
+            json!({"pageSize": null}),
+            Some(&keyword_query(&["http"])),
+        );
         let scope = cursor_scope(&typed).expect("scope");
         let token = cursor::sign_state(key, &scope, br#"{"offset":30,"page":2}"#).expect("sign");
-        let query = json!({"type": "npm", "keywords": ["http"], "cursor": token});
+        let query =
+            json!({"type": "npm", "keywords": ["http"], "cursor": token, "reasoning": "test"});
         let issued = execute(&query, dead, CancellationToken::new(), false, None, 0, true)
             .await
             .expect_err("dead budget");

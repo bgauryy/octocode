@@ -27,9 +27,9 @@ metrics or with any other campaign.
 - [Tool sanity benchmark](BENCHMARK_SANITY.md) is a per-tool checkbox suite: one
   section per public tool (schema, agent task, invocation, pass criterion) that
   an agent runs top to bottom to cover the 13-tool public catalog across native
-  CLI, node CLI, and MCP, including availability behavior. With clone and beta
-  tools disabled and no `OCTOCODE_CLASSIFICATION_API`, 9 tools are available:
-  MCP omits `clasify`, `ghCloneRepo`, `astRewrite`, and `astTopology`, while the
+  CLI, node CLI, and MCP, including availability behavior. `ghCloneRepo` is
+  CLI-only. Without beta tools and `OCTOCODE_CLASSIFICATION_API`, MCP registers 9
+  tools and omits `clasify`, `ghCloneRepo`, `astRewrite`, and `astTopology`, while the
   CLI keeps their commands and schemas discoverable and returns an actionable
   configuration error when one is called. The suite includes a one-shot matrix runner and
   continuation-contract regression checks.

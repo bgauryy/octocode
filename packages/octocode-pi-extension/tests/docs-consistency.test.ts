@@ -35,11 +35,15 @@ test('README surface counts match the harness source', () => {
   );
 });
 
-test('support tool inventory exposes only the consolidated coordination surface', () => {
+test('support inventory includes the canonical communication tools without legacy aliases', () => {
   for (const name of ['agent', 'callTool', 'skill', 'plan', 'localServer']) {
     assert.ok(OCTOCODE_SUPPORT_TOOL_NAMES.includes(name as never), `${name} missing from support inventory`);
   }
-  for (const name of ['memory', 'lock', 'message', 'awarenessStatus', 'awarenessPlan', 'claim', 'task', 'handoff', 'verify', 'awarenessAgents']) {
+  const catalog = JSON.parse(readPackageFile('../octocode-agents-communication/rust/catalog.json'));
+  for (const tool of catalog.tools) {
+    assert.ok(OCTOCODE_SUPPORT_TOOL_NAMES.includes(tool.name as never), `${tool.name} missing from communication inventory`);
+  }
+  for (const name of ['memory', 'message', 'awarenessStatus', 'awarenessPlan', 'claim', 'task', 'handoff', 'verify', 'awarenessAgents']) {
     assert.equal(OCTOCODE_SUPPORT_TOOL_NAMES.includes(name as never), false, `${name} must not have a public alias`);
   }
 });
@@ -201,12 +205,10 @@ test('TUI permutation contract preserves the complete interactive surface', () =
     'Dark',
     'Agents',
     'Plan and tasks',
-    'Awareness',
     'Mutating tools',
     'Independent reads',
     'Tool results',
     'Compaction checkpoint',
-    'Awareness handoff',
     'Media · TUI protocol and browser fallback',
     'Ghostty',
     'browser; ask first',

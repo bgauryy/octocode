@@ -1,0 +1,513 @@
+// Opt-in real-host test. Routing uses existing-recipient APIs, never a sender model.
+import assert from 'node:assert/strict';
+import { spawn, execFileSync } from 'node:child_process';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync, existsSync, cpSync } from 'node:fs';
+import { createServer, createConnection } from 'node:net';
+import { join, resolve } from 'node:path';
+import { createInterface } from 'node:readline';
+import { setTimeout as delay } from 'node:timers/promises';
+import { fileURLToPath } from 'node:url';
+import { DatabaseSync } from 'node:sqlite';
+import { nativeTurnFinished, nativeTurnFailure } from './native-turns.mjs';
+
+const opencodeCommand = process.env.COMMUNICATION_OPENCODE_COMMAND?.trim();
+const opencodeModel = process.env.COMMUNICATION_OPENCODE_MODEL ?? 'opencode/mimo-v2.6-flash-free';
+const piModel = process.env.COMMUNICATION_PI_MODEL?.trim();
+const explicitVendors = process.env.COMMUNICATION_VENDORS;
+const vendors = explicitVendors === undefined ? ['claude', 'codex', 'grok', 'pi', ...(opencodeCommand ? ['opencode'] : [])] : explicitVendors.split(',').map(v => v.trim());
+assert.ok(vendors.length && vendors.every(v => ['claude', 'codex', 'grok', 'pi', 'opencode'].includes(v)) && new Set(vendors).size === vendors.length, 'COMMUNICATION_VENDORS must contain distinct supported native vendors.');
+const rawPeer = explicitVendors === undefined;
+const agentOriginated = process.env.COMMUNICATION_AGENT_ORIGINATED === '1';
+assert.ok(!agentOriginated || (!rawPeer && [...vendors].sort().join(',') === 'claude,codex,grok'), 'Agent-originated collaboration requires exactly claude,codex,grok.');
+const copies = Number(process.env.COMMUNICATION_COPIES ?? 2);
+assert.ok([1, 2].includes(copies), 'COMMUNICATION_COPIES must be 1 or 2');
+const completionCheck = process.env.COMMUNICATION_COMPLETION_CHECK === '1';
+const scopedSkill = process.env.COMMUNICATION_SCOPED_SKILL === '1';
+const taskFamily = process.env.COMMUNICATION_TASK_FAMILY ?? 'review';
+assert.ok(['review', 'handoff'].includes(taskFamily), 'Unknown task family');
+const peerCount = vendors.length * copies + Number(rawPeer);
+const plan = { vendors, rawPeer, agentOriginated, peers: peerCount, controllerIdentities: 1, requestEdges: peerCount * (peerCount - 1), routingModelCalls: 0 };
+if (process.argv.includes('--plan')) { console.log(JSON.stringify(plan)); process.exit(0); }
+if (vendors.includes('pi')) assert.ok(piModel, 'Set COMMUNICATION_PI_MODEL to an authenticated Pi model.');
+if (vendors.includes('opencode')) assert.ok(opencodeCommand, 'Set COMMUNICATION_OPENCODE_COMMAND for OpenCode.');
+const root = fileURLToPath(new URL('../', import.meta.url));
+const output = resolve(process.env.COMMUNICATION_OUTPUT ?? join(root, '../../.octocode/benchmarks/communication-service-mesh/results', new Date().toISOString().replaceAll(':', '-')));
+mkdirSync(output, { recursive: true });
+const workspace = realpathSync(mkdtempSync('/tmp/communication-service-mesh-'));
+const database = join(workspace, 'audit.sqlite');
+const target = execFileSync('rustc', ['-vV'], { encoding: 'utf8' }).match(/^host: (.+)$/m)[1];
+const sourceBinary = process.env.COMMUNICATION_BINARY ?? join(root, 'skills/octocode-agents-communication/scripts/bin', target, 'octocode-agents-communication');
+const binary = join(output, 'communication');
+cpSync(sourceBinary, binary);
+const selectedTools = agentOriginated ? 'peers,send_message,ack,read_document,share_document' + (completionCheck ? ',inbox' : '') : process.env.COMMUNICATION_MINIMAL_TOOLS === '1' ? 'peers,send_message,ack,read_document' : undefined;
+const digest = value => createHash('sha256').update(value).digest('hex');
+const children = [], sockets = [], agents = [];
+writeFileSync(join(output, 'harness.mjs'), readFileSync(fileURLToPath(import.meta.url)));
+writeFileSync(join(output, 'native-turns.mjs'), readFileSync(new URL('./native-turns.mjs', import.meta.url)));
+const report = { plan, passed: false, routingModelCalls: 0, receiverModelCalls: null, workspace, database, startedAt: new Date().toISOString(), binarySha256: digest(readFileSync(binary)), harnessSha256: digest(readFileSync(fileURLToPath(import.meta.url))), models: { claude: 'haiku', codex: 'gpt-6-luna', grok: 'grok-4.7-build-fast', pi: piModel }, evidence: 'Integration test, not a provider performance comparison or coding-quality evaluation. Receiver inference is real; routing creates no sender or relay model.' };
+const binding = ['--workspace', workspace, '--database', database];
+const call = (command, input = {}, session) => JSON.parse(execFileSync(binary, [command, JSON.stringify(input), ...binding, ...(session ? ['--session', session] : [])], { encoding: 'utf8', timeout: 15000, stdio: ['pipe', 'pipe', 'pipe'] }));
+let aborted = false, cleaningUp = false;
+process.once('SIGTERM', () => { aborted = true; });
+const until = async (predicate, label, timeout = 120000) => {
+  const end = Date.now() + timeout;
+  while (Date.now() < end) { if (aborted && !cleaningUp) throw Error('Host requested bounded trial shutdown'); const value = await predicate(); if (value) return value; await delay(100); }
+  throw Error(`Timed out: ${label}`);
+};
+function start(name, command, args, env = {}) {
+  const child = spawn(command, args, { cwd: workspace, env: { ...process.env, ...env }, detached: true });
+  const item = { name, child, events: [], stderr: '', stdout: '', send: value => child.stdin.write(`${JSON.stringify(value)}\n`) };
+  children.push(item);
+  child.stderr.on('data', data => { item.stderr = (item.stderr + data).slice(-16384); });
+  child.on('error', error => { item.error = error.message; });
+  child.stdin.on('error', () => {});
+  createInterface({ input: child.stdout }).on('line', line => {
+    try { item.events.push(JSON.parse(line)); } catch { item.stdout = (item.stdout + line + '\n').slice(-16384); }
+  });
+  return item;
+}
+async function connect(url) {
+  const socket = new WebSocket(url); sockets.push(socket);
+  await new Promise((resolve, reject) => { socket.addEventListener('open', resolve, { once: true }); socket.addEventListener('error', reject, { once: true }); });
+  const events = []; let sequence = 0;
+  socket.addEventListener('message', event => events.push(JSON.parse(event.data)));
+  const send = value => socket.send(JSON.stringify(value));
+  return { events, send, async request(method, params) {
+    const id = ++sequence; send({ id, method, params });
+    const reply = await until(() => events.find(event => event.id === id), method);
+    if (reply.error) throw Error(JSON.stringify(reply.error));
+    return reply.result;
+  } };
+}
+async function connectGrok(path) {
+  const socket = createConnection(path); sockets.push(socket);
+  await new Promise((resolve, reject) => { socket.once('connect', resolve); socket.once('error', reject); });
+  const events = []; let sequence = 0, buffer = Buffer.alloc(0), failure;
+  const sendFrame = frame => { const body = Buffer.from(JSON.stringify(frame)); const header = Buffer.alloc(4); header.writeUInt32BE(body.length); socket.write(Buffer.concat([header, body])); };
+  const send = frame => sendFrame({type: 'acp', payload: JSON.stringify({jsonrpc: '2.0', ...frame})});
+  socket.on('error', error => { failure = error; });
+  socket.on('data', chunk => {
+    buffer = Buffer.concat([buffer, chunk]);
+    while (buffer.length >= 4) {
+      const size = buffer.readUInt32BE(0);
+      if (size > 8 * 1024 * 1024) { failure = Error('Grok frame exceeds limit'); socket.destroy(); return; }
+      if (buffer.length < size + 4) return;
+      try {
+        const frame = JSON.parse(buffer.subarray(4, size + 4)); buffer = buffer.subarray(size + 4);
+        const event = frame.type === 'acp' ? JSON.parse(frame.payload) : frame; events.push(event);
+        // The fixture owns authorization. Unexpected native approvals are a failing configuration.
+        if (event.method && event.id != null) send({id: event.id, error: {code: -32601, message: 'Unexpected interactive request in communication fixture'}});
+      } catch (error) { failure = error; socket.destroy(); return; }
+    }
+  });
+  sendFrame({type: 'register', client_type: 'octocode-mesh-owner', mode: 'stdio', capabilities: {}});
+  await until(() => { if (failure) throw failure; return events.some(e => e.type === 'registered' && e.ready && e.leader_protocol_version === 1) || events.some(e => e.type === 'leader_ready'); }, 'Grok leader registration');
+  return {events, send, async request(method, params, timeout = 240000) {
+    const id = ++sequence; send({id, method, params});
+    const reply = await until(() => { if (failure) throw failure; return events.find(e => e.id === id && !e.method); }, method, timeout);
+    if (reply.error) throw Error(JSON.stringify(reply.error));
+    return reply.result;
+  }};
+}
+async function openCodeApi(agent, path, data, timeoutMs = 120000) {
+  const response = await fetch(`${agent.endpoint}${path}`, {method: data === undefined ? 'GET' : 'POST', headers: {'content-type': 'application/json', ...agent.headers}, ...(data === undefined ? {} : {body: JSON.stringify(data)}), signal: AbortSignal.timeout(timeoutMs)});
+  const text = await response.text();
+  assert.ok(response.ok, `${path}: ${response.status} ${text.slice(0, 500)}`);
+  return text ? JSON.parse(text) : null;
+}
+async function watchOpenCode(agent) {
+  const abort = new AbortController(); sockets.push({close: () => abort.abort()});
+  const response = await fetch(`${agent.endpoint}/event`, {headers: agent.headers, signal: abort.signal});
+  assert.equal(response.status, 200); agent.events = [];
+  agent.stream = (async () => {
+    let buffer = '';
+    for await (const chunk of response.body) {
+      buffer += Buffer.from(chunk).toString();
+      for (;;) {
+        const split = buffer.indexOf('\n\n'); if (split < 0) break;
+        const frame = buffer.slice(0, split); buffer = buffer.slice(split + 2);
+        for (const line of frame.split('\n')) if (line.startsWith('data:')) agent.events.push(JSON.parse(line.slice(5)));
+      }
+    }
+  })().catch(error => { if (!abort.signal.aborted) agent.streamError = error.message; });
+}
+function nativeResults(agent) {
+  const records = [];
+  const decode = result => {
+    for (const block of result?.content ?? []) { try { return JSON.parse(block.text); } catch {} }
+  };
+  if (agent.vendor === 'codex') for (const event of agent.rpc.events) {
+    const item = event.params?.item;
+    if (event.method === 'item/completed' && item?.type === 'mcpToolCall' && item.status === 'completed' && !item.error) records.push({name: item.tool, value: decode(item.result)});
+  }
+  if (agent.vendor === 'grok') for (const event of agent.rpc.events) {
+    const update = event.params?.update, result = update?.rawOutput;
+    if (update?.status === 'completed' && result?.type === 'MCP' && result.server_name === 'communication') {
+      try { records.push({name: result.tool_name, value: JSON.parse(result.output.OkayOutput)}); } catch {}
+    }
+  }
+  if (agent.vendor === 'claude') {
+    const blocks = agent.process.events.flatMap(event => event.message?.content ?? []);
+    const names = new Map(blocks.filter(block => block.type === 'tool_use').map(block => [block.id, block.name.split('__').at(-1)]));
+    for (const block of blocks) if (block.type === 'tool_result' && !block.is_error && names.has(block.tool_use_id)) records.push({name: names.get(block.tool_use_id), value: decode(block)});
+  }
+  return records;
+}
+let db, timer, controller;
+try {
+  if (process.env.COMMUNICATION_EXPECTED_BINARY_SHA256) assert.equal(report.binarySha256, process.env.COMMUNICATION_EXPECTED_BINARY_SHA256, 'Use the approved frozen runtime');
+  report.vendorVersions = Object.fromEntries(vendors.filter(v => ['claude', 'codex', 'grok'].includes(v)).map(v => [v, execFileSync(v, ['--version'], {encoding:'utf8', timeout:10000}).trim()]));
+  controller = call('join', { name: 'mesh-controller', vendor: 'test-host' });
+  for (const vendor of vendors) for (let n = 1; n <= copies; n++) agents.push({ ...call('join', { name: `${vendor}-${n}`, vendor }), vendor });
+  if (rawPeer) agents.push({ ...call('join', { name: 'raw-agent', vendor: 'raw' }), vendor: 'raw' });
+  timer = setInterval(() => {
+    try { for (const agent of [controller, ...agents]) call('heartbeat', {}, agent.id); }
+    catch (error) { report.heartbeatError = error.message; }
+  }, 10000);
+  db = new DatabaseSync(database, { readOnly: true });
+  const skill = JSON.parse(execFileSync(binary, ['skill'], { encoding: 'utf8' })).instructions;
+  report.skillSha256 = digest(skill); report.skillBytes = Buffer.byteLength(skill);
+  const task = `${skill}\n\nAssigned interoperability task: Initially respond READY to the host only. For each peer message whose body starts QUESTION, use peers once to discover the workspace collaborators and read shared handoff document mesh-context.md once per session, then send exactly one reply using replyTo only; omit to/topic so the service resolves the recipient. Reply body must begin ANSWER and contain the document's verification word plus a brief truthful description of your available communication tools. Set replyTo to the QUESTION message ID, use key answer-ID with that ID, reasoning explaining the answer, and wake action because the answer unblocks its requester. Set ackReply:true on these final answers so reply and handling ACK commit together; failed replies remain pending. All other peer messages are informational: acknowledge without replying. Wake and reasoning do not turn an answer into a question. Automatic native delivery is under test: do not call inbox or hook, send readiness messages to peers, subscribe, broadcast, acquire leases, poll, or initiate other work. End each turn once its delivered messages are handled.`;
+  const collaborationTask = `${skill}\n\nAssigned group task: ${taskFamily === 'review' ? 'Review risks of concurrent shared-repository edits' : 'Plan dependency handoffs between implementation, review and validation owners'} using only the communication tools. Initially respond READY to the host; do not contact peers before a START message. Your ${agents.length} collaborators are ${agents.map(a => a.name).join(', ')}; the separate mesh-controller is only the test coordinator. Use peers to discover IDs and read mesh-context.md once. Copy IDs exactly from tool results; refresh peers after an unknown/expired-recipient error rather than guessing IDs. Otherwise reuse discovered peers. On START, publish <your-name>-coordination.md with a concise original coordination risk, mitigation and your available tools (under 300 characters, include COPPER). Then send exactly one QUESTION to each of the other ${agents.length - 1} collaborators. Use body QUESTION <your-name>: review <your-name>-coordination.md and recommend one improvement; to their discovered ID, key question-<recipientID>, conversationId mesh-<your-name>-<recipient-name>, wake action, and meaningful reasoning. These requests must be your own send_message calls. Acknowledge START with ack only after all ${agents.length - 1} sends succeed. On each QUESTION, read the named contributor document, then send exactly one ANSWER beginning ANSWER COPPER with a useful improvement and truthful available-tool description; use replyTo:QUESTION_ID, key answer-QUESTION_ID, ackReply:true, wake action and reasoning. Omit to/topic on replies so the service resolves the sender. Read each referenced contributor document once. Answers and FYIs require only ack, never another reply. Do not send acknowledgement messages, poll inbox, invoke hook, subscribe, acquire leases, or broadcast. Handle delivered messages once and end the turn after their required tools succeed. Native message triggering is under test; no host will prompt you again.`;
+  call('share_document', { name: 'mesh-context.md', content: 'Shared service integration context. Verification word: COPPER. Native transport must preserve sender identity and reply correlation; raw fallback follows the same DB contract.\n' }, controller.id);
+  report.completionCheck = completionCheck; report.scopedSkill = scopedSkill; report.taskFamily = taskFamily; report.toolSelection = selectedTools ?? 'all';
+  const descriptors = JSON.parse(execFileSync(binary, ['schema', 'tools', ...(selectedTools ? ['--tools', selectedTools] : [])], {encoding:'utf8'}));
+  report.communicationToolCount = descriptors.length;
+  report.communicationToolBytes = Buffer.byteLength(JSON.stringify(descriptors));
+  const mcp = session => ({ command: binary, args: ['mcp', ...binding, '--session', session, ...(selectedTools ? ['--tools', selectedTools] : [])] });
+  for (const agent of agents) {
+    let ownTask = agentOriginated ? `${collaborationTask}\nYour assigned name is ${agent.name}; your DB identity is ${agent.id}.` : task;
+    if (scopedSkill) {
+      const profile = JSON.parse(execFileSync(binary, ['skill', '--vendor', agent.vendor], {encoding:'utf8'})).instructions;
+      ownTask = ownTask.replace(skill, profile);
+      agent.profile = {bytes:Buffer.byteLength(profile),sha256:digest(profile)};
+    }
+    if (completionCheck) ownTask += '\nA configured Stop check may report pending IDs. Handle known bodies from existing context. Only if missing, recover that one body with inbox(message:ID); never poll or re-read the whole inbox. A blocked task can remain pending with an honest explanation.';
+    if (agent.vendor === 'claude') {
+      agent.vendorSession = randomUUID();
+      const endpoint = join(workspace, `${agent.name}.sock`);
+      call('attach', { transport: 'claude', endpoint, vendorSession: agent.vendorSession }, agent.id);
+      const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
+      const hookCommand = [binary, 'completion-check', '-', ...binding, '--session', agent.id].map(quote).join(' ');
+      const settings = {disableAllHooks:!completionCheck,autoMemoryEnabled:false,crossSessionInbound:'accept',...(completionCheck ? {hooks:{Stop:[{hooks:[{type:'command',command:hookCommand,timeout:10}]}]}} : {})};
+      agent.process = start(agent.name, 'claude', ['-p', '--session-id', agent.vendorSession, ...(completionCheck ? ['--include-hook-events'] : []), '--model', 'haiku', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--setting-sources', '', '--strict-mcp-config', '--mcp-config', JSON.stringify({ mcpServers: { communication: mcp(agent.id) } }), '--tools', '', '--allowedTools', 'mcp__communication__*', '--permission-mode', 'dontAsk', '--disable-slash-commands', '--no-session-persistence', '--messaging-socket-path', endpoint, '--settings', JSON.stringify(settings), '--system-prompt', ownTask]);
+      agent.process.send({ type: 'user', message: { role: 'user', content: 'Initialize; respond READY to this host, without sending peer messages.' } });
+      await until(() => agent.process.events.some(e => e.type === 'result'), `${agent.name} initialization`);
+      agent.vendorSession = agent.process.events.find(e => e.type === 'system' && e.subtype === 'init').session_id;
+      call('attach', { transport: 'claude', endpoint, vendorSession: agent.vendorSession }, agent.id);
+    } else if (agent.vendor === 'codex') {
+  const reserve = createServer(); await new Promise(resolve => reserve.listen(0, '127.0.0.1', resolve));
+  const port = reserve.address().port; await new Promise(resolve => reserve.close(resolve));
+  start(`${agent.name}-server`, 'codex', ['app-server', '--listen', `ws://127.0.0.1:${port}`]);
+  await until(async () => { try { return (await fetch(`http://127.0.0.1:${port}/readyz`)).ok; } catch { return false; } }, 'Codex server');
+  const cx = agent.rpc = await connect(`ws://127.0.0.1:${port}`);
+  await cx.request('initialize', { clientInfo: { name: 'service-mesh-owner', version: '1' }, capabilities: { experimentalApi: true } });
+  cx.send({ method: 'initialized', params: {} });
+  const { config } = await cx.request('config/read', { includeLayers: false });
+  const disabled = value => Object.fromEntries(Object.keys(value || {}).map(key => [key, { enabled: false }]));
+  const skills = await cx.request('skills/list', { cwds: [workspace], forceReload: true });
+
+      const { thread } = await cx.request('thread/start', { model: 'gpt-6-luna', cwd: workspace, ephemeral: true, approvalPolicy: 'never', sandbox: 'read-only', baseInstructions: ownTask, developerInstructions: '', config: {
+        mcp_servers: { ...disabled(config.mcp_servers), communication: { ...mcp(agent.id), enabled: true } }, plugins: disabled(config.plugins), project_doc_max_bytes: 0,
+        skills: { config: skills.data.flatMap(entry => entry.skills.map(s => ({ path: s.path, enabled: false }))) }, web_search: 'disabled',
+        features: { code_mode: { enabled: false }, shell_tool: false, apply_patch_freeform: false, multi_agent: false, memories: false, hooks: false, apps: false, skill_search: false },
+      } });
+      agent.vendorSession = thread.id;
+      const inventory = await until(async () => {
+        const response = await cx.request('mcpServerStatus/list', { threadId: thread.id, detail: 'toolsAndAuthOnly' });
+        const server = response.data.find(server => server.name === 'communication');
+        return server && !server.toolsError && Object.values(server.tools).some(tool => tool.name === 'send_message') ? server : false;
+      }, `${agent.name} tool inventory`);
+      agent.toolInventory = Object.values(inventory.tools).map(tool => tool.name);
+      for (const name of ['peers', 'read_document', 'send_message', 'ack']) assert.ok(agent.toolInventory.includes(name), `${agent.name} missing ${name}`);
+      call('attach', { transport: 'codex', endpoint: `ws://127.0.0.1:${port}`, vendorSession: thread.id }, agent.id);
+    } else if (agent.vendor === 'grok') {
+      const endpoint = join(workspace, `${agent.name}.sock`);
+      start(`${agent.name}-server`, 'grok', ['agent', '--leader-socket', endpoint, 'leader', '--no-auto-update', '--relay-on-demand', '--no-exit-on-disconnect']);
+      await until(() => existsSync(endpoint), `${agent.name} leader socket`);
+      const gx = agent.rpc = await connectGrok(endpoint);
+      const initialized = await gx.request('initialize', {protocolVersion: 1, clientInfo: {name: 'octocode-mesh-owner', version: '1'}, clientCapabilities: {}});
+      agent.vendorInfo = initialized.agentInfo;
+      const created = await gx.request('session/new', {cwd: workspace, mcpServers: [{name: 'communication', ...mcp(agent.id), env: []}], _meta: {
+        modelId: 'grok-4.7-build-fast', yoloMode: true, systemPromptOverride: `${ownTask}\n\nGrok tool bridge: call use_tool with tool_name communication__<command> and tool_input containing that command's JSON. Use only the selected communication tools: peers, read_document, share_document, send_message and ack, respecting their schemas. send_message supports to for new requests, replyTo and ackReply for final replies. These tools are bound to your identity; no session argument is needed.`,
+        agentProfile: {name: 'communication', description: 'Bound communication receiver', tools: ['use_tool'], disallowedTools: ['Agent(*)'], skills: [], discoverSkills: false, agentsMd: false, injectDefaultTools: false},
+      }});
+      agent.vendorSession = created.sessionId;
+      if (agentOriginated) {
+        try { agent.metadataProbe = await gx.request('_x.ai/session/info', {sessionId: created.sessionId}, 5000); }
+        catch (error) { agent.metadataProbe = {error: error.message}; }
+      }
+      agent.sessionConfig = created.configOptions;
+      await gx.request('session/prompt', {sessionId: created.sessionId, prompt: [{type: 'text', text: 'Initialize; respond READY to this host, without sending peer messages.'}], _meta: {verbatim: true}});
+      call('attach', {transport: 'grok', endpoint, vendorSession: created.sessionId}, agent.id);
+    } else if (agent.vendor === 'opencode') {
+      const reserve = createServer(); await new Promise(r => reserve.listen(0, '127.0.0.1', r));
+      const port = reserve.address().port; await new Promise(r => reserve.close(r));
+      agent.endpoint = `http://127.0.0.1:${port}`;
+      const password = randomBytes(24).toString('hex');
+      agent.headers = {authorization: `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}`};
+      agent.listenerEnv = {OPENCODE_SERVER_PASSWORD: password, OPENCODE_SERVER_USERNAME: 'opencode', OCTOCODE_OPENCODE_AUTH_ENDPOINT: agent.endpoint};
+      const home = join(workspace, agent.name); mkdirSync(home, {recursive: true});
+      const config = {model: opencodeModel, small_model: opencodeModel, share: 'disabled', autoupdate: false, snapshot: false, instructions: [], default_agent: 'build', agent: {title: {disable: true}, summary: {disable: true}}, mcp: {communication: {type: 'local', command: [binary, ...mcp(agent.id).args], enabled: true}}};
+      agent.server = start(`${agent.name}-server`, opencodeCommand, ['serve', '--hostname', '127.0.0.1', '--port', String(port)], {HOME: home, XDG_CONFIG_HOME: join(home, 'config'), XDG_DATA_HOME: join(home, 'data'), XDG_CACHE_HOME: join(home, 'cache'), OPENCODE_CONFIG_CONTENT: JSON.stringify(config), OPENCODE_DISABLE_AUTOUPDATE: 'true', OPENCODE_DISABLE_CLAUDE_CODE: 'true', OPENCODE_DISABLE_PROJECT_CONFIG: 'true', ...agent.listenerEnv});
+      await until(async () => {
+        assert.ok(agent.server.child.exitCode === null && agent.server.child.signalCode === null && !agent.server.error, `${agent.name} server exited before readiness: ${agent.server.error ?? agent.server.stderr}`);
+        try { return await openCodeApi(agent, '/global/health', undefined, 1000); } catch (error) { agent.readinessError = error.message; return false; }
+      }, `${agent.name} server`, 30000);
+      const created = await openCodeApi(agent, '/session', {title: agent.name}); agent.vendorSession = created.id;
+      agent.sessionMetadata = await openCodeApi(agent, `/session/${created.id}`);
+      assert.equal(realpathSync(agent.sessionMetadata.directory), workspace);
+      assert.equal((await openCodeApi(agent, '/mcp')).communication.status, 'connected');
+      await watchOpenCode(agent);
+      const initialized = await openCodeApi(agent, `/session/${created.id}/message`, {agent: 'build', parts: [{type: 'text', text: `${task}\nInitialize; respond READY to this host without sending peer messages.`}]});
+      if (initialized.info?.error) throw Error(`${agent.name}: ${JSON.stringify(initialized.info.error)}`);
+      assert.ok(initialized.parts.some(p => p.type === 'text' && p.text.includes('READY')), `${agent.name} initialization`);
+      call('attach', {transport: 'opencode', endpoint: agent.endpoint, vendorSession: created.id}, agent.id);
+      report.models.opencode = opencodeModel;
+      report.opencodeVersion = execFileSync(opencodeCommand, ['--version'], {encoding: 'utf8'}).trim();
+    } else if (agent.vendor === 'pi') {
+      agent.process = start(agent.name, 'pi', ['--mode', 'rpc', '--model', piModel, '--thinking', 'off', '--system-prompt', ownTask, '--session', join(workspace, `${agent.name}.jsonl`), '--no-extensions', '--no-skills', '--no-prompt-templates', '--no-context-files', '--no-builtin-tools', '--extension', join(root, 'skills/octocode-agents-communication/scripts/pi-inbox.mjs')], { OCTOCODE_COMMUNICATION_BINDING: JSON.stringify({ binary, workspace, database, session: agent.id, disableCacheWarming: true, ...(selectedTools ? {tools:selectedTools} : {}) }) });
+      await until(() => db.prepare('SELECT 1 FROM attachments WHERE session=?').get(agent.id), `${agent.name} extension`);
+      agent.process.send({ id: 'startup', type: 'prompt', message: 'Initialize; respond READY to this host, without sending peer messages.' });
+      await until(() => agent.process.events.some(e => e.type === 'agent_settled'), `${agent.name} initialization`);
+    } else call('attach', { transport: 'raw' }, agent.id);
+  }
+  assert.equal(db.prepare('SELECT count(*) n FROM messages').get().n, 0, 'No unsolicited startup messages');
+  // Start the production delivery owner, then prove passive mail cannot start work.
+  for (const agent of agents.filter(a => ['claude', 'codex', 'grok', 'opencode'].includes(a.vendor))) {
+    agent.listener = start(`${agent.name}-listener`, binary, ['listen', ...binding, '--session', agent.id], agent.listenerEnv ?? {});
+    await until(() => agent.listener.events.some(e => e.type === 'listening'), `${agent.name} listener`);
+  }
+  const completionCount = agent => agent.vendor === 'codex'
+    ? agent.rpc.events.filter(e => e.method === 'turn/started' && e.params.threadId === agent.vendorSession).length
+    : agent.vendor === 'grok' ? agent.rpc.events.filter(e => e.method === 'session/update' && e.params.update?.sessionUpdate === 'agent_message_chunk').length
+    : agent.vendor === 'opencode' ? new Set(agent.events.filter(e => e.type === 'message.updated' && e.properties?.info?.role === 'assistant').map(e => e.properties.info.id)).size
+    : agent.process.events.filter(e => agent.vendor === 'pi' ? e.type === 'agent_start' : e.type === 'assistant').length;
+  const beforePassive = new Map(agents.filter(a => a.vendor !== 'raw').map(a => [a.id, completionCount(a)]));
+  const passive = agents.map(agent => call('send_message', { to: agent.id, body: 'FYI: passive wake guard; acknowledge when other work wakes you, without replying.', key: `passive-${agent.id}`, reasoning: 'Verify informational mail never starts a model turn', wake: 'passive' }, controller.id));
+  await delay(2500);
+  for (const agent of agents.filter(a => a.vendor !== 'raw')) assert.equal(completionCount(agent), beforePassive.get(agent.id), `${agent.name} passive mail started work`);
+  report.passiveWakeGuard = true;
+  report.hostPromptsAfterStartup = 0;
+  const requests = [];
+  if (!agentOriginated) for (const sender of agents) for (const recipient of agents.filter(a => a.id !== sender.id)) {
+    const input = { to: recipient.id, body: `QUESTION ${sender.name}: which communication tools can you use? Refer to mesh-context.md.`, key: `question-${recipient.id}`, reasoning: 'Discover collaborator capabilities before coordinating work', wake: 'action', conversationId: `mesh-${sender.name}-${recipient.name}` };
+    const sent = call('send_message', input, sender.id);
+    assert.deepEqual(call('send_message', input, sender.id), sent);
+    requests.push({ ...sent, sender: sender.id, recipient: recipient.id, conversationId: input.conversationId });
+  }
+  const starts = agentOriginated ? agents.map(agent => call('send_message', {to: agent.id, body: `START: discover collaborators, publish your contribution and originate the ${agents.length - 1} requested peer questions.`, key: `start-${agent.id}`, wake: 'action', reasoning: `Start the authorized ${agents.length}-agent ${taskFamily} and capability exchange`}, controller.id)) : [];
+  const raw = agents.find(agent => agent.vendor === 'raw');
+  async function rawDrain() {
+    if (!raw) return;
+    for (;;) {
+      const batch = call('hook', { format: 'json' }, raw.id);
+      if (!batch.items.length) break;
+      for (const message of batch.items) {
+        if (message.body.startsWith('QUESTION')) call('send_message', { replyTo: message.id, body: 'ANSWER COPPER: DB-backed messages, peers, documents and advisory path leases.', key: `answer-${message.id}`, reasoning: 'Answer the peer capability question and unblock its requester', wake: 'action', ackReply: true }, raw.id);
+        else call('ack', { message: message.id }, raw.id);
+      }
+    }
+  }
+  async function drainUntil(predicate, label) {
+    await until(async () => {
+      for (const child of children) {
+        if (child.error || child.child.exitCode !== null || child.child.signalCode !== null) throw Error(`${child.name} stopped: ${child.error ?? child.stderr}`);
+      }
+      for (const agent of agents.filter(a => ['claude', 'codex'].includes(a.vendor))) {
+        const failure = nativeTurnFailure(agent.vendor, agent.vendor === 'claude' ? agent.process.events : agent.rpc.events, agent.vendorSession);
+        if (failure) throw Error(`${agent.name}: ${failure}`);
+      }
+      await rawDrain();
+      const unsolicited = db.prepare('SELECT m.id,m.sender FROM messages m JOIN deliveries d ON d.message=m.id WHERE d.recipient=?').all(controller.id);
+      assert.equal(unsolicited.length, 0, `Unexpected peer messages to the controller: ${JSON.stringify(unsolicited)}; acknowledgements must use ack`);
+      return predicate();
+    }, label, 240000);
+  }
+  const began = performance.now();
+  if (agentOriginated) {
+    await drainUntil(() => db.prepare("SELECT count(*) n FROM messages WHERE body LIKE 'QUESTION%'").get().n >= plan.requestEdges, 'all native agents originate their own directed questions');
+    requests.push(...db.prepare("SELECT id,sender,target AS recipient,conversationId FROM messages WHERE body LIKE 'QUESTION%' ORDER BY id").all());
+    assert.equal(requests.length, plan.requestEdges);
+    const edges = new Set(requests.map(r => `${r.sender}:${r.recipient}`));
+    for (const sender of agents) for (const recipient of agents.filter(a => a.id !== sender.id)) assert.ok(edges.has(`${sender.id}:${recipient.id}`), `Missing native-originated edge ${sender.name} -> ${recipient.name}`);
+    report.agentOriginatedRequests = requests.length;
+  }
+  await drainUntil(() => requests.every(request => db.prepare('SELECT acknowledgedAt FROM deliveries WHERE message=? AND recipient=?').get(request.id, request.recipient)?.acknowledgedAt), 'all cross-vendor questions acknowledged by message-triggered turns');
+  const hasDocument = result => {
+    for (const block of Array.isArray(result?.content) ? result.content : []) {
+      try { const value = JSON.parse(block.text); if (value.document?.name === 'mesh-context.md' && value.content?.includes('COPPER')) return true; } catch {}
+    }
+    return false;
+  };
+  report.documentReaders = [];
+  for (const agent of agents.filter(a => a.vendor !== 'raw')) {
+    let read = false;
+    if (agent.vendor === 'codex') read = agent.rpc.events.some(e => e.method === 'item/completed' && e.params.threadId === agent.vendorSession && e.params.item?.tool === 'read_document' && hasDocument(e.params.item.result));
+    if (agent.vendor === 'pi') read = agent.process.events.some(e => e.type === 'tool_execution_end' && e.toolName === 'read_document' && !e.isError && hasDocument(e.result));
+    if (agent.vendor === 'grok') read = agent.rpc.events.some(e => {
+      const update = e.params?.update, result = update?.rawOutput;
+      if (e.method !== 'session/update' || e.params.sessionId !== agent.vendorSession || update?.status !== 'completed' || result?.type !== 'MCP' || result.server_name !== 'communication' || result.tool_name !== 'read_document') return false;
+      try {
+        const value = JSON.parse(result.output?.OkayOutput);
+        return value.document?.name === 'mesh-context.md' && value.content?.includes('COPPER');
+      } catch { return false; }
+    });
+    if (agent.vendor === 'opencode') {
+      agent.nativeMessages = await openCodeApi(agent, `/session/${agent.vendorSession}/message`);
+      read = agent.nativeMessages.flatMap(m => m.parts).some(p => p.type === 'tool' && p.tool === 'communication_read_document' && p.state.status === 'completed' && JSON.stringify(p.state.output).includes('COPPER'));
+    }
+    if (agent.vendor === 'claude') {
+      const calls = new Set(agent.process.events.flatMap(e => e.message?.content ?? []).filter(b => b.type === 'tool_use' && b.name.endsWith('__read_document')).map(b => b.id));
+      read = agent.process.events.flatMap(e => e.message?.content ?? []).some(b => b.type === 'tool_result' && calls.has(b.tool_use_id) && !b.is_error && hasDocument(b));
+    }
+    assert.ok(read, `${agent.name} must successfully read the referenced document; copying another peer's answer is not evidence`);
+    report.documentReaders.push(agent.name);
+  }
+  if (agentOriginated) {
+    report.collaborators = [];
+    for (const agent of agents) {
+      const records = nativeResults(agent), sentIds = new Set(records.filter(r => r.name === 'send_message').map(r => r.value?.id));
+      const authored = requests.filter(r => r.sender === agent.id);
+      assert.ok(authored.every(r => sentIds.has(r.id)), `${agent.name} requests need successful native tool receipts`);
+      assert.ok(records.some(r => r.name === 'peers' && agents.every(peer => r.value?.items?.some(item => item.id === peer.id))), `${agent.name} must observe all peer identities`);
+      assert.ok(records.some(r => r.name === 'share_document'), `${agent.name} must publish its own contribution`);
+      assert.ok(readFileSync(join(workspace, '.octocode/communication', `${agent.name}-coordination.md`), 'utf8').includes('COPPER'));
+      const readNames = new Set(records.filter(r => r.name === 'read_document').map(r => r.value?.document?.name));
+      for (const peer of agents.filter(p => p.id !== agent.id)) assert.ok(readNames.has(`${peer.name}-coordination.md`), `${agent.name} must read ${peer.name}'s contribution`);
+      report.collaborators.push({name: agent.name, requestsAuthored: authored.length, nativeSendReceipts: authored.filter(r => sentIds.has(r.id)).length, peerDocumentsRead: [...readNames].filter(name => name !== 'mesh-context.md')});
+    }
+  }
+  report.replyFormatDeviations = [];
+  report.replyCountDeviations = [];
+  // Response quality remains a failing gate, evaluated after broadcast coverage.
+  for (const request of requests) {
+    const replies = db.prepare('SELECT * FROM messages WHERE sender=? AND replyTo=?').all(request.recipient, request.id);
+    if (replies.length !== 1) report.replyCountDeviations.push({replyTo:request.id,sender:request.recipient,count:replies.length});
+    for (const reply of replies) {
+      assert.equal(reply.target, request.sender);
+      assert.equal(reply.conversationId, request.conversationId);
+      if (!reply.body.startsWith('ANSWER') || !reply.body.includes('COPPER')) report.replyFormatDeviations.push({message:reply.id,replyTo:request.id,sender:request.recipient});
+    }
+  }
+  report.questionRoundMs = performance.now() - began;
+  // An explicit actionable broadcast closes the exchange for every recipient.
+  const notice = call('notify_all', { body: 'FYI: mesh complete; handle pending answers and acknowledge this notice without replying.', key: 'final-broadcast', reasoning: 'Close the interoperability exchange and confirm all recipients can receive fanout', wake: 'action' }, controller.id);
+  assert.equal(notice.recipients, agents.length);
+  assert.deepEqual(call('notify_all', { body: 'FYI: mesh complete; handle pending answers and acknowledge this notice without replying.', key: 'final-broadcast', reasoning: 'Close the interoperability exchange and confirm all recipients can receive fanout', wake: 'action' }, controller.id), notice);
+  await drainUntil(() => db.prepare('SELECT count(*) n FROM deliveries WHERE acknowledgedAt IS NULL').get().n === 0, 'all answers and broadcast acknowledged without host prompts');
+  await until(() => db.prepare("SELECT count(*) n FROM dispatches WHERE state<>'submitted'").get().n === 0, 'all native submission receipts completed');
+  report.handledRoundMs = performance.now() - began;
+  await until(() => agents.filter(a => a.vendor === 'grok').every(a => a.listener.events.some(e => e.messages?.includes(notice.id))), 'Grok final receipt and usage audit flushed');
+  await until(() => agents.filter(a => ['claude', 'codex'].includes(a.vendor)).every(a => nativeTurnFinished(a.vendor, a.vendor === 'claude' ? a.process.events : a.rpc.events, a.vendorSession)), 'native result/usage after the final handling ACK');
+  report.nativeTurnsFinished = true;
+  await delay(1000);
+  report.messageCountPassed = db.prepare('SELECT count(*) n FROM messages').get().n === requests.length * 2 + passive.length + starts.length + 1;
+  assert.equal(db.prepare("SELECT count(*) n FROM deliveries d LEFT JOIN dispatches x ON x.message=d.message AND x.recipient=d.recipient WHERE x.state IS NULL OR x.state<>'submitted'").get().n, 0, 'Every handled message went through a confirmed adapter');
+  const nativeTools = [];
+  for (const agent of agents.filter(a => a.rpc)) for (const event of agent.rpc.events) {
+    if (event.method === 'item/completed' && event.params?.item?.type === 'mcpToolCall') nativeTools.push(event.params.item.tool);
+    const update = event.params?.update;
+    if (update?.status === 'completed' && update.rawOutput?.type === 'MCP') nativeTools.push(update.rawOutput.tool_name);
+  }
+  for (const agent of agents.filter(a => a.process)) for (const event of agent.process.events) {
+    if (event.type === 'tool_execution_start') nativeTools.push(event.toolName);
+    for (const block of event.message?.content ?? []) if (block.type === 'tool_use') nativeTools.push(block.name);
+  }
+  for (const agent of agents.filter(a => a.vendor === 'opencode')) {
+    agent.nativeMessages = await openCodeApi(agent, `/session/${agent.vendorSession}/message`);
+    nativeTools.push(...agent.nativeMessages.flatMap(m => m.parts).filter(p => p.type === 'tool').map(p => p.tool));
+  }
+  assert.ok(nativeTools.length > 0, 'Observe recipient tool usage');
+  assert.ok(!nativeTools.some(name => /(?:^|__)hook$|^communication_hook$/.test(name)), 'No raw hook bypass of native delivery');
+  if (!completionCheck) assert.ok(!nativeTools.some(name => /(?:^|__)inbox$|^communication_inbox$/.test(name)), 'No manual inbox bypass');
+  if (completionCheck) for (const agent of agents) {
+    if (agent.vendor !== 'claude') assert.ok(!nativeResults(agent).some(r => r.name === 'inbox'), 'Recovery requires the configured Stop check');
+    else for (const block of agent.process.events.flatMap(e => e.message?.content ?? [])) {
+      if (block.type === 'tool_use' && block.name.endsWith('__inbox')) assert.deepEqual(Object.keys(block.input), ['message'], 'Recover only a missing ID; never replay whole inbox');
+    }
+  }
+  report.recipientToolCalls = nativeTools.length;
+  // The owning host can observe usage; a message dispatcher cannot infer it.
+  for (const agent of agents) {
+    if (agent.vendor === 'opencode') for (const message of agent.nativeMessages.filter(m => m.info.role === 'assistant')) {
+      const usage = message.info.tokens;
+      if (usage) call('record_usage', {key: message.info.id, scope: 'request', inputTokens: usage.input, outputTokens: usage.output, cachedInputTokens: usage.cache.read, cacheWriteTokens: usage.cache.write}, agent.id);
+    }
+    if (agent.vendor === 'claude') for (const [index, event] of agent.process.events.entries()) {
+      if (event.type !== 'result' || !event.usage) continue;
+      const usage = event.usage;
+      call('record_usage', { key: `mesh-result-${index}`, scope: 'turn',
+        ...(Number.isInteger(usage.input_tokens) ? { inputTokens: usage.input_tokens } : {}),
+        ...(Number.isInteger(usage.output_tokens) ? { outputTokens: usage.output_tokens } : {}),
+        ...(Number.isInteger(usage.cache_read_input_tokens) ? { cachedInputTokens: usage.cache_read_input_tokens } : {}),
+        ...(Number.isInteger(usage.cache_creation_input_tokens) ? { cacheWriteTokens: usage.cache_creation_input_tokens } : {}),
+      }, agent.id);
+    }
+    if (agent.vendor === 'codex') {
+      const usage = agent.rpc.events.findLast(event => event.method === 'thread/tokenUsage/updated' && event.params.threadId === agent.vendorSession)?.params.tokenUsage;
+      if (usage) call('record_usage', { key: 'mesh-final-observed', scope: 'cumulative',
+        ...(Number.isInteger(usage.total?.inputTokens) ? { inputTokens: usage.total.inputTokens } : {}),
+        ...(Number.isInteger(usage.total?.outputTokens) ? { outputTokens: usage.total.outputTokens } : {}),
+        ...(Number.isInteger(usage.total?.cachedInputTokens) ? { cachedInputTokens: usage.total.cachedInputTokens } : {}),
+      }, agent.id);
+    }
+  }
+  report.observedUsage = db.prepare("SELECT s.name,s.vendor,a.data FROM audit a JOIN sessions s ON s.id=a.session WHERE a.kind='usage' ORDER BY a.id").all().map(row => ({ name: row.name, vendor: row.vendor, ...JSON.parse(row.data) }));
+  report.usageScope = 'Available host observations only; Pi and OpenCode request, Claude and Grok turn, Codex final cumulative. Grok native completion counters are recorded by the dispatcher. Do not sum overlapping scopes or assume absent vendor counters are zero.';
+  assert.equal(report.heartbeatError, undefined);
+  assert.equal(digest(readFileSync(binary)), report.binarySha256, 'Frozen executable throughout run');
+  report.protocolPassed = true;
+  report.replyFormatPassed = report.replyFormatDeviations.length === 0;
+  report.replyCountPassed = report.replyCountDeviations.length === 0 && report.messageCountPassed;
+  report.passed = report.replyFormatPassed && report.replyCountPassed;
+  if (!report.passed) { report.error = 'Delivery checks passed, but agent replies failed the single-answer/content gate; see replyCountDeviations and replyFormatDeviations.'; process.exitCode = 1; }
+  report.requestEdges = requests.length; report.replyEdges = db.prepare('SELECT count(*) n FROM messages WHERE replyTo IS NOT NULL').get().n; report.broadcastRecipients = notice.recipients;
+  report.messages = db.prepare('SELECT count(*) n FROM messages').get().n;
+  report.identities = db.prepare('SELECT vendor,count(*) n FROM sessions GROUP BY vendor').all();
+  report.dispatches = db.prepare('SELECT transport,state,count(*) n FROM dispatches GROUP BY transport,state').all();
+  report.audit = db.prepare('SELECT kind,count(*) n FROM audit GROUP BY kind').all();
+} catch (error) { report.error = error.stack; process.exitCode = 1; }
+finally {
+  cleaningUp = true;
+  clearInterval(timer);
+  if (db) report.pending = db.prepare('SELECT message,recipient FROM deliveries WHERE acknowledgedAt IS NULL').all();
+  for (const agent of agents.filter(a => a.rpc)) writeFileSync(join(output, `${agent.name}-api-events.json`), JSON.stringify(agent.rpc.events));
+  for (const agent of agents.filter(a => a.vendor === 'opencode')) {
+    writeFileSync(join(output, `${agent.name}-api-events.json`), JSON.stringify(agent.events ?? []));
+    if (agent.nativeMessages) writeFileSync(join(output, `${agent.name}-messages.json`), JSON.stringify(agent.nativeMessages));
+  }
+  report.opencodeSessions = agents.filter(a => a.vendor === 'opencode').map(a => ({name: a.name, vendorSession: a.vendorSession, sessionMetadata: a.sessionMetadata, readinessError: a.vendorSession ? undefined : a.readinessError, streamError: a.streamError}));
+  report.grokSessions = agents.filter(a => a.vendor === 'grok').map(a => ({name: a.name, vendorSession: a.vendorSession, vendorInfo: a.vendorInfo, metadataProbe: a.metadataProbe, config: a.sessionConfig}));
+  report.profiles = Object.fromEntries(agents.filter(a => a.profile).map(a => [a.name,a.profile]));
+  report.toolInventories = Object.fromEntries(agents.filter(a => a.toolInventory).map(a => [a.name, a.toolInventory]));
+  for (const socket of sockets) socket.close ? socket.close() : socket.destroy();
+  for (const item of children.reverse()) {
+    try { process.kill(-item.child.pid, 'SIGTERM'); } catch {}
+    await until(() => item.child.exitCode !== null || item.child.signalCode !== null, 'child exit', 2000).catch(async () => {
+      try { process.kill(-item.child.pid, 'SIGKILL'); } catch {}
+      await until(() => item.child.exitCode !== null || item.child.signalCode !== null, 'child reap', 2000);
+    }).catch(error => { report.cleanupError = error.message; report.passed = false; process.exitCode = 1; });
+    writeFileSync(join(output, `${item.name}-events.json`), JSON.stringify(item.events));
+    writeFileSync(join(output, `${item.name}-stderr.txt`), item.stderr);
+    if (item.stdout) writeFileSync(join(output, `${item.name}-stdout.txt`), item.stdout);
+  }
+  report.childrenReaped = children.every(item => item.child.exitCode !== null || item.child.signalCode !== null);
+  if (!report.childrenReaped || children.some(item => item.error)) { report.passed = false; process.exitCode = 1; }
+  for (const agent of [controller, ...agents].filter(Boolean)) {
+    try { call('leave', {}, agent.id); }
+    catch (error) { report.cleanupError = error.message; report.passed = false; process.exitCode = 1; }
+  }
+  db?.close();
+  if (existsSync(database)) {
+    try {
+      report.snapshot = JSON.parse(execFileSync(binary, ['db', 'export', JSON.stringify({path: join(output, 'audit.sqlite')}), '--database', database], {encoding: 'utf8'}));
+      const documents = join(workspace, '.octocode/communication');
+      if (existsSync(documents)) cpSync(documents, join(output, 'workspace-documents'), {recursive: true});
+    } catch (error) { report.snapshotError = error.message; report.passed = false; process.exitCode = 1; }
+  }
+  report.completedAt = new Date().toISOString();
+  writeFileSync(join(output, 'result.json'), JSON.stringify(report, null, 2));
+  console.log(JSON.stringify({ output, ...report }, null, 2));
+}

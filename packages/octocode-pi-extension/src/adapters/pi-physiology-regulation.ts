@@ -1,5 +1,5 @@
-import { assessRuntimeRegulation } from '@octocodeai/octocode-awareness/host';
-import type { PiRuntimeObservation } from '@octocodeai/octocode-awareness/host';
+import { assessRuntimeRegulation } from '../runtime/regulation.js';
+import type { PiRuntimeObservation } from '../runtime/physiology.js';
 
 /** Advisory projection only. Pi owns compaction, retries, and provider execution. */
 export function createPiPhysiologyAdvisory(): (observation: PiRuntimeObservation | undefined) => { content: string; commit(): void } {

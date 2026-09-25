@@ -8,6 +8,7 @@ const SELECTORS: &[&str] = &[
     "analysis",
     "treeKind",
     "type",
+    "questionType",
     "resultView",
     "fullContent",
     "matchString",
@@ -209,7 +210,7 @@ fn score(issues: &[ValidationIssue], depth: usize) -> [usize; 4] {
         .count();
     let count = group_unknown_fields(issues.to_vec()).len();
     [
-        invalid(&["operation", "type"]),
+        invalid(&["operation", "type", "questionType"]),
         invalid(&["analysis", "treeKind", "resultView"]),
         rejected,
         count,
@@ -373,4 +374,40 @@ fn group_unknown_fields(issues: Vec<ValidationIssue>) -> Vec<ValidationIssue> {
         );
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::contracts::{PrepareOptions, prepare_many_and_validate};
+    use serde_json::json;
+
+    #[test]
+    fn clasify_question_selectors_report_the_selected_forms_missing_field() {
+        for (question, field) in [
+            (
+                json!({"questionType":"addsEvidence","target":"Retry safety"}),
+                "knownEvidence",
+            ),
+            (json!({"questionType":"contribution"}), "target"),
+            (
+                json!({"type":"choice","instructions":"Choose a label"}),
+                "criteria",
+            ),
+        ] {
+            let error = prepare_many_and_validate(
+                "clasify",
+                json!({
+                    "id":"missing-question-field",
+                    "reasoning":"Check the selected question.",
+                    "resources":[{"id":"held","context":{"value":"Observed evidence"}}],
+                    "questions":[{"id":"check","question":question}]
+                }),
+                PrepareOptions::default(),
+            )
+            .expect_err("the selected question lacks a required field");
+            assert_eq!(error.issues.len(), 1, "{error:?}");
+            assert_eq!(error.issues[0].path, ["questions", "0", "question", field]);
+            assert_eq!(error.issues[0].rule_id, "schema.required");
+        }
+    }
 }

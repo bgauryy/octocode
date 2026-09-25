@@ -1,6 +1,7 @@
+import { openInteractionStore } from './interaction-store.js';
 import type { PlanPhase } from './plan-domain.js';
 import path from 'node:path';
-import { contentDigest, type ContextSegmentV1 } from '@octocodeai/octocode-awareness/host';
+import { contentDigest, type ContextSegmentV1 } from '../runtime/continuity-contracts.js';
 import { estimateContextTokens } from './context-segments.js';
 import type { PiContext, PiInstance } from '../types.js';
 import {
@@ -19,7 +20,6 @@ import {
   type RehydrationLedgerV1,
 } from './session-artifacts.js';
 import { isPersistentStorageEnabledForExtension as isPersistentStorageEnabled } from '@octocodeai/config';
-import { openPersistentAwareness } from './storage-policy.js';
 
 export const REHYDRATION_RECEIPT_ENTRY_TYPE = 'octocode-rehydration-receipt';
 
@@ -213,7 +213,7 @@ export function rehydrateSession(
   const sessionId = brokerSessionId(ctx);
   const openContinuity = dependencies.openContinuity ?? (
     isPersistentStorageEnabled()
-      ? (value: string) => openPersistentAwareness({ workspace: value })
+      ? (value: string) => openInteractionStore(value)
       : () => ({
           listPendingInteractions: () => [],
           getConsumerCursor: () => 0,

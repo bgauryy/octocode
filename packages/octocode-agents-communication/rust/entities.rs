@@ -81,7 +81,7 @@ impl Store {
                 args.push(json!(status == "active"));
             }
         }
-        for field in ["vendor", "owner", "message"] {
+        for field in ["vendor", "owner", "message", "conversationId", "replyTo"] {
             if let Some(value) = filters.get(field) {
                 conditions.push(format!("{field}=?"));
                 args.push(value.clone());
@@ -169,6 +169,9 @@ impl Store {
                 if let Some(value) = input.get(field) {
                     if !value.is_null() {
                         catalog::text(input, field)?;
+                    }
+                    if field == "vendorSession" {
+                        self.validate_vendor_session_update(session, value)?;
                     }
                     execute(
                         db,

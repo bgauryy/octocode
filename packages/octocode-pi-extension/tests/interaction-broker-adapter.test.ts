@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, test } from 'vitest';
-import { openAwarenessStore } from '@octocodeai/octocode-awareness/host';
+import { InteractionStore } from '../src/tools/interaction-store.js';
 
 import {
   registerInteractionBrokerAdapter,
@@ -25,7 +25,7 @@ function fixture(sessionId = 'rpc-session'): { ctx: PiContext } {
   const workspace = path.join(root, 'workspace');
   const dbPath = path.join(root, 'agent.sqlite3');
   fs.mkdirSync(workspace, { recursive: true });
-  setInteractionStoreFactoryForTests((storeWorkspace) => openAwarenessStore({ workspace: storeWorkspace, dbPath }));
+  setInteractionStoreFactoryForTests((storeWorkspace) => new InteractionStore(storeWorkspace, dbPath));
   return {
     ctx: {
       cwd: workspace,
@@ -82,7 +82,7 @@ test('delivery failure leaves the durable continuation available for restart red
     deliver: (continuation) => { ids.push(continuation.continuationId); },
   });
   assert.equal((await restarted!.drain(ctx)).delivered, 1);
-  assert.deepEqual(ids, [`evt_${request.interactionId}_answered`]);
+  assert.deepEqual(ids, [`interaction:${request.interactionId}:answered`]);
 });
 
 test('host answer submission rejects wrong session, correlation, expiry, and duplicate answers', async () => {

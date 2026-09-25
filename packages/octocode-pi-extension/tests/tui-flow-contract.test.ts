@@ -1,10 +1,9 @@
 import { visibleWidth } from '../src/tui/width.js';
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import { renderFooterView } from '../src/tui/footer-view.js';
+
 import { buildPlanReadModel } from '../src/tools/plan-read-model.js';
-import { formatAwarenessPanel } from '../src/tools/awareness-status.js';
-import { buildCompactionCard, buildPeerEventCard } from '../src/tools/custom-messages.js';
+import { buildCompactionCard, buildRecoveryCard } from '../src/tools/custom-messages.js';
 import { buildOctocodeRenderResult } from '../src/tools/render-helpers.js';
 import type { PlanStep } from '../src/tools/planning/plan-types.js';
 import type { ToolCallResult } from '../src/types.js';
@@ -25,42 +24,6 @@ function assertWidthSafe(lines: readonly string[], width: number): void {
   for (const line of lines) assert.ok(visibleWidth(line) <= width, `${width}: ${line}`);
 }
 
-test('plan, task, agent, footer, and Awareness projections stay complete and width-safe', () => {
-  for (const width of [24, 40, 80, 120]) {
-    const plan = renderFooterView({ rows: [projectPlanStatus(PLAN_MODEL)] }, { width });
-    const awareness = formatAwarenessPanel({
-      activePlans: 1,
-      readyTasks: 2,
-      inProgressTasks: 1,
-      verifyTasks: 1,
-      lockCount: 1,
-      workCount: 2,
-      agentCount: 2,
-      messageCount: 1,
-      unreadInbox: 1,
-      lastInbound: { from: 'reviewer', preview: 'ready for verification' },
-      taskActivities: [
-        { taskId: 'task-running', title: 'Implement footer', state: 'doing', agentId: 'builder' },
-        { taskId: 'task-ready', title: 'Review borders', state: 'ready' },
-      ],
-    }, undefined, width);
-    const footer = renderFooterView({
-      rows: [[
-        { text: 'main (3 changed)' }, { text: 'model gpt-5.6' },
-        { text: 'context 152k/200k · 76%' }, { text: 'agents 2 (1 live)' },
-      ]],
-    }, { width });
-
-    assertWidthSafe([...plan, ...awareness, ...footer], width);
-    if (width >= 80) {
-      const body = [...plan, ...awareness, ...footer].join('\n');
-      assert.match(body, /Unifying state projections/);
-      assert.match(body, /gpt-5\.6/);
-      if (width >= 120) assert.match(body, /verify-debt 1/);
-    }
-  }
-});
-
 test('footer plan projection shows progress and the current task without duplicating the checklist', () => {
   const segments = projectPlanStatus(PLAN_MODEL);
   assert.deepEqual(segments.map((segment) => segment.text), [
@@ -73,7 +36,7 @@ test('footer plan projection shows progress and the current task without duplica
   ]);
 });
 
-test('compaction and Awareness messages share closed, width-perfect component frames', () => {
+test('compaction and recovery messages share closed, width-perfect component frames', () => {
   for (const width of [24, 48, 96]) {
     const cards = [
       buildCompactionCard({
@@ -86,9 +49,9 @@ test('compaction and Awareness messages share closed, width-perfect component fr
         summary: 'Preserve the active task and plan references.',
         activePlan: { total: 3, done: 1, running: 'Unify state projections' },
       }, true, undefined, width),
-      buildPeerEventCard({
-        content: '[peer:builder; class:handoff; authority:data]\nVerify all TUI permutations\nBorders checked',
-        details: { messageClass: 'handoff', eventId: 'handoff-1' },
+      buildRecoveryCard({
+        outcome: 'restored', reason: 'compaction', validated: ['plan'], restored: ['plan'],
+        stale: [], corrupt: [], overBudget: [], pendingInteractionIds: [],
       }, true, undefined, width),
     ];
     for (const lines of cards) {

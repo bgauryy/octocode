@@ -53,11 +53,11 @@ finally { writeFileSync(${JSON.stringify(tracePath)}, JSON.stringify(calls)); }
   return { root, lib, tracePath };
 }
 
-test('automatic CDP selection executes the generated default-stealth runner through navigation and body capture', async () => {
+test('explicit CDP provider executes the generated default-stealth runner through navigation and body capture', async () => {
   const f = fixture(0);
   try {
-    const { autoSelectProvider, resolveProvider } = await import(pathToFileURL(join(f.lib, 'providers.mjs')));
-    const provider = resolveProvider(autoSelectProvider('html', {}));
+    const { resolveProvider } = await import(pathToFileURL(join(f.lib, 'providers.mjs')));
+    const provider = resolveProvider('cdp');
     assert.equal(provider.name, 'cdp');
     const result = await provider.fetch({ url: 'https://fixture.invalid/', pageId: 'success', config: { cdpWaitMs: 0 } });
     assert.equal(result.fetchError, null);
@@ -68,6 +68,7 @@ test('automatic CDP selection executes the generated default-stealth runner thro
       'Page.enable', 'Network.enable', 'stealth.apply', 'stealth.verify', 'Page.navigate', 'Runtime.evaluate',
     ]);
     assert.equal(existsSync(join(f.root, '.octocode/tmp/cdp-provider/success-runner.mjs')), false);
+    assert.equal(existsSync(join(f.root, '.octocode/tmp/cdp-provider/success-body.html')), false);
   } finally { rmSync(f.root, { recursive: true, force: true }); }
 });
 
@@ -83,5 +84,6 @@ test('default stealth failure prevents navigation and never returns a successful
       'Page.enable', 'Network.enable', 'stealth.apply', 'stealth.verify',
     ]);
     assert.equal(existsSync(join(f.root, '.octocode/tmp/cdp-provider/blocked-runner.mjs')), false);
+    assert.equal(existsSync(join(f.root, '.octocode/tmp/cdp-provider/blocked-body.html')), false);
   } finally { rmSync(f.root, { recursive: true, force: true }); }
 });

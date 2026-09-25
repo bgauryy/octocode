@@ -1,3 +1,4 @@
+import type { ExternalPlanScope } from './plan-contract.js';
 /**
  * plan-presentation — rendering helpers, artifact writers, and shared tool utilities.
  * Used by both plan-command.ts and plan-registration.ts.
@@ -13,23 +14,15 @@ import {
   readRfcDoc,
 } from '../plan-html.js';
 import {
-  getPlan,
-  getPlanCoordination,
-  getPlanReviewState,
   getPlanRfc,
-  setPlanAwarenessMappings,
+  getPlanCoordination,
   updatePlanCoordination,
 } from './plan-store.js';
 import { MARK, displayStatus, dependencyIndexes } from './plan-types.js';
 import type { DisplayStatus, PlanStep } from './plan-types.js';
-import type { ExternalPlanScope } from '@octocodeai/octocode-awareness/host';
-import { projectExternalPlan } from '@octocodeai/octocode-awareness/host';
-import { isPersistentStorageEnabledForExtension as isPersistentStorageEnabled } from '@octocodeai/config';
-import { assertPersistentAwarenessEnabled } from '../storage-policy.js';
 import { appendSessionAuditForContext } from '../session-audit.js';
 import { createSessionArtifactContext } from '../session-artifacts.js';
 import { projectSessionPlan } from '../session-index.js';
-import { getAwarenessAgentId } from '../awareness-shared.js';
 
 const TEXT_MARK: Record<DisplayStatus, string> = { ...MARK, blocked: '[!]' };
 
@@ -56,57 +49,6 @@ export function requestedPlanScope(scope: PlanScope, explicit?: ExternalPlanScop
   if (explicit) return explicit;
   const mode = getPlanCoordination(scope).mode;
   return mode === 'required' ? 'shared' : mode === 'local' ? 'session' : 'auto';
-}
-
-export function configurePlanScope(scope: PlanScope, requested?: ExternalPlanScope): void {
-  if (!requested) return;
-  const current = getPlanCoordination(scope);
-  if (requested === 'session' && current.awarenessPlanId) {
-    throw new Error('cannot switch a mapped shared plan to session scope; complete or abandon the shared plan first');
-  }
-  if (requested === 'shared') updatePlanCoordination(scope, { mode: 'required', localReason: null });
-  else if (requested === 'session') updatePlanCoordination(scope, { mode: 'local', localReason: 'explicit plan scope=session' });
-  else updatePlanCoordination(scope, { mode: 'auto', localReason: null });
-}
-
-let unifiedPlanProjectorInternal: typeof projectExternalPlan = projectExternalPlan;
-
-export function setUnifiedPlanProjectorForTests(next?: typeof projectExternalPlan): void {
-  unifiedPlanProjectorInternal = next ?? projectExternalPlan;
-}
-
-export function ensureUnifiedProjection(scope: PlanScope, explicit: ExternalPlanScope | undefined, ctx?: PiContext): 'session' | 'shared' {
-  configurePlanScope(scope, explicit);
-  const steps = getPlan(scope);
-  const coordination = getPlanCoordination(scope);
-  const review = getPlanReviewState(scope);
-  if (!isPersistentStorageEnabled()) {
-    if (requestedPlanScope(scope, explicit) === 'shared' || coordination.awarenessPlanId) {
-      assertPersistentAwarenessEnabled();
-    }
-    return 'session';
-  }
-  const projection = unifiedPlanProjectorInternal({
-    sourceKind: 'pi',
-    requestedScope: requestedPlanScope(scope, explicit),
-    workspace: coordination.coordinationWorkspace || planWorkspace(scope),
-    sourcePlanKey: coordination.sourcePlanKey,
-    awarenessPlanId: coordination.awarenessPlanId,
-    title: steps[0]?.text ? `Plan: ${steps[0].text}` : 'Octocode plan',
-    goal: steps.map((step) => step.text).join(' → '),
-    rfcPath: getPlanRfc(scope),
-    rfcRevision: review.acceptedRevision ?? review.revision,
-    agentId: getAwarenessAgentId(ctx),
-    steps,
-  });
-  if (projection.scope === 'shared') {
-    setPlanAwarenessMappings(scope, {
-      awarenessPlanId: projection.awarenessPlanId!,
-      taskIdsByStepId: projection.taskIdsByStepId!,
-      materializedRevision: review.acceptedRevision ?? review.revision,
-    });
-  }
-  return projection.scope;
 }
 
 export function sharedStartContractError(steps: PlanStep[]): string | undefined {
@@ -174,3 +116,9 @@ export function buildRfcReviewTldr(
   ].filter((line): line is string => typeof line === 'string').join('\n');
 }
 
+
+export function configurePlanScope(scope: PlanScope, requested?: ExternalPlanScope): void {
+ if (requested === 'shared') throw new Error('Shared plans are retired; use a session plan and assign work through agent communication.');
+ if (getPlanCoordination(scope).mode !== 'local') updatePlanCoordination(scope, { mode: 'local', localReason: 'Pi session plan' });
+}
+export function ensureUnifiedProjection(scope: PlanScope, explicit: ExternalPlanScope | undefined, _ctx?: PiContext): 'session' { configurePlanScope(scope, explicit); return 'session'; }

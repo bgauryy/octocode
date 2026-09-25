@@ -53,8 +53,6 @@ export interface PlanStep {
   reasoning?: string;
   acceptance?: string;
   checkCommand?: string;
-  /** Persisted mapping created when the plan is materialized into Awareness. */
-  awarenessTaskId?: string;
 }
 
 export interface PlanStepInput {
@@ -76,11 +74,9 @@ export type PlanCoordinationMode = 'auto' | 'required' | 'local';
 export interface PlanCoordination {
   mode: PlanCoordinationMode;
   localReason?: string;
-  /** Stable origin identity used for idempotent Awareness materialization. */
+  /** Stable Pi session plan identity. */
   sourcePlanKey: string;
-  awarenessPlanId?: string;
   coordinationWorkspace: string;
-  materializedRevision?: string;
 }
 
 /** A recorded planning decision — the question asked in the clarify phase and the answer chosen. */

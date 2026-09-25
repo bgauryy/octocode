@@ -12,12 +12,12 @@
 //! bound; per-node failures are collected as data.
 
 use super::failure::{
-    LspFailure, continuation, mark_partial, mark_terminal_limit, push_reason, query_value,
+    LspFailure, continuation, mark_partial, mark_terminal_limit, push_reason,
 };
 use super::locations::{items_payload, public_range};
 use super::render::{as_array, decode_uri_path, symbol_kind_name, uri_to_path};
 use super::source::item_uri_is_authorized;
-use super::{LspPosition, LspSearchQuery, cancellable};
+use super::{LspSearchQuery, cancellable};
 use crate::policy::path::PathPolicy;
 use crate::tools::local_fetch::CancellationCheck;
 use futures_util::StreamExt;
@@ -408,7 +408,7 @@ pub(super) fn mark_partial_expansion(
     if failures.is_empty() {
         return;
     }
-    let reason = if matches!(query.operation.as_str(), "supertypes" | "subtypes") {
+    let reason = if matches!(query.operation().as_str(), "supertypes" | "subtypes") {
         "typeHierarchyExpansionFailed"
     } else {
         "callHierarchyExpansionFailed"
@@ -548,19 +548,20 @@ fn resume_query(query: &LspSearchQuery, resume: &Resume, operation: Option<&str>
         .or_else(|| resume.node.get("range"))?;
     let line = u32::try_from(anchor.pointer("/start/line")?.as_u64()?).ok()?;
     let character = u32::try_from(anchor.pointer("/start/character")?.as_u64()?).ok()?;
-    let mut next = query.clone();
+    // Re-anchoring changes the query's shape (symbol anchor to position),
+    // so the continuation is edited as a row.
+    let mut next = query.to_row();
+    let object = next.as_object_mut()?;
     if let Some(operation) = operation {
-        next.operation = operation.to_owned();
+        object.insert("operation".into(), json!(operation));
     }
-    next.uri = Some(uri_to_path(uri));
-    next.position = Some(LspPosition { line, character });
-    next.symbol_name = None;
-    next.line_hint = None;
-    next.order_hint = None;
-    next.depth = Some(resume.depth);
-    next.page = None;
-    next.snapshot = None;
-    Some(query_value(&next))
+    object.insert("uri".into(), json!(uri_to_path(uri)));
+    object.insert("position".into(), json!({"line": line, "character": character}));
+    for field in ["symbolName", "lineHint", "orderHint", "page", "snapshot"] {
+        object.remove(field);
+    }
+    object.insert("depth".into(), json!(resume.depth));
+    Some(next)
 }
 
 pub(super) async fn hierarchy(
@@ -572,14 +573,14 @@ pub(super) async fn hierarchy(
     character: u32,
     cancel: &dyn CancellationCheck,
 ) -> Result<Value, LspFailure> {
-    let (prepared, expansions): (Value, &[Expansion]) = match query.operation.as_str() {
+    let (prepared, expansions): (Value, &[Expansion]) = match query.operation().as_str() {
         "callers" | "callees" | "callHierarchy" => (
             cancellable(
                 cancel,
                 client.prepare_call_hierarchy(path.to_owned(), line, character),
             )
             .await??,
-            match query.operation.as_str() {
+            match query.operation().as_str() {
                 "callers" => &[Expansion::IncomingCalls],
                 "callees" => &[Expansion::OutgoingCalls],
                 _ => &[Expansion::IncomingCalls, Expansion::OutgoingCalls],
@@ -591,7 +592,7 @@ pub(super) async fn hierarchy(
                 client.prepare_type_hierarchy(path.to_owned(), line, character),
             )
             .await??,
-            if query.operation == "supertypes" {
+            if query.operation() == "supertypes" {
                 &[Expansion::Supertypes]
             } else {
                 &[Expansion::Subtypes]
@@ -602,7 +603,7 @@ pub(super) async fn hierarchy(
         .into_iter()
         .filter(|root| item_uri_is_authorized(root, paths))
         .collect::<Vec<_>>();
-    let depth = query.depth.unwrap_or(1);
+    let depth = query.depth().unwrap_or(1);
     let mut items = Vec::new();
     let mut failures = Vec::new();
     let mut walks = Vec::new();
@@ -615,7 +616,7 @@ pub(super) async fn hierarchy(
         failures.append(&mut walk.failures);
     }
     let (items, failures) = expansion_outcome(items, failures)?;
-    let mut row = items_payload(query, query.operation.as_str(), json!(items));
+    let mut row = items_payload(query, query.operation().as_str(), json!(items));
     mark_partial_expansion(&mut row, query, &failures);
     let walks = walks
         .iter()

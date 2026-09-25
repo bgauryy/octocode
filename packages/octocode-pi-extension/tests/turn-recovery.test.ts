@@ -1,10 +1,11 @@
+import { composeBeforeAgentStart } from './helpers/prompt-hooks.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
 import { createPiFlowHarness } from '@octocodeai/agent-testing';
-import { contentDigest } from '@octocodeai/octocode-awareness/host';
+import { contentDigest } from '../src/runtime/continuity-contracts.js';
 import extension from '../src/index.js';
 import type { PiContext, PiInstance } from '../src/types.js';
 import { activePlanScope, clearPlan, setPlan } from '../src/tools/planning/plan-store.js';
@@ -42,12 +43,12 @@ test('failed prompt assembly leaves a runtime advisory available on the successf
     abort: vi.fn(),
     model: { contextWindow: 100_000 },
     getContextUsage: () => ({ tokens: 95_000, contextWindow: 100_000 }),
-    sessionManager: { getSessionId: () => 'advisory-retry', getBranch: () => [] },
+    sessionManager: flow.context.sessionManager,
   } as unknown as PiContext;
   assert.ok(observer, 'the production extension registered its observer');
   await observer.sessionStart(ctx);
   const handlers = flow.handlers as unknown as Map<string, Array<(event: unknown, context: unknown) => Promise<unknown>>>;
-  const invoke = async (systemPrompt: string) => await handlers.get('before_agent_start')!.at(-1)!({ systemPrompt, systemPromptOptions: { skills: [] } }, ctx) as { message?: { content: string } } | undefined;
+  const invoke = async (systemPrompt: string) => await composeBeforeAgentStart(handlers)({ systemPrompt, systemPromptOptions: { skills: [] } }, ctx) as { message?: { content: string } } | undefined;
   const abort = ctx.abort as ReturnType<typeof vi.fn>;
   const start = async (context = ctx) => {
     for (const handler of handlers.get('agent_start') ?? []) await handler({}, context);
@@ -92,7 +93,7 @@ for (const worker of [false, true]) for (const firstTurn of [false, true]) for (
       const pi = flow.pi;
       const handlers = flow.handlers as unknown as Map<string, Array<(event: unknown, context: unknown) => Promise<unknown>>>;
       pi.setActiveTools(['bash']);
-      const invoke = async (systemPrompt = 'bounded role') => await handlers.get('before_agent_start')!.at(-1)!({ systemPrompt, systemPromptOptions: { skills: [] } }, ctx) as { systemPrompt?: string; message?: { content: string; details: { estimates: { total: number } } } };
+      const invoke = async (systemPrompt = 'bounded role') => await composeBeforeAgentStart(handlers)({ systemPrompt, systemPromptOptions: { skills: [] } }, ctx) as { systemPrompt?: string; message?: { content: string; details: { estimates: { total: number } } } };
       setPlan(scope, Array.from({ length: 40 }, (_, i) => ({ text: `large-plan-marker-${i} ${'p'.repeat(160)}`, reasoning: 'r'.repeat(500), acceptance: 'a'.repeat(500) })));
       const planContent = renderPlanContext(getCurrentPlanReadModel(ctx as PiContext, scope));
       assert.ok(planContent.length > 32_000 && planContent.length <= 60_000, 'exercise the gap between recovery and plan budgets');

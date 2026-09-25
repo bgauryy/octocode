@@ -431,7 +431,7 @@ mod tests {
         fs::write(&view_limited, "x".repeat(60_000)).expect("view fixture should be written");
         let mut compact = q(&view_limited);
         compact.full_content = Some(true);
-        compact.minify = Some(Minify::Standard);
+        compact.minify = Some(MinifyMode::Standard);
         let result = execute_local_fetch(&compact, &paths, &Safe, &NeverCancel);
         assert_eq!(result.error_code.as_deref(), Some("fullContentLimit"));
         assert_eq!(

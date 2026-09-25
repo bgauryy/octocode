@@ -15,7 +15,7 @@ Use `failure-repair.md` before assigning fixes: task/reference, grader, infrastr
 |---|---|
 | Failure taxonomy | Prioritize what to measure |
 | Top-N modes | Capability suite targets |
-| Signatures | `mechanism:…\|cause:…` for mining / Awareness reflect |
+| Signatures | `mechanism:…\|cause:…` for mining and host verification records |
 | New cases | Suite loop growth |
 
 ## Rules

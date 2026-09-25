@@ -139,6 +139,12 @@ const call = async (name, query) => {
   return row.data;
 };
 const nextCall = async continuation => {
+  const row = await continuationRow(continuation);
+  assert.notEqual(row.status, 'error', `${continuation.tool} result failed`);
+  assert.equal(row.data.error, undefined, `${continuation.tool} returned an error payload`);
+  return row.data;
+};
+const continuationRow = async continuation => {
   assert.ok(
     expectedTools.includes(continuation?.tool),
     'continuation has no runnable tool'
@@ -147,7 +153,11 @@ const nextCall = async continuation => {
     continuation.query && typeof continuation.query === 'object',
     'continuation has no query'
   );
-  return call(continuation.tool, continuation.query);
+  const response = await invoke(continuation.tool, { queries: [continuation.query] });
+  const row = response.structuredContent?.results?.[0];
+  assert.ok(row?.data, `${continuation.tool} has no result data`);
+  if (response.isError) assert.equal(row.status, 'error');
+  return row;
 };
 const executeCliTool = (name, queries) => {
   const startedAt = performance.now();
@@ -167,12 +177,25 @@ const executeCliTool = (name, queries) => {
   return JSON.parse(child.stdout);
 };
 const pages = async (first, nextKey, collect) => {
-  const rows = [...collect(first)];
+  let rows = [...collect(first)];
   let current = first;
   let count = 1;
+  let restarts = 0;
   while (current.next?.[nextKey]) {
     assert.ok(count++ < 100, 'continuation did not terminate');
-    current = await nextCall(current.next[nextKey]);
+    const row = await continuationRow(current.next[nextKey]);
+    if (row.status === 'error') {
+      assert.equal(row.data.errorCode, 'lsp.snapshot.changed');
+      assert.ok(row.data.next?.restart, 'changed snapshot has no restart continuation');
+      assert.ok(restarts++ < 5, 'snapshot did not stabilize');
+      const restarted = await continuationRow(row.data.next.restart);
+      assert.notEqual(restarted.status, 'error', 'snapshot restart failed');
+      current = restarted.data;
+      rows = [...collect(current)];
+      count = 1;
+      continue;
+    }
+    current = row.data;
     rows.push(...collect(current));
   }
   return { rows, count };
@@ -238,7 +261,6 @@ try {
   }
   await check('CLI catalog and MCP input schemas match the canonical contracts', () => {
     const definitions = new Map(getDirectToolDefinitionsWithAddons({
-      semanticRerank: expectedTools.includes(TOOL_NAMES.CLASIFY),
     }).map(definition => [definition.name, definition]));
     for (const tool of list.tools) {
       const cli = JSON.parse(
@@ -329,7 +351,12 @@ try {
             assert.equal(page.next.continue.tool, 'localFetch');
             page = await nextCall(page.next.continue);
           }
-          assert.equal(content, matched ? 'needle 🌍\r\nneedle café\n' : source);
+          assert.equal(
+            content,
+            matched
+              ? 'needle 🌍\r\n... [line 3 omitted] ...\nneedle café\n'
+              : source
+          );
         }
       }
       const invalid = await invoke('localFetch', {

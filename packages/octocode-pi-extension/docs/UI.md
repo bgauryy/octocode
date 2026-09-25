@@ -19,8 +19,8 @@ Pi lifecycle / permission / plan / worker observations
 | [Lifecycle adapter](../src/tools/lifecycle-ui.ts) | Host execution, outcome, cancellation, usage, and message observations in interactive and headless sessions |
 | [Question observer](../src/tools/question-execution.ts) | Each actual prompt and its answer, cancellation, timeout, failure, or durable continuation |
 | [Activity presentation](../src/tools/activity-presentation.ts) | One activity priority rule for the footer and motion indicator |
+| [UX snapshot](../src/tools/ux-snapshot.ts) | Immutable projection of runtime, plan and worker facts |
 | [Runtime store](../src/tools/runtime-store.ts) | One `zustand/vanilla` store for serializable execution, initialization, MCP, provider-context, background-job, and UI observations |
-| [UX snapshot](../src/tools/ux-snapshot.ts) | Immutable projection of runtime, plan, worker, and Awareness facts |
 | [Status policy](../src/tui/status-policy.ts) | Attention priority, grouping, density, and viewport budgets |
 | [Footer view](../src/tui/footer-view.ts) | Width-bounded semantic rows |
 | [Footer controller](../src/extension-ui.ts) | Register once, sample on events and ticks, request repaint |
@@ -72,11 +72,10 @@ shared UI clock, without adding model messages or another polling loop.
 | Command | Result |
 |---|---|
 | `/configuration` | Browser configuration for MCP, skills, permissions, theme, effort, footer density, and plan review |
-| `/octocode-status` | Session, usage, GitHub status, Awareness freshness and shared work, tool outcomes, skills, plan, workers, file operations, and pending decisions |
+| `/octocode-status` | Session, usage, tools, skills, plan, workers, file operations and pending decisions |
 | `/octocode-status events` | Semantic events for the selected branch, displayed as JSONL |
 | `/octocode-status export` | Write `execution-events.jsonl` in the session artifact directory and report its path |
 | `/octocode-inbox` | Inspect, steer, or stop a selected worker |
-| `/octocode-rewind` | Preview and explicitly apply a local file-history restore |
 
 Inspectors support arrow keys, **Page Up**, **Page Down**, **g** (first), **G** (last), and **/** (filter). **Enter** finishes filter entry; **Escape** clears a filter before closing the view. **Ctrl+C** closes immediately. Filtering applies to complete source lines before wrapping. Empty feature sections are omitted from session status. Inspectors add no model messages. Interactive inspectors require a terminal. Headless hosts retain semantic events in the native session state channel; they do not receive unsolicited terminal output.
 
@@ -104,8 +103,6 @@ Working-indicator initialization follows runtime identity and rendered theme out
 so fresh event contexts do not restart the spinner. Theme changes and replacement
 runtimes refresh it. Renderer teardown errors are recorded without skipping the
 remaining session resource cleanups.
-
-Awareness means shared work, verification checks, and messages. The footer reader uses the same database, workspace, and actor bindings as Pi's native Awareness tool. During active turns the existing UI clock requests a throttled refresh, at most once every eight seconds. Freshness uses the last successful source read; a cached repaint does not renew that timestamp. Stale or unavailable state links to `/octocode-status` for its age and cached details. Context recovery validates and assembles sources only when a recovery is pending; ordinary turns reuse the frozen policy and deliver changed task context.
 
 Persistence failures produce an explicit status warning while live execution remains usable. Invalid event records fail replay explicitly and mark startup as failed. Export failures report an error. None of these operations authorize a tool, answer a question, or change the plan.
 

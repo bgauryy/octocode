@@ -47,7 +47,7 @@ fn descendant_policy_precedes_discovery_totals_and_line_reads() {
     .expect("policy");
     let security = ContentSecurity::new();
     let files = execute_ast(
-        json!({"operation":"files","path":root.0,"detail":"full","sort":"lines","entryType":"f"}),
+        json!({"operation":"files","reasoning":"test","path":root.0,"detail":"full","sort":"lines","entryType":"f"}),
         &paths,
         &security,
         &Active,
@@ -58,7 +58,7 @@ fn descendant_policy_precedes_discovery_totals_and_line_reads() {
     assert!(!files.to_string().contains("credentials"));
     assert!(!files.to_string().contains("tfstate"));
     let symbols = execute_ast(
-        json!({"operation":"symbols","path":root.0}),
+        json!({"operation":"symbols","reasoning":"test","path":root.0}),
         &paths,
         &security,
         &Active,
@@ -73,7 +73,7 @@ fn descendant_policy_precedes_discovery_totals_and_line_reads() {
     std::fs::write(root.0.join("visible.ts"), "oldCall(visible);\n").expect("visible ast");
     let matches = execute_ast(
         json!({
-            "operation":"match","path":root.0,"langType":"typescript",
+            "operation":"match","reasoning":"test","path":root.0,"langType":"typescript",
             "pattern":"oldCall($A)","hidden":true
         }),
         &paths,
@@ -105,7 +105,7 @@ fn structural_zero_is_empty_with_actionable_pattern_guidance() {
     let security = ContentSecurity::new();
 
     let missing = execute_ast(
-        json!({"operation":"match","path":source,"pattern":"const $A = $B"}),
+        json!({"operation":"match","reasoning":"test","path":source,"pattern":"const $A = $B"}),
         &paths,
         &security,
         &Active,
@@ -120,7 +120,7 @@ fn structural_zero_is_empty_with_actionable_pattern_guidance() {
     assert!(guidance.contains("treeKind:\"syntax\""), "{guidance}");
 
     let found = execute_ast(
-        json!({"operation":"match","path":source,"pattern":"const $A = $B;"}),
+        json!({"operation":"match","reasoning":"test","path":source,"pattern":"const $A = $B;"}),
         &paths,
         &security,
         &Active,
@@ -144,7 +144,7 @@ fn directory_prefilter_skips_are_aggregated_once() {
     let security = ContentSecurity::new();
     let result = execute_ast(
         json!({
-            "operation":"match",
+            "operation":"match","reasoning":"test",
             "path":root.0,
             "langType":"typescript",
             "pattern":"missingCall($A);"
@@ -184,7 +184,7 @@ fn escaped_links_are_pruned_before_line_counting() {
     .expect("policy");
     let security = ContentSecurity::new();
     let files = execute_ast(
-        json!({"operation":"files","path":root.0,"detail":"full","entryType":"f"}),
+        json!({"operation":"files","reasoning":"test","path":root.0,"detail":"full","entryType":"f"}),
         &paths,
         &security,
         &Active,
@@ -214,7 +214,7 @@ fn cancellation_interrupts_descendant_traversal() {
     .expect("policy");
     let security = ContentSecurity::new();
     let error = execute_ast(
-        json!({"operation":"files","path":root.0}),
+        json!({"operation":"files","reasoning":"test","path":root.0}),
         &paths,
         &security,
         &AfterRoot(std::sync::atomic::AtomicUsize::new(0)),
@@ -223,7 +223,7 @@ fn cancellation_interrupts_descendant_traversal() {
     assert_eq!(error.code, "ast.execution.cancelled");
     let error = execute_ast(
         json!({
-            "operation":"match","path":root.0,"langType":"rust",
+            "operation":"match","reasoning":"test","path":root.0,"langType":"rust",
             "pattern":"source"
         }),
         &paths,
@@ -254,7 +254,7 @@ fn match_directory_scan_truncation_is_surfaced_not_silent() {
     let security = ContentSecurity::new();
     let out = execute_ast(
         json!({
-            "operation":"match","path":root.0,"langType":"rust",
+            "operation":"match","reasoning":"test","path":root.0,"langType":"rust",
             "pattern":"pub fn source() {}","maxFiles":1
         }),
         &paths,
@@ -305,7 +305,7 @@ fn files_default_sort_is_lexicographic_and_stable() {
     let (paths, security) = simple_policy(&root.0);
     let run = || {
         let out = execute_ast(
-            json!({"operation":"files","path":root.0,"entryType":"f"}),
+            json!({"operation":"files","reasoning":"test","path":root.0,"entryType":"f"}),
             &paths,
             &security,
             &Active,
@@ -334,7 +334,7 @@ fn files_continuation_rejects_stale_snapshot() {
     }
     let (paths, security) = simple_policy(&root.0);
     let page1 = execute_ast(
-        json!({"operation":"files","path":root.0,"entryType":"f","pageSize":2}),
+        json!({"operation":"files","reasoning":"test","path":root.0,"entryType":"f","pageSize":2}),
         &paths,
         &security,
         &Active,
@@ -343,7 +343,7 @@ fn files_continuation_rejects_stale_snapshot() {
     let snapshot = page1["snapshot"].as_str().expect("snapshot").to_string();
     // Happy path: the freshly emitted snapshot must be accepted on page 2.
     let good = execute_ast(
-        json!({"operation":"files","path":root.0,"entryType":"f","pageSize":2,"page":2,"snapshot":snapshot}),
+        json!({"operation":"files","reasoning":"test","path":root.0,"entryType":"f","pageSize":2,"page":2,"snapshot":snapshot}),
         &paths,
         &security,
         &Active,
@@ -356,7 +356,7 @@ fn files_continuation_rejects_stale_snapshot() {
     assert_eq!(good["pagination"]["currentPage"], json!(2));
     std::fs::write(root.0.join("newcomer.rs"), "x\n").expect("mutate corpus");
     let page2 = execute_ast(
-        json!({"operation":"files","path":root.0,"entryType":"f","pageSize":2,"page":2,"snapshot":snapshot}),
+        json!({"operation":"files","reasoning":"test","path":root.0,"entryType":"f","pageSize":2,"page":2,"snapshot":snapshot}),
         &paths,
         &security,
         &Active,
@@ -377,7 +377,7 @@ fn match_continuation_rejects_stale_snapshot() {
     }
     let (paths, security) = simple_policy(&root.0);
     let page1 = execute_ast(
-        json!({"operation":"match","path":root.0,"langType":"rust","pattern":"pub fn source() {}","pageSize":2}),
+        json!({"operation":"match","reasoning":"test","path":root.0,"langType":"rust","pattern":"pub fn source() {}","pageSize":2}),
         &paths,
         &security,
         &Active,
@@ -386,7 +386,7 @@ fn match_continuation_rejects_stale_snapshot() {
     let snapshot = page1["snapshot"].as_str().expect("snapshot").to_string();
     std::fs::write(root.0.join("e.rs"), "pub fn source() {}\n").expect("mutate corpus");
     let page2 = execute_ast(
-        json!({"operation":"match","path":root.0,"langType":"rust","pattern":"pub fn source() {}","pageSize":2,"page":2,"snapshot":snapshot}),
+        json!({"operation":"match","reasoning":"test","path":root.0,"langType":"rust","pattern":"pub fn source() {}","pageSize":2,"page":2,"snapshot":snapshot}),
         &paths,
         &security,
         &Active,
@@ -415,7 +415,7 @@ fn directory_pattern_that_compiles_in_no_file_is_an_error_not_empty() {
     }
     let error = run(
         &root.0,
-        json!({"operation":"match","path":root.0,"langType":"rust","pattern":"fn ???"}),
+        json!({"operation":"match","reasoning":"test","path":root.0,"langType":"rust","pattern":"fn ???"}),
     )
     .expect_err("uncompilable pattern must fail loudly");
     assert_eq!(error.code, "structural.query.compileFailed");
@@ -427,7 +427,7 @@ fn match_pagination_limits_next_match_page_to_the_current_file_page() {
     std::fs::write(root.0.join("a.rs"), "fn a() { hit(1); }\n").expect("a");
     std::fs::write(root.0.join("b.rs"), "fn b() { hit(1); hit(2); hit(3); }\n").expect("b");
     let base = json!({
-        "operation":"match","path":root.0,"langType":"rust","pattern":"hit($A)",
+        "operation":"match","reasoning":"test","path":root.0,"langType":"rust","pattern":"hit($A)",
         "pageSize":1,"maxMatchesPerFile":2
     });
     let page1 = run(&root.0, base.clone()).expect("page1");
@@ -464,7 +464,7 @@ fn single_file_with_unreturned_matches_is_not_complete() {
     std::fs::write(&source, "fn m() { hit(1); hit(2); hit(3); }\n").expect("source");
     let out = run(
         &root.0,
-        json!({"operation":"match","path":source,"pattern":"hit($A)","maxMatchesPerFile":2}),
+        json!({"operation":"match","reasoning":"test","path":source,"pattern":"hit($A)","maxMatchesPerFile":2}),
     )
     .expect("match");
     assert_eq!(out["complete"], false, "{out}");
@@ -478,7 +478,7 @@ fn lang_type_is_validated_and_intersected_with_include() {
     std::fs::write(root.0.join("b.py"), "oldCall(x)\n").expect("py");
     let unknown = run(
         &root.0,
-        json!({"operation":"match","path":root.0,"langType":"klingon","pattern":"oldCall($A)"}),
+        json!({"operation":"match","reasoning":"test","path":root.0,"langType":"klingon","pattern":"oldCall($A)"}),
     )
     .expect_err("unknown langType");
     assert_eq!(unknown.code, "ast.language.unsupported");
@@ -486,7 +486,7 @@ fn lang_type_is_validated_and_intersected_with_include() {
     let out = run(
         &root.0,
         json!({
-            "operation":"match","path":root.0,"langType":"typescript",
+            "operation":"match","reasoning":"test","path":root.0,"langType":"typescript",
             "include":["*.ts","*.py"],"pattern":"oldCall($A)"
         }),
     )
@@ -502,7 +502,7 @@ fn lang_type_is_validated_and_intersected_with_include() {
 
     let mismatch = run(
         &root.0,
-        json!({"operation":"match","path":root.0.join("b.py"),"langType":"typescript","pattern":"oldCall($A)"}),
+        json!({"operation":"match","reasoning":"test","path":root.0.join("b.py"),"langType":"typescript","pattern":"oldCall($A)"}),
     )
     .expect_err("single file outside langType");
     assert_eq!(mismatch.code, "ast.language.mismatch");
@@ -510,7 +510,7 @@ fn lang_type_is_validated_and_intersected_with_include() {
     std::fs::write(root.0.join("notes.txt"), "oldCall(x)\n").expect("txt");
     let unsupported = run(
         &root.0,
-        json!({"operation":"match","path":root.0.join("notes.txt"),"pattern":"oldCall($A)"}),
+        json!({"operation":"match","reasoning":"test","path":root.0.join("notes.txt"),"pattern":"oldCall($A)"}),
     )
     .expect("unsupported single file");
     assert_eq!(unsupported["complete"], false, "{unsupported}");
@@ -525,7 +525,7 @@ fn dot_prefixed_lang_type_selects_only_that_extension() {
 
     let exact = run(
         &root.0,
-        json!({"operation":"match","path":root.0,"langType":".ts","pattern":"oldCall($A)"}),
+        json!({"operation":"match","reasoning":"test","path":root.0,"langType":".ts","pattern":"oldCall($A)"}),
     )
     .expect("exact extension");
     let files = exact["files"].as_array().expect("files");
@@ -538,7 +538,7 @@ fn dot_prefixed_lang_type_selects_only_that_extension() {
 
     let family = run(
         &root.0,
-        json!({"operation":"match","path":root.0,"langType":"typescript","pattern":"oldCall($A)"}),
+        json!({"operation":"match","reasoning":"test","path":root.0,"langType":"typescript","pattern":"oldCall($A)"}),
     )
     .expect("language family");
     assert_eq!(
@@ -560,14 +560,14 @@ fn cpp_header_can_use_explicit_cpp_grammar_without_changing_h_default() {
 
     let selected = run(
         &root.0,
-        json!({"operation":"match","path":header,"langType":"cpp","rule":"kind: class_specifier"}),
+        json!({"operation":"match","reasoning":"test","path":header,"langType":"cpp","rule":"kind: class_specifier"}),
     )
     .expect("explicit C++ match");
     assert_eq!(selected["stats"]["totalStructuralMatches"], 1, "{selected}");
 
     let selected_directory = run(
         &root.0,
-        json!({"operation":"match","path":root.0,"langType":"cpp","include":["*.h"],"rule":"kind: class_specifier"}),
+        json!({"operation":"match","reasoning":"test","path":root.0,"langType":"cpp","include":["*.h"],"rule":"kind: class_specifier"}),
     )
     .expect("explicit C++ directory match");
     assert_eq!(
@@ -577,7 +577,7 @@ fn cpp_header_can_use_explicit_cpp_grammar_without_changing_h_default() {
 
     let selected_directory_default = run(
         &root.0,
-        json!({"operation":"match","path":root.0,"langType":"cpp","rule":"kind: class_specifier"}),
+        json!({"operation":"match","reasoning":"test","path":root.0,"langType":"cpp","rule":"kind: class_specifier"}),
     )
     .expect("C++ directory includes ambiguous headers");
     assert_eq!(
@@ -587,13 +587,13 @@ fn cpp_header_can_use_explicit_cpp_grammar_without_changing_h_default() {
 
     let tree = run(
         &root.0,
-        json!({"operation":"tree","treeKind":"syntax","path":header,"langType":"cpp"}),
+        json!({"operation":"tree","reasoning":"test","treeKind":"syntax","path":header,"langType":"cpp"}),
     )
     .expect("explicit C++ tree");
     assert_eq!(tree["isPartial"], false, "{tree}");
     let default_tree = run(
         &root.0,
-        json!({"operation":"tree","treeKind":"syntax","path":header}),
+        json!({"operation":"tree","reasoning":"test","treeKind":"syntax","path":header}),
     )
     .expect(".h defaults to C");
     assert_eq!(default_tree["isPartial"], true, "{default_tree}");
@@ -606,7 +606,7 @@ fn cpp_header_can_use_explicit_cpp_grammar_without_changing_h_default() {
 
     let symbols = run(
         &root.0,
-        json!({"operation":"symbols","path":header,"langType":"cpp"}),
+        json!({"operation":"symbols","reasoning":"test","path":header,"langType":"cpp"}),
     )
     .expect("explicit C++ symbols");
     assert!(
@@ -620,7 +620,7 @@ fn cpp_header_can_use_explicit_cpp_grammar_without_changing_h_default() {
     std::fs::write(&wrong_file, "int value;\n").expect("C file");
     let mismatch = run(
         &root.0,
-        json!({"operation":"match","path":wrong_file,"langType":"cpp","rule":"kind: declaration"}),
+        json!({"operation":"match","reasoning":"test","path":wrong_file,"langType":"cpp","rule":"kind: declaration"}),
     )
     .expect_err("C source is not an ambiguous header");
     assert_eq!(mismatch.code, "ast.language.mismatch");
@@ -637,7 +637,7 @@ fn directory_symbols_use_path_scoped_header_parser_and_preserve_it_in_next_page(
     )
     .expect("cpp header");
     std::fs::write(root.0.join("legacy/plain.h"), "struct Plain { int x; };\n").expect("c header");
-    let result = run(&root.0, json!({"operation":"symbols","path":root.0,"languageGlobs":{"cpp":["include/**/*.h"]},"pageSize":1})).expect("directory symbols");
+    let result = run(&root.0, json!({"operation":"symbols","reasoning":"test","path":root.0,"languageGlobs":{"cpp":["include/**/*.h"]},"pageSize":1})).expect("directory symbols");
     assert_eq!(result["filesScanned"], 2, "{result}");
     assert_eq!(
         result["next"]["nextPage"]["query"]["languageGlobs"]["cpp"][0],
@@ -663,7 +663,7 @@ fn match_content_length_bounds_each_match_value() {
         .join(", ");
     std::fs::write(&source, format!("fn m() {{ call({args}); }}\n")).expect("source");
     let value_len = |length: Option<u32>| {
-        let mut query = json!({"operation":"match","path":source,"pattern":"call($$$A)"});
+        let mut query = json!({"operation":"match","reasoning":"test","path":source,"pattern":"call($$$A)"});
         if let Some(length) = length {
             query["matchContentLength"] = json!(length);
         }
@@ -687,7 +687,7 @@ fn files_line_count_counts_lines_not_newlines_plus_one() {
     std::fs::write(root.0.join("empty.rs"), "").expect("empty");
     let out = run(
         &root.0,
-        json!({"operation":"files","path":root.0,"detail":"full","entryType":"f"}),
+        json!({"operation":"files","reasoning":"test","path":root.0,"detail":"full","entryType":"f"}),
     )
     .expect("files");
     let count = |name: &str| {
@@ -712,13 +712,13 @@ fn unknown_symbol_kinds_are_rejected_and_source_limits_are_errors() {
     std::fs::write(&source, "pub fn visible() {}\n").expect("source");
     let error = run(
         &root.0,
-        json!({"operation":"symbols","path":source,"kinds":["functoin"]}),
+        json!({"operation":"symbols","reasoning":"test","path":source,"kinds":["functoin"]}),
     )
     .expect_err("unknown kind");
     assert_eq!(error.code, "ast.symbols.invalidKind");
     let ok = run(
         &root.0,
-        json!({"operation":"symbols","path":source,"kinds":["function"]}),
+        json!({"operation":"symbols","reasoning":"test","path":source,"kinds":["function"]}),
     )
     .expect("known kind");
     assert_eq!(ok["declarations"][0]["name"], "visible");
@@ -726,8 +726,8 @@ fn unknown_symbol_kinds_are_rejected_and_source_limits_are_errors() {
     let large = root.0.join("large.rs");
     std::fs::write(&large, "// x\n".repeat(250_001)).expect("large");
     for query in [
-        json!({"operation":"symbols","path":large}),
-        json!({"operation":"tree","treeKind":"syntax","path":large}),
+        json!({"operation":"symbols","reasoning":"test","path":large}),
+        json!({"operation":"tree","reasoning":"test","treeKind":"syntax","path":large}),
     ] {
         let out = run(&root.0, query).expect("limit row");
         assert_eq!(out["errorCode"], "ast.source.limit", "{out}");
@@ -744,7 +744,7 @@ fn single_file_symbols_are_compact_and_path_free() {
         "struct A;\nimpl A {\n    fn run() {}\n}\nstruct B; impl B { fn run() {} }\n",
     )
     .expect("source");
-    let out = run(&root.0, json!({"operation":"symbols","path":source})).expect("symbols");
+    let out = run(&root.0, json!({"operation":"symbols","reasoning":"test","path":source})).expect("symbols");
     let text = out.to_string();
     let root_text = root.0.to_string_lossy();
     assert!(
@@ -804,7 +804,7 @@ fn directory_symbols_keep_row_paths_and_emit_the_syntax_note_once() {
     let root = Fixture::new();
     std::fs::write(root.0.join("a.rs"), "fn a() {}\n").expect("a");
     std::fs::write(root.0.join("b.rs"), "fn b() {}\n").expect("b");
-    let out = run(&root.0, json!({"operation":"symbols","path":root.0})).expect("symbols");
+    let out = run(&root.0, json!({"operation":"symbols","reasoning":"test","path":root.0})).expect("symbols");
     let rows = out["declarations"].as_array().expect("declarations");
     assert_eq!(rows.len(), 2, "{out}");
     assert!(rows.iter().all(|r| r["path"].is_string()), "{out}");
@@ -820,7 +820,7 @@ fn match_rows_emit_captures_once_and_omit_single_line_end() {
     std::fs::write(&source, "oldCall(one);\noldCall(\n  two\n);\n").expect("source");
     let out = run(
         &root.0,
-        json!({"operation":"match","path":source,"pattern":"oldCall($A)"}),
+        json!({"operation":"match","reasoning":"test","path":source,"pattern":"oldCall($A)"}),
     )
     .expect("match");
     let matches = out["files"][0]["matches"].as_array().expect("matches");
@@ -845,7 +845,7 @@ fn file_rows_omit_the_default_file_type() {
     std::fs::write(root.0.join("dir/a.rs"), "fn a() {}\n").expect("a");
     let out = run(
         &root.0,
-        json!({"operation":"files","path":root.0,"sort":"path"}),
+        json!({"operation":"files","reasoning":"test","path":root.0,"sort":"path"}),
     )
     .expect("files");
     let rows = out["files"].as_array().expect("files");

@@ -1,3 +1,4 @@
+import { composeBeforeAgentStart } from './helpers/prompt-hooks.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -79,7 +80,7 @@ describe('agents protocol prompt projection', { concurrent: false }, () => {
     flow.pi.setActiveTools(['skill']);
     const handlers = flow.handlers as unknown as Map<string, Array<(event: unknown, context: unknown) => Promise<unknown>>>;
     let hostSkills: SkillInfo[] = [];
-    const turn = async () => await handlers.get('before_agent_start')!.at(-1)!({ systemPrompt: 'Pi prompt', systemPromptOptions: { skills: hostSkills } }, f.context) as { systemPrompt: string };
+    const turn = async () => await composeBeforeAgentStart(handlers)({ systemPrompt: 'Pi prompt', systemPromptOptions: { skills: hostSkills } }, f.context) as { systemPrompt: string };
     expect((await turn()).systemPrompt).toContain('Reviewed original description');
     fs.writeFileSync(file, body('Changed source needs another review'));
     const skillTool = registered.get('skill')!;
@@ -167,7 +168,7 @@ describe('agents protocol prompt projection', { concurrent: false }, () => {
     flow.pi.setActiveTools([]);
     const handlers = flow.handlers as unknown as Map<string, Array<(event: unknown, context: unknown) => Promise<unknown>>>;
     const invoke = async (systemPrompt: string) => {
-      const result = await handlers.get('before_agent_start')!.at(-1)!({ systemPrompt, systemPromptOptions: { skills: [], contextFiles: [{ path: f.files.workspace }] } }, f.context) as { systemPrompt?: string } | undefined;
+      const result = await composeBeforeAgentStart(handlers)({ systemPrompt, systemPromptOptions: { skills: [], contextFiles: [{ path: f.files.workspace }] } }, f.context) as { systemPrompt?: string } | undefined;
       return result?.systemPrompt ?? systemPrompt;
     };
     const first = await invoke('Pi already supplied PROTOCOL_WORKSPACE_MARKER.');
@@ -196,7 +197,7 @@ describe('agents protocol prompt projection', { concurrent: false }, () => {
       await extension(pi);
       flow.pi.setActiveTools([]);
       const handlers = flow.handlers as unknown as Map<string, Array<(event: unknown, context: unknown) => Promise<unknown>>>;
-      const result = await handlers.get('before_agent_start')!.at(-1)!({ systemPrompt: 'Pi role prompt', systemPromptOptions: { skills: [], contextFiles: [] } }, f.context) as { systemPrompt?: string } | undefined;
+      const result = await composeBeforeAgentStart(handlers)({ systemPrompt: 'Pi role prompt', systemPromptOptions: { skills: [], contextFiles: [] } }, f.context) as { systemPrompt?: string } | undefined;
       expect(result?.systemPrompt).toEqual(expect.any(String));
       expect(result?.systemPrompt ?? 'Pi role prompt').not.toContain('<agents_protocol>');
       expect(result?.systemPrompt ?? 'Pi role prompt').not.toMatch(/PROTOCOL_(?:GLOBAL|OCTOCODE|REPOSITORY|WORKSPACE)_MARKER/);

@@ -20,7 +20,7 @@ Choose the smallest scope that supplies the required evidence:
 
 Use the returned `location.localPath` for clone results; never synthesize cache paths. Preserve requested/resolved ref, `commitSha`, and scope. Clone `branch` accepts a branch, tag, or full 40-character commit SHA. For reproducible evidence, select an immutable SHA and retain the returned identity.
 
-Availability depends on the live catalog, `ENABLE_LOCAL`, `ENABLE_CLONE`, and `OCTOCODE_STORAGE_MODE`. Cloning requires persistent storage. `ghGetFileContent` reads files without creating a checkout. Declare a disabled capability; use remote evidence or an existing checkout without changing global configuration automatically.
+Availability depends on the live catalog, `ENABLE_LOCAL`, and `OCTOCODE_STORAGE_MODE`. Cloning is CLI-only and requires persistent storage; MCP never exposes `ghCloneRepo` (`ENABLE_CLONE` is legacy and ignored). `ghGetFileContent` reads files without creating a checkout. Declare a disabled capability; use remote evidence or an existing checkout without changing global configuration automatically.
 
 ## Scope is part of proof
 - Choose materialization based on needed evidence and cost, not a read-count threshold.

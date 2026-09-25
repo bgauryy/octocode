@@ -8,7 +8,7 @@ import {
   normalizeSkillKey,
   setSkillEnabled,
 } from '../../contracts/mcp-state.js';
-import { ensurePrivateDirectory, hardenPrivateFile, PRIVATE_FILE_MODE } from '@octocodeai/octocode-awareness/host';
+import { ensurePrivateDirectory, hardenPrivateFile, PRIVATE_FILE_MODE } from '../../runtime/permissions.js';
 import { openOctocodeDb } from '../storage-policy.js';
 import type { PiCommand, PiContext, PiInstance, SkillInfo } from '../../types.js';
 import { extensionTmpRoot } from '../../extension-paths.js';

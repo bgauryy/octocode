@@ -1,4 +1,4 @@
-import { AWARENESS_PI_HOST_PROMPT } from '@octocodeai/octocode-awareness/host';
+
 import {
   INTERACTION_CONTEXT_GUIDANCE,
   LOCAL_TOOL_GUIDANCE,
@@ -31,9 +31,9 @@ export interface PiSystemPromptOptions {
 
 export function buildPiSystemPrompt(options: PiSystemPromptOptions = {}): string {
   if (options.worker) {
-    return `${HOST_FACTS}\nReturn missing decisions to the parent; use only assigned tools and ownership. Interaction guidance applies through the parent, not direct user contact.\n\n${AWARENESS_PI_HOST_PROMPT}\n\n${LOCAL_TOOL_GUIDANCE}\n${INTERACTION_CONTEXT_GUIDANCE}`;
+    return `${HOST_FACTS}\nReturn missing decisions to the parent; use only assigned tools and ownership. Interaction guidance applies through the parent, not direct user contact.\n\n\n\n${LOCAL_TOOL_GUIDANCE}\n${INTERACTION_CONTEXT_GUIDANCE}`;
   }
-  return `${HOST_FACTS}\n${buildOctocodeSystemPrompt(AWARENESS_PI_HOST_PROMPT)}`;
+  return `${HOST_FACTS}\n${buildOctocodeSystemPrompt('')}`;
 }
 
 /** Frozen at process/session initialization; subprocess workers set this environment marker before import. */

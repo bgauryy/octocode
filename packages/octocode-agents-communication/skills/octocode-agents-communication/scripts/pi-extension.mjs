@@ -1,7 +1,4 @@
 import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-
-const exec = promisify(execFile);
 
 // The Rust parent binds identity and supplies the same catalog used by MCP.
 export default function (pi) {
@@ -10,7 +7,8 @@ export default function (pi) {
   registerBoundTools(pi, JSON.parse(process.env.OCTOCODE_COMMUNICATION_BINDING));
 }
 
-export function registerBoundTools(pi, { binary, workspace, database, session, tools }) {
+export function registerBoundTools(pi, options) {
+  const { tools } = options;
   for (const tool of tools) {
     pi.registerTool({
       name: tool.name,
@@ -18,10 +16,23 @@ export function registerBoundTools(pi, { binary, workspace, database, session, t
       description: tool.description,
       parameters: tool.inputSchema,
       async execute(_id, input, signal) {
-        const { stdout } = await exec(binary, [tool.name, JSON.stringify(input),
-          '--workspace', workspace, '--database', database, '--session', session],
-        // CLI pages are bounded to 256 KiB; keep transport headroom for metadata.
-        { signal, timeout: 10_000, maxBuffer: 1024 * 1024 });
+        const { binary, workspace, database, session } = options.getBinding ? options.getBinding() ?? {} : options;
+        if (!session) throw new Error("Communication is disabled or no session is bound");
+        const json = JSON.stringify(input);
+        const stdout = await new Promise((resolve, reject) => {
+          let inputError;
+          const child = execFile(binary, [tool.name, '-',
+            '--workspace', workspace, '--database', database, '--session', session],
+          // JSON goes through stdin so large documents do not exceed OS argv limits.
+          // CLI pages are bounded to 256 KiB; keep output headroom for metadata.
+          { signal, timeout: 10_000, maxBuffer: 1024 * 1024 }, (error, output) => {
+            if (error || inputError) reject(error || inputError);
+            else resolve(output);
+          });
+          // An early exit/abort can close the pipe before a large write finishes.
+          child.stdin.on('error', error => { inputError = error; });
+          child.stdin.end(json);
+        });
         const details = JSON.parse(stdout);
         return { content: [{ type: 'text', text: JSON.stringify(details) }], details };
       },

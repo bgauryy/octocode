@@ -6,7 +6,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, test } from 'vitest';
 import { visibleWidth } from '@earendil-works/pi-tui';
 import { createIsolatedAwarenessStore, createPiFlowHarness } from '@octocodeai/agent-testing';
-import { openAwarenessStore } from '@octocodeai/octocode-awareness/host';
+import { InteractionStore } from '../src/tools/interaction-store.js';
 import {
   clearPlan,
 } from '../src/tools/planning/plan-store.js';
@@ -48,9 +48,9 @@ function fixtureAt(workspace: string): { workspace: string; rfcPath: string; rev
   return { workspace, rfcPath, revision: createHash('sha256').update(bytes).digest('hex') };
 }
 
-test('drives AskUser, explicit browser Start, shared work, verification, and every surface through production adapters', async () => {
+test('drives AskUser, explicit browser Start, session work, completion, and every surface through production adapters', async () => {
   const isolated = await createIsolatedAwarenessStore(
-    ({ workspace, dbPath }) => openAwarenessStore({ workspace, dbPath }),
+    ({ workspace, dbPath }) => new InteractionStore(workspace, dbPath),
     { close: (store) => store.close() },
   );
   roots.push(isolated.root);
@@ -95,7 +95,7 @@ test('drives AskUser, explicit browser Start, shared work, verification, and eve
       queries: [{
         reasoning: 'propose exact RFC for review',
         action: 'propose',
-        scope: 'shared',
+        scope: 'session',
         consequential: true,
         rfcPath,
         steps: [
@@ -124,40 +124,14 @@ test('drives AskUser, explicit browser Start, shared work, verification, and eve
 
     await flow.restart();
     assert.equal(getCurrentPlanReadModel(flow.context as unknown as PiContext).phase, 'executing', 'restart restores started plan');
-    assert.ok(model.coordination.awarenessPlanId);
-    await flow.runTool('agent', { queries: [{ reasoning: 'inspect effective worker capability after Start', type: 'inspect' }] });
-    assert.ok(flow.normalizedTranscript().some((event) => event.kind === 'tool.started' && (event.data as { name?: string }).name === 'agent'));
-    await flow.restart('during-start');
-    assert.equal(getCurrentPlanReadModel(flow.context as unknown as PiContext).phase, 'executing', 'executing authority survives immediate restart');
-
-    await flow.runTool('plan', { queries: [{ reasoning: 'observed first check', action: 'complete', index: 1, receipt: { command: 'test data', status: 'SUCCESS', message: 'data passed' } }] });
-    await flow.restart('during-work');
-    const failedVerification = await failedToolResult(flow.runTool('plan', { queries: [{ reasoning: 'record observed failing verification', action: 'complete', index: 2, receipt: { command: 'test ui', status: 'FAILED', message: 'ui failed' } }] }));
-    assert.equal(failedVerification.isError, true);
-    await flow.restart('during-verification');
-    const retryAfterFailedVerification = await failedToolResult(flow.runTool('plan', { queries: [{ reasoning: 'record a later successful observation without hiding verification debt', action: 'complete', index: 2, receipt: { command: 'test ui', status: 'SUCCESS', message: 'ui passed' } }] }));
-    assert.equal(retryAfterFailedVerification.isError, true, 'a failed shared verification remains debt until the canonical task lifecycle is resolved');
-    model = getCurrentPlanReadModel(flow.context as unknown as PiContext);
-    assert.equal(model.phase, 'executing');
-    assert.deepEqual(model.tasks.map((step) => step.status), ['done', 'blocked']);
-
-    assert.ok(model.coordination.awarenessPlanId);
-    assert.equal(model.tasks[0]?.status, 'done');
-    assert.equal(model.tasks[1]?.status, 'blocked');
-    const verificationStore = openAwarenessStore({ workspace: model.coordination.workspace });
-    try {
-      const awarenessPlan = verificationStore.getPlan(model.coordination.awarenessPlanId!);
-      assert.equal(awarenessPlan.status, 'ACTIVE');
-      const sharedTasks = verificationStore.listTasks({ planId: awarenessPlan.planId });
-      assert.ok(sharedTasks[0]?.verifiedAt);
-      assert.equal(sharedTasks[1]?.status, 'FAILED');
-      assert.equal(sharedTasks[1]?.verifiedAt, null);
-    } finally {
-      verificationStore.close();
-    }
     assert.match(renderPlanReadModel(model, 'terminal') as string, /Implement data contracts/);
     assert.match(buildPlanPageHtmlFromModel(model), /Implement data contracts/);
-    assert.match(renderPlanContext(model), /phase=executing/);
+    await assert.rejects(flow.runTool('plan', { queries: [{ action: 'complete', index: 1, receipt: { status: 'FAILED', command: 'test data', message: 'check failed' } }] }), /declared check failed/);
+    assert.equal(getCurrentPlanReadModel(flow.context as unknown as PiContext).tasks[0]!.status, 'doing', 'failed receipt cannot complete the step');
+    await flow.runTool('plan', { queries: [{ action: 'complete', index: 1 }] });
+    await flow.runTool('plan', { queries: [{ action: 'start', index: 2 }, { action: 'complete', index: 2 }] });
+    model = getCurrentPlanReadModel(flow.context as unknown as PiContext);
+    assert.match(renderPlanContext(model), /phase=complete/);
     assert.deepEqual((renderPlanReadModel(model, 'rpc') as typeof model).tasks.map((task) => task.id), model.tasks.map((task) => task.id));
     assert.equal(flow.eventsOf('ui.widget').length, 0, 'plan state never creates a duplicate persistent widget');
     assert.equal(flow.eventsOf('command.expanded').length, 0, 'browser actions never inject slash commands');
@@ -210,12 +184,12 @@ test('terminal footer keeps current work visible and width-safe while the canoni
 
 test('registered AskUser widget covers recommended, free-text, cancel, and noninteractive pending flows', async () => {
   const isolated = await createIsolatedAwarenessStore(
-    ({ workspace, dbPath }) => openAwarenessStore({ workspace, dbPath }),
+    ({ workspace, dbPath }) => new InteractionStore(workspace, dbPath),
     { close: (store) => store.close() },
   );
   roots.push(isolated.root);
   const workspace = isolated.workspace;
-  setInteractionStoreFactoryForTests((storeWorkspace) => openAwarenessStore({ workspace: storeWorkspace, dbPath: isolated.dbPath }));
+  setInteractionStoreFactoryForTests((storeWorkspace) => new InteractionStore(storeWorkspace, isolated.dbPath));
   const flow = createPiFlowHarness({
     cwd: workspace,
     scripted: { customs: [
@@ -296,4 +270,3 @@ async function postPlanAction(url: string, action: unknown, origin = new URL(url
     method: 'POST', headers: { origin, 'content-type': contentType }, body: JSON.stringify(action),
   });
 }
-import { failedToolResult } from './helpers/failed-tool-result.js';

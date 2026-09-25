@@ -1,11 +1,9 @@
 import type { PiContext } from '../types.js';
-import type { TaskStatus } from '@octocodeai/octocode-awareness/host';
 import type { PlanCoordination, PlanDecision, PlanReviewComment, PlanStep, ReviewQuestion, ReviewState } from './planning/plan-types.js';
 import { dependencyIndexes } from './planning/plan-types.js';
 import { activePlanScope, getPlan, getPlanCoordination, getPlanReviewState, getPlanTurnsSinceUpdate } from './planning/plan-store.js';
 import { listPendingInteractionIds } from './interaction-broker.js';
 import { escapePromptMetadata } from './prompt-safety.js';
-import { openPersistentAwareness } from './storage-policy.js';
 
 export interface PlanReadModelTaskV1 {
   id: string;
@@ -18,7 +16,6 @@ export interface PlanReadModelTaskV1 {
   reasoning?: string;
   acceptance?: string;
   checkCommand?: string;
-  awarenessTaskId?: string;
 }
 
 export interface PlanReadModelV1 {
@@ -47,29 +44,10 @@ export interface PlanReadModelV1 {
     mode: PlanCoordination['mode'];
     sourcePlanKey: string;
     workspace: string;
-    awarenessPlanId?: string;
-    materializedRevision?: string;
   };
   authorization: { acceptReceiptId?: string; startReceiptId?: string };
   pendingInteractionIds: string[];
   runtime: { turnsSinceUpdate: number };
-}
-
-const SHARED_STATUS_TO_DISPLAY: Record<TaskStatus, PlanReadModelTaskV1['status']> = {
-  OPEN: 'todo',
-  IN_PROGRESS: 'doing',
-  BLOCKED: 'blocked',
-  VERIFY: 'doing',
-  DONE: 'done',
-  FAILED: 'blocked',
-  CANCELLED: 'blocked',
-};
-
-function sharedDisplayStatus(status: string | undefined): PlanReadModelTaskV1['status'] | undefined {
-  if (status === 'CLAIMED') return 'doing';
-  return status && status in SHARED_STATUS_TO_DISPLAY
-    ? SHARED_STATUS_TO_DISPLAY[status as TaskStatus]
-    : undefined;
 }
 
 export function planShape(tasks: readonly Pick<PlanReadModelTaskV1, 'dependsOn'>[]): PlanReadModelV1['shape'] {
@@ -87,10 +65,9 @@ export function buildPlanReadModel(input: {
   coordination: PlanCoordination;
   pendingInteractionIds?: string[];
   turnsSinceUpdate?: number;
-  sharedTaskStatuses?: Readonly<Record<string, string | undefined>>;
 }): PlanReadModelV1 {
   const effectiveStatuses = new Map(input.steps.map((step) => [step.id,
-    sharedDisplayStatus(step.awarenessTaskId ? input.sharedTaskStatuses?.[step.awarenessTaskId] : undefined) ?? step.status,
+    step.status,
   ]));
   const tasks = input.steps.map((step, index) => ({
     id: step.id,
@@ -105,7 +82,6 @@ export function buildPlanReadModel(input: {
     ...(step.reasoning ? { reasoning: step.reasoning } : {}),
     ...(step.acceptance ? { acceptance: step.acceptance } : {}),
     ...(step.checkCommand ? { checkCommand: step.checkCommand } : {}),
-    ...(step.awarenessTaskId ? { awarenessTaskId: step.awarenessTaskId } : {}),
   }));
   return {
     version: 1,
@@ -136,8 +112,6 @@ export function buildPlanReadModel(input: {
       mode: input.coordination.mode,
       sourcePlanKey: input.coordination.sourcePlanKey,
       workspace: input.coordination.coordinationWorkspace,
-      ...(input.coordination.awarenessPlanId ? { awarenessPlanId: input.coordination.awarenessPlanId } : {}),
-      ...(input.coordination.materializedRevision ? { materializedRevision: input.coordination.materializedRevision } : {}),
     },
     authorization: {
       ...(input.review.acceptAuthorizationReceiptId ? { acceptReceiptId: input.review.acceptAuthorizationReceiptId } : {}),
@@ -156,26 +130,12 @@ export function getCurrentPlanReadModel(ctx: PiContext | undefined, scope = acti
   }
   const steps = getPlan(scope);
   const coordination = getPlanCoordination(scope);
-  const sharedTaskStatuses: Record<string, string> = {};
-  const mappedTaskIds = steps.flatMap((step) => step.awarenessTaskId ? [step.awarenessTaskId] : []);
-  if (coordination.awarenessPlanId && mappedTaskIds.length > 0) {
-    let awareness: ReturnType<typeof openPersistentAwareness> | undefined;
-    try {
-      awareness = openPersistentAwareness({ workspace: coordination.coordinationWorkspace });
-      for (const taskId of mappedTaskIds) sharedTaskStatuses[taskId] = awareness.getTask(taskId).status;
-    } catch {
-      // Keep rendering the branch-local snapshot when the shared DB is unavailable.
-    } finally {
-      awareness?.close();
-    }
-  }
   return buildPlanReadModel({
     steps,
     review: getPlanReviewState(scope),
     coordination,
     pendingInteractionIds,
     turnsSinceUpdate: getPlanTurnsSinceUpdate(scope),
-    sharedTaskStatuses,
   });
 }
 
@@ -192,7 +152,7 @@ export function renderPlanContext(model: PlanReadModelV1): string {
     inputGate,
     `state: phase=${model.phase} snapshot=${escapePromptMetadata(model.review.branchSnapshotId)} generation=${model.review.generation}`,
     model.review.rfcPath ? `rfc: ${escapePromptMetadata(model.review.rfcPath)}${model.revision ? ` displayed=${escapePromptMetadata(model.revision)}` : ''}${model.acceptedRevision ? ` accepted=${escapePromptMetadata(model.acceptedRevision)}` : ''}` : undefined,
-    `coordination: mode=${model.coordination.mode}${model.coordination.awarenessPlanId ? ` awareness-plan=${escapePromptMetadata(model.coordination.awarenessPlanId)}` : ''}${model.coordination.materializedRevision ? ` materialized=${escapePromptMetadata(model.coordination.materializedRevision)}` : ''}`,
+    `coordination: mode=${model.coordination.mode}`,
     ...model.review.decisions.map((decision) => `decision: ${escapePromptMetadata(decision.q)} => ${escapePromptMetadata(decision.a)}`),
     ...model.review.questions.map((question) => `question${question.answer ? '-answered' : '-blocking'}: ${escapePromptMetadata(question.prompt)}${question.answer ? ` => ${escapePromptMetadata(question.answer)}` : ''}`),
     ...model.review.comments.filter((comment) => !comment.resolved).map((comment) => `review-blocker: ${escapePromptMetadata(comment.body)}${comment.section ? ` section=${escapePromptMetadata(comment.section)}` : ''}`),
@@ -204,7 +164,6 @@ export function renderPlanContext(model: PlanReadModelV1): string {
       task.reasoning ? `reason=${escapePromptMetadata(task.reasoning)}` : undefined,
       task.acceptance ? `accept=${escapePromptMetadata(task.acceptance)}` : undefined,
       task.checkCommand ? `check=${escapePromptMetadata(task.checkCommand)}` : undefined,
-      task.awarenessTaskId ? `awareness-task=${escapePromptMetadata(task.awarenessTaskId)}` : undefined,
       `task-id=${escapePromptMetadata(task.id)}`,
     ].filter((field): field is string => Boolean(field));
     return fields.length ? [`contract ${task.index}: ${fields.join(' | ')}`] : [];

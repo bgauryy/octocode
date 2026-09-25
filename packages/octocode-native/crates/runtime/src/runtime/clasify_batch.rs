@@ -1,10 +1,9 @@
 //! Resource-major semantic assessment with capture-once paging.
 //!
-//! Scheduling: delegated reads run on a small worker pool (bounded per call
-//! and process-wide) and each captured resource streams straight into
-//! provider assessment, so reads and provider latency overlap within the one
-//! shared deadline. Provider requests from every matrix, every concurrent
-//! tool call, and semantic rerank share the process-wide
+//! Scheduling: delegated reads share per-call and process-wide bounds. Search
+//! candidates hydrate concurrently within those bounds. Every expanded page is captured before provider work so
+//! the 25-cell ceiling is enforced without racing or dropping candidates.
+//! Provider requests then run concurrently and share the process-wide
 //! [`gate`](crate::providers::classification::gate) for their endpoint.
 use super::{
     ExecutionContext, ExecutionError,
@@ -32,6 +31,13 @@ use std::{
 const MAX_CALL_CAPTURES: usize = 4;
 /// Delegated reads across every concurrent clasify call in this process.
 const MAX_PROCESS_CAPTURES: usize = 16;
+/// One unread search resource may hydrate at most this many files. Five also
+/// fits the public 25-cell matrix when all five questions are used.
+const MAX_HYDRATED_CANDIDATES: usize = 5;
+/// Hard cap on sanitized candidate evidence sent to the provider.
+const MAX_HYDRATED_CHARS: usize = 12_000;
+const HYDRATED_LINE_RADIUS: u64 = 60;
+const MAX_EXPANDED_CELLS: usize = 25;
 /// Row `data` fields that route the host (continuations, scan diagnostics,
 /// follow-up hints) rather than carry evidence. They are withheld from the
 /// provider and excluded from the `maxChars` evidence budget.
@@ -117,23 +123,6 @@ fn fallback_context(source: &Value) -> Value {
     }
 }
 
-fn bounded_prefix(state: &Value, context: &mut Value, max_chars: usize) -> Value {
-    let prefix = state
-        .to_string()
-        .chars()
-        .take(max_chars)
-        .collect::<String>();
-    context["resultHash"] = json!(hex::encode(Sha256::digest(prefix.as_bytes())));
-    context["coverage"] = json!("partial");
-    if let Some(object) = context.as_object_mut() {
-        object.remove("next");
-    }
-    context["limitations"] = json!([
-        "The first sanitized page exceeded maxChars and was assessed only as a bounded prefix; no safe within-page continuation is available."
-    ]);
-    Value::String(prefix)
-}
-
 fn logical_chars(value: &Value) -> usize {
     match value {
         Value::Null => 0,
@@ -210,7 +199,7 @@ fn evidence_lines(data: &Value) -> Option<Value> {
         return Some(json!([start, end]));
     }
     // A compacted view has its own line positions. Without explicit source
-    // ranges, its offsets cannot be used to construct a source focus.
+    // ranges, its offsets cannot be presented as source line coordinates.
     if data
         .get("contentView")
         .and_then(Value::as_str)
@@ -299,6 +288,205 @@ fn provider_state(source: &Value, state: Value) -> Value {
     }
 }
 
+fn is_candidate_search(source: &Value) -> bool {
+    match source.get("tool").and_then(Value::as_str) {
+        Some("localSearch") => true,
+        Some("ghSearch") => {
+            source.pointer("/query/operation").and_then(Value::as_str) == Some("code")
+        }
+        _ => false,
+    }
+}
+
+fn file_chunks(source: &Value) -> bool {
+    source.get("candidateEvidence").and_then(Value::as_str) == Some("fileChunks")
+}
+
+fn candidate_identity(source: &Value, state: &Value, file: &Value) -> Option<String> {
+    let path = file.get("path")?.as_str()?;
+    match source.get("tool").and_then(Value::as_str)? {
+        "localSearch" => Some(
+            state
+                .get("base")
+                .and_then(Value::as_str)
+                .filter(|_| !std::path::Path::new(path).is_absolute())
+                .map_or_else(
+                    || path.to_owned(),
+                    |base| {
+                        std::path::Path::new(base)
+                            .join(path)
+                            .to_string_lossy()
+                            .into_owned()
+                    },
+                ),
+        ),
+        "ghSearch" => Some(format!(
+            "{}/{}/{}",
+            file.get("owner")?.as_str()?.to_ascii_lowercase(),
+            file.get("repo")?.as_str()?.to_ascii_lowercase(),
+            path
+        )),
+        _ => None,
+    }
+}
+
+/// Turn one lexical search page into independent, path-deduplicated files.
+fn search_candidate_states(source: &Value, state: &Value) -> Option<Vec<Value>> {
+    if !is_candidate_search(source) {
+        return None;
+    }
+    let files = state.pointer("/results/0/data/files")?.as_array()?;
+    let mut seen = HashSet::new();
+    let candidates = files
+        .iter()
+        .filter(|file| candidate_identity(source, state, file).is_some_and(|id| seen.insert(id)))
+        .map(|file| {
+            let mut candidate = state.clone();
+            candidate["results"][0]["data"]["files"] = json!([file]);
+            candidate
+        })
+        .collect::<Vec<_>>();
+    (!candidates.is_empty()).then_some(candidates)
+}
+
+fn local_candidate_read(candidate: &Value, max_bytes: usize) -> Option<Value> {
+    let file = candidate.pointer("/results/0/data/files/0")?;
+    let path = candidate_identity(&json!({"tool":"localSearch"}), candidate, file)?;
+    let line = file
+        .get("matches")
+        .and_then(Value::as_array)
+        .and_then(|matches| matches.first())
+        .and_then(|matched| matched.get("line"))
+        .and_then(Value::as_u64)
+        .unwrap_or(1);
+    let start = line.saturating_sub(HYDRATED_LINE_RADIUS).max(1);
+    let end = line.saturating_add(HYDRATED_LINE_RADIUS);
+    Some(json!({
+        "tool":"localFetch",
+        "query":{
+            "reasoning":"Read a bounded search candidate for classification.",
+            "path":path,
+            "startLine":start,
+            "endLine":end,
+            "chunkType":"bytes",
+            "chunkSize":max_bytes,
+            "minify":"none"
+        }
+    }))
+}
+
+fn utf16_slice(value: &str, start: usize, end: usize) -> Option<String> {
+    let text = value.encode_utf16().collect::<Vec<_>>();
+    String::from_utf16(text.get(start..end)?).ok()
+}
+
+fn github_candidate_read(candidate: &Value, max_bytes: usize) -> Option<(Value, bool)> {
+    let file = candidate.pointer("/results/0/data/files/0")?;
+    let mut query = json!({
+        "reasoning":"Read a bounded GitHub search candidate for classification.",
+        "owner":file.get("owner")?,
+        "repo":file.get("repo")?,
+        "path":file.get("path")?,
+        "chunkType":"bytes",
+        "chunkSize":max_bytes,
+        "minify":"none"
+    });
+    let anchor = file
+        .get("matches")
+        .and_then(Value::as_array)
+        .and_then(|matches| matches.first())
+        .and_then(|matched| {
+            let value = matched.get("value")?.as_str()?;
+            let range = matched.get("matchIndices")?.as_array()?.first()?;
+            let start = usize::try_from(range.get("start")?.as_u64()?).ok()?;
+            let end = usize::try_from(range.get("end")?.as_u64()?).ok()?;
+            utf16_slice(value, start, end).filter(|value| !value.trim().is_empty())
+        });
+    let anchored = anchor.is_some();
+    if let Some(anchor) = anchor {
+        query["matchString"] = json!(anchor);
+        query["contextLines"] = json!(20);
+    } else {
+        query["startLine"] = json!(1);
+        query["endLine"] = json!(HYDRATED_LINE_RADIUS * 2 + 1);
+    }
+    Some((json!({"tool":"ghGetFileContent","query":query}), anchored))
+}
+
+fn candidate_read(source: &Value, candidate: &Value, max_bytes: usize) -> Option<(Value, bool)> {
+    match source.get("tool").and_then(Value::as_str) {
+        Some("localSearch") => local_candidate_read(candidate, max_bytes).map(|read| (read, true)),
+        Some("ghSearch") => github_candidate_read(candidate, max_bytes),
+        _ => None,
+    }
+}
+
+fn pin_github_read(read: &mut Value, state: &Value) {
+    if read.get("tool").and_then(Value::as_str) != Some("ghGetFileContent") {
+        return;
+    }
+    if let Some(commit) = state
+        .pointer("/results/0/data/files/0/commitSha")
+        .and_then(Value::as_str)
+    {
+        read["query"]["branch"] = json!(commit);
+    }
+}
+
+fn default_search_page_size(source: &Value) -> u64 {
+    if source.get("tool").and_then(Value::as_str) == Some("ghSearch") {
+        return 30;
+    }
+    match source.pointer("/query/resultView").and_then(Value::as_str) {
+        Some("files" | "filesWithout" | "discovery" | "countLines" | "countMatches") => 100,
+        _ => 20,
+    }
+}
+
+/// Bound candidate fan-out before executing search. Rewriting page size is
+/// safe only when the original offset is representable by the new page size.
+fn bounded_search_source(
+    source: &Value,
+    candidate_limit: usize,
+) -> Result<Value, ClassificationError> {
+    if !is_candidate_search(source) || candidate_limit == 0 {
+        return Ok(source.clone());
+    }
+    let mut bounded = source.clone();
+    let query = bounded
+        .get_mut("query")
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| {
+            ClassificationError::new(
+                "invalidClassificationContext",
+                "Search candidate context is missing its query.",
+                "Pass one ordinary localSearch or ghSearch code query.",
+            )
+        })?;
+    let original_size = query
+        .get("pageSize")
+        .and_then(Value::as_u64)
+        .unwrap_or_else(|| default_search_page_size(source));
+    let limit = u64::try_from(candidate_limit).unwrap_or(u64::MAX);
+    if original_size <= limit {
+        return Ok(bounded);
+    }
+    let page = query.get("page").and_then(Value::as_u64).unwrap_or(1);
+    let offset = page.saturating_sub(1).saturating_mul(original_size);
+    if offset % limit != 0 {
+        return Err(ClassificationError::new(
+            "classificationExpandedCellsExceeded",
+            format!(
+                "Search page {page} with pageSize {original_size} cannot be safely bounded to {limit} candidates without skipping or repeating files."
+            ),
+            "Restart this clasify resource at page 1 or set pageSize to the returned bounded size.",
+        ));
+    }
+    query.insert("pageSize".into(), json!(limit));
+    query.insert("page".into(), json!(offset / limit + 1));
+    Ok(bounded)
+}
+
 fn evidence_chars(evidence: &Value) -> usize {
     match evidence {
         Value::Array(entries) => entries.iter().map(evidence_chars).sum(),
@@ -347,29 +535,155 @@ fn assessed_payload_chars(source: &Value, state: &Value) -> usize {
         .unwrap_or_else(|| logical_chars(state))
 }
 
-fn bounded_payload_prefix(
+fn hydrate_candidate(
     source: &Value,
-    state: &Value,
-    context: &mut Value,
-    max_chars: usize,
-) -> Value {
-    if source.get("value").is_some() {
-        bounded_prefix(state, context, max_chars)
-    } else {
-        bounded_prefix(&provider_state(source, state.clone()), context, max_chars)
+    candidate: Value,
+    mut read: Value,
+    anchored: bool,
+    dispatcher: &DomainDispatcher,
+    execution: &ExecutionContext,
+) -> CapturedPage {
+    match super::clasify_context::resolve(&read, dispatcher, execution) {
+        Ok((hydrated_state, hydrated_receipt)) => {
+            let evidence = provider_state(&read, hydrated_state.clone());
+            let evidence_chars = evidence_chars(&evidence);
+            let mut context = hydrated_receipt.unwrap_or_else(|| fallback_context(&read));
+            super::clasify_context::append_limitation(
+                &mut context,
+                "Only a bounded candidate chunk was assessed; unread file content may change the verdict.",
+            );
+            if !anchored {
+                super::clasify_context::append_limitation(
+                    &mut context,
+                    "No stable match anchor was available; only the file's opening chunk was assessed.",
+                );
+            }
+            pin_github_read(&mut read, &hydrated_state);
+            read["confidence"] = json!("exact");
+            super::clasify_context::attach_read(&mut context, read);
+            if evidence_chars == 0 {
+                CapturedPage::Failed {
+                    error: ClassificationError::new(
+                        "classificationContextEmpty",
+                        "The hydrated candidate contained no evidence to judge.",
+                        "Read the candidate directly or choose a different search anchor.",
+                    ),
+                    context,
+                }
+            } else if evidence_chars > MAX_HYDRATED_CHARS {
+                CapturedPage::Failed {
+                    error: ClassificationError::new(
+                        "classificationCandidateChunkTooLarge",
+                        format!(
+                            "The sanitized candidate chunk is {evidence_chars} characters; the limit is {MAX_HYDRATED_CHARS}."
+                        ),
+                        "Use next.read to select a smaller exact region.",
+                    ),
+                    context,
+                }
+            } else {
+                CapturedPage::Ready {
+                    state: evidence,
+                    context,
+                }
+            }
+        }
+        Err(failure) => {
+            let mut context = failure
+                .receipt
+                .unwrap_or_else(|| super::clasify_context::candidate_receipt(source, &candidate));
+            super::clasify_context::append_limitation(
+                &mut context,
+                "Candidate hydration failed; classification was not run for this file.",
+            );
+            CapturedPage::Failed {
+                error: failure.error,
+                context,
+            }
+        }
     }
+}
+
+fn hydrate_candidates(
+    source: &Value,
+    candidates: Vec<Value>,
+    max_bytes: usize,
+    dispatcher: &DomainDispatcher,
+    execution: &ExecutionContext,
+    reads: &ReadLimiter,
+) -> Result<Vec<CapturedPage>, ExecutionError> {
+    std::thread::scope(|scope| {
+        let mut completed = Vec::with_capacity(candidates.len());
+        let mut tasks = Vec::with_capacity(candidates.len());
+        for (index, candidate) in candidates.into_iter().enumerate() {
+            execution.check()?;
+            let Some((read, anchored)) = candidate_read(source, &candidate, max_bytes) else {
+                completed.push((
+                    index,
+                    CapturedPage::Failed {
+                        error: ClassificationError::new(
+                            "classificationCandidateUnhydratable",
+                            "A search result did not contain a usable file identity.",
+                            "Run the search directly and inspect the malformed candidate.",
+                        ),
+                        context: super::clasify_context::candidate_receipt(source, &candidate),
+                    },
+                ));
+                continue;
+            };
+            // Acquire before spawning so at most the permitted number of
+            // blocking workers exists; later candidates wait in this loop.
+            let call_permit = reads.acquire(execution)?;
+            let process_permit = PROCESS_READS.acquire(execution)?;
+            tasks.push((
+                index,
+                scope.spawn(move || {
+                    let (_call_permit, _process_permit) = (call_permit, process_permit);
+                    hydrate_candidate(source, candidate, read, anchored, dispatcher, execution)
+                }),
+            ));
+        }
+        for (index, task) in tasks {
+            completed.push((
+                index,
+                task.join().map_err(|_| ExecutionError::WorkerFailed)?,
+            ));
+        }
+        completed.sort_by_key(|(index, _)| *index);
+        Ok(completed.into_iter().map(|(_, page)| page).collect())
+    })
 }
 
 fn capture_resource(
     resource: &Value,
     dispatcher: &DomainDispatcher,
     execution: &ExecutionContext,
+    reads: &ReadLimiter,
+    candidate_limit: usize,
 ) -> Result<(Vec<CapturedPage>, Option<Value>), ExecutionError> {
     let max_chars = resource
         .get("maxChars")
         .and_then(Value::as_u64)
         .unwrap_or(80_000) as usize;
-    let mut source = resource["context"].clone();
+    let requested_source = resource["context"].clone();
+    let hydrated = file_chunks(&requested_source);
+    let candidate_limit = if hydrated && is_candidate_search(&requested_source) {
+        candidate_limit.min(MAX_HYDRATED_CANDIDATES)
+    } else {
+        candidate_limit
+    };
+    let mut source = match bounded_search_source(&requested_source, candidate_limit) {
+        Ok(source) => source,
+        Err(error) => {
+            return Ok((
+                vec![CapturedPage::Failed {
+                    error,
+                    context: fallback_context(&requested_source),
+                }],
+                None,
+            ));
+        }
+    };
     let pages_within = source
         .get("tool")
         .and_then(Value::as_str)
@@ -397,8 +711,53 @@ fn capture_resource(
             });
             break;
         }
-        match super::clasify_context::resolve(&source, dispatcher, execution) {
+        match resolve_limited(&source, dispatcher, execution, reads)? {
             Ok((state, receipt)) => {
+                if let Some(candidates) = search_candidate_states(&source, &state) {
+                    let mut next = if hydrated
+                        && source.get("tool").and_then(Value::as_str) == Some("localSearch")
+                    {
+                        super::clasify_context::continuation_named(
+                            &receipt.clone().unwrap_or_else(|| fallback_context(&source)),
+                            "nextPage",
+                        )
+                    } else {
+                        receipt
+                            .as_ref()
+                            .and_then(super::clasify_context::continuation)
+                    };
+                    if hydrated
+                        && let (Some(next), Some(candidate_evidence)) = (
+                            next.as_mut().and_then(Value::as_object_mut),
+                            requested_source.get("candidateEvidence"),
+                        )
+                    {
+                        next.insert("candidateEvidence".into(), candidate_evidence.clone());
+                    }
+                    if !hydrated {
+                        pages.extend(candidates.into_iter().map(|candidate| {
+                            let context =
+                                super::clasify_context::candidate_receipt(&source, &candidate);
+                            CapturedPage::Ready {
+                                state: provider_state(&source, candidate),
+                                context,
+                            }
+                        }));
+                        remaining = next;
+                        break;
+                    }
+
+                    let max_bytes = max_chars
+                        .checked_div(candidates.len().max(1))
+                        .unwrap_or(max_chars)
+                        .clamp(1, MAX_HYDRATED_CHARS);
+                    let hydrated_pages = hydrate_candidates(
+                        &source, candidates, max_bytes, dispatcher, execution, reads,
+                    )?;
+                    pages.extend(hydrated_pages);
+                    remaining = next;
+                    break;
+                }
                 let state_chars = assessed_payload_chars(&source, &state);
                 let remaining_chars = max_chars.saturating_sub(captured_chars);
                 if state_chars > remaining_chars && !pages.is_empty() {
@@ -406,29 +765,19 @@ fn capture_resource(
                     break;
                 }
                 let mut context = receipt.unwrap_or_else(|| fallback_context(&source));
-                // A search page cut mid-JSON is poor evidence and has no safe
-                // continuation; ask for a smaller page instead of judging it.
-                if state_chars > remaining_chars && !pages_within && source.get("tool").is_some() {
+                // Never classify an arbitrary prefix with the full page's
+                // source receipt. The caller can choose a smaller complete section.
+                if state_chars > remaining_chars {
                     pages.push(CapturedPage::Failed {
                         error: ClassificationError::new(
                             "classificationContextTooLarge",
                             format!(
-                                "The search page is {state_chars} characters, above maxChars {max_chars}."
+                                "The first captured page is {state_chars} characters, above maxChars {max_chars}; no classification was run."
                             ),
-                            "Lower pageSize or matchContentLength, use a files-only view, or give each candidate its own resource.",
+                            "Select a smaller complete section, reduce the read page size, or raise maxChars within its limit.",
                         ),
                         context,
                     });
-                    break;
-                }
-                if state_chars > remaining_chars {
-                    let state = bounded_payload_prefix(
-                        &source,
-                        &state,
-                        &mut context,
-                        remaining_chars.max(1),
-                    );
-                    pages.push(CapturedPage::Ready { state, context });
                     break;
                 }
                 captured_chars = captured_chars.saturating_add(state_chars);
@@ -517,7 +866,7 @@ fn coalesce_pages(pages: Vec<CapturedPage>) -> Vec<CapturedPage> {
     output
 }
 
-async fn assess_page(
+async fn assess_provider_page(
     state: &Value,
     questions: &[Value],
     config: &ProviderConfig<'_>,
@@ -581,22 +930,294 @@ async fn assess_page(
     (assessed, Some(json!({"calls":usages})))
 }
 
+#[derive(Clone, Debug)]
+struct LocatedPassage {
+    id: String,
+    start_line: u64,
+    end_line: u64,
+}
+
+// Passage IDs are provider-facing routing buckets, not semantic syntax nodes.
+// A JSON/object record or prose sentence can cross a four-line bucket edge, so
+// return a small verification window around the winning bucket. This keeps the
+// host read bounded while preserving the adjacent line that completes it.
+const LOCATE_VERIFY_CONTEXT_LINES: u64 = 2;
+
+enum PublicAnswerPlan {
+    Direct(usize),
+    Locate {
+        choice: usize,
+        exists: usize,
+        passages: Vec<LocatedPassage>,
+    },
+    Failed(ClassificationError),
+}
+
+fn located_state(state: &Value) -> Result<(Value, Vec<LocatedPassage>), ClassificationError> {
+    let object = state.as_object().ok_or_else(|| {
+        ClassificationError::new(
+            "classificationLocateUnsupported",
+            "locate requires one contiguous file page with original source lines.",
+            "Use localFetch or ghGetFileContent without a transformed/minified view.",
+        )
+    })?;
+    let content = object
+        .get("content")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            ClassificationError::new(
+                "classificationLocateUnsupported",
+                "locate could not find contiguous file content in this resource page.",
+                "Use localFetch or ghGetFileContent with original source content.",
+            )
+        })?;
+    let lines = object
+        .get("lines")
+        .and_then(Value::as_array)
+        .filter(|v| v.len() == 2);
+    let (start, end) = lines
+        .and_then(|v| Some((v[0].as_u64()?, v[1].as_u64()?)))
+        .filter(|(start, end)| *start >= 1 && end >= start)
+        .ok_or_else(|| {
+            ClassificationError::new(
+                "classificationLocateUnsupported",
+                "locate requires a verified contiguous original-source line range.",
+                "Use an unminified line-based localFetch or ghGetFileContent read.",
+            )
+        })?;
+    let source_lines = content.lines().collect::<Vec<_>>();
+    if source_lines.is_empty() || source_lines.len() as u64 > end - start + 1 {
+        return Err(ClassificationError::new(
+            "classificationLocateUnsupported",
+            "locate could not align captured text with its original source range.",
+            "Read a smaller unminified line range and retry.",
+        ));
+    }
+    let passage_lines = 4usize.max(source_lines.len().div_ceil(255));
+    let mut passages = Vec::new();
+    let mut tagged = String::new();
+    for (index, chunk) in source_lines.chunks(passage_lines).enumerate() {
+        let id = format!("P{index:03}");
+        let start_line = start + (index * passage_lines) as u64;
+        let end_line = (start_line + chunk.len() as u64 - 1).min(end);
+        passages.push(LocatedPassage {
+            id: id.clone(),
+            start_line,
+            end_line,
+        });
+        for line in chunk {
+            tagged.push_str(&id);
+            tagged.push_str("| ");
+            tagged.push_str(line);
+            tagged.push('\n');
+        }
+    }
+    let mut tagged_state = object.clone();
+    tagged_state.insert("content".into(), json!(tagged));
+    Ok((Value::Object(tagged_state), passages))
+}
+
+fn locate_provider_questions(target: &str, passages: &[LocatedPassage]) -> [Value; 2] {
+    let mut criteria = serde_json::Map::new();
+    for passage in passages {
+        criteria.insert(passage.id.clone(), Value::Null);
+    }
+    if criteria.len() == 1 {
+        criteria.insert(
+            "NONE".into(),
+            json!("No passage in the supplied source answers the target."),
+        );
+    }
+    [
+        json!({
+            "type":"choice",
+            "instructions":{
+                "question":"Which passage ID best answers the target?",
+                "target":target
+            },
+            "criteria":criteria
+        }),
+        json!({
+            "type":"noul",
+            "instructions":{
+                "question":"Does any passage directly address or answer the target?",
+                "target":target
+            },
+            "criteria":{
+                "true":"At least one passage states or directly implies an answer.",
+                "false":"No passage addresses the target."
+            }
+        }),
+    ]
+}
+
+fn collapse_locate_answer(
+    choice: &Result<Value, ClassificationError>,
+    exists: &Result<Value, ClassificationError>,
+    passages: &[LocatedPassage],
+) -> Result<Value, ClassificationError> {
+    let choice = choice.as_ref().map_err(Clone::clone)?;
+    let exists = exists.as_ref().map_err(Clone::clone)?;
+    let probabilities = choice
+        .pointer("/answer/probabilities")
+        .and_then(Value::as_object)
+        .ok_or_else(|| {
+            ClassificationError::new(
+                "invalidClassificationResponse",
+                "locate choice response omitted passage probabilities.",
+                "Inspect provider compatibility before using the answer.",
+            )
+        })?;
+    let exists_probability = exists
+        .pointer("/answer/noul")
+        .and_then(Value::as_f64)
+        .ok_or_else(|| {
+            ClassificationError::new(
+                "invalidClassificationResponse",
+                "locate existence response omitted its probability.",
+                "Inspect provider compatibility before using the answer.",
+            )
+        })?;
+    let mut ranked = passages
+        .iter()
+        .map(|passage| {
+            (
+                probabilities
+                    .get(&passage.id)
+                    .and_then(Value::as_f64)
+                    .unwrap_or(0.0),
+                passage,
+            )
+        })
+        .collect::<Vec<_>>();
+    ranked.sort_by(|(left, _), (right, _)| {
+        right.partial_cmp(left).unwrap_or(std::cmp::Ordering::Equal)
+    });
+    // A locate question names one source-local fact. Return its best passage;
+    // independent facts belong in separate questions over the same capture.
+    // This keeps the host payload small and makes the merged verification plan
+    // deterministic.
+    let matches = ranked
+        .into_iter()
+        .take(1)
+        .map(|(probability, passage)| {
+            let page_start = passages
+                .first()
+                .map_or(passage.start_line, |first| first.start_line);
+            let page_end = passages
+                .last()
+                .map_or(passage.end_line, |last| last.end_line);
+            json!({
+                "startLine":passage.start_line.saturating_sub(LOCATE_VERIFY_CONTEXT_LINES).max(page_start),
+                "endLine":passage.end_line.saturating_add(LOCATE_VERIFY_CONTEXT_LINES).min(page_end),
+                "probability":(probability * 10_000.0).round() / 10_000.0
+            })
+        })
+        .collect::<Vec<_>>();
+    let mut projected = choice.clone();
+    projected["answer"] = json!({
+        "type":"locate",
+        "exists":(exists_probability * 10_000.0).round() / 10_000.0,
+        "matches":matches
+    });
+    Ok(projected)
+}
+
+async fn assess_page(
+    state: &Value,
+    questions: &[Value],
+    config: &ProviderConfig<'_>,
+    budget: &crate::providers::RequestBudget,
+    gate: &GateLease,
+) -> (Vec<Result<Value, ClassificationError>>, Option<Value>) {
+    let has_locate = questions
+        .iter()
+        .any(|question| clasify::questions::is_locate(&question["question"]));
+    let located = has_locate.then(|| located_state(state));
+    let (provider_state, passages, locate_error) = match located {
+        Some(Ok((state, passages))) => (state, passages, None),
+        Some(Err(error)) => (state.clone(), Vec::new(), Some(error)),
+        None => (state.clone(), Vec::new(), None),
+    };
+    let mut provider_questions = Vec::new();
+    let mut plans = Vec::with_capacity(questions.len());
+    for question in questions {
+        if clasify::questions::is_locate(&question["question"]) {
+            if let Some(error) = &locate_error {
+                plans.push(PublicAnswerPlan::Failed(error.clone()));
+                continue;
+            }
+            let target = question["question"]["target"].as_str().unwrap_or_default();
+            let [choice, exists] = locate_provider_questions(target, &passages);
+            let choice_index = provider_questions.len();
+            provider_questions.push(json!({"id":question["id"],"question":choice}));
+            let exists_index = provider_questions.len();
+            provider_questions.push(json!({"id":question["id"],"question":exists}));
+            plans.push(PublicAnswerPlan::Locate {
+                choice: choice_index,
+                exists: exists_index,
+                passages: passages.clone(),
+            });
+        } else {
+            let index = provider_questions.len();
+            provider_questions.push(question.clone());
+            plans.push(PublicAnswerPlan::Direct(index));
+        }
+    }
+    let (answers, usage) = if provider_questions.is_empty() {
+        (Vec::new(), None)
+    } else {
+        assess_provider_page(&provider_state, &provider_questions, config, budget, gate).await
+    };
+    let projected = plans
+        .into_iter()
+        .map(|plan| match plan {
+            PublicAnswerPlan::Direct(index) => answers.get(index).cloned().unwrap_or_else(|| {
+                Err(ClassificationError::new(
+                    "invalidClassificationResponse",
+                    "Provider answer count did not match the requested questions.",
+                    "Inspect provider compatibility before using the answer.",
+                ))
+            }),
+            PublicAnswerPlan::Locate {
+                choice,
+                exists,
+                passages,
+            } => match (answers.get(choice), answers.get(exists)) {
+                (Some(choice), Some(exists)) => collapse_locate_answer(choice, exists, &passages),
+                _ => Err(ClassificationError::new(
+                    "invalidClassificationResponse",
+                    "Provider answer count did not match the locate questions.",
+                    "Inspect provider compatibility before using the answer.",
+                )),
+            },
+            PublicAnswerPlan::Failed(error) => Err(error),
+        })
+        .collect();
+    (projected, usage)
+}
+
 type Capture = (Vec<CapturedPage>, Option<Value>);
 
-/// Capture one resource, holding a per-call and a process-wide read permit
-/// while a delegated read runs. Supplied values need no permit.
-fn capture_limited(
-    resource: &Value,
+/// Run one delegated read within the shared call/process limits. Supplied
+/// values do not consume a permit.
+fn resolve_limited(
+    source: &Value,
     dispatcher: &DomainDispatcher,
     execution: &ExecutionContext,
     reads: &ReadLimiter,
-) -> Result<Capture, ExecutionError> {
-    if resource["context"].get("tool").is_none() {
-        return capture_resource(resource, dispatcher, execution);
+) -> Result<Result<(Value, Option<Value>), super::clasify_context::ContextFailure>, ExecutionError>
+{
+    if source.get("tool").is_none() {
+        return Ok(super::clasify_context::resolve(
+            source, dispatcher, execution,
+        ));
     }
     let _call = reads.acquire(execution)?;
     let _process = PROCESS_READS.acquire(execution)?;
-    capture_resource(resource, dispatcher, execution)
+    Ok(super::clasify_context::resolve(
+        source, dispatcher, execution,
+    ))
 }
 
 struct CapturedResource<'a> {
@@ -610,140 +1231,7 @@ type PageAssessment = (
     usize,
     Vec<Result<Value, ClassificationError>>,
     Option<Value>,
-    Option<Value>,
 );
-
-/// Lines per focus window; pages shorter than two windows are already small.
-const FOCUS_WINDOW_LINES: usize = 40;
-/// Below this the window choice is too diffuse to be worth reading first.
-const MIN_FOCUS_CONFIDENCE: f64 = 0.5;
-type FocusRequest = (Value, Value, Vec<(usize, usize)>);
-
-/// A file can be judged and localized from the same windowed state. Sending
-/// the complete content again for the focus Choice nearly doubles provider
-/// input tokens, so include that Choice in the first request when it fits.
-fn focus_request(state: &Value, instructions: &Value) -> Option<FocusRequest> {
-    let content = state.get("content")?.as_str()?;
-    let first_line = state.get("lines")?.get(0)?.as_u64()? as usize;
-    let lines = content.lines().collect::<Vec<_>>();
-    let last_line = state.get("lines")?.get(1)?.as_u64()? as usize;
-    if last_line.checked_sub(first_line)?.checked_add(1)? != lines.len() {
-        return None;
-    }
-    // Reserve one Choice label for insufficient evidence.
-    if lines.len() < FOCUS_WINDOW_LINES * 2 || lines.len().div_ceil(FOCUS_WINDOW_LINES) >= 255 {
-        return None;
-    }
-    let mut windows = serde_json::Map::new();
-    let mut criteria = serde_json::Map::new();
-    let mut spans = Vec::new();
-    for (index, chunk) in lines.chunks(FOCUS_WINDOW_LINES).enumerate() {
-        let id = format!("w{}", index + 1);
-        let start = first_line + index * FOCUS_WINDOW_LINES;
-        windows.insert(id.clone(), json!(chunk.join("\n")));
-        criteria.insert(id, Value::Null);
-        spans.push((start, start + chunk.len() - 1));
-    }
-    criteria.insert(
-        "insufficient".into(),
-        json!("No window on this page contains enough evidence to localize the answer."),
-    );
-    let mut windowed = state
-        .as_object()?
-        .iter()
-        .filter(|(key, _)| key.as_str() != "content")
-        .map(|(key, value)| (key.clone(), value.clone()))
-        .collect::<serde_json::Map<_, _>>();
-    windowed.insert("windows".into(), Value::Object(windows));
-    let instructions = match instructions {
-        Value::String(text) => text.clone(),
-        other => other.to_string(),
-    };
-    let question = json!({
-        "type": "choice",
-        "instructions": format!("Which window of this content best matches: {instructions}"),
-        "criteria": criteria,
-    });
-    Some((Value::Object(windowed), question, spans))
-}
-
-fn focus_from_answer(
-    answer: &Result<Value, ClassificationError>,
-    focus_answer: &Result<Value, ClassificationError>,
-    spans: &[(usize, usize)],
-) -> Option<Value> {
-    if !answer
-        .as_ref()
-        .ok()
-        .and_then(|data| data.pointer("/answer/noul"))
-        .and_then(Value::as_f64)
-        .is_some_and(|probability| probability >= 0.8)
-    {
-        return None;
-    }
-    let data = focus_answer.as_ref().ok()?;
-    let index = data
-        .pointer("/answer/choice")?
-        .as_str()?
-        .strip_prefix('w')?
-        .parse::<usize>()
-        .ok()?
-        .checked_sub(1)?;
-    let (start, end) = *spans.get(index)?;
-    let confidence = data.pointer("/answer/confidence").and_then(Value::as_f64)?;
-    if confidence < MIN_FOCUS_CONFIDENCE {
-        return None;
-    }
-    Some(json!({
-        "startLine": start,
-        "endLine": end,
-        "confidence": (confidence * 1000.0).round() / 1000.0
-    }))
-}
-
-/// Narrow a high-scoring file page to its best ~40-line window with one
-/// Choice over window IDs (the provider's line-search pattern: the page's own
-/// Noul is the "exists" check, the Choice ranks where). Returns the focus
-/// scope and the extra request's usage.
-async fn focus_page(
-    state: &Value,
-    questions: &[Value],
-    answers: &[Result<Value, ClassificationError>],
-    config: &ProviderConfig<'_>,
-    budget: &crate::providers::RequestBudget,
-    gate: &GateLease,
-) -> Option<(Value, Value)> {
-    let eligible = questions
-        .iter()
-        .zip(answers)
-        .enumerate()
-        .filter_map(|(index, (question, answer))| {
-            (question["question"]["type"] == "noul"
-                && answer.as_ref().ok()?.pointer("/answer/noul")?.as_f64()? >= 0.8)
-                .then_some(index)
-        })
-        .collect::<Vec<_>>();
-    let first = *eligible.first()?;
-    let (focus_state, _, spans) =
-        focus_request(state, &questions[first]["question"]["instructions"])?;
-    let focus_questions = eligible
-        .iter()
-        .map(|&index| {
-            let (_, choice, _) =
-                focus_request(state, &questions[index]["question"]["instructions"])?;
-            Some(json!({"id":questions[index]["id"],"question":choice}))
-        })
-        .collect::<Option<Vec<_>>>()?;
-    let (focus_answers, usage) =
-        assess_page(&focus_state, &focus_questions, config, budget, gate).await;
-    let mut by_question = serde_json::Map::new();
-    for (&index, focus_answer) in eligible.iter().zip(&focus_answers) {
-        if let Some(focus) = focus_from_answer(&answers[index], focus_answer, &spans) {
-            by_question.insert(questions[index]["id"].as_str()?.into(), focus);
-        }
-    }
-    Some((Value::Object(by_question), usage?))
-}
 
 #[allow(clippy::too_many_arguments)]
 fn execute_query(
@@ -756,21 +1244,14 @@ fn execute_query(
     reads: &ReadLimiter,
 ) -> Result<(DomainResult, Vec<Value>), ExecutionError> {
     execution.check()?;
-    clasify::preflight(query).map_err(|_| ExecutionError::WorkerFailed)?;
+    let resolved_questions = clasify::preflight(query).map_err(|_| ExecutionError::WorkerFailed)?;
     let questions = query["questions"]
         .as_array()
-        .ok_or(ExecutionError::WorkerFailed)?
-        .iter()
-        .map(clasify::with_insufficient_choice)
-        .collect::<Vec<_>>();
-    let questions = questions.as_slice();
+        .ok_or(ExecutionError::WorkerFailed)?;
+    let resolved_questions = resolved_questions.as_slice();
     let resources = query["resources"]
         .as_array()
         .ok_or(ExecutionError::WorkerFailed)?;
-    // In a candidate matrix most files are negative. Speculative window heads
-    // would add output tokens for every negative, so reserve them for a single
-    // large resource whose focus is likely to be consumed.
-    let speculative_focus_allowed = resources.len() == 1;
     let delegated = resources
         .iter()
         .filter(|resource| resource["context"].get("tool").is_some())
@@ -779,9 +1260,12 @@ fn execute_query(
     let cursor = AtomicUsize::new(0);
     let (sender, mut receiver) =
         tokio::sync::mpsc::unbounded_channel::<(usize, Result<Capture, ExecutionError>)>();
-    // Capture workers stream each resource to the assessor as soon as it is
-    // read, so provider calls start while later resources are still loading.
-    let (captures, mut assessments) = std::thread::scope(|scope| {
+    let candidate_limit = (MAX_EXPANDED_CELLS / questions.len().max(1)).max(1);
+    // Capture every page before the first provider request. Search fan-out and
+    // file paging expand the input matrix, so only the completed capture can
+    // enforce the public 25-cell ceiling without racing or silently dropping
+    // candidates.
+    let captures = std::thread::scope(|scope| {
         for _ in 0..workers {
             let sender = sender.clone();
             let cursor = &cursor;
@@ -791,7 +1275,8 @@ fn execute_query(
                     let Some(resource) = resources.get(index) else {
                         break;
                     };
-                    let capture = capture_limited(resource, dispatcher, execution, reads);
+                    let capture =
+                        capture_resource(resource, dispatcher, execution, reads, candidate_limit);
                     if sender.send((index, capture)).is_err() {
                         break;
                     }
@@ -801,121 +1286,15 @@ fn execute_query(
         drop(sender);
         dispatcher.handle.block_on(async {
             let mut captures = resources.iter().map(|_| None).collect::<Vec<_>>();
-            let mut pending = FuturesUnordered::new();
-            let mut assessments = Vec::<PageAssessment>::new();
-            let mut open = true;
-            while open || !pending.is_empty() {
-                tokio::select! {
-                    received = receiver.recv(), if open => match received {
-                        Some((resource_index, capture)) => {
-                            if let Ok((pages, _)) = &capture {
-                                let speculative_single_page =
-                                    speculative_focus_allowed && pages.len() == 1;
-                                for (page_index, page) in pages.iter().enumerate() {
-                                    let CapturedPage::Ready { state, .. } = page else {
-                                        continue;
-                                    };
-                                    let state = state.clone();
-                                    let config = &config;
-                                    pending.push(async move {
-                                        let speculative = if speculative_single_page
-                                            && questions.len() == 1
-                                            && questions[0]["question"]["type"] == "noul"
-                                        {
-                                            focus_request(
-                                                &state,
-                                                &questions[0]["question"]["instructions"],
-                                            )
-                                            .and_then(|(windowed, focus_question, spans)| {
-                                                let extra = json!({
-                                                    "id": "__focus",
-                                                    "question": focus_question,
-                                                });
-                                                let indexed = [
-                                                    (0, &questions[0]["question"]),
-                                                    (1, &extra["question"]),
-                                                ];
-                                                clasify::batch::fits(
-                                                    &windowed,
-                                                    &indexed,
-                                                    config.model,
-                                                    config.provider,
-                                                )
-                                                .then_some((windowed, extra, spans))
-                                            })
-                                        } else {
-                                            None
-                                        };
-                                        let (answers, usage, focus) =
-                                            if let Some((windowed, extra, spans)) = speculative {
-                                                let combined = [questions[0].clone(), extra];
-                                                let (mut answers, usage) = assess_page(
-                                                    &windowed, &combined, config, budget, gate,
-                                                )
-                                                .await;
-                                                let focus = answers.pop().and_then(|answer| {
-                                                    focus_from_answer(&answers[0], &answer, &spans)
-                                                        .and_then(|focus| {
-                                                            let id = questions[0]["id"].as_str()?;
-                                                            let mut keyed = serde_json::Map::new();
-                                                            keyed.insert(id.into(), focus);
-                                                            Some(Value::Object(keyed))
-                                                        })
-                                                });
-                                                (answers, usage, focus)
-                                            } else {
-                                                let (answers, usage) = assess_page(
-                                                    &state, questions, config, budget, gate,
-                                                )
-                                                .await;
-                                                let extra = focus_page(
-                                                    &state, questions, &answers, config, budget,
-                                                    gate,
-                                                )
-                                                .await;
-                                                let usage = match (usage, extra.as_ref()) {
-                                                    (Some(usage), Some((_, extra_usage))) => {
-                                                        let mut calls = usage
-                                                            .get("calls")
-                                                            .and_then(Value::as_array)
-                                                            .cloned()
-                                                            .unwrap_or_else(|| vec![usage.clone()]);
-                                                        calls.push(extra_usage.clone());
-                                                        Some(json!({"calls": calls}))
-                                                    }
-                                                    (usage, _) => usage,
-                                                };
-                                                let focus = extra.and_then(|(scope, _)| {
-                                                    scope.as_object().is_some_and(|map| !map.is_empty())
-                                                        .then_some(scope)
-                                                });
-                                                (answers, usage, focus)
-                                            };
-                                        (
-                                            resource_index,
-                                            page_index,
-                                            answers,
-                                            usage,
-                                            focus,
-                                        )
-                                    });
-                                }
-                            }
-                            if let Some(slot) = captures.get_mut(resource_index) {
-                                *slot = Some(capture);
-                            }
-                        }
-                        None => open = false,
-                    },
-                    Some(assessed) = pending.next(), if !pending.is_empty() => {
-                        assessments.push(assessed);
-                    }
+            while let Some((resource_index, capture)) = receiver.recv().await {
+                if let Some(slot) = captures.get_mut(resource_index) {
+                    *slot = Some(capture);
                 }
             }
-            (captures, assessments)
+            captures
         })
     });
-    let captured = captures
+    let mut captured = captures
         .into_iter()
         .map(|capture| capture.unwrap_or(Err(ExecutionError::WorkerFailed)))
         .collect::<Result<Vec<_>, _>>()?
@@ -927,7 +1306,65 @@ fn execute_query(
             continuation,
         })
         .collect::<Vec<_>>();
-    assessments.sort_by_key(|(resource_index, page_index, _, _, _)| (*resource_index, *page_index));
+
+    let expanded_pages = captured
+        .iter()
+        .flat_map(|resource| resource.pages.iter())
+        .filter(|page| matches!(page, CapturedPage::Ready { .. }))
+        .count();
+    let expanded_cells = expanded_pages.saturating_mul(questions.len());
+    if expanded_cells > MAX_EXPANDED_CELLS {
+        for resource in &mut captured {
+            for page in &mut resource.pages {
+                let CapturedPage::Ready { context, .. } = page else {
+                    continue;
+                };
+                *page = CapturedPage::Failed {
+                    error: ClassificationError::new(
+                        "classificationExpandedCellsExceeded",
+                        format!(
+                            "Captured {expanded_pages} pages × {} questions = {expanded_cells} cells; the limit is {MAX_EXPANDED_CELLS}. No provider request was made.",
+                            questions.len()
+                        ),
+                        "Reduce resources, questions, or search pageSize and retry.",
+                    ),
+                    context: context.clone(),
+                };
+            }
+        }
+    }
+
+    // Candidates remain separate states: combining files and rewriting the
+    // caller's atomic questions would make answers comparative and break
+    // resource/page correlation. Provider calls are nevertheless concurrent,
+    // and assess_page batches all questions for one candidate whenever `fits`.
+    let mut assessments = if expanded_cells > MAX_EXPANDED_CELLS {
+        Vec::new()
+    } else {
+        dispatcher.handle.block_on(async {
+            let mut pending = FuturesUnordered::new();
+            for (resource_index, resource) in captured.iter().enumerate() {
+                for (page_index, page) in resource.pages.iter().enumerate() {
+                    let CapturedPage::Ready { state, .. } = page else {
+                        continue;
+                    };
+                    let state = state.clone();
+                    let config = &config;
+                    pending.push(async move {
+                        let (answers, usage) =
+                            assess_page(&state, resolved_questions, config, budget, gate).await;
+                        (resource_index, page_index, answers, usage)
+                    });
+                }
+            }
+            let mut assessments = Vec::<PageAssessment>::new();
+            while let Some(assessed) = pending.next().await {
+                assessments.push(assessed);
+            }
+            assessments
+        })
+    };
+    assessments.sort_by_key(|(resource_index, page_index, _, _)| (*resource_index, *page_index));
     let mut assessments = assessments.into_iter();
     let question_ids = questions
         .iter()
@@ -954,7 +1391,7 @@ fn execute_query(
                     });
                 }
                 CapturedPage::Ready { context, .. } => {
-                    let Some((assessed_resource, assessed_page, answers, usage, focus)) =
+                    let Some((assessed_resource, assessed_page, answers, usage)) =
                         assessments.next()
                     else {
                         return Err(ExecutionError::WorkerFailed);
@@ -978,7 +1415,6 @@ fn execute_query(
                     outcomes.push(PageOutcome::Assessed {
                         receipt: context,
                         answers,
-                        focus,
                     });
                 }
             }
@@ -1002,22 +1438,93 @@ fn execute_query(
     }
 
     let mut output = json!({"queryId":query["id"]});
+    if questions.iter().any(|question| {
+        let question = &question["question"];
+        question.get("questionType").is_some() && !clasify::questions::is_locate(question)
+    }) {
+        output["templateVersion"] =
+            clasify::questions::version().map_err(|_| ExecutionError::WorkerFailed)?;
+    }
     for (key, value) in clasify_output::query_meta(&usage_records, resolved_model.as_deref()) {
         output[key.as_str()] = value;
     }
-    if let Some(ids) = clasify_output::low_signal(&query["questions"], &rendered) {
-        output["lowSignal"] = ids;
-    }
     output["resources"] = Value::Array(rendered);
     if !continuation_resources.is_empty() {
+        let public_questions = query["questions"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|question| question["question"].clone())
+            .collect::<Vec<_>>();
         output["next"] = json!({"clasify":{
             "id":query["id"],
             "reasoning":query["reasoning"],
             "resources":continuation_resources,
-            "questions":query["questions"]
+            "questions":public_questions
         }});
     }
     Ok((dispatch::value_result(output), usage_records))
+}
+
+fn next_unused_id(prefix: &str, position: usize, used: &mut HashSet<String>) -> String {
+    let base = format!("{prefix}-{}", position + 1);
+    let mut candidate = base.clone();
+    let mut suffix = 2usize;
+    while used.contains(&candidate) {
+        candidate = format!("{base}-{suffix}");
+        suffix += 1;
+    }
+    used.insert(candidate.clone());
+    candidate
+}
+
+/// Correlation IDs are presentation metadata, not provider input. Derive them
+/// after contract validation so callers can omit repetitive bookkeeping while
+/// preserving stable keyed output and executable continuations.
+fn normalize_ids(queries: &mut [Value]) {
+    let mut matrix_ids = queries
+        .iter()
+        .filter_map(|query| query.get("id").and_then(Value::as_str))
+        .map(str::to_owned)
+        .collect::<HashSet<_>>();
+    for (query_index, query) in queries.iter_mut().enumerate() {
+        if query.get("id").is_none() {
+            query["id"] = json!(next_unused_id("matrix", query_index, &mut matrix_ids));
+        }
+        if let Some(resources) = query.get_mut("resources").and_then(Value::as_array_mut) {
+            let mut used = resources
+                .iter()
+                .filter_map(|row| row.get("id").and_then(Value::as_str))
+                .map(str::to_owned)
+                .collect::<HashSet<_>>();
+            for (position, resource) in resources.iter_mut().enumerate() {
+                if resource.get("id").is_none() {
+                    resource["id"] = json!(next_unused_id("resource", position, &mut used));
+                }
+            }
+        }
+        if let Some(questions) = query.get_mut("questions").and_then(Value::as_array_mut) {
+            let mut used = questions
+                .iter()
+                .filter_map(|row| row.get("id").and_then(Value::as_str))
+                .map(str::to_owned)
+                .collect::<HashSet<_>>();
+            for (position, row) in questions.iter_mut().enumerate() {
+                if row.get("question").is_none() {
+                    let mut question = row.as_object().cloned().unwrap_or_default();
+                    let id = question
+                        .remove("id")
+                        .unwrap_or_else(|| json!(next_unused_id("question", position, &mut used)));
+                    *row = json!({
+                        "id":id,
+                        "question":Value::Object(question)
+                    });
+                } else if row.get("id").is_none() {
+                    row["id"] = json!(next_unused_id("question", position, &mut used));
+                }
+            }
+        }
+    }
 }
 
 pub(super) fn execute(
@@ -1027,6 +1534,9 @@ pub(super) fn execute(
     config: ProviderConfig<'_>,
     record_usage: impl FnOnce(ClassificationUsage),
 ) -> Result<Vec<DomainResult>, ExecutionError> {
+    let mut normalized_queries = queries.to_vec();
+    normalize_ids(&mut normalized_queries);
+    let queries = normalized_queries.as_slice();
     let budget = clasify::transport::budget(execution.deadline, execution.cancellation.clone());
     let gate_key = clasify::transport::endpoint(config.base_url, config.endpoint_path).map_or_else(
         |_| format!("{}|{}", config.base_url, config.endpoint_path),
@@ -1076,15 +1586,97 @@ pub(super) fn execute(
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
-    fn disjoint_file_evidence_cannot_generate_a_false_focus_line() {
+    fn locate_tags_unread_file_passages_and_projects_compact_source_ranges() {
+        let state = json!({
+            "path":"/tmp/guide.md",
+            "lines":[101,108],
+            "content":"one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\n"
+        });
+        let (tagged, passages) = located_state(&state).expect("contiguous file state");
+        assert_eq!(passages.len(), 2);
+        assert_eq!(passages[0].start_line, 101);
+        assert_eq!(passages[0].end_line, 104);
+        assert!(tagged["content"].as_str().unwrap().contains("P001| five"));
+        let choice = Ok(json!({
+            "resolvedModel":"jev",
+            "answer":{"type":"choice","choice":"P001","confidence":0.9,
+                "probabilities":{"P000":0.06,"P001":0.9400000000000001}}
+        }));
+        let exists = Ok(json!({"answer":{"type":"noul","noul":0.9700000000000001}}));
+        let projected = collapse_locate_answer(&choice, &exists, &passages).unwrap();
+        assert_eq!(
+            projected["answer"],
+            json!({"type":"locate","exists":0.97,"matches":[
+                {"startLine":103,"endLine":108,"probability":0.94}
+            ]})
+        );
+        assert_eq!(projected["resolvedModel"], "jev");
+    }
+
+    #[test]
+    fn flat_questions_and_omitted_ids_are_normalized_for_internal_execution() {
+        let mut queries = vec![
+            json!({
+                "reasoning":"Locate facts",
+                "resources":[
+                    {"context":{"value":"a"}},
+                    {"id":"resource-1","context":{"value":"b"}}
+                ],
+                "questions":[
+                    {"type":"noul","instructions":"first"},
+                    {"id":"named","type":"noul","instructions":"second"}
+                ]
+            }),
+            json!({
+                "id":"matrix-1",
+                "reasoning":"Judge state",
+                "resources":[{"context":{"value":"c"}}],
+                "questions":[{"type":"noul","instructions":"third"}]
+            }),
+        ];
+        normalize_ids(&mut queries);
+        assert_eq!(queries[0]["id"], "matrix-1-2");
+        assert_eq!(queries[0]["resources"][0]["id"], "resource-1-2");
+        assert_eq!(queries[0]["resources"][1]["id"], "resource-1");
+        assert_eq!(queries[0]["questions"][0]["id"], "question-1");
+        assert_eq!(
+            queries[0]["questions"][0]["question"]["instructions"],
+            "first"
+        );
+        assert_eq!(queries[0]["questions"][1]["id"], "named");
+        assert_eq!(
+            queries[0]["questions"][1]["question"]["instructions"],
+            "second"
+        );
+        assert_eq!(queries[1]["id"], "matrix-1");
+        assert_eq!(queries[1]["resources"][0]["id"], "resource-1");
+        assert_eq!(queries[1]["questions"][0]["id"], "question-1");
+    }
+
+    #[test]
+    fn locate_rejects_values_and_transformed_or_disjoint_source_views() {
+        for state in [
+            json!({"message":"already observed"}),
+            json!({"path":"a","content":"x","lines":[[1,1],[9,9]]}),
+            json!({"path":"a","content":"x"}),
+        ] {
+            assert_eq!(
+                located_state(&state).unwrap_err().code,
+                "classificationLocateUnsupported"
+            );
+        }
+    }
+
+    #[test]
+    fn disjoint_file_evidence_keeps_distinct_source_ranges() {
         let state = json!({"results":[{"data":{
             "path":"/tmp/example.rs","content":(0..100).map(|i| format!("line {i}\n")).collect::<String>(),
             "sourceLineRanges":[{"start":4,"end":53},{"start":1000,"end":1049}]
         }}]});
         let evidence = file_evidence(&state).expect("file evidence");
         assert_eq!(evidence["lines"], json!([[4, 53], [1000, 1049]]));
-        assert!(focus_request(&evidence, &json!("Find implementation")).is_none());
     }
 
     #[test]
@@ -1098,7 +1690,6 @@ mod tests {
         }}]});
         let evidence = file_evidence(&state).expect("file evidence");
         assert!(evidence.get("lines").is_none());
-        assert!(focus_request(&evidence, &json!("Find shutdown")).is_none());
     }
 
     #[test]
@@ -1134,25 +1725,6 @@ mod tests {
     }
 
     #[test]
-    fn oversized_tool_page_prefix_uses_sanitized_payload_not_envelope() {
-        let source = json!({"tool":"localFetch","query":{"path":"/tmp/source"}});
-        let state = json!({
-            "results":[{"index":0,"data":{
-                "content":"deciding-marker",
-                "next":{"continue":{"tool":"localFetch","query":{"path":"a".repeat(10_000)}}}
-            }}],
-            "base":"/tmp"
-        });
-        let mut context = json!({"next":{"continue":true}});
-        let prefix = bounded_payload_prefix(&source, &state, &mut context, 100);
-        let prefix = prefix.as_str().expect("bounded prefix string");
-        assert!(prefix.contains("deciding-marker"));
-        assert!(!prefix.contains("results"));
-        assert!(!prefix.contains("continue"));
-        assert!(context.get("next").is_none());
-    }
-
-    #[test]
     fn provider_payload_keeps_evidence_and_base_but_drops_control_fields() {
         let state = json!({"base":"/repo","results":[{"index":0,"meta":{"x":1},"data":{
             "declarations":[{"name":"apply_row"}],
@@ -1171,6 +1743,91 @@ mod tests {
             assessed_payload_chars(&source, &state),
             assessed_payload_chars(&source, &bare),
             "diagnostics and hints must not consume the evidence budget"
+        );
+    }
+
+    #[test]
+    fn code_search_pages_split_into_stable_file_candidates() {
+        let state = json!({"results":[{"data":{"files":[
+            {"owner":"o","repo":"r","path":"a.rs","matches":[{"value":"alpha"}]},
+            {"owner":"O","repo":"R","path":"a.rs","matches":[{"value":"duplicate"}]},
+            {"owner":"o","repo":"r","path":"b.rs","matches":[{"value":"beta"}]}
+        ],"next":{"nextPage":{"tool":"ghSearch","query":{"page":2}}}}}]});
+        let code = json!({"tool":"ghSearch","query":{"operation":"code"}});
+        let candidates = search_candidate_states(&code, &state).expect("code candidates");
+        assert_eq!(candidates.len(), 2);
+        assert_eq!(
+            candidates[0]["results"][0]["data"]["files"][0]["path"],
+            "a.rs"
+        );
+        assert_eq!(
+            candidates[1]["results"][0]["data"]["files"][0]["path"],
+            "b.rs"
+        );
+        assert_eq!(
+            candidates[0]["results"][0]["data"]["next"], state["results"][0]["data"]["next"],
+            "the original search continuation stays available after fan-out"
+        );
+        let receipt = super::super::clasify_context::candidate_receipt(&code, &candidates[0]);
+        assert_eq!(receipt["source"]["path"], "o/r/a.rs");
+        let tree = json!({"tool":"ghSearch","query":{"operation":"tree"}});
+        assert!(
+            search_candidate_states(&tree, &state).is_none(),
+            "tree entries are one discovery page, not code candidates"
+        );
+    }
+
+    #[test]
+    fn hydrated_candidate_reads_are_bounded_and_source_specific() {
+        let local = json!({"base":"/repo","results":[{"data":{"files":[{
+            "path":"src/a.rs","matches":[{"line":90,"value":"needle"}]
+        }]}}]});
+        let read = local_candidate_read(&local, 12_000).expect("local read");
+        assert_eq!(read["tool"], "localFetch");
+        assert_eq!(read["query"]["path"], "/repo/src/a.rs");
+        assert_eq!(read["query"]["startLine"], 30);
+        assert_eq!(read["query"]["endLine"], 150);
+        assert_eq!(read["query"]["chunkSize"], 12_000);
+
+        let github = json!({"results":[{"data":{"files":[{
+            "owner":"o","repo":"r","path":"src/a.rs","matches":[{
+                "value":"fn needle() {}", "matchIndices":[{"start":3,"end":9}]
+            }]
+        }]}}]});
+        let (mut read, anchored) = github_candidate_read(&github, 8_000).expect("github read");
+        assert!(anchored);
+        assert_eq!(read["query"]["matchString"], "needle");
+        assert_eq!(read["query"]["chunkSize"], 8_000);
+        let hydrated = json!({"results":[{"data":{"files":[{"commitSha":"abc123"}]}}]});
+        pin_github_read(&mut read, &hydrated);
+        assert_eq!(read["query"]["branch"], "abc123");
+    }
+
+    #[test]
+    fn candidate_page_bound_preserves_the_original_search_offset() {
+        let first = json!({"tool":"localSearch","query":{
+            "reasoning":"find","path":"/repo","searchText":"x","pageSize":20
+        }});
+        let bounded = bounded_search_source(&first, 5).expect("first page");
+        assert_eq!(bounded["query"]["page"], 1);
+        assert_eq!(bounded["query"]["pageSize"], 5);
+
+        let aligned = json!({"tool":"ghSearch","query":{
+            "operation":"code","reasoning":"find","owner":"o","keywords":["x"],
+            "page":2,"pageSize":20
+        }});
+        let bounded = bounded_search_source(&aligned, 5).expect("aligned offset");
+        assert_eq!(bounded["query"]["page"], 5);
+        assert_eq!(bounded["query"]["pageSize"], 5);
+
+        let unaligned = json!({"tool":"localSearch","query":{
+            "reasoning":"find","path":"/repo","searchText":"x","page":2,"pageSize":6
+        }});
+        assert_eq!(
+            bounded_search_source(&unaligned, 5)
+                .expect_err("offset cannot be represented")
+                .code,
+            "classificationExpandedCellsExceeded"
         );
     }
 
@@ -1199,7 +1856,7 @@ mod tests {
         );
         assert_eq!(assessed_payload_chars(&source, &local), 10);
         let github = json!({"results":[{"data":{"owner":"o","repo":"r","files":[
-            {"path":"b.js","content":"x","startLine":3,"endLine":3,"resolvedBranch":"sha"}]}}]});
+            {"path":"b.js","content":"x","startLine":3,"endLine":3,"commitSha":"sha"}]}}]});
         assert_eq!(
             provider_state(&json!({"tool":"ghGetFileContent","query":{}}), github),
             json!({"repo":"o/r","path":"b.js","lines":[3,3],"content":"x"})
@@ -1242,69 +1899,5 @@ mod tests {
             json!({"startLine":1,"endLine":200,"totalLines":400})
         );
         assert!(matches!(pages[1], CapturedPage::Failed { .. }));
-    }
-
-    #[test]
-    fn focus_request_shares_file_content_without_repeating_it() {
-        let content = (1..=100)
-            .map(|line| format!("line {line}"))
-            .collect::<Vec<_>>()
-            .join("\n");
-        let state = json!({"path":"a.rs","lines":[101,200],"content":content});
-        let (windowed, question, spans) =
-            focus_request(&state, &json!("Find the implementation")).unwrap();
-        assert!(windowed.get("content").is_none());
-        assert_eq!(windowed["path"], "a.rs");
-        assert_eq!(windowed["windows"].as_object().unwrap().len(), 3);
-        assert_eq!(spans, vec![(101, 140), (141, 180), (181, 200)]);
-        assert_eq!(question["criteria"].as_object().unwrap().len(), 4);
-        assert!(question["criteria"].get("insufficient").is_some());
-        assert!(clasify::batch::fits(
-            &windowed,
-            &[
-                (0, &json!({"type":"noul","instructions":"Find it"})),
-                (1, &question)
-            ],
-            "jev-latest",
-            &crate::providers::classification::jev::JEV,
-        ));
-        let too_many_windows = json!({
-            "path":"a.rs",
-            "lines":[1,10201],
-            "content":vec!["x"; 10201].join("\n"),
-        });
-        assert!(focus_request(&too_many_windows, &json!("Find it")).is_none());
-    }
-
-    #[test]
-    fn speculative_focus_needs_a_positive_page_and_confident_valid_window() {
-        let yes = Ok(json!({"answer":{"type":"noul","noul":0.99}}));
-        let no = Ok(json!({"answer":{"type":"noul","noul":0.01}}));
-        let choice = Ok(json!({"answer":{"type":"choice","choice":"w2","confidence":0.8}}));
-        let spans = [(1, 40), (41, 80)];
-        let insufficient =
-            Ok(json!({"answer":{"type":"choice","choice":"insufficient","confidence":0.99}}));
-        assert!(focus_from_answer(&yes, &insufficient, &spans).is_none());
-        assert_eq!(
-            focus_from_answer(&yes, &choice, &spans),
-            Some(json!({"startLine":41,"endLine":80,"confidence":0.8}))
-        );
-        assert!(focus_from_answer(&no, &choice, &spans).is_none());
-        assert!(
-            focus_from_answer(
-                &yes,
-                &Ok(json!({"answer":{"type":"choice","choice":"w2","confidence":0.4}})),
-                &spans,
-            )
-            .is_none()
-        );
-        assert!(
-            focus_from_answer(
-                &yes,
-                &Ok(json!({"answer":{"type":"choice","choice":"w3","confidence":0.9}})),
-                &spans,
-            )
-            .is_none()
-        );
     }
 }

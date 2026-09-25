@@ -82,7 +82,7 @@ fn filter_next(next: &mut Value, current_tool: &str, is_available: &impl Fn(&str
 }
 
 /// Continuations live only under `next` keys (`data.next.*`,
-/// `responsePagination.next`, `semanticRerank.next`); a `{tool, query}` shape
+/// `responsePagination.next`, nested `next`); a `{tool, query}` shape
 /// anywhere else is tool data and stays untouched.
 fn walk(value: &mut Value, memo: &mut Memo) {
     match value {
@@ -232,7 +232,7 @@ mod tests {
                 "readSite":{"tool":"localFetch","query":{"path":"/tmp/a"}}
             },
             "content":{"tool":"ghGetFileContent","query":{"next":{"readFile":{"tool":"localFetch","query":{}}}}},
-            "semanticRerank":{"next":{"nextPage":{"tool":"ghSearch","query":{"page":2}}}}
+            "nestedEvidence":{"next":{"nextPage":{"tool":"ghSearch","query":{"page":2}}}}
         }}]});
         let original_content = out["results"][0]["data"]["content"].clone();
         filter_unavailable_cross_tool_next(&mut out, "ghSearch", |target| target == "localFetch");
@@ -242,7 +242,7 @@ mod tests {
         assert_eq!(next["readSite"]["tool"], "localFetch");
         assert_eq!(out["results"][0]["data"]["content"], original_content);
         assert_eq!(
-            out["results"][0]["data"]["semanticRerank"]["next"]["nextPage"]["tool"],
+            out["results"][0]["data"]["nestedEvidence"]["next"]["nextPage"]["tool"],
             "ghSearch"
         );
     }

@@ -19,12 +19,24 @@
     "build:release": "node scripts/build-skill.mjs --release",
     "typecheck": "cargo check --locked",
     "lint": "cargo fmt --check && cargo clippy --all-targets --locked -- -D warnings",
-    "test": "yarn build && cargo test --locked && node --test tests/*.test.mjs",
+    "test": "yarn build && cargo test --locked && node --test --test-concurrency=1 tests/*.test.mjs",
     "test:quiet": "yarn test",
     "verify": "yarn lint && yarn test",
     "poc": "yarn build && node scripts/poc.mjs",
     "pack:skill": "node scripts/pack-skill.mjs",
     "poc:mesh": "yarn build && node scripts/mesh-poc.mjs",
-    "poc:attached": "yarn build && node scripts/attached-poc.mjs"
+    "poc:attached": "yarn build && node scripts/attached-poc.mjs",
+    "poc:grok-hooks": "yarn build && node scripts/grok-hook-poc.mjs",
+    "poc:crash": "yarn build && node scripts/lease-crash-poc.mjs",
+    "benchmark:scheduling": "node scripts/scheduling-benchmark.mjs",
+    "benchmark:runtime": "node scripts/runtime-benchmark.mjs",
+    "benchmark:service": "node scripts/service-benchmark.mjs",
+    "poc:service-mesh": "node scripts/service-mesh.mjs",
+    "benchmark:storage": "node scripts/storage-benchmark.mjs",
+    "poc:opencode": "node scripts/opencode-poc.mjs",
+    "poc:acp": "node scripts/acp-probe.mjs",
+    "benchmark:hooks": "node scripts/hook-benchmark.mjs",
+    "poc:recovery": "node scripts/recovery-soak.mjs",
+    "eval:collaboration": "node scripts/collaboration-eval.mjs"
   }
 }

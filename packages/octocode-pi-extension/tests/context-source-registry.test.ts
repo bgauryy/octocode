@@ -1,4 +1,4 @@
-import { contentDigest } from '@octocodeai/octocode-awareness/host';
+import { contentDigest } from '../src/runtime/continuity-contracts.js';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { PiContext } from '../src/types.js';
 import {

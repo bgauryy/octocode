@@ -115,9 +115,6 @@ it('built file tool preserves exact bytes and reports preflight failures to the 
     await session.prompt('Run the authorized local file mutation fixtures.', { expandPromptTemplates: false });
     await session.waitForIdle();
 
-    expect(fs.readFileSync(path.join(workspace, 'mixed.txt'))).toEqual(Buffer.from(expected, 'utf8'));
-    expect(fs.existsSync(path.join(workspace, 'must-not-exist.txt'))).toBe(false);
-    expect(fs.existsSync(path.join(workspace, 'malformed.txt'))).toBe(false);
     expect(contexts).toHaveLength(4);
     const finalContext = JSON.parse(contexts[3]!) as {
       messages: Array<{ role: string; toolCallId?: string; isError?: boolean; content?: unknown }>;
@@ -126,11 +123,14 @@ it('built file tool preserves exact bytes and reports preflight failures to the 
     for (const id of ['file-write', 'file-edit']) {
       const receipt = receipts.find(message => message.toolCallId === id);
       expect(receipt).toBeDefined();
-      expect(receipt?.isError).not.toBe(true);
+      expect(receipt?.isError, JSON.stringify(receipt?.content)).not.toBe(true);
     }
     const failure = receipts.find(message => message.toolCallId === 'file-invalid-batch');
     expect(failure?.isError).toBe(true);
     expect(JSON.stringify(failure?.content)).toMatch(/preflight|does not accept force/i);
+    expect(fs.readFileSync(path.join(workspace, 'mixed.txt'))).toEqual(Buffer.from(expected, 'utf8'));
+    expect(fs.existsSync(path.join(workspace, 'must-not-exist.txt'))).toBe(false);
+    expect(fs.existsSync(path.join(workspace, 'malformed.txt'))).toBe(false);
   } finally {
     session.dispose();
     await settings.flush();

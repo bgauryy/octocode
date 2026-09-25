@@ -13,7 +13,6 @@ import type {
 import { executionLabel } from '../tools/execution-presentation.js';
 import { elapsedSince, formatCompact, formatDurationShort } from '../ui-extras.js';
 import { githubAuthLabel } from '../tools/github-auth-status.js';
-import { formatAwarenessPanel, getAwarenessStatusHealth, getCachedAwarenessStatus } from '../tools/awareness-status.js';
 import { openScrollInspector } from './scroll-inspector.js';
 
 export function executionStatusLines(
@@ -84,21 +83,6 @@ export function executionStatusLines(
   ];
 }
 
-/** Explain cached coordination evidence without presenting a repaint as a read. */
-export function awarenessDetailLines(cwd: string, now = Date.now()): string[] {
-  const status = getCachedAwarenessStatus(cwd);
-  const health = getAwarenessStatusHealth(cwd);
-  return [
-    '', 'Awareness · shared work, verification checks, and messages',
-    `  Source: ${health.state}`,
-    ...(status ? [
-      `  Last updated ${formatDurationShort(elapsedSince(status.observedAt, now))} ago`,
-      ...formatAwarenessPanel(status),
-    ] : ['  No coordination snapshot available.']),
-    '  /octocode-inbox opens agent messages; /configuration opens plan details.',
-  ];
-}
-
 export function registerRuntimeInspectors(pi: PiInstance): void {
   pi.registerCommand?.(EXTENSION_COMMANDS.status.name, {
     description: EXTENSION_COMMANDS.status.description,
@@ -117,7 +101,6 @@ export function registerRuntimeInspectors(pi: PiInstance): void {
           runtime ? [
             ...executionStatusLines(runtime.execution),
             '', githubAuthLabel(runtime.footer.githubAuth.status),
-            ...awarenessDetailLines(ctx.cwd ?? process.cwd()),
           ] : ['Session is initializing.']
         );
         return;

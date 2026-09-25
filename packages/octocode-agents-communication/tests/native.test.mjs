@@ -8,14 +8,20 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { getOctocodeHome } from '@octocodeai/config';
 
+const testInput=(command,input)=>['send_message','notify_all','lock','lock_many'].includes(command)?{reasoning:`Verify ${command} behavior in this isolated regression fixture`,...input}:input;
+function testArgs(args){
+ if(!['send_message','notify_all','lock','lock_many'].includes(args[0])||!args[1]?.startsWith('{'))return args;
+ return [args[0],JSON.stringify(testInput(args[0],JSON.parse(args[1]))),...args.slice(2)];
+}
+
 const root=fileURLToPath(new URL('../',import.meta.url));
 const target=execFileSync('rustc',['-vV'],{encoding:'utf8'}).match(/^host: (.+)$/m)[1];
 const binary=join(root,'skills/octocode-agents-communication/scripts/bin',target,`octocode-agents-communication${process.platform==='win32'?'.exe':''}`);
 const skill=join(root,'skills/octocode-agents-communication');
 function fixture(t){const workspace=mkdtempSync(join(tmpdir(),'communication-native-'));t.after(()=>rmSync(workspace,{recursive:true,force:true}));return {workspace,database:join(workspace,'nested/v1.sqlite')};}
-function invoke(context,args,extra={}){return JSON.parse(execFileSync(binary,[...args,'--workspace',context.workspace,'--database',context.database],{encoding:'utf8',stdio:['pipe','pipe','pipe'],...extra}));}
+function invoke(context,args,extra={}){return JSON.parse(execFileSync(binary,[...testArgs(args),'--workspace',context.workspace,'--database',context.database],{encoding:'utf8',stdio:['pipe','pipe','pipe'],...extra}));}
 function joinAgent(context,name='a'){return invoke(context,['join',JSON.stringify({name,vendor:'generic'})]);}
-function start(context,args,input){return new Promise((resolve,reject)=>{const child=spawn(binary,[...args,'--workspace',context.workspace,'--database',context.database]);let stdout='',stderr='';child.stdout.on('data',v=>stdout+=v);child.stderr.on('data',v=>stderr+=v);child.on('error',reject);child.on('close',code=>resolve({code,stdout,stderr}));child.stdin.end(input);});}
+function start(context,args,input){return new Promise((resolve,reject)=>{const child=spawn(binary,[...testArgs(args),'--workspace',context.workspace,'--database',context.database]);let stdout='',stderr='';child.stdout.on('data',v=>stdout+=v);child.stderr.on('data',v=>stderr+=v);child.on('error',reject);child.on('close',code=>resolve({code,stdout,stderr}));child.stdin.end(input);});}
 
 test('inspection, discovery and rejected commands do not create storage',t=>{
  const f=fixture(t);assert.equal(invoke(f,['db','info']).exists,false);
@@ -75,14 +81,21 @@ test('MCP binds identity and survives malformed frames',async t=>{
  const frames=[null,'INVALID',...[
   {jsonrpc:'2.0',id:1,method:'initialize'},
   {jsonrpc:'2.0',id:2,method:'tools/list'},
-  {jsonrpc:'2.0',id:3,method:'tools/call',params:{name:'lock',arguments:{path:'file'}}},
+  {jsonrpc:'2.0',id:3,method:'tools/call',params:{name:'lock',arguments:{path:'file',reasoning:'Reserve a fixture path to verify bound identity'}}},
   {jsonrpc:'2.0',id:4,method:'tools/call',params:{name:'lock',arguments:{path:'file',owner:'other'}}},
   {jsonrpc:'2.0',id:5,method:'tools/call',params:{name:'join',arguments:{name:'hidden',vendor:'bad'}}},
  ].map(JSON.stringify)].map(v=>v===null?'null':v).join('\n')+'\n';
  const result=await start(f,['mcp','--session',a.id],frames);assert.equal(result.code,0,result.stderr);
  const rows=result.stdout.trim().split('\n').map(JSON.parse);
  assert.equal(rows[0].error.code,-32600);assert.equal(rows[1].error.code,-32700);
- assert.equal(rows[3].result.tools.length,9);assert.equal(JSON.parse(rows[4].result.content[0].text).lease.owner,a.id);
+ assert.equal(rows[3].result.tools.length,13);assert.equal(JSON.parse(rows[4].result.content[0].text).lease.owner,a.id);
+ const catalog=invoke(f,['schema']);
+ assert.deepEqual(rows[3].result.tools,catalog.tools);
+ for(const tool of catalog.tools){
+  const command=invoke(f,[tool.name,'--help']);
+  assert.equal(tool.description,command.description);
+  assert.deepEqual(tool.inputSchema,command.inputSchema);
+ }
  assert.equal(rows[5].result.isError,true);assert.equal(rows[6].result.isError,true);
 });
 test('CLI wait receives a message and acknowledges only when requested',async t=>{
@@ -103,7 +116,11 @@ test('copied skill runs outside the repo with no Node, Cargo or vendor executabl
  const path=join(f.workspace,'path');mkdirSync(path);
  for(const tool of ['uname','dirname'])symlinkSync(`/usr/bin/${tool}`,join(path,tool));
  const env={...process.env,PATH:path};
- const run=(...args)=>JSON.parse(execFileSync(runner,args,{cwd:f.workspace,env,encoding:'utf8'}));
+ const run=(...args)=>{
+  const started=Date.now();
+  try{return JSON.parse(execFileSync(runner,args,{cwd:f.workspace,env,encoding:'utf8',stdio:['pipe','pipe','pipe'],timeout:60000,maxBuffer:1024*1024}));}
+  catch(error){t.diagnostic(JSON.stringify({phase:'copied-skill-launcher',command:args[0],elapsedMs:Date.now()-started,code:error.code,signal:error.signal,stderr:error.stderr?.toString().slice(-2000)}));throw error;}
+ };
  assert.equal(run('--help').implementation,'Rust');assert.equal(run('schema','entities').length,8);
  assert.ok(run('skill').instructions.includes('scripts/agents-communication'));
  assert.equal(run('skill').instructions,readFileSync(join(standalone,'SKILL.md'),'utf8'));
@@ -119,7 +136,7 @@ test('copied skill runs outside the repo with no Node, Cargo or vendor executabl
 });
 test('SQLite-only Python agent interoperates with native CLI', {skip:!process.env.COMMUNICATION_PYTHON&&'Set COMMUNICATION_PYTHON to Python 3.14 / Unicode 16 with SQLite >=3.51.3'},async t=>{
  const f=fixture(t),a=joinAgent(f);
- const py=(op,data)=>JSON.parse(execFileSync(process.env.COMMUNICATION_PYTHON,[join(skill,'scripts/sqlite_agent.py'),f.database,f.workspace,op,JSON.stringify(data)],{env:{...process.env,PATH:''},encoding:'utf8',stdio:['pipe','pipe','pipe']}));
+ const py=(op,data)=>JSON.parse(execFileSync(process.env.COMMUNICATION_PYTHON,[join(skill,'scripts/sqlite_agent.py'),f.database,f.workspace,op,JSON.stringify(testInput(op,data))],{env:{...process.env,PATH:''},encoding:'utf8',stdio:['pipe','pipe','pipe']}));
  const b=py('join',{name:'python',vendor:'stdlib'});
  const broadcast=py('notify_all',{session:b.id,body:'all from Python',key:'py-all'});
  assert.equal(broadcast.recipients,1);assert.deepEqual(py('notify_all',{session:b.id,body:'all from Python',key:'py-all'}),broadcast);
@@ -167,16 +184,22 @@ test('Pi inbox pages maximum escaped messages without loss or buffer overflow',a
  // characters require six output bytes per unit, the largest JSON expansion.
  const body='x'+'\u0001'.repeat(16383);
  invoke(f,['send_message',JSON.stringify({to:b.id,body}),'--session',a.id]);
- const insert=db.prepare('INSERT INTO messages(sender,target,body,key,expiresAt) VALUES(?,?,?,?,?)');
+ const insert=db.prepare('INSERT INTO messages(sender,target,body,key,expiresAt,reasoning) VALUES(?,?,?,?,?,?)');
  const delivery=db.prepare('INSERT INTO deliveries(message,recipient) VALUES(?,?)');
  db.exec('BEGIN IMMEDIATE');
- for(let i=1;i<101;i++){const result=insert.run(a.id,b.id,body,`large-${i}`,Date.now()+60000);delivery.run(result.lastInsertRowid,b.id);}
+ for(let i=1;i<101;i++){const result=insert.run(a.id,b.id,body,`large-${i}`,Date.now()+60000,'Verify bounded delivery of escaped payloads');delivery.run(result.lastInsertRowid,b.id);}
  db.exec('COMMIT');db.close();
  const previous=process.env.OCTOCODE_COMMUNICATION_BINDING;
  t.after(()=>{if(previous===undefined)delete process.env.OCTOCODE_COMMUNICATION_BINDING;else process.env.OCTOCODE_COMMUNICATION_BINDING=previous;});
  process.env.OCTOCODE_COMMUNICATION_BINDING=JSON.stringify({binary,workspace:f.workspace,database:f.database,session:b.id,tools:invoke(f,['schema']).tools});
  const {default:register}=await import(pathToFileURL(join(skill,'scripts/pi-extension.mjs')));
  const tools=[],handlers=new Map();register({registerTool:tool=>tools.push(tool),on:(event,handler)=>handlers.set(event,handler)});
+ const catalog=invoke(f,['schema']);
+ for(const tool of tools){
+  const definition=catalog.tools.find(item=>item.name===tool.name);
+  assert.equal(tool.description,definition.description);
+  assert.deepEqual(tool.parameters,definition.inputSchema);
+ }
  assert.deepEqual(handlers.get('cache_warming_decision')({type:'cache_warming_decision',action:'warm',warmCost:0.01,missCost:1,continuationProbability:1}),{action:'stop'});
  const inbox=tools.find(tool=>tool.name==='inbox');
  let after=0;const seen=[];
@@ -241,16 +264,17 @@ test('duration also bounds a blocked vendor stdin write', {skip:process.platform
 });
 
 
-test('all proxy protocols receive the exact bundled skill once with their bound identity', {skip:process.platform==='win32'},t=>{
+test('all proxy protocols receive the exact full skill once with their bound identity', {skip:process.platform==='win32'},t=>{
  for(const vendor of ['codex','claude','pi']){
   const f=fixture(t),bin=join(f.workspace,'path'),capture=join(f.workspace,'prompt.json');mkdirSync(bin);
   writeFileSync(join(bin,vendor),`#!${process.execPath}
 const fs=require('node:fs');
-fs.writeFileSync(process.env.COMMUNICATION_CAPTURE+'.boot',JSON.stringify({cwd:process.cwd(),args:process.argv.slice(2)}));
+fs.writeFileSync(process.env.COMMUNICATION_CAPTURE+'.boot',JSON.stringify({at:Date.now(),cwd:process.cwd(),args:process.argv.slice(2)}));
 const rl=require('node:readline').createInterface({input:process.stdin});
 const send=v=>console.log(JSON.stringify(v));
 const capture=v=>fs.writeFileSync(process.env.COMMUNICATION_CAPTURE,JSON.stringify(v));
 rl.on('line',line=>{const c=JSON.parse(line);
+ fs.appendFileSync(process.env.COMMUNICATION_CAPTURE+'.frames',JSON.stringify({at:Date.now(),id:c.id,method:c.method,type:c.type})+'\\n');
  if(c.method==='initialize')send({id:c.id,result:{}});
  if(c.method==='config/read')send({id:c.id,result:{config:{plugins:{'unrelated@test':{enabled:true}},mcp_servers:{unrelated:{enabled:true}}}}});
  if(c.method==='skills/list')send({id:c.id,result:{data:[{skills:[{path:'/unrelated/SKILL.md',enabled:true}]}]}});
@@ -265,11 +289,31 @@ rl.on('line',line=>{const c=JSON.parse(line);
   const script = join(bin, `${vendor}.cjs`);
   writeFileSync(script, readFileSync(join(bin, vendor)));
   const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
-  writeFileSync(join(bin, vendor), `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(script)} "$@"\n`, { mode: 0o755 });
+  writeFileSync(join(bin, vendor), `#!/bin/sh\nprintf 'started' > ${quote(capture+'.launch')}\nexec ${quote(process.execPath)} ${quote(script)} "$@"\n`, { mode: 0o755 });
   // These Node programs emulate vendor CLIs; they must not inherit the test runner protocol.
   const vendorEnv={...process.env,PATH:bin,COMMUNICATION_CAPTURE:capture};delete vendorEnv.NODE_TEST_CONTEXT;
-  const events=execFileSync(binary,['run','--vendor',vendor,'--model','test','--prompt','Task sentinel','--trace','--duration-ms','10000','--workspace',f.workspace,'--database',f.database],{env:vendorEnv,encoding:'utf8',timeout:15000}).trim().split('\n').map(JSON.parse);
-  assert.ok(existsSync(capture),`${vendor}: prompt not captured; ${JSON.stringify(events)}`);
+  // Separate the host's first-execution checks on this freshly written fixture
+  // from protocol assertions. Dedicated tests above cover production startup deadlines.
+  const preflightStarted=Date.now();
+  try {
+   execFileSync(join(bin,vendor),[],{env:vendorEnv,input:'',encoding:'utf8',stdio:['pipe','pipe','pipe'],timeout:30000,maxBuffer:1024*1024});
+  } catch(error) {
+   t.diagnostic(JSON.stringify({vendor,phase:'fixture-interpreter-preflight',elapsedMs:Date.now()-preflightStarted,wrapperStarted:existsSync(capture+'.launch'),nodeStarted:existsSync(capture+'.boot'),stderr:error.stderr?.toString().slice(-2000)}));
+   throw error;
+  }
+  t.diagnostic(`${vendor} fixture interpreter preflight: ${Date.now()-preflightStarted} ms`);
+  for(const suffix of ['.launch','.boot','.frames','.thread',''])rmSync(capture+suffix,{force:true});
+  const started=Date.now();
+  let events;
+  try {
+   events=execFileSync(binary,['run','--vendor',vendor,'--model','test','--prompt','Task sentinel','--trace','--duration-ms','10000','--workspace',f.workspace,'--database',f.database],{env:vendorEnv,encoding:'utf8',stdio:['pipe','pipe','pipe'],timeout:15000}).trim().split('\n').map(JSON.parse);
+  } catch(error) {
+   const boot=existsSync(capture+'.boot')?JSON.parse(readFileSync(capture+'.boot','utf8')):null;
+   const frames=existsSync(capture+'.frames')?readFileSync(capture+'.frames','utf8').trim().split('\n').slice(-20).map(JSON.parse):[];
+   t.diagnostic(JSON.stringify({vendor,elapsedMs:Date.now()-started,wrapperStarted:existsSync(capture+'.launch'),nodeBootMs:boot?boot.at-started:null,frames,stderr:error.stderr?.toString().slice(-2000),stdout:error.stdout?.toString().slice(-2000)}));
+   throw error;
+  }
+  assert.ok(existsSync(capture),`${vendor}: prompt not captured; boot=${existsSync(capture+'.boot')}; ${JSON.stringify(events)}`);
   const prompt=JSON.parse(readFileSync(capture,'utf8')),instructions=readFileSync(join(skill,'SKILL.md'),'utf8');
   assert.equal(prompt.split(instructions).length,2);
   assert.ok(prompt.includes(events.find(e=>e.type==='ready').session));
@@ -304,6 +348,7 @@ test('deleted database is not silently recreated by an existing-session command'
 test('idle proxy exits and reaps its vendor when the database is removed', {skip:process.platform==='win32'},t=>{
  const f=fixture(t),bin=join(f.workspace,'path'),pidFile=join(f.workspace,'vendor.pid');mkdirSync(bin);
  writeFileSync(join(bin,'claude'),`#!${process.execPath}
+ if(process.argv.includes('--fixture-preflight'))process.exit(0);
  const fs=require('node:fs');fs.writeFileSync(process.env.COMMUNICATION_PID,String(process.pid));
  require('node:readline').createInterface({input:process.stdin}).on('line',()=>{
   console.log(JSON.stringify({type:'result',is_error:false}));
@@ -314,9 +359,20 @@ test('idle proxy exits and reaps its vendor when the database is removed', {skip
  const quote=value=>"'"+value.replaceAll("'","'\\''")+"'";
  writeFileSync(join(bin,'claude'),`#!/bin/sh\nexec ${quote(process.execPath)} ${quote(script)} "$@"\n`,{mode:0o755});
  const env={...process.env,PATH:bin,COMMUNICATION_PID:pidFile,COMMUNICATION_DB:f.database};delete env.NODE_TEST_CONTEXT;
- assert.throws(()=>invoke(f,['run','--vendor','claude','--model','test','--prompt','wait','--duration-ms','10000'],{env,timeout:15000}),e=>{
-  assert.equal(e.status,1);assert.match(e.stderr.toString(),/database disappeared/);return true;
- });
+ // Warm only the fixture interpreter; the guard does not create a PID or touch the DB.
+ const preflightStarted=Date.now();
+ execFileSync(join(bin,'claude'),['--fixture-preflight'],{env,input:'',stdio:['pipe','pipe','pipe'],timeout:30000,maxBuffer:1024*1024});
+ t.diagnostic(`idle fixture interpreter preflight: ${Date.now()-preflightStarted} ms`);
+ assert.equal(existsSync(pidFile),false);assert.equal(existsSync(f.database),false);
+ const started=Date.now();
+ try {
+  assert.throws(()=>invoke(f,['run','--vendor','claude','--model','test','--prompt','wait','--duration-ms','10000'],{env,timeout:15000}),e=>{
+   assert.equal(e.status,1);assert.match(e.stderr.toString(),/database disappeared/);return true;
+  });
+ } catch(error) {
+  t.diagnostic(JSON.stringify({phase:'idle-database-removal',elapsedMs:Date.now()-started,vendorStarted:existsSync(pidFile),databaseExists:existsSync(f.database),stderr:error.stderr?.toString().slice(-2000)}));
+  throw error;
+ }
  assert.equal(existsSync(f.database),false);
  assert.throws(()=>process.kill(Number(readFileSync(pidFile,'utf8')),0),e=>e.code==='ESRCH');
 });

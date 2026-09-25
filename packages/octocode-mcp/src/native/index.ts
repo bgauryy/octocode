@@ -13,6 +13,7 @@ import {
 } from '@octocodeai/config/mcp';
 import { NATIVE_ABI_VERSION } from '@octocodeai/octocode-native/runtime';
 import packageJson from '../../package.json';
+import { formatIssues, type RawIssue } from './validationMessages.js';
 
 /**
  * A tool as reported by the native runtime catalog: runtime truth only —
@@ -168,6 +169,82 @@ export function rowIsolatingSchema(
   };
 }
 
+type ToolDefinition = ReturnType<
+  typeof getDirectToolDefinitionsWithAddons
+>[number];
+
+/**
+ * The Standard Schema registered for a tool: bare queries are wrapped and
+ * partially invalid batches reach native row isolation. The advertised
+ * contract stays canonical. Clasify advertises bare-or-batch, but the MCP SDK
+ * resolves its root object shape as the queries[] branch; preprocess its bare
+ * form to that branch before SDK validation while preserving the union JSON
+ * Schema shown to agents.
+ */
+export function toolInputSchema(
+  definition: Pick<ToolDefinition, 'name' | 'schema' | 'inputSchema'>
+): unknown {
+  const bare = definition.name === 'clasify';
+  const schema = bare
+    ? (z.preprocess(
+        wrapBareQuery,
+        definition.inputSchema
+      ) as unknown as StandardSchema)
+    : rowIsolatingSchema(
+        z.preprocess(
+          wrapBareQuery,
+          definition.inputSchema
+        ) as unknown as StandardSchema,
+        definition.schema,
+        definition.inputSchema
+      );
+  return actionableIssuesSchema(schema, {
+    normalize: wrapBareQuery,
+    jsonSchema: () =>
+      z.toJSONSchema(definition.inputSchema, {
+        io: 'input',
+        unrepresentable: 'any',
+      }) as Record<string, unknown>,
+  });
+}
+
+/**
+ * Keep the schema's accept/reject decisions and advertised JSON Schema, but
+ * rewrite rejection issues into the CLI's actionable wording (allowed enum
+ * values, nearest field, missing field, valid field list).
+ */
+export function actionableIssuesSchema(
+  inputSchema: StandardSchema,
+  options: {
+    normalize: (value: unknown) => unknown;
+    jsonSchema: () => Record<string, unknown> | undefined;
+  }
+): StandardSchema {
+  const standard = inputSchema['~standard'];
+  if (!standard.jsonSchema) return inputSchema;
+  return {
+    '~standard': {
+      version: standard.version,
+      vendor: standard.vendor,
+      jsonSchema: standard.jsonSchema,
+      validate: async value => {
+        const result = await standard.validate(value);
+        if (!result.issues?.length) return result;
+        try {
+          const issues = formatIssues(result.issues as readonly RawIssue[], {
+            value: options.normalize(value),
+            jsonSchema: options.jsonSchema,
+          });
+          return issues.length ? { issues } : result;
+        } catch {
+          // Message shaping must never mask the underlying rejection.
+          return result;
+        }
+      },
+    },
+  };
+}
+
 export function createNativeMcp({
   env = process.env,
   binding,
@@ -221,8 +298,8 @@ export function createNativeMcp({
     const message =
       '[octocode-mcp] contract fingerprint mismatch: core ' +
       `${coreFingerprint} (@octocodeai/octocode-core) != native ` +
-      `${nativeFingerprint}. Realign the core package and the native generated ` +
-      'contract, or set OCTOCODE_ALLOW_CONTRACT_DRIFT=1 to override.';
+      `${nativeFingerprint}. Run \`yarn contracts:regen\` and rebuild native (or install ` +
+      'matching octocode packages), or set OCTOCODE_ALLOW_CONTRACT_DRIFT=1 to override.';
     if (
       env.OCTOCODE_ALLOW_CONTRACT_DRIFT === '1' &&
       env.NODE_ENV !== 'production'
@@ -259,7 +336,6 @@ export function createNativeMcp({
 
   const definitions = new Map(
     getDirectToolDefinitionsWithAddons({
-      semanticRerank: availableTools.some(tool => tool.name === 'clasify'),
       availableTools: availableTools.map(tool => tool.name),
     }).map(definition => [definition.name, definition])
   );
@@ -270,21 +346,7 @@ export function createNativeMcp({
       void runtime.close();
       throw new Error(`Native catalog tool has no contract: ${tool.name}`);
     }
-    // One working query ports across surfaces: bare queries are wrapped and
-    // partially invalid batches reach native row isolation. The advertised
-    // contract stays the canonical queries[] envelope; clasify keeps its own
-    // bare-or-batch union and whole-batch validation.
-    const inputSchema =
-      tool.name === 'clasify'
-        ? definition.inputSchema
-        : rowIsolatingSchema(
-            z.preprocess(
-              wrapBareQuery,
-              definition.inputSchema
-            ) as unknown as StandardSchema,
-            definition.schema,
-            definition.inputSchema
-          );
+    const inputSchema = toolInputSchema(definition);
     registerTool(
       tool.name,
       {

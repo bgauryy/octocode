@@ -7,7 +7,7 @@ test('MCP catalog within per-segment budget assembles correctly', () => {
   const contents: SessionPromptContents = {
     'octocode-product-policy': 'policy', 'mcp-tool-contracts': catalog,
     'runtime-tool-contracts': '', 'dynamic-tool-contracts': '',
-    'available-skills': '', 'session-artifact-contract': '', 'awareness-cli-runtime': '',
+    'available-skills': '', 'session-artifact-contract': '',
   };
   const assembled = assembleSessionPromptContext(contents);
   expect(assembled.content).toContain(catalog);
@@ -20,7 +20,7 @@ test('MCP catalog exceeding per-segment budget throws', () => {
   const contents: SessionPromptContents = {
     'octocode-product-policy': 'policy', 'mcp-tool-contracts': oversized,
     'runtime-tool-contracts': '', 'dynamic-tool-contracts': '',
-    'available-skills': '', 'session-artifact-contract': '', 'awareness-cli-runtime': '',
+    'available-skills': '', 'session-artifact-contract': '',
   };
   expect(() => assembleSessionPromptContext(contents)).toThrow(/token budget/);
 });

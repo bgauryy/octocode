@@ -1,6 +1,6 @@
 //! `operation: "pullRequest"`: concurrent collection loads (GraphQL first page
 //! or REST windows), metadata row, and assembly of the shaped sections.
-use super::continuations::{pr_next_menu, promote_pr_continuations};
+use super::continuations::{BODY_PREVIEW_CHARS, pr_next_menu, promote_pr_continuations};
 use super::files::{FileFilter, patch_selection, shape_pr_files};
 use super::graphql::{
     GraphqlCollection, GraphqlPr, graphql_complete_collection_eligible, graphql_pull_request,
@@ -286,7 +286,7 @@ pub(super) async fn pull_request<R: CredentialResolver>(
         .into_iter()
         .flatten()
         .find_map(|v| str_at(v, "/path"));
-    row["next"] = pr_next_menu(query, content, patch_mode, first_changed_path);
+    row["next"] = pr_next_menu(query, content, patch_mode, first_changed_path, &raw);
     if !content_pagination.is_empty() {
         row["contentPagination"] = Value::Object(content_pagination);
     }
@@ -336,7 +336,7 @@ fn pr_metadata(raw: &Value, query: &HistoryItemRequest, body_requested: bool) ->
         "changedFilesCount": nonzero(raw.get("changed_files")),
         "additions": nonzero(raw.get("additions")),
         "deletions": nonzero(raw.get("deletions")),
-        "bodyPreview": (!body_requested && !body.is_empty()).then(|| compact(body,500)),
+        "bodyPreview": (!body_requested && !body.is_empty()).then(|| compact(body,BODY_PREVIEW_CHARS)),
     });
     if query.content_value().is_none()
         && raw.get("draft") == Some(&Value::Bool(false))

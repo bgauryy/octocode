@@ -3,12 +3,12 @@
 Load when choosing how to fetch. Why: cheapest route that can prove the claim.
 
 ## Default
-Omit `--provider` on html → `cdp` (if chrome-devtools present) → `direct`. `SCRAPING_ANT` does not auto-select. Check: `provider-check.mjs`.
+Omit `--provider` on html → bounded `direct`. Installing chrome-devtools never changes this default. Follow the result's `next` only when direct evidence is blocked or looks like a thin application shell. `SCRAPING_ANT` does not auto-select. Check: `provider-check.mjs`.
 
 ## Tree
 1. Repository/code question → Octocode research, not scrape.
 2. Public static → omit `--provider` or `direct`; prove from corpus.
-3. Thin/JS after direct → `cdp` or chrome-devtools live proof.
+3. Thin/JS after direct → one chrome-devtools capture; bridge its retained artifact into the same corpus.
 4. Auth / clicks / network / screenshots → chrome-devtools (one port).
 5. Still blocked → stop + evidence; ask before `--provider scrapingant`.
 6. `markdown` / `extended` / `extract` → scrapingant + key; ask if new spend.

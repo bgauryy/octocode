@@ -119,23 +119,26 @@ if (exportPacket && !takeArg(args, '--har') && !takeArg(args, '--from-cdp-dir'))
 let harPath = takeArg(args, '--har');
 let bodiesPath = takeArg(args, '--bodies');
 const fromCdpDir = takeArg(args, '--from-cdp-dir');
+let capturePaths = [];
 
 if (fromCdpDir) {
   const found = await discoverCdpArtifacts(fromCdpDir);
   harPath = harPath || found.har;
   bodiesPath = bodiesPath || found.bodies;
-  if (!harPath && !bodiesPath) {
-    console.log(JSON.stringify({ ok: false, error: 'no .har or network-bodies.json under --from-cdp-dir', fromCdpDir: resolve(fromCdpDir), files: found.files.map((f) => f.rel).slice(0, 30) }));
+  capturePaths = found.captures;
+  if (!harPath && !bodiesPath && !capturePaths.length) {
+    console.log(JSON.stringify({ ok: false, error: 'no .har, network-bodies.json, page-snapshot.json, or dom-check.json under --from-cdp-dir', fromCdpDir: resolve(fromCdpDir), files: found.files.map((f) => f.rel).slice(0, 30) }));
     process.exit(1);
   }
 }
 
-if (!harPath && !bodiesPath) usage();
+if (!harPath && !bodiesPath && !capturePaths.length) usage();
 
 const ingestedAt = new Date().toISOString();
 const cdpFiles = [];
 const networkRows = [];
 const bodyRows = [];
+const captureRows = [];
 const sourceRows = [];
 let redactMeta = { headerRowsTouched: 0, cookiesRedacted: 0, entries: 0 };
 let filteredCount = 0;
@@ -288,14 +291,71 @@ if (bodiesPath) {
   });
 }
 
+for (const capturePath of capturePaths) {
+  const absCapture = resolve(capturePath);
+  const name = basename(absCapture);
+  const data = JSON.parse(await readFile(absCapture, 'utf8'));
+  const outRel = `cdp/${name}`;
+  await copyFile(absCapture, join(sessionDir, outRel));
+  cdpFiles.push(outRel);
+  const isSnapshot = /^page-snapshot\.json$/i.test(name);
+  const row = isSnapshot ? {
+    kind: 'cdp-page-snapshot',
+    ingestedAt,
+    url: data.url || existingSources[0]?.url || null,
+    refCount: Object.keys(data.refs || {}).length,
+    refs: Object.entries(data.refs || {}).slice(0, 60).map(([ref, value]) => ({ ref, role: value.role || null, name: value.name || null })),
+    evidence: { file: outRel },
+  } : {
+    kind: 'cdp-dom-check',
+    ingestedAt,
+    url: data.location || existingSources[0]?.url || null,
+    found: Boolean(data.found),
+    action: data.action || null,
+    operation: data.operation || null,
+    role: data.role || null,
+    name: data.accessibleNameGuess || data.text || null,
+    canOperate: data.canOperate ?? null,
+    recoveredFromStaleRef: Boolean(data.recoveredFromStaleRef),
+    evidence: { file: outRel },
+  };
+  captureRows.push(row);
+  sourceRows.push({
+    pageId: `cdp-capture-${Date.now().toString(36)}-${captureRows.length}`,
+    url: row.url || absCapture,
+    route: 'bridge:cdp-capture',
+    provider: 'cdp-bridge',
+    status: 200,
+    ok: true,
+    contentType: 'application/json',
+    fetchedAt: ingestedAt,
+    raw: outRel,
+    text: 'extracts/cdp-captures.jsonl',
+    textParts: [],
+    rawTruncated: false,
+    rawBytes: await fileBytes(absCapture),
+    textTruncated: false,
+    textBytes: JSON.stringify(row).length,
+    cleanTextBytes: JSON.stringify(row).length,
+    antCreditsCost: null,
+    error: null,
+    providerStatus: null,
+    providerDetail: null,
+    targetLikelyError: null,
+    bridge: { type: row.kind },
+  });
+}
+
 await appendJsonl(join(sessionDir, 'extracts/cdp-network.jsonl'), networkRows);
 await appendJsonl(join(sessionDir, 'extracts/cdp-bodies.jsonl'), bodyRows);
+await appendJsonl(join(sessionDir, 'extracts/cdp-captures.jsonl'), captureRows);
 await appendJsonl(sourcesPath, sourceRows);
 
 const { packet, rel: handoffRel } = await writeExportPacket({
   ingested: {
     har: Boolean(harPath),
     bodies: Boolean(bodiesPath),
+    captures: captureRows.length,
     cdpFiles,
     networkRows: networkRows.length,
     bodyRows: bodyRows.length,
@@ -311,6 +371,7 @@ Ingested: ${ingestedAt}
 Filter: ${filter}
 HAR entries (filtered): ${networkRows.length}
 Bodies: ${bodyRows.length}
+DOM/snapshot captures: ${captureRows.length}
 Thin hints: ${thinHints.length ? thinHints.join('; ') : 'none'}
 
 ## Files
@@ -321,7 +382,7 @@ ${cdpFiles.map((f) => `- \`${f}\``).join('\n') || '- (none)'}
 2. Prefer local proof over reopening Chrome when the API body is already under \`cdp/\`.
 `);
 
-await patchAgentIndexForBridge(sessionDir, { extracts: ['extracts/cdp-network.jsonl', 'extracts/cdp-bodies.jsonl'] });
+await patchAgentIndexForBridge(sessionDir, { extracts: ['extracts/cdp-network.jsonl', 'extracts/cdp-bodies.jsonl', 'extracts/cdp-captures.jsonl'] });
 
 console.log(JSON.stringify({
   ok: true,
@@ -331,10 +392,12 @@ console.log(JSON.stringify({
   filter,
   filteredNetworkRows: networkRows.length,
   bodyRows: bodyRows.length,
+  captureRows: captureRows.length,
   cdpFiles,
   extracts: {
     network: networkRows.length ? 'extracts/cdp-network.jsonl' : null,
     bodies: bodyRows.length ? 'extracts/cdp-bodies.jsonl' : null,
+    captures: captureRows.length ? 'extracts/cdp-captures.jsonl' : null,
     handoff: handoffRel,
   },
   redact: noRedact ? null : { headerRowsTouched: redactMeta.headerRowsTouched, cookiesRedacted: redactMeta.cookiesRedacted, entries: redactMeta.entries },

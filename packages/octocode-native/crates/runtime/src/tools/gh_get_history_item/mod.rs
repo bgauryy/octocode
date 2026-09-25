@@ -34,7 +34,7 @@ mod window;
 const DEFAULT_PAGE_SIZE: usize = 30;
 const DEFAULT_TEXT_WINDOW: usize = 12_000;
 
-pub use crate::contracts::tool_types::{GhGetHistoryItemQuery, GhGetHistoryItemQueryMinify};
+pub use crate::contracts::tool_types::GhGetHistoryItemQuery;
 
 /// The operation discriminant of a [`GhGetHistoryItemQuery`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -228,9 +228,10 @@ impl GhGetHistoryItemQuery {
             _ => None,
         }
     }
-    pub fn minify(&self) -> Option<GhGetHistoryItemQueryMinify> {
+    /// The pull-request text view (`"standard"` or `"none"`).
+    pub fn minify(&self) -> Option<String> {
         match self {
-            Self::PullRequest { minify, .. } => Some(*minify),
+            Self::PullRequest { minify, .. } => Some(minify.to_string()),
             _ => None,
         }
     }

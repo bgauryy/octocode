@@ -4,7 +4,6 @@
  */
 import type { SpawnPolicy } from '../../types.js';
 import type { WorktreeIsolation } from '../worktree.js';
-import type { WorkerAwarenessInspection } from '../awareness-worker-audit.js';
 import type { InternalWorktreeState } from '../worktree.js';
 import type { WorkerLedgerEvent, WorkerMessageActivity } from '../../types.js';
 import type { WorkerCapabilityGrant, WorkerCapabilitySelection } from '../../contracts/capabilities.js';
@@ -128,7 +127,6 @@ export interface AgentRecord {
   cohortId?: string;
   process: AgentProcess;
   status: AgentStatus;
-  awarenessInspection?: WorkerAwarenessInspection;
   startedAt: number;
   updatedAt: number;
   exitCode?: number;
@@ -176,14 +174,6 @@ export interface AgentRecord {
   pendingProbes: Map<string, () => void>;
   nextRequestId: number;
   worktree?: InternalWorktreeState;
-  /** Stable Awareness id used to register this worker in the shared agent list. */
-  awarenessAgentId?: string;
-  /** Physical checkout used for this worker's Awareness file/lock ownership. */
-  awarenessWorkspace?: string;
-  /** Explicit parent Awareness database when a worktree has repository-scoped storage. */
-  awarenessDatabase?: string;
-  /** Owning host lifecycle state; prevents duplicate leave receipts on kill + close. */
-  awarenessPresence?: 'joined' | 'left';
   /** Public grant metadata only; broker authentication is never stored here. */
   capabilityGrant?: WorkerCapabilityGrant;
 }
@@ -237,5 +227,5 @@ export const MAX_LEDGER_EVENTS = 80;
 export const MAX_AGENT_VIEW_CHARS = 12_000;
 export const HANDBACK_ARTIFACT_FILENAME = 'handback.md';
 export const SUBAGENT_ENV_VAR = 'OCTOCODE_PI_SUBAGENT';
-export const AWARENESS_AGENT_ENV_VAR = 'OCTOCODE_AGENT_ID';
+export const LOCAL_AGENT_ENV_VAR = 'OCTOCODE_AGENT_ID';
 export const EXIT_SIGNALS: NodeJS.Signals[] = ['SIGTERM', 'SIGHUP', 'SIGINT'];

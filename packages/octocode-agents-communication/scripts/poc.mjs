@@ -9,6 +9,8 @@ import { DatabaseSync } from 'node:sqlite';
 import assert from 'node:assert/strict';
 
 
+const probeInput=(command,input)=>['send_message','notify_all','lock','lock_many'].includes(command)?{...( ['send_message','notify_all'].includes(command)?{wake:'action'}:{}),reasoning:`Validate ${command} interoperability in this isolated communication exercise`,...input}:input;
+
 const withPi = process.argv.includes('--pi');
 const piModel = process.env.COMMUNICATION_PI_MODEL;
 if (withPi && !piModel) throw new Error('Set COMMUNICATION_PI_MODEL to an exact provider/model from pi --list-models');
@@ -23,7 +25,7 @@ const cli = join(skill, 'scripts/agents-communication');
 const instructions = readFileSync(join(skill, 'SKILL.md'), 'utf8');
 assert.equal(JSON.parse(execFileSync(cli, ['skill'], { encoding: 'utf8' })).instructions, instructions);
 const skillEvidence = { path: skill, words: instructions.trim().split(/\s+/).length, sha256: createHash('sha256').update(instructions).digest('hex') };
-const invoke = (command, input = {}, session) => JSON.parse(execFileSync(cli, [command, JSON.stringify(input), '--workspace', directory, '--database', database, ...(session ? ['--session', session] : [])], { encoding: 'utf8' }));
+const invoke = (command, input = {}, session) => JSON.parse(execFileSync(cli, [command, JSON.stringify(probeInput(command,input)), '--workspace', directory, '--database', database, ...(session ? ['--session', session] : [])], { encoding: 'utf8' }));
 const store = {
   join: input => invoke('join', input),
   heartbeat: session => invoke('heartbeat', {}, session),

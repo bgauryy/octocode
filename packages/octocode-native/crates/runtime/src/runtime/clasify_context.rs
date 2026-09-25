@@ -416,7 +416,7 @@ fn page_source(tool: &str, state: &Value, evidence_hash: &str) -> Value {
     let mut source = json!({"evidenceHash":evidence_hash});
     if let Some(path) = file.get("path").and_then(Value::as_str) {
         let identity = match tool {
-            "localFetch" => state
+            "localFetch" | "localSearch" => state
                 .get("base")
                 .and_then(Value::as_str)
                 .filter(|_| !Path::new(path).is_absolute())
@@ -424,10 +424,20 @@ fn page_source(tool: &str, state: &Value, evidence_hash: &str) -> Value {
                     || path.to_owned(),
                     |base| Path::new(base).join(path).to_string_lossy().into_owned(),
                 ),
-            "ghGetFileContent" => match (data["owner"].as_str(), data["repo"].as_str()) {
-                (Some(owner), Some(repo)) => format!("{owner}/{repo}/{path}"),
-                _ => path.to_owned(),
-            },
+            "ghGetFileContent" | "ghSearch" => {
+                let owner = file
+                    .get("owner")
+                    .or_else(|| data.get("owner"))
+                    .and_then(Value::as_str);
+                let repo = file
+                    .get("repo")
+                    .or_else(|| data.get("repo"))
+                    .and_then(Value::as_str);
+                match (owner, repo) {
+                    (Some(owner), Some(repo)) => format!("{owner}/{repo}/{path}"),
+                    _ => path.to_owned(),
+                }
+            }
             _ => path.to_owned(),
         };
         source["path"] = json!(identity);
@@ -436,7 +446,8 @@ fn page_source(tool: &str, state: &Value, evidence_hash: &str) -> Value {
         source["modified"] = json!(modified);
     }
     if let Some(reference) = file
-        .get("ref")
+        .get("commitSha")
+        .or_else(|| file.get("ref"))
         .or_else(|| data.get("ref"))
         .and_then(Value::as_str)
     {
@@ -445,15 +456,34 @@ fn page_source(tool: &str, state: &Value, evidence_hash: &str) -> Value {
     source
 }
 
-fn append_limitation(receipt: &mut Value, limitation: &str) {
+pub(super) fn append_limitation(receipt: &mut Value, limitation: &str) {
     match receipt.get_mut("limitations").and_then(Value::as_array_mut) {
         Some(limitations) => limitations.push(json!(limitation)),
         None => receipt["limitations"] = json!([limitation]),
     }
 }
 
+/// Attach the exact source read that produced a hydrated candidate. This is
+/// kept separate from capture pagination: callers use it to inspect the
+/// judged evidence, while resource-level `next.clasify` continues discovery.
+pub(super) fn attach_read(receipt: &mut Value, read: Value) {
+    receipt["read"] = read;
+}
+
 fn receipt(tool: &str, state: &Value) -> Value {
     receipt_with_evaluation(tool, state, true)
+}
+
+/// Rebuild a receipt after one search response has been narrowed to a single
+/// candidate. The candidate state keeps the original page continuation, while
+/// its source identity and evidence hash describe only the file Jev judged.
+pub(super) fn candidate_receipt(source: &Value, state: &Value) -> Value {
+    let Some(tool) = source.get("tool").and_then(Value::as_str) else {
+        return value_receipt(state);
+    };
+    let mut receipt = receipt(tool, state);
+    attach_requested_reference(tool, source, &mut receipt);
+    receipt
 }
 
 fn failed_receipt(tool: &str, state: &Value) -> Value {
@@ -531,6 +561,20 @@ pub(super) fn continuation(receipt: &Value) -> Option<Value> {
         .and_then(Value::as_object)
         .and_then(|next| next.values().next())
         .and_then(Value::as_object)?;
+    Some(json!({
+        "tool": continuation.get("tool")?,
+        "query": continuation.get("query")?
+    }))
+}
+
+/// Select a named same-resource continuation. Hydrated search candidates use
+/// only `nextPage`: `nextMatchPage` revisits files already hydrated and judged.
+pub(super) fn continuation_named(receipt: &Value, name: &str) -> Option<Value> {
+    let continuation = receipt
+        .get("next")
+        .and_then(Value::as_object)?
+        .get(name)?
+        .as_object()?;
     Some(json!({
         "tool": continuation.get("tool")?,
         "query": continuation.get("query")?
@@ -696,10 +740,12 @@ mod tests {
         let state = json!({"results":[{"data":{
             "owner":"fastify", "repo":"fastify", "files":[{
                 "path":"docs/Reference/Hooks.md", "content":"# Hooks\n",
-                "totalLines":1, "returnedLines":1
+                "totalLines":1, "returnedLines":1,
+                "commitSha":"resolved-commit"
             }]
         }}]});
         let mut receipt = receipt("ghGetFileContent", &state);
+        assert_eq!(receipt["source"]["ref"], "resolved-commit");
         attach_requested_reference(
             "ghGetFileContent",
             &json!({"tool":"ghGetFileContent","query":{
@@ -711,10 +757,7 @@ mod tests {
             receipt["source"]["path"],
             "fastify/fastify/docs/Reference/Hooks.md"
         );
-        assert_eq!(
-            receipt["source"]["ref"],
-            "6ed472b6fe023cd0e6283badda231b84e45582d0"
-        );
+        assert_eq!(receipt["source"]["ref"], "resolved-commit");
         receipt["source"]["ref"] = json!("returned-commit");
         attach_requested_reference(
             "ghGetFileContent",

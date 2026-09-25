@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { normalizeWorkspacePath, type AuthorizationReceiptV1, type InteractionAnswerV1, type InteractionRequestV1, type OutboxEventV1, type StoredInteractionV1 } from '@octocodeai/octocode-awareness/host';
+import { normalizeWorkspacePath } from '../runtime/workspace.js';
+import { type AuthorizationReceiptV1, type InteractionAnswerV1, type InteractionRequestV1 } from '../runtime/continuity-contracts.js';
+import { type OutboxEventV1, type StoredInteractionV1, openInteractionStore } from './interaction-store.js';
 import type { PiContext } from '../types.js';
 import { emitExecution } from './execution-runtime.js';
 import { isPersistentStorageEnabledForExtension as isPersistentStorageEnabled } from '@octocodeai/config';
-import { openPersistentAwareness } from './storage-policy.js';
 
 interface InteractionStore {
   createInteraction(request: InteractionRequestV1): unknown;
@@ -161,7 +162,7 @@ const defaultStoreFactory: InteractionStoreFactory = (workspace) =>
   process.env['VITEST']
     ? createEphemeralInteractionStore()
     : isPersistentStorageEnabled()
-      ? openPersistentAwareness({ workspace })
+      ? openInteractionStore(workspace)
       : createInMemoryInteractionStore(workspace);
 let storeFactory: InteractionStoreFactory = defaultStoreFactory;
 const durableAnswerRoutes = new WeakMap<object, boolean>();

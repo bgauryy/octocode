@@ -1,12 +1,11 @@
 /**
- * Agent kill helpers: process termination, awareness-registry sync, and prompt-file cleanup.
+ * Agent kill helpers: process termination and prompt-file cleanup.
  *
  * Depends only on: types, registry, ledger, storage-policy, node builtins.
  * No imports from process, wait, or agent-tools.
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { openPersistentAwareness } from '../storage-policy.js';
 import type { AgentRecord } from './types.js';
 import { revokeWorkerCapabilities } from '../worker-capabilities.js';
 import {
@@ -31,31 +30,6 @@ export function removePromptFiles(record: AgentRecord): void {
     }
   }
   record.promptFiles = [];
-}
-
-// ─── Awareness registry sync ─────────────────────────────────────────────────
-
-/**
- * Register or unregister a worker in the shared Awareness agent list.
- * Best-effort/advisory — failures are swallowed.
- */
-export function syncWorkerRegistry(action: 'join' | 'leave', record: AgentRecord): void {
-  const agentId = record.awarenessAgentId;
-  const workspace = record.awarenessWorkspace;
-  if (!agentId || !workspace) return;
-  if (action === 'leave' && record.awarenessPresence !== 'joined') return;
-  let aw: ReturnType<typeof openPersistentAwareness> | undefined;
-  try {
-    aw = openPersistentAwareness({ workspace, dbPath: record.awarenessDatabase });
-    if (action === 'join') {
-      aw.joinAgent({ agentId, name: record.name, role: 'worker' });
-      record.awarenessPresence = 'joined';
-    } else {
-      aw.leaveAgent({ agentId });
-      record.awarenessPresence = 'left';
-    }
-  } catch { /* Awareness unresolved — advisory */ }
-  finally { aw?.close(); }
 }
 
 // ─── Kill ─────────────────────────────────────────────────────────────────────
@@ -85,7 +59,6 @@ export function killAgent(record: AgentRecord, opts: { forceKillDelayMs?: number
     // ignore stdin close errors
   }
   record.process.kill('SIGTERM');
-  syncWorkerRegistry('leave', record);
   // NOTE: ChildProcess.killed only means "a signal was delivered", not "process
   // exited" — it is true immediately after SIGTERM above, so it cannot gate the
   // SIGKILL escalation. Gate on actual liveness (exitCode/signalCode still null).

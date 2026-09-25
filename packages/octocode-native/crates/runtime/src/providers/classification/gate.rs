@@ -1,6 +1,6 @@
 //! Process-wide admission gate for classification provider requests.
 //!
-//! Every clasify and semantic-rerank provider request, from every concurrent
+//! Every Clasify provider request, from every concurrent
 //! tool call in this process, passes through one [`ClassificationGate`] per
 //! provider endpoint (scheme + host + port + path). The gate:
 //!

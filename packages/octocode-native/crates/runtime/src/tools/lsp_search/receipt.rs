@@ -62,7 +62,7 @@ pub(super) fn apply_rust_context(
     config: &mut JsLanguageServerConfig,
     query: &LspSearchQuery,
 ) -> Result<(), String> {
-    let Some(value) = &query.rust_context else {
+    let Some(value) = &query.rust_context() else {
         return Ok(());
     };
     if config.language_id.as_deref() != Some("rust") {
@@ -131,9 +131,15 @@ pub(super) fn attach_provider_context(
         envelope.shift_remove("type");
     }
     envelope.insert("uri".into(), json!(canonical_uri));
-    let anchored = is_anchored(&query.operation);
-    if let Some(resolved_symbol) = resolved_symbol {
+    let anchored = is_anchored(&query.operation());
+    // The row's `uri` names the anchor file once; the anchor receipt and a
+    // single-file payload restate it only when they point elsewhere.
+    if let Some(mut resolved_symbol) = resolved_symbol {
+        drop_same_uri(&mut resolved_symbol, canonical_uri);
         envelope.insert("resolvedSymbol".into(), resolved_symbol);
+    }
+    if let Some(payload) = envelope.get_mut("payload") {
+        drop_same_uri(payload, canonical_uri);
     }
     let lsp = envelope
         .entry("lsp")
@@ -141,7 +147,7 @@ pub(super) fn attach_provider_context(
         .as_object_mut();
     if let Some(lsp) = lsp {
         lsp.insert("serverAvailable".into(), json!(true));
-        if let Some(provider) = provider_for_operation(&query.operation) {
+        if let Some(provider) = provider_for_operation(&query.operation()) {
             lsp.insert("provider".into(), json!(provider));
         }
         if anchored {
@@ -168,6 +174,24 @@ pub(super) fn attach_provider_context(
         ordered.append(envelope);
         ordered.insert("workspaceRoot".into(), json!(config.workspace_root));
         *envelope = ordered;
+    }
+}
+
+/// Remove `value.uri` when it names the same file as `canonical_uri`.
+pub(super) fn drop_same_uri(value: &mut Value, canonical_uri: &str) {
+    let file = |uri: &str| {
+        url::Url::parse(uri)
+            .ok()
+            .and_then(|url| url.to_file_path().ok())
+    };
+    let Some(object) = value.as_object_mut() else {
+        return;
+    };
+    let same = object.get("uri").and_then(Value::as_str).is_some_and(|uri| {
+        uri == canonical_uri || file(uri).is_some_and(|path| Some(path) == file(canonical_uri))
+    });
+    if same {
+        object.shift_remove("uri");
     }
 }
 

@@ -1,8 +1,10 @@
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq)]
-#[serde(rename_all = "camelCase")]
+pub use crate::contracts::tool_types::{AstTopologyQuery, AstTopologyQueryRustWorkspace};
+
+/// The `analysis` discriminant of an [`AstTopologyQuery`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GraphAnalysis {
     Dependencies,
     Dependents,
@@ -27,40 +29,140 @@ impl GraphAnalysis {
     }
 }
 
-fn topology() -> String {
-    "topology".into()
-}
-fn one() -> u32 {
-    1
+/// Binds `$field` from whichever analysis variant `$query` is.
+macro_rules! every_analysis {
+    ($query:expr, $field:ident => $value:expr) => {
+        match $query {
+            AstTopologyQuery::DeadCode { $field, .. }
+            | AstTopologyQuery::Cycles { $field, .. }
+            | AstTopologyQuery::Dependencies { $field, .. }
+            | AstTopologyQuery::Dependents { $field, .. }
+            | AstTopologyQuery::Path { $field, .. }
+            | AstTopologyQuery::Reachability { $field, .. }
+            | AstTopologyQuery::Drift { $field, .. } => $value,
+        }
+    };
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct AstGraphQuery {
-    #[serde(default = "topology")]
-    pub operation: String,
-    pub analysis: GraphAnalysis,
-    pub path: Option<String>,
-    pub file: Option<String>,
-    pub target: Option<String>,
-    pub depth: Option<u32>,
-    pub entrypoints: Option<Vec<String>>,
-    pub include_tests: Option<bool>,
-    pub exclude_dir: Option<Vec<String>>,
-    pub language_globs: Option<BTreeMap<String, Vec<String>>>,
-    pub max_files: Option<u32>,
-    pub limit: Option<u32>,
-    #[serde(default = "one")]
-    pub page: u32,
-    pub page_size: Option<u32>,
-    #[serde(default = "one")]
-    pub diagnostic_page: u32,
-    pub diagnostic_page_size: Option<u32>,
-    pub diagnostic_snapshot: Option<String>,
-    pub rust_workspace: Option<String>,
-    /// Baseline repository/package root for `analysis:"drift"`; the current
-    /// `path` is the head. Only valid for the drift analysis.
-    pub baseline: Option<String>,
+fn u32_of(value: std::num::NonZeroU64) -> u32 {
+    u32::try_from(value.get()).unwrap_or(u32::MAX)
+}
+
+/// Analysis-independent views over the generated wire query, in the graph
+/// engine's `u32` units.
+impl AstTopologyQuery {
+    pub fn analysis(&self) -> GraphAnalysis {
+        match self {
+            Self::DeadCode { .. } => GraphAnalysis::DeadCode,
+            Self::Cycles { .. } => GraphAnalysis::Cycles,
+            Self::Dependencies { .. } => GraphAnalysis::Dependencies,
+            Self::Dependents { .. } => GraphAnalysis::Dependents,
+            Self::Path { .. } => GraphAnalysis::Path,
+            Self::Reachability { .. } => GraphAnalysis::Reachability,
+            Self::Drift { .. } => GraphAnalysis::Drift,
+        }
+    }
+    pub fn path(&self) -> Option<&str> {
+        match self {
+            Self::Cycles { path, .. } | Self::Drift { path, .. } => Some(path),
+            Self::DeadCode { path, .. }
+            | Self::Dependencies { path, .. }
+            | Self::Dependents { path, .. }
+            | Self::Path { path, .. }
+            | Self::Reachability { path, .. } => path.as_deref(),
+        }
+    }
+    /// Points the scan at another root (the drift baseline snapshot).
+    pub fn set_path(&mut self, root: String) {
+        match self {
+            Self::Cycles { path, .. } | Self::Drift { path, .. } => *path = root,
+            Self::DeadCode { path, .. }
+            | Self::Dependencies { path, .. }
+            | Self::Dependents { path, .. }
+            | Self::Path { path, .. }
+            | Self::Reachability { path, .. } => *path = Some(root),
+        }
+    }
+    pub fn file(&self) -> Option<&str> {
+        match self {
+            Self::Dependencies { file, .. }
+            | Self::Dependents { file, .. }
+            | Self::Path { file, .. } => Some(file),
+            _ => None,
+        }
+    }
+    pub fn target(&self) -> Option<&str> {
+        match self {
+            Self::Path { target, .. } => Some(target),
+            _ => None,
+        }
+    }
+    pub fn baseline(&self) -> Option<&str> {
+        match self {
+            Self::Drift { baseline, .. } => Some(baseline),
+            _ => None,
+        }
+    }
+    pub fn depth(&self) -> Option<u32> {
+        match self {
+            Self::Dependencies { depth, .. } | Self::Dependents { depth, .. } => {
+                Some(u32_of(*depth))
+            }
+            _ => None,
+        }
+    }
+    pub fn entrypoints(&self) -> Option<&Vec<String>> {
+        match self {
+            Self::DeadCode { entrypoints, .. } | Self::Reachability { entrypoints, .. } => {
+                Some(entrypoints)
+            }
+            _ => None,
+        }
+    }
+    pub fn include_tests(&self) -> Option<bool> {
+        match self {
+            Self::DeadCode { include_tests, .. } | Self::Reachability { include_tests, .. } => {
+                Some(*include_tests)
+            }
+            _ => None,
+        }
+    }
+    pub fn exclude_dir(&self) -> Option<&[String]> {
+        every_analysis!(self, exclude_dir => (!exclude_dir.is_empty()).then_some(exclude_dir.as_slice()))
+    }
+    /// Language globs in a deterministic (sorted) order.
+    pub fn language_globs(&self) -> Option<BTreeMap<String, Vec<String>>> {
+        every_analysis!(self, language_globs => (!language_globs.is_empty()).then(|| {
+            language_globs
+                .iter()
+                .map(|(language, globs)| (language.clone(), globs.clone()))
+                .collect()
+        }))
+    }
+    pub fn max_files(&self) -> Option<u32> {
+        every_analysis!(self, max_files => max_files.map(u32_of))
+    }
+    pub fn limit(&self) -> Option<u32> {
+        every_analysis!(self, limit => limit.map(u32_of))
+    }
+    pub fn page(&self) -> u32 {
+        every_analysis!(self, page => u32_of(*page))
+    }
+    pub fn page_size(&self) -> Option<u32> {
+        every_analysis!(self, page_size => page_size.map(u32_of))
+    }
+    pub fn diagnostic_page(&self) -> u32 {
+        every_analysis!(self, diagnostic_page => diagnostic_page.map_or(1, u32_of))
+    }
+    pub fn diagnostic_page_size(&self) -> Option<u32> {
+        every_analysis!(self, diagnostic_page_size => diagnostic_page_size.map(u32_of))
+    }
+    pub fn diagnostic_snapshot(&self) -> Option<&str> {
+        every_analysis!(self, diagnostic_snapshot => diagnostic_snapshot.as_deref().map(String::as_str))
+    }
+    pub fn rust_workspace(&self) -> Option<AstTopologyQueryRustWorkspace> {
+        every_analysis!(self, rust_workspace => *rust_workspace)
+    }
 }
 
 pub(crate) type RawFacts = octocode_engine::graph::GraphFactsDocument;

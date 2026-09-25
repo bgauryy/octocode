@@ -1,152 +1,163 @@
 # Agents communication architecture
 
-The runtime is one Rust crate. Its executable and bundled SQLite ship under the
-[skill's scripts directory](skills/octocode-agents-communication/scripts/). Shell and
-PowerShell launchers select the target binary. They do not fetch or compile code.
-The npm workspace provides maintainer build and verification commands; agents need
-only the built skill. Awareness is independent.
+The package is one Rust runtime distributed inside a standalone skill. The skill
+owns coordination decisions; the runtime owns validation, state transitions and
+delivery. Shell/PowerShell launchers select a bundled executable without downloads
+or compilation. Node and Cargo are maintainer dependencies, not raw CLI requirements.
 
-`SKILL.md` is the single agent instruction file, capped at 50 lines. It owns when
-and why to coordinate; the Rust catalog owns exact command schemas and the Store
-owns transitions. `db protocol` embeds `docs/DB.md` and the canonical DDL at build
-time, so DB-only adapter authors can discover the protocol from the standalone CLI.
-The installed skill has no references directory. Pi's JavaScript bridge supplies
-vendor tool registration only; coordination policy and storage stay in Rust.
+## Boundaries and ownership
 
-```text
-Any agent -> Rust CLI / bound tools / SQLite client -> SQLite v2 + audit
-                                                    |
-                                      deterministic Rust dispatcher
-                                      /             |             \
-                                Claude socket   Codex inject     raw hook
-                                                               /        \
-                                                        Pi extension  any host
-Receiver -> DB-backed reply + explicit ack
+| Boundary | Owner | Contract |
+| --- | --- | --- |
+| Agent workflow | `skills/octocode-agents-communication/SKILL.md` | One instruction file, at most 50 lines; when and why to coordinate |
+| Commands and tool schemas | `rust/catalog.json`, `rust/catalog.rs` | One command definition feeds CLI help and bound MCP/Pi tools |
+| CLI ingress | `rust/cli.rs` | Arguments, bounded JSON input, command routing and output |
+| MCP ingress | `rust/mcp.rs` | JSON-RPC framing and a restricted bound-tool surface |
+| Coordination state | `rust/store.rs`, `rust/leases.rs` | Identity, messages, presence, claims and advisory reservations |
+| Storage | `rust/database.rs`, frozen `rust/schema-v*.sql` | SQLite opening, schema checks, migrations and verified exports |
+| Operational diagnostics | `rust/health.rs` | Read-only workspace queue counts and paginated issue IDs; no message bodies, replay or vendor polling |
+| Maintenance | `rust/retention.rs` | Bounded retention diagnostics and explicit compaction without deleting protocol history |
+| Views and documents | `rust/entities.rs`, `rust/documents.rs` | Workspace-scoped reads/updates and immutable document handoffs |
+| Git observations | `rust/activity.rs` | Bounded read-only activity; not ownership or an agent action log |
+| Owned-write admission | `rust/lease_guard.rs` | Read-only coverage check; optional Pi/Claude/OpenCode structured-tool guards with native binding, not OS fencing |
+| Path identity | `rust/paths.rs` | Link-first resolution and component-wise Unicode caseless lease comparison |
+| Delivery state | `rust/dispatch.rs` | Staging tokens, one context renderer, confirmations, usage and listeners |
+| Native delivery port | `rust/transport/protocol.rs` | Typed prepare/offer/poll/receipt contract; adapter capability policy and normalized usage, no DB access |
+| Vendor APIs | `rust/transport.rs`, `rust/transport/grok.rs`, `rust/transport/opencode.rs` | Existing-recipient socket/WebSocket/HTTP/ACP I/O beneath the common port |
+| Host hooks | `rust/host_hooks.rs` | Cursor/Grok event envelopes, identity binding and config previews |
+| Completion check | `rust/completion.rs` | Optional Claude Stop check of submitted pending IDs; read-only, one recovery continuation, no second delivery owner |
+| Pi bridge | Skill `scripts/pi-inbox.mjs`, `scripts/pi-extension.mjs` | Lifecycle, bound tools, native context and durable host receipts |
+| Optional worker creation | `rust/proxy.rs`, `rust/wire.rs` | Owned vendor processes, bounded frames, deadlines and teardown |
+| Home resolution | `../octocode-config/rust/home.rs` | Shared native home policy; no private configuration implementation |
+
+The catalog is parsed and assembled once per process. Internal lookups borrow the
+cached catalog and clone only the requested definition; callers requesting the
+complete owned catalog receive a copy. Command validators compile lazily from the
+embedded finite command set. MCP/Pi tool descriptions and schemas derive from their
+command definitions, retaining tool annotations. No separate schema authoring or
+Node generator runs at startup.
+
+Optional tool selection is validated by the catalog before startup and retained for
+the process lifetime. MCP discovery and calls use that same selection; managed
+workers and native Pi reuse the catalog's selected descriptors. This reduces
+exposed context without defining a second tool schema or an OS permission policy.
+
+`skill --vendor <host>` derives instructions from the single embedded skill by
+omitting other vendors' setup paragraphs. Shared protocol, safety, locks and raw
+fallback remain. Plain `skill` and managed workers retain the full canonical file:
+the matched profile trial missed its input/latency gates. Scoping is an explicit
+host option; no prompt is regenerated per message. It reduces instruction bytes,
+not the host's retained history or necessarily its token bill.
+
+## Message flow
+
+```mermaid
+flowchart LR
+    A[Agent with skill] --> B[CLI or bound MCP/Pi tool]
+    B --> C[Rust Store]
+    G[Conforming SQLite client] --> D[(Local SQLite + audit)]
+    C --> D
+    D --> E[Delivery owner: stage attempt]
+    E --> N[Existing recipient API]
+    E --> H[Raw hook or manual inbox]
+    N --> R[Recipient handles message]
+    H --> R
+    R -->|Required reply, then acknowledgement| C
 ```
 
+Sender identity, target/topic snapshots, idempotency and correlation belong to the
+DB protocol. Native APIs and hooks deliver stored messages; they do not implement
+separate routing or substitute their own cross-vendor mailbox. Worktrees have
+separate canonical workspace identities. No model is needed for routing, leases,
+fanout or presence; recipient inference remains a host concern.
 
-## Ownership
+One DB identity has one receiving transport. Hook identity lookup includes native
+bindings as well as descriptive vendor labels. Native attachment rejects a second
+identity for the same registered host. Native-bound hooks retain lifecycle events
+but inject no context; insert-if-absent raw setup cannot replace a concurrent native
+binding. Existing ambiguous registrations require explicit resolution.
 
-- `rust/database.rs`: opening, schema validation, private initial creation, SQL
-  binding, and read-only inspection. SQLite is bundled through `rusqlite`.
-- `rust/schema-v1.sql` plus `rust/schema-v2.sql`: frozen base and additive audit/dispatch DDL.
-  `rust/catalog.json`: command/entity contracts.
-  Runtime discovery embeds both; no Node schema generator runs at startup.
-- `rust/store.rs`: presence, leases, durable messages, claims, and retention.
-- `rust/paths.rs`: link-first resolution and component-wise Unicode 16 caseless
-  lease comparison. Case-preserving workspace containment remains separate.
-- `rust/entities.rs`: workspace-scoped views and constrained metadata updates.
-- `rust/cli.rs` and `rust/mcp.rs`: arguments and JSON transport.
-- `rust/dispatch.rs`: durable one-time attempts, confirmations, hooks, usage, listener.
-- `rust/transport.rs`: local native socket/WebSocket adapters (Tungstenite framing).
-- `rust/proxy.rs`: optional new worker lifecycle, heartbeats, and idle-turn delivery.
-- `scripts/pi-inbox.mjs` inside the skill: existing Pi session tool/context bridge.
-- `rust/wire.rs`: bounded JSON frames/queues, request deadlines, process teardown.
-- `../octocode-config/rust/home.rs`: shared native home policy, compiled into the CLI.
+Native orchestration has one cached client and one pending batch, regardless of
+vendor. `NativeDelivery::prepare` precedes `stage_bound`; `offer` receives the
+same rendered context, dispatch token and action intent. Synchronous receipts and
+delayed Grok receipts converge on `DeliveryClients::finish`. Adapter failures after
+staging mark that batch uncertain; preflight failures leave it unstaged. No adapter
+imports the Store or owns retry/ACK policy. Closing a listener abandons a pending
+receipt without killing the host-owned recipient. Raw/Pi host delivery continues
+to use the same renderer and DB stage/confirm/ACK contract; it does not acquire a
+second native delivery owner. See the [internal protocol](docs/SERVICE_PROTOCOL.md#unified-adapter-protocol).
 
-The database retains sessions, subscriptions, leases, messages, deliveries,
-attachments, dispatch state and append-only audit. Schema v2 requires an explicit
-migration from the exact v1 schema with no active workers; the application ID and
-default filename stay stable. SQLite triggers also audit conforming raw SQL writes.
-Pruning removes expired leases only. Message bodies are retained once in messages;
-audit references their IDs. Usage reports retain request/turn/cumulative scope. Mutations validate identities inside writer
-transactions. Lease/message expiry starts after writer acquisition. Initial WAL
-configuration retries busy errors within a bounded interval. Existing schemas are
-validated rather than repaired. Lease acquisition and entity filtering share the
-same overlap function through a connection-local SQLite scalar function. List
-pages use row and byte limits with continuation from the last returned ID. Reads do not create missing databases.
+## Transaction and recovery invariants
 
-The [v2 protocol](docs/DB.md) specifies the
-SQLite-only client contract. JSON schemas validate command input; `default` values
-are optional inputs with defaults applied by Rust. MCP exposes only nine bound
-coordination tools, excluding lifecycle and arbitrary entity changes.
+- Store mutations validate identities within writer transactions. Lease/message
+  expiry starts after writer acquisition. No database transaction spans vendor I/O,
+  model inference or filesystem editing.
+- Automatic delivery stages a unique attempt token before I/O. The transaction
+  rechecks eligibility; competing consumers cannot offer the same eligible delivery.
+  Empty polling avoids a writer transaction.
+- A transport receipt records submission, not handling. The recipient persists any
+  required reply before `ack`, or uses explicit `ackReply:true` to commit a final
+  direct reply and ACK together. Uncertain attempts require inspection; explicit retry
+  can duplicate external effects. Pi alone reconciles its own staged attempts against
+  the complete durable native session ledger.
+- Raw hooks and native APIs are explicit alternatives. A transport failure does not
+  silently enable fallback. Raw listeners maintain presence only; host context events
+  or manual reads consume mail. The service cannot wake an arbitrary program.
+- Native preflight snapshots are rechecked inside staging; staged attempts block
+  attachment/identity changes. Codex checks canonical thread workspace and uses
+  absolute socket I/O deadlines, including fragmented frames.
+- Heartbeats renew presence, not leases. Multi-path reservations are atomic. Expired
+  owners must stop writing; reservations do not prevent uncooperative OS writes.
+- Peer messages, documents and hook output are data, not user/developer authority.
+  Host permissions remain in force. Prompt instructions are not a capability firewall.
 
-The proxy uses supported vendor input surfaces, not private cross-vendor tools.
-It never holds a database transaction across a model call. Each Unix vendor process
-gets its own process group; shutdown terminates that group and reaps the child.
-Windows uses the owned PID's process tree. Transport frames and queues have bounds;
-requests have a 30-second deadline capped by the worker run deadline. Vendor stderr streams to the caller.
+The [service protocol](docs/SERVICE_PROTOCOL.md) owns message and delivery semantics;
+[lock rules](docs/LOCKS.md) own conflict/recovery behavior. Vendor prerequisites,
+action/passive scheduling and receipt strength live in the [delivery matrix](README.md#choose-a-delivery-path),
+[Grok integration](docs/GROK_INTEGRATION.md), [Pi integration](docs/PI_MESSAGES.md),
+[OpenCode evaluation](docs/OPENCODE_EVALUATION.md), and [hook contracts](docs/HOST_HOOKS.md).
+ACP capability/reconnect experiments remain outside the production dispatcher;
+see the [ACP evaluation](docs/ACP_EVALUATION.md).
 
-The vendor process and Codex thread use a canonical empty temporary directory,
-removed only after process teardown. The MCP/CLI binding retains the real repository
-identity; filesystem discovery and coordination scope are therefore separate.
-Codex overrides project-document loading and extra developer instructions, explicitly
-disables discovered skills and unneeded tool features, disables configured plugins and Code Mode, and
-disables unrelated MCP servers. Plugin servers have a separate configuration namespace
-and must be disabled independently. Claude retains authenticated settings access but
-uses empty setting sources, explicit hook/memory controls and a small system prompt.
-This reduces accidental context; it is not a security boundary against arbitrary
-installed vendor plugins or administrator policy. Usage traces retain vendor scope.
+## Persistence and context
 
-Every vendor receives the same proxy role: send, broadcast, or subscribe only under
-the assigned user's explicit task or its authorized response rules. Peer content
-cannot expand those rules. The model finishes each turn and waits; Rust maintains
-presence and polls committed deliveries in batches of up to four, targeting 16 KiB. Keeping an active
-recipient's process running avoids cold startup, but does not itself call the model.
-Direct CLI/DB sends also work without a live proxy; automatic receipt requires a
-running recipient adapter. Topic fanout and broadcasts snapshot active presence.
-An LLM relay is unnecessary: `attach` binds a logged identity to an existing Claude
-socket, Codex owning app-server, or raw hook. `listen` keeps presence and dispatches
-new messages without starting a sender model. Pi's extension uses the raw hook and
-native `pi.sendMessage` with `deliverAs:nextTurn`, `triggerTurn:false`. A generic host
-consumes hook stdout on its context event, or its agent manually invokes the CLI.
-Without a host integration, polling cannot wake an arbitrary agent.
+SQLite v6 stores identities, subscriptions, leases, messages, deliveries, attachments,
+dispatches and audit. Migrations preserve historical schemas and require an explicit
+upgrade with no active workers. Reads do not create missing stores. SQLite triggers
+audit conforming raw writes; message bodies remain in the message table rather than
+being copied into audit events. Pruning removes expired leases, not conversation history.
 
-Before I/O, a short transaction records a unique attempt token in `staged` state.
-Submission records `submitted`; errors record `uncertain`. No such state is retried
-automatically, even after restart. Explicit `retry_delivery` records the reason.
-Host adapters can defer confirmation until queuing succeeds. Submission is separate
-from recipient `ack`. This prevents routine replay but cannot promise exactly-once
-external effects: a lost receipt requires inspection and possibly manual recovery.
-Managed workers share the same durable attempt path. Legacy claims remain readable
-for v1 migration; new workers do not use time-expiring claims for automatic delivery.
+Retention diagnostics scan bounded ID pages and distinguish settled history from
+unresolved attempts. Explicit compaction reclaims reusable SQLite pages and checks
+schema/integrity; it preserves audit, message bodies, reply links and send keys.
+Age-based deletion is unsupported because those records remain protocol state.
 
-Native delivery retains recipient conversation history and includes only new peer
-IDs, attribution and content. It never resends the skill or transcript. Attached
-Claude/Codex injection does not expose inference telemetry; the owning host must
-report it with `record_usage`. Pi and managed workers capture available metrics.
-Transport and audit remain useful for vendors without APIs or SDKs.
-Prompt rules guide behavior; they are not a capability firewall against a model
-that calls an available tool incorrectly.
-The Pi extension vetoes `cache_warming_decision` so a user's global idle-cache
-warming setting cannot add background model refresh calls to this worker.
+The runtime checks that the DB path still names a file; Unix also checks device/inode.
+Replacement or deletion stops use rather than silently opening another store. Stop
+workers before moving/restoring storage. Exports capture committed WAL data into a
+verified, synced snapshot without overwriting a destination. Workspace documents
+remain separate files; preserve them alongside the database. The exact SQL-client,
+migration and snapshot contracts are embedded by `db protocol` from [DB.md](docs/DB.md).
 
-Store operations verify that the DB path still exists as a file. Unix builds also
-compare device/inode with the opened database, rejecting replacements before a read
-or write and stopping idle proxies on their next poll. No replacement database is
-created. These checks do not make deliberate concurrent filesystem replacement
-safe; stop workers before moving/removing the store. A deleted database cannot be
-used to persist cleanup, so old session records expire by their existing TTL.
+Load the skill once. Delivery renders only fresh peer envelopes, while large evidence
+uses immutable documents and bounded reads. Host conversation history remains; stable
+instructions do not promise cache hits. Usage audits preserve available request,
+turn or cumulative scopes; unknown counters are not zero and overlapping reports
+cannot be added. Vendor discovery controls reduce incidental context but do not
+isolate arbitrary administrator policy or installed plugins.
 
 ## Validation and distribution
 
-Rust contract tests cover expiry, conflict exclusion, stale owners, schema integrity,
-path aliases, idempotency, claim recovery, topic snapshots, resume, and visibility.
-CLI tests cover cold concurrent initialization, lock contention, malformed MCP frames,
-entity operations, waits, config parity, and Python interoperability. A copied skill
-runs with a PATH containing only launcher utilities, excluding Node, Cargo, and vendor
-executables. Real Haiku/Luna POC evidence verifies the process bridge separately, optionally
-including Pi. Pi tools reuse the catalog and execute the bound Rust CLI without a
-shell. The temporary extension uses only Node built-ins and is removed on teardown.
-An idle inbox probe avoids writer transactions; the staging transaction rechecks
-availability before claiming, preserving exclusion under concurrent workers.
-`tests/dispatch.test.mjs` covers one-time hooks, audit retention, confirmation tokens,
-concurrent consumers, uncertain writes and explicit v1 migration.
-`scripts/attached-poc.mjs` exercises real Claude/Codex/Pi plus raw recipients through
-the production Rust CLI with DB-backed replies and a broadcast; no sender inference.
+The package's `verify` script runs format, strict Clippy, Rust tests and real CLI/MCP
+process tests. Tests cover transaction contention, identity/transport overlap, expiry,
+path aliases, schema integrity, retries, invalid frames, visibility and standalone
+skill execution. Python interoperability requires the documented compatible runtime.
+The live service matrix checks existing recipients and automatic wake; managed-worker
+probes test the separate optional process-creation path. Results and their platform
+limits are recorded in [Grok integration](docs/GROK_INTEGRATION.md) and [benchmarks](docs/BENCHMARKS.md).
 
-Only macOS ARM64 is built and executed in this development session. Other platform
-selectors are distribution plumbing, not a claim of validated artifacts. Source
-checkouts omit generated binaries; a standalone release includes the built skill.
-The package remains private.
-
-## Sources
-
-- [rusqlite](https://github.com/rusqlite/rusqlite): bundled SQLite and transaction API.
-- [SQLite WAL](https://sqlite.org/wal.html): local-file concurrency and reset-race fixes.
-- [Codex app-server](https://developers.openai.com/codex/app-server): thread/turn lifecycle.
-- [Claude programmatic CLI](https://code.claude.com/docs/en/headless): streaming input/output.
-- [MCP Agent Mail](https://github.com/Dicklesworthstone/mcp_agent_mail): advisory leases
-  and durable inbox prior art. Its Git archive and larger service are outside this scope.
-
-- [Pi RPC](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/rpc.md): command correlation and settled events.
+Build and packaging instructions belong to the [README](README.md#build-and-validate).
+Release bundles include checksummed platform binaries; source checkouts omit them.
+Only the recorded platforms/versions are validated. The package is private. Pi retains
+its own plans, approvals and context controls; the former Awareness package is
+[retired](../../docs/COMMUNICATION_RETIREMENT.md).

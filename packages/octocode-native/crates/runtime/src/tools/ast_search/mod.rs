@@ -8,6 +8,9 @@ mod syntax;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub use crate::contracts::tool_types::AstSearchQuery;
+use matches::MatchQuery;
+
 use crate::policy::{PolicyError, PolicyErrorCode};
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -196,40 +199,18 @@ pub fn execute_ast(
     security: &crate::security::ContentSecurity,
     cancellation: &dyn crate::tools::local_fetch::CancellationCheck,
 ) -> AstResult {
-    let operation = query
-        .get("operation")
-        .and_then(Value::as_str)
-        .ok_or_else(|| AstError::new("ast.input.invalid", "operation is required"))?;
-    let decode = |error: serde_json::Error| AstError::new("ast.input.invalid", error.to_string());
-    match operation {
-        "files" => execute_files(
-            &serde_json::from_value(query).map_err(decode)?,
-            paths,
-            security,
-            cancellation,
-        ),
-        "symbols" => execute_symbols(
-            &serde_json::from_value(query).map_err(decode)?,
-            paths,
-            security,
-            cancellation,
-        ),
-        "match" => execute_match(
-            &serde_json::from_value(query).map_err(decode)?,
-            paths,
-            security,
-            cancellation,
-        ),
-        "tree" => execute_syntax(
-            &serde_json::from_value(query).map_err(decode)?,
-            paths,
-            security,
-            cancellation,
-        ),
-        _ => Err(AstError::new(
-            "ast.input.invalid",
-            format!("unsupported operation: {operation}"),
-        )),
+    let query: AstSearchQuery = serde_json::from_value(query)
+        .map_err(|error| AstError::new("ast.input.invalid", error.to_string()))?;
+    match &query {
+        AstSearchQuery::Files(query) => execute_files(query, paths, security, cancellation),
+        AstSearchQuery::Symbols(query) => execute_symbols(query, paths, security, cancellation),
+        AstSearchQuery::MatchPattern(query) => {
+            execute_match(MatchQuery::Pattern(query), paths, security, cancellation)
+        }
+        AstSearchQuery::MatchRule(query) => {
+            execute_match(MatchQuery::Rule(query), paths, security, cancellation)
+        }
+        AstSearchQuery::Tree(query) => execute_syntax(query, paths, security, cancellation),
     }
 }
 
@@ -279,7 +260,7 @@ mod tests {
         assert_eq!(missing.code, "ast.input.invalid");
 
         let unknown = execute_ast(
-            json!({"operation":"files","path":".","unknown":true}),
+            json!({"operation":"files","reasoning":"test","path":".","unknown":true}),
             &paths,
             &security,
             &Active,
@@ -288,7 +269,7 @@ mod tests {
         assert_eq!(unknown.code, "ast.input.invalid");
 
         let cancelled = execute_ast(
-            json!({"operation":"files","path":"."}),
+            json!({"operation":"files","reasoning":"test","path":"."}),
             &paths,
             &security,
             &Cancelled,
@@ -311,7 +292,7 @@ mod tests {
 
         let syntax = execute_ast(
             json!({
-                "operation":"tree",
+                "operation":"tree","reasoning":"test",
                 "treeKind":"syntax",
                 "path":source.to_string_lossy()
             }),
@@ -321,12 +302,30 @@ mod tests {
         )
         .expect("syntax tree");
         assert_eq!(syntax["treeKind"], "syntax");
+        // Line/column locate nodes; byte offsets are debug-only.
+        let root_node = &syntax["nodes"][0];
+        assert!(root_node.get("startLine").is_some(), "{root_node}");
+        assert!(root_node.get("startByte").is_none(), "{root_node}");
+        assert!(root_node.get("endByte").is_none(), "{root_node}");
+        let debug = execute_ast(
+            json!({
+                "operation":"tree","reasoning":"test","debug":true,
+                "treeKind":"syntax",
+                "path":source.to_string_lossy()
+            }),
+            &paths,
+            &security,
+            &Active,
+        )
+        .expect("debug syntax tree");
+        assert_eq!(debug["nodes"][0]["startByte"], 0, "{debug}");
+        assert!(debug["nodes"][0]["endByte"].as_u64().is_some(), "{debug}");
 
         for retired in [
-            json!({"operation":"tree","treeKind":"filesystem","path":root.path().to_string_lossy()}),
-            json!({"operation":"tree","treeKind":"syntax","path":source.to_string_lossy(),"entryType":"f"}),
-            json!({"operation":"tree","treeKind":"syntax","path":source.to_string_lossy(),"sort":"size"}),
-            json!({"operation":"topology","analysis":"dependencies","path":root.path().to_string_lossy(),"file":"fixture.ts"}),
+            json!({"operation":"tree","reasoning":"test","treeKind":"filesystem","path":root.path().to_string_lossy()}),
+            json!({"operation":"tree","reasoning":"test","treeKind":"syntax","path":source.to_string_lossy(),"entryType":"f"}),
+            json!({"operation":"tree","reasoning":"test","treeKind":"syntax","path":source.to_string_lossy(),"sort":"size"}),
+            json!({"operation":"topology","reasoning":"test","analysis":"dependencies","path":root.path().to_string_lossy(),"file":"fixture.ts"}),
         ] {
             let error = execute_ast(retired, &paths, &security, &Active)
                 .expect_err("retired astSearch surface must be rejected");

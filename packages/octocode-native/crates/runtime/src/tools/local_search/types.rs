@@ -1,12 +1,9 @@
 use serde::Serialize;
 use std::path::PathBuf;
 
-/// localSearch speaks the generated wire vocabulary; these names are aliases
-/// of the generated types, not separate definitions.
 pub use crate::contracts::tool_types::{
-    CaseMode, LocalSearchQuery, LocalSearchQueryResultView as ResultView,
-    LocalSearchQuerySort as SortMode, Multiline as MultilineMode, Regex as RegexMode,
-    Unique as UniqueMode,
+    LocalSearchQuery, LocalSearchQueryCaseMode, LocalSearchQueryMultiline, LocalSearchQueryRegex,
+    LocalSearchQueryResultView, LocalSearchQuerySort, LocalSearchQueryUnique,
 };
 
 /// The engine counts in `u32`; the wire contract owns the field set and its

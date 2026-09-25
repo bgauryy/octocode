@@ -2,7 +2,9 @@ use crate::{catalog, cli::output, store::Store, wire::read_frame};
 use anyhow::Result;
 use serde_json::{Value, json};
 
-pub fn serve(store: &Store, session: &str) -> Result<()> {
+pub fn serve(store: &Store, session: &str, selection: Option<&str>) -> Result<()> {
+    // A running server has one embedded contract. Retain it across requests.
+    let tools = catalog::selected_tools(selection)?;
     let mut reader = std::io::stdin().lock();
     while let Some(line) = read_frame(&mut reader)? {
         let request: Value = match serde_json::from_slice(&line) {
@@ -34,12 +36,10 @@ pub fn serve(store: &Store, session: &str) -> Result<()> {
                 json!({"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"octocode-agents-communication","version":env!("CARGO_PKG_VERSION")}})
             }
             "ping" => json!({}),
-            "tools/list" => json!({"tools":catalog::catalog()?["tools"]}),
+            "tools/list" => json!({"tools":tools}),
             "tools/call" => {
                 let name = request["params"]["name"].as_str().unwrap_or("");
-                let allowed = catalog::catalog()?["tools"]
-                    .as_array()
-                    .is_some_and(|items| items.iter().any(|v| v["name"] == name));
+                let allowed = tools.iter().any(|tool| tool["name"] == name);
                 let empty = json!({});
                 let result = if allowed {
                     store.call(

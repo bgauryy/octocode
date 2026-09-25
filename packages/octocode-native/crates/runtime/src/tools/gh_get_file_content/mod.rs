@@ -8,7 +8,7 @@ use crate::providers::github::{
     RequestContext,
 };
 use crate::tools::local_fetch::{
-    CancellationCheck, ChunkType, ContentScan, LocalFetchQuery, Minify, RegexMatch,
+    CancellationCheck, ChunkType, ContentScan, LocalFetchQuery, MinifyMode, RegexMatch,
     process_fetched_content,
 };
 
@@ -26,7 +26,9 @@ pub struct GhGetFileContentResult {
 pub struct GhGetFileContentFile {
     #[serde(flatten)]
     pub content: crate::tools::local_fetch::LocalFetchResult,
-    pub resolved_branch: String,
+    /// Commit the read was pinned to (a branch or default-branch ref resolves
+    /// to its current SHA; continuations reuse it).
+    pub commit_sha: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file_type: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -124,7 +126,7 @@ where
         cancel,
         regex,
     );
-    if query.minify == Some(Minify::Symbols) {
+    if query.minify == Some(MinifyMode::Symbols) {
         content
             .warnings
             .retain(|warning| !warning.starts_with("No smaller outline is available for "));
@@ -140,7 +142,7 @@ where
         content.path = query.path.to_string();
         content.error = None;
         content.content = Some(String::new());
-        content.content_view = Some(Minify::None);
+        content.content_view = Some(MinifyMode::None);
         content.total_lines = Some(raw.lines().count());
         content.source_chars = Some(raw.encode_utf16().count());
         content.source_bytes = Some(raw.len());
@@ -191,10 +193,10 @@ where
             has_more: false,
             next_offset: None,
         });
-        if let Some(requested) = query.minify.filter(|mode| *mode != Minify::None) {
+        if let Some(requested) = query.minify.filter(|mode| *mode != MinifyMode::None) {
             content.minify_fallback = Some(crate::tools::local_fetch::MinifyFallback {
                 requested,
-                applied: Minify::None,
+                applied: MinifyMode::None,
                 reason: "match-evidence".into(),
             });
         }
@@ -226,7 +228,7 @@ where
         repo: query.repo.to_string(),
         files: vec![GhGetFileContentFile {
             content,
-            resolved_branch: acquired.resolved_ref,
+            commit_sha: acquired.resolved_ref,
             file_type: match crate::content::classify_file_type(&query.path) {
                 Some(crate::content::FileType::Config) => Some("config"),
                 Some(crate::content::FileType::Lock) => Some("lock"),
@@ -400,10 +402,10 @@ fn rewrite_continuations(
             query.insert(
                 "minify".into(),
                 Value::String(
-                    match source.minify.unwrap_or(Minify::None) {
-                        Minify::None => "none",
-                        Minify::Standard => "standard",
-                        Minify::Symbols => "symbols",
+                    match source.minify.unwrap_or(MinifyMode::None) {
+                        MinifyMode::None => "none",
+                        MinifyMode::Standard => "standard",
+                        MinifyMode::Symbols => "symbols",
                     }
                     .to_owned(),
                 ),
@@ -740,7 +742,10 @@ mod tests {
             result.files[0].content.content.as_deref(),
             Some("one\nneedle [REDACTED]\n")
         );
-        assert_eq!(result.files[0].resolved_branch, sha);
+        assert_eq!(result.files[0].commit_sha, sha);
+        let wire = serde_json::to_value(&result.files[0]).expect("file json");
+        assert_eq!(wire["commitSha"], sha);
+        assert!(wire.get("resolvedBranch").is_none(), "{wire}");
         let next = result.files[0].next.clone().expect("continuation");
         assert_eq!(next["continue"]["tool"], "ghGetFileContent");
         assert_eq!(next["continue"]["query"]["owner"], "a");

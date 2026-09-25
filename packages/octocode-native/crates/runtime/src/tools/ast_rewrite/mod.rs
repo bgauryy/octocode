@@ -18,7 +18,7 @@ mod output;
 use journal::{commit_transaction, recover_transactions};
 use lock::RootLock;
 use output::{
-    continuation_query, executable_value, isolation_receipt, portable_relative, success_value,
+    attach_receipts, continuation_query, portable_relative, success_value,
 };
 mod raw;
 mod staged;
@@ -66,73 +66,160 @@ struct PrepareContext<'a> {
     analyzer: &'a StagedAnalyzer,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RemainingMatches {
-    pub kind: String,
-    pub equals: usize,
+pub use crate::contracts::tool_types::{AstRewriteQuery, ArPostconditionsItem};
+
+/// Binds `$field` from either rule kind of `$query`.
+macro_rules! either_kind {
+    ($query:expr, $field:ident => $value:expr) => {
+        match $query {
+            AstRewriteQuery::Pattern { $field, .. } | AstRewriteQuery::Rule { $field, .. } => {
+                $value
+            }
+        }
+    };
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct AstRewriteQuery {
-    #[serde(default)]
-    pub goal: Option<String>,
-    #[serde(default)]
-    pub reasoning: Option<String>,
-    pub path: String,
-    pub lang_type: String,
-    #[serde(default)]
-    pub rule_kind: Option<String>,
-    #[serde(default)]
-    pub pattern: Option<String>,
-    #[serde(default)]
-    pub rewrite: Option<String>,
-    #[serde(default)]
-    pub rule: Option<Value>,
-    #[serde(default)]
-    pub constraints: Option<Value>,
-    #[serde(default)]
-    pub utils: Option<Value>,
-    #[serde(default)]
-    pub transform: Option<Value>,
-    #[serde(default)]
-    pub fix: Option<Value>,
-    #[serde(default)]
-    pub include: Option<Vec<String>>,
-    #[serde(default)]
-    pub exclude: Option<Vec<String>>,
-    #[serde(default)]
-    pub apply: bool,
-    #[serde(default)]
-    pub expected_hashes: Option<BTreeMap<String, String>>,
-    #[serde(default)]
-    pub selected_match_ids: Option<Vec<String>>,
-    #[serde(default)]
-    pub postconditions: Option<Vec<RemainingMatches>>,
-    #[serde(default = "default_max_files")]
-    pub max_files: usize,
-    #[serde(default = "default_max_matches")]
-    pub max_matches: usize,
-    #[serde(default = "one")]
-    pub page: usize,
-    #[serde(default = "default_page_size")]
-    pub page_size: usize,
-    #[serde(default)]
-    pub snapshot: Option<String>,
+fn usize_of(value: std::num::NonZeroU64) -> usize {
+    usize::try_from(value.get()).unwrap_or(usize::MAX)
 }
 
-const fn default_max_files() -> usize {
-    DEFAULT_MAX_FILES
+/// Rule-kind-independent views over the generated wire query, with the
+/// runtime's defaults for the optional bounds.
+impl AstRewriteQuery {
+    pub fn rule_kind(&self) -> &'static str {
+        match self {
+            Self::Pattern { .. } => "pattern",
+            Self::Rule { .. } => "rule",
+        }
+    }
+    pub fn goal(&self) -> Option<&str> {
+        either_kind!(self, goal => goal.as_deref())
+    }
+    pub fn reasoning(&self) -> &str {
+        either_kind!(self, reasoning => reasoning.as_str())
+    }
+    pub fn path(&self) -> &str {
+        either_kind!(self, path => path.as_str())
+    }
+    pub fn lang_type(&self) -> &str {
+        either_kind!(self, lang_type => lang_type.as_str())
+    }
+    pub fn pattern(&self) -> Option<&str> {
+        match self {
+            Self::Pattern { pattern, .. } => Some(pattern.as_str()),
+            Self::Rule { .. } => None,
+        }
+    }
+    pub fn rewrite(&self) -> Option<&str> {
+        match self {
+            Self::Pattern { rewrite, .. } => Some(rewrite),
+            Self::Rule { .. } => None,
+        }
+    }
+    pub fn include(&self) -> Option<Vec<String>> {
+        either_kind!(self, include => include
+            .as_ref()
+            .map(|globs| globs.iter().map(ToString::to_string).collect()))
+    }
+    pub fn exclude(&self) -> Option<Vec<String>> {
+        either_kind!(self, exclude => exclude
+            .as_ref()
+            .map(|globs| globs.iter().map(ToString::to_string).collect()))
+    }
+    pub fn apply(&self) -> bool {
+        either_kind!(self, apply => apply.as_ref().is_some_and(|apply| apply.0))
+    }
+    pub fn debug(&self) -> bool {
+        either_kind!(self, debug => *debug)
+    }
+    /// Expected pre-image hashes, in path order.
+    pub fn expected_hashes(&self) -> Option<BTreeMap<String, String>> {
+        either_kind!(self, expected_hashes => expected_hashes.as_ref().map(|hashes| {
+            hashes
+                .iter()
+                .map(|(path, hash)| (path.to_string(), hash.to_string()))
+                .collect()
+        }))
+    }
+    pub fn selected_match_ids(&self) -> Option<Vec<String>> {
+        either_kind!(self, selected_match_ids => selected_match_ids
+            .as_ref()
+            .map(|ids| ids.iter().map(ToString::to_string).collect()))
+    }
+    pub fn postconditions(&self) -> Option<&[ArPostconditionsItem]> {
+        either_kind!(self, postconditions => postconditions.as_deref().map(Vec::as_slice))
+    }
+    pub fn max_files(&self) -> usize {
+        either_kind!(self, max_files => max_files.as_ref().map_or(DEFAULT_MAX_FILES, |n| usize_of(n.0)))
+    }
+    pub fn max_matches(&self) -> usize {
+        either_kind!(self, max_matches => max_matches.as_ref().map_or(DEFAULT_MAX_MATCHES, |n| usize_of(n.0)))
+    }
+    pub fn page(&self) -> usize {
+        either_kind!(self, page => page.as_ref().map_or(1, |n| usize_of(n.0)))
+    }
+    pub fn page_size(&self) -> usize {
+        either_kind!(self, page_size => page_size.as_ref().map_or(DEFAULT_PAGE_SIZE, |n| usize_of(n.0)))
+    }
+    pub fn snapshot(&self) -> Option<&str> {
+        either_kind!(self, snapshot => snapshot.as_ref().map(|snapshot| snapshot.0.as_str()))
+    }
 }
-const fn default_max_matches() -> usize {
-    DEFAULT_MAX_MATCHES
+
+/// A parsed astRewrite row.
+#[derive(Clone, Debug)]
+pub struct RewriteRequest {
+    query: AstRewriteQuery,
+    /// The row's ast-grep rule JSON (`rule`, `constraints`, `utils`,
+    /// `transform`, `fix`), forwarded verbatim. typify models the record
+    /// fields as `HashMap`s, whose iteration order would make the rule config
+    /// and the preview snapshot digest nondeterministic.
+    rule_json: Map<String, Value>,
 }
-const fn default_page_size() -> usize {
-    DEFAULT_PAGE_SIZE
+
+impl RewriteRequest {
+    pub fn from_row(row: Value) -> Result<Self, serde_json::Error> {
+        let rule_json = row
+            .as_object()
+            .map(|object| {
+                ["rule", "constraints", "utils", "transform", "fix"]
+                    .into_iter()
+                    .filter_map(|key| Some((key.to_owned(), object.get(key)?.clone())))
+                    .collect()
+            })
+            .unwrap_or_default();
+        Ok(Self {
+            query: serde_json::from_value(row)?,
+            rule_json,
+        })
+    }
+    fn rule_field(&self, key: &str) -> Option<&Value> {
+        (self.query.rule_kind() == "rule")
+            .then(|| self.rule_json.get(key))
+            .flatten()
+    }
+    pub fn rule(&self) -> Option<&Value> {
+        self.rule_field("rule")
+    }
+    pub fn constraints(&self) -> Option<&Value> {
+        self.rule_field("constraints")
+    }
+    pub fn utils(&self) -> Option<&Value> {
+        self.rule_field("utils")
+    }
+    pub fn transform(&self) -> Option<&Value> {
+        self.rule_field("transform")
+    }
+    pub fn fix(&self) -> Option<&Value> {
+        self.rule_field("fix")
+    }
 }
-const fn one() -> usize {
-    1
+
+impl std::ops::Deref for RewriteRequest {
+    type Target = AstRewriteQuery;
+    fn deref(&self) -> &AstRewriteQuery {
+        &self.query
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -210,8 +297,8 @@ impl RewriteError {
         self.terminal = true;
         self
     }
-    fn restart(mut self, query: &AstRewriteQuery) -> Self {
-        let mut restart = continuation_query(query, Path::new(&query.path));
+    fn restart(mut self, query: &RewriteRequest) -> Self {
+        let mut restart = continuation_query(query, Path::new(&query.path()));
         for key in [
             "snapshot",
             "expectedHashes",
@@ -313,22 +400,22 @@ fn execute(
             checked.warnings.join("; "),
         ));
     }
-    let query: AstRewriteQuery = serde_json::from_value(query_value)
+    let query = RewriteRequest::from_row(query_value)
         .map_err(|error| RewriteError::new("ast.rewrite.input_invalid", error.to_string()))?;
     validate_query(&query)?;
-    if query.apply && !options.allow_apply {
+    if query.apply() && !options.allow_apply {
         return Err(RewriteError::new(
             "ast.rewrite.apply_disabled",
             "Applying rewrites requires the separate astRewrite apply capability.",
         ));
     }
-    if query.apply && query.snapshot.is_none() {
+    if query.apply() && query.snapshot().is_none() {
         return Err(RewriteError::new(
             "ast.rewrite.snapshot_required",
             "Apply requires the exact snapshot returned by preview.",
         ));
     }
-    let validated = paths.validate(&query.path).map_err(|error| {
+    let validated = paths.validate(query.path()).map_err(|error| {
         RewriteError::new(
             error.local_error_code("ast.rewrite.root_unavailable"),
             error.message,
@@ -368,7 +455,7 @@ fn execute(
         },
     )?;
     let snapshot = snapshot(&query, &root, &prepared, &executable);
-    if (query.apply || query.page > 1) && query.snapshot.as_deref() != Some(&snapshot) {
+    if (query.apply() || query.page() > 1) && query.snapshot() != Some(snapshot.as_str()) {
         drop(lock);
         return Err(RewriteError::new(
             "ast.rewrite.snapshot_changed",
@@ -381,11 +468,12 @@ fn execute(
         drop(lock);
         let mut empty = json!({
             "status":"empty","operation":"rewrite",
-            "mode":if query.apply {"apply"} else {"preview"},
-            "root":root,"executable":executable_value(&executable),"isolation":isolation_receipt(),
+            "mode":if query.apply() {"apply"} else {"preview"},
+            "root":root,
             "totalMatches":0,"affectedFiles":0,"matches":[],"files":[],
             "complete":!coverage.has_gaps(),"isPartial":coverage.has_gaps()
         });
+        attach_receipts(&mut empty, &query, &executable);
         if coverage.has_gaps() {
             empty["coverage"] = coverage.to_json();
             empty["warnings"] = json!([coverage.warning()]);
@@ -396,7 +484,7 @@ fn execute(
         .iter()
         .flat_map(|file| file.matches.iter().cloned())
         .collect::<Vec<_>>();
-    let (result_files, result_matches) = if query.apply {
+    let (result_files, result_matches) = if query.apply() {
         select(
             &query,
             &prepared,
@@ -407,7 +495,7 @@ fn execute(
     } else {
         (prepared.clone(), all_matches)
     };
-    let transaction = if query.apply {
+    let transaction = if query.apply() {
         validate_expected_hashes(&query, &result_files, &boundary, paths).map_err(|error| {
             if error.code == "ast.rewrite.hash_mismatch" {
                 error.restart(&query)
@@ -441,48 +529,44 @@ fn execute(
     Ok(value)
 }
 
-fn validate_query(query: &AstRewriteQuery) -> Result<(), RewriteError> {
-    if query.path.trim().is_empty() || query.lang_type.trim().is_empty() {
+fn validate_query(query: &RewriteRequest) -> Result<(), RewriteError> {
+    if query.path().trim().is_empty() || query.lang_type().trim().is_empty() {
         return Err(RewriteError::new(
             "ast.rewrite.input_invalid",
             "path and langType must not be blank.",
         ));
     }
-    if query.page == 0 || query.page_size == 0 || query.page_size > 1_000 {
+    if query.page_size() > 1_000 {
         return Err(RewriteError::new(
             "ast.rewrite.pagination_invalid",
             "page and pageSize must be positive integers and pageSize must not exceed 1000.",
         ));
     }
-    if query.max_files == 0 || query.max_files > 50_000 {
+    if query.max_files() > 50_000 {
         return Err(RewriteError::new(
             "ast.rewrite.input_invalid",
             "maxFiles must be between 1 and 50000.",
         ));
     }
-    if query.max_matches == 0 || query.max_matches > 100_000 {
+    if query.max_matches() > 100_000 {
         return Err(RewriteError::new(
             "ast.rewrite.input_invalid",
             "maxMatches must be between 1 and 100000.",
         ));
     }
-    match query.rule_kind.as_deref().unwrap_or("pattern") {
-        "pattern"
-            if query
-                .pattern
-                .as_deref()
-                .is_some_and(|v| !v.trim().is_empty())
-                && query.rewrite.is_some() => {}
-        "rule" if query.rule.is_some() && query.fix.is_some() => {}
-        _ => {
-            return Err(RewriteError::new(
-                "ast.rewrite.input_invalid",
-                "The selected ruleKind is missing its required rewrite fields.",
-            ));
-        }
+    // The wire type requires each rule kind's fields; only a blank pattern
+    // gets past it.
+    if query
+        .pattern()
+        .is_some_and(|pattern| pattern.trim().is_empty())
+    {
+        return Err(RewriteError::new(
+            "ast.rewrite.input_invalid",
+            "The selected ruleKind is missing its required rewrite fields.",
+        ));
     }
-    if query.apply {
-        let hashes = query.expected_hashes.as_ref().ok_or_else(|| {
+    if query.apply() {
+        let hashes = query.expected_hashes().ok_or_else(|| {
             RewriteError::new(
                 "ast.rewrite.expected_hashes_required",
                 "Apply requires expectedHashes copied from preview.",
@@ -574,14 +658,14 @@ impl RewriteCoverage {
 type ScanOutput = (Vec<RawMatch>, RewriteCoverage, BTreeMap<String, u32>);
 
 fn run_scan(
-    query: &AstRewriteQuery,
+    query: &RewriteRequest,
     target: &Path,
     cancellation: &dyn CancellationCheck,
     analyzer: &StagedAnalyzer,
 ) -> Result<ScanOutput, RewriteError> {
     cancellation.check().map_err(cancelled)?;
     let config = analyzer.config();
-    let max_files = u32::try_from(query.max_files).map_err(|_| {
+    let max_files = u32::try_from(query.max_files()).map_err(|_| {
         RewriteError::new(
             "ast.rewrite.input_invalid",
             "maxFiles exceeds the native engine limit.",
@@ -593,8 +677,8 @@ fn run_scan(
             rule_config_json: serde_json::to_string(config).map_err(|error| {
                 RewriteError::new("ast.rewrite.input_invalid", error.to_string())
             })?,
-            include: query.include.clone(),
-            exclude: query.exclude.clone(),
+            include: query.include().clone(),
+            exclude: query.exclude().clone(),
             exclude_dir: None,
             hidden: Some(false),
             no_ignore: Some(false),
@@ -675,22 +759,22 @@ fn run_scan(
 }
 
 fn prepare(
-    query: &AstRewriteQuery,
+    query: &RewriteRequest,
     root: &Path,
     context: &PrepareContext<'_>,
 ) -> Result<(Vec<PreparedFile>, RewriteCoverage), RewriteError> {
     let (raw_matches, coverage, source_errors) =
         run_scan(query, root, context.cancellation, context.analyzer)?;
-    if raw_matches.len() > query.max_matches {
+    if raw_matches.len() > query.max_matches() {
         return Err(RewriteError::new(
             "ast.rewrite.match_limit",
             format!(
                 "The rewrite found {} matches, exceeding maxMatches={}. Narrow the scope.",
                 raw_matches.len(),
-                query.max_matches
+                query.max_matches()
             ),
         )
-        .detail(json!({"observed":raw_matches.len(),"maxMatches":query.max_matches}))
+        .detail(json!({"observed":raw_matches.len(),"maxMatches":query.max_matches()}))
         .terminal());
     }
     let mut grouped = BTreeMap::<PathBuf, (Vec<RawMatch>, Option<u32>)>::new();
@@ -733,13 +817,13 @@ fn prepare(
         entry.1 = entry.1.or(errors);
         entry.0.push(matched);
     }
-    if grouped.len() > query.max_files {
+    if grouped.len() > query.max_files() {
         return Err(RewriteError::new(
             "ast.rewrite.file_limit",
             format!(
                 "The rewrite affects {} files, exceeding maxFiles={}.",
                 grouped.len(),
-                query.max_files
+                query.max_files()
             ),
         )
         .terminal());
@@ -808,25 +892,31 @@ fn prepare(
     Ok((files, coverage))
 }
 
-fn rule_config(query: &AstRewriteQuery) -> Value {
+fn rule_config(query: &RewriteRequest) -> Value {
     let mut config = Map::new();
     config.insert("id".to_owned(), json!("octocode-inline-rewrite"));
-    config.insert("language".to_owned(), json!(query.lang_type));
+    config.insert("language".to_owned(), json!(query.lang_type()));
     config.insert("severity".to_owned(), json!("warning"));
     config.insert(
         "message".to_owned(),
         json!("Octocode inline structural rewrite"),
     );
-    if query.rule_kind.as_deref().unwrap_or("pattern") == "pattern" {
-        config.insert("rule".to_owned(), json!({"pattern":query.pattern}));
-        config.insert("fix".to_owned(), json!(query.rewrite));
+    if query.rule_kind() == "pattern" {
+        config.insert("rule".to_owned(), json!({"pattern":query.pattern()}));
+        config.insert("fix".to_owned(), json!(query.rewrite()));
     } else {
-        config.insert("rule".to_owned(), query.rule.clone().unwrap_or(Value::Null));
-        config.insert("fix".to_owned(), query.fix.clone().unwrap_or(Value::Null));
+        config.insert(
+            "rule".to_owned(),
+            query.rule().cloned().unwrap_or(Value::Null),
+        );
+        config.insert(
+            "fix".to_owned(),
+            query.fix().cloned().unwrap_or(Value::Null),
+        );
         for (key, value) in [
-            ("constraints", query.constraints.as_ref()),
-            ("utils", query.utils.as_ref()),
-            ("transform", query.transform.as_ref()),
+            ("constraints", query.constraints()),
+            ("utils", query.utils()),
+            ("transform", query.transform()),
         ] {
             if let Some(value) = value {
                 config.insert(key.to_owned(), value.clone());
@@ -980,16 +1070,16 @@ fn apply_edits(before: &[u8], matches: &[PreparedMatch]) -> Result<Vec<u8>, Rewr
 }
 
 fn select(
-    query: &AstRewriteQuery,
+    query: &RewriteRequest,
     files: &[PreparedFile],
     matches: &[PreparedMatch],
     max_patch_bytes: usize,
     analyzer: &StagedAnalyzer,
 ) -> Result<(Vec<PreparedFile>, Vec<PreparedMatch>), RewriteError> {
-    let Some(selected) = query.selected_match_ids.as_deref() else {
+    let Some(selected) = query.selected_match_ids() else {
         return Ok((files.to_vec(), matches.to_vec()));
     };
-    let selected = selected.iter().cloned().collect::<BTreeSet<_>>();
+    let selected = selected.into_iter().collect::<BTreeSet<_>>();
     let known = matches
         .iter()
         .map(|matched| matched.id.clone())
@@ -1048,13 +1138,13 @@ fn select(
 }
 
 fn validate_expected_hashes(
-    query: &AstRewriteQuery,
+    query: &RewriteRequest,
     files: &[PreparedFile],
     boundary: &Path,
     paths: &PathPolicy,
 ) -> Result<(), RewriteError> {
     let mut expected = BTreeMap::new();
-    for (path, hash) in query.expected_hashes.as_ref().into_iter().flatten() {
+    for (path, hash) in query.expected_hashes().as_ref().into_iter().flatten() {
         if hash.len() != 64 || !hash.bytes().all(|byte| byte.is_ascii_hexdigit()) {
             return Err(RewriteError::new(
                 "ast.rewrite.expected_hash_invalid",
@@ -1115,11 +1205,11 @@ fn validate_expected_hashes(
 }
 
 fn validate_postconditions(
-    query: &AstRewriteQuery,
+    query: &RewriteRequest,
     files: &[PreparedFile],
     cancellation: &dyn CancellationCheck,
 ) -> Result<(), RewriteError> {
-    let Some(postconditions) = query.postconditions.as_ref() else {
+    let Some(postconditions) = query.postconditions() else {
         return Ok(());
     };
     if postconditions.is_empty() {
@@ -1141,7 +1231,8 @@ fn validate_postconditions(
         remaining = remaining.saturating_add(observed);
     }
     for postcondition in postconditions {
-        if postcondition.kind != "remainingMatches" || postcondition.equals != remaining {
+        // `kind` is the single contract value `remainingMatches`.
+        if usize::try_from(postcondition.equals).ok() != Some(remaining) {
             return Err(RewriteError::new(
                 "ast.rewrite.postcondition_failed",
                 "A staged rewrite postcondition failed; no files were changed.",
@@ -1157,7 +1248,7 @@ fn validate_postconditions(
 }
 
 fn snapshot(
-    query: &AstRewriteQuery,
+    query: &RewriteRequest,
     root: &Path,
     files: &[PreparedFile],
     executable: &ExecutableReceipt,
@@ -1170,18 +1261,18 @@ fn snapshot(
         .iter()
         .map(|file| json!([file.absolute, file.before_hash, file.after_hash]))
         .collect::<Vec<_>>();
-    let rule_spec = if query.rule_kind.as_deref() == Some("rule") {
+    let rule_spec = if query.rule_kind() == "rule" {
         let mut spec = Map::new();
+        spec.insert("ruleKind".to_owned(), json!(query.rule_kind()));
         spec.insert(
-            "ruleKind".to_owned(),
-            json!(query.rule_kind.as_deref().unwrap_or("rule")),
+            "rule".to_owned(),
+            query.rule().cloned().unwrap_or(Value::Null),
         );
-        spec.insert("rule".to_owned(), query.rule.clone().unwrap_or(Value::Null));
         for (key, value) in [
-            ("constraints", query.constraints.as_ref()),
-            ("utils", query.utils.as_ref()),
-            ("transform", query.transform.as_ref()),
-            ("fix", query.fix.as_ref()),
+            ("constraints", query.constraints()),
+            ("utils", query.utils()),
+            ("transform", query.transform()),
+            ("fix", query.fix()),
         ] {
             if let Some(value) = value {
                 spec.insert(key.to_owned(), value.clone());
@@ -1191,8 +1282,8 @@ fn snapshot(
     } else {
         json!({
             "ruleKind":"pattern",
-            "pattern":query.pattern,
-            "rewrite":query.rewrite
+            "pattern":query.pattern(),
+            "rewrite":query.rewrite()
         })
     };
     sha256(
@@ -1205,13 +1296,13 @@ fn snapshot(
                 "capabilityDigest":executable.capability_digest
             },
             "root":root,
-            "langType":query.lang_type,
+            "langType":query.lang_type(),
             "ruleSpec":rule_spec,
-            "include":query.include.as_deref().unwrap_or(&[]),
-            "exclude":query.exclude.as_deref().unwrap_or(&[]),
-            "maxFiles":query.max_files,
-            "maxMatches":query.max_matches,
-            "pageSize":query.page_size,
+            "include":query.include().as_deref().unwrap_or(&[]),
+            "exclude":query.exclude().as_deref().unwrap_or(&[]),
+            "maxFiles":query.max_files(),
+            "maxMatches":query.max_matches(),
+            "pageSize":query.page_size(),
             "files":file_hashes,
             "matchIds":ids
         }))
@@ -1497,7 +1588,7 @@ mod tests {
 
     fn query(root: &Path) -> Value {
         json!({
-            "path":root,"langType":"typescript","ruleKind":"pattern",
+            "path":root,"langType":"typescript","ruleKind":"pattern","reasoning":"test",
             "pattern":"oldCall($A)","rewrite":"newCall($A)","pageSize":1
         })
     }
@@ -1774,7 +1865,9 @@ mod tests {
         assert_eq!(matched["range"]["start"]["line"], 1, "{matched}");
         assert_eq!(first["matches"][1]["range"]["start"]["line"], 2);
         assert!(matched.get("byteRange").is_none(), "{matched}");
-        assert!(first["executable"].get("sha256").is_none(), "{first}");
+        // The executable/isolation receipts are debug-only diagnostics.
+        assert!(first.get("executable").is_none(), "{first}");
+        assert!(first.get("isolation").is_none(), "{first}");
 
         let second = execute_ast_rewrite_with_options(
             first["next"]["nextPage"]["query"].clone(),
@@ -1941,9 +2034,11 @@ mod tests {
                 "path":root,
                 "langType":"typescript",
                 "ruleKind":"rule",
+                "reasoning":"test",
                 "rule":{"pattern":"oldCall($A)"},
                 "fix":"newCall($A)",
-                "pageSize":100
+                "pageSize":100,
+                "debug":true
             }),
             &policy,
             &security,
@@ -1951,6 +2046,7 @@ mod tests {
             &Default::default(),
         );
         assert_eq!(result["totalMatches"], 2);
+        assert_eq!(result["isolation"]["workingDirectory"], "ephemeral");
         assert_eq!(result["executable"]["path"], "native");
         assert_eq!(result["executable"]["version"], "embedded");
         assert_eq!(result["executable"]["capabilityDigest"], "native");

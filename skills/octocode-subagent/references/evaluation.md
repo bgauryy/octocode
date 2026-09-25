@@ -14,4 +14,4 @@ Prefer deterministic anchors: test exits, type diagnostics, builds, schemas, and
 
 Use `octocode-eval-benchmark` when available for the full goal→KPI and held-out workflow. Without it, keep the compact contract above and do not claim improvement without comparable evidence.
 
-Next: load `references/completion.md` for acceptance; if shared state affected the run, load `references/awareness.md` before closing.
+Next: load `references/completion.md` for acceptance; if shared state affected the run, load `references/shared-work.md` before closing.

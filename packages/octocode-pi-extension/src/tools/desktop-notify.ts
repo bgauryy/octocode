@@ -49,7 +49,7 @@ export function desktopNotificationsSuppressed(): boolean {
 /**
  * Lift the shutdown suppress flag so the next session's workers can notify
  * again. The suppress half runs on session_shutdown; this resume half must run
- * on session_start, mirroring resumeStatusPanel/resumeAwarenessPanel — otherwise
+ * on session_start, mirroring the session status lifecycle — otherwise
  * a single /new or /resume kills desktop notifications for the rest of the process.
  */
 export function resumeDesktopNotifications(): void {

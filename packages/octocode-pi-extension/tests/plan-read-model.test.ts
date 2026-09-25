@@ -8,7 +8,7 @@ describe('plan presentation read model', () => {
   function executionModel(phase: 'executing' | 'complete' | 'failed' = 'executing') {
     return buildPlanReadModel({
       steps: [
-        { id: 'current', text: 'Implement core', status: 'doing', awarenessTaskId: 'core' },
+        { id: 'current', text: 'Implement core', status: 'doing' },
         { id: 'blocked', text: 'Integrate core', status: 'todo', dependsOnStepIds: ['current'] },
         { id: 'blocked2', text: 'Verify integration', status: 'todo', dependsOnStepIds: ['blocked'] },
         { id: 'ready', text: 'Document API', status: 'todo' },
@@ -32,29 +32,27 @@ describe('plan presentation read model', () => {
     expect(projectPlanStatus(model).find(segment => segment.text.startsWith('next:'))?.text).toContain('Document API');
   });
 
-  it('recomputes dependent readiness from the effective shared task state', () => {
+  it('uses session step status despite legacy shared task metadata', () => {
     const model = buildPlanReadModel({
       steps: [
-        { id: 'parent', text: 'Parent', status: 'doing', awarenessTaskId: 'p' },
-        { id: 'child', text: 'Child', status: 'todo', dependsOnStepIds: ['parent'], awarenessTaskId: 'c' },
+        { id: 'parent', text: 'Parent', status: 'doing' },
+        { id: 'child', text: 'Child', status: 'todo', dependsOnStepIds: ['parent'] },
       ],
       review: { phase: 'executing', branchSnapshotId: 'shared', generation: 1, decisions: [], blockingQuestions: [], comments: [] },
       coordination: { mode: 'required', sourcePlanKey: 'shared', coordinationWorkspace: '/repo' },
-      sharedTaskStatuses: { p: 'DONE', c: 'OPEN' },
     });
-    expect(model.tasks[1]?.status).toBe('todo');
+    expect(model.tasks[1]?.status).toBe('blocked');
     const blocked = buildPlanReadModel({
       steps: [
-        { id: 'parent', text: 'Parent', status: 'done', awarenessTaskId: 'p' },
-        { id: 'child', text: 'Child', status: 'todo', dependsOnStepIds: ['parent'], awarenessTaskId: 'c' },
+        { id: 'parent', text: 'Parent', status: 'done' },
+        { id: 'child', text: 'Child', status: 'todo', dependsOnStepIds: ['parent'] },
       ],
       review: { phase: 'executing', branchSnapshotId: 'shared', generation: 1, decisions: [], blockingQuestions: [], comments: [] },
       coordination: { mode: 'required', sourcePlanKey: 'shared', coordinationWorkspace: '/repo' },
-      sharedTaskStatuses: { p: 'FAILED', c: 'OPEN' },
     });
-    expect(blocked.tasks[1]?.status).toBe('blocked');
-    expect(renderPlanContext(blocked)).toContain('[!] 2. Child');
-    expect(renderPlanContext(blocked)).not.toContain('Start the next runnable step');
+    expect(blocked.tasks[1]?.status).toBe('todo');
+    expect(renderPlanContext(blocked)).toContain('2. Child');
+
   });
 
   it('keeps input gates free of contradictory start or parallel instructions', () => {
@@ -83,7 +81,7 @@ describe('plan presentation read model', () => {
         { id: 's2', text: 'Implement', activeForm: 'Implementing', status: 'doing', dependsOnStepIds: ['s1'] },
       ],
       review: { phase: 'executing', branchSnapshotId: 'b1', generation: 2, revision: 'rev-1', acceptedRevision: 'rev-1', decisions: [], blockingQuestions: [], comments: [] },
-      coordination: { mode: 'required', sourcePlanKey: 'p1', coordinationWorkspace: '/repo', awarenessPlanId: 'shared-1', materializedRevision: 'rev-1' },
+      coordination: { mode: 'required', sourcePlanKey: 'p1', coordinationWorkspace: '/repo' },
     });
     expect(model).toMatchObject({ version: 1, revision: 'rev-1', shape: 'linear', summary: { total: 2, done: 1, running: 1 } });
     const terminal = renderPlanReadModel(model, 'terminal') as string;
@@ -99,7 +97,7 @@ describe('plan presentation read model', () => {
   it('keeps terminal, browser, Markdown, RPC, and prompt semantics aligned for complex states without renderer mutation', () => {
     const model = buildPlanReadModel({
       steps: [
-        { id: 'research', text: 'Research API', status: 'done', paths: ['src/api.ts'], awarenessTaskId: 'task-a' },
+        { id: 'research', text: 'Research API', status: 'done', paths: ['src/api.ts'] },
         { id: 'build', text: 'Build API', activeForm: 'Building API', status: 'doing', dependsOnStepIds: ['research'], acceptance: 'API passes contract tests', checkCommand: 'yarn test' },
         { id: 'ship', text: 'Ship API', status: 'todo', dependsOnStepIds: ['build'] },
       ],
@@ -111,7 +109,7 @@ describe('plan presentation read model', () => {
         blockingQuestions: [{ id: 'answered', prompt: 'Port?', answer: '443', blocking: true }],
         comments: [{ id: 'resolved', body: 'Add auth', blocking: true, resolved: true }],
       },
-      coordination: { mode: 'required', sourcePlanKey: 'source-7', coordinationWorkspace: '/repo', awarenessPlanId: 'plan-7', materializedRevision: 'rev-7' },
+      coordination: { mode: 'required', sourcePlanKey: 'source-7', coordinationWorkspace: '/repo' },
       pendingInteractionIds: ['question-2', 'question-1', 'question-1'],
     });
     const before = JSON.stringify(model);
@@ -126,7 +124,7 @@ describe('plan presentation read model', () => {
     expect(model).toMatchObject({
       version: 1, phase: 'executing', revision: 'rev-7', acceptedRevision: 'rev-7', shape: 'linear',
       authorization: { acceptReceiptId: 'accept-7', startReceiptId: 'start-7' },
-      coordination: { mode: 'required', awarenessPlanId: 'plan-7', materializedRevision: 'rev-7' },
+      coordination: { mode: 'required' },
       pendingInteractionIds: ['question-1', 'question-2'],
       tasks: [
         { id: 'research', status: 'done' },
@@ -150,7 +148,7 @@ describe('plan presentation read model', () => {
     expect(markdown).toContain('Phase: executing');
     expect(markdown).toContain('Revision: rev-7');
     expect(prompt).toContain('state: phase=executing snapshot=snapshot-7 generation=7');
-    expect(prompt).toContain('coordination: mode=required awareness-plan=plan-7 materialized=rev-7');
+    expect(prompt).toContain('coordination: mode=required');
     expect(prompt).toContain('contract 2: accept=API passes contract tests | check=yarn test');
     expect(prompt).toContain('input-needed: pending interactions question-1, question-2');
     expect(prompt).not.toContain('do not continue plan execution');
@@ -158,16 +156,15 @@ describe('plan presentation read model', () => {
     expect(renderPlanReadModel(model, 'browser')).toContain('Input needed · question-1, question-2');
   });
 
-  it('deterministically overlays every shared task status without changing branch-local identity', () => {
+  it('preserves branch-local statuses when legacy shared metadata exists', () => {
     const statuses = ['OPEN', 'CLAIMED', 'IN_PROGRESS', 'BLOCKED', 'VERIFY', 'DONE', 'FAILED', 'CANCELLED'] as const;
     const model = buildPlanReadModel({
-      steps: statuses.map((status, index) => ({ id: `s${index}`, text: status, status: index % 2 ? 'done' : 'doing', awarenessTaskId: `task-${status}` })),
+      steps: statuses.map((status, index) => ({ id: `s${index}`, text: status, status: index % 2 ? 'done' : 'doing' })),
       review: { phase: 'executing', branchSnapshotId: 'branch-local', generation: 19, decisions: [], blockingQuestions: [], comments: [] },
-      coordination: { mode: 'required', sourcePlanKey: 'source', coordinationWorkspace: '/repo', awarenessPlanId: 'shared' },
-      sharedTaskStatuses: Object.fromEntries(statuses.map((status) => [`task-${status}`, status])),
+      coordination: { mode: 'required', sourcePlanKey: 'source', coordinationWorkspace: '/repo' },
     });
 
-    expect(model.tasks.map((task) => task.status)).toEqual(['todo', 'doing', 'doing', 'blocked', 'doing', 'done', 'blocked', 'blocked']);
+    expect(model.tasks.map((task) => task.status)).toEqual(['doing', 'done', 'doing', 'done', 'doing', 'done', 'doing', 'done']);
     expect(model.review).toMatchObject({ branchSnapshotId: 'branch-local', generation: 19 });
   });
 

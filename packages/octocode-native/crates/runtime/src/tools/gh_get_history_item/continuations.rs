@@ -11,6 +11,9 @@ pub(super) fn base_public_query(q: &HistoryItemRequest, operation: ItemOperation
     let mut v = serde_json::to_value(&q.query).unwrap_or_default();
     remove_nulls(&mut v);
     if let Some(m) = v.as_object_mut() {
+        if let Some(content) = q.content_value() {
+            m.insert("content".into(), content);
+        }
         m.insert(
             "operation".into(),
             json!(match operation {
@@ -31,10 +34,7 @@ pub(super) fn base_public_query(q: &HistoryItemRequest, operation: ItemOperation
                 );
                 m.insert(
                     "minify".into(),
-                    json!(
-                        q.minify()
-                            .map_or_else(|| "standard".to_owned(), |m| m.to_string())
-                    ),
+                    json!(q.minify().unwrap_or_else(|| "standard".to_owned())),
                 );
                 if let Some(Value::Object(content)) = m.get_mut("content")
                     && content.get("patches").is_some()
@@ -60,13 +60,41 @@ fn continuation(q: Value) -> Value {
     json!({"tool":"ghGetHistoryItem","query":q,"confidence":"exact"})
 }
 
+/// Body length (chars) the metadata row's `bodyPreview` shows verbatim.
+pub(super) const BODY_PREVIEW_CHARS: usize = 500;
+/// A diff at most this many changed lines reads in one all-patches call, so a
+/// separate file-list-only fetch would only repeat its file list.
+const SMALL_DIFF_LINES: u64 = 100;
+
 /// Per-row menu of first-page fetches for content the call did not request.
+///
+/// `raw` is the provider PR object. An entry is emitted only when it can
+/// return something the row does not already hold: no `getBody` when the body
+/// is empty or fully shown by `bodyPreview`; no file entries for a PR without
+/// changed files; no `getChangedFiles` when `getAllPatches` on a small diff
+/// returns the same file list plus patches; no `getComments` when the
+/// provider counts zero discussion and zero inline comments.
 pub(super) fn pr_next_menu(
     query: &HistoryItemRequest,
     content: Option<&Map<String, Value>>,
     patch_mode: &str,
     first_path: Option<&str>,
+    raw: &Value,
 ) -> Value {
+    let count = |key: &str| raw.get(key).and_then(Value::as_u64);
+    let body_chars = raw
+        .get("body")
+        .and_then(Value::as_str)
+        .map(|body| body.chars().count());
+    let body_in_preview = body_chars.is_some_and(|chars| chars <= BODY_PREVIEW_CHARS)
+        || raw.get("body").is_some_and(Value::is_null);
+    let changed_files = count("changed_files");
+    let has_files = changed_files != Some(0);
+    let small_diff = matches!(
+        (count("additions"), count("deletions")),
+        (Some(additions), Some(deletions)) if additions + deletions <= SMALL_DIFF_LINES
+    );
+    let no_comments = count("comments") == Some(0) && count("review_comments") == Some(0);
     // Start from the base public query so contract-required fields (pageSize,
     // minify) are present, then drop the current content selection and every
     // per-surface cursor: each menu entry is a fresh first-page fetch.
@@ -89,13 +117,14 @@ pub(super) fn pr_next_menu(
     }
     let mut next = Map::new();
     let call = |content: Value| continuation(merge(target.clone(), json!({"content":content})));
-    if !content_flag(content, "body") {
+    if !content_flag(content, "body") && !body_in_preview {
         next.insert("getBody".into(), call(json!({"body":true})));
     }
-    if !content_flag(content, "changedFiles") && patch_mode == "none" {
+    if !content_flag(content, "changedFiles") && patch_mode == "none" && has_files && !small_diff
+    {
         next.insert("getChangedFiles".into(), call(json!({"changedFiles":true})));
     }
-    if patch_mode == "none" {
+    if patch_mode == "none" && has_files {
         if let Some(path) = first_path {
             next.insert(
                 "getSelectedPatches".into(),
@@ -107,7 +136,7 @@ pub(super) fn pr_next_menu(
             call(json!({"patches":{"mode":"all"}})),
         );
     }
-    if content.and_then(|v| v.get("comments")).is_none() {
+    if content.and_then(|v| v.get("comments")).is_none() && !no_comments {
         next.insert(
             "getComments".into(),
             call(json!({"comments":{"discussion":true,"reviewInline":true}})),
@@ -582,7 +611,7 @@ mod tests {
         .expect("query");
         let content_value = query.content_value();
         let content = content_value.as_ref().and_then(Value::as_object);
-        let menu = pr_next_menu(&query, content, "none", Some("src/a.rs"));
+        let menu = pr_next_menu(&query, content, "none", Some("src/a.rs"), &json!({}));
         let reviews = &menu["getReviews"]["query"];
         assert_eq!(reviews["pageSize"], 30);
         assert_eq!(reviews["minify"], "standard");
@@ -591,6 +620,39 @@ mod tests {
             assert!(reviews.get(key).is_none(), "{key} leaked: {reviews}");
         }
         assert!(menu.get("getBody").is_none());
+    }
+
+    #[test]
+    fn pr_next_menu_omits_entries_the_row_already_answers() {
+        let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
+            "operation":"pullRequest","reasoning":"r","owner":"o","repo":"r","number":1
+        }))
+        .expect("query");
+        let names = |menu: &Value| {
+            menu.as_object()
+                .map(|m| m.keys().cloned().collect::<Vec<_>>())
+                .unwrap_or_default()
+        };
+        // Empty body, one small file, comments present: body and the list-only
+        // file read are redundant with bodyPreview / getAllPatches.
+        let small = json!({"body":"","changed_files":1,"additions":6,"deletions":1,"comments":3});
+        assert_eq!(
+            names(&pr_next_menu(&query, None, "none", None, &small)),
+            ["getAllPatches", "getComments", "getReviews", "getCommits"]
+        );
+        // A body longer than the preview and a large diff keep both reads.
+        let large = json!({"body":"x".repeat(BODY_PREVIEW_CHARS + 1),"changed_files":40,
+            "additions":900,"deletions":50,"comments":0});
+        assert_eq!(
+            names(&pr_next_menu(&query, None, "none", None, &large)),
+            ["getBody", "getChangedFiles", "getAllPatches", "getComments", "getReviews", "getCommits"]
+        );
+        // No changed files and provably no comments: nothing to fetch there.
+        let empty = json!({"body":null,"changed_files":0,"comments":0,"review_comments":0});
+        assert_eq!(
+            names(&pr_next_menu(&query, None, "none", None, &empty)),
+            ["getReviews", "getCommits"]
+        );
     }
 
     #[test]

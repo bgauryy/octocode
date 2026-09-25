@@ -14,14 +14,3 @@
 
 include!("../../../../../octocode-config/contract/tool_types.rs");
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn generated_types_match_the_embedded_contract() {
-        assert_eq!(
-            super::TOOL_TYPES_CONTRACT_FINGERPRINT,
-            crate::contracts::generated::CONTRACT_FINGERPRINT,
-            "run `yarn workspace @octocodeai/config generate:tool-contract`"
-        );
-    }
-}

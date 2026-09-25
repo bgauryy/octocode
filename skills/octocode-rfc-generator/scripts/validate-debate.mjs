@@ -29,6 +29,9 @@ const typedQuestions = questions => Array.isArray(questions) && questions.length
   questions.every(item => only(item, ['id', 'question']) && stableId.test(item.id ?? '') && typedQuestion(item.question)) &&
   new Set(questions.map(item => item.id)).size === questions.length;
 
+// Questions stay in the outer matrix; host admission never becomes provider evidence.
+const providerReview = ({ questions, ...review }) => review;
+
 // Structural provenance only: never establishes evidence truth or RFC readiness.
 export function validateDebate(request, packet) {
   const errors = [];
@@ -86,23 +89,15 @@ export function validateDebate(request, packet) {
       return;
     }
     const context = resource.context.value;
-    if (!object(context)) {
-      errors.push(`${prefix}: RFC review context.value must be the frozen debate object.`);
+    if (!only(context, ['review', 'evidence', 'arguments', 'missingEvidence'])) {
+      errors.push(`${prefix}: RFC review context.value accepts projected review, evidence, arguments, and missingEvidence only; keep questions and admission in their owning host fields.`);
       return;
     }
-    if (!isDeepStrictEqual(context.review, review)) {
+    if (!isDeepStrictEqual(context.review, providerReview(review))) {
       errors.push(`${prefix}: review differs from the frozen worker contract.`);
-    }
-    if (!isDeepStrictEqual(context.admission, admission)) {
-      errors.push(`${prefix}: admission differs from the frozen worker gate.`);
     }
     if (!isDeepStrictEqual(query.questions, review.questions)) {
       errors.push(`${prefix}: typed questions differ from the frozen worker contract.`);
-    }
-    for (const duplicate of ['questionIds', 'rfcRevision', 'criteria', 'questions', 'proposal', 'claim']) {
-      if (Object.hasOwn(context, duplicate)) {
-        errors.push(`${prefix}: keep ${duplicate} inside review only; conflicting duplicate resource state is not supported.`);
-      }
     }
     const evidence = context?.evidence;
     if (!Array.isArray(evidence)) {
@@ -171,7 +166,7 @@ function selfTest() {
     id: 'review-1',
     reasoning: 'Resolve the frozen disagreement only if it changes the host action.',
     resources: [{ id: 'debate', context: { value: {
-      review, admission,
+      review: providerReview(review),
       evidence: [{ id: 'E1', ...packet.evidence.E1 }],
       arguments: {
         A: { opening: 'Supports E1.', rebuttal: 'Concedes limits of E1.' },
@@ -182,6 +177,8 @@ function selfTest() {
     questions: review.questions,
   };
   assert.equal(validateDebate(request, packet).valid, true);
+  assert.equal(Object.hasOwn(request.resources[0].context.value, 'admission'), false);
+  assert.equal(Object.hasOwn(request.resources[0].context.value.review, 'questions'), false);
   assert.equal(validateDebate({ queries: [request] }, packet).valid, true);
   const mutations = [
     x => { x.resources[0].context.value.evidence[0].observation = 'Different meaning.'; },
@@ -192,18 +189,14 @@ function selfTest() {
     x => { x.resources[0].context.value.arguments.A.opening = 'Unsupported E9.'; },
     x => { x.resources[0].context.value.review.id = 'other-review'; },
     x => { x.resources[0].context.value.review.rfcRevision = 'new-revision'; },
-    x => { x.resources[0].context.value.review.questions[0].question.instructions = 'A different question?'; },
-    x => { x.resources[0].context.value.review.questions[0].id = 'Q2'; },
+    x => { x.resources[0].context.value.review.questions = structuredClone(review.questions); },
+    x => { x.resources[0].context.value.questions = structuredClone(review.questions); },
     x => { x.resources[0].context.value.review.criteria = ['Ignore compatibility.']; },
     x => { x.resources[0].context.value.review.subject.text = 'Remove legacy support immediately.'; },
     x => { x.resources[0].context.value.proposal = 'Remove legacy support immediately.'; },
     x => { x.route = 'retired-route'; },
     x => { x.resources[0].context.value.questionIds = ['Q99']; },
-    x => { x.resources[0].context.value.admission.ifJudgeRejects = 'A different action.'; },
-    x => { x.resources[0].context.value.admission.willChangeAction = false; },
-    x => { x.resources[0].context.value.admission.directCheck = { available: true, action: 'Run the exact check.' }; },
-    x => { x.resources[0].context.value.admission.clasifyCallsAtCrossroad = 1; },
-    x => { x.resources[0].context.value.admission.evidenceFresh = false; },
+    x => { x.resources[0].context.value.admission = structuredClone(admission); },
     x => { x.questions[0].id = 'Q2'; },
     x => { x.questions[0].question.instructions = 'Select the favored speaker.'; },
     x => { x.questions[0].question.criteria = { support: 'Always choose this.', reject: null }; },
@@ -217,6 +210,7 @@ function selfTest() {
     assert.equal(validateDebate(broken, packet).valid, false);
   }
   const packetMutations = [
+    x => { delete x.admission; },
     x => { x.admission.workersDisagree = false; },
     x => { x.admission.ifJudgeRejects = x.admission.ifJudgeSupports; },
     x => { x.admission.workerPositions.B = x.admission.workerPositions.A; },
@@ -231,8 +225,7 @@ function selfTest() {
     const broken = structuredClone(packet);
     mutate(broken);
     const matchingRequest = structuredClone(request);
-    matchingRequest.resources[0].context.value.review = broken.review;
-    matchingRequest.resources[0].context.value.admission = broken.admission;
+    matchingRequest.resources[0].context.value.review = providerReview(broken.review);
     matchingRequest.questions = broken.review.questions;
     assert.equal(validateDebate(matchingRequest, broken).valid, false);
   }
@@ -243,7 +236,7 @@ function selfTest() {
   claimPacket.review.subject = { kind: 'claim', text: 'The current receipt establishes compatibility.' };
   claimPacket.review.questions[0].question.instructions = 'Classify support for the resource subject using its evidence, arguments, and missing evidence.';
   const claimRequest = structuredClone(request);
-  claimRequest.resources[0].context.value.review = claimPacket.review;
+  claimRequest.resources[0].context.value.review = providerReview(claimPacket.review);
   claimRequest.questions = claimPacket.review.questions;
   assert.equal(validateDebate(claimRequest, claimPacket).valid, true);
 
@@ -252,7 +245,7 @@ function selfTest() {
     nextPacket.review.questions = [{ id: 'Q1', question }];
     const nextRequest = structuredClone(request);
     nextRequest.questions = nextPacket.review.questions;
-    nextRequest.resources[0].context.value.review = nextPacket.review;
+    nextRequest.resources[0].context.value.review = providerReview(nextPacket.review);
     return { nextPacket, nextRequest };
   };
   let primitive = withQuestion({

@@ -1,0 +1,87 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { DatabaseSync } from 'node:sqlite';
+
+const root = fileURLToPath(new URL('../', import.meta.url));
+const target = execFileSync('rustc', ['-vV'], { encoding: 'utf8' }).match(/^host: (.+)$/m)[1];
+const binary = process.env.COMMUNICATION_BINARY || join(root, 'skills/octocode-agents-communication/scripts/bin', target, 'octocode-agents-communication');
+function fixture(t) {
+  const workspace = mkdtempSync(join(tmpdir(), 'communication-batching-'));
+  const database = join(workspace, 'audit.sqlite');
+  const call = (command, input = {}, session) => JSON.parse(execFileSync(binary,
+    [command, JSON.stringify(input), '--workspace', workspace, '--database', database,
+      ...(session ? ['--session', session] : [])], { encoding: 'utf8', stdio: 'pipe', timeout: 10000 }));
+  const sender = call('join', { name: 'sender', vendor: 'generic' }).id;
+  const receiver = call('join', { name: 'receiver', vendor: 'generic' }).id;
+  call('attach', { transport: 'raw' }, receiver);
+  const db = new DatabaseSync(database, { readOnly: true });
+  t.after(() => { db.close(); rmSync(workspace, { recursive: true, force: true }); });
+  const send = (body, to = receiver) => call('send_message', { to, body, reasoning: 'Coordinate a pending decision', conversationId: 'shared-decision' }, sender).id;
+  const pending = () => db.prepare('SELECT message FROM deliveries WHERE recipient=? AND acknowledgedAt IS NULL ORDER BY message').all(receiver).map(x => x.message);
+  const audits = () => db.prepare("SELECT count(*) AS n FROM audit WHERE kind='delivery.acknowledged'").get().n;
+  return { call, sender, receiver, send, db, pending, audits };
+}
+
+test('batch ACK is atomic, recipient scoped, audited once and idempotent', t => {
+  const f = fixture(t), ids = [f.send('first'), f.send('second')];
+  const foreign = f.send('other recipient', f.sender);
+  assert.throws(() => f.call('ack', { messages: [...ids, foreign] }, f.receiver), /every ID/);
+  assert.throws(() => f.call('ack', { messages: [...ids, 999999] }, f.receiver), /every ID/);
+  assert.deepEqual(f.pending(), ids);
+  assert.equal(f.audits(), 0, 'rolled-back ACKs must leave no audit events');
+  assert.deepEqual(f.call('ack', { messages: ids }, f.receiver), { acknowledged: true, count: 2 });
+  assert.deepEqual(f.pending(), []);
+  assert.equal(f.audits(), 2);
+  assert.deepEqual(f.call('ack', { messages: ids }, f.receiver), { acknowledged: true, count: 2 });
+  assert.equal(f.audits(), 2, 'retries must not create duplicate ACK audit events');
+  assert.deepEqual(f.call('ack', { message: ids[0] }, f.receiver), { acknowledged: true });
+  assert.deepEqual(f.call('ack', { message: foreign }, f.receiver), { acknowledged: false });
+});
+
+test('ACK schema rejects ambiguous, empty, duplicate, invalid and oversized batches', t => {
+  const f = fixture(t), id = f.send('retain');
+  for (const input of [{}, { messages: [] }, { messages: [id, id] }, { messages: [0] },
+    { messages: ['1'] }, { message: id, messages: [id] },
+    { messages: Array.from({ length: 101 }, (_, i) => i + 1) }]) {
+    assert.throws(() => f.call('ack', input, f.receiver));
+    assert.deepEqual(f.pending(), [id]);
+  }
+});
+
+test('ready bursts retain every field and ID, drain 16 at a time and never replay', t => {
+  const f = fixture(t), ids = Array.from({ length: 33 }, (_, i) => f.send(`fact ${i}`));
+  const batches = Array.from({ length: 3 }, () => f.call('hook', { format: 'json' }, f.receiver));
+  assert.deepEqual(batches.map(x => x.items.length), [16, 16, 1]);
+  assert.deepEqual(batches.flatMap(x => x.items.map(m => m.id)), ids);
+  for (const batch of batches) {
+    const rendered = JSON.parse(batch.context.slice(batch.context.indexOf('\n') + 1));
+    assert.deepEqual(rendered.map(x => x.id), batch.items.map(x => x.id));
+    for (const message of rendered) {
+      assert.equal(message.reasoning, 'Coordinate a pending decision');
+      assert.equal(message.conversationId, 'shared-decision');
+      assert.equal(message.sender, f.sender);
+      assert.equal(message.body, `fact ${ids.indexOf(message.id)}`);
+      assert.equal(message.wake, 'action');
+      assert.equal(message.dispatchToken, undefined);
+    }
+    f.call('ack', { messages: batch.items.map(x => x.id) }, f.receiver);
+  }
+  assert.equal(f.call('hook', { format: 'json' }, f.receiver).context, '');
+  assert.deepEqual(f.pending(), []);
+  assert.equal(f.audits(), 33);
+});
+
+test('larger row cap preserves byte bound and oversized-first-item progress', t => {
+  const f = fixture(t);
+  const ids = [f.send('a'.repeat(10000)), f.send('b'.repeat(10000)), f.send('c'.repeat(16384))];
+  for (const id of ids) {
+    const batch = f.call('hook', { format: 'json' }, f.receiver);
+    assert.deepEqual(batch.items.map(x => x.id), [id]);
+  }
+  assert.deepEqual(f.call('hook', { format: 'json' }, f.receiver).items, []);
+});

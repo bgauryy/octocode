@@ -14,8 +14,8 @@ use crate::tools::local_fetch::ContentScan;
 use crate::tools::result::remove_null_fields;
 
 pub use crate::contracts::tool_types::{
-    GhSearchQuery, GhSearchQueryIncludeItem, GhSearchQueryMatchItem, GhSearchQuerySort, Match,
-    Visibility,
+    GhSearchQuery, GhSearchQueryIncludeItem, GhSearchQueryMatch, GhSearchQueryMatchItem,
+    GhSearchQuerySort, GhSearchQueryVisibility,
 };
 
 /// The provider pages in `usize`; the wire contract owns the integer types.
@@ -55,7 +55,7 @@ pub async fn execute<R: CredentialResolver, C: crate::providers::github::Conditi
                         query: q,
                         page: current,
                         per_page: per,
-                        include_fragments: *match_ != Match::Path,
+                        include_fragments: *match_ != GhSearchQueryMatch::Path,
                     },
                     context,
                 )
@@ -522,6 +522,36 @@ mod tests {
             assert_eq!(retry["language"], "rust");
             assert_eq!(retry["pageSize"], 10);
             assert_eq!(retry["page"], 1);
+        }
+
+        #[tokio::test]
+        async fn renamed_repository_supersedes_incomplete_retry() {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/api/v3/search/code"))
+                .respond_with(
+                    ResponseTemplate::new(200).set_body_json(
+                        json!({"total_count":0,"incomplete_results":true,"items":[]}),
+                    ),
+                )
+                .mount(&server)
+                .await;
+            Mock::given(method("GET"))
+                .and(path("/api/v3/repos/a/b"))
+                .respond_with(
+                    ResponseTemplate::new(200)
+                        .set_body_json(json!({"default_branch":"main","full_name":"c/d"})),
+                )
+                .mount(&server)
+                .await;
+            let out = run(
+                &server,
+                json!({"operation":"code","reasoning":"test","owner":"a","repo":"b","keywords":["needle"]}),
+            )
+            .await
+            .expect("search");
+            assert!(out.data["next"].get("retry").is_none(), "{}", out.data);
+            assert_eq!(out.data["next"]["retryRenamed"]["query"]["repo"], "d");
         }
 
         #[tokio::test]

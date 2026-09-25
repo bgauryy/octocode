@@ -47,16 +47,6 @@ store listeners with the session. No persistent below-editor plan/worker widget 
 
 `initializeOctocodeSession()` is the sole `session_start` initializer:
 
-1. Dispose a previous renderer binding without touching a stale replacement context.
-2. Create and bind the new runtime store.
-3. Resolve project trust and propagate Octocode environment configuration.
-4. Reset/restore session-scoped policy, plans, metrics, and UI components.
-5. Restore the MCP catalog snapshot and start live schema discovery.
-6. Start independent background receipts: checkpoints, GitHub auth, update check,
-   discovery inventory, Awareness registration, and MCP refresh.
-7. Mark the interactive session ready. Background task/MCP state remains visible without
-   blocking normal agent work.
-
 Environment propagation precedes MCP configuration and process startup. Non-critical
 background failures become degraded task receipts; they do not reject session startup.
 

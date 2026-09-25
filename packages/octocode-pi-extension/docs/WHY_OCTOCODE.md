@@ -10,7 +10,6 @@ Octocode is the opinionated, evidence-first harness layer for Pi. Use it when a 
 | MCP only | `pi-mcp-adapter` or Octocode Lite profile | Octocode includes MCP, but MCP-only users may prefer a small package. |
 | Web fetching only | `pi-web-access` or Octocode Lite profile | Octocode adds web plus local/GitHub/LSP research and browser automation. |
 | Simple subagents | `pi-subagents` | Focused delegation package. |
-| Repo-scale, evidence-first coding | Octocode | Research tools, guarded edits, Awareness, workers, skills, MCP, browser, and verification workflows in one harness. |
 
 Octocode is not trying to be the smallest Pi package. It is the professional harness profile for teams and power users who want the agent to prove what it read, coordinate shared work, and finish with verification evidence.
 
@@ -21,16 +20,8 @@ These profiles describe how the extension should be explained and configured. Th
 | Profile | Best for | Surface |
 |---|---|---|
 | Lite | First run, cautious users, MCP/web tasks | Guarded file/bash, MCPTool, web, askUser, and basic docs. |
-| Default | Daily coding | Lite + local/GitHub/LSP/npm research, skills, plan, Awareness memory/checks, image tools. |
-| Pro | Large repos, parallel work, deep debugging | Default + `agent` worker/browser profiles, Chrome DevTools, watch mode, and the full Awareness workflow. |
 
 ## Where Octocode should win
-
-- **Evidence:** local/GitHub/LSP/npm research is first-class and routed through one MCP schema surface.
-- **Safety:** weak builtins are removed; `file` and `bash` enforce stale-read/lost-update checks, path guards, and clear diffs.
-- **Coordination:** Awareness tracks shared tasks, work presence, locks, verification receipts, handoffs, messages, and memory.
-- **Workflow:** bundled skills turn repeated work into named procedures: research, docs, RFC, eval, scraping, subagents, prompt optimization, critique.
-- **Operator UX:** dashboards, command palette, permissions, plan mode, worker inbox, rewind, watch mode, and export make the harness inspectable.
 
 ## Where Octocode should not overclaim
 

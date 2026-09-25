@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { utcNow, type SqliteLike, type ReadableSqlite } from '@octocodeai/octocode-awareness/host';
+import { utcNow, type SqliteLike, type ReadableSqlite } from '../runtime/agent-store-schema.js';
 
 export const MCP_GLOBAL_SCOPE = '*';
 

@@ -4,7 +4,6 @@ import {
 } from '../constants.js';
 import type { NotifyFn, PiInstance, SkillInfo } from '../types.js';
 import { registerAskUserTool } from './ask-user-tool.js';
-import { registerAwarenessTool } from './awareness-tool.js';
 import type { JobManager } from './bash-bg-tool.js';
 import { registerBashTool } from './bash-tool.js';
 import { registerCallTool } from './call-tool.js';
@@ -85,7 +84,6 @@ export function registerSupportTools({
   registerPlanTool(pi, registeredToolNames, registerUniqueTool);
   registerLocalServerTool(pi, registeredToolNames, registerUniqueTool);
   registerAskUserTool(pi, registeredToolNames, registerUniqueTool);
-  registerAwarenessTool(pi, registeredToolNames, registerUniqueTool);
   registerMcpTool(pi, registeredToolNames, registerUniqueTool);
   return backgroundJobs;
 }

@@ -5,7 +5,8 @@ Load when legality, safety, privacy, or account boundaries can matter. Why: scra
 ## Frame before fetch
 - Confirm target URL/domain, purpose, allowed depth, expected output shape, and whether auth/session data is involved. <!-- style-lint: ignore-line passive-voice -->
 - Prefer one URL or an explicit allowlist. Broad crawls require user approval for depth, max pages, and rate.
-- Respect robots.txt/ToS where applicable; if not checked, state uncertainty.
+- Crawls check and cache robots.txt once per origin. A 4xx robots response permits crawling; a transport error or 5xx stops that origin for the run. A single explicit URL is treated as a user-directed fetch; state that robots was not checked.
+- Honor server pacing. Keep crawl delay enabled, obey a short `Retry-After` once, and surface longer waits instead of blocking an agent run.
 
 ## Minimize
 - Fetch only what proves the task. Use cached/session artifacts before refetching.

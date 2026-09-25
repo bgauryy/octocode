@@ -208,16 +208,126 @@ pub fn prepare_many_and_validate(
                 });
             }
         }
+        let mut total_cells = 0usize;
         for query in &queries {
             validate_semantic_relations(query)?;
+            total_cells = total_cells.saturating_add(semantic_cell_count(query));
+        }
+        if total_cells > 50 {
+            return Err(ContractValidationError {
+                issues: vec![ValidationIssue {
+                    rule_id: "clasify.total-cell-limit".into(),
+                    path: vec!["queries".into()],
+                    message: format!(
+                        "Expanded matrices produce {total_cells} cells in total; maximum is 50."
+                    ),
+                    schema: None,
+                    received: None,
+                }],
+            });
         }
     }
     Ok(queries)
 }
 
+const SEMANTIC_FILE_CANDIDATES: usize = 5;
+
+fn semantic_cell_count(query: &serde_json::Value) -> usize {
+    let expanded_resources = query["resources"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|resource| {
+            if resource
+                .pointer("/context/candidateEvidence")
+                .and_then(serde_json::Value::as_str)
+                == Some("fileChunks")
+            {
+                SEMANTIC_FILE_CANDIDATES
+            } else {
+                1
+            }
+        })
+        .sum::<usize>();
+    expanded_resources.saturating_mul(query["questions"].as_array().map_or(0, std::vec::Vec::len))
+}
+
 fn validate_semantic_relations(query: &serde_json::Value) -> Result<(), ContractValidationError> {
     let resources = query["resources"].as_array().cloned().unwrap_or_default();
     let questions = query["questions"].as_array().cloned().unwrap_or_default();
+    for (index, resource) in resources.iter().enumerate() {
+        let context = &resource["context"];
+        if context.get("candidateEvidence").is_some() {
+            let supported = context["tool"] == "localSearch"
+                || (context["tool"] == "ghSearch"
+                    && context
+                        .pointer("/query/operation")
+                        .and_then(serde_json::Value::as_str)
+                        == Some("code"));
+            if !supported {
+                return Err(ContractValidationError {
+                    issues: vec![ValidationIssue {
+                        rule_id: "clasify.candidate-evidence".into(),
+                        path: vec![
+                            "resources".into(),
+                            index.to_string(),
+                            "context".into(),
+                            "candidateEvidence".into(),
+                        ],
+                        message:
+                            "candidateEvidence requires localSearch or ghSearch with operation: code."
+                                .into(),
+                        schema: None,
+                        received: context.get("candidateEvidence").cloned(),
+                    }],
+                });
+            }
+        }
+        let nested = &context["query"];
+        let start = nested.get("startLine").and_then(serde_json::Value::as_u64);
+        let end = nested.get("endLine").and_then(serde_json::Value::as_u64);
+        if start.is_some() != end.is_some() {
+            let field = if start.is_none() {
+                "startLine"
+            } else {
+                "endLine"
+            };
+            return Err(ContractValidationError {
+                issues: vec![ValidationIssue {
+                    rule_id: "clasify.line-range".into(),
+                    path: vec![
+                        "resources".into(),
+                        index.to_string(),
+                        "context".into(),
+                        "query".into(),
+                        field.into(),
+                    ],
+                    message: "Set startLine and endLine together.".into(),
+                    schema: None,
+                    received: None,
+                }],
+            });
+        }
+        if let (Some(start), Some(end)) = (start, end)
+            && end < start
+        {
+            return Err(ContractValidationError {
+                issues: vec![ValidationIssue {
+                    rule_id: "clasify.line-range".into(),
+                    path: vec![
+                        "resources".into(),
+                        index.to_string(),
+                        "context".into(),
+                        "query".into(),
+                        "endLine".into(),
+                    ],
+                    message: "endLine must not precede startLine.".into(),
+                    schema: None,
+                    received: nested.get("endLine").cloned(),
+                }],
+            });
+        }
+    }
     for (field, rows) in [("resources", &resources), ("questions", &questions)] {
         let mut seen = std::collections::HashSet::new();
         for (index, row) in rows.iter().enumerate() {
@@ -236,13 +346,15 @@ fn validate_semantic_relations(query: &serde_json::Value) -> Result<(), Contract
             }
         }
     }
-    let cells = resources.len().saturating_mul(questions.len());
+    let cells = semantic_cell_count(query);
     if cells > 25 {
         return Err(ContractValidationError {
             issues: vec![ValidationIssue {
                 rule_id: "clasify.cell-limit".into(),
                 path: Vec::new(),
-                message: format!("resources × questions produces {cells} cells; maximum is 25."),
+                message: format!(
+                    "Expanded resources × questions produces {cells} cells; maximum is 25."
+                ),
                 schema: None,
                 received: None,
             }],
@@ -374,7 +486,7 @@ mod contract_owner_tests {
                 ],
                 "questions":[
                     {"id":"q1","question":question},
-                    {"id":"q2","question":{"type":"score","instructions":"Rate risk","criteria":["low","high"]}}
+                    {"id":"q2","type":"score","instructions":"Rate risk","criteria":["low","high"]}
                 ]
             }),
             PrepareOptions::default(),
@@ -426,6 +538,86 @@ mod contract_owner_tests {
         .expect_err("matrix cell limit must fail");
         assert_eq!(oversized.issues[0].rule_id, "clasify.cell-limit");
         assert!(oversized.issues[0].message.contains("maximum is 25"));
+
+        let hydrated_resources = ["one", "two"].map(|id| {
+            json!({"id":id,"context":{
+                "tool":"localSearch",
+                "candidateEvidence":"fileChunks",
+                "query":{"reasoning":"Find candidates.","path":"/tmp","searchText":"anchor"}
+            }})
+        });
+        let hydrated_questions = (0..3)
+            .map(|index| json!({"id":format!("q{index}"),"question":question.clone()}))
+            .collect::<Vec<_>>();
+        let expanded = prepare_many_and_validate(
+            "clasify",
+            json!({
+                "id":"expanded",
+                "reasoning":"Classify bounded file candidates.",
+                "resources":hydrated_resources,
+                "questions":hydrated_questions
+            }),
+            PrepareOptions::default(),
+        )
+        .expect_err("expanded file candidates must count toward the cell limit");
+        assert_eq!(expanded.issues[0].rule_id, "clasify.cell-limit");
+    }
+
+    #[test]
+    fn clasify_rejects_invalid_candidate_evidence_ranges_and_batch_cells() {
+        let question = json!({"type":"noul","instructions":"Is it relevant?"});
+        for (context, rule_id) in [
+            (
+                json!({
+                    "tool":"localFetch",
+                    "candidateEvidence":"fileChunks",
+                    "query":{"reasoning":"Invalid search mode.","path":"/tmp/a.rs"}
+                }),
+                "clasify.candidate-evidence",
+            ),
+            (
+                json!({
+                    "tool":"localFetch",
+                    "query":{"reasoning":"Incomplete range.","path":"/tmp/a.rs","startLine":1}
+                }),
+                "clasify.line-range",
+            ),
+        ] {
+            let error = prepare_many_and_validate(
+                "clasify",
+                json!({
+                    "id":"invalid-context",
+                    "reasoning":"Reject invalid delegated context before execution.",
+                    "resources":[{"id":"r","context":context}],
+                    "questions":[{"id":"q","question":question.clone()}]
+                }),
+                PrepareOptions::default(),
+            )
+            .expect_err("invalid context relation must fail at admission");
+            assert_eq!(error.issues[0].rule_id, rule_id);
+        }
+
+        let matrix = |id: &str| {
+            json!({
+                "id":id,
+                "reasoning":"Exercise the total expanded-cell limit.",
+                "resources":[{"id":"r","context":{
+                    "tool":"localSearch",
+                    "candidateEvidence":"fileChunks",
+                    "query":{"reasoning":"Find candidates.","path":"/tmp","searchText":"anchor"}
+                }}],
+                "questions":(0..5).map(|index| json!({
+                    "id":format!("q{index}"),"question":question.clone()
+                })).collect::<Vec<_>>()
+            })
+        };
+        let error = prepare_many_and_validate(
+            "clasify",
+            json!({"queries":[matrix("a"),matrix("b"),matrix("c")]}),
+            PrepareOptions::default(),
+        )
+        .expect_err("batch-wide expanded cells must fail before execution");
+        assert_eq!(error.issues[0].rule_id, "clasify.total-cell-limit");
     }
 
     #[test]
@@ -434,7 +626,7 @@ mod contract_owner_tests {
             "id":"qa",
             "reasoning":"Classify resources.",
             "resources":[{"id":"r","context":{"value":"one"}}],
-            "questions":[{"id":"q1","question":{"type":"noul","instructions":"Relevant?"}}]
+            "questions":[{"id":"q1","type":"noul","instructions":"Relevant?"}]
         });
         let error = prepare_many_and_validate(
             "clasify",
@@ -925,8 +1117,6 @@ mod contract_owner_tests {
     fn no_inline_schema_literals_outside_generated_contracts() {
         let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
         let src_dir = manifest_dir.join("src");
-        let generated_dir = src_dir.join("contracts").join("generated.rs");
-
         // Patterns that indicate inline (hand-authored) JSON Schema definition.
         // We do not check for "properties" broadly because it appears in
         // schema-reading code (e.g. contracts/validate.rs). Instead we only
@@ -938,7 +1128,7 @@ mod contract_owner_tests {
         ];
 
         let mut violations: Vec<String> = Vec::new();
-        scan_for_schema_literals(&src_dir, &generated_dir, forbidden, &mut violations);
+        scan_for_schema_literals(&src_dir, forbidden, &mut violations);
 
         assert!(
             violations.is_empty(),
@@ -950,7 +1140,6 @@ mod contract_owner_tests {
 
     fn scan_for_schema_literals(
         dir: &std::path::Path,
-        skip: &std::path::Path,
         patterns: &[&str],
         violations: &mut Vec<String>,
     ) {
@@ -960,12 +1149,8 @@ mod contract_owner_tests {
         };
         for entry in entries.flatten() {
             let path = entry.path();
-            // Skip the generated directory entirely.
-            if path == skip || path.starts_with(skip) {
-                continue;
-            }
             if path.is_dir() {
-                scan_for_schema_literals(&path, skip, patterns, violations);
+                scan_for_schema_literals(&path, patterns, violations);
             } else if path.extension().and_then(|e| e.to_str()) == Some("rs") {
                 let Ok(content) = std::fs::read_to_string(&path) else {
                     continue;

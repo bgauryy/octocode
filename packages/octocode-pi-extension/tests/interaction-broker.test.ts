@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { afterEach, test, vi } from 'vitest';
-import type { InteractionAnswerV1, InteractionRequestV1 } from '@octocodeai/octocode-awareness/host';
+import type { InteractionAnswerV1, InteractionRequestV1 } from '../src/runtime/continuity-contracts.js';
 import {
   answerPendingInteraction,
   clearInMemoryInteractionState,

@@ -51,22 +51,44 @@ describe('generated tool types', () => {
     }
   });
 
-  it('shares one enum for a vocabulary several tools use', () => {
+  it('names shared types only where core names them (titles and ids)', () => {
     const defs = buildToolTypesBundle().bundle.$defs as Record<string, unknown>;
     expect(defs.ChunkType).toEqual({ title: 'ChunkType', type: 'string', enum: ['lines', 'bytes'] });
-    const ghChunk = JSON.stringify(defs.GhGetFileContentQuery);
-    const localChunk = JSON.stringify(defs.LocalFetchQuery);
-    expect(ghChunk).toContain('"$ref":"#/$defs/ChunkType"');
-    expect(localChunk).toContain('"$ref":"#/$defs/ChunkType"');
+    for (const tool of ['GhGetFileContentQuery', 'LocalFetchQuery']) {
+      expect(JSON.stringify(defs[tool])).toContain('"$ref":"#/$defs/ChunkType"');
+    }
+    expect(defs.AstRule).toBeDefined();
+    // No positional or heuristic names leak out of the bundle.
+    expect(Object.keys(defs).filter((name) => /^Shared|__schema/.test(name))).toEqual([]);
   });
 
-  it('rejects two different schemas under one bundle name', () => {
+  it('turns closed anyOf unions into oneOf and enforces string consts', () => {
+    const defs = buildToolTypesBundle().bundle.$defs as Record<string, Record<string, unknown>>;
+    const ast = defs.AstSearchQuery as { oneOf: Array<{ $ref: string }> };
+    expect(ast.oneOf.map((branch) => branch.$ref)).toEqual([
+      '#/$defs/AstSearchQueryMatchPattern',
+      '#/$defs/AstSearchQueryMatchRule',
+      '#/$defs/AstSearchQueryFiles',
+      '#/$defs/AstSearchQueryTree',
+      '#/$defs/AstSearchQuerySymbols',
+    ]);
+    const files = defs.AstSearchQueryFiles as { properties: Record<string, unknown> };
+    expect(files.properties.operation).toEqual({ type: 'string', enum: ['files'] });
+    // typify drops a string const (emits a free String); a one-value enum is
+    // enforced. Boolean consts stay a contract-validator check.
+    expect(JSON.stringify(defs)).not.toMatch(/"const":"/);
+  });
+
+  it('rejects an unnamed recursive schema instead of inventing a name', () => {
     const ir = buildEnforcementContractIr();
     const [first] = ir.tools as unknown as Array<Record<string, unknown>>;
-    const clash = { ...first, querySchema: { type: 'object', properties: { x: { type: 'string' } } } };
+    const unnamed = {
+      ...first,
+      querySchema: { $defs: { __schema0: { type: 'object' } }, type: 'object' },
+    };
     expect(() =>
-      buildToolTypesBundle({ ...ir, tools: [first, clash] } as unknown as typeof ir)
-    ).toThrow(/Conflicting tool-type definition/);
+      buildToolTypesBundle({ ...ir, tools: [unnamed] } as unknown as typeof ir)
+    ).toThrow(/unnamed recursive schema/);
   });
 
   it('types tool rows by name at compile time', () => {

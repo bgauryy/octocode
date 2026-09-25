@@ -56,7 +56,7 @@ test('does not gate read-only git or ordinary commands', () => {
 test('exempts Octocode dogfood npx CLIs from install gating', () => {
   assert.equal(classifySensitiveCommand('npx octocode scheme --compact'), null);
   assert.equal(classifySensitiveCommand('npx -y octocode-mcp@latest'), null);
-    assert.equal(classifySensitiveCommand('npx -p @octocodeai/octocode-awareness octocode-awareness status'), null);
+    assert.equal(classifySensitiveCommand('npx -p example-cli example-cli status'), null);
 });
 
 // ─── requestApproval ─────────────────────────────────────────────────────────

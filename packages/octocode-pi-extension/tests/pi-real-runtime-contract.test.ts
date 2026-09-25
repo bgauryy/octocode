@@ -14,12 +14,6 @@ import { allowLocalFixtureProcesses } from '../../../test-utils/external-effects
 import builtOctocodeExtension, { readPiPhysiology } from '@octocodeai/pi-extension';
 import { COMPACTION_CHECKPOINT_TYPE } from '../src/tools/custom-messages.js';
 import type { PiContext } from '../src/types.js';
-import { createAwarenessClient } from '@octocodeai/octocode-awareness';
-import {
-  openAwarenessStore,
-  watchAwarenessEventHints,
-} from '@octocodeai/octocode-awareness/host';
-import { registerAwarenessEventConsumer } from '../src/tools/awareness-event-consumer.js';
 import type { PiInstance } from '../src/types.js';
 import { registerUniqueTool } from '../src/tools/octocode-tools.js';
 import { executeQueryBatch } from '../src/tools/query-envelope.js';
@@ -196,102 +190,7 @@ describe('real Pi runtime contract', { concurrent: false }, () => {
       expect(contexts[1]).toContain('"isError":true');
     } finally { session.dispose(); await settings.flush(); }
   }, 30_000);
-  it('wakes a real idle Pi session from native SQLite hints and persists one receipt batch', async () => {
-    restoreProcesses = allowLocalFixtureProcesses();
-    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-real-pi-wake-')));
-    temporaryRoots.push(root);
-    const workspace = path.join(root, 'workspace');
-    const agentDir = path.join(root, 'agent');
-    fs.mkdirSync(workspace); fs.mkdirSync(agentDir);
-    const database = path.join(root, 'awareness.sqlite3');
-    const publisher = openAwarenessStore({ workspace, dbPath: database });
-    let hintCount = 0;
-    let watcherReady!: () => void;
-    const watcherStarted = new Promise<void>(resolve => {
-      watcherReady = resolve;
-    });
-    const contexts: string[] = [];
-    const observations: unknown[] = [];
-    const extension: ExtensionFactory = pi => {
-      registerAwarenessEventConsumer(pi as unknown as PiInstance, {
-        openStore: () => openAwarenessStore({ workspace, dbPath: database }),
-        watchEvents: options => {
-          const watcher = watchAwarenessEventHints({
-            ...options,
-            onHint: () => {
-              hintCount += 1;
-              options.onHint();
-            },
-          });
-          watcherReady();
-          return watcher;
-        },
-        resolveExpectedAgentId: () => 'native-recipient',
-        canWake: () => true,
-        onObservability: stats => observations.push(stats),
-      });
-      pi.registerProvider(PROVIDER, {
-        name: 'Local wake audit', api: API, baseUrl: 'http://127.0.0.1:0', apiKey: 'local-fixture',
-        models: [{ id: MODEL, name: 'Local wake audit', api: API, reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 8192, maxTokens: 1024 }],
-        streamSimple: (_model, context) => { contexts.push(JSON.stringify(context)); return scriptedStream(response([{ type: 'text', text: 'completed' }], 'stop')) as never; },
-      });
-    };
-    const settings = SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false } });
-    const loader = new DefaultResourceLoader({ cwd: workspace, agentDir, settingsManager: settings, extensionFactories: [{ name: 'wake-audit', factory: extension }], noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true });
-    await loader.reload();
-    const { session } = await createAgentSession({ cwd: workspace, agentDir, tools: [], resourceLoader: loader, sessionManager: SessionManager.create(workspace, path.join(root, 'sessions')), settingsManager: settings });
-    try {
-      await session.bindExtensions({ mode: 'json', shutdownHandler() {} });
-      await session.setModel(session.modelRuntime.getModel(PROVIDER, MODEL)!);
-      await session.prompt('Initial authorized task.', { expandPromptTemplates: false });
-      await session.waitForIdle();
-      await watcherStarted;
-      expect(contexts).toHaveLength(1);
-      const peer = createAwarenessClient({ workspace, database, agentId: 'peer' });
-      for (const index of [1, 2]) {
-        const sent = await peer.execute({
-          operation: 'message.send',
-          params: {
-            kind: 'blocker',
-            to_agent: ['native-recipient'],
-            subject: `wake ${index}`,
-            body: `exact-challenge-${index}`,
-          },
-        });
-        expect(sent.exitCode, JSON.stringify(sent.payload)).toBe(0);
-      }
-      await vi.waitFor(() => expect(hintCount).toBeGreaterThan(0), {
-        timeout: 5_000,
-        interval: 10,
-      });
-      const consumerId = `pi:${session.sessionManager.getSessionId()}`;
-      await vi.waitFor(
-        () =>
-          expect(
-            publisher.getConsumerCursor(consumerId),
-            JSON.stringify(observations)
-          ).toBe(2),
-        { timeout: 5_000, interval: 10 }
-      );
-      await vi.waitFor(() => expect(contexts).toHaveLength(2), { timeout: 5_000, interval: 10 });
-      await session.waitForIdle();
-      expect(contexts).toHaveLength(2);
-      expect(contexts[1]).toContain('exact-challenge-1');
-      expect(contexts[1]).toContain('exact-challenge-2');
-      expect(
-        publisher.getConsumerCursor(consumerId)
-      ).toBe(2);
-      const entries = session.sessionManager.getEntries();
-      const wake = entries.filter(entry => JSON.stringify(entry).includes('octocode-peer-wake'));
-      expect(wake).toHaveLength(1);
-      expect(JSON.stringify(wake)).not.toContain('exact-challenge');
-    } finally {
-      publisher.close();
-      session.dispose();
-      await settings.flush();
-    }
-  }, 30_000);
-  it('delivers workflow skills, Awareness CLI bindings, context measurements and compaction receipts', async () => {
+  it('delivers workflow skills, shell execution, context measurements and compaction receipts', async () => {
     restoreProcesses = allowLocalFixtureProcesses();
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-real-pi-'));
     temporaryRoots.push(root);
@@ -301,13 +200,7 @@ describe('real Pi runtime contract', { concurrent: false }, () => {
     const sessionsDir = path.join(root, 'sessions');
     fs.mkdirSync(workspace);
     fs.mkdirSync(agentDir);
-    // Local file history captures only under the full hooks profile; the default
-    // workspace profile is 'coordination'.
     fs.mkdirSync(path.join(workspace, '.octocode'));
-    fs.writeFileSync(
-      path.join(workspace, '.octocode', 'awareness.json'),
-      `${JSON.stringify({ version: 1, storage: { repository: 'global', memory: 'global' }, hooks: { profile: 'full' } }, null, 2)}\n`,
-    );
 
     vi.stubEnv('OCTOCODE_HOME', octocodeHome);
     vi.stubEnv('OCTOCODE_STORAGE_MODE', 'persistent');
@@ -327,10 +220,10 @@ describe('real Pi runtime contract', { concurrent: false }, () => {
         },
       }], 'toolUse'),
       response([{
-        type: 'toolCall', id: 'awareness-schema', name: 'bash', arguments: {
+        type: 'toolCall', id: 'shell-execution', name: 'bash', arguments: {
           queries: [{
-            reasoning: 'Inspect the installed Awareness CLI through Pi-provided bindings.',
-            command: '"$OCTOCODE_NODE" "$OCTOCODE_AWARENESS_CLI" --db "$OCTOCODE_AWARENESS_DB" schema command work verify --compact',
+            reasoning: 'Run a local shell check.',
+            command: 'printf runtime-check',
             timeout: 10,
           }],
         },
@@ -340,7 +233,7 @@ describe('real Pi runtime contract', { concurrent: false }, () => {
       }], 'toolUse'),
       response([{
         type: 'toolCall', id: 'native-file-write', name: 'file', arguments: {
-          queries: [{ reasoning: 'Exercise canonical local history.', type: 'write', path: 'history-fixture.txt', content: 'captured by real Pi SDK\n' }],
+          queries: [{ reasoning: 'Exercise native file writes under the shared lease gate.', type: 'write', path: 'history-fixture.txt', content: 'captured by real Pi SDK\n' }],
         },
       }], 'toolUse'),
       response([{ type: 'text', text: 'runtime bindings verified' }], 'stop', 3_000),
@@ -428,11 +321,8 @@ describe('real Pi runtime contract', { concurrent: false }, () => {
       const model = created.session.modelRuntime.getModel(PROVIDER, MODEL);
       expect(model).toBeDefined();
       await created.session.setModel(model!);
-      await created.session.prompt('Verify the bundled research skill and Awareness CLI bindings.', { expandPromptTemplates: false });
+      await created.session.prompt('Verify the bundled research skill and shell execution.', { expandPromptTemplates: false });
       await created.session.waitForIdle();
-
-      expect(providerPrompts[0]).toContain('<awareness>');
-      expect(providerPrompts[0]).toContain('octocode-awareness');
       expect(providerPrompts[0]).toContain(path.resolve(workspace));
       expect(providerPrompts[0]).toContain(octocodeHome);
       const toolResultsBeforeCompact = JSON.stringify(created.session.sessionManager.getEntries());
@@ -444,12 +334,12 @@ describe('real Pi runtime contract', { concurrent: false }, () => {
       expect(execution.startedAt).toBeGreaterThan(0);
       expect(execution.toolCount).toBe(4);
       expect(Object.keys(execution.tools).sort()).toEqual([
-        'awareness-schema', 'business-failure', 'native-file-write', 'skill-load',
+        'business-failure', 'native-file-write', 'shell-execution', 'skill-load',
       ]);
       expect(execution.completedTurns).toBeGreaterThan(0);
       expect(Object.values(execution.tools).every(tool => tool.status !== 'running')).toBe(true);
       expect(toolResultsBeforeCompact).toContain('# Octocode Research');
-      expect(toolResultsBeforeCompact).toContain('work verify');
+      expect(toolResultsBeforeCompact).toContain('runtime-check');
       expect(lifecycle).toEqual(expect.arrayContaining(['before_agent_start', 'turn_start', 'turn_end']));
       expect(usages).toContainEqual(expect.objectContaining({ phase: 'turn_end', contextWindow: 8_192 }));
       expect(usages.some((usage) => usage.phase === 'turn_end' && (usage.tokens ?? 0) >= 3_000)).toBe(true);
@@ -465,31 +355,14 @@ describe('real Pi runtime contract', { concurrent: false }, () => {
       }));
       expect(physiologyBeforeCompact?.tools).toEqual({
         window: 32,
-        observed: 3,
-        total_observed: 3,
+        observed: 4,
+        total_observed: 4,
         latest_outcome: 'succeeded',
         failed: 1,
         cancelled: 0,
         blocked: 0,
       });
       expect(fs.readFileSync(path.join(workspace, 'history-fixture.txt'), 'utf8')).toBe('captured by real Pi SDK\n');
-      const historyClient = createAwarenessClient({ workspace, agentId: 'pi:real-runtime-test' });
-      const history = await historyClient.execute({ operation: 'history.timeline', params: { limit: 10 } });
-      expect(history.exitCode).toBe(0);
-      const timeline = history.payload as { operations: Array<Record<string, unknown>> };
-      const operation = timeline.operations.find(candidate => candidate.host === 'pi');
-      expect(operation).toEqual(expect.objectContaining({
-        status: 'complete', outcome: 'success', file_count: 1,
-        before_commit_oid: expect.any(String), after_commit_oid: expect.any(String),
-      }));
-      const operationId = String(operation?.operation_id);
-      const before = await historyClient.execute({ operation: 'history.read', params: { operation_id: operationId, file: 'history-fixture.txt', side: 'before' } });
-      const after = await historyClient.execute({ operation: 'history.read', params: { operation_id: operationId, file: 'history-fixture.txt', side: 'after' } });
-      expect(before.payload).toEqual(expect.objectContaining({ ok: true, status: 'missing' }));
-      const afterPayload = after.payload as { status: string; encoding: string; content: string };
-      expect(afterPayload).toEqual(expect.objectContaining({ status: 'captured', encoding: 'base64' }));
-      expect(Buffer.from(afterPayload.content, 'base64').toString('utf8')).toBe('captured by real Pi SDK\n');
-
       await created.session.prompt('Continue after the observed business-tool failure.', { expandPromptTemplates: false });
       await created.session.waitForIdle();
       expect(providerContexts.at(-1)).toContain('inspect_recent_tool_failures');
@@ -504,8 +377,8 @@ describe('real Pi runtime contract', { concurrent: false }, () => {
       expect(physiologyAfterCompact).toEqual(expect.objectContaining({
         tools: {
           window: 32,
-          observed: 3,
-          total_observed: 3,
+          observed: 4,
+          total_observed: 4,
           latest_outcome: 'succeeded',
           failed: 1,
           cancelled: 0,
@@ -520,7 +393,7 @@ describe('real Pi runtime contract', { concurrent: false }, () => {
       expect(JSON.stringify(checkpointEntries[0])).toContain('tokensBefore');
       await created.session.prompt('Check the remaining acceptance criteria.', { expandPromptTemplates: false });
       await created.session.waitForIdle();
-      expect(providerContexts.at(-1)).toContain('Verify the bundled research skill and Awareness CLI bindings.');
+      expect(providerContexts.at(-1)).toContain('Verify the bundled research skill and shell execution.');
       expect(providerContexts.at(-1)).toContain('Check the remaining acceptance criteria.');
 
       const homeSnapshot = JSON.stringify(fs.readdirSync(octocodeHome, { recursive: true }));

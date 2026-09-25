@@ -7,14 +7,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import {
-  getAwarenessOperationDescriptor,
-} from '@octocodeai/octocode-awareness';
-import {
-  contentDigest,
-  effectiveCapabilityDecision,
-  type CapabilityDecisionReceiptV1,
-} from '@octocodeai/octocode-awareness/host';
+import { contentDigest, effectiveCapabilityDecision, type CapabilityDecisionReceiptV1 } from '../runtime/continuity-contracts.js';
 import { paintUi } from '../tui/palette.js';
 import type { PiContext } from '../types.js';
 import { resolveSessionIdentity, type SessionIdentityInput } from './session-artifacts.js';
@@ -78,15 +71,24 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffect>> = Object.freeze(
 
   plan: 'planning-write',
 
-  memory: 'coordination-write',
+  peers: 'read',
+  inbox: 'read',
+  read_document: 'read',
+  activity: 'read',
+  send_message: 'coordination-write',
+  notify_all: 'coordination-write',
+  ack: 'coordination-write',
+  subscribe: 'coordination-write',
+  renew: 'coordination-write',
+  unlock: 'coordination-write',
+  lock_many: 'coordination-write',
+  share_document: 'coordination-write',
   lock: 'coordination-write',
   claim: 'coordination-write',
   task: 'coordination-write',
   handoff: 'coordination-write',
   verify: 'coordination-write',
   message: 'coordination-write',
-  awarenessagents: 'coordination-write',
-  awarenessplan: 'coordination-write',
   agent: 'coordination-write',
 
   file: 'workspace-write',
@@ -207,30 +209,6 @@ export function getToolEffect(toolName: string | undefined, input?: Record<strin
     });
     return hasDynamicSkillEffect ? 'workspace-write' : 'read';
   }
-  if (normalized === 'awareness') {
-    const queries = Array.isArray(input?.['queries'])
-      ? input['queries'].filter((value): value is Record<string, unknown> => Boolean(value) && typeof value === 'object' && !Array.isArray(value))
-      : [input ?? {}];
-    let effect: ToolEffect = 'read';
-    for (const query of queries) {
-      if (typeof query['operation'] !== 'string') return undefined;
-      const descriptor = getAwarenessOperationDescriptor(query['operation']);
-      if (!descriptor) return undefined;
-      if (query['describe'] === true) {
-        if (query['params'] !== undefined) return undefined;
-        continue;
-      }
-      const params = query['params'] && typeof query['params'] === 'object' && !Array.isArray(query['params'])
-        ? query['params'] as Record<string, unknown>
-        : {};
-      try {
-        const operationEffect = descriptor.effect(params);
-        if (operationEffect === 'workspace-write') effect = 'workspace-write';
-        else if (operationEffect === 'coordination-write' && effect === 'read') effect = 'coordination-write';
-      } catch { return undefined; } // invalid params — can't determine effect
-    }
-    return effect;
-  }
   if (normalized === 'mcptool') {
     const queries = Array.isArray(input?.['queries'])
       ? input['queries'].filter((value): value is Record<string, unknown> => Boolean(value) && typeof value === 'object' && !Array.isArray(value))
@@ -251,8 +229,6 @@ export function unclassifiedToolNames(toolNames: Iterable<string>): string[] {
     const normalized = name.toLowerCase();
     return normalized === 'agent'
       ? !TOOL_EFFECTS[normalized]
-      : normalized === 'awareness'
-        ? false
       : !getToolEffect(name);
   }).sort();
 }

@@ -126,14 +126,14 @@ impl From<EngineError> for LspFailure {
 
 pub(super) fn failure_hint(query: &LspSearchQuery, code: &str) -> &'static str {
     match code {
-        "lsp.serverUnavailable" if query.operation == "workspaceSymbol" && query.uri.is_none() => {
+        "lsp.serverUnavailable" if query.operation() == "workspaceSymbol" && query.uri().is_none() => {
             "Provide uri for a representative workspace source file so Octocode can select its language server."
         }
         "lsp.serverUnavailable" => {
             "Use astSearch symbols/match or localSearch for candidates, then localFetch exact source."
         }
         "lsp.capabilityUnavailable"
-            if matches!(query.operation.as_str(), "supertypes" | "subtypes") =>
+            if matches!(query.operation().as_str(), "supertypes" | "subtypes") =>
         {
             "This server cannot prove type hierarchy; inspect declarations with astSearch and confirm exact source."
         }
@@ -180,7 +180,7 @@ pub(super) fn failure(
         "status": "error",
         "errorCode": code,
         "error": message,
-        "type": query.operation,
+        "type": query.operation(),
         "lsp": { "serverAvailable": server_available },
         "hints": [failure_hint(query, code)]
     });
@@ -188,7 +188,7 @@ pub(super) fn failure(
     if code == "lsp.timeout" {
         value["next"]["retry"] = continuation(query_value(query));
     }
-    if query.uri.is_some() {
+    if query.uri().is_some() {
         attach_recovery_next(&mut value, query);
     }
     value
@@ -202,8 +202,8 @@ pub(super) fn empty(
 ) -> Value {
     json!({
         "status": "empty",
-        "type": query.operation,
-        "uri": query.uri,
+        "type": query.operation(),
+        "uri": query.uri(),
         "lsp": { "serverAvailable": server_available },
         "payload": { "kind": "empty", "category": category, "reason": reason },
         "hints": [empty_hint(category)]
@@ -298,13 +298,13 @@ pub(super) fn with_next(query: &LspSearchQuery, mut value: Value) -> Value {
         // A workspaceRoot-only query has no file to fall back to reading, and
         // reading source cannot stand in for missing diagnostics.
         let category = value.pointer("/payload/category").and_then(Value::as_str);
-        if query.uri.is_some()
+        if query.uri().is_some()
             && !matches!(category, Some("noDiagnostics" | "diagnosticsNotPublished"))
         {
             attach_recovery_next(&mut value, query);
         }
     }
-    if let Some(context) = &query.rust_context {
+    if let Some(context) = &query.rust_context() {
         value["rustContext"] = json!({
             "context": context,
             "fingerprint": super::receipt::rust_fingerprint(context)
@@ -316,14 +316,13 @@ pub(super) fn with_next(query: &LspSearchQuery, mut value: Value) -> Value {
 /// `next.readFile` recovery: the symbol's match windows when a name anchored
 /// the request (not the whole file), otherwise the file's default view.
 pub(super) fn attach_recovery_next(value: &mut Value, query: &LspSearchQuery) {
-    let path = query.uri.as_deref().map(uri_to_path).unwrap_or_default();
+    let path = query.uri().map(uri_to_path).unwrap_or_default();
     let mut read = json!({
         "path": path,
         "reasoning": "Read the source directly because semantic navigation is unavailable."
     });
     if let Some(symbol) = query
-        .symbol_name
-        .as_deref()
+        .symbol_name()
         .filter(|name| !name.trim().is_empty())
     {
         read["matchString"] = json!(symbol);

@@ -1,6 +1,7 @@
 //! Vendor-agnostic single-question classification: preflight validation,
 //! provider request building, HTTP dispatch, and answer projection.
 pub(crate) mod batch;
+pub(crate) mod questions;
 pub(crate) mod transport;
 
 use self::transport::{ClassificationError, check_budget, endpoint, post};
@@ -59,7 +60,8 @@ pub(crate) fn pages_within_resource(tool: &str) -> bool {
     )
 }
 
-pub(crate) fn preflight(query: &Value) -> Result<(), ClassificationError> {
+/// Validate the matrix and resolve its provider questions once, before capture.
+pub(crate) fn preflight(query: &Value) -> Result<Vec<Value>, ClassificationError> {
     if query.to_string().len() > MAX_REQUEST_BYTES {
         return Err(request_error(
             "Classification request exceeded the 4 MiB limit.",
@@ -106,27 +108,48 @@ pub(crate) fn preflight(query: &Value) -> Result<(), ClassificationError> {
             .and_then(Value::as_object)
             .ok_or_else(|| request_error("Every resource requires context."))?;
         let value_context = context.len() == 1 && context.get("value").is_some_and(entry);
-        let tool_context = context.len() == 2
-            && context
-                .get("tool")
-                .and_then(Value::as_str)
-                .is_some_and(is_context_tool)
-            && context.get("query").is_some_and(Value::is_object);
+        let tool = context.get("tool").and_then(Value::as_str);
+        let candidate_evidence = context.get("candidateEvidence").and_then(Value::as_str);
+        let candidate_search = match tool {
+            Some("localSearch") => true,
+            Some("ghSearch") => {
+                context
+                    .get("query")
+                    .and_then(|query| query.get("operation"))
+                    .and_then(Value::as_str)
+                    == Some("code")
+            }
+            _ => false,
+        };
+        let candidate_evidence_valid = match candidate_evidence {
+            None => true,
+            Some("search" | "fileChunks") => candidate_search,
+            Some(_) => false,
+        };
+        let tool_context = context.len() == 2 + usize::from(candidate_evidence.is_some())
+            && tool.is_some_and(is_context_tool)
+            && context.get("query").is_some_and(Value::is_object)
+            && candidate_evidence_valid;
         if !value_context && !tool_context {
             return Err(request_error(
                 "Resource context requires a non-empty value, or an allowed read tool with one ordinary query.",
             ));
         }
     }
+    let mut resolved = Vec::with_capacity(questions.len());
     for question in questions {
         if !question.get("id").is_some_and(valid_matrix_id) {
             return Err(request_error(
                 "Every question requires a valid correlation id.",
             ));
         }
-        validate_question(&question["question"])?;
+        let expanded = questions::expand(&question["question"])?;
+        if !questions::is_locate(&expanded) {
+            validate_question(&expanded)?;
+        }
+        resolved.push(json!({"id":question["id"],"question":expanded}));
     }
-    Ok(())
+    Ok(resolved)
 }
 
 fn valid_matrix_id(value: &Value) -> bool {
@@ -181,26 +204,6 @@ fn validate_question(question: &Value) -> Result<(), ClassificationError> {
         ));
     }
     Ok(())
-}
-
-/// Label added to Choice questions that lack one, so missing evidence is not
-/// forced into a substantive class (live: forced answers reached confidence 1.0).
-pub(crate) const INSUFFICIENT_LABEL: &str = "insufficient";
-const INSUFFICIENT_DESCRIPTION: &str =
-    "The supplied content does not contain enough evidence to choose.";
-
-/// Return a matrix question (`{id, question}`) whose Choice criteria include
-/// `insufficient`; other questions and full criteria sets are unchanged.
-pub(crate) fn with_insufficient_choice(entry: &Value) -> Value {
-    let mut entry = entry.clone();
-    if entry["question"]["type"] == "choice"
-        && let Some(criteria) = entry["question"]["criteria"].as_object_mut()
-        && !criteria.contains_key(INSUFFICIENT_LABEL)
-        && criteria.len() < 255
-    {
-        criteria.insert(INSUFFICIENT_LABEL.into(), json!(INSUFFICIENT_DESCRIPTION));
-    }
-    entry
 }
 
 /// Build and validate the provider request for one state × question cell.
@@ -351,34 +354,14 @@ mod tests {
     }
 
     #[test]
-    fn choice_questions_gain_an_insufficient_label_once() {
-        let choice = json!({"id":"q","question":{"type":"choice","instructions":"Pick",
-            "criteria":{"a":"A","b":null}}});
-        let normalized = with_insufficient_choice(&choice);
-        assert_eq!(
-            normalized["question"]["criteria"][INSUFFICIENT_LABEL],
-            INSUFFICIENT_DESCRIPTION
-        );
-        assert!(validate_question(&normalized["question"]).is_ok());
-        assert_eq!(with_insufficient_choice(&normalized), normalized);
-        let noul = json!({"id":"n","question":question()});
-        assert_eq!(with_insufficient_choice(&noul), noul);
-        let full: serde_json::Map<String, Value> =
-            (0..255).map(|i| (i.to_string(), Value::Null)).collect();
-        let full =
-            json!({"id":"f","question":{"type":"choice","instructions":"Pick","criteria":full}});
-        assert_eq!(with_insufficient_choice(&full), full);
-    }
-
-    #[test]
     fn reasoning_is_required_metadata_and_never_provider_evidence() {
         let provider = jev_provider();
         let mut query = semantic_query(json!({"value":{"observation":true}}), question());
-        preflight(&query).expect("reasoning metadata accepted");
+        let resolved = preflight(&query).expect("reasoning metadata accepted");
         assert_eq!(
             prepare(
                 &query["resources"][0]["context"]["value"],
-                &query["questions"][0]["question"],
+                &resolved[0]["question"],
                 "m",
                 provider,
             )
@@ -397,11 +380,12 @@ mod tests {
     fn correlation_ids_are_validated_but_never_sent_to_the_provider() {
         let provider = jev_provider();
         let query = semantic_query(json!({"value":{"observation":true}}), question());
-        preflight(&query).expect("valid correlation IDs");
+        let resolved = preflight(&query).expect("valid correlation IDs");
+        assert_eq!(resolved[0]["id"], query["questions"][0]["id"]);
         assert_eq!(
             prepare(
                 &query["resources"][0]["context"]["value"],
-                &query["questions"][0]["question"],
+                &resolved[0]["question"],
                 "m",
                 provider,
             )
@@ -448,6 +432,23 @@ mod tests {
             assert!(
                 preflight(&semantic_query(json!({"tool":tool,"query":{}}), question())).is_err()
             );
+        }
+        for context in [
+            json!({"tool":"localSearch","query":{},"candidateEvidence":"search"}),
+            json!({"tool":"localSearch","query":{},"candidateEvidence":"fileChunks"}),
+            json!({"tool":"ghSearch","query":{"operation":"code"},"candidateEvidence":"search"}),
+            json!({"tool":"ghSearch","query":{"operation":"code"},"candidateEvidence":"fileChunks"}),
+        ] {
+            assert!(preflight(&semantic_query(context, question())).is_ok());
+        }
+        for context in [
+            json!({"tool":"localFetch","query":{},"candidateEvidence":"fileChunks"}),
+            json!({"tool":"localFetch","query":{},"candidateEvidence":"search"}),
+            json!({"tool":"ghSearch","query":{"operation":"tree"},"candidateEvidence":"search"}),
+            json!({"tool":"ghSearch","query":{"operation":"tree"},"candidateEvidence":"fileChunks"}),
+            json!({"tool":"localSearch","query":{},"candidateEvidence":"unknown"}),
+        ] {
+            assert!(preflight(&semantic_query(context, question())).is_err());
         }
         for invalid in [
             semantic_query(json!({"value":true}), question()),

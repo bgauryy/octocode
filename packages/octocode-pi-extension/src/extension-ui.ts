@@ -1,8 +1,4 @@
 import { getPermissionLevel } from './tools/approval.js';
-import {
-  getAwarenessStatusHealth,
-  getCachedAwarenessStatus,
-} from './tools/awareness-status.js';
 import { listVisibleWorkerLedgerEntries } from './tools/agents/ledger.js';
 import { recordSessionTitle } from './tools/desktop-notify.js';
 import { getActiveDialLevel } from './tools/effort-dial.js';
@@ -76,8 +72,6 @@ const footerRequestRenderByStore = new WeakMap<object, () => void>();
 interface FooterFacts {
   plan: PlanReadModelV1;
   workers: ReturnType<typeof listVisibleWorkerLedgerEntries>;
-  awareness: ReturnType<typeof getCachedAwarenessStatus>;
-  awarenessHealth: ReturnType<typeof getAwarenessStatusHealth>;
   permissionLevel: ReturnType<typeof getPermissionLevel>;
   dial: ReturnType<typeof getActiveDialLevel>;
   density: StatusDensity;
@@ -128,7 +122,7 @@ function buildOctocodeFooterLines(
   const runtimeState = store.getState();
   const facts = footerFactsByStore.get(store);
   if (!facts) return [];
-  const { workers, plan, awareness: cachedAwareness } = facts;
+  const { workers, plan } = facts;
   const currentTask =
     plan.tasks.find(task => task.status === 'doing') ??
     plan.tasks.find(task => task.status === 'todo') ??
@@ -150,17 +144,6 @@ function buildOctocodeFooterLines(
               : 'Continue current task',
         }
       : {},
-    ...(cachedAwareness
-      ? {
-          awareness: {
-            unread: cachedAwareness.unreadInbox ?? 0,
-            observedAt: cachedAwareness.observedAt,
-            staleAfterMs: 16_000,
-            latestSender: cachedAwareness.lastInbound?.from,
-            latestSubject: cachedAwareness.lastInbound?.preview,
-          },
-        }
-      : {}),
   });
 
   const branch = footerData?.getGitBranch?.();
@@ -201,8 +184,6 @@ function buildOctocodeFooterLines(
     metrics,
     statuses: runtimeState.statuses,
     githubStatus: state.githubAuth.status,
-    awareness: cachedAwareness,
-    awarenessHealth: facts.awarenessHealth,
   });
   const selected = selectStatusRows(snapshot, {
     width,
@@ -224,8 +205,6 @@ export function updateOctocodeMetricsUi(
   footerFactsByStore.set(store, {
     plan,
     workers,
-    awareness: getCachedAwarenessStatus(ctx.cwd ?? process.cwd()),
-    awarenessHealth: getAwarenessStatusHealth(ctx.cwd ?? process.cwd()),
     permissionLevel: getPermissionLevel(ctx),
     dial: getActiveDialLevel(),
     density: statusDensity(),

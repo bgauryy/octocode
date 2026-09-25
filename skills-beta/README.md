@@ -10,4 +10,6 @@ Tested skills. They are used and judged in this repo, and they are not published
 
 ## In trial
 
-None. Promote a folder from here into [`../skills/`](../skills/) when its trial holds.
+- [octocode-harness-check](octocode-harness-check/) — orangu session mining + live CLI/MCP tool probe + code trace → verified fix plan.
+
+Promote a folder from here into [`../skills/`](../skills/) when its trial holds.

@@ -10,6 +10,7 @@ Tested skills that are not ready to publish live in [`../skills-beta/`](../skill
 |---|---|
 | Investigate code, packages, history, or a failure | [octocode-research](octocode-research/) |
 | Review or refactor architecture, algorithms, dependencies, flows, interfaces, or maintainability | [octocode-architect](octocode-architect/) |
+| See a system's layers, modules, flows, stores, and dependencies as an interactive HTML map | [octocode-architecture-view](octocode-architecture-view/) |
 | Explore whether an idea is worth building | [octocode-brainstorming](octocode-brainstorming/) |
 | Think through a task with an exploratory awareness shift, or with a named substance as a presence | [octocode-exploratory-thinking](octocode-exploratory-thinking/) |
 | Make a consequential design or migration decision, with optional Jev review | [octocode-rfc-generator](octocode-rfc-generator/) |
@@ -22,7 +23,7 @@ Tested skills that are not ready to publish live in [`../skills-beta/`](../skill
 | Discover, create, review, install, or synchronize skills | [octocode-skills](octocode-skills/) |
 | Debug a live page with Chrome DevTools evidence | [octocode-chrome-devtools](octocode-chrome-devtools/) |
 | Turn public pages into a local cited corpus | [octocode-scraping](octocode-scraping/) |
-| Apply typed semantic questions to unread resources when the result can change the next action | [octocode-clasify](octocode-clasify/) |
+| Explicit classification requests or experiments; the linked skill owns the benefit gate | [octocode-clasify](octocode-clasify/) |
 
 ## Install
 

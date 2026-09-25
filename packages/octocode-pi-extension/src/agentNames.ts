@@ -1,9 +1,5 @@
 /** Pi-specific naming defaults over the package-owned external-host detector/pool. */
-import {
-  detectAgentHost as detectExternalAgentHost,
-  generateAgentName,
-  type AgentHost as ExternalAgentHost,
-} from '@octocodeai/octocode-awareness/host';
+import { detectAgentHost as detectExternalAgentHost, generateAgentName, type AgentHost as ExternalAgentHost } from './runtime/agent-naming.js';
 
 export type AgentHost = Exclude<ExternalAgentHost, 'agent'>;
 

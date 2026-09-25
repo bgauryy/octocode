@@ -98,20 +98,22 @@ cells:
 }
 ```
 
-The result correlates `queryId`, `resourceId`, `questionId`, and `pageIndex`.
-Every success page preserves the typed provider response plus separate
-`requestedModel` and `resolvedModel`. Context receipts contain hashes and
+The result correlates `queryId`, `resourceId`, question IDs, and ordered pages.
+Every successful query reports its resolved `model`; pages preserve typed
+answers keyed by question ID. Context receipts contain hashes and
 coverage without returning resource bodies. Large resources remain visible as
 ordered page-local assessments; retain partial and error pages, and run
 `next.clasify` unchanged. The tool executes no action selected by a judgment, and
 its result is not source proof.
 
-Use `clasify` only when a bounded judgment can change the next action
-enough to repay preparation and latency. Use one matrix when questions share the
-same resources; use root batching only for independent matrices. Keep dependent
-steps sequential. Use cheap exact checks directly. Verify deciding evidence,
-and never treat provider confidence as calibrated correctness or permission to
-act.
+Use `clasify` only when a bounded judgment can change the next action enough to
+repay preparation and latency. For semantic targets over unread known
+`localFetch` or `ghGetFileContent` files, `questionType:"locate"` returns one
+original-source range plus `exists`; verify that range without searching the
+body again. Use literal, AST, or LSP search directly when it expresses the
+target. Use one matrix when questions share the same resources; use root
+batching only for independent matrices. Keep dependent steps sequential. Never
+treat provider confidence as calibrated correctness or permission to act.
 
 Record the build version and repository SHA. For every result, inspect errors
 before counting success. Sum usage fields that are present across success pages;

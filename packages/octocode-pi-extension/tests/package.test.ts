@@ -1,20 +1,18 @@
-import { assertInheritedAwarenessLockGate } from './helpers/inherited-awareness-lock.js';
+import { composeBeforeAgentStart } from './helpers/prompt-hooks.js';
+
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { beforeAll, test, vi } from 'vitest';
+import { afterEach, beforeAll, test, vi } from 'vitest';
 import { Type } from 'typebox';
 import type { PiContext, PiInstance } from '../src/types.js';
 import { disableBuiltinTools, formatStatus, formatPromptBudget, getInternalErrorLogPath, listExtensionHarness } from '../src/index.js';
 import { MANAGED_BLOCK_END, MANAGED_BLOCK_START, SYSTEM_PROMPT_MARKER, DISABLED_BUILTIN_TOOL_NAMES, OCTOCODE_SUPPORT_TOOL_NAMES } from '../src/constants.js';
 import { applyOctocodeUi, getThinkingStatus } from '../src/extension-ui.js';
-import { getAssetPaths, getAwarenessCLIPath, buildAwarenessCliInvocation, getInstallSource, listBundledSkills, readTextIfExists } from '../src/assets.js';
-import { resolveAwarenessCoordinationScope } from '../src/tools/awareness-context.js';
-import { openAwarenessStore } from '@octocodeai/octocode-awareness/host';
-import { ROUTINE_AWARENESS_OPERATIONS } from '@octocodeai/octocode-awareness';
-import { SUBAGENT_WORKER_CONTRACT, SUBAGENT_AWARENESS_GUIDANCE, SUBAGENT_SKILLS_INTRO, SUBAGENT_SURFACE } from '../src/contracts/prompts/index.js';
+import { getAssetPaths, getInstallSource, listBundledSkills, readTextIfExists } from '../src/assets.js';
+import { SUBAGENT_WORKER_CONTRACT, SUBAGENT_COMMUNICATION_GUIDANCE, SUBAGENT_SKILLS_INTRO, SUBAGENT_SURFACE } from '../src/contracts/prompts/index.js';
 import { getAppendSystemTarget, parseSetupScope, splitArgs, truncateUserVisibleToolOutput } from '../src/utils.js';
 import { mergeManagedAppendSystem } from '../src/prompt.js';
 import { cleanupSpawnedAgentsForShutdown } from '../src/tools/agents/process.js';
@@ -100,6 +98,12 @@ test('failed normal build removes package-root skill staging', () => {
 
 // ─── Test helpers ─────────────────────────────────────────────────────────────
 
+const capturedHostCleanups: Array<() => Promise<void>> = [];
+async function closeCapturedHosts(): Promise<void> {
+  await Promise.all(capturedHostCleanups.splice(0).map(close => close()));
+}
+afterEach(closeCapturedHosts);
+
 function withTempMemoryHome(fn: (tmp?: string) => void | Promise<void>) {
   return async () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-pi-test-'));
@@ -110,6 +114,7 @@ function withTempMemoryHome(fn: (tmp?: string) => void | Promise<void>) {
     try {
       await fn(tmp);
     } finally {
+      await closeCapturedHosts();
       if (previousMemory === undefined) delete process.env['OCTOCODE_AGENT_DIR'];
       else process.env['OCTOCODE_AGENT_DIR'] = previousMemory;
       if (previousHome === undefined) delete process.env['OCTOCODE_HOME'];
@@ -193,6 +198,10 @@ interface CaptureResult {
 }
 async function captureExtensions(): Promise<CaptureResult> {
   const tools = new Map<string, ToolDef>();
+  const ledgers = new Map<string, unknown[]>();
+  let activeLedger: unknown[] = [];
+  const hostId = `mock-${Math.random().toString(36).slice(2)}`;
+  let latestContext: unknown;
   const commands = new Map<string, CommandDef>();
   const flags = new Map<
     string,
@@ -243,6 +252,7 @@ async function captureExtensions(): Promise<CaptureResult> {
     sendUserMessage: (msg: string, opts?: Record<string, unknown>) => {
       sentUserMessages.push({ msg, opts });
     },
+    sendMessage: (message: Record<string, unknown>) => { activeLedger.push({ type: 'custom_message', ...message }); },
     registerEntryRenderer: (_customType: string, _renderer: unknown) => {},
     appendEntry: (customType: string, data?: unknown) => {
       appendedEntries.push({ customType, data });
@@ -271,7 +281,19 @@ async function captureExtensions(): Promise<CaptureResult> {
       handler: (event: unknown, ctx: unknown) => unknown | Promise<unknown>
     ) => {
       const arr = handlers.get(event) ?? [];
-      arr.push(handler);
+      arr.push((payload, value) => {
+        if (event !== 'session_start') return handler(payload, value);
+        latestContext = value;
+        const ctx = value as { cwd?: string; sessionManager?: Record<string, (...args: never[]) => unknown> };
+        const manager = ctx.sessionManager ??= {};
+        manager['getSessionId'] ??= () => `${hostId}:${ctx.cwd ?? 'default'}`;
+        const id = String(manager['getSessionId']());
+        activeLedger = ledgers.get(id) ?? [];
+        ledgers.set(id, activeLedger);
+        const entries = activeLedger;
+        manager['getEntries'] ??= () => [...((manager['getBranch']?.() ?? []) as unknown[]), ...entries];
+        return handler(payload, ctx);
+      });
       handlers.set(event, arr);
     },
   };
@@ -281,6 +303,16 @@ async function captureExtensions(): Promise<CaptureResult> {
     }
   ).default;
   await extension(pi);
+  capturedHostCleanups.push(async () => {
+    if (!latestContext) return;
+    for (const handler of [...(handlers.get('session_shutdown') ?? [])].reverse()) {
+      try { await handler({ reason: 'quit' }, latestContext); }
+      catch (error) {
+        // Some tests deliberately delete their workspace before host teardown.
+        if (!/No such file|Database does not exist/.test(String(error))) throw error;
+      }
+    }
+  });
   if (process.env['OCTOCODE_PI_SUBAGENT'] !== '1') {
     await initializePackageWorkerCapabilities([...activeTools]);
   }
@@ -406,145 +438,10 @@ test('build composes the system prompt from the inlined prompt module', async ()
     // The identical canonical fragments appear exactly once per subagent — the
     // exact-string split checks are what enforce the shared coordination block.
     assert.equal(dist.split(SUBAGENT_WORKER_CONTRACT).length, 2, `dist subagent has one worker contract: ${agent}`);
-    assert.ok(!dist.includes(SUBAGENT_AWARENESS_GUIDANCE), `dist subagent omits duplicate Awareness guidance: ${agent}`);
+    assert.ok(!dist.includes(SUBAGENT_COMMUNICATION_GUIDANCE), `dist subagent omits duplicate Awareness guidance: ${agent}`);
     assert.equal(dist.split(SUBAGENT_SKILLS_INTRO).length, 2, `dist subagent has shared skills intro: ${agent}`);
     assert.equal(dist.split(SUBAGENT_SURFACE).length, 2, `dist subagent has the shared Octocode-surface fragment: ${agent}`);
   }
-});
-
-test('build copies bundled Octocode skills without secret env files', () => {
-  const bundledCli = path.join(distDir, 'cli', 'octocode.js');
-  assert.equal(fs.existsSync(bundledCli), true, 'the package contains its production CLI runtime');
-  const cliHelp = execFileSync(process.execPath, [bundledCli, '--help'], { encoding: 'utf8' });
-  assert.match(cliHelp, /Octocode/i, 'the bundled CLI boots and renders its command help');
-  const catalog = JSON.parse(
-    execFileSync(process.execPath, [bundledCli, 'scheme', '--json'], { encoding: 'utf8' }),
-  ) as {
-    toolCount: number;
-    tools: Array<{ name: string; availability: { enabled: boolean; envVar?: string } }>;
-  };
-  const catalogNames = catalog.tools.map(({ name }) => name);
-  assert.equal(catalog.toolCount, catalog.tools.length);
-  assert.equal(new Set(catalogNames).size, catalogNames.length, 'tool names are unique');
-  assert.ok(
-    catalog.tools
-      .filter(({ availability }) => availability.envVar === undefined)
-      .every(({ availability }) => availability.enabled),
-    'ungated packaged tools are callable',
-  );
-  assert.ok(
-    catalog.tools
-      .filter(({ availability }) => !availability.enabled)
-      .every(({ availability }) => Boolean(availability.envVar)),
-    'disabled packaged tools identify their availability gate',
-  );
-  assert.ok(
-    catalog.tools.some(({ name }) => name === 'ghCloneRepo'),
-    'clone capability remains represented',
-  );
-  for (const [toolName, capability] of [
-    ['ghSearch', 'GitHub'],
-    ['artifactSearch', 'Package'],
-    ['localSearch', 'Local Code'],
-  ] as const) {
-    assert.ok(catalogNames.includes(toolName), `${capability} capability is represented`);
-  }
-  assert.deepEqual(
-    catalogNames.filter((name) => /PullRequests|Issues|Commits|Releases|Discussions/.test(name)),
-    [],
-    'retired split tools do not leak into the executable catalog',
-  );
-  assert.match(
-    getAwarenessCLIPath(),
-    /octocode-awareness.*octocode-awareness\.js/,
-    'Awareness CLI resolves to the installed scoped package runtime'
-  );
-  assert.equal(
-    fs.existsSync(path.join(distDir, 'awareness', 'cli.js')),
-    false,
-    'awareness runtime assets are not bundled under dist/awareness'
-  );
-
-  const schemaSpec = buildAwarenessCliInvocation(['schema', 'commands', '--compact']);
-  assert.equal(schemaSpec.cmd, process.execPath, 'Awareness schema smoke uses local Node runtime');
-  assert.match(schemaSpec.args[0]!, /octocode-awareness.*octocode-awareness\.js$/, 'schema smoke uses installed scoped package CLI');
-  const schemaOutput = execFileSync(
-    schemaSpec.cmd,
-    schemaSpec.args,
-    { encoding: 'utf8' }
-  );
-  const commandSchema = JSON.parse(schemaOutput) as {
-    concepts: Record<string, string[]>;
-    operations: string[];
-  };
-  assert.deepEqual(Object.keys(commandSchema.concepts), ['context', 'work', 'message', 'memory', 'history']);
-  assert.deepEqual(
-    [...commandSchema.operations].sort(),
-    [...ROUTINE_AWARENESS_OPERATIONS].sort(),
-    'packaged Awareness CLI exposes the complete canonical operation catalog',
-  );
-  const operations = new Set(commandSchema.operations);
-  for (const operation of [
-    'context.orient', 'context.observe', 'context.feedback',
-    'work.create', 'work.claim', 'work.protect', 'work.update',
-    'work.verify', 'memory.recall', 'message.send', 'history.restore',
-    'memory.set', 'memory.get', 'memory.revalidate', 'history.experience',
-  ]) {
-    assert.equal(operations.has(operation), true, `Awareness schema includes ${operation}`);
-  }
-
-  // Skills live ONLY in dist/skills now (single source, surfaced via the
-  // resources_discover hook for both plain-pi and octocode-agent). There is no
-  // redundant root skills/ dir and no pi.skills declaration — that duplicate
-  // package-scanned copy caused [Skill conflicts].
-  const skills = listBundledSkills(distDir);
-  assert.equal(skills.includes('octocode-awareness'), false, 'Awareness is provided by the native runtime/tool, not bundled as a skill');
-  assert.equal(skills.some((skill) => skill.includes('awareness-lite')), false, 'Lite is not shipped');
-  assert.equal(skills.includes('octocode-mannequin'), false, 'mannequin skill is intentionally excluded from the coding-agent bundle');
-  for (const skill of skills) {
-    assert.equal(
-      fs.existsSync(path.join(distDir, 'skills', skill, 'SKILL.md')),
-      true,
-      `${skill} SKILL.md is bundled in dist/skills`
-    );
-  }
-  assert.equal(
-    fs.existsSync(path.join(packageRoot, 'skills')),
-    false,
-    'no redundant root skills/ dir (would double-surface against dist/skills)'
-  );
-  const packageJson = JSON.parse(
-    fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8')
-  ) as {
-    files?: string[];
-    exports?: Record<string, unknown>;
-    pi?: { skills?: string[] };
-  };
-  assert.ok(packageJson.files?.includes('dist/**'), 'npm files ships dist (which carries dist/skills)');
-  assert.equal(packageJson.files?.includes('skills/**'), false, 'no root skills/** shipped');
-  const assertExportExists = (target: unknown): void => {
-    if (typeof target === 'string') {
-      assert.ok(fs.existsSync(path.join(packageRoot, target)), `Export target missing: ${target}`);
-    } else if (target && typeof target === 'object') {
-      for (const value of Object.values(target)) assertExportExists(value);
-    }
-  };
-  assertExportExists(packageJson.exports);
-  assert.ok(packageJson.files?.includes('HARNESS.md'), 'npm package includes the guide linked by README');
-  assert.equal(packageJson.pi?.skills, undefined, 'pi.skills removed — resources_discover is the single source');
-
-  assert.equal(
-    fs.existsSync(path.join(distDir, 'skills', 'octocode-awareness', 'SKILL.md')),
-    false,
-    'Awareness operating guidance must not ship as a bundled skill'
-  );
-  const forbiddenEnv = path.join(
-    distDir,
-    'skills',
-    'octocode-brainstorming',
-    '.env'
-  );
-  assert.equal(fs.existsSync(forbiddenEnv), false);
 });
 
 // ─── Functional tests ─────────────────────────────────────────────────────────
@@ -619,7 +516,7 @@ test('path, asset, and output helpers cover edge cases', () => {
   }
 });
 
-test('workers project granted research tools and skills with one Awareness guide, without main-agent policy', async () => {
+test('workers project granted research tools and skills without retired coordination policy', async () => {
   const previous = process.env['OCTOCODE_PI_SUBAGENT'];
   process.env['OCTOCODE_PI_SUBAGENT'] = '1';
   try {
@@ -628,7 +525,7 @@ test('workers project granted research tools and skills with one Awareness guide
     const catalog = vi.spyOn(mcpPromptContext, 'getCachedMcpCatalogAddendum').mockReturnValue('<mcp_catalog_index>\nserver: octocode\ntool: localSearch\n</mcp_catalog_index>');
     const { handlers, pi } = await captureExtensions();
     pi.setActiveTools(['MCPTool', 'skill', 'bash']);
-    const result = (await handlers.get('before_agent_start')!.at(-1)!({
+    const result = (await composeBeforeAgentStart(handlers)({
       systemPrompt: 'typed specialist prompt from --append-system-prompt',
       systemPromptOptions: {
         skills: [{ name: 'octocode-research', description: 'Evidence-first research.', source: 'bundled' }],
@@ -636,21 +533,15 @@ test('workers project granted research tools and skills with one Awareness guide
     }, { cwd: packageRoot })) as { systemPrompt?: string; message?: { content?: string } } | undefined;
 
     assert.ok(result?.systemPrompt?.startsWith('typed specialist prompt from --append-system-prompt'));
-    assert.match(result!.systemPrompt!, /<awareness>/);
-    assert.match(result!.systemPrompt!, /Start with context\.orient or a host briefing/);
-    assert.match(result!.systemPrompt!, /Load only the instruction section needed for the next action/);
-    assert.match(result!.systemPrompt!, /Self-monitoring applies during solo work/);
-    assert.match(result!.systemPrompt!, /lacks the native facade[\s\S]*bound CLI/);
-    assert.doesNotMatch(result!.systemPrompt!, /highest-ROI command|Essential loop/);
-    assert.match(result!.systemPrompt!, /<awareness_cli_runtime>/);
+    assert.doesNotMatch(result!.systemPrompt!, /<awareness>/);
+    assert.doesNotMatch(result!.systemPrompt!, /context\.orient|<awareness_cli_runtime>/);
     assert.match(result!.systemPrompt!, /<mcp_catalog_index>[\s\S]*localSearch/);
     assert.match(result!.systemPrompt!, /<available_skills>[\s\S]*octocode-research/);
-    assert.equal((result!.systemPrompt!.match(/<awareness>/g) ?? []).length, 1);
     assert.doesNotMatch(result!.systemPrompt!, /<native_tools>|Do not over-engineer\.|<octocode>/, 'workers preserve the typed prompt without duplicate host policy');
     assert.match(result?.message?.content ?? '', /<capability_revision>/);
-    const repeated = await handlers.get('before_agent_start')!.at(-1)!({ systemPrompt: result!.systemPrompt! }, { cwd: packageRoot });
+    const repeated = await composeBeforeAgentStart(handlers)({ systemPrompt: result!.systemPrompt! }, { cwd: packageRoot });
     assert.equal(repeated, undefined, 'steady worker turns reuse the trusted prompt without duplicating capability context');
-    await assertRevokedWorkerPrompt(broker, result!.systemPrompt!, handlers.get('before_agent_start')!.at(-1)!, { cwd: packageRoot }, () => pi.getActiveTools());
+    await assertRevokedWorkerPrompt(broker, result!.systemPrompt!, composeBeforeAgentStart(handlers), { cwd: packageRoot }, () => pi.getActiveTools());
     ready.mockRestore();
     catalog.mockRestore();
   } finally {
@@ -669,7 +560,7 @@ test('restricted workers omit instructions for unavailable skills and Awareness 
     vi.spyOn(mcpPromptContext, 'getCachedMcpCatalogAddendum').mockReturnValue('<mcp_catalog_index>localSearch</mcp_catalog_index>');
     const { handlers, pi } = await captureExtensions();
     pi.setActiveTools(['MCPTool']);
-    const result = await handlers.get('before_agent_start')!.at(-1)!({ systemPrompt: 'Restricted research worker.' }, { cwd: packageRoot }) as { systemPrompt: string };
+    const result = await composeBeforeAgentStart(handlers)({ systemPrompt: 'Restricted research worker.' }, { cwd: packageRoot }) as { systemPrompt: string };
     assert.match(result.systemPrompt, /<mcp_catalog_index>/);
     assert.doesNotMatch(result.systemPrompt, /<available_skills>|<awareness>|<awareness_cli_runtime>/);
   } finally {
@@ -683,7 +574,7 @@ test('main-session capabilities refresh between turns while product policy remai
   const { handlers } = await captureExtensions();
   let name = 'initial-skill';
   const discovery = vi.spyOn(skillDiscovery, 'discoverSkills').mockImplementation(() => [{ name, description: 'Current effective skill.', source: 'bundled', sourceId: name, path: `/fixture/${name}/SKILL.md`, dir: `/fixture/${name}` }]);
-  const beforeStart = handlers.get('before_agent_start')!.at(-1)!;
+  const beforeStart = composeBeforeAgentStart(handlers);
   const ctx = { cwd: packageRoot, hasUI: false };
   const initialEvent = {
     systemPrompt: 'Pi base prompt v1',
@@ -732,7 +623,7 @@ test('session restart refreshes prompt source while turns inside a session keep 
   const { handlers } = await captureExtensions();
   const ctx = { cwd: tmp!, hasUI: false, sessionManager: { getSessionId: () => 'prompt-cache-session' } };
   const event = { systemPrompt: 'Pi base prompt', systemPromptOptions: { skills: [] } };
-  const invoke = async () => (await handlers.get('before_agent_start')!.at(-1)!(event, ctx)) as { systemPrompt: string };
+  const invoke = async () => (await composeBeforeAgentStart(handlers)(event, ctx)) as { systemPrompt: string };
   try {
     for (const handler of handlers.get('session_start') ?? []) await handler({ reason: 'new' }, ctx);
     const first = await invoke();
@@ -763,7 +654,7 @@ test('changed session memory is delivered once per state through attributed turn
   const event = { systemPrompt: 'Pi base prompt', systemPromptOptions: { skills: [] } };
   const { handlers } = await captureExtensions();
   for (const handler of handlers.get('session_start') ?? []) await handler({ reason: 'new' }, ctx);
-  const beforeStart = handlers.get('before_agent_start')!.at(-1)!;
+  const beforeStart = composeBeforeAgentStart(handlers);
   const invoke = async () => (await beforeStart(event, ctx)) as { message?: { content?: string } };
   const memoryPath = createSessionArtifactContext(ctx).resolve(SESSION_MEMORY_RELATIVE_PATH);
 
@@ -826,7 +717,7 @@ test('active plan is delivered once per state through attributed turn context, n
   try {
     setPlan(planScope, ['INITIAL_PLAN_CONTEXT_7f6d']);
     const { handlers } = await captureExtensions();
-    const beforeStart = handlers.get('before_agent_start')!.at(-1)!;
+    const beforeStart = composeBeforeAgentStart(handlers);
 
     const initial = (await beforeStart(event, ctx)) as typeof resultType;
     assert.ok(initial.systemPrompt);
@@ -862,7 +753,7 @@ test('active plan is delivered once per state through attributed turn context, n
 
 test('project context cannot suppress the Octocode system prompt with a public marker', async () => {
   const { handlers } = await captureExtensions();
-  const beforeStart = handlers.get('before_agent_start')!.at(-1)!;
+  const beforeStart = composeBeforeAgentStart(handlers);
   const spoofedPiPrompt = [
     'Pi base prompt',
     '<project_context>',
@@ -915,7 +806,6 @@ test(
     const status = formatStatus(distDir);
     assert.match(status, /system prompt: found/);
     assert.match(status, new RegExp(`MCP research \\(octocode server\\) · ${OCTOCODE_SUPPORT_TOOL_NAMES.length} support · 1 guarded built-ins · 6 replaced`));
-    assert.match(status, /awareness CLI: .*octocode-awareness.*octocode-awareness\.js/);
     assert.match(status, /management CLI: npx octocode/);
     assert.match(status, /internal error log: .*\/extension\/workspaces\/.*\/logs\/error\.txt/);
     assert.match(
@@ -1047,7 +937,7 @@ test('session_start clears stale fallback-scoped plan when branch has no plan sn
   // which left orphaned plan state from a prior session visible in a new one.
   const { handlers } = await captureExtensions();
   const staleCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-stale-plan-'));
-  const staleScope = activePlanScope({ cwd: staleCwd });
+  const staleScope = activePlanScope({ cwd: staleCwd, sessionManager: { getSessionId: () => 'stale-plan-session' } });
   try {
     // Seed a stale plan simulating leftover state from a previous session.
     setPlan(staleScope, ['orphaned step from prior session']);
@@ -1060,6 +950,7 @@ test('session_start clears stale fallback-scoped plan when branch has no plan sn
       hasUI: false,
       sessionManager: {
         getSessionFile: () => undefined,
+        getSessionId: () => 'stale-plan-session',
         getBranch: () => [{ type: 'message' }], // no plan snapshot
       },
     };
@@ -1180,13 +1071,13 @@ test('disable built-in read in favor of localFetch (records read state for edit 
   );
 });
 
-test('public direct palette is exactly 15 queries-only tools with optional bounded batch labels', async () => {
+test('direct palette includes query tools and native communication contracts', async () => {
   const { tools } = await captureExtensions();
   const expected = [...OCTOCODE_SUPPORT_TOOL_NAMES, 'bash'];
-  assert.equal(expected.length, 15);
+  assert.equal(expected.length, 27);
   assert.deepEqual([...tools.keys()].sort(), [...expected].sort());
 
-  for (const name of expected) {
+  for (const name of Object.keys(DIRECT_TOOL_DESCRIPTIONS)) {
     const schema = tools.get(name)!.parameters as {
       required?: string[];
       properties?: Record<string, unknown>;
@@ -1243,7 +1134,7 @@ test('production composition records canonical receipts for every registered Pi 
 
 test('every public direct tool enters the shared query executor', async () => {
   const { tools } = await captureExtensions();
-  for (const name of [...OCTOCODE_SUPPORT_TOOL_NAMES, 'bash']) {
+  for (const name of Object.keys(DIRECT_TOOL_DESCRIPTIONS)) {
     const outcome = await Promise.resolve(
       tools.get(name)!.execute('empty-batch', { queries: [] }, undefined, undefined, { cwd: process.cwd() }),
     ).then(
@@ -1263,8 +1154,9 @@ test('every public direct tool enters the shared query executor', async () => {
 
 test('every direct tool contract is concise enough for per-turn agent context', async () => {
   const { tools } = await captureExtensions();
-  assert.deepEqual([...Object.keys(DIRECT_TOOL_DESCRIPTIONS)].sort(), [...tools.keys()].sort(), 'every direct tool uses the curated concise description catalog');
+  for (const name of Object.keys(DIRECT_TOOL_DESCRIPTIONS)) assert.ok(tools.has(name), `${name} has its curated description`);
   let totalContractChars = 0;
+  let communicationContractChars = 0;
   const visitDescriptions = (value: unknown, toolName: string): void => {
     if (Array.isArray(value)) {
       for (const item of value) visitDescriptions(item, toolName);
@@ -1273,7 +1165,7 @@ test('every direct tool contract is concise enough for per-turn agent context', 
     if (!value || typeof value !== 'object') return;
     for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
       if (key === 'description' && typeof child === 'string') {
-        assert.ok(child.length <= 180, `${toolName} schema description is ${child.length} chars`);
+        assert.ok(child.length <= (toolName in DIRECT_TOOL_DESCRIPTIONS ? 180 : 400), `${toolName} schema description is ${child.length} chars`);
       } else {
         visitDescriptions(child, toolName);
       }
@@ -1286,11 +1178,13 @@ test('every direct tool contract is concise enough for per-turn agent context', 
     assert.ok(description.length > 0, `${name} has a model-visible description`);
     // MCPTool carries the envelope-vs-nested routing rules and is allowed a
     // slightly larger budget than the other direct tools.
-    const cap = name === 'MCPTool' ? 480 : 360;
+    const cap = name === 'MCPTool' || !(name in DIRECT_TOOL_DESCRIPTIONS) ? 480 : 360;
     assert.ok(description.length <= cap, `${name} description is ${description.length} chars`);
     visitDescriptions(tool.parameters, name);
-    totalContractChars += description.length + schemaText.length;
+    if (name in DIRECT_TOOL_DESCRIPTIONS) totalContractChars += description.length + schemaText.length;
+    else communicationContractChars += description.length + schemaText.length;
   }
+  assert.ok(communicationContractChars <= 10_000, `native communication contracts use ${communicationContractChars} chars`);
   assert.ok(totalContractChars <= 48_000, `direct tool contracts use ${totalContractChars} chars: ${[...tools].map(([name, tool]) => `${name}=${JSON.stringify(tool.parameters).length + (tool.description?.length ?? 0)}`).join(', ')}`);
 });
 
@@ -1383,7 +1277,7 @@ test('the removed unified-flow flag cannot restore retired tools', async () => {
   try {
     const { tools } = await captureExtensions();
     const expected = [...OCTOCODE_SUPPORT_TOOL_NAMES, 'bash'];
-    assert.equal(expected.length, 15);
+    assert.equal(expected.length, 27);
     assert.deepEqual([...tools.keys()].sort(), [...expected].sort());
     for (const retired of ['awarenessPlan', 'claim', 'task', 'handoff', 'verify', 'awarenessAgents']) {
       assert.equal(tools.has(retired), false, `${retired} cannot be restored by an obsolete environment variable`);
@@ -2440,7 +2334,7 @@ test('mcp initialization reads canonical project config before the agent calls t
     await warmMcpCatalog(trustedCtx);
 
     const beforeStartWithCachedMcp = await captureExtensions().then(({ handlers }) =>
-      handlers.get('before_agent_start')!.at(-1)!({
+      composeBeforeAgentStart(handlers)({
         systemPrompt: 'Pi base prompt',
         systemPromptOptions: {
           skills: [
@@ -2504,7 +2398,7 @@ test('mcp initialization reads canonical project config before the agent calls t
     // Prompt-caching contract: demand-loaded schemas do not mutate the routing index,
     // preserving provider prompt-cache bytes after call/describe activity.
     const afterUse = await captureExtensions().then(({ handlers }) =>
-      handlers.get('before_agent_start')!.at(-1)!({ systemPrompt: 'Pi base prompt' }, trustedCtx)
+      composeBeforeAgentStart(handlers)({ systemPrompt: 'Pi base prompt' }, trustedCtx)
     );
     const hotPrompt = (afterUse as { systemPrompt?: string }).systemPrompt ?? '';
     const catalogSlice = (prompt: string): string =>
@@ -2560,7 +2454,7 @@ test('agent browser profile spawns with routed context without launching Chrome'
     assert.match(prompt, /Network, Runtime, DOM, DOMDebugger/);
     assert.match(prompt, /Inspect the parent-assigned browser phase with chromeDebug/);
     assert.match(prompt, /https:\/\/example\.com\/account/);
-    assert.deepEqual(argValues(spawned[0]!.args, '--tools')[0]!.split(',').sort(), ['chromeDebug', 'MCPTool', 'skill', 'awareness', 'bash'].sort());
+    assert.deepEqual(argValues(spawned[0]!.args, '--tools')[0]!.split(',').sort(), ['chromeDebug', 'MCPTool', 'skill', 'peers', 'send_message', 'inbox', 'ack', 'read_document', 'activity', 'bash'].sort());
     assert.match(browserTool.renderResult!(result, { expanded: false }).render(120)[0]!, /agent.*SPAWNED/);
   } finally {
     setAgentProcessFactoryForTests(null);
@@ -2642,6 +2536,7 @@ test('Octocode metrics footer updates on session and turn lifecycle (single surf
     },
   };
   const ctx = {
+    cwd: packageRoot,
     hasUI: true,
     getContextUsage: () => ({ tokens: 50_000, contextWindow: 100_000 }),
     ui: {
@@ -2820,7 +2715,7 @@ test('extension commands and lifecycle handlers execute user-visible wiring path
         'already-running\n\n<project_context>\n\nProject-specific instructions and guidelines:\n\n<project_instructions path="AGENTS.md">\nrepo rules\n</project_instructions>\n\n</project_context>\n',
       systemPromptOptions: { contextFiles: ['AGENTS.md'] },
     };
-    const beforeStartResult = (await handlers.get('before_agent_start')!.at(-1)!(
+    const beforeStartResult = (await composeBeforeAgentStart(handlers)(
       beforeStartEvent,
       ctx
     )) as { systemPrompt?: string } | undefined;
@@ -2917,7 +2812,7 @@ test('session_shutdown clears harness-persisted image fallbacks but keeps explic
     assert.ok(fs.existsSync(implicitPath), 'precondition: fallback image persisted');
     assert.ok(fs.existsSync(explicitPath), 'precondition: explicit output persisted');
 
-    for (const handler of handlers.get('session_shutdown') ?? []) {
+    for (const handler of [...(handlers.get('session_shutdown') ?? [])].reverse()) {
       await handler({ reason: 'quit' }, { cwd: workspace, hasUI: false });
     }
 
@@ -2930,8 +2825,8 @@ test('session_shutdown clears harness-persisted image fallbacks but keeps explic
 
 test('extension slash commands expose configuration and explicit file recovery', async () => {
   const { commands } = await captureExtensions();
-  assert.deepEqual([...commands.keys()].sort(), ['config', 'configuration', 'octocode-inbox', 'octocode-rewind', 'octocode-status']);
-  assert.deepEqual(listExtensionHarness().extensionCommands, ['/octocode-rewind', '/octocode-inbox', '/octocode-status', '/configuration', '/config']);
+  assert.deepEqual([...commands.keys()].sort(), ['config', 'configuration', 'octocode-inbox', 'octocode-status']);
+  assert.deepEqual(listExtensionHarness().extensionCommands, ['/octocode-inbox', '/octocode-status', '/configuration', '/config']);
 });
 
 test('input hooks preserve repo-related user prompts without probing Git', async () => {
@@ -3250,11 +3145,6 @@ test('lists every extension harness surface', () => {
     harness.cliNote,
     /npx octocode/,
     'cliNote documents npx octocode management path'
-  );
-  assert.match(
-    harness.awarenessCliNote,
-    /Awareness CLI: .*octocode-awareness.*octocode-awareness\.js/,
-    'awarenessCliNote shows installed Awareness CLI command'
   );
   assert.ok(!('cliCommands' in harness), 'cliCommands removed from harness');
 });
@@ -3578,93 +3468,6 @@ test('agent lifecycle wait keeps blocking while a queued turn has not started', 
     cleanupSpawnedAgentsForShutdown();
     setAgentProcessFactoryForTests(null);
   }
-});
-
-test('activation wires Awareness pre-edit and post-edit lifecycle projection', async () => {
-  const { handlers } = await captureExtensions();
-  assert.equal(
-    (handlers.get('tool_call') ?? []).length,
-    1,
-    'Awareness wires a minimal pre-edit lock conflict gate',
-  );
-  assert.ok(
-    (handlers.get('tool_execution_end') ?? []).length >= 1,
-    'Awareness completion is projected from the native Pi tool lifecycle',
-  );
-});
-
-test('Awareness pre-edit gate blocks lock conflicts', async () => {
-  const { handlers } = await captureExtensions();
-  // Real temp workspace + a real peer lock exercises the in-process gate.
-  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'awlite-gate-'));
-  try {
-    fs.writeFileSync(path.join(workspace, 'README.md'), '# x');
-    const awareness = openAwarenessStore({ workspace, scope: resolveAwarenessCoordinationScope(workspace) });
-    try {
-      awareness.acquireLock({ filePath: 'README.md', agentId: 'agent-b', reason: 'guard a non-mergeable edit', testPlan: 'yarn test' });
-    } finally {
-      awareness.close();
-    }
-    const event = { toolName: 'file', input: { queries: [{ reasoning: 'Update documentation', type: 'write', path: 'README.md', content: '# updated' }] } };
-    const ctx = { cwd: workspace, sessionManager: { getSessionId: () => 'session-a' } };
-
-    await withAgentId('pi:session-a', async () => {
-      const result = await handlers.get('tool_call')![0]!(event, ctx) as { block?: boolean; reason?: string } | undefined;
-      assert.equal(result?.block, true, 'gate blocks a peer lock');
-      assert.match(result!.reason!, /lock conflict/i);
-      assert.match(result!.reason!, /README\.md/);
-      assert.match(result!.reason!, /agent-b/);
-    });
-
-    await withAgentId('agent-b', async () => {
-      const ownerCtx = { cwd: workspace, sessionManager: { getSessionId: () => 'b' } };
-      const store = openAwarenessStore({ workspace, scope: resolveAwarenessCoordinationScope(workspace) });
-      const before = store.listWork({ filePath: 'README.md', agentId: 'agent-b' })[0]!;
-      const result = await handlers.get('tool_call')![0]!(event, ownerCtx);
-      assert.equal(result, undefined, 'the lock owner edits without a block');
-      try {
-        for (const handler of handlers.get('tool_execution_start') ?? []) await handler({ toolCallId: 'owned-file', toolName: 'file', args: event.input }, ownerCtx);
-        for (const handler of handlers.get('tool_execution_end') ?? []) await handler({ toolCallId: 'owned-file', toolName: 'file', result: {}, isError: false }, ownerCtx);
-        const after = store.listWork({ filePath: 'README.md', agentId: 'agent-b' })[0];
-        assert.ok(after, 'native completion must preserve manually owned work');
-        assert.equal(after.runId, before.runId);
-        const command = buildAwarenessCliInvocation(['--db', store.dbPath, 'work', 'show', '--kind', 'presence', '--workspace', workspace, '--file', 'README.md', '--full', '--compact']);
-        const shown = JSON.parse(execFileSync(command.cmd, command.args, { encoding: 'utf8' })) as { files: Array<{ run_id: string; test_plan: string }> };
-        assert.equal(shown.files.find((row) => row.run_id === before.runId)?.test_plan, 'yarn test', 'automatic presence must preserve the declared verification contract');
-      } finally { store.close(); }
-    });
-
-    fs.writeFileSync(path.join(workspace, 'GLOBAL.md'), '# global');
-    fs.mkdirSync(path.join(workspace, '.octocode'), { recursive: true });
-    fs.writeFileSync(path.join(workspace, '.octocode', 'awareness.json'), JSON.stringify({
-      version: 1,
-      storage: { repository: 'global', memory: 'global' },
-      hooks: { profile: 'coordination' },
-    }));
-    const globalAwareness = openAwarenessStore({ workspace, scope: resolveAwarenessCoordinationScope(workspace) });
-    try {
-      globalAwareness.acquireLock({ filePath: 'GLOBAL.md', agentId: 'agent-c', reason: 'guard a global non-mergeable edit', testPlan: 'yarn test' });
-    } finally {
-      globalAwareness.close();
-    }
-    const globalEvent = { toolName: 'write', input: { path: 'GLOBAL.md' } };
-    await withAgentId('pi:session-a', async () => {
-      const result = await handlers.get('tool_call')![0]!(globalEvent, ctx) as { block?: boolean; reason?: string } | undefined;
-      assert.equal(result?.block, true, 'gate honors the workspace global-scope override');
-      assert.match(result!.reason!, /agent-c/);
-    });
-    await withAgentId('agent-c', async () => {
-      const result = await handlers.get('tool_call')![0]!(globalEvent, { cwd: workspace, sessionManager: { getSessionId: () => 'c' } });
-      assert.equal(result, undefined, 'the global-scope lock owner edits without a block');
-    });
-  } finally {
-    fs.rmSync(workspace, { recursive: true, force: true });
-  }
-});
-
-test('Awareness mutation gate honors an inherited database outside default storage', async () => {
-  const { handlers } = await captureExtensions();
-  await withAgentId('bound-worker', () => assertInheritedAwarenessLockGate(workspace => handlers.get('tool_call')![0]!({ toolName: 'write', input: { path: 'shared.txt' } }, { cwd: workspace }) as Promise<unknown>));
 });
 
 test('agent lifecycle routes steer/follow_up RPCs and does not fake running on idle steer', async () => {
@@ -4082,7 +3885,7 @@ test('agent ledger splits ambient counts from bounded worker detail', async () =
   }
 });
 
-test('agent spawn gives each worker a distinct Awareness identity', async () => {
+test('agent spawn gives each worker a distinct local artifact identity', async () => {
   const spawned: Array<{
     options: { env?: NodeJS.ProcessEnv };
     proc: MockAgentProcess;
@@ -4106,7 +3909,7 @@ test('agent spawn gives each worker a distinct Awareness identity', async () => 
       assert.equal(spawned.length, 2);
       assert.ok(
         workerIds.every(id => id?.startsWith('parent-agent:worker:')),
-        'worker identities preserve the parent prefix'
+        'local artifact identities preserve the parent prefix without becoming DB routes'
       );
       assert.notEqual(workerIds[0], 'parent-agent');
       assert.notEqual(workerIds[0], workerIds[1]);

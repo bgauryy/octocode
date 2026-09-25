@@ -13,8 +13,6 @@ const SEGMENTS = [
   { id: 'available-skills', kind: 'skill', origin: 'installed-skills', authority: 'project', visibility: 'inspectable', rehydrate: 'on-trigger', tokenBudget: 5_000 },
   // Session memory/audit file paths — two short lines.
   { id: 'session-artifact-contract', kind: 'tool-contract', origin: 'octocode-harness', authority: 'product', visibility: 'inspectable', rehydrate: 'always', tokenBudget: 500 },
-  // Awareness CLI runner binding — 5 short lines when bash-only path; inline disabled notice otherwise.
-  { id: 'awareness-cli-runtime', kind: 'tool-contract', origin: 'octocode-harness', authority: 'product', visibility: 'inspectable', rehydrate: 'always', tokenBudget: 1_000 },
 ] as const;
 
 export type SessionPromptContents = Record<(typeof SEGMENTS)[number]['id'], string> & { 'agents-protocol'?: string };

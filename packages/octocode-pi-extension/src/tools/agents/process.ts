@@ -17,10 +17,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { FORBIDDEN_WORKER_TOOL_NAMES } from '../../contracts/capabilities.js';
-import { withPeerCoordination } from './coordination.js';
+import { withWorkerCoordination } from './coordination.js';
 import { getInstallSource } from '../../assets.js';
 import { extensionTmpRoot, extensionWorkspaceRoot } from '../../extension-paths.js';
-import { inspectWorkerAwarenessAutomatically } from '../awareness-worker-audit.js';
 import { getRandomAgentName } from '../../agentNames.js';
 import {
   cleanupWorktreeIfNoWork,
@@ -34,7 +33,7 @@ import {
   type SpawnAgentParams,
   HANDBACK_ARTIFACT_FILENAME,
   SUBAGENT_ENV_VAR,
-  AWARENESS_AGENT_ENV_VAR,
+  LOCAL_AGENT_ENV_VAR,
   EXIT_SIGNALS,
   DEFAULT_SPAWN_POLICY,
 } from './types.js';
@@ -71,8 +70,7 @@ import {
   recordMessageActivity,
   previewMessage,
 } from './ledger.js';
-import { killAgent, syncWorkerRegistry, removePromptFiles } from './kill.js';
-import { buildAwarenessContext } from '../awareness-context.js';
+import { killAgent, removePromptFiles } from './kill.js';
 import { bindSpawnedWorkerCapabilities, revokeWorkerCapabilities } from '../worker-capabilities.js';
 
 // ─── UI callback wiring ────────────────────────────────────────────────────────
@@ -215,8 +213,9 @@ function prepareHandbackPath(
   }
 }
 
-function workerAwarenessAgentId(workerId: string): string {
-  const parentId = process.env[AWARENESS_AGENT_ENV_VAR]?.trim() || 'pi-agent';
+/** Local artifact identity only; bound communication tools assign their own DB session UUID. */
+function localWorkerIdentity(workerId: string): string {
+  const parentId = process.env[LOCAL_AGENT_ENV_VAR]?.trim() || 'pi-agent';
   return `${parentId}:worker:${workerId.slice(0, 8)}`;
 }
 
@@ -310,23 +309,6 @@ function cleanupRecordWorktree(record: AgentRecord): void {
       record.worktree
     );
   }
-}
-
-// ─── Awareness helpers ────────────────────────────────────────────────────────────
-
-/** Awareness ids of other still-alive workers, for peer-messaging discovery. */
-function collectPeerAwarenessIds(excludeId: string): string[] {
-  const ids: string[] = [];
-  for (const rec of agents.values()) {
-    if (rec.id === excludeId || !rec.awarenessAgentId) continue;
-    if (
-      rec.status !== 'exited' &&
-      rec.status !== 'failed' &&
-      rec.status !== 'killed'
-    )
-      ids.push(rec.awarenessAgentId);
-  }
-  return ids;
 }
 
 // ─── Pi argument builder ───────────────────────────────────────────────────────────
@@ -588,7 +570,6 @@ function processRpcLine(record: AgentRecord, line: string): void {
     // silence watchdog whenever the channel proves live.
     touch(record);
   } else if (eventType === 'agent_start') {
-    record.awarenessInspection = undefined;
     // A structured result belongs to the turn that just ended. Clear it before
     // exposing the new turn as running, otherwise a prior [DONE]/[BLOCKED]
     // overrides the live process state in the footer and ledger.
@@ -632,7 +613,6 @@ function processRpcLine(record: AgentRecord, line: string): void {
       // pendingMessages keeps wait() blocking through this idle process boundary.
       touch(record, 'idle');
     } else {
-      record.awarenessInspection = inspectWorkerAwarenessAutomatically(record);
       touch(record, 'idle');
       notifyWaiters(record);
     }
@@ -700,7 +680,7 @@ export function spawnRpcAgent(
     ctx
   );
   validateWorkerModelParams(effectiveParams, ctx);
-  const awarenessAgentId = workerAwarenessAgentId(id);
+  const localAgentId = localWorkerIdentity(id);
 
   // M7: Enforce a hard cap on active (non-droppable) agents before spawning a new process.
   // Evict droppable (exited/failed/killed) agents first to reclaim slots, then refuse if
@@ -736,21 +716,11 @@ export function spawnRpcAgent(
     spawnParams = withWorktreePromptContext(effectiveParams, worktree);
     cwd = worktree.path;
   }
-  const peerIds = collectPeerAwarenessIds(id);
-  const awarenessWorkspace = cwd;
-  const awarenessDatabase = buildAwarenessContext({ cwd: requestedCwd }).database;
-  const parentAwarenessAgentId =
-    process.env[AWARENESS_AGENT_ENV_VAR]?.trim() || 'pi-agent';
   const handback = prepareHandbackPath(ctx?.cwd ?? requestedCwd, id);
   const handbackPath = handback.path;
-  const task = withPeerCoordination(
+  const task = withWorkerCoordination(
     buildInitialPrompt(spawnParams),
-    awarenessAgentId,
-    peerIds,
-    {
-      parentId: parentAwarenessAgentId,
-      handbackPath,
-    }
+    { handbackPath }
   );
 
   let childCapabilities: ReturnType<typeof bindSpawnedWorkerCapabilities>;
@@ -774,8 +744,7 @@ export function spawnRpcAgent(
         ...process.env,
         ...childCapabilities.env,
         [SUBAGENT_ENV_VAR]: '1',
-        [AWARENESS_AGENT_ENV_VAR]: awarenessAgentId,
-        OCTOCODE_AWARENESS_DB: awarenessDatabase,
+        [LOCAL_AGENT_ENV_VAR]: localAgentId,
         // getPiInvocation() re-executes process.argv[1], which for any octocode-agent
         // process is bin/octocode-agent.mjs. Left unset, a worker spawned from a
         // parent running in the default SDK-embed mode would inherit that mode and
@@ -832,12 +801,9 @@ export function spawnRpcAgent(
     pendingProbes: new Map(),
     nextRequestId: 1,
     worktree,
-    awarenessAgentId,
-    awarenessWorkspace,
-    awarenessDatabase,
     capabilityGrant: childCapabilities.grant,
   };
-  pushLedgerEvent(record, 'spawned', `spawned ${name}`, { awarenessAgentId });
+  pushLedgerEvent(record, 'spawned', `spawned ${name}`);
   if (record.worktree)
     pushLedgerEvent(
       record,
@@ -848,8 +814,6 @@ export function spawnRpcAgent(
   for (const warning of record.policyWarnings)
     pushLedgerEvent(record, 'policy', warning);
   agents.set(id, record);
-  // Register the worker in the shared Awareness agent list (best-effort, advisory).
-  syncWorkerRegistry('join', record);
   // Evict droppable agents to keep registry size ≤ MAX_AGENT_RECORDS.
   // The pre-spawn call (M7 cap check) runs before processFactory to avoid leaking
   // a process when the non-droppable cap is exceeded. This post-set call cleans up
@@ -885,7 +849,6 @@ export function spawnRpcAgent(
     touch(record, 'failed');
     removePromptFiles(record);
     cleanupRecordWorktree(record);
-    syncWorkerRegistry('leave', record);
     notifyWaiters(record);
     _refreshUi(ctx);
   });
@@ -902,7 +865,6 @@ export function spawnRpcAgent(
     record.pendingMessages = 0;
     if (record.status !== 'killed')
       touch(record, code === 0 ? 'exited' : 'failed');
-    record.awarenessInspection = inspectWorkerAwarenessAutomatically(record);
     pushLedgerEvent(
       record,
       record.status === 'failed' ? 'error' : 'exit',
@@ -910,7 +872,6 @@ export function spawnRpcAgent(
     );
     removePromptFiles(record);
     cleanupRecordWorktree(record);
-    syncWorkerRegistry('leave', record);
     notifyWaiters(record);
     _refreshUi(ctx);
   });

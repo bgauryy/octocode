@@ -2,17 +2,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { extensionHome, extensionStateDbPath } from '../src/extension-paths.js';
-import { openOctocodeDb, openPersistentAwareness } from '../src/tools/storage-policy.js';
-import { resolveAwarenessDatabase } from '../src/tools/awareness-context.js';
+import { openOctocodeDb } from '../src/tools/storage-policy.js';
 
 const mocks = vi.hoisted(() => ({
   openStateDb: vi.fn(() => ({ kind: 'extension-state' })),
-  openAwarenessStore: vi.fn(() => ({ kind: 'awareness' })),
-}));
-
-vi.mock('@octocodeai/octocode-awareness/host', async (importOriginal) => ({
-  ...await importOriginal<typeof import('@octocodeai/octocode-awareness/host')>(),
-  openAwarenessStore: mocks.openAwarenessStore,
 }));
 
 vi.mock('../src/contracts/db.js', () => ({
@@ -29,7 +22,6 @@ describe('persistent storage policy', () => {
     if (previousHome === undefined) delete process.env['OCTOCODE_HOME'];
     else process.env['OCTOCODE_HOME'] = previousHome;
     mocks.openStateDb.mockClear();
-    mocks.openAwarenessStore.mockClear();
   });
 
   it('never opens or creates SQLite state in memory mode', () => {
@@ -38,10 +30,6 @@ describe('persistent storage policy', () => {
       'Persistent storage is disabled (storage.mode=memory)',
     );
     expect(mocks.openStateDb).not.toHaveBeenCalled();
-    expect(() => openPersistentAwareness({ workspace: '/workspace' })).toThrow(
-      'Persistent storage is disabled (storage.mode=memory)',
-    );
-    expect(mocks.openAwarenessStore).not.toHaveBeenCalled();
   });
 
   it('passes an explicit extension-private database path for the default home', () => {
@@ -68,13 +56,5 @@ describe('persistent storage policy', () => {
     openOctocodeDb();
 
     expect(mocks.openStateDb).toHaveBeenCalledWith(dbPath);
-  });
-
-  it('opens Awareness only when persistence is explicit', () => {
-    process.env['OCTOCODE_STORAGE_MODE'] = 'persistent';
-
-    openPersistentAwareness({ workspace: '/workspace' });
-
-    expect(mocks.openAwarenessStore).toHaveBeenCalledWith({ workspace: '/workspace', dbPath: resolveAwarenessDatabase('/workspace') });
   });
 });

@@ -29,7 +29,7 @@ If no separate `KPI.md` is warranted, put a compact acceptance contract before t
 - Public API/data/security/compatibility changes require rollout, rollback trigger, and owner.
 - Tabular content renders as a real markdown table, not prose.
 - Every citation states why it matters; every artifact stays dense — no filler, no duplicate phrasing, no data loss.
-- At blocker closure and validation, use the completeness checks in `references/rfc-completeness.md`. For an action-changing semantic question with `clasify` available, use `references/jev-review.md`.
+- At blocker closure and validation, use the completeness checks in `references/rfc-completeness.md`. Classification admission belongs to `octocode-clasify`; use `references/jev-review.md` only for an admitted request.
 - Allow conditional comparisons during investigation; retain named blockers, reversal conditions and next checks. Do not select an overall winner, issue a final recommendation or claim readiness until every decision blocker closes with evidence. Execution questions may be resolved or explicitly deferred with impact, owner, and trigger before Ready for Review.
 - Reject a brainstorming handoff marked Prototype First, Narrow, Park, or not ready.
 

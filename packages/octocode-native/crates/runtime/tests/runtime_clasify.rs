@@ -34,41 +34,14 @@ impl Respond for DelayedJevResponse {
     }
 }
 
-#[derive(Clone)]
-struct QuestionKeyedFocusResponse;
-
-impl Respond for QuestionKeyedFocusResponse {
-    fn respond(&self, request: &Request) -> ResponseTemplate {
-        let body: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
-        let focus = body.to_string().contains("insufficient");
-        let answers = if focus {
-            json!({
-                "answer_0":{"type":"choice","choice":"w1","confidence":0.91,
-                    "probabilities":{"w1":0.91,"w2":0.0,"w3":0.0,"w4":0.09,"w5":0.0,"insufficient":0.0}},
-                "answer_1":{"type":"choice","choice":"w4","confidence":0.93,
-                    "probabilities":{"w1":0.07,"w2":0.0,"w3":0.0,"w4":0.93,"w5":0.0,"insufficient":0.0}}
-            })
-        } else {
-            json!({
-                "answer_0":{"type":"noul","noul":0.94},
-                "answer_1":{"type":"noul","noul":0.95}
-            })
-        };
-        ResponseTemplate::new(200).set_body_json(json!({
-            "model":"resolved","answers":answers,
-            "usage":{"input_tokens":5,"output_tokens":2}
-        }))
-    }
-}
-
 fn query() -> serde_json::Value {
     json!({
         "id":"decision",
         "reasoning":"Choose the next inspection.",
         "resources":[{"id":"observed","context":{"value":{"fact":"present"}}}],
         "questions":[
-            {"id":"relevant","question":{"type":"noul","instructions":"Is it relevant?"}},
-            {"id":"risk","question":{"type":"score","instructions":{"prompt":"Rate risk"},"criteria":["low",{"label":"high"}]}}
+            {"id":"relevant","type":"noul","instructions":"Is it relevant?"},
+            {"id":"risk","type":"score","instructions":{"prompt":"Rate risk"},"criteria":["low",{"label":"high"}]}
         ]
     })
 }
@@ -230,7 +203,7 @@ async fn independent_resource_assessments_are_dispatched_concurrently() {
             "id":format!("resource-{index}"),
             "context":{"value":{"index":index}}
         })).collect::<Vec<_>>(),
-        "questions":[{"id":"relevant","question":{"type":"noul","instructions":"Relevant?"}}]
+        "questions":[{"id":"relevant","type":"noul","instructions":"Relevant?"}]
     });
 
     let outcome = runtime
@@ -285,7 +258,7 @@ async fn classification_max_concurrency_bounds_provider_requests_in_flight() {
             "id":format!("resource-{index}"),
             "context":{"value":{"index":index}}
         })).collect::<Vec<_>>(),
-        "questions":[{"id":"relevant","question":{"type":"noul","instructions":"Relevant?"}}]
+        "questions":[{"id":"relevant","type":"noul","instructions":"Relevant?"}]
     });
     let outcome = runtime
         .execute("bounded-resources".into(), "clasify".into(), input)
@@ -349,7 +322,7 @@ async fn independent_query_matrices_are_dispatched_concurrently() {
                 "id":format!("query-{index}"),
                 "reasoning":"Assess an independent matrix without serial provider latency.",
                 "resources":[{"id":"resource","context":{"value":{"index":index}}}],
-                "questions":[{"id":"relevant","question":{"type":"noul","instructions":"Relevant?"}}]
+                "questions":[{"id":"relevant","type":"noul","instructions":"Relevant?"}]
             })
         })
         .collect::<Vec<_>>();
@@ -382,7 +355,7 @@ async fn independent_query_matrices_are_dispatched_concurrently() {
 }
 
 #[tokio::test]
-async fn oversized_first_page_is_bounded_partial_without_a_looping_continuation() {
+async fn oversized_first_page_is_not_classified_or_given_a_looping_continuation() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -390,7 +363,7 @@ async fn oversized_first_page_is_bounded_partial_without_a_looping_continuation(
             "answers":{"answer":{"type":"noul","noul":0.7}},
             "usage":{"input_tokens":2,"output_tokens":1}
         })))
-        .expect(1)
+        .expect(0)
         .mount(&server)
         .await;
     let workspace = Workspace::new();
@@ -403,20 +376,19 @@ async fn oversized_first_page_is_bounded_partial_without_a_looping_continuation(
         "id":"bounded",
         "reasoning":"Bound the supplied resource.",
         "resources":[{"id":"large","maxChars":5,"context":{"value":{"text":"far too large"}}}],
-        "questions":[{"id":"relevant","question":{"type":"noul","instructions":"Relevant?"}}]
+        "questions":[{"id":"relevant","type":"noul","instructions":"Relevant?"}]
     });
     let outcome = runtime
         .execute("bounded".into(), "clasify".into(), input)
         .await
         .unwrap();
     let query = &outcome.structured_content["queries"][0];
-    assert_eq!(query["resources"][0]["coverage"], "partial");
-    assert!(
-        query["resources"][0]["pages"][0]["limitations"][0]
-            .as_str()
-            .is_some_and(|text| text.contains("bounded prefix")),
-        "{query}"
+    assert_eq!(query["resources"][0]["coverage"], "error");
+    assert_eq!(
+        query["resources"][0]["pages"][0]["error"]["code"],
+        "classificationContextTooLarge"
     );
+    assert!(query["resources"][0]["pages"][0].get("answers").is_none());
     assert!(query.get("next").is_none());
     runtime.close().await;
 }
@@ -451,7 +423,7 @@ async fn max_chars_budgets_sanitized_resource_payload_not_serialized_envelope() 
         "resources":[{"id":"file","maxChars":80_000,"context":{"tool":"localFetch","query":{
             "path":file,"reasoning":"Read the complete file.","fullContent":true
         }}}],
-        "questions":[{"id":"relevant","question":{"type":"noul","instructions":"Relevant?"}}]
+        "questions":[{"id":"relevant","type":"noul","instructions":"Relevant?"}]
     });
     let outcome = runtime
         .execute("recover-full-content".into(), "clasify".into(), input)
@@ -484,6 +456,69 @@ async fn max_chars_budgets_sanitized_resource_payload_not_serialized_envelope() 
 }
 
 #[tokio::test]
+async fn scout_expands_explicit_question_type_and_preserves_source_identity() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "model":"resolved", "answers":{"answer":{"type":"noul","noul":0.82}},
+            "usage":{"input_tokens":2,"output_tokens":1}
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let file = workspace.write("hooks.md", "preClose runs before active requests finish.\n");
+    let runtime = workspace.runtime(&[
+        ("OCTOCODE_CLASSIFICATION_API", "secret".into()),
+        ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
+        ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
+    ]);
+    let input = json!({
+        "id":"novelty", "reasoning":"Decide whether this unread section adds evidence.",
+        "resources":[{"id":"hooks","context":{"tool":"localFetch","query":{"path":file,"reasoning":"Screen the complete section."}}}],
+        "questions":[{"id":"new","questionType":"addsEvidence","target":"Shutdown timing", "knownEvidence":["onClose runs after requests finish"]}]
+    });
+    let result = runtime
+        .execute("preset".into(), "clasify".into(), input)
+        .await
+        .unwrap();
+    let output = &result.structured_content["queries"][0];
+    assert_eq!(output["templateVersion"], 1);
+    let page = &output["resources"][0]["pages"][0];
+    assert_eq!(page["answers"]["new"]["noul"], 0.82);
+    assert_eq!(page["source"]["path"], file.to_str().unwrap());
+    assert_eq!(page["scope"]["startLine"], 1);
+    assert!(
+        !result
+            .structured_content
+            .to_string()
+            .contains("preClose runs")
+    );
+    let requests = server.received_requests().await.unwrap();
+    let sent: serde_json::Value = serde_json::from_slice(&requests[0].body).unwrap();
+    assert!(sent["state"].to_string().contains("preClose runs"));
+    assert_eq!(sent["questions"]["answer"]["type"], "noul");
+    assert_eq!(
+        sent["questions"]["answer"]["instructions"]["knownEvidence"],
+        json!(["onClose runs after requests finish"])
+    );
+    assert_eq!(sent["questions"].as_object().unwrap().len(), 1);
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn search_rejects_removed_semantic_addon_without_calling_provider() {
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("OCTOCODE_CLASSIFICATION_API", "secret".into())]);
+    let error = runtime.execute("search".into(), "localSearch".into(), json!({
+        "path":workspace.workspace, "searchText":"hooks", "reasoning":"Discover candidates.",
+        "semanticRerank":{"questions":[{"id":"q","question":"Relevant?"}]}
+    })).await.expect_err("semantic checks require clasify");
+    assert_eq!(error.code, "invalidInput");
+    runtime.close().await;
+}
+
+#[tokio::test]
 async fn page_budget_continuation_round_trips_through_the_public_contract() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
@@ -512,7 +547,7 @@ async fn page_budget_continuation_round_trips_through_the_public_contract() {
         "resources":[{"id":"file","maxChars":5000,"context":{"tool":"localFetch","query":{
             "path":file,"reasoning":"Read the next exact line.","chunkSize":1,"fullContent":false
         }}}],
-        "questions":[{"id":"relevant","question":{"type":"noul","instructions":"Relevant?"}}]
+        "questions":[{"id":"relevant","questionType":"contribution","target":"line content"}]
     });
     let outcome = runtime
         .execute("paged".into(), "clasify".into(), input)
@@ -526,12 +561,39 @@ async fn page_budget_continuation_round_trips_through_the_public_contract() {
     assert!(context.get("query").is_some());
     octocode_native::contracts::prepare_many_and_validate(
         "clasify",
-        assess,
+        assess.clone(),
         octocode_native::contracts::PrepareOptions::default(),
     )
     .expect("next.clasify must execute unchanged");
     octocode_native::contracts::validate_output("clasify", &outcome.structured_content)
         .expect("nested query-cell-page output");
+    assert_eq!(assess["questions"][0]["questionType"], "contribution");
+    let mut next = Some(assess);
+    let mut last_end = outcome.structured_content["queries"][0]["resources"][0]["pages"]
+        .as_array()
+        .unwrap()
+        .last()
+        .unwrap()["scope"]["endLine"]
+        .as_u64()
+        .unwrap();
+    for _ in 0..4 {
+        let Some(query) = next.take() else {
+            break;
+        };
+        let page = runtime
+            .execute("continue-preset".into(), "clasify".into(), query)
+            .await
+            .unwrap();
+        let row = &page.structured_content["queries"][0];
+        assert_eq!(row["templateVersion"], 1);
+        for page in row["resources"][0]["pages"].as_array().unwrap() {
+            assert_eq!(page["scope"]["startLine"].as_u64().unwrap(), last_end + 1);
+            last_end = page["scope"]["endLine"].as_u64().unwrap();
+        }
+        next = row.pointer("/next/clasify").cloned();
+    }
+    assert!(next.is_none(), "continuation must terminate");
+    assert_eq!(last_end, 200);
     runtime.close().await;
 }
 
@@ -561,7 +623,7 @@ async fn payload_over_max_chars_returns_an_executable_clasify_continuation() {
         "resources":[{"id":"file","maxChars":80_000,"context":{"tool":"localFetch","query":{
             "path":file,"reasoning":"Read the complete file.","fullContent":true
         }}}],
-        "questions":[{"id":"relevant","question":{"type":"noul","instructions":"Relevant?"}}]
+        "questions":[{"id":"relevant","type":"noul","instructions":"Relevant?"}]
     });
     let first = runtime
         .execute("over-budget-first".into(), "clasify".into(), input)
@@ -605,7 +667,7 @@ async fn invalid_inner_query_is_rejected_with_the_exact_contract_field() {
         }],
         "questions": [{
             "id": "q1",
-            "question": { "type": "noul", "instructions": "Relevant?" }
+            "type": "noul", "instructions": "Relevant?"
         }]
     });
     let error = runtime
@@ -625,7 +687,7 @@ async fn invalid_inner_query_is_rejected_with_the_exact_contract_field() {
 }
 
 #[tokio::test]
-async fn search_resource_captures_only_the_requested_page() {
+async fn search_resource_fans_out_candidates_from_only_the_requested_page() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
@@ -634,7 +696,7 @@ async fn search_resource_captures_only_the_requested_page() {
             "answers":{"answer":{"type":"noul","noul":0.4}},
             "usage":{"input_tokens":2,"output_tokens":1}
         })))
-        .expect(1)
+        .expect(2)
         .mount(&server)
         .await;
     let workspace = Workspace::new();
@@ -655,7 +717,7 @@ async fn search_resource_captures_only_the_requested_page() {
             "path":root,"searchText":"needle","reasoning":"Find hits.",
             "resultView":"paginated","pageSize":2
         }}}],
-        "questions":[{"id":"relevant","question":{"type":"noul","instructions":"Relevant?"}}]
+        "questions":[{"id":"relevant","type":"noul","instructions":"Relevant?"}]
     });
     let outcome = runtime
         .execute("search-page".into(), "clasify".into(), input)
@@ -663,24 +725,207 @@ async fn search_resource_captures_only_the_requested_page() {
         .unwrap();
     let query = &outcome.structured_content["queries"][0];
     let cell = &query["resources"][0];
-    assert_eq!(cell["pages"].as_array().unwrap().len(), 1, "{cell}");
+    let pages = cell["pages"].as_array().unwrap();
+    assert_eq!(pages.len(), 2, "{cell}");
     assert_eq!(cell["coverage"], "partial");
+    let source_paths = pages
+        .iter()
+        .map(|page| page["source"]["path"].as_str().unwrap().to_owned())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        source_paths.len(),
+        2,
+        "each candidate needs its own source: {cell}"
+    );
+    assert!(
+        source_paths
+            .iter()
+            .all(|path| std::path::Path::new(path).is_absolute()),
+        "local candidate paths must be executable absolute paths: {source_paths:?}"
+    );
     let resume = &query["next"]["clasify"]["resources"][0]["context"];
     assert_eq!(resume["tool"], "localSearch", "{query}");
     assert_eq!(resume["query"]["page"], 2, "{resume}");
     let requests = server.received_requests().await.unwrap();
-    let body = String::from_utf8_lossy(&requests[0].body);
-    assert!(body.contains("needle"), "{body}");
-    assert!(
-        !body.contains("\"next\":"),
-        "continuations stay out of provider state: {body}"
-    );
-    assert!(
-        !body.contains("\"results\":"),
-        "the response envelope stays out of provider state"
-    );
+    assert_eq!(requests.len(), 2);
+    let judged_paths = requests
+        .iter()
+        .map(|request| {
+            let sent: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
+            assert!(sent["state"].to_string().contains("needle"), "{sent}");
+            assert!(
+                sent["state"]["data"].get("next").is_none(),
+                "continuations stay out of provider state: {sent}"
+            );
+            let files = sent["state"]["data"]["files"].as_array().unwrap();
+            assert_eq!(
+                files.len(),
+                1,
+                "one provider state per file candidate: {sent}"
+            );
+            files[0]["path"].as_str().unwrap().to_owned()
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(judged_paths.len(), 2, "each file must be judged once");
     octocode_native::contracts::validate_output("clasify", &outcome.structured_content)
         .expect("single-page search output contract");
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn file_chunk_scout_hydrates_five_candidates_and_returns_exact_reads() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/systemone"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "model":"resolved",
+            "answers":{"answer":{"type":"noul","noul":0.7}},
+            "usage":{"input_tokens":3,"output_tokens":1}
+        })))
+        .expect(5)
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    for index in 0..8 {
+        workspace.write(
+            &format!("src/candidate{index}.txt"),
+            &format!("header\nneedle marker\nbody-only fact {index}\nfooter\n"),
+        );
+    }
+    let root = workspace
+        .workspace
+        .join("src")
+        .to_string_lossy()
+        .into_owned();
+    let runtime = workspace.runtime(&[
+        ("OCTOCODE_CLASSIFICATION_API", "secret".into()),
+        ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
+        ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
+    ]);
+    let input = json!({
+        "id":"hydrated-search",
+        "reasoning":"Judge source around each search hit.",
+        "resources":[{"id":"hits","context":{
+            "tool":"localSearch","candidateEvidence":"fileChunks","query":{
+                "path":root,"searchText":"needle","reasoning":"Find candidates.",
+                "resultView":"paginated","pageSize":20
+            }
+        },"maxChars":20_000}],
+        "questions":[{"id":"relevant",
+            "type":"noul","instructions":"Does this source contain a body-only fact?"
+        }]
+    });
+    let outcome = runtime
+        .execute("hydrated-search".into(), "clasify".into(), input)
+        .await
+        .expect("hydrated scout");
+    let query = &outcome.structured_content["queries"][0];
+    let pages = query["resources"][0]["pages"].as_array().unwrap();
+    assert_eq!(pages.len(), 5, "{query}");
+    for page in pages {
+        assert_eq!(page["next"]["read"]["tool"], "localFetch", "{page}");
+        assert_eq!(page["next"]["read"]["confidence"], "exact", "{page}");
+        assert!(
+            page["source"]["path"]
+                .as_str()
+                .is_some_and(|p| std::path::Path::new(p).is_absolute())
+        );
+        assert!(
+            page["limitations"]
+                .as_array()
+                .is_some_and(|limits| limits.iter().any(|v| {
+                    v.as_str()
+                        .is_some_and(|v| v.contains("bounded candidate chunk"))
+                })),
+            "{page}"
+        );
+    }
+    let resume = &query["next"]["clasify"]["resources"][0]["context"];
+    assert_eq!(resume["candidateEvidence"], "fileChunks");
+    assert_eq!(resume["query"]["page"], 2);
+    assert_eq!(resume["query"]["pageSize"], 5);
+    let requests = server.received_requests().await.unwrap();
+    assert_eq!(requests.len(), 5);
+    for request in requests {
+        let sent: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
+        let state = &sent["state"];
+        assert!(
+            state["content"]
+                .as_str()
+                .is_some_and(|body| body.contains("body-only fact")),
+            "{sent}"
+        );
+        assert!(state["content"].as_str().unwrap().chars().count() <= 4_000);
+        assert!(
+            state.get("matches").is_none(),
+            "search snippets must not reach Jev: {sent}"
+        );
+    }
+    octocode_native::contracts::validate_output("clasify", &outcome.structured_content)
+        .expect("hydrated scout output contract");
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn expanded_cells_fail_before_any_provider_request() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(500))
+        .expect(0)
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    for root in ["a", "b"] {
+        for index in 0..5 {
+            workspace.write(
+                &format!("{root}/candidate{index}.txt"),
+                "needle\nbody evidence\n",
+            );
+        }
+    }
+    let resource = |id: &str, root: &str| {
+        json!({
+            "id":id,"context":{"tool":"localSearch","candidateEvidence":"search","query":{
+                "path":workspace.workspace.join(root),"searchText":"needle","reasoning":"Find candidates.",
+                "pageSize":5
+            }}
+        })
+    };
+    let questions = (0..3)
+        .map(|index| {
+            json!({
+                "id":format!("q{index}"),"type":"noul","instructions":format!("Check {index}?")
+            })
+        })
+        .collect::<Vec<_>>();
+    let runtime = workspace.runtime(&[
+        ("OCTOCODE_CLASSIFICATION_API", "secret".into()),
+        ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
+        ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
+    ]);
+    let outcome = runtime
+        .execute(
+            "expanded-cells".into(),
+            "clasify".into(),
+            json!({
+                "id":"expanded-cells","reasoning":"Exercise the runtime expansion gate.",
+                "resources":[resource("a","a"),resource("b","b")],"questions":questions
+            }),
+        )
+        .await
+        .expect("structured expansion failure");
+    let resources = outcome.structured_content["queries"][0]["resources"]
+        .as_array()
+        .unwrap();
+    assert!(
+        resources
+            .iter()
+            .flat_map(|r| r["pages"].as_array().unwrap())
+            .all(|page| { page["error"]["code"] == "classificationExpandedCellsExceeded" }),
+        "{}",
+        outcome.structured_content
+    );
+    assert!(server.received_requests().await.unwrap().is_empty());
     runtime.close().await;
 }
 
@@ -702,7 +947,7 @@ async fn empty_file_is_reported_without_a_provider_call() {
     let input = json!({
         "id":"empty","reasoning":"Screen an empty artifact.",
         "resources":[{"id":"e","context":{"tool":"localFetch","query":{"path":file,"reasoning":"Read it."}}}],
-        "questions":[{"id":"q","question":{"type":"noul","instructions":"Relevant?"}}]
+        "questions":[{"id":"q","type":"noul","instructions":"Relevant?"}]
     });
     let outcome = runtime
         .execute("empty".into(), "clasify".into(), input)
@@ -739,7 +984,7 @@ async fn empty_search_page_is_not_sent_to_the_provider() {
             "path":file,"searchText":"UNLIKELY_OCTOCODE_SENTINEL_673829",
             "reasoning":"Find matching source."
         }}}],
-        "questions":[{"id":"q","question":{"type":"noul","instructions":"Does this page show a match?"}}]
+        "questions":[{"id":"q","type":"noul","instructions":"Does this page show a match?"}]
     });
     let outcome = runtime
         .execute("empty-search".into(), "clasify".into(), input)
@@ -788,7 +1033,7 @@ async fn disjoint_file_match_windows_return_real_ranges_without_a_focus() {
             "path":file,"reasoning":"Read matching windows.",
             "matchString":"MARKER","contextLines":45,"chunkSize":50000
         }}}],
-        "questions":[{"id":"q","question":{"type":"noul","instructions":"Does this content show MARKER?"}}]
+        "questions":[{"id":"q","type":"noul","instructions":"Does this content show MARKER?"}]
     });
     let outcome = runtime
         .execute("disjoint".into(), "clasify".into(), input)
@@ -807,55 +1052,19 @@ async fn disjoint_file_match_windows_return_real_ranges_without_a_focus() {
 }
 
 #[tokio::test]
-async fn high_scoring_file_pages_are_narrowed_to_a_focus_window() {
+async fn long_positive_scout_sends_only_authored_questions_and_preserves_probabilities() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "model":"resolved",
             "answers":{
-                "answer_0":{"type":"noul","noul":0.9},
-                "answer_1":{"type":"choice","choice":"w3","confidence":0.9,
-                    "probabilities":{"w1":0.05,"w2":0.05,"w3":0.9,"w4":0.0,"w5":0.0,"insufficient":0.0}}
+                "answer_0":{"type":"noul","noul":0.93456789},
+                "answer_1":{"type":"choice","choice":"yes","confidence":0.87654321,
+                    "probabilities":{"yes":0.9995,"no":0.0005}}
             },
             "usage":{"input_tokens":5,"output_tokens":2}
         })))
         .expect(1)
-        .mount(&server)
-        .await;
-    let workspace = Workspace::new();
-    let body = (1..=200).map(|n| format!("line {n}\n")).collect::<String>();
-    let file = workspace.write("long.rs", body);
-    let runtime = workspace.runtime(&[
-        ("OCTOCODE_CLASSIFICATION_API", "secret".into()),
-        ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
-        ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
-    ]);
-    let input = json!({
-        "id":"focus","reasoning":"Find the region.",
-        "resources":[{"id":"f","context":{"tool":"localFetch","query":{"path":file,"reasoning":"Read it."}}}],
-        "questions":[{"id":"q","question":{"type":"noul","instructions":"Does this content show X?"}}]
-    });
-    let outcome = runtime
-        .execute("focus".into(), "clasify".into(), input)
-        .await
-        .unwrap();
-    let page = &outcome.structured_content["queries"][0]["resources"][0]["pages"][0];
-    assert_eq!(
-        page["focus"],
-        json!({"q":{"startLine":81,"endLine":120,"confidence":0.9}}),
-        "{page}"
-    );
-    octocode_native::contracts::validate_output("clasify", &outcome.structured_content)
-        .expect("focus output contract");
-    runtime.close().await;
-}
-
-#[tokio::test]
-async fn multi_question_focus_is_keyed_and_shares_one_windowed_request() {
-    let server = MockServer::start().await;
-    Mock::given(method("POST"))
-        .respond_with(QuestionKeyedFocusResponse)
-        .expect(2)
         .mount(&server)
         .await;
     let workspace = Workspace::new();
@@ -868,41 +1077,65 @@ async fn multi_question_focus_is_keyed_and_shares_one_windowed_request() {
         ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
     ]);
     let input = json!({
-        "id":"keyed-focus","reasoning":"Locate each concern.",
+        "id":"pure-scout","reasoning":"Screen the document.",
         "resources":[{"id":"f","context":{"tool":"localFetch","query":{
             "path":file,"reasoning":"Read the source."
         }}}],
         "questions":[
-            {"id":"startup","question":{"type":"noul","instructions":"Find startup."}},
-            {"id":"shutdown","question":{"type":"noul","instructions":"Find shutdown."}}
+            {"id":"shutdown","type":"noul","instructions":"Could this document contain shutdown guidance?"},
+            {"id":"role","type":"choice","instructions":"Classify the document's role.",
+                "criteria":{"yes":"Has guidance","no":"No guidance"}}
         ]
     });
     let outcome = runtime
-        .execute("keyed-focus".into(), "clasify".into(), input)
+        .execute("pure-scout".into(), "clasify".into(), input)
         .await
         .unwrap();
     let page = &outcome.structured_content["queries"][0]["resources"][0]["pages"][0];
-    assert_eq!(page["answers"]["startup"]["noul"], 0.94);
-    assert_eq!(page["answers"]["shutdown"]["noul"], 0.95);
+    assert_eq!(page["answers"]["shutdown"]["noul"], 0.93456789);
     assert_eq!(
-        page["focus"]["startup"],
+        page["answers"]["role"],
         json!({
-            "startLine":1,"endLine":40,"confidence":0.91
-        }),
-        "{page}"
-    );
-    assert_eq!(
-        page["focus"]["shutdown"],
-        json!({
-            "startLine":121,"endLine":160,"confidence":0.93
+            "choice":"yes","confidence":0.87654321,
+            "probabilities":{"yes":0.9995,"no":0.0005}
         })
+    );
+    assert!(page.get("focus").is_none(), "{page}");
+    assert!(
+        outcome.structured_content["queries"][0]
+            .get("lowSignal")
+            .is_none()
     );
     assert_eq!(
         page["source"]["path"],
         expected_source_path.to_string_lossy().as_ref()
     );
     assert!(page["source"]["evidenceHash"].as_str().is_some());
+    let requests = server.received_requests().await.expect("mock requests");
+    assert_eq!(requests.len(), 1, "Clasify must not add a focus call");
+    let sent: serde_json::Value = serde_json::from_slice(&requests[0].body).unwrap();
+    assert_eq!(
+        sent["questions"]
+            .as_object()
+            .map(|questions| questions.len()),
+        Some(2)
+    );
+    assert_eq!(
+        sent["questions"]["answer_0"],
+        json!({
+            "type":"noul","instructions":"Could this document contain shutdown guidance?"
+        })
+    );
+    assert_eq!(
+        sent["questions"]["answer_1"],
+        json!({
+            "type":"choice","instructions":"Classify the document's role.",
+            "criteria":{"yes":"Has guidance","no":"No guidance"}
+        })
+    );
+    assert!(sent["state"].to_string().contains("line 200"));
+    assert!(sent.get("windows").is_none());
     octocode_native::contracts::validate_output("clasify", &outcome.structured_content)
-        .expect("keyed focus output contract");
+        .expect("pure scout output contract");
     runtime.close().await;
 }

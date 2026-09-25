@@ -874,7 +874,7 @@ mod tests {
             let row = json!({"data":{"next":{name:call}}});
             assert!(has_cli_continuation(&row), "{name}");
         }
-        let nested = json!({"data":{"semanticRerank":{"next":{"nextPage":call}}}});
+        let nested = json!({"data":{"nestedEvidence":{"next":{"nextPage":call}}}});
         assert!(has_cli_continuation(&nested));
     }
 

@@ -12,12 +12,6 @@ import { runAskPrompt, type AskOutcome } from '../ask-user-tool.js';
 import { planArtifactsDir } from '../plan-html.js';
 import { buildQueryCallBlocks, buildToolView } from '../render-helpers.js';
 import { setManagedActivity } from '../runtime-renderer.js';
-import {
-  completeExternalPlanTask,
-  finalizeExternalPlan,
-} from '@octocodeai/octocode-awareness/host';
-import { getAwarenessAgentId } from '../awareness-shared.js';
-import { assertPersistentAwarenessEnabled } from '../storage-policy.js';
 import { executeQueryBatch, toToolSchema } from '../query-envelope.js';
 import { appendSessionAuditForContext } from '../session-audit.js';
 
@@ -36,13 +30,11 @@ import {
   getPlanDecisions,
   getPlanPersistenceFailure,
 } from './plan-store.js';
-import { addStep, startStep, restorePlanSteps, completeStep, removeStep } from './plan-executor.js';
+import { addStep, startStep, completeStep, removeStep } from './plan-executor.js';
 import {
   renderList,
   planPresentation,
-  planWorkspace,
   configurePlanScope,
-  requestedPlanScope,
   ensureUnifiedProjection,
   projectPlanIndexes,
   writeCurrentPlanArtifacts,
@@ -179,11 +171,7 @@ async function executeClarify(
 async function executePlanQuery(p: PlanParams, ctx: PiContext | undefined): Promise<ToolCallResult> {
   const scope = activePlanScope(ctx);
   let steps: PlanStep[];
-  // Reject unavailable shared writes before changing the local plan or its scope.
-  if (p.action !== 'show' && p.action !== 'clarify'
-    && (requestedPlanScope(scope, p.scope) === 'shared' || getPlanCoordination(scope).awarenessPlanId)) {
-    assertPersistentAwarenessEnabled();
-  }
+  if (p.scope === 'shared') throw new Error('Shared plans are retired; use scope=session.');
 
   if (p.action === 'clarify') return executeClarify(p, ctx, scope);
 
@@ -212,10 +200,6 @@ async function executePlanQuery(p: PlanParams, ctx: PiContext | undefined): Prom
         ...(p.acceptance ? { acceptance: p.acceptance } : {}),
         ...(p.checkCommand ? { checkCommand: p.checkCommand } : {}),
       });
-      if (getPlanCoordination(scope).awarenessPlanId) {
-        ensureUnifiedProjection(scope, p.scope, ctx);
-        steps = getPlan(scope);
-      }
       writeCurrentPlanArtifacts(ctx, scope, 'active');
       break;
     case 'start':
@@ -293,66 +277,17 @@ async function executePlanQuery(p: PlanParams, ctx: PiContext | undefined): Prom
       if (p.action === 'start' && !depsMet(current[idx - 1]!, current)) {
         return planError(`[PLAN] step ${idx} is blocked by dependencies — complete its prerequisites before starting it.`, 'blocked-step');
       }
-      const target = current[idx - 1]!;
-      if (p.action === 'remove' && target.awarenessTaskId) {
-        return planError('[PLAN] mapped shared steps cannot be removed in place; abandon or revise the shared plan explicitly.', 'shared-remove');
-      }
-      if (p.action === 'complete' && target.awarenessTaskId) {
-        const coordination = getPlanCoordination(scope);
-        try {
-          assertPersistentAwarenessEnabled();
-          const shared = completeExternalPlanTask({
-            workspace: coordination.coordinationWorkspace || planWorkspace(scope),
-            taskId: target.awarenessTaskId,
-            agentId: getAwarenessAgentId(ctx),
-            ...(p.receipt ? { receipt: p.receipt } : {}),
-          });
-          if (!shared.verified) {
-            return planError(`[PLAN] observed check failed; shared task ${shared.task.taskId} has verification debt and the local step remains in progress.`, 'check-failed');
-          }
-        } catch (error) {
-          return planError(`[PLAN] shared completion blocked: ${error instanceof Error ? error.message : String(error)}`, 'shared-completion');
-        }
-      }
-      const beforeStart = p.action === 'start' ? current.map((step) => ({ ...step })) : undefined;
+      if (p.action === 'complete' && p.receipt?.status === 'FAILED') return planError('[PLAN] declared check failed; keep the step open until a successful check.', 'check-failed');
       steps = p.action === 'start' ? startStep(scope, idx) : p.action === 'complete' ? completeStep(scope, idx) : removeStep(scope, idx);
-      if ((p.action === 'start' || p.action === 'complete') && getPlanCoordination(scope).awarenessPlanId) {
-        try {
-          ensureUnifiedProjection(scope, p.scope, ctx);
-        } catch (error) {
-          if (p.action !== 'start' || !beforeStart) throw error;
-          restorePlanSteps(scope, beforeStart);
-          return planError(`[PLAN] step did not start; local status and Awareness mapping were restored after shared projection failed: ${error instanceof Error ? error.message : String(error)}`, 'shared-start-projection');
-        }
-        steps = getPlan(scope);
-      }
       if (p.action === 'complete' && steps.every((step) => step.status === 'done')) {
         refreshPlanUi(ctx);
-        const coordination = getPlanCoordination(scope);
-        let verified = true;
-        if (coordination.awarenessPlanId) {
-          assertPersistentAwarenessEnabled();
-          verified = finalizeExternalPlan({
-            workspace: coordination.coordinationWorkspace || planWorkspace(scope),
-            planId: coordination.awarenessPlanId,
-            agentId: getAwarenessAgentId(ctx),
-          });
-        }
-        if (verified) finishPlanVerification(scope, true, 'All declared task checks passed');
-        else setPlanLifecycle(scope, 'blocked', 'Shared tasks still have verification debt');
+        finishPlanVerification(scope, true, 'All session plan steps completed');
         steps = getPlan(scope);
       }
       writeCurrentPlanArtifacts(ctx, scope, 'active');
       break;
     }
     case 'clear': {
-      const current = getPlan(scope);
-      if (current.some((step) => step.awarenessTaskId) && current.some((step) => step.status !== 'done')) {
-        return errorResult(
-          '[PLAN] mapped shared plans cannot be cleared while work is unfinished; complete or abandon the shared work first.',
-          { action: p.action, error: 'shared-clear', ...planPresentation(ctx, scope) },
-        );
-      }
       clearPlan(scope);
       tearDownPlanHtml(scope);
       projectPlanIndexes(ctx, undefined);

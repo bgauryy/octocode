@@ -65,12 +65,20 @@ test('workspaceRootFor anchors above the first .octocode segment', () => {
   assert.equal(workspaceRootFor('/a/.octocode/x/.octocode/y'), '/a');
 });
 
-test('auto-selected cdp transport failure falls back to direct', () => {
-  // No --provider: auto picks cdp (chrome-devtools sibling exists in-repo);
-  // mock status 0 simulates a CDP client failure with no HTTP answer.
+test('auto-selected html route is direct even when chrome-devtools is installed', () => {
+  // Installing the live-browser skill must not make static HTML fetches launch Chrome.
   const res = run(['--url', 'https://ex.test/a', '--mock-status', '0', '--mock-body-file', join(root, 'body.html'), '--mock-content-type', 'text/html']);
   assert.ok(res.parsed, res.stderr);
   assert.equal(res.parsed.route, 'direct:html', JSON.stringify(res.parsed));
+});
+
+test('thin application shell recommends one Chrome escalation without launching it', () => {
+  writeFileSync(join(root, 'body.html'), '<html><body><div id="app"></div><script type="module" src="/app.js"></script></body></html>');
+  const res = run(['--url', 'https://ex.test/app', '--mock-status', '200', '--mock-body-file', join(root, 'body.html'), '--mock-content-type', 'text/html']);
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.parsed.route, 'direct:html');
+  assert.equal(res.parsed.next.route, 'octocode-chrome-devtools');
+  assert.match(res.parsed.next.reason, /application shell/);
 });
 
 test('crawl treats fragment and trailing-slash variants as one page and skips non-http links', () => {

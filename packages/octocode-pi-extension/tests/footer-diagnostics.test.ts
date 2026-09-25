@@ -3,7 +3,7 @@ import { buildFooterDiagnostics } from '../src/tools/footer-diagnostics.js';
 
 it('hides github row when authenticated (happy-path noise suppression)', () => {
   const rows = buildFooterDiagnostics({ identity: [], metrics: [], statuses: {},
-    githubStatus: 'authenticated', awareness: null, awarenessHealth: { state: 'idle' } });
+    githubStatus: 'authenticated', });
   const texts = rows.flatMap(row => row.segments).map(segment => segment.text);
   expect(texts).not.toContain('GitHub signed in');
   expect(rows.some(row => row.id === 'github')).toBe(false);
@@ -15,6 +15,6 @@ it.each([
   ['error', 'GitHub status unavailable'],
 ] as const)('shows actionable github state: %s', (githubStatus, label) => {
   const rows = buildFooterDiagnostics({ identity: [], metrics: [], statuses: {},
-    githubStatus, awareness: null, awarenessHealth: { state: 'idle' } });
+    githubStatus, });
   expect(rows.flatMap(row => row.segments).map(segment => segment.text)).toContain(label);
 });

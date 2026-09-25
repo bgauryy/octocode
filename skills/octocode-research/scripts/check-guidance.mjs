@@ -62,7 +62,9 @@ const cases = [
     required: [
       /MODEL[^\n]*SEMANTIC\?[^\n]*SEARCH\/READ/,
       /SEMANTIC\?[^\n]*conditional[^\n]*(?:never|not)[^\n]*mandatory/i,
-      /avoided work or a changed next action/,
+      /explicit classification request/,
+      /verified to improve answer quality AND reduce total host tokens/,
+      /No current research workflow meets both gates/,
       /root `queries\[\]` for independent semantic queries/,
       /`resources:\[\{id,context\}\]`/,
       /`questions:\[\{id,question\}\]`/,
@@ -99,6 +101,7 @@ if (args.includes('--self-test')) {
   const semantic = cases.find(item => item.name.startsWith('conditional semantic crossroad'));
   const source = corpus.get(semantic.file);
   for (const [name, removed] of [
+    ['joint benefit gate', 'verified to improve answer quality AND reduce total host tokens'],
     ['current query contract', 'root `queries[]` for independent semantic queries'],
     ['matrix contract', '`resources:[{id,context}]`'],
     ['unread context branch', 'unread `{tool,query}` reads'],

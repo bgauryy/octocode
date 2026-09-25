@@ -3,6 +3,66 @@
     "id": "clasify.curated-1",
     "tool": "clasify",
     "input": {
+      "reasoning": "Find the deciding source span before the host reads this documentation file.",
+      "id": "docs-location",
+      "resources": [
+        {
+          "id": "guide",
+          "context": {
+            "tool": "localFetch",
+            "query": {
+              "path": "/ABS/repo/docs/guide.md",
+              "fullContent": true,
+              "reasoning": "Capture the unread guide for source localization."
+            }
+          }
+        }
+      ],
+      "questions": [
+        {
+          "questionType": "locate",
+          "target": "What condition requires a retry?"
+        },
+        {
+          "questionType": "locate",
+          "target": "When must retry stop?"
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "id": "docs-location",
+      "reasoning": "Find the deciding source span before the host reads this documentation file.",
+      "resources": [
+        {
+          "id": "guide",
+          "context": {
+            "tool": "localFetch",
+            "query": {
+              "reasoning": "Capture the unread guide for source localization.",
+              "path": "/ABS/repo/docs/guide.md",
+              "fullContent": true
+            }
+          },
+          "maxChars": 80000
+        }
+      ],
+      "questions": [
+        {
+          "questionType": "locate",
+          "target": "What condition requires a retry?"
+        },
+        {
+          "questionType": "locate",
+          "target": "When must retry stop?"
+        }
+      ]
+    }
+  },
+  {
+    "id": "clasify.curated-2",
+    "tool": "clasify",
+    "input": {
       "reasoning": "The path is a candidate but no snippet establishes whether it contributes ordering evidence; the verdict changes what to read.",
       "id": "interceptor-candidate",
       "resources": [
@@ -22,11 +82,8 @@
       ],
       "questions": [
         {
-          "id": "ordering-relevance",
-          "question": {
-            "type": "noul",
-            "instructions": "Could this content contribute a concrete fact, constraint, or counterexample about request interceptor order?"
-          }
+          "type": "noul",
+          "instructions": "Could this content contribute a concrete fact, constraint, or counterexample about request interceptor order?"
         }
       ]
     },
@@ -52,17 +109,78 @@
       ],
       "questions": [
         {
-          "id": "ordering-relevance",
-          "question": {
-            "type": "noul",
-            "instructions": "Could this content contribute a concrete fact, constraint, or counterexample about request interceptor order?"
-          }
+          "type": "noul",
+          "instructions": "Could this content contribute a concrete fact, constraint, or counterexample about request interceptor order?"
         }
       ]
     }
   },
   {
-    "id": "clasify.curated-2",
+    "id": "clasify.curated-3",
+    "tool": "clasify",
+    "input": {
+      "reasoning": "Judge bounded source chunks before choosing an exact verification read.",
+      "id": "local-candidates",
+      "resources": [
+        {
+          "id": "search-results",
+          "context": {
+            "tool": "localSearch",
+            "query": {
+              "reasoning": "Find candidate implementations.",
+              "path": "/ABS/repo/src",
+              "searchText": "registerHandler",
+              "pageSize": 5
+            },
+            "candidateEvidence": "fileChunks"
+          }
+        }
+      ],
+      "questions": [
+        {
+          "questionType": "contribution",
+          "target": "Where is handler registration implemented?"
+        },
+        {
+          "type": "noul",
+          "instructions": "Is this chunk test code or a test fixture rather than the production implementation?"
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "id": "local-candidates",
+      "reasoning": "Judge bounded source chunks before choosing an exact verification read.",
+      "resources": [
+        {
+          "id": "search-results",
+          "context": {
+            "tool": "localSearch",
+            "query": {
+              "reasoning": "Find candidate implementations.",
+              "path": "/ABS/repo/src",
+              "searchText": "registerHandler",
+              "pageSize": 5
+            },
+            "candidateEvidence": "fileChunks"
+          },
+          "maxChars": 80000
+        }
+      ],
+      "questions": [
+        {
+          "questionType": "contribution",
+          "target": "Where is handler registration implemented?"
+        },
+        {
+          "type": "noul",
+          "instructions": "Is this chunk test code or a test fixture rather than the production implementation?"
+        }
+      ]
+    }
+  },
+  {
+    "id": "clasify.curated-4",
     "tool": "clasify",
     "input": {
       "reasoning": "Interpret whether the held evidence supports the guarantee claim; the answer determines whether to keep or narrow the wording.",
@@ -86,16 +204,13 @@
       ],
       "questions": [
         {
-          "id": "support",
-          "question": {
-            "type": "choice",
-            "instructions": "Classify how the supplied evidence bears on this exact claim.",
-            "criteria": {
-              "supported": "Evidence covers the complete claim.",
-              "contradicted": "Evidence conflicts with the claim.",
-              "conflicting": "Evidence supports and conflicts with the claim.",
-              "insufficient": "A deciding branch or check is missing."
-            }
+          "type": "choice",
+          "instructions": "Classify how the supplied evidence bears on this exact claim.",
+          "criteria": {
+            "supported": "Evidence covers the complete claim.",
+            "contradicted": "Evidence conflicts with the claim.",
+            "conflicting": "Evidence supports and conflicts with the claim.",
+            "insufficient": "A deciding branch or check is missing."
           }
         }
       ]
@@ -124,16 +239,13 @@
       ],
       "questions": [
         {
-          "id": "support",
-          "question": {
-            "type": "choice",
-            "instructions": "Classify how the supplied evidence bears on this exact claim.",
-            "criteria": {
-              "supported": "Evidence covers the complete claim.",
-              "contradicted": "Evidence conflicts with the claim.",
-              "conflicting": "Evidence supports and conflicts with the claim.",
-              "insufficient": "A deciding branch or check is missing."
-            }
+          "type": "choice",
+          "instructions": "Classify how the supplied evidence bears on this exact claim.",
+          "criteria": {
+            "supported": "Evidence covers the complete claim.",
+            "contradicted": "Evidence conflicts with the claim.",
+            "conflicting": "Evidence supports and conflicts with the claim.",
+            "insufficient": "A deciding branch or check is missing."
           }
         }
       ]

@@ -259,16 +259,13 @@ or trees with its strict `operation` field.
 
 ### Semantic assessment — `clasify`
 
-**Judge before you read.** `clasify` rates *unread* candidates — GitHub or local files wrapped as a `resources[] × questions[]` matrix — and returns typed **Noul** (P(yes)), **Choice** (label + distribution), or **Score** (ordered level) judgments **without returning any file body**. Use it to decide *what* to read before you spend context on it, then read only what it selects.
+`clasify` is the only semantic tool. It supports two modes: Scout screens unread local or GitHub read requests, and Judge classifies state already held by the caller. Put independent candidates in one `resources[] × questions[]` matrix so the runtime evaluates them in parallel; keep the matrix at 25 cells or fewer. Results contain typed judgments and source scopes, never source bodies.
 
-- **A context multiplier.** In a measured 6-file routing test it cut the decision from ~18,850 to ~760 tokens (**~25× less**): candidates are assessed server-side (21,694 provider tokens) and **zero source bytes** come back — only the typed verdict plus a `resultHash`.
-- **Real semantic judgment, not pattern-matching.** It flagged a mixed `%s` + raw-concat query as still SQL-injectable, recognized an `int()`-guarded f-string as safe, and caught a latent `IndexError` — **23/23** on a labeled + adversarial set, with honest mid-range scores on genuinely debatable cases.
-- **Composes with the read tools.** `context.tool` wraps one unread `ghSearch` / `ghGetFileContent` / `ghSearchHistory` / `ghGetHistoryItem` / `artifactSearch` / `localSearch` / `localFetch` / `astSearch` / `lspSearch` query (9 read tools). Up to 25 cells per matrix; big matrices are far cheaper per judgment and run concurrently.
-- **A decision aid, never evidence.** Its verdict routes reading — it does not prove a claim. Read the bytes it selects to confirm.
+Use it only for an explicit classification request or a workflow measured to improve both final-answer quality and total host-token use. Direct search and reads remain the default; a verdict routes reading and does not prove a claim. Verify the deciding source.
 
-MCP registers `clasify` only when `OCTOCODE_CLASSIFICATION_API` (or its `OCTOCODE_JEV_KEY` alias) resolves nonblank; a keyless CLI call explains how to set it. Direct CLI form: `npx octocode clasify --input request.json`.
+MCP registers `clasify` only when `OCTOCODE_CLASSIFICATION_API` (or its `OCTOCODE_JEV_KEY` alias) resolves nonblank. Direct CLI form: `npx octocode clasify '<json>'`.
 
-**Enable classification and search reranking:**
+**Enable classification:**
 
 ```bash
 export OCTOCODE_CLASSIFICATION_API='your-provider-key'
@@ -277,11 +274,8 @@ export OCTOCODE_CLASSIFICATION_API_HOST='https://your-provider.example'
 ```
 
 Restart CLI, MCP, and Pi processes after changing these values. A nonblank API key
-registers the `clasify` MCP tool and adds `semanticRerank` (including optional
-`minScore`) to supported `ghSearch` and `localSearch` schemas. The host setting
-only selects the provider endpoint; **setting the host without a key enables
-nothing**. Local search snippets sent for reranking leave the machine for that
-configured provider.
+registers the `clasify` MCP tool. The host setting only selects the provider
+endpoint; setting the host without a key enables nothing.
 
 Full schemas, fields, and examples for every tool live in [`docs/OCTOCODE_TOOLS.md`](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md) (linked under [Documentation](#documentation)).
 
@@ -376,7 +370,7 @@ Most-used settings (both CLI and MCP unless noted):
 | `OCTOCODE_OUTPUT_FORMAT` | `output.format` | `yaml` | Response format: `yaml` or `json`. |
 | `OCTOCODE_STORAGE_MODE` | `storage.mode` | `persistent` | Set `memory` to prevent persistent runtime state and materialization. |
 | `OCTOCODE_BETA` | `local.beta` | `false` | Enable beta features — the sole gate for the `astRewrite` tool (both preview and apply). |
-| `OCTOCODE_CLASSIFICATION_API` | env only | unset | Classification provider API key (`OCTOCODE_JEV_KEY` is the jev-vendor alias). A nonblank value exposes `clasify` through MCP and `semanticRerank` on supported search schemas. Never commit it. |
+| `OCTOCODE_CLASSIFICATION_API` | env only | unset | Classification provider API key (`OCTOCODE_JEV_KEY` is the Jev-vendor alias). A nonblank value exposes only `clasify` through MCP. Never commit it. |
 | `OCTOCODE_CLASSIFICATION_API_HOST` | `classification.apiHost` | vendor default | Optional classification provider API-root override. It does not enable classification without a nonblank API key. Use HTTPS except for loopback development. |
 
 `OCTOCODE_HOME`, GitHub Enterprise (`GITHUB_API_URL`), MCP tool filtering (`TOOLS_TO_RUN`/`DISABLE_TOOLS`), and network timeouts/retries: see the [Configuration Reference](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md).
@@ -562,10 +556,9 @@ Each workspace package owns one layer of the toolkit. Package architecture pages
 | Interface | [`packages/octocode-vscode`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-vscode) · `octocode-mcp-vscode` | VS Code extension for GitHub OAuth, token synchronization, and MCP installation across supported editors. |
 | Host | [`packages/octocode-pi-extension`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-pi-extension) · `@octocodeai/pi-extension` | Full Pi integration and canonical owner of Pi prompt, protocol, capability, discovery, path, and control-database contracts. |
 | Research runtime | [`packages/octocode-native`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-native) · `@octocodeai/octocode-native` | Consolidated distribution for the native CLI, runtime addon (`.`/`./runtime`), and engine primitive addon (`./engine`), backed by separate Rust crates. |
-| Native workspace | [`packages/octocode-extension-rust`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-extension-rust) · `@octocodeai/octocode-extension-rust` | Separate Rust/napi boundary for workspace snapshots, guarded mutations, durable history, and line-level diffs used by agent hosts and Awareness. |
+| Native workspace | [`packages/octocode-extension-rust`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-extension-rust) · `@octocodeai/octocode-extension-rust` | Separate Rust/napi boundary for workspace snapshots, guarded mutations, durable history, and line-level diffs used by agent hosts. |
 | Configuration | [`packages/octocode-config`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-config) · `@octocodeai/config` | Zero-dependency loader for Octocode home resolution, environment propagation, `.env`, and `.octocoderc`; the single configuration source for the monorepo. |
 | Skill distribution | [`packages/octocode-skill-installer`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-skill-installer) · `@octocodeai/octocode-skill-installer` | Shared installer for durable skill materialization, platform-specific links or copies, upgrades, and conflict reporting. |
-| Coordination | [`packages/octocode-awareness`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-awareness) · `@octocodeai/octocode-awareness` | Local SQLite coordination and canonical shared entity, permission, embedding, physiology, and SQLite primitives exposed to hosts through its host API. |
 | Coordination | [`packages/octocode-agents-communication`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-agents-communication) · `@octocodeai/octocode-agents-communication` | Private, unpublished Rust CLI distributed inside its communication skill. Coordinates session identity, advisory path leases, and direct messages. |
 | Evaluation | [`packages/octocode-benchmark`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark) · `@octocodeai/octocode-benchmark` | Private benchmark and eval workspace for head-to-head research studies, routing regressions, graders, reports, and reproducible run artifacts. |
 | Evaluation | [`packages/octocode-jev-lab`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-jev-lab) · `@octocodeai/jev-lab` | Private probe that sends a semantic experiment to the classification API without the runtime adapter. |

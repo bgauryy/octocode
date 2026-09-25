@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, test } from 'vitest';
-import { contentDigest } from '@octocodeai/octocode-awareness/host';
+import { contentDigest } from '../src/runtime/continuity-contracts.js';
 import type { PiInstance, ToolDefinition } from '../src/types.js';
 import {
   OCTOCODE_COMPACTION_THRESHOLD,

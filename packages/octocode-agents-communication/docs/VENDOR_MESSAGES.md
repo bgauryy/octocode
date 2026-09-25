@@ -1,5 +1,11 @@
 # Exposed vendor message APIs
 
+This page retains the earlier probes and their measured artifacts. For the
+four-vendor native wake matrix and Grok adapter, use
+[Grok integration](GROK_INTEGRATION.md); [service protocol](SERVICE_PROTOCOL.md)
+owns the production delivery and fallback contract. Counts and skill sizes below
+describe their recorded probes, not the current skill bundle.
+
 Checked September 25, 2026. The shared SQLite store remains the cross-vendor
 transport. Native APIs are optional ways to deliver a stored message into a
 particular running agent; they do not replace our identity, retention, leases,
@@ -178,7 +184,7 @@ Implemented in `rust/dispatch.rs` and `rust/transport.rs`; Pi's existing-session
 bridge is `skills/octocode-agents-communication/scripts/pi-inbox.mjs`. These read
 committed DB deliveries and record durable attempt/confirmation state before and
 after native injection. All participants join and all replies return through the DB.
-The skill is 49 lines; command help owns the detailed schemas. No relay model or
+The skill stays under 50 lines; command help owns the detailed schemas. No relay model or
 private transcript mutation is involved. Generic `scripts/inbox-hook` emits new
 context for an explicit host event; no host API is required for manual CLI use.
 
@@ -194,9 +200,10 @@ receipts. The controller's four reply deliveries need not be acknowledged to pro
 recipient handling. This is a local acceptance test, not a reliability or scale SLO.
 
 An earlier run exposed timing ambiguity between hook stdout and Pi queueing, plus
-a probe that could prompt before Pi settled. Pi now stages the hook, queues native
-context, then confirms the token; the probe waits for `agent_settled`. Unconfirmed
-attempts never replay automatically. Explicit recovery may duplicate a message
+a probe that could prompt before Pi settled. The current Pi adapter stages the hook, supplies passive native
+context, then confirms only a token found in the actual host session file. The probe
+waits for `agent_settled`. Its lifecycle owner reconciles staged attempts against the
+complete ledger on restart; other unconfirmed attempts require explicit recovery. Explicit recovery may duplicate a message
 whose host receipt was lost. Per-vendor history and real recipient inference costs
 remain; missing host usage is reported as unknown rather than zero.
 

@@ -20,8 +20,7 @@ export function rankResources(resources, questionId, label) {
     const ranked = pages.filter(p => p.value !== null).sort((a, b) => b.value - a.value);
     const best = ranked[0];
     const sourceView = resource.view !== 'symbols';
-    const focus = sourceView ? best?.page.focus?.[questionId] : undefined;
-    const scope = sourceView ? (focus ?? best?.page.scope) : undefined;
+    const scope = sourceView ? best?.page.scope : undefined;
     const ranges = scope?.lineRanges ?? (Number.isInteger(scope?.startLine) && Number.isInteger(scope?.endLine)
       ? [{ startLine: scope.startLine, endLine: scope.endLine }] : [{}]);
     const reads = ranges.map(range => ({ tool: 'localFetch', query: {
@@ -53,14 +52,14 @@ export async function runLocalSemantic(client, options) {
   const maxCalls = options.maxCalls ?? 80;
   const top = options.top ?? 5;
   const questions = options.questions;
-  if (!['scout', 'lexical', 'rerank'].includes(mode)) throw new Error('mode must be scout, lexical, or rerank');
+  if (!['scout', 'lexical'].includes(mode)) throw new Error('mode must be scout or lexical');
   if (!['none', 'symbols'].includes(view)) throw new Error('view must be none or symbols');
   if (options.sectionPattern && (mode !== 'scout' || view !== 'none')) throw new Error('sectionPattern requires Scout with original source view');
   for (const [key, value] of Object.entries({ maxFiles, maxCalls, top })) {
     if (!Number.isInteger(value) || value < 1) throw new Error(`${key} must be a positive integer`);
   }
   if (!Array.isArray(questions) || questions.length < 1 || questions.length > 5) throw new Error('provide 1–5 questions');
-  if (mode !== 'scout' && !options.pattern) throw new Error('lexical/rerank requires pattern');
+  if (mode !== 'scout' && !options.pattern) throw new Error('lexical requires pattern');
   const rankBy = options.rankBy ?? questions[0].id;
   const rankedQuestion = questions.find(q => q.id === rankBy);
   if (!rankedQuestion) throw new Error('rankBy must identify an input question');
@@ -91,7 +90,7 @@ export async function runLocalSemantic(client, options) {
       'Development retrieval experiment, not an agent quality benchmark.',
       'bestPageValue is a maximum page judgment, not a calibrated file probability; longer files have more chances to score.',
       'No low score establishes absence. Partial, errored, and unscanned files remain unresolved.',
-      'Follow only focus keyed to the ranking question; missing focus requires the source scope or another exact lookup.',
+      'Follow verified source scopes; request narrower sections explicitly when a page is too broad.',
       ...(view === 'symbols' ? ['Outline judgments cover headings/signatures only. Their view positions must not be replayed as source lines.'] : []),
       'Response bytes measure MCP transport, not model tokens. Provider tokens are separate.',
       ...(options.dedupe ? ['Exact byte deduplication assumes a content-only question; identical bytes at different paths need not have identical repository meaning. Relevance scores cannot establish novelty or near-duplicate equivalence.'] : [])
@@ -104,21 +103,15 @@ export async function runLocalSemantic(client, options) {
       resultView: 'paginated', pageSize: Math.min(maxFiles, 8),
       maxMatchesPerFile: 3, contextLines: 2, matchContentLength: 500,
       reasoning: 'Locate useful documentation using a lexical anchor and bounded snippets.',
-      ...(mode === 'rerank' ? { semanticRerank: { questions: [{ id: rankedQuestion.id, question: rankedQuestion.question.instructions }] } } : {})
     }], responseCharLength: 50000 });
     const row = response.results?.[0];
     if (row?.status === 'error' || !row?.data) throw new Error(JSON.stringify(row ?? response));
     const data = row.data;
-    const candidates = (data.files ?? []).map((file, index) => ({
+    const candidates = (data.files ?? []).map(file => ({
       path: resolve(response.base ?? root, file.path),
-      ...(mode === 'rerank' ? { score: data.semanticRerank?.candidates?.[index]?.score } : {}),
       anchors: (file.matches ?? []).map(m => m.line)
     }));
-    if (mode === 'rerank' && data.semanticRerank?.usage) {
-      metrics.providerInputTokens += data.semanticRerank.usage.input_tokens ?? 0;
-      metrics.providerOutputTokens += data.semanticRerank.usage.output_tokens ?? 0;
-    }
-    return finish({ candidates, selected: candidates.slice(0, top), search: data, discoveryComplete: !data.pagination?.hasMore, retainedContinuation: data.semanticRerank?.next ?? data.next });
+    return finish({ candidates, selected: candidates.slice(0, top), search: data, discoveryComplete: !data.pagination?.hasMore, retainedContinuation: data.next });
   }
 
   let args = { queries: [{ operation: 'files', path: root, names: options.names ?? ['*.md'], entryType: 'f', detail: 'full', sort: 'path', pageSize: 100, reasoning: 'Discover file identities without loading source bodies into the agent context.' }], responseCharLength: 50000 };

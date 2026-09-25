@@ -1,8 +1,5 @@
-import {
-  AWARENESS_PI_HOST_PROMPT,
-  contentDigest,
-  type PiRuntimeObservation,
-} from '@octocodeai/octocode-awareness/host';
+import { contentDigest } from '../runtime/continuity-contracts.js';
+import { type PiRuntimeObservation } from '../runtime/physiology.js';
 import type { PromptMode } from '../contracts/protocols.js';
 import type { BeforeAgentStartEvent, NotifyFn, PiContext, PiInstance } from '../types.js';
 import type { SessionScopedState } from '../session-scoped-state.js';
@@ -26,8 +23,6 @@ import { renderRuntimeCapabilitiesAddendum } from './image-render.js';
 import { getCachedMcpCatalogAddendum, getCachedMcpCounts } from './mcp-tool.js';
 import { getDynamicCapabilitiesAddendum } from './dynamic-catalog.js';
 import { renderAvailableSkillsAddendum } from './skill-catalog.js';
-import { renderAwarenessCliContext } from './awareness-cli-context.js';
-import { refreshAwarenessPanel } from './awareness-status.js';
 import { activePlanScope, bumpPlanTurn } from './planning/plan-store.js';
 import { getCurrentPlanReadModel, renderPlanContext } from './plan-read-model.js';
 import { readSessionMemoryForContext } from './session-memory-runtime.js';
@@ -159,19 +154,7 @@ export function createPromptPreflightController(options: PromptPreflightOptions)
       ),
       'available-skills': hasCapability('skill') ? renderAvailableSkillsAddendum(session.latestAvailableSkills) : '',
       'session-artifact-contract': session.sessionArtifactPathsContext,
-      'awareness-cli-runtime': !hasCapability('awareness') && hasCapability('bash')
-        ? renderAwarenessCliContext(ctx)
-        : '',
     });
-
-    if (worker) {
-      session.cachedSystemPromptText = (!hasCapability('awareness') && !hasCapability('bash'))
-        || piPrompt.includes(AWARENESS_PI_HOST_PROMPT)
-        ? ''
-        : AWARENESS_PI_HOST_PROMPT;
-    } else {
-      refreshAwarenessPanel(ctx);
-    }
 
     const planScope = activePlanScope(ctx);
     if (!worker) bumpPlanTurn(planScope);
@@ -320,7 +303,7 @@ export function createPromptPreflightController(options: PromptPreflightOptions)
       directToolChars: directToolStats.totalChars,
       providerSubtotalChars,
       estimatedTokens: estimatedProviderTokens,
-      contextAwarenessEstimates: promptAssembly.estimates,
+      contextAssemblyEstimates: promptAssembly.estimates,
       mcpServers: mcpCounts.servers,
       mcpTools: mcpCounts.tools,
       skills: session.latestAvailableSkills?.length ?? 0,
@@ -333,7 +316,7 @@ export function createPromptPreflightController(options: PromptPreflightOptions)
         mcpChars: mcpCatalog.length,
         dynamicChars,
         totalChars: resolvedPrompt.length + turnContextChars,
-        contextAwarenessEstimates: promptAssembly.estimates,
+        contextAssemblyEstimates: promptAssembly.estimates,
         directToolChars: directToolStats.totalChars,
         mcpServers: mcpCounts.servers,
         mcpTools: mcpCounts.tools,

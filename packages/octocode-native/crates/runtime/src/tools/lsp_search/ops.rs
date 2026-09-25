@@ -38,7 +38,7 @@ pub(super) struct Operation<'a, 'p> {
 impl Operation<'_, '_> {
     pub(super) async fn run(self) -> Result<Value, LspFailure> {
         let query = self.query;
-        match query.operation.as_str() {
+        match query.operation().as_str() {
             "definition" => {
                 let found = resolve_definition_chain(
                     self.client,
@@ -55,7 +55,7 @@ impl Operation<'_, '_> {
                     .await)
             }
             "references" => {
-                let include_declaration = query.include_declaration.unwrap_or(true);
+                let include_declaration = query.include_declaration().unwrap_or(true);
                 let mut found = self
                     .location_request(LocationRequest::References {
                         include_declaration,
@@ -66,7 +66,7 @@ impl Operation<'_, '_> {
                     self.sources,
                     self.snippet_policy,
                     self.cancel,
-                    query.symbol_name.as_deref(),
+                    query.symbol_name(),
                     include_declaration,
                     self.path,
                     self.line,
@@ -126,8 +126,8 @@ impl Operation<'_, '_> {
                         true,
                     ),
                     hover => json!({
-                        "type": query.operation,
-                        "uri": query.uri,
+                        "type": query.operation(),
+                        "uri": query.uri(),
                         "lsp": { "serverAvailable": true, "provider": "hoverProvider" },
                         "payload": { "kind": "hover", "hover": hover }
                     }),
@@ -200,8 +200,8 @@ impl Operation<'_, '_> {
     async fn workspace_symbol(self) -> Result<Value, LspFailure> {
         let query = self.query;
         let name = query
-            .symbol_name
-            .clone()
+            .symbol_name()
+            .map(str::to_owned)
             .ok_or_else(|| LspFailure::invalid_query("workspaceSymbol requires symbolName"))?;
         let symbols = cancellable(self.cancel, self.client.workspace_symbol(name)).await??;
         // workspace/symbol URIs are server-controlled and span the whole

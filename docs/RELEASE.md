@@ -20,7 +20,7 @@ binary embeds the contract `@octocodeai/config` generated from core
 | Gate | Command | What it proves |
 |---|---|---|
 | Full verify | `yarn workspace @octocodeai/octocode-native verify` | fmt, clippy, tests, loader/ABI/version checks, contract freshness + sync, doc claims |
-| Contract sync (dev) | `yarn workspace @octocodeai/config check:tool-contract && yarn workspace @octocodeai/config check:core-contract-sync` | `packages/octocode-config/contract/` (embedded by native) is current and matches the resolved core |
+| Contract freshness (dev) | `yarn workspace @octocodeai/config check:tool-contract` | `packages/octocode-config/contract/` (embedded by native) is exactly what the resolved core generates |
 | Contract sync (published) | `yarn workspace @octocodeai/config check:core-contract-sync:published` | Embedded contracts match the **npm-published** core at the pinned version — what a clean install actually delivers. Runs automatically in `prepublishOnly`; blocks publish only, never dev |
 | Docs drift | `yarn workspace @octocodeai/octocode-native docs:claims` | README exit codes, tool count, and documented env names match source |
 | Launcher e2e | CI `launcher-e2e` job (Linux) | The built npm launcher drives the real native binary end-to-end |

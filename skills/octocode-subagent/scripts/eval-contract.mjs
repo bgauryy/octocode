@@ -6,7 +6,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const subjectPaths = ['SKILL.md', 'references/orchestration-contract.md', 'references/spawn-gate.md', 'references/decompose.md', 'references/packets.md', 'references/evaluation.md', 'references/awareness.md', 'references/completion.md'];
+const subjectPaths = ['SKILL.md', 'references/orchestration-contract.md', 'references/spawn-gate.md', 'references/decompose.md', 'references/packets.md', 'references/evaluation.md', 'references/shared-work.md', 'references/completion.md'];
 const required = [...subjectPaths, 'README.md', 'evals/cases.json', 'references/references.md'];
 const usage = `eval-contract [--results <fresh-receipt.json>] [--print-digest]\n\nValidates the orchestration suite and optionally grades provenance-bearing fresh-agent outputs.\n--results <path>  grade a fresh receipt for the current subject digest\n--print-digest    print current subject and case digests\n--help            show this help`;
 
@@ -43,7 +43,7 @@ for (const testCase of suite.cases ?? []) {
   if (!['trigger', 'near-miss'].includes(testCase.activation)) failures.push(`${testCase.id}: invalid activation`);
   if (!decisions.has(testCase.expected.decision)) failures.push(`${testCase.id}: invalid decision`);
   for (const [field, values] of Object.entries(safetyFields)) if (testCase.expected[field] !== undefined && !values.has(testCase.expected[field])) failures.push(`${testCase.id}: invalid ${field}`);
-  for (const flag of ['eval', 'awareness']) if (typeof testCase.expected[flag] !== 'boolean') failures.push(`${testCase.id}: ${flag} must be boolean`);
+  for (const flag of ['eval', 'coordination']) if (typeof testCase.expected[flag] !== 'boolean') failures.push(`${testCase.id}: ${flag} must be boolean`);
   if (testCase.split === 'regression' && typeof testCase.expected.tdd !== 'boolean') failures.push(`${testCase.id}: tdd must be boolean`);
 }
 for (const activation of ['trigger', 'near-miss']) if (suite.cases.filter((item) => item.split === 'regression' && item.activation === activation).length < 4) failures.push(`need at least four regression ${activation} cases`);
@@ -77,7 +77,7 @@ if (!failures.length && resultsPath) {
     const result = observed.get(testCase.id);
     if (!result) { failures.push(`${testCase.id}: missing observed result`); continue; }
     if (result.prompt !== testCase.prompt) failures.push(`${testCase.id}: result prompt does not match suite`);
-    for (const field of ['decision', 'tdd', 'eval', 'awareness', ...Object.keys(safetyFields)]) if (testCase.expected[field] !== undefined && result[field] !== testCase.expected[field]) failures.push(`${testCase.id}: ${field} expected ${testCase.expected[field]} observed ${result[field]}`);
+    for (const field of ['decision', 'tdd', 'eval', 'coordination', ...Object.keys(safetyFields)]) if (testCase.expected[field] !== undefined && result[field] !== testCase.expected[field]) failures.push(`${testCase.id}: ${field} expected ${testCase.expected[field]} observed ${result[field]}`);
     if (result.activate !== (testCase.activation === 'trigger')) failures.push(`${testCase.id}: activation mismatch`);
     if (typeof result.rationale !== 'string' || result.rationale.length < 20) failures.push(`${testCase.id}: missing rationale`);
   }

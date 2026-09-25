@@ -4,7 +4,7 @@ Use this catalog to select an existing deterministic helper before writing a new
 
 | Script | Role |
 |---|---|
-| `fetch.mjs` | Fetch, crawl, and extract into `.octocode/tmp/scrape/{sessionId}`; omit `--provider` for keyless HTML |
+| `fetch.mjs` | Fetch, crawl, and extract into `.octocode/tmp/scrape/{sessionId}`; omitted `--provider` uses bounded direct HTTP and emits `next` when one browser capture is justified |
 | `provider-check.mjs` / `provider-usage.mjs` | Route readiness / hosted credits (no secrets) |
 | `scrapingant-*.mjs` | Deprecated shims → `fetch` / `provider-*` |
 | `fetch-and-brief.mjs` | Optional fetch + corpus brief |
@@ -19,7 +19,7 @@ Schemas live in `schemas/graph.schema.json` and `schemas/provider.schema.json`. 
 
 `node scripts/corpus-find.mjs --session-dir <dir> --query <text> --limit 20` returns a ranked page. `--limit` is a positive safe integer (default 20); `--offset` is a non-negative safe integer (default 0). Partial output includes exact counts and `next.page` with an absolute executable `command` and raw `args`. Run that command with those arguments unchanged until `completeness` is `complete` and `next` is `null`. Evidence-file suggestions are separate in `suggestedFiles`. See `../references/session-corpus.md` for the output contract and corpus stability requirement.
 
-Semantic pre-read triage is not a script: call `octocode clasify` directly per [../references/clasify-screen.md](../references/clasify-screen.md). `corpus-find` ranks whole pages; to locate lines use `corpus-run --regex` (JavaScript regex; `--flags i` for case-insensitive).
+Classification admission belongs to `octocode-clasify`; admitted requests use [../references/clasify-screen.md](../references/clasify-screen.md). `corpus-find` ranks whole pages; to locate lines use `corpus-run --regex` (JavaScript regex; `--flags i` for case-insensitive).
 
 ## Focused regressions
 
@@ -28,7 +28,8 @@ Run from the skill directory:
 ```sh
 node --test scripts/tests/corpus-find.test.mjs
 node --test scripts/tests/fetch-session.test.mjs
+node --test scripts/tests/http-policy.test.mjs
 node --test scripts/tests/cdp-client.test.mjs
 ```
 
-The corpus test executes limit-one continuations over seven fixed matches, checks their exact union, terminal states, and invalid arguments. The CDP test checks the generated default runner through navigation/body extraction and rejects failed stealth setup without starting a real browser. Live browser verification remains separate.
+The corpus test executes limit-one continuations over seven fixed matches, checks their exact union, terminal states, and invalid arguments. The HTTP policy test covers robots precedence, bounded body reads, and one short `Retry-After`. The CDP test checks the generated default runner through navigation/body extraction and rejects failed stealth setup without starting a real browser. Live browser verification remains separate.

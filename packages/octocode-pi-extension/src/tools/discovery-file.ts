@@ -43,7 +43,7 @@ export interface SystemPromptStats {
   providerSubtotalChars: number;
   /** Rough token estimate of the provider subtotal at 4 chars/token. */
   estimatedTokens: number;
-  contextAwarenessEstimates?: AssembledContextV1['estimates'];
+  contextAssemblyEstimates?: AssembledContextV1['estimates'];
   mcpServers: number;
   mcpTools: number;
   skills: number;
@@ -80,7 +80,7 @@ export async function buildDiscoverySnapshot(
     overhead?: {
       sysChars: number; mcpChars: number; dynamicChars: number;
       totalChars: number; mcpServers: number; mcpTools: number; skills: number;
-      contextAwarenessEstimates?: AssembledContextV1['estimates'];
+      contextAssemblyEstimates?: AssembledContextV1['estimates'];
       directToolChars?: number; status?: 'pending' | 'ready' | 'stale'; mode?: 'routing';
     };
   },
@@ -96,7 +96,7 @@ export async function buildDiscoverySnapshot(
         directToolChars: opts.overhead.directToolChars ?? 0,
         providerSubtotalChars: opts.overhead.totalChars + (opts.overhead.directToolChars ?? 0),
         estimatedTokens: Math.round((opts.overhead.totalChars + (opts.overhead.directToolChars ?? 0)) / 4),
-        ...(opts.overhead.contextAwarenessEstimates ? { contextAwarenessEstimates: opts.overhead.contextAwarenessEstimates } : {}),
+        ...(opts.overhead.contextAssemblyEstimates ? { contextAssemblyEstimates: opts.overhead.contextAssemblyEstimates } : {}),
         mcpServers: opts.overhead.mcpServers,
         mcpTools: opts.overhead.mcpTools,
         skills: opts.overhead.skills,

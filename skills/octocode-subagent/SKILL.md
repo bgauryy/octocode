@@ -23,7 +23,7 @@ Stop when acceptance is met or progress needs missing authority or information. 
 - At FRAME, load `references/orchestration-contract.md` when goal, authority, budget, ownership, or critical path needs definition; when deciding solo, batch, specialist, or clean worker, load `references/spawn-gate.md`.
 - When splitting work, load `references/decompose.md`; when choosing supervisor, pipeline, handoff, or swarm, load `references/patterns.md`. Before spawning, load `references/packets.md`; when delegating technical research, use `octocode-research`.
 - When selecting host model/thinking effort, load `references/model-routing.md`; when waiting, steering, messaging, or stopping workers, load `references/coordinate.md`; for independent remote peers, load `references/a2a.md`.
-- When parallel writers share mutable state, load `references/workspace.md`; when peers, locks, messages, verification debt, or reusable memory can change EXECUTE/VERIFY, load `references/awareness.md`.
+- When parallel writers share mutable state, load `references/workspace.md`; when peers, leases, messages, or handoffs change EXECUTE/VERIFY, load `references/shared-work.md`. Keep recovery, verification debt, and reusable lessons in host task context.
 - For behavior changes use red→green TDD; when improvement needs a KPI, held-out cases, or strategy comparison load `references/evaluation.md` — freeze the sensor before mutation.
 - When workers stall, fail, or conflict, load `references/recovery.md`; before final output load `references/synthesize.md` and `references/output.md`.
 - At CLEANUP/REPORT load `references/completion.md` — recheck integrated anchors, docs, authorized cleanup, and real host/CLI behavior.

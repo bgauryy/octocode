@@ -1,14 +1,21 @@
-# Optional corpus relevance screen
+# Corpus resources for an explicit classification request
 
-Load when paths, URL metadata, titles, snippets, and a cheap literal search leave several unread pages or parts ambiguous, and a semantic result would change which one you read next. This is the owner of corpus Scout routing. Skip the call when visible evidence identifies the needed page or a direct read is cheaper. A page count or size alone is not a trigger.
+`octocode-clasify` owns admission, questions, coverage, and verification. Use its gate before this recipe; ordinary investigation searches and reads source directly. This file only maps saved artifacts to resources.
 
-## Prepare
+- Search metadata and exact text first using `scripts/corpus-find.mjs` and `scripts/corpus-run.mjs`; omit empty and duplicate artifacts. Use direct search when a literal can express the target.
+- For semantic targets over unread saved text, supply `localFetch` resources with absolute paths and one atomic `questionType:"locate"` target per question. It returns one small ranked verification window plus `exists`, so the host can inspect only that source area. For already observed values, use `context.value`.
+- Keep each resource ID linked to its original artifact and URL metadata. Apply the caller’s explicit questions without adding a relevance or routing bundle.
+- After assessment, inspect the deciding original spans before making a factual claim. Source coordinates and transformed-view coordinates remain distinct.
 
-- Drop empty, thin, and duplicate extractions using metadata. Keep known required pages in the read set.
-- Ask one concrete relevance question for the research direction. A page is relevant if it contributes even one useful fact, constraint, counterexample, or lead; it need not answer the whole question. Implementation wording belongs only to implementation lookup.
-- Submit ambiguous unread pages as `localFetch` `{tool,query}` resources with absolute paths. Use a heading-bounded section or targeted line range when known. Preserve the complete meaning of that section; an arbitrary `maxChars` cap can silently leave coverage partial. Split genuinely large documents by meaningful sections and keep `resources × questions ≤ 25` per matrix.
-- Add a content-type or route Choice only when its answer changes the next action. The runtime adds `insufficient` to Choice. Use root `queries[]` only for independent matrices.
+Next: inspect the selected page with `scripts/corpus-inspect.mjs`, then cite per `references/extraction-quality.md`.
 
-Call `octocode clasify --input <request>.json` directly when configured. Exit 6 requires the unchanged `next.clasify` continuation. Read page scopes and coverage in `queries[].resources[].pages[]`; map each resource ID to its absolute local path for the exact follow-up read. `partial`, errors, and uncertainty remain open. Scores help order reads and do not impose a universal exclusion threshold or prove absence. Read the smallest deciding source span, then verify the actual fact with `scripts/corpus-run.mjs --session-dir <d> --roots text --regex <term>` or a direct corpus read. Zero literal matches can mean different wording or absent text; inspect the page and rendering evidence before escalating to Chrome.
+## Executable CLI bridge
 
-When clasify is unavailable or unhelpful, use `scripts/corpus-find.mjs` for page ranking and `scripts/corpus-run.mjs` for exact line locations. Cite inspected source text, never a semantic route. Next: retrieve the selected span with `scripts/corpus-inspect.mjs` or `scripts/corpus-find.mjs`, then cite per `references/extraction-quality.md`.
+Run `octocode scheme clasify --view query --compact` once when the contract is unfamiliar. After `fetch.mjs` creates clean text, point Clasify at that file; never paste the body into the command. This two-question matrix was verified against a retained TypeSafe introduction page and captured the file once:
+
+```bash
+ARTIFACT="$PWD/.octocode/tmp/scrape/<session>/text/page-001.clean.part-001.md"
+octocode clasify "{\"id\":\"scrape-locate\",\"reasoning\":\"Locate two answers in retained scrape text before reading the artifact.\",\"resources\":[{\"id\":\"saved-page\",\"context\":{\"tool\":\"localFetch\",\"query\":{\"reasoning\":\"Assess retained clean text without returning its body.\",\"path\":\"$ARTIFACT\",\"fullContent\":true}}}],\"questions\":[{\"id\":\"choice-output\",\"question\":{\"questionType\":\"locate\",\"target\":\"What does the Choice primitive return?\"}},{\"id\":\"score-output\",\"question\":{\"questionType\":\"locate\",\"target\":\"What does the Score primitive return?\"}}]}"
+```
+
+Read `source.path` at each `matches[0].startLine/endLine`; widen by a few adjacent lines only when a sentence or structured record crosses the returned window. Low `exists`, partial coverage, or an error remains unresolved.

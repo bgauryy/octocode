@@ -314,7 +314,6 @@ export function adoptPlanFromBranch(scope: PlanScope, branchEntries: unknown[], 
         planCoordination.set(scope, { ...fresh, mode: coordination.mode, localReason: coordination.localReason });
         for (const step of steps) {
           step.status = 'todo';
-          delete step.awarenessTaskId;
         }
       } else {
         planCoordination.set(scope, coordination);
@@ -398,7 +397,8 @@ export function getPlanPersistenceFailure(scope: PlanScope): string | undefined 
 
 function freshCoordination(scope: PlanScope): PlanCoordination {
   return {
-    mode: 'auto',
+    mode: 'local',
+    localReason: 'Pi session plan',
     sourcePlanKey: `pi-plan-${randomUUID()}`,
     coordinationWorkspace: workspaceForPlanScope(scope),
   };
@@ -424,8 +424,6 @@ export function updatePlanCoordination(
     mode?: PlanCoordinationMode;
     localReason?: string | null;
     coordinationWorkspace?: string;
-    awarenessPlanId?: string | null;
-    materializedRevision?: string | null;
   },
 ): PlanCoordination {
   const current = getPlanCoordination(scope);
@@ -435,61 +433,16 @@ export function updatePlanCoordination(
     : cleanContractText(updates.localReason);
   if (mode === 'local' && !localReason) throw new Error('local coordination mode requires localReason');
   const coordinationWorkspace = cleanContractText(updates.coordinationWorkspace, 2_000) ?? current.coordinationWorkspace;
-  const awarenessPlanId = updates.awarenessPlanId === undefined
-    ? current.awarenessPlanId
-    : updates.awarenessPlanId === null ? undefined : cleanContractText(updates.awarenessPlanId, 256);
-  const materializedRevision = updates.materializedRevision === undefined
-    ? current.materializedRevision
-    : updates.materializedRevision === null ? undefined : cleanContractText(updates.materializedRevision, 256);
   const next: PlanCoordination = {
     ...current,
     mode,
     coordinationWorkspace,
     ...(localReason ? { localReason } : {}),
-    ...(awarenessPlanId ? { awarenessPlanId } : {}),
-    ...(materializedRevision ? { materializedRevision } : {}),
   };
   if (mode !== 'local') delete next.localReason;
-  if (!awarenessPlanId) delete next.awarenessPlanId;
-  if (!materializedRevision) delete next.materializedRevision;
   planCoordination.set(scope, next);
   persist(scope);
   return { ...next };
-}
-
-export function setPlanAwarenessMappings(
-  scope: PlanScope,
-  mapping: { awarenessPlanId: string; taskIdsByStepId: Record<string, string>; materializedRevision?: string },
-): PlanStep[] {
-  const list = getPlan(scope);
-  const awarenessPlanId = cleanContractText(mapping.awarenessPlanId, 256);
-  if (!awarenessPlanId) throw new Error('awarenessPlanId is required');
-  const taskIds = new Map(Object.entries(mapping.taskIdsByStepId).map(([stepId, taskId]) => [stepId, cleanContractText(taskId, 256)]));
-  for (const step of list) {
-    if (!taskIds.get(step.id)) throw new Error(`missing Awareness task mapping for step ${step.id}`);
-  }
-  const next = list.map((step) => ({ ...step, awarenessTaskId: taskIds.get(step.id)! }));
-  plans.set(scope, next);
-  const current = getPlanCoordination(scope);
-  planCoordination.set(scope, {
-    ...current,
-    awarenessPlanId,
-    ...(mapping.materializedRevision ? { materializedRevision: cleanContractText(mapping.materializedRevision, 256) } : {}),
-  });
-  markUpdated(scope);
-  persist(scope);
-  return next;
-}
-
-export function clearPlanAwarenessMappings(scope: PlanScope): PlanStep[] {
-  const next = getPlan(scope).map(({ awarenessTaskId: _taskId, ...step }) => step);
-  plans.set(scope, next);
-  const current = getPlanCoordination(scope);
-  const { awarenessPlanId: _planId, materializedRevision: _revision, ...local } = current;
-  planCoordination.set(scope, local);
-  markUpdated(scope);
-  persist(scope);
-  return next;
 }
 
 export function getPlanLifecycle(scope: PlanScope): PlanPhase {

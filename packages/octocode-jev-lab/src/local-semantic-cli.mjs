@@ -20,8 +20,8 @@ const { values } = parseArgs({ options: {
 if (values.help) {
   process.stdout.write(`Private local semantic discovery POC — real local MCP, no new public tool.
 Usage: node src/local-semantic-cli.mjs --path DIR --question TEXT [options]
-  --mode scout|lexical|rerank  Full-content screening or search baselines
-  --pattern REGEX            Required for lexical/rerank; use sensible synonyms
+  --mode scout|lexical  Full-content screening or search baselines
+  --pattern REGEX            Required for lexical; use sensible synonyms
   --view none|symbols        Scout source or headings/signatures; default none
   --section-pattern REGEX   Scout complete Markdown sections selected by headings
   --questions FILE           JSON array of typed Clasify questions instead of --question

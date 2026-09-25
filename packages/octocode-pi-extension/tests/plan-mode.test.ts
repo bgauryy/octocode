@@ -31,14 +31,9 @@ test('every shipped support/override tool has declared effect metadata', () => {
   assert.equal(getToolEffect('web'), 'read');
 });
 
-test('Awareness tool effects follow the canonical operation catalog', () => {
-  const query = (operation?: string, params?: Record<string, unknown>) => ({ queries: [{ ...(operation ? { operation } : {}), ...(params ? { params } : {}) }] });
-  assert.equal(getToolEffect('awareness', query()), undefined);
-  assert.equal(getToolEffect('awareness', query('context.orient')), 'read');
-  assert.equal(getToolEffect('awareness', query('message.send', { kind: 'fyi', subject: 'status' })), 'coordination-write');
-  assert.equal(getToolEffect('awareness', query('history.restore', { action: 'apply', preview_id: 'p1' })), 'workspace-write');
-  assert.equal(getToolEffect('awareness', query('history.restore', { action: 'preview', operation_id: 'o1', side: 'before' })), 'read');
-  assert.equal(getToolEffect('awareness', query('not.an.operation')), undefined);
+test('native communication declares read and advisory coordination effects', () => {
+  for (const name of ['peers', 'inbox', 'read_document', 'activity']) assert.equal(getToolEffect(name), 'read');
+  for (const name of ['send_message', 'notify_all', 'ack', 'subscribe', 'lock', 'renew', 'unlock', 'lock_many', 'share_document']) assert.equal(getToolEffect(name), 'coordination-write');
 });
 
 test('capability receipts are deterministic and deny precedence is fail-closed', () => {

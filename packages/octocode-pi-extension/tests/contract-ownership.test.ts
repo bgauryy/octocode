@@ -13,12 +13,10 @@ describe('shared-definition ownership', () => {
     expect(prompt).not.toMatch(/(?:const|let)\s+PLAN_PROMPT_(?:MAX_GOAL|TRUNCATION_MARKER)\s*=/);
   });
 
-  it('keeps Awareness operating policy in its owner instead of copying it into Pi', () => {
-    const prompt = source('../src/prompts/system-prompt.ts');
-    expect(prompt).toContain(
-      "import { AWARENESS_PI_HOST_PROMPT } from '@octocodeai/octocode-awareness/host'",
-    );
-    expect(prompt).not.toContain('signal publish');
-    expect(prompt).not.toContain('verify audit');
+  it('keeps native communication registration in its bundled owner', () => {
+    const bridge = source('../src/tools/communication-runtime.ts');
+    expect(bridge).toContain("'octocode-agents-communication', 'scripts'");
+    expect(bridge).toContain("'pi-inbox.mjs'");
+    expect(source('../src/prompts/system-prompt.ts')).not.toContain('context.orient');
   });
 });

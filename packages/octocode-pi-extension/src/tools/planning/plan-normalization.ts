@@ -42,7 +42,7 @@ export function cleanReviewText(value: unknown, max = 8_000): string {
   return typeof value === 'string' ? value.trim().slice(0, max) : '';
 }
 
-export type NormalizedStepInput = Omit<PlanStep, 'status' | 'dependsOnStepIds' | 'awarenessTaskId'> & { dependsOn?: number[] };
+export type NormalizedStepInput = Omit<PlanStep, 'status' | 'dependsOnStepIds'> & { dependsOn?: number[] };
 
 export function normalizeInput(step: StepInput): NormalizedStepInput {
   if (typeof step === 'string') return { id: `step-${randomUUID()}`, text: cleanStepText(step) };

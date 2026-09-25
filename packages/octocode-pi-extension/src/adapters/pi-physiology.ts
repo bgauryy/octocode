@@ -1,7 +1,4 @@
-import {
-  PiRuntimeObservationSchema,
-  type PiRuntimeObservation,
-} from '@octocodeai/octocode-awareness/host';
+import { PiRuntimeObservationSchema, type PiRuntimeObservation } from '../runtime/physiology.js';
 import type { PiContext, PiInstance } from '../types.js';
 
 type ToolOutcome = 'succeeded' | 'failed' | 'cancelled' | 'blocked';
@@ -78,15 +75,7 @@ function terminalOutcome(event: ToolEvent): ToolOutcome | undefined {
 
 function defaultInternalTool(event: Readonly<ToolEvent>): boolean {
   const name = typeof event.toolName === 'string' ? event.toolName.toLowerCase() : '';
-  if (name.includes('awareness') || name.startsWith('__')) return true;
-  if (name !== 'bash') return false;
-  const toolInput = record(event['input']) ?? record(event.args);
-  const isAwarenessCliInvocation = (value: unknown): boolean => typeof value === 'string'
-    && /(?:OCTOCODE_AWARENESS_CLI|@octocodeai\/octocode-awareness|\boctocode-awareness\b)/i.test(value);
-  if (isAwarenessCliInvocation(toolInput?.['command'])) return true;
-  const queries = toolInput?.['queries'];
-  if (!Array.isArray(queries) || queries.length === 0 || queries.length > 100) return false;
-  return queries.every((query) => isAwarenessCliInvocation(record(query)?.['command']));
+  return name.startsWith('__');
 }
 
 function eventId(event: ToolEvent): string | undefined {

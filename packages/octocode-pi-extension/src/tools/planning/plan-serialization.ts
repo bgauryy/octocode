@@ -68,7 +68,6 @@ export function sanitizeStoredPlan(raw: unknown): PlanStep[] {
     const reasoning = cleanContractText(source.reasoning);
     const acceptance = cleanContractText(source.acceptance);
     const checkCommand = cleanContractText(source.checkCommand);
-    const awarenessTaskId = cleanContractText(source.awarenessTaskId, 256);
     out.push({
       id,
       text,
@@ -79,7 +78,6 @@ export function sanitizeStoredPlan(raw: unknown): PlanStep[] {
       ...(reasoning ? { reasoning } : {}),
       ...(acceptance ? { acceptance } : {}),
       ...(checkCommand ? { checkCommand } : {}),
-      ...(awarenessTaskId ? { awarenessTaskId } : {}),
     });
     if (out.length >= MAX_PLAN_STEPS) break;
   }
@@ -119,19 +117,15 @@ export function readCoordinationFromStored(raw: unknown, scope: PlanScope): Plan
   const value = root.coordination && typeof root.coordination === 'object'
     ? root.coordination as Record<string, unknown>
     : {};
-  const mode: PlanCoordinationMode = value.mode === 'required' || value.mode === 'local' ? value.mode : 'auto';
+  const mode: PlanCoordinationMode = 'local';
   const sourcePlanKey = cleanContractText(value.sourcePlanKey, 256) ?? `pi-plan-${randomUUID()}`;
   const coordinationWorkspace = cleanContractText(value.coordinationWorkspace, 2_000) ?? workspaceForPlanScope(scope);
   const localReason = cleanContractText(value.localReason);
-  const awarenessPlanId = cleanContractText(value.awarenessPlanId, 256);
-  const materializedRevision = cleanContractText(value.materializedRevision, 256);
   return {
     mode,
     sourcePlanKey,
     coordinationWorkspace,
     ...(localReason ? { localReason } : {}),
-    ...(awarenessPlanId ? { awarenessPlanId } : {}),
-    ...(materializedRevision ? { materializedRevision } : {}),
   };
 }
 

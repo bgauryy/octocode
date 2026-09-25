@@ -24,21 +24,6 @@ worker lifecycle records is stored at:
 $OCTOCODE_HOME/extension/state/extension.sqlite3
 ```
 
-This extension-owned database is separate from shared Awareness coordination and
-memory state. Plans, tasks, interactions, and memories continue to use the canonical
-Awareness database opened by `openAwarenessStore`, which defaults to
-`$OCTOCODE_HOME/awareness/awareness-v5.sqlite3`. An explicit repository scope selects
-`<workspace>/.octocode/awareness-v5.sqlite3`. The suffix is the Awareness schema
-generation; Pi consumes the package-owned path resolver rather than constructing it. These records stay outside extension-private
-storage and are not copied or forked with sessions. Agent-control database settings
-do not redirect Awareness storage.
-With `storage.mode=memory`, the extension-private SQLite database is not opened; the
-filesystem session indexes still work, while `lock`, `message`, and durable `memory`
-operations return an actionable disabled-persistence error.
-
-The JSON indexes are inspectable projections, not canonical coordination state. They
-never copy message bodies or durable memory rows from Awareness.
-
 The `session-key` is derived from the session ID (from the Pi session manager)
 combined with a SHA-256 fingerprint of the session + workspace, so:
 
@@ -77,7 +62,7 @@ combined with a SHA-256 fingerprint of the session + workspace, so:
 
 ### Session memory contract
 
-`memory.md` is bounded continuity for the current Pi session, not the durable Awareness `memory` tool. Its template has `Gotchas`, `Improvements`, `Findings`, `Decisions`, `Handoff`, and `Reflections` sections. Keep at most 10 non-empty one-line entries total, each no longer than 200 characters, and keep the file within 4,000 UTF-8 bytes. Invalid memory is excluded from prompt and compaction projection and shown as an attention state; an unavailable read is distinct from empty memory.
+`memory.md` is bounded continuity for the current Pi session. Its template has `Gotchas`, `Improvements`, `Findings`, `Decisions`, `Handoff`, and `Reflections` sections. Keep at most 10 non-empty one-line entries total, each no longer than 200 characters, and keep the file within 4,000 UTF-8 bytes. Invalid memory is excluded from prompt and compaction projection and shown as an attention state; an unavailable read is distinct from empty memory.
 
 When research or a subagent returns a key result, the parent first verifies it, then records a concise session-relevant fact under `Findings`. The next turn compares the bounded current bytes with the last delivered version, so changed or cleared notes are surfaced once without repeating unchanged memory. Successful compaction independently validates and rehydrates the current memory owner. The parent also updates you when a fact changes the hypothesis, plan, risk, or next action. Routine progress stays out of both channels. Raw handbacks and unverified claims are never copied into `memory.md`.
 

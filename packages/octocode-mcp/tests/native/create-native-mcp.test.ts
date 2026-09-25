@@ -202,11 +202,51 @@ describe('createNativeMcp registration + execution', () => {
     await instance.close();
   });
 
+  it('accepts the advertised bare clasify matrix and normalizes it before execution', async () => {
+    const instance = createNativeMcp({
+      env: { OCTOCODE_CLASSIFICATION_API: 'test-key' },
+      binding: bindingFor(() => ({
+        fingerprint: getNativeContractFingerprint(),
+        tools: [tool('localFetch', true), tool(TOOL_NAMES.CLASIFY, true)],
+      })),
+    });
+    const client = new Client({ name: 'clasify-bare', version: '1' });
+    const [serverTransport, clientTransport] =
+      InMemoryTransport.createLinkedPair();
+    await Promise.all([
+      instance.server.connect(serverTransport),
+      client.connect(clientTransport),
+    ]);
+
+    const matrix = {
+      reasoning: 'Locate one fact without caller-authored IDs.',
+      resources: [{ context: { value: 'captured source' } }],
+      questions: [
+        {
+          questionType: 'locate',
+          target: 'The fact to locate',
+        },
+      ],
+    };
+    const response = await client.callTool({
+      name: TOOL_NAMES.CLASIFY,
+      arguments: matrix,
+    });
+    expect(response.isError).toBe(false);
+    expect(FakeRuntime.last?.executions.at(-1)).toMatchObject({
+      tool: TOOL_NAMES.CLASIFY,
+      input: { queries: [matrix] },
+    });
+
+    await client.close();
+    await instance.close();
+  });
+
   it.each([
     ['disabled', false],
     ['enabled', true],
   ])(
-    'advertises semanticRerank when provider capability is %s',
+    'keeps semantic checks in clasify when provider capability is %s',
     async (_label, clasifyAvailable) => {
       const instance = createNativeMcp({
         env: clasifyAvailable
@@ -253,7 +293,7 @@ describe('createNativeMcp registration + execution', () => {
         const schema = JSON.stringify(
           listed.tools.find(candidate => candidate.name === name)?.inputSchema
         );
-        expect(schema.includes('semanticRerank')).toBe(clasifyAvailable);
+        expect(schema.includes('semanticRerank')).toBe(false);
         expect(schema).not.toContain('minScore');
         expect(schema).not.toContain('clasifyContext');
         expect(schema).not.toContain('clasifyMinScore');

@@ -11,6 +11,7 @@ import path from 'node:path';
 import { getShellConfig } from '@earendil-works/pi-coding-agent';
 import type { PiContext, PiInstance, ToolCallResult } from '../types.js';
 
+import { shellCopyDestination } from './shell-copy-target.js';
 import { assertPathAllowed } from './path-guard.js';
 import { classifySensitiveCommand, requestApproval, type ApprovalRequest } from './approval.js';
 import { DIRECT_TOOL_DESCRIPTIONS, type registerUniqueTool } from './octocode-tools.js';
@@ -24,7 +25,6 @@ import {
 } from './bash-bg-tool.js';
 import { runtimeStoreFor } from './runtime-renderer.js';
 import { chunkReadHint, writeEphemeralToolOutput } from './ephemeral-tool-output.js';
-import { buildAwarenessCliEnvironment } from './awareness-cli-context.js';
 import { BASH_CONTEXT_MAX_CHARS, renderBashCall, renderBashResult } from './bash-renderer.js';
 
 export { BASH_CONTEXT_MAX_CHARS } from './bash-renderer.js';
@@ -114,14 +114,32 @@ export function extractBashWriteTargets(command: string, cwd: string): string[] 
     }
   }
 
-  // cp/mv ... dest (last non-flag arg) — only when dest looks like a path
-  const copyRe = /\b(?:cp|mv|install)\b["']?(?:\s+-[a-zA-Z]+|\s+--[^\s]+)*\s+(.+)$/gm;
+  // Copy/move destinations can be positional or explicit target directories.
+  const copyRe = /\b(?:cp|mv|install)\b["']?\s+(.+)$/gm;
   while ((match = copyRe.exec(command)) !== null) {
     copyRe.lastIndex = match.index + 1;
     if (!isShellExecutable(command, syntax, match.index)) continue;
-    const args = tokenizeShellSegment(shellArguments(command, syntax, match.index + match[0].indexOf(match[1]!))).filter((a) => !a.startsWith('-'));
-    const dest = args[args.length - 1];
+    const args = tokenizeShellSegment(shellArguments(command, syntax, match.index + match[0].indexOf(match[1]!)));
+    const dest = shellCopyDestination(args);
     if (dest) push(dest);
+  }
+
+  // Removal mutates each operand; moving mutates both source and destination.
+  const destructiveRe = /\b(?:rm|mv)\b["']?\s+([^\n;|&]+)/g;
+  while ((match = destructiveRe.exec(command)) !== null) {
+    destructiveRe.lastIndex = match.index + 1;
+    if (!isShellExecutable(command, syntax, match.index)) continue;
+    const args = tokenizeShellSegment(shellArguments(command, syntax, match.index + match[0].indexOf(match[1]!)));
+    let operands = false;
+    let skipSuffix = false;
+    for (const arg of args) {
+      if (skipSuffix) { skipSuffix = false; continue; }
+      if (arg === '--' && !operands) { operands = true; continue; }
+      if (!operands && (arg === '-S' || arg === '--suffix')) { skipSuffix = true; continue; }
+      if (!operands && arg.startsWith('--target-directory=')) { push(arg.slice('--target-directory='.length)); continue; }
+      if (!operands && arg.startsWith('-')) continue;
+      push(arg);
+    }
   }
 
   // In-place editors (sed -i, perl -i) write their file arguments directly,
@@ -334,7 +352,7 @@ function assertNoShellExpansionInWriteTargets(command: string): void {
     }
   }
 
-  const copyRe = /\b(?:cp|mv|install)\b["']?(?:\s+-[a-zA-Z]+|\s+--[^\s]+)*\s+(.+)$/gm;
+  const copyRe = /\b(?:cp|mv|install)\b["']?\s+(.+)$/gm;
   while ((m = copyRe.exec(command)) !== null) {
     copyRe.lastIndex = m.index + 1;
     if (!isShellExecutable(command, syntax, m.index)) continue;
@@ -787,7 +805,7 @@ export function registerBashTool(
             }
           }
           const outputPath = writeEphemeralToolOutput('', { toolName: 'bash', toolCallId: itemCallId, extension: 'log' });
-          const { stdout, stderr, recentTail, stdoutChars, stderrChars, code, signal: killedBy, aborted, previewCapped, fileCapped } = await runBash(command, cwd, timeout, outputPath, signal, buildAwarenessCliEnvironment(ctx));
+          const { stdout, stderr, recentTail, stdoutChars, stderrChars, code, signal: killedBy, aborted, previewCapped, fileCapped } = await runBash(command, cwd, timeout, outputPath, signal);
           // Label stderr separately when both streams have content so the agent can
           // distinguish stdout from stderr without losing the tail context.
           const stderrLabeled = stdout && stderr ? `[stderr]\n${stderr}` : stderr;

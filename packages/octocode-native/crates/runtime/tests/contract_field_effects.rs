@@ -10,6 +10,8 @@ const COVERAGE_JSON: &str = include_str!("../src/contracts/field-effect-coverage
 const DISCRIMINATOR_FIELDS: &[&str] = &[
     "operation",
     "analysis",
+    "candidateEvidence",
+    "questionType",
     "ruleKind",
     "regex",
     "treeKind",

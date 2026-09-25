@@ -2,7 +2,7 @@
 use super::{ExecutionContext, ExecutionError, FailureKind};
 use crate::policy::path::PathPolicy;
 use crate::security::ContentSecurity;
-use crate::tools::ast_graph::{AstGraphQuery, execute_topology};
+use crate::tools::ast_graph::{AstTopologyQuery, execute_topology};
 use crate::tools::ast_rewrite::{AstRewriteRuntimeOptions, execute_ast_rewrite_with_options};
 use crate::tools::ast_search::execute_ast;
 use crate::tools::local_fetch::{LocalFetchQuery, LocalFetchRegex, execute_local_fetch_with_regex};
@@ -27,18 +27,11 @@ pub(super) fn execute_local(
     regex: &LocalFetchRegex,
     allow_ast_rewrite_apply: bool,
 ) -> Result<DomainResult, ExecutionError> {
-    // Generated query types carry the meta fields and parse the validated row
-    // as-is; hand-typed tools still receive the row without them.
-    let row = query;
-    let mut query = query.clone();
-    if let Some(object) = query.as_object_mut() {
-        object.remove("goal");
-        object.remove("reasoning");
-        object.remove("debug");
-    }
+    // Generated query types carry the meta fields, so each tool parses the
+    // validated row as-is.
     match tool {
         "localFetch" => {
-            let request: LocalFetchQuery = match parse_query(row.clone()) {
+            let request: LocalFetchQuery = match parse_query(query.clone()) {
                 Ok(request) => request,
                 Err(row) => return Ok(*row),
             };
@@ -76,7 +69,7 @@ pub(super) fn execute_local(
             })
         }
         "localSearch" => {
-            let request: LocalSearchQuery = match parse_query(row.clone()) {
+            let request: LocalSearchQuery = match parse_query(query.clone()) {
                 Ok(request) => request,
                 Err(row) => return Ok(*row),
             };
@@ -118,7 +111,7 @@ pub(super) fn execute_local(
                 }
             }
         }
-        "astSearch" => match execute_ast(query, paths, security, context) {
+        "astSearch" => match execute_ast(query.clone(), paths, security, context) {
             Ok(data) => Ok(value_result(data)),
             Err(error) => Ok(domain_error(
                 json!({"error":error.message,"errorCode":error.code,"hints":error.hints}),
@@ -126,7 +119,7 @@ pub(super) fn execute_local(
             )),
         },
         "astTopology" => {
-            let request: AstGraphQuery = match parse_query(query) {
+            let request: AstTopologyQuery = match parse_query(query.clone()) {
                 Ok(request) => request,
                 Err(row) => return Ok(*row),
             };
@@ -146,7 +139,7 @@ pub(super) fn execute_local(
         }
         "astRewrite" => {
             let data = execute_ast_rewrite_with_options(
-                query,
+                query.clone(),
                 paths,
                 security,
                 context,

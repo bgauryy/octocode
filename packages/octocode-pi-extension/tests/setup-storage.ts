@@ -7,9 +7,6 @@ import { afterAll } from 'vitest';
 // Reusing a machine-wide temp home leaks ledgers and schema versions across runs.
 const previousHome = process.env.OCTOCODE_HOME;
 const inheritedBindingKeys = [
-  'OCTOCODE_AWARENESS_DB',
-  'OCTOCODE_AWARENESS_DB_PATH',
-  'OCTOCODE_AWARENESS_WORKSPACE',
   'OCTOCODE_AGENT_ID',
 ] as const;
 const previousBindings = new Map(inheritedBindingKeys.map(key => [key, process.env[key]]));

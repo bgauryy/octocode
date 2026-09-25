@@ -1,4 +1,4 @@
-import { AWARENESS_PI_HOST_PROMPT, assertContextSegmentAuthority, contentDigest, type ContextSegmentV1 } from '@octocodeai/octocode-awareness/host';
+import { assertContextSegmentAuthority, contentDigest, type ContextSegmentV1 } from '../runtime/continuity-contracts.js';
 
 export interface ContextSegmentInput {
   id: string;
@@ -20,7 +20,6 @@ export interface AssembledContextV1 {
   estimates: {
     method: 'ceil-utf16-chars/4';
     total: number;
-    awarenessInstructions: number;
     byKind: Partial<Record<ContextSegmentV1['kind'], number>>;
   };
 }
@@ -75,18 +74,12 @@ export function assembleContextSegments(
   const nonEmpty = inputs.filter((input) => input.content.trim().length > 0);
   let totalEstimatedTokens = 0;
   const byKind: AssembledContextV1['estimates']['byKind'] = {};
-  let awarenessInstructions = 0;
   const manifest = nonEmpty.map((input) => {
     if (!input.id.trim() || seen.has(input.id)) throw new Error(`context segment id must be unique: ${input.id}`);
     seen.add(input.id);
     const estimatedTokens = estimateContextTokens(input.content);
     totalEstimatedTokens += estimatedTokens;
     byKind[input.kind] = (byKind[input.kind] ?? 0) + estimatedTokens;
-    if (input.id === 'awareness-cli-runtime') awarenessInstructions += estimatedTokens;
-    if (input.id === 'octocode-product-policy') {
-      awarenessInstructions += (input.content.split(AWARENESS_PI_HOST_PROMPT).length - 1)
-        * estimateContextTokens(AWARENESS_PI_HOST_PROMPT);
-    }
     return contextSegmentFromInput(input);
   });
   if (options.totalTokenBudget !== undefined && totalEstimatedTokens > options.totalTokenBudget) {
@@ -94,6 +87,6 @@ export function assembleContextSegments(
   }
   return {
     version: 1, content: nonEmpty.map((input) => input.content).join('\n\n'), manifest,
-    estimates: { method: 'ceil-utf16-chars/4', total: totalEstimatedTokens, awarenessInstructions, byKind },
+    estimates: { method: 'ceil-utf16-chars/4', total: totalEstimatedTokens, byKind },
   };
 }

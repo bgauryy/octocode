@@ -8,11 +8,10 @@ This document describes the Octocode Pi Extension (`packages/octocode-pi-extensi
 
 | Area | Source contract |
 |---|---|
-| Main-agent policy | [`src/contracts/prompts`](src/contracts/prompts) owns the canonical coder kernel; [`src/prompts/system-prompt.ts`](src/prompts/system-prompt.ts) adds Pi host facts and canonical Awareness guidance |
-| Awareness host bindings | [`src/tools/awareness-cli-context.ts`](src/tools/awareness-cli-context.ts): native-facade prompt context; foreign tool sets can receive a bound CLI fallback. [`src/tools/awareness-context.ts`](src/tools/awareness-context.ts) owns native database/workspace/identity bindings |
-| Runtime physiology | [`src/adapters/pi-physiology.ts`](src/adapters/pi-physiology.ts): headless native measurements and session fences; [`src/adapters/pi-physiology-regulation.ts`](src/adapters/pi-physiology-regulation.ts): bounded projection of canonical Awareness advice |
+| Main-agent policy | [`src/contracts/prompts`](src/contracts/prompts) and the Pi adapter in [`src/prompts/system-prompt.ts`](src/prompts/system-prompt.ts) |
+| Runtime measurements | [`src/adapters/pi-physiology.ts`](src/adapters/pi-physiology.ts) and [`src/adapters/pi-physiology-regulation.ts`](src/adapters/pi-physiology-regulation.ts) own local measurements and bounded advice |
+| Shared communication | [`src/tools/communication-runtime.ts`](src/tools/communication-runtime.ts) binds the bundled Rust catalog, lifecycle and edit-lease checks |
 | Context assembly and lifecycle | [`src/index.ts`](src/index.ts) composes the host and preserves hook order; [`src/tools/prompt-preflight.ts`](src/tools/prompt-preflight.ts) owns the two-stage `before_agent_start` preparation/`agent_start` cancellation boundary; [`src/tools/session-prompt-context.ts`](src/tools/session-prompt-context.ts) and [`src/tools/context-segments.ts`](src/tools/context-segments.ts) own attributed prompt context and budgets |
-| Awareness mutation integration | [`src/adapters/pi-awareness-mutation.ts`](src/adapters/pi-awareness-mutation.ts) owns mutation presence, registry updates, and host-gate adaptation |
 | Internal error logging | [`src/internal-error-log.ts`](src/internal-error-log.ts) owns private paths, redaction, formatting, and best-effort append behavior |
 | Direct tool names and Pi builtin policy | [`src/constants.ts`](src/constants.ts) declares the public inventory; [`src/tools/tool-registration.ts`](src/tools/tool-registration.ts) owns the effective palette, static registration order, and builtin filtering |
 | Query execution and partial receipts | [`src/tools/query-envelope.ts`](src/tools/query-envelope.ts) owns ordering, preflight, concurrency, and cancellation. Schema conversion preserves the owning validator's constraints. [`src/tools/query-batch-error.ts`](src/tools/query-batch-error.ts) preserves complete evidence from successful and failed rows, including a first-item failure. Operation-specific validation stays with each tool. |
@@ -41,7 +40,7 @@ comparisons, and validation limits for the September 13, 2026 review.
 
 ### 2.1 Composition
 
-The extension adds a short `<octocode_host>` capability and trust-boundary adapter, then composes the canonical coder kernel from `src/contracts/prompts` with `EXTERNAL_AGENT_AWARENESS_PROMPT`. The root process receives intent classification, execution/delegation, verification, continuation, tool routing, and output rules. Workers receive host/interaction safety plus their bounded shared and role contracts, never root user-facing authority. Live catalogs and selected skills retain operational detail; no regex-triggered repository instruction is injected.
+The extension combines a short Pi host capability/trust adapter with the canonical coder kernel in `src/contracts/prompts`. Root policy owns execution, delegation, verification, continuation and routing. Workers receive bounded role contracts and interaction safety, without root user-facing authority. Operational detail comes from current catalogs and selected skills.
 
 Source: `src/prompts/system-prompt.ts` → `SYSTEM_PROMPT`.
 Bundled artifact: `dist/system/SYSTEM_PROMPT.md`.
@@ -71,7 +70,6 @@ or consume one of the bounded current-source slots.
 | Segment key | Content | Budget |
 |---|---|---|
 | `octocode-product-policy` | Bundled `SYSTEM_PROMPT.md` | 12k tokens |
-| `awareness-cli-runtime` | Native Awareness routing and current host bindings; CLI fallback only for tool sets without the native facade | 1k tokens |
 | `mcp-tool-contracts` | Enabled server/tool routing metadata in `<mcp_catalog_index>`; `MCPTool action:"describe"` loads one exact schema and activates a Pi proxy when the host admits its dynamic name | 6k tokens; the initial index is also bounded to 18k characters and larger catalogs expose an executable continuation |
 | `runtime-tool-contracts` | `<runtime_capabilities>`; the mutable `capability_revision` is a separate per-turn context segment (96-token budget), preserving the cacheable system prefix | 500 tokens |
 | `dynamic-tool-contracts` | Dynamic skill addendum (excludes installed skill names already in catalog) | 6k tokens |
@@ -110,7 +108,7 @@ the 8k recovery budget for other segments; retained or freshly delivered plans
 are validated without consuming that recovery budget. Runtime physiology is another turn segment, limited to 128 estimated
 tokens and never rehydrated as current state. It carries changed advisory actions
 from fresh host receipts; unavailable sensors do not establish recovery. The
-shared Zod observation contract and thresholds belong to Awareness, while actual
+observation contract and thresholds live in Pi runtime primitives; actual
 compaction/retry control remains with Pi. The observer uses
 the same hook composer as lifecycle and prompt middleware, retains only a
 bounded numeric tool-outcome window, and exposes `readPiPhysiology(ctx)` to trusted
@@ -161,7 +159,6 @@ catalog change restarts paging instead of mixing revisions.
 |---|---|
 | `src/prompts/system-prompt.ts` | Pi host adapter plus root/worker selection over the shared canonical prompt builders |
 | `src/prompts/plan-prompt.ts` | Thin Pi call-syntax adapter over the shared atomic-Start plan prompt |
-| `src/contracts/prompts/` | Internal Pi owner. Pi build selects `coordination:"worker-only"`; runtime injects the short canonical Awareness standing prompt once; the full guide stays on demand, preserving shared worker restrictions without parallel ledger instructions |
 
 ---
 
@@ -199,19 +196,7 @@ Registered in `registerSupportTools` in [`src/tools/tool-registration.ts`](src/t
 | `plan` | `planning/plan-registration.ts` | Compaction-safe task checklist and reviewed Start lifecycle |
 | `localServer` | `local-server-tool.ts` | Local static server |
 | `askUser` | `ask-user-tool.ts` | Interactive user input |
-| `awareness` | `awareness-tool.ts` | Canonical Awareness catalog and direct structured package API |
 | `MCPTool` | `mcp-tool.ts` | MCP 2026-07-28 client → all research tools |
-
-The 14 support tools and guarded `bash` override form the direct palette. Pi publishes
-the active tool contracts directly; the extension adds no parallel native-tool catalog.
-The native `awareness` facade executes the canonical Context, Work, Message, Memory, and History operations through a host-bound client. Pi owns history capture through its explicit host lifecycle API. The CLI is an external-host adapter. Native Pi registry, event delivery/policy,
-mutation guards and plan UI remain active.
-External CLI agents can participate through the same physical SQLite file and
-normalized workspace, using distinct stable IDs. Workers retain their physical
-worktree for file/lock ownership while inheriting the parent `OCTOCODE_AWARENESS_DB`,
-so native calls, CLI fallback, guards, registry and delivery share one ledger without
-database copies. Awareness list continuations use executable `queries[]` envelopes;
-completed commands with oversized output do not auto-replay mutations. See [the agent flow](docs/AWARENESS_AGENT_FLOW.md).
 
 ### 3.3 MCP research tools (catalog-driven via MCPTool → octocode-mcp server)
 
@@ -310,43 +295,7 @@ probes, and cleanup. `waitForAgentTurn` carries the caller's `AbortSignal` throu
 progress-aware wait iteration. Tool and skill generation pass their execution signal
 through this boundary and terminate the spawned smith in `finally`.
 
-### 3.8 Session, Awareness, and recovery flow
 
-```mermaid
-flowchart TD
-  Init[Extension initialization] --> Snapshot[Effective capability snapshot]
-  Turn[Each agent turn] --> Snapshot
-  Snapshot --> Assemble[session-prompt-context.ts<br/>project current main/worker segments]
-  Assemble --> Provider[Prompt provider]
-  Turn --> Live[Live turn context]
-  Live --> Provider
-  Native[Native awareness tool] --> API[createAwarenessClient<br/>canonical operation]
-  Events[Native Pi events] --> Consumer[awareness-event-consumer.ts<br/>single registered consumer]
-  ToolCall[Tool call] --> Mutation[Mutation gate]
-  API --> Store[(Awareness store)]
-  Consumer --> Store
-  Mutation --> Store
-  Compact[Compaction] --> PiAdapter[pi-retained-context.ts<br/>interpret Pi retained context]
-  PiAdapter --> Rehydrate[rehydration-orchestrator.ts<br/>validate current sources]
-  Rehydrate --> Live
-```
-
-Native command execution and event delivery resolve the same Awareness identity
-and durable store through [`awareness-context.ts`](src/tools/awareness-context.ts),
-[`awareness-event-consumer.ts`](src/tools/awareness-event-consumer.ts), and
-[`storage-policy.ts`](src/tools/storage-policy.ts). The adapter in
-[`pi-retained-context.ts`](src/adapters/pi-retained-context.ts) is the sole boundary
-that interprets Pi's retained branch context before
-[`rehydration-orchestrator.ts`](src/tools/rehydration-orchestrator.ts) validates and
-reprojects current sources.
-
-The peer consumer watches the exact database selected by the opened Awareness
-store while a durable session is active. Coalesced filesystem hints schedule
-bounded drains while idle; backlog pages continue with an event-loop yield and
-delivery failures get three delayed retries. Watches and pending retries close
-at session transitions and shutdown. Persisted Pi receipts still precede each
-acknowledgement, project trust gates automatic turns, and only external input
-rearms the single automatic peer-wake budget.
 
 ---
 
@@ -434,8 +383,6 @@ $OCTOCODE_HOME/extension/
     tool-results/                ← ephemeral output without usable session storage
 ```
 
-Local file history belongs to the shared Awareness store, outside the session artifact tree. With the full Awareness workspace profile, the native `file` boundary captures explicit targets before and after mutation. The default coordination profile provides registry presence and peer delivery; automatic work records and worker audits require guard/full. Active peer-lock checks remain enforced. Awareness packages its private Git object implementation and exposes bounded timeline, read, preview, and apply operations through the imported API also used by the CLI adapter. Pi's `/octocode-rewind` command previews file changes and applies only the reviewed preview; session input and conversation navigation do not create or restore file history.
-
 Persistent synchronous JSON writers use `writePrivateFileAtomicSync`. The
 rebuildable workspace discovery snapshot uses `writeEphemeralFileAtomicSync`.
 Session artifacts retain their separate contained writer because they also
@@ -443,16 +390,7 @@ enforce session-root and producer-registration invariants.
 
 ### 5.2 Identity and authority
 
-`sessionKey` remains the filesystem-safe directory name. A real Pi `sessionId` is stored
-inside `manifest.json` and `session.json`; session-file/process fallbacks use an opaque,
-deterministic `pi-session-*` ID so private paths are never copied. IDs are not path segments.
-`planId` and `taskId` reuse the active plan's stable IDs. `backlogId` is deterministic for
-the session and identifies the local backlog projection; it is not a new Awareness table.
-
-The manifest and four JSON index files share `SESSION_ARTIFACT_VERSION = 2`; earlier
-versions fail fast and are never upgraded or mixed. These files are inspectable snapshots.
-Active plan state and Awareness SQLite remain authoritative for plan/task coordination,
-locks, messages, and durable memory.
+`sessionKey` is the filesystem-safe directory name; real Pi session IDs live inside the manifest. Session-file/process fallbacks use opaque deterministic IDs, so private paths are not copied into identifiers. Plan/task IDs reuse the active plan IDs; the session backlog is a local projection. The manifest and four JSON indexes share `SESSION_ARTIFACT_VERSION = 2`; incompatible versions fail explicitly. Pi session state owns plans; the communication database owns shared leases and messages.
 
 ### 5.3 Path builder API
 
@@ -598,3 +536,7 @@ Never reimplement — import from `@octocodeai/config`.
 | A source can change after a page or prompt was generated | Revision boundary | Execution revalidates access; stale browser mutations are rejected and the next turn projects current capabilities. Restart list paging with its returned continuation. |
 | Skill loading returns a bounded first page and supporting-file preview | Recovery contract | `src/tools/skill-tool.ts` reports typed partial reasons and executable `MCPTool` continuations. Follow content pages before acting; merge file discovery results with the preview and follow their continuations. |
 | Plan HTML uses meta-refresh (3s) | Transport constraint | Refresh behavior is separate from the plan state and review transaction |
+
+## Communication and session persistence
+
+The bundled communication runtime owns peer presence, messages, documents, and advisory leases. Pi owns plans, context recovery, and durable user approvals. See [communication and local state](docs/COMMUNICATION_AGENT_FLOW.md).

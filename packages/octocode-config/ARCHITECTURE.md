@@ -13,7 +13,7 @@ process environment
       parse → trust policy → resolved config
                  │
                  ├── CLI / MCP runtime surfaces
-                 ├── Pi and Awareness
+                 ├── Pi and communication
                  └── injected standalone skill helper
 ```
 
@@ -45,16 +45,13 @@ known-key lists.
 - `policy` owns protected keys and project-level override restrictions.
 - The CLI exposes inspection only; it does not add a second configuration model.
 - `@octocodeai/octocode-core` authors every tool contract, Zod schema,
-  description, and capability-gated schema variant (such as search
-  `semanticRerank`). The `./schema` and `./mcp` subpaths re-export it so
+  description, and capability-gated schema variants. The `./schema` and `./mcp` subpaths re-export it so
   interfaces import contracts from one place; the root `.` entry never imports
   core.
 - This package owns the tool input/output **types** for every language (see
   below). No surface hand-writes a tool wire type in TypeScript or Rust.
 
 ## Tool types
-
-One derivation path produces every tool input/output type:
 
 This package is the **only** tool-contract generator. `yarn contracts:regen`
 (repo root: refresh the core copy, then `generate:tool-contract`) is the whole
@@ -64,22 +61,34 @@ change for every consumer:
 core Zod schemas ── buildEnforcementContractIr ──▶ contract/tool-contract.json ─┐
       ├── buildNativeParityFixtures ─────────────▶ contract/contract-fixtures.json├─ embedded by
       ├── provenance (core version, fingerprint, sha) ▶ contract/provenance.json ─┤  octocode-native
-      └── bundle ──▶ contract/tool-types.schema.json                              │  build.rs, in place
-            ├── json-schema-to-typescript ──▶ src/contracts/toolTypes.generated.ts│
+      └── tool-contract/bundle.ts ──▶ contract/tool-types.schema.json             │  build.rs, in place
+            ├── tool-contract/typescript.ts ──▶ src/contracts/toolTypes.generated.ts│
             │        (./schema: <Tool>Query/Input/Output, ToolQuery<N>, …)        │
-            └── cargo-typify 0.8.0 ─────────▶ contract/tool_types.rs ─────────────┘
+            └── tool-contract/rust.ts (typify) ▶ contract/tool_types.rs ──────────┘
 ```
 
 Native keeps no copy, pin, or regeneration script: cargo reruns `build.rs`
 when `contract/` changes, and the build fails if the files disagree on the
-fingerprint. `scripts/check-core-contract-sync.cjs` (`--published` for the
-npm-published core) gates releases.
+fingerprint. `check:core-contract-sync:published` compares `contract/` with the
+npm-published core pinned at the repo root and gates releases.
 
-`scripts/generate-tool-contract.ts` names each tool's `Query` (one row),
-`Input` (bulk envelope), and `Output` (result envelope), shares identical
-output `$defs` as `Shared*`, and lifts a property enum used by several tools
-(`chunkType`, `minify`, `caseMode`, …) into one named type. Both files carry
-the core contract fingerprint; the Rust header also pins the bundle's SHA-256,
+**Naming is owned by core.** Each tool yields `<Tool>Query` (one row),
+`<Tool>Input` (bulk envelope), and `<Tool>Output` (result envelope). A schema
+core names — `.meta({ id })` or `.meta({ title })` — becomes one global type
+(`ChunkType`, `MinifyMode`, `ResponseScope`, `AstRule`, …); give a vocabulary
+shared across tools a title in core. Everything else is named by position
+(`LocalSearchQueryCaseMode`), so an unrelated contract change never renames a
+type. Two shapes under one name, or a recursive schema core left unnamed, fail
+generation.
+
+**Faithful Rust shapes.** typify drops a string `const` and flattens `anyOf`,
+so the bundle states both precisely: a string `const` becomes a one-value
+`enum` (enforced), and `anyOf` over closed objects becomes `oneOf` (an enum).
+When branches share a discriminator value, variants are named from it
+(`AstSearchQueryMatchPattern` / `…MatchRule`). Maps are `BTreeMap`
+(deterministic). Boolean `const`s remain a contract-validator check.
+
+Both files carry the core contract fingerprint; the Rust header also pins the bundle's SHA-256,
 so `--check` (run by `build` and `lint`) detects staleness without cargo.
 Regenerating needs `cargo install cargo-typify --version 0.8.0 --locked`. Where core's
 output schema is open (`unknown[]` payloads), the generated type is open too:

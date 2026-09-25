@@ -114,6 +114,13 @@ pub(super) async fn empty_scope<R: CredentialResolver>(
             object.entry("sort").or_insert_with(|| json!("best-match"));
         }
     }
+    // Re-running the stale name cannot recover results the renamed repository
+    // holds: the renamed query is the same search, so it supersedes `retry`.
+    if name == "retryRenamed"
+        && let Some(next) = value.get_mut("next").and_then(Value::as_object_mut)
+    {
+        next.remove("retry");
+    }
     value["next"][name] =
         json!({"tool":"ghSearch","query":next_query,"confidence":confidence,"why":why});
     Ok(())
@@ -170,7 +177,7 @@ pub(super) fn files(
     else {
         return Ok(Vec::new());
     };
-    let path_only = *match_ == super::Match::Path;
+    let path_only = *match_ == super::GhSearchQueryMatch::Path;
     let terms = super::ranking::terms(keywords)?;
     let mut groups: Vec<super::ranking::Group> = Vec::new();
     let mut group_indices = HashMap::new();

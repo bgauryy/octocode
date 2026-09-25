@@ -248,9 +248,7 @@ test('writeCompactionArtifact: routes to session artifact dir when cwd + session
         coordination: {
           mode: 'required' as const,
           sourcePlanKey: 'source-plan',
-          awarenessPlanId: 'plan-awareness',
           coordinationWorkspace: tmpRoot,
-          materializedRevision: 'materialized-revision',
         },
         steps: [{
           id: 'step-1',
@@ -259,7 +257,6 @@ test('writeCompactionArtifact: routes to session artifact dir when cwd + session
           paths: ['src/recovery.ts'],
           acceptance: 'Recovery test passes',
           checkCommand: 'yarn test recovery',
-          awarenessTaskId: 'task-awareness',
         }],
       },
     },
@@ -282,7 +279,6 @@ test('writeCompactionArtifact: routes to session artifact dir when cwd + session
   assert.match(content, /Accepted revision: accepted-revision/);
   assert.match(content, /\*\*Storage\?\*\* — SQLite/);
   assert.match(content, /Implement recovery snapshot/);
-  assert.match(content, /Awareness task: task-awareness/);
 });
 
 test('writeCompactionArtifact: registers compaction producer in the session manifest', () => {

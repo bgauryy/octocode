@@ -76,7 +76,7 @@ export interface RuntimeContextState {
   providerSubtotalChars: number;
   estimatedTokens: number;
   /** Payload-free character estimates, distinct from provider billing. */
-  contextAwarenessEstimates?: AssembledContextV1['estimates'];
+  contextAssemblyEstimates?: AssembledContextV1['estimates'];
   /** Latest delivered body estimate only; replay replaces rather than accumulating. */
   lastPeerDeliveryEstimate?: { method: 'ceil-utf16-chars/4'; sequence: number; tokens: number };
   mcpServers: number;

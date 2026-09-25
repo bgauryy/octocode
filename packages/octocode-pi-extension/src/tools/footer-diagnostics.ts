@@ -1,6 +1,5 @@
 import type { InlineSegment } from '../tui/components.js';
 import type { StatusDiagnosticV1 } from '../tui/status-policy.js';
-import type { AwarenessStatusHealth, CachedAwarenessStatus } from './awareness-status.js';
 import type { RuntimeFooterState, RuntimeState } from './runtime-store.js';
 import { githubAuthLabel } from './github-auth-status.js';
 
@@ -9,8 +8,6 @@ interface FooterDiagnosticsInput {
   metrics: InlineSegment[];
   statuses: RuntimeState['statuses'];
   githubStatus: RuntimeFooterState['githubAuth']['status'];
-  awareness: CachedAwarenessStatus | null;
-  awarenessHealth: AwarenessStatusHealth;
 }
 
 function attentionRow(
@@ -60,19 +57,10 @@ export function buildFooterDiagnostics(
   }
   if (input.metrics.length > 0)
     rows.push({ id: 'metrics', priority: 'P4', segments: input.metrics });
-  if (input.awareness?.verifyTasks)
-    rows.push(
-      attentionRow(
-        'awareness-checks',
-        'P1',
-        `Verify · ${input.awareness.verifyTasks} checks pending`,
-        '/octocode-status'
-      )
-    );
-  const peerEvents = input.statuses['octocode-awareness-events'];
+  const peerEvents = input.statuses['octocode-communication-events'];
   if (peerEvents)
     rows.push(
-      attentionRow('awareness-delivery', 'P2', peerEvents, '/octocode-inbox')
+      attentionRow('communication-delivery', 'P2', peerEvents, '/octocode-inbox')
     );
   const sessionMemory = input.statuses['octocode-session-memory'];
   if (sessionMemory)
@@ -82,17 +70,6 @@ export function buildFooterDiagnostics(
         'P2',
         sessionMemory,
         '/octocode-status context'
-      )
-    );
-  if (input.awarenessHealth.state === 'unavailable')
-    rows.push(
-      attentionRow(
-        'awareness-source',
-        'P2',
-        input.awareness
-          ? 'Awareness unavailable · showing last known state'
-          : 'Awareness status unavailable',
-        '/octocode-status'
       )
     );
   return rows;

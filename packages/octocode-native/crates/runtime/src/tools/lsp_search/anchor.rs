@@ -2,7 +2,7 @@
 //! asked about, resolved on exactly the text synchronized with `didOpen`,
 //! plus the one-based `resolvedSymbol` receipt presented to the caller.
 
-use super::{LspPosition, LspSearchQuery};
+use super::LspSearchQuery;
 use octocode_engine::lsp::resolver::{LineIndex, resolve_position_in_file_content};
 use octocode_engine::lsp::types::JsFuzzyPosition;
 use serde_json::{Value, json};
@@ -37,14 +37,14 @@ pub(super) fn resolve_anchor(
     canonical_uri: &str,
     source: Option<&str>,
 ) -> Result<Anchor, String> {
-    if !is_anchored(&query.operation) {
+    if !is_anchored(&query.operation()) {
         return Ok(Anchor {
             line: 0,
             character: 0,
             resolved_symbol: None,
         });
     }
-    if let Some(name) = query.symbol_name.as_deref() {
+    if let Some(name) = query.symbol_name() {
         let source = source
             .ok_or_else(|| "symbolName anchors require a readable source file in uri".to_owned())?;
         let resolved = resolve_position_in_file_content(
@@ -52,8 +52,8 @@ pub(super) fn resolve_anchor(
             source,
             &JsFuzzyPosition {
                 symbol_name: name.to_owned(),
-                line_hint: query.line_hint,
-                order_hint: query.order_hint,
+                line_hint: query.line_hint(),
+                order_hint: query.order_hint(),
             },
         )
         .map_err(|error| error.to_string())?;
@@ -63,7 +63,7 @@ pub(super) fn resolve_anchor(
             "foundAtLine": resolved.found_at_line,
             "foundAtCharacter": resolved.position.character + 1
         });
-        if let Some(order_hint) = query.order_hint {
+        if let Some(order_hint) = query.order_hint() {
             symbol["orderHint"] = json!(order_hint);
         }
         if resolved.line_offset != 0 {
@@ -75,20 +75,20 @@ pub(super) fn resolve_anchor(
             resolved_symbol: Some(symbol),
         });
     }
-    let position = query
-        .position
-        .as_ref()
+    let (line, character) = query
+        .position()
         .ok_or_else(|| "lspSearch requires position or symbolName+lineHint".to_owned())?;
-    if let Some(error) = source.and_then(|source| position_bounds_error(source, position)) {
+    if let Some(error) = source.and_then(|source| position_bounds_error(source, (line, character)))
+    {
         return Err(error);
     }
     Ok(Anchor {
-        line: position.line,
-        character: position.character,
+        line,
+        character,
         resolved_symbol: Some(json!({
             "uri": canonical_uri,
-            "foundAtLine": position.line + 1,
-            "foundAtCharacter": position.character + 1
+            "foundAtLine": line + 1,
+            "foundAtCharacter": character + 1
         })),
     })
 }
@@ -97,21 +97,23 @@ pub(super) fn resolve_anchor(
 /// UTF-16 column within it (the end of the line is valid); servers otherwise
 /// answer out-of-range positions with a silent `null`. Lines break on
 /// `\r\n`, `\n`, and a lone `\r` — the LSP rule the server counts by.
-pub(super) fn position_bounds_error(source: &str, position: &LspPosition) -> Option<String> {
+/// `position` is the zero-based `(line, character)` anchor.
+pub(super) fn position_bounds_error(source: &str, position: (u32, u32)) -> Option<String> {
+    let (line, character) = position;
     let index = LineIndex::new(source);
     let line_count = index.len();
-    let Some(text) = index.line(source, position.line as usize) else {
+    let Some(text) = index.line(source, line as usize) else {
         return Some(format!(
-            "position.line {} is past the end of the document: it has {line_count} lines (0-based lines 0-{}).",
-            position.line,
+            "line {} is past the end of the document: it has {line_count} lines (0-based lines 0-{}).",
+            line,
             line_count - 1
         ));
     };
     let width = text.encode_utf16().count();
-    (position.character as usize > width).then(|| {
+    (character as usize > width).then(|| {
         format!(
-            "position.character {} is past the end of 0-based line {} ({width} UTF-16 units).",
-            position.character, position.line
+            "character {} is past the end of 0-based line {} ({width} UTF-16 units).",
+            character, line
         )
     })
 }

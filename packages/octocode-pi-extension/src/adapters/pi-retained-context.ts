@@ -1,5 +1,5 @@
 import { buildSessionContext } from '@earendil-works/pi-coding-agent';
-import { contentDigest } from '@octocodeai/octocode-awareness/host';
+import { contentDigest } from '../runtime/continuity-contracts.js';
 import type { PiContext } from '../types.js';
 
 export interface RetainedContextDigestOptions {

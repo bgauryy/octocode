@@ -11,7 +11,7 @@ Load when choosing `--provider`, checking routes, or adding a vendor. Why: fetch
 | `cdp` | html | no | Local JS render (sibling chrome-devtools) |
 | `scrapingant` | html, markdown, extended, extract | `SCRAPING_ANT` | Hosted anti-bot / markdown / extract — **explicit only** |
 
-Omit `--provider` on html → `cdp` if chrome skill present, else `direct`. Hosted never auto. Check: `provider-check.mjs`.
+Omit `--provider` on html → bounded direct HTTP. Chrome is an evidence-triggered escalation, never an installation-triggered default. Hosted never auto. Check: `provider-check.mjs`.
 
 ## Add a vendor
 Add `fetchX` in `scripts/lib/client.mjs` → register in `PROVIDERS` (`scripts/lib/providers.mjs`). Setup: `docs/PROVIDERS.md`, `docs/ADDING_A_VENDOR.md`.

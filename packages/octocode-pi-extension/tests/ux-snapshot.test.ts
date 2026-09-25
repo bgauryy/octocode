@@ -17,15 +17,6 @@ test('task completion alone is not a verification receipt', () => {
   assert.equal(snapshot.tasks[0]?.verification, 'unverified');
 });
 
-test('stale coordination uses human durations and an executable details command', () => {
-  const snapshot = deriveUxSnapshot({ now: 100_000, runtime: runtime(), agents: [],
-    awareness: { unread: 0, observedAt: 1_331, staleAfterMs: 16_000 } });
-  const warning = snapshot.attention.find(item => item.kind === 'stale_source')!;
-  assert.match(warning.reason, /1m 39s/);
-  assert.doesNotMatch(warning.reason, /ms/);
-  assert.equal(warning.detailRoute, '/octocode-status');
-});
-
 test('worker updates prefer live tools and fresh output over old messages', () => {
   const worker = {
     agentId: 'worker', name: 'atlas', status: 'running',
@@ -151,19 +142,16 @@ test('marks parallel plans as graph progress and promotes input, failures, messa
         startedAt: '1970-01-01T00:00:01.000Z', updatedAt: '1970-01-01T00:00:39.000Z',
       },
     ],
-    awareness: { unread: 3, observedAt: 5_000, staleAfterMs: 10_000, latestSender: 'reviewer', latestSubject: 'Check failure' },
   });
 
   assert.equal(snapshot.plan?.progressMode, 'graph');
   assert.equal(snapshot.messages.queued, 2);
   assert.equal(snapshot.agents.find(agent => agent.id === 'queued-1')?.state, 'queued');
-  assert.equal(snapshot.messages.unread, 3);
-  assert.equal(snapshot.provenance.find((item) => item.owner === 'awareness')?.stale, true);
+  assert.equal(snapshot.messages.unread, 0);
   assert.deepEqual(snapshot.attention.slice(0, 2).map((item) => item.priority), ['P0', 'P0']);
   assert.ok(snapshot.attention.some((item) => item.kind === 'agent_blocked' && item.actor === 'atlas'));
   assert.ok(snapshot.attention.some((item) => item.kind === 'agent_failed' && item.actor === 'nova'));
   assert.ok(snapshot.attention.some((item) => item.kind === 'context_pressure'));
-  assert.ok(snapshot.attention.some((item) => item.kind === 'stale_source'));
 });
 
 test('dynamic plans never expose a fixed denominator', () => {

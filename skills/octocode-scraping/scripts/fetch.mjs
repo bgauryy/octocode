@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { propagateOctocodeEnv } from './octocode-config.mjs';
 import { parseConfig } from './lib/args.mjs';
-import { discoverSitemap, sleep } from './lib/client.mjs';
+import { discoverSitemap, fetchRobotsPolicy, sleep } from './lib/client.mjs';
 import { initCorpus, writePage, writeSession } from './lib/corpus.mjs';
 import { autoSelectProvider, resolveProvider } from './lib/providers.mjs';
 
@@ -37,7 +37,8 @@ if (existsSync(priorSourcesPath)) {
 // Propagate env so keys exist for explicit hosted / non-html modes.
 propagateOctocodeEnv({ cwd: process.cwd(), trusted: true });
 
-// Resolve 'auto' → keyless html route (cdp → direct). Never auto-picks scrapingant.
+// Resolve 'auto' → direct for html. Browser rendering is an explicit escalation
+// after the direct result shows that static HTTP evidence is insufficient.
 if (config.provider === 'auto') {
   try {
     config.provider = autoSelectProvider(config.mode, process.env);
@@ -47,7 +48,6 @@ if (config.provider === 'auto') {
   }
 }
 
-const providerWasAuto = !process.argv.slice(2).includes('--provider');
 let provider = resolveProvider(config.provider);
 // Sync deferred fields so corpus.mjs (manifest.json) records the real provider metadata.
 config.apiKeyEnv = provider.apiKeyEnv;
@@ -72,6 +72,15 @@ const crawlKey = (u) => {
 const seen = new Set();
 const queue = [config.targetUrl];
 const queued = new Set([crawlKey(config.targetUrl)]);
+const robotsByOrigin = new Map();
+
+async function robotsAllows(url) {
+  if (!config.crawl || config.mockStatus) return { allowed: true, reason: config.mockStatus ? 'hermetic mock' : 'single explicit URL' };
+  const origin = new URL(url).origin;
+  if (!robotsByOrigin.has(origin)) robotsByOrigin.set(origin, fetchRobotsPolicy(url));
+  const policy = await robotsByOrigin.get(origin);
+  return policy.check(url);
+}
 
 // --append: keep the prior roster and continue pageId numbering after it.
 let basePageCount = 0;
@@ -102,19 +111,15 @@ while (queue.length && pageIndex < config.maxPages) {
   const url = queue.shift();
   if (seen.has(crawlKey(url))) continue;
   seen.add(crawlKey(url));
+  const robots = await robotsAllows(url);
+  if (!robots.allowed) {
+    failures.push(`robots.txt skipped ${url}: ${robots.reason}`);
+    continue;
+  }
   pageIndex += 1;
   const pageNumber = basePageCount + pageIndex;
   const pageId = `page-${String(pageNumber).padStart(3, '0')}`;
-  let response = await provider.fetch({ url, pageId, config, apiKey });
-  // Auto-selected cdp only: a transport/client failure (status 0, no HTTP
-  // answer from the site) falls back to direct for this and remaining pages.
-  if (providerWasAuto && provider.name === 'cdp' && !response.status) {
-    failures.push(`cdp client failure on ${url}: ${String(response.fetchError || 'no HTTP response').slice(0, 200)} — falling back to direct`);
-    try { if (provider.cleanup) await provider.cleanup(config); } catch {}
-    provider = resolveProvider('direct');
-    config.provider = 'direct';
-    response = await provider.fetch({ url, pageId, config, apiKey: null });
-  }
+  const response = await provider.fetch({ url, pageId, config, apiKey });
   const written = await writePage({ sessionDir, config, response, pageIndex: pageNumber });
   sources.push(written.sourceRow);
   pageMaps.push(written.pageMap);
@@ -141,7 +146,16 @@ while (queue.length && pageIndex < config.maxPages) {
 
 if (provider.cleanup) await provider.cleanup(config);
 
-const { ok, first, knownTotal } = await writeSession({ sessionDir, config, startedAt, sources, pageMaps, linksAll, headingsAll, elementsAll, resourcesAll, costs, failures });
+const robots = await Promise.all([...robotsByOrigin.entries()].map(async ([origin, promise]) => {
+  const policy = await promise;
+  return { origin, url: policy.url, status: policy.status, fetchedAt: policy.fetchedAt };
+}));
+const { ok, first, knownTotal } = await writeSession({ sessionDir, config, startedAt, sources, pageMaps, linksAll, headingsAll, elementsAll, resourcesAll, costs, failures, robots });
+const browserCandidate = sources.find((source) => source.browserRecommended);
+const outputWarnings = sources.flatMap((source) => [
+  source.targetLikelyError ? { pageId: source.pageId, warning: source.targetLikelyError } : null,
+  source.networkTruncated ? { pageId: source.pageId, warning: 'response body reached the network byte cap; evidence is partial' } : null,
+].filter(Boolean));
 
 console.log(JSON.stringify({
   ok,
@@ -153,10 +167,17 @@ console.log(JSON.stringify({
   pages: sources.length,
   antCreditsKnownTotal: knownTotal,
   providerDetail: sources.find((s) => s.providerDetail)?.providerDetail || null,
-  warnings: sources.filter((s) => s.targetLikelyError).map((s) => ({ pageId: s.pageId, warning: s.targetLikelyError })),
+  warnings: outputWarnings,
+  next: browserCandidate ? {
+    route: 'octocode-chrome-devtools',
+    reason: browserCandidate.browserReason,
+    pageId: browserCandidate.pageId,
+    instruction: 'Reuse this scrape session; capture the live page once, then bridge the retained CDP artifact back with har-ingest.mjs.',
+  } : null,
+  robots: config.crawl ? { checkedOrigins: robots.length, results: robots, report: 'reports/robots.md' } : { checkedOrigins: 0, reason: 'single explicit URL' },
   agentIndex: 'AGENT_INDEX.json',
   analysis: { pageIndex: 'indexes/pages-001.json', siteGraph: 'graph/site-graph.json', workflows: 'graph/workflows.json', topLinks: 'indexes/top-links.jsonl', workflowCandidates: 'indexes/workflow-candidates.jsonl' },
   searchFirst: ['AGENT_INDEX.json', 'indexes/pages-001.json', 'graph/site-graph.json', 'graph/workflows.json', 'MAP.md', 'page-map.json', 'reports/summary.md', 'sources.jsonl', 'text/*.clean.part-*.md', 'extracts/', 'snippets/'],
   rawAudit: config.noRaw ? null : 'raw/'
-}, null, 2));
+}));
 process.exit(ok ? 0 : 1);

@@ -115,7 +115,6 @@ type ToolPresentation = {
     typeof import('@octocodeai/config/schema').getPublicToolCatalogWithAddons
   >;
   enabled: string[];
-  semanticRerank: boolean;
 };
 
 async function loadPresentation(
@@ -148,11 +147,7 @@ async function loadPresentation(
   const enabled = machine.tools
     .filter(tool => isEnabled(tool.availability))
     .map(tool => tool.name);
-  const semanticRerank = machine.tools.some(
-    tool => tool.name === 'clasify' && isEnabled(tool.availability)
-  );
   const catalog = getPublicToolCatalogWithAddons({
-    semanticRerank,
     availableTools: enabled,
   });
 
@@ -163,7 +158,7 @@ async function loadPresentation(
     const drift =
       `Contract drift: @octocodeai/octocode-core fingerprint ${catalog.fingerprint.slice(0, 12)}… ` +
       `does not match the native runtime fingerprint ${machine.fingerprint.slice(0, 12)}…. ` +
-      'Reinstall matching octocode packages, or set OCTOCODE_ALLOW_CONTRACT_DRIFT=1 to bypass (ignored when NODE_ENV=production).';
+      'Reinstall matching octocode packages (in the repo: `yarn contracts:regen` and rebuild native), or set OCTOCODE_ALLOW_CONTRACT_DRIFT=1 to bypass (ignored when NODE_ENV=production).';
     // Same gate as the MCP server: the override is a local-iteration aid and
     // never applies in production.
     if (
@@ -177,7 +172,7 @@ async function loadPresentation(
     }
   }
 
-  return { ok: true, machine, catalog, enabled, semanticRerank };
+  return { ok: true, machine, catalog, enabled };
 }
 
 function instructionsFor(presentation: ToolPresentation): Promise<string> {
@@ -228,7 +223,7 @@ export async function runScheme(args: ParsedArgs): Promise<number> {
 
   const presentation = await loadPresentation(jsonErrors);
   if (!presentation.ok) return presentation.exitCode;
-  const { machine, catalog, enabled, semanticRerank } = presentation;
+  const { machine, catalog, enabled } = presentation;
   const { getDirectToolDefinitionsWithAddons } =
     await import('@octocodeai/config/schema');
 
@@ -279,7 +274,6 @@ export async function runScheme(args: ParsedArgs): Promise<number> {
   let value: JsonObject;
   try {
     const definition = getDirectToolDefinitionsWithAddons({
-      semanticRerank,
       availableTools: enabled,
     }).find(candidate => candidate.name === toolName);
     value = projectSelected(

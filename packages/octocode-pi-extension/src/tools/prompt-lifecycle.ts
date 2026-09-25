@@ -1,4 +1,4 @@
-import type { ContextSegmentV1 } from '@octocodeai/octocode-awareness/host';
+import type { ContextSegmentV1 } from '../runtime/continuity-contracts.js';
 
 export type PromptPlacement = 'frozen-system' | 'versioned-system' | 'turn-context' | 'transcript';
 export interface PromptLifecycleRuleV1 {

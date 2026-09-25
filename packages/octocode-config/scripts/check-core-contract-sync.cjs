@@ -3,12 +3,12 @@
 // octocode-native embeds from contract/ at build time) must match the
 // @octocodeai/octocode-core the packages depend on.
 //
-// Usage: node scripts/check-core-contract-sync.cjs [--published]
+// Usage: node scripts/check-core-contract-sync.cjs
 //
-// Default mode checks against the core this workspace resolves (node_modules).
-// `--published` downloads the npm-published core version pinned in the
-// workspace root package.json and checks against THAT — what a clean install
-// of the released packages delivers. Native's prepublishOnly runs it.
+// Downloads the npm-published core version pinned in the workspace root
+// package.json and checks contract/ against THAT — what a clean install of the
+// released packages delivers. (Freshness against the workspace core is
+// `check:tool-contract`.) Native's prepublishOnly runs it.
 
 const { execFileSync } = require('node:child_process');
 const { readFileSync, mkdtempSync, rmSync } = require('node:fs');
@@ -68,19 +68,13 @@ async function checkAgainst(coreDir, label) {
 }
 
 async function main() {
-  if (process.argv.includes('--published')) {
-    const tempRoot = mkdtempSync(join(tmpdir(), 'octocode-core-sync-'));
-    try {
-      const { dir, spec } = fetchPublishedCore(tempRoot);
-      await checkAgainst(dir, `published ${spec}`);
-    } finally {
-      rmSync(tempRoot, { recursive: true, force: true });
-    }
-    return;
+  const tempRoot = mkdtempSync(join(tmpdir(), 'octocode-core-sync-'));
+  try {
+    const { dir, spec } = fetchPublishedCore(tempRoot);
+    await checkAgainst(dir, `published ${spec}`);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
   }
-  // Resolved from this workspace exactly like runtime consumers resolve it.
-  const coreDir = join(repoRoot, 'node_modules', '@octocodeai', 'octocode-core');
-  await checkAgainst(coreDir, 'resolved core');
 }
 
 main().catch((error) => {

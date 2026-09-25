@@ -32,6 +32,7 @@ Use this page to find the document that owns each topic. The root [README](../RE
 | Repository-wide contributor rules and package map | [AGENTS.md](../AGENTS.md) |
 | Development and release scripts | [Scripts reference](../scripts/README.md) |
 | Owner-triggered release checklist and gates | [Release checklist](RELEASE.md) |
+| Communication triggers, context costs, and retired Awareness data | [Communication runtime and Awareness retirement](COMMUNICATION_RETIREMENT.md) |
 
 ## Package guides
 
@@ -47,7 +48,7 @@ The monorepo contains 10 primary workspace packages. The [package overview](PACK
 | `@octocodeai/octocode-extension-rust` | Native workspace snapshots, mutations, history, and diffs | [README](../packages/octocode-extension-rust/README.md) · [Architecture](../packages/octocode-extension-rust/ARCHITECTURE.md) |
 | `@octocodeai/config` | Shared environment and configuration loader | [README](../packages/octocode-config/README.md) · [Architecture](../packages/octocode-config/ARCHITECTURE.md) |
 | `@octocodeai/octocode-skill-installer` | Durable cross-platform Agent Skill installation | [README](../packages/octocode-skill-installer/README.md) · [Architecture](../packages/octocode-skill-installer/ARCHITECTURE.md) |
-| `@octocodeai/octocode-awareness` | Coordination, workspace history, and shared host primitives | [README](../packages/octocode-awareness/README.md) · [Architecture](../packages/octocode-awareness/ARCHITECTURE.md) · [Docs index](../packages/octocode-awareness/docs/README.md) |
+| `@octocodeai/octocode-agents-communication` | Session identity, path leases, messages, and delivery | [README](../packages/octocode-agents-communication/README.md) · [Architecture](../packages/octocode-agents-communication/ARCHITECTURE.md) · [Database protocol](../packages/octocode-agents-communication/docs/DB.md) |
 | `@octocodeai/octocode-benchmark` | Research benchmarks, evals, graders, and reports | [README](../packages/octocode-benchmark/README.md) · [Architecture](../packages/octocode-benchmark/ARCHITECTURE.md) · [Results](../packages/octocode-benchmark/results/README.md) |
 
 The separately versioned `@octocodeai/octocode-core` package owns public tool schemas, descriptions, and shared MCP/CLI instructions. See the [root package explanation](../README.md#packages) for its relationship to this monorepo.

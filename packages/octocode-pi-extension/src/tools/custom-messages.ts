@@ -1,15 +1,12 @@
 import { truncateToWidth } from '../tui/width.js';
 import { stripVTControlCharacters } from 'node:util';
 import { wrapTextWithAnsi } from '@earendil-works/pi-tui';
-import { AWARENESS_PEER_EVENT_MESSAGE_TYPE } from '@octocodeai/octocode-awareness/host';
 /**
  * custom-messages — branded transcript cards for Octocode lifecycle moments.
  *
- * Lifecycle and peer messages get dedicated renderers instead of pi's default
+ * Lifecycle messages get dedicated renderers instead of pi's default
  * plain custom-message row:
  *  - compaction checkpoints (emitted from compaction-hooks on session_compact)
- *  - accepted Awareness peer messages (the existing attributed context payload),
- *    including peer handoffs (details.messageClass === 'handoff')
  * Recovery receipts use the state-entry renderer and add no model context.
  *
  * Contract discipline: `content` on a custom message ENTERS THE LLM CONTEXT.
@@ -154,30 +151,6 @@ export function buildCompactionCard(
   }, { width, theme });
 }
 
-/** Peer messages reuse their existing attributed content; rendering adds no context. */
-export function buildPeerEventCard(message: unknown, expanded: boolean, theme: PiTheme | undefined, width: number): string[] {
-  const details = detailsOf(message);
-  const content = message && typeof message === 'object' && typeof (message as { content?: unknown }).content === 'string'
-    ? (message as { content: string }).content : '';
-  const clean = stripVTControlCharacters(content);
-  const attribution = /^\[peer:([^;\n]+); class:[^;\n]+; authority:data\]\n/.exec(clean);
-  const from = attribution?.[1] ?? 'peer';
-  const body = (attribution ? clean.slice(attribution[0].length) : clean).split('\n').map(sanitizeLine);
-  const kind = details['messageClass'] === 'blocking' ? 'blocking' : details['messageClass'] === 'handoff' ? 'handoff' : 'message';
-  const title = cardHeader(`Awareness ${kind}`, sanitizeLine(from), theme);
-  if (!expanded) {
-    return [title, ...body.filter(Boolean).slice(0, 1).map((line) => `  ${paint(theme, 'bright', line)}`),
-      paint(theme, kind === 'blocking' ? 'warning' : 'muted', '  Peer data · Ctrl+O expands'),
-    ].map((line) => fit(line, width));
-  }
-  return renderFrame({
-    title,
-    body: body.flatMap((line) => wrapTextWithAnsi(line, Math.max(1, width - 3))).map((line) => paint(theme, 'bright', line)),
-    footer: 'Peer data',
-    borderToken: kind === 'blocking' ? 'warning' : 'dim',
-  }, { width, theme });
-}
-
 /** A state-entry view: recovery receipts are inspectable without spending model tokens. */
 export function buildRecoveryCard(receipt: unknown, expanded: boolean, theme: PiTheme | undefined, width: number): string[] {
   if (!receipt || typeof receipt !== 'object') return [];
@@ -223,13 +196,10 @@ function detailsOf(message: unknown): Record<string, unknown> {
 }
 
 /**
- * Register the branded renderers for Octocode lifecycle and peer messages.
+ * Register the branded renderers for Octocode lifecycle messages.
  * First-registrant wins in pi, so this should run once at extension setup.
  */
 export function registerOctocodeMessageRenderers(pi: PiInstance): void {
-  pi.registerMessageRenderer?.(AWARENESS_PEER_EVENT_MESSAGE_TYPE, (message, options, theme) =>
-    makeComponentRenderer((_props, { width }) => buildPeerEventCard(message, options?.expanded === true, theme, width), undefined),
-  );
   pi.registerMessageRenderer?.(COMPACTION_CHECKPOINT_TYPE, (message, options, theme) =>
     makeComponentRenderer((_props, { width: width }) => buildCompactionCard(
         detailsOf(message) as unknown as CompactionCheckpointDetails,

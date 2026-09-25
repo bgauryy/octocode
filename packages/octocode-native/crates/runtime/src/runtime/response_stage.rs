@@ -319,7 +319,7 @@ mod tests {
             "pages":[{"answers":{"a":{"noul":0.5}}}]}],
             "next":{"clasify":{"id":"q","reasoning":"r","resources":[{"id":"r","context":{"tool":"localFetch",
                 "query":{"path":"/tmp/a.txt","reasoning":"r","debug":false}}}],
-                "questions":[{"id":"a","question":{"type":"noul","instructions":"Does it?"}}]}}}]});
+                "questions":[{"id":"a","type":"noul","instructions":"Does it?"}]}}}]});
         let outcome = stage("clasify", receipt.clone(), true);
         assert_eq!(outcome.structured_content["queries"], receipt["queries"]);
     }

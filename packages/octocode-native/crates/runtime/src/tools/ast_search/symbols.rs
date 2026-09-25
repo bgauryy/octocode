@@ -2,38 +2,42 @@ use crate::{
     policy::path::PathPolicy, security::ContentSecurity, tools::local_fetch::CancellationCheck,
 };
 use octocode_engine::types::{GraphFactsScanOptions, GraphLanguageGlob};
-use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct AstSymbolsQuery {
-    pub goal: Option<String>,
-    pub reasoning: Option<String>,
-    #[serde(default = "op")]
-    pub operation: String,
-    pub path: String,
-    pub lang_type: Option<String>,
-    pub language_globs: Option<BTreeMap<String, Vec<String>>>,
-    pub name: Option<String>,
-    pub kinds: Option<Vec<String>>,
-    pub exclude_dir: Option<Vec<String>>,
-    pub max_files: Option<u32>,
-    #[serde(default = "one")]
-    pub page: u32,
-    #[serde(default = "hundred")]
-    pub page_size: u32,
-    pub snapshot: Option<String>,
+pub use crate::contracts::tool_types::AstSearchQuerySymbols;
+
+fn u32_of(value: std::num::NonZeroU64) -> u32 {
+    u32::try_from(value.get()).unwrap_or(u32::MAX)
 }
-fn op() -> String {
-    "symbols".into()
+
+/// Engine-unit views over the generated `symbols` query.
+impl AstSearchQuerySymbols {
+    pub fn lang_type(&self) -> Option<String> {
+        self.lang_type.as_ref().map(ToString::to_string)
+    }
+    pub fn language_globs(&self) -> Option<&BTreeMap<String, Vec<String>>> {
+        (!self.language_globs.is_empty()).then_some(&self.language_globs)
+    }
+    pub fn kinds(&self) -> Option<&Vec<String>> {
+        (!self.kinds.is_empty()).then_some(&self.kinds)
+    }
+    pub fn exclude_dir(&self) -> Option<Vec<String>> {
+        (!self.exclude_dir.is_empty()).then(|| self.exclude_dir.clone())
+    }
+    pub fn max_files(&self) -> u32 {
+        u32_of(self.max_files)
+    }
+    pub fn page(&self) -> u32 {
+        u32_of(self.page)
+    }
+    pub fn page_size(&self) -> u32 {
+        u32_of(self.page_size)
+    }
+    pub fn snapshot(&self) -> Option<&str> {
+        self.snapshot.as_deref().map(String::as_str)
+    }
 }
-const fn one() -> u32 {
-    1
-}
-const fn hundred() -> u32 {
-    100
-}
+
 /// Every declaration kind the native extractors emit: tree-sitter graph facts
 /// (engine `signatures::nodes::declaration_kind`) and the JS/TS oxc extractor
 /// (`signatures::js_oxc::symbol_kind_name`).
@@ -59,7 +63,7 @@ const DECLARATION_KINDS: &[&str] = &[
     "variable",
 ];
 pub fn execute_symbols(
-    q: &AstSymbolsQuery,
+    q: &AstSearchQuerySymbols,
     paths: &PathPolicy,
     security: &ContentSecurity,
     cancel: &dyn CancellationCheck,
@@ -68,7 +72,6 @@ pub fn execute_symbols(
     if let Some(unknown) = q
         .kinds
         .iter()
-        .flatten()
         .find(|kind| !DECLARATION_KINDS.contains(&kind.as_str()))
     {
         return Err(super::AstError::new(
@@ -79,16 +82,16 @@ pub fn execute_symbols(
             ),
         ));
     }
-    let p = paths.validate(&q.path).map_err(super::AstError::from)?;
+    let p = paths.validate(q.path.as_str()).map_err(super::AstError::from)?;
     let meta = std::fs::metadata(&p.canonical).map_err(super::io_error)?;
-    if meta.is_file() && q.language_globs.is_some() {
+    if meta.is_file() && q.language_globs().is_some() {
         return Err(super::AstError::new(
             "ast.language.directoryRequired",
             "languageGlobs is for directory symbols. Use langType for a single file.",
         ));
     }
     if meta.is_file() {
-        super::validate_file_language(&p.canonical, q.lang_type.as_deref())?;
+        super::validate_file_language(&p.canonical, q.lang_type().as_deref())?;
     } else if q.lang_type.is_some() {
         return Err(super::AstError::new(
             "ast.language.fileRequired",
@@ -109,7 +112,7 @@ pub fn execute_symbols(
             .validate_text_bytes(&b, Some(&p.canonical), 1_000_000)
             .map_err(super::AstError::from)?;
         let source_path = p.canonical.to_string_lossy();
-        let raw = if super::cpp_header_override(&p.canonical, q.lang_type.as_deref()) {
+        let raw = if super::cpp_header_override(&p.canonical, q.lang_type().as_deref()) {
             octocode_engine::portable::extract_graph_facts_with_extension(
                 &s.content,
                 &source_path,
@@ -135,10 +138,10 @@ pub fn execute_symbols(
         let r = octocode_engine::portable::scan_graph_facts_filtered(
             GraphFactsScanOptions {
                 path: p.canonical.to_string_lossy().into_owned(),
-                exclude_dir: q.exclude_dir.clone(),
-                max_files: Some(q.max_files.unwrap_or(2000)),
+                exclude_dir: q.exclude_dir(),
+                max_files: Some(q.max_files()),
                 max_file_bytes: Some(1_000_000),
-                language_globs: q.language_globs.as_ref().map(|map| {
+                language_globs: q.language_globs().map(|map| {
                     map.iter()
                         .flat_map(|(language, globs)| {
                             globs.iter().map(|glob| GraphLanguageGlob {
@@ -197,8 +200,7 @@ pub fn execute_symbols(
             let name = d["name"].as_str().unwrap_or("");
             let kind = d["kind"].as_str().unwrap_or("");
             if q.name.as_ref().is_none_or(|n| name.contains(n))
-                && q.kinds
-                    .as_ref()
+                && q.kinds()
                     .is_none_or(|ks| ks.iter().any(|k| k == kind))
             {
                 if per_row_path {
@@ -215,11 +217,11 @@ pub fn execute_symbols(
     let snapshot = super::syntax::digest(&json!([
         q.path,
         q.lang_type,
-        q.language_globs,
+        q.language_globs(),
         q.name,
-        q.kinds,
-        q.exclude_dir,
-        q.max_files.unwrap_or(2000),
+        q.kinds(),
+        q.exclude_dir(),
+        q.max_files(),
         &declarations,
         &diagnostics,
         truncated,
@@ -230,13 +232,13 @@ pub fn execute_symbols(
             row["path"] = json!(security.sanitize_text(path, None).content);
         }
     }
-    if q.page > 1 && q.snapshot.as_deref() != Some(&snapshot) {
+    if q.page() > 1 && q.snapshot() != Some(snapshot.as_str()) {
         return Ok(
             json!({"status":"error","errorCode":"ast.snapshot.changed","error":"The source or query changed, or this continuation omitted its snapshot. Discard earlier pages and restart.","snapshot":snapshot,"complete":false}),
         );
     }
-    let size = q.page_size.clamp(1, 1000) as usize;
-    let page = q.page.max(1) as usize;
+    let size = q.page_size().clamp(1, 1000) as usize;
+    let page = q.page().max(1) as usize;
     let start = (page - 1) * size;
     let more = start + size < declarations.len();
     let incomplete = truncated || skipped > 0;
@@ -252,7 +254,7 @@ pub fn execute_symbols(
         if let Some(map) = nq.as_object_mut() {
             map.retain(|_, value| !value.is_null());
         }
-        nq["maxFiles"] = json!(q.max_files.unwrap_or(2000));
+        nq["maxFiles"] = json!(q.max_files());
         nq["snapshot"] = json!(snapshot);
         nq["page"] = json!(page + 1);
         out["next"] = json!({"nextPage":{"tool":"astSearch","query":nq,"confidence":"exact"}})

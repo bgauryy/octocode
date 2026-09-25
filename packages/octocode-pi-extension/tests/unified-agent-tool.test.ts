@@ -256,7 +256,7 @@ vi.mock('../src/subagents.js', async () => {
       reviewer: {
         name: 'reviewer',
         label: 'Reviewer',
-        tools: ['MCPTool', 'skill', 'awareness'],
+        tools: ['MCPTool', 'skill', 'peers', 'send_message', 'inbox', 'ack', 'read_document', 'activity'],
         resourceMode: 'octocode',
         thinking: 'medium',
         systemPromptPath: '/mock/reviewer/SYSTEM_PROMPT.md',
@@ -992,7 +992,7 @@ describe('spawn: browser profile routing', () => {
     expect(spawnCall.systemPrompt).toContain('Browser specialist for:');
   });
 
-  it('keeps browser control plus Octocode research, skills, and Awareness access', async () => {
+  it('keeps browser control plus Octocode research, skills, and communication access', async () => {
     await run(
       tools.get('agent')!,
       batch({ type: 'spawn', profile: 'browser', task: 'inspect DOM', runNow: false }),
@@ -1000,7 +1000,7 @@ describe('spawn: browser profile routing', () => {
     const spawnCall = vi.mocked(agentProcess.prepareSpawnAgentParams).mock.calls[0]![0] as {
       tools?: string[];
     };
-    expect(spawnCall.tools).toEqual(['chromeDebug', 'MCPTool', 'skill', 'awareness', 'bash']);
+    expect(spawnCall.tools).toEqual(['chromeDebug', 'MCPTool', 'skill', 'peers', 'send_message', 'inbox', 'ack', 'read_document', 'activity', 'bash']);
   });
 
   it('defaults to port 9222 when no port provided', async () => {

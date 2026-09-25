@@ -14,7 +14,7 @@ single native pass, returning only the two output strings across N-API.
 | `src/lib.rs` | N-API tasks, owned input buffers, atomic cancellation handle, public diff boundary |
 | `src/diff.rs` | Pure native line-diff computation and compact patch formatting |
 | `src/filesystem.rs` | Process-local per-path mutation serialization and portable result types |
-| `src/evidence.rs` | Async Awareness v1 fingerprints, streaming aggregate budgets, deadlines and final source rechecks |
+| `src/evidence.rs` | Async v1 evidence fingerprints, streaming aggregate budgets, deadlines and final source rechecks |
 | `src/git_object.rs` | Async bounded loose Git object decoding, SHA-1 integrity, private directory creation and flush barriers |
 | `platforms.cjs` | Single supported-target catalog for loading, builds and package metadata |
 | `src/windows.rs` | Handle-relative NT opens, reparse rejection, bounded snapshots, ACL-preserving replacement and deletion |
@@ -31,8 +31,7 @@ chain. Hash-only snapshots stream without retaining content; content snapshots
 return a Buffer. The caller supplies an explicit byte ceiling; growing reads stop
 at that ceiling. Metadata and leaf identity are checked around the read.
 
-Awareness uses the same snapshots and mutation receipts for local history. Its
-memory evidence operation hashes declared paths, permission modes, lengths and
+The evidence operation hashes declared paths, permission modes, lengths and
 bytes using the existing v1 format and JavaScript UTF-16 path ordering. The
 native task streams at most 64 KiB at once and retains descriptors for a final
 source/ancestor recheck. File, byte, time and cancellation limits return a reason

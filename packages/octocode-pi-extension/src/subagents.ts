@@ -158,7 +158,7 @@ export const SUBAGENT_REGISTRY = {
       'MCPTool',     // Octocode MCP server: localFetch, localSearch, astSearch, etc.
       'file',        // only parent-assigned durable handback artifacts
       'skill',       // load bundled/user workflows
-      'awareness',   // native coordination, memory, verification, and history gateway
+      'peers', 'send_message', 'inbox', 'ack', 'read_document', 'activity',
       'bash',        // assigned shell work
     ],
     resourceMode: 'octocode' as ResourceMode,
@@ -178,7 +178,7 @@ export const SUBAGENT_REGISTRY = {
       'MCPTool', // octocode MCP server: all GitHub, local, LSP, npm research tools
       'file',   // only parent-assigned durable handback artifacts
       'skill',  // load bundled/user workflows
-      'awareness', // native coordination, memory, verification, and history gateway
+      'peers', 'send_message', 'inbox', 'ack', 'read_document', 'activity',
       'bash',   // assigned shell work
     ],
     resourceMode: 'octocode' as ResourceMode,
@@ -197,7 +197,7 @@ export const SUBAGENT_REGISTRY = {
       'MCPTool', // octocode MCP server: all GitHub, local, LSP, npm research tools
       'file',   // only parent-assigned durable handback artifacts
       'skill',  // load bundled/user workflows
-      'awareness', // native coordination, memory, verification, and history gateway
+      'peers', 'send_message', 'inbox', 'ack', 'read_document', 'activity',
       'bash',   // assigned shell work
     ],
     resourceMode: 'octocode' as ResourceMode,
@@ -217,7 +217,7 @@ export const SUBAGENT_REGISTRY = {
       'MCPTool', // octocode MCP server: all GitHub, local, LSP, npm research tools
       'file',   // only parent-assigned durable handback artifacts
       'skill',  // load bundled/user workflows
-      'awareness', // native coordination, memory, verification, and history gateway
+      'peers', 'send_message', 'inbox', 'ack', 'read_document', 'activity',
     ],
     resourceMode: 'octocode' as ResourceMode,
     thinking: 'medium',
@@ -233,7 +233,7 @@ export const SUBAGENT_REGISTRY = {
       'MCPTool', // inspect exact code, symbols, callers, and contracts
       'file',    // assigned source edits and durable handback
       'skill',   // load only a matching implementation workflow
-      'awareness', // native coordination, verification, and handoff gateway
+      'peers', 'send_message', 'inbox', 'ack', 'read_document', 'activity',
       'bash',    // assigned tests/builds
     ],
     resourceMode: 'octocode' as ResourceMode,
@@ -249,7 +249,7 @@ export const SUBAGENT_REGISTRY = {
     tools: [
       'MCPTool',
       'skill',
-      'awareness',
+      'peers', 'send_message', 'inbox', 'ack', 'read_document', 'activity',
     ],
     resourceMode: 'octocode' as ResourceMode,
     thinking: 'medium',

@@ -2,11 +2,6 @@ import type { PiCommand, PiInstance } from './types.js';
 
 /** The extension's user command surface; implementations register these contracts. */
 export const EXTENSION_COMMANDS = {
-  rewind: {
-    name: 'octocode-rewind',
-    description:
-      'Preview and explicitly apply a local Awareness history restore.',
-  },
   inbox: {
     name: 'octocode-inbox',
     description: 'Inspect, steer, or stop spawned Octocode workers.',

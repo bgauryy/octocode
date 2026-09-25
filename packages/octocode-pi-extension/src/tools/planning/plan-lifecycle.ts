@@ -5,7 +5,6 @@
 
 import {
   currentRfcRevision,
-  clearPlanAwarenessMappings,
   getPlan,
   getPlanReviewState,
   planApplyReviewTransition,
@@ -131,7 +130,6 @@ export function startAcceptedPlan(scope: PlanScope, authorizationReceiptId: stri
 /** Recover a failed Start attempt without losing exact-revision acceptance. */
 export function rollbackAcceptedPlanStart(scope: PlanScope, reason: string): PlanReviewTransitionResult {
   const state = getPlanReviewState(scope);
-  clearPlanAwarenessMappings(scope);
   if (!state.acceptedRevision) return planBuildTransitionError(scope, 'invalid_transition', reason);
   return planApplyReviewTransition(scope, 'accepted', {
     branchSnapshotId: state.branchSnapshotId,
@@ -143,8 +141,5 @@ export function rollbackAcceptedPlanStart(scope: PlanScope, reason: string): Pla
     outcomeReason: cleanContractText(reason),
     blockingQuestions: state.blockingQuestions,
     comments: state.comments,
-  }, getPlan(scope).map((step) => {
-    const { awarenessTaskId: _mapping, ...rest } = step;
-    return { ...rest, status: 'todo' as const };
-  }), 'compensate_start_failure');
+  }, getPlan(scope).map((step) => ({ ...step, status: 'todo' as const })), 'compensate_start_failure');
 }

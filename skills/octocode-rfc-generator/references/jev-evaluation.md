@@ -12,9 +12,9 @@ Measure the whole workflow: host and worker tokens when available, provider toke
 
 To answer “what did Jev help with?”, freeze the host action before seeing its answer, then record the changed action, triggering judgment field, independently checked outcome and discovery origin. Confirmation of an existing plan is not a newly discovered improvement. For a causal estimate, compare the same frozen worker debate with and without Jev in separate fresh host contexts and independently score the final RFC; the ordinary-RFC versus multi-agent comparison does not isolate Jev's effect.
 
-Until such a matched comparison improves the frozen primary metric, describe Jev as risk prioritization or additional verification only. Do not advertise an accuracy improvement from confidence, agreement, a changed check, or a successful provider call.
+Until a matched comparison improves answer quality and reduces total host tokens, keep this an explicitly requested experiment. Confidence, agreement, a changed check, and a successful provider call do not establish either benefit.
 
-Predeclare the keep/discard rule. A suitable default is strictly better held-out disposition accuracy with all safety/traceability guards passing inside the shared budget. If both arms tie, do not claim improvement; keep the ordinary path as default and explain the extra cost of optional Jev review. Report a regression honestly and repair it before recommending general use. One small run establishes feasibility or finds failures, not broad superiority, latency savings or statistical significance.
+Predeclare the keep/discard rule: strictly better held-out disposition accuracy AND fewer total host tokens, with all safety/traceability guards passing. If either gate fails or host tokens are unavailable, keep the ordinary path as default. Report regressions and added costs. One small run establishes feasibility or finds failures, not broad superiority, latency savings or statistical significance. Classification admission remains owned by `octocode-clasify`.
 
 Store fixtures, hashes, rubric, raw outcomes, receipts and a report under `<output>/octocode-eval-benchmark/`. Keep evaluation development files outside the shipped skill. Repeat only for a changed candidate or unresolved variance, not until a favorable judge vote appears.
 

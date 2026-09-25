@@ -30,7 +30,6 @@ export const DIRECT_TOOL_DESCRIPTIONS: Readonly<Record<string, string>> = Object
   plan: `${PLAN_USAGE_GUIDANCE}`,
   localServer: 'Serve a static artifact on 127.0.0.1. Mount minimal scope; unmount when done.',
   askUser: 'Collect one missing choice that changes the next action. Ask once.',
-  awareness: 'Shared coordination state. Start with context.orient; batch reads; one mutation per call.',
   MCPTool: 'Discover MCP tools, resources, and prompts. Octocode is the default research server. Describe loads an exact schema and normally activates a Pi tool.',
 });
 

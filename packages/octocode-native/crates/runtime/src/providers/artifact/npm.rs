@@ -1,22 +1,22 @@
 use super::http::{DnsPin, RegistryClient};
 use super::util::{encode_component, endpoint, object_for, required, safe_url, string, total};
 use super::{
-    ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState, ArtifactQuery,
-    ArtifactType, ResolvedNpmRegistry,
+    ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState, ArtifactSearchQuery,
+    ArtifactSearchQueryType, ResolvedNpmRegistry,
 };
 use serde_json::Value;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs};
 use url::{Host, Url};
 
 pub(crate) async fn npm(
-    query: &ArtifactQuery,
+    query: &ArtifactSearchQuery,
     state: &ArtifactProviderState,
     registry: &ResolvedNpmRegistry,
     client: &RegistryClient<'_>,
     allow_private_registry: bool,
 ) -> Result<ArtifactProviderPage, ArtifactError> {
     let dns_pin = validate_registry(query, registry, allow_private_registry)?;
-    if let Some(name) = query.package_name.as_deref() {
+    if let Some(name) = query.package_name() {
         exact(name, registry, client, dns_pin).await
     } else {
         search(query, state, registry, client, dns_pin).await
@@ -24,7 +24,7 @@ pub(crate) async fn npm(
 }
 
 fn validate_registry(
-    query: &ArtifactQuery,
+    query: &ArtifactSearchQuery,
     registry: &ResolvedNpmRegistry,
     allow_private_registry: bool,
 ) -> Result<Option<DnsPin>, ArtifactError> {
@@ -201,7 +201,7 @@ async fn exact(
     )?;
     let response = client
         .json_with_dns_pin(
-            ArtifactType::Npm,
+            ArtifactSearchQueryType::Npm,
             request_url,
             true,
             registry.authorization.clone(),
@@ -213,17 +213,17 @@ async fn exact(
         page.registry = Some(trim_registry(&registry.base));
         return Ok(page);
     };
-    let row = object_for(&response, ArtifactType::Npm)?;
-    let name = required(row.get("name"), ArtifactType::Npm)?;
+    let row = object_for(&response, ArtifactSearchQueryType::Npm)?;
+    let name = required(row.get("name"), ArtifactSearchQueryType::Npm)?;
     if name != package_name && name != split_npm_coordinate(package_name).0 {
         return Err(ArtifactError::new(
             "provider_error",
             "npm registry returned a different package name.",
         ));
     }
-    let version = required(row.get("version"), ArtifactType::Npm)?;
+    let version = required(row.get("version"), ArtifactSearchQueryType::Npm)?;
     let mut artifact = ArtifactItem::new(
-        ArtifactType::Npm,
+        ArtifactSearchQueryType::Npm,
         name.clone(),
         format!(
             "{}/{}",
@@ -264,19 +264,15 @@ async fn exact(
 }
 
 async fn search(
-    query: &ArtifactQuery,
+    query: &ArtifactSearchQuery,
     state: &ArtifactProviderState,
     registry: &ResolvedNpmRegistry,
     client: &RegistryClient<'_>,
     dns_pin: Option<DnsPin>,
 ) -> Result<ArtifactProviderPage, ArtifactError> {
     let offset = state.offset.unwrap_or(0);
-    let size = query.page_size.unwrap_or(10);
-    let terms = query
-        .keywords
-        .as_ref()
-        .map(|v| v.join(" "))
-        .unwrap_or_default();
+    let size = query.page_size().unwrap_or(10);
+    let terms = query.terms();
     let url = endpoint(
         &format!("{}/-/v1/search", trim_registry(&registry.base)),
         &[
@@ -287,7 +283,7 @@ async fn search(
     )?;
     let response = client
         .json_with_dns_pin(
-            ArtifactType::Npm,
+            ArtifactSearchQueryType::Npm,
             url,
             false,
             registry.authorization.clone(),
@@ -295,7 +291,7 @@ async fn search(
         )
         .await?
         .ok_or_else(|| ArtifactError::new("provider_error", "npm registry search failed."))?;
-    let data = object_for(&response, ArtifactType::Npm)?;
+    let data = object_for(&response, ArtifactSearchQueryType::Npm)?;
     let total_found = total(data.get("total")).ok_or_else(|| {
         ArtifactError::new(
             "provider_error",
@@ -309,19 +305,19 @@ async fn search(
     let mut artifacts = Vec::with_capacity(objects.len().min(size));
     for entry in objects.iter().take(size) {
         let package = object_for(
-            object_for(entry, ArtifactType::Npm)?
+            object_for(entry, ArtifactSearchQueryType::Npm)?
                 .get("package")
-                .ok_or_else(|| super::util::invalid(ArtifactType::Npm))?,
-            ArtifactType::Npm,
+                .ok_or_else(|| super::util::invalid(ArtifactSearchQueryType::Npm))?,
+            ArtifactSearchQueryType::Npm,
         )?;
-        let name = required(package.get("name"), ArtifactType::Npm).map_err(|_| {
+        let name = required(package.get("name"), ArtifactSearchQueryType::Npm).map_err(|_| {
             ArtifactError::new(
                 "provider_error",
                 "npm registry search returned an unnamed package; refusing to skip a result.",
             )
         })?;
         let mut artifact = ArtifactItem::new(
-            ArtifactType::Npm,
+            ArtifactSearchQueryType::Npm,
             name.clone(),
             format!(
                 "{}/{}",
@@ -400,9 +396,10 @@ pub(crate) fn normalize_repository(value: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::types::artifact_query;
     use super::normalize_repository;
     use super::{
-        ArtifactQuery, ArtifactType, ResolvedNpmRegistry, is_blocked_v4, is_blocked_v6,
+        ArtifactSearchQuery, ArtifactSearchQueryType, ResolvedNpmRegistry, is_blocked_v4, is_blocked_v6,
         validate_registry, validate_resolved_addresses,
     };
     use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
@@ -416,15 +413,11 @@ mod tests {
         }
     }
 
-    fn npm_query(registry: Option<&str>) -> ArtifactQuery {
-        ArtifactQuery {
-            artifact_type: ArtifactType::Npm,
-            package_name: Some("left-pad".into()),
-            keywords: None,
-            page_size: None,
-            cursor: None,
-            registry: registry.map(str::to_owned),
-        }
+    fn npm_query(registry: Option<&str>) -> ArtifactSearchQuery {
+        artifact_query(
+            serde_json::json!({"type": ArtifactSearchQueryType::Npm, "packageName": "left-pad".to_string(), "registry": registry.map(str::to_owned)}),
+            None,
+        )
     }
 
     #[test]

@@ -13,7 +13,7 @@ node <skill_dir>/scripts/brainstorm-run.mjs finish --run-id <id> --verdict worth
 ```
 
 Checkpoint when the surface plan, decisive evidence, confidence, or final synthesis changes. Record both sides of material conflicts and the final concession.
-Capture at most one durable awareness lesson from the surviving verdict. Never create one memory per checkpoint.
+Capture at most one reusable lesson from the surviving verdict in the host task context. Never create one memory entry per checkpoint.
 
 ## Hook Entrypoint
 

@@ -82,7 +82,7 @@ mod tests {
         assert_eq!(explicit["files"][0]["matches"][0]["truncated"], true);
 
         let detailed = run(&ls_query(
-            serde_json::json!({"contextLines": null, "resultView": ResultView::Detailed}),
+            serde_json::json!({"contextLines": null, "resultView": LocalSearchQueryResultView::Detailed}),
             Some(&base.clone()),
         ));
         assert!(
@@ -109,7 +109,7 @@ mod tests {
         .expect("policy");
         let security = ContentSecurity::new();
         let request = ls_query(
-            serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "needle.*".to_string(), "resultView": ResultView::MatchOnly, "matchContentLength": 30, "maxMatchesPerFile": 1, "unique": UniqueMode::Count}),
+            serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "needle.*".to_string(), "resultView": LocalSearchQueryResultView::MatchOnly, "matchContentLength": 30, "maxMatchesPerFile": 1, "unique": LocalSearchQueryUnique::Count}),
             None,
         );
         let first =
@@ -197,7 +197,7 @@ mod tests {
         // Content view returns the whole matched line (not just the match span),
         // so a hit inside the base64 body would surface the key material.
         let request = ls_query(
-            serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "MIIEpQIB".to_string(), "resultView": ResultView::Detailed, "contextLines": 0}),
+            serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "MIIEpQIB".to_string(), "resultView": LocalSearchQueryResultView::Detailed, "contextLines": 0}),
             None,
         );
         let result =
@@ -231,7 +231,7 @@ mod tests {
         .expect("policy");
         let security = ContentSecurity::new();
         let request = ls_query(
-            serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "aGVsbG8".to_string(), "resultView": ResultView::Detailed, "contextLines": 0}),
+            serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "aGVsbG8".to_string(), "resultView": LocalSearchQueryResultView::Detailed, "contextLines": 0}),
             None,
         );
         let result =
@@ -262,7 +262,7 @@ mod tests {
         .expect("policy");
         let security = ContentSecurity::new();
         let request = ls_query(
-            serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "needle".to_string(), "resultView": ResultView::Detailed, "matchContentLength": 5_000_000, "contextLines": 0}),
+            serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "needle".to_string(), "resultView": LocalSearchQueryResultView::Detailed, "matchContentLength": 5_000_000, "contextLines": 0}),
             None,
         );
         let result =
@@ -353,7 +353,7 @@ mod tests {
         .expect("policy");
         let security = ContentSecurity::new();
         let request = ls_query(
-            serde_json::json!({"path": root.to_string_lossy().into_owned(), "searchText": "needle".to_string(), "hidden": true, "noIgnore": true, "sort": SortMode::Path}),
+            serde_json::json!({"path": root.to_string_lossy().into_owned(), "searchText": "needle".to_string(), "hidden": true, "noIgnore": true, "sort": LocalSearchQuerySort::Path}),
             None,
         );
         let result =
@@ -555,15 +555,15 @@ mod tests {
         let file = format!("token: {token} end\n");
         let cases = [
             ls_query(
-                serde_json::json!({"searchText": "ghp_[0-9a-z]{20}".to_string(), "resultView": ResultView::MatchOnly}),
+                serde_json::json!({"searchText": "ghp_[0-9a-z]{20}".to_string(), "resultView": LocalSearchQueryResultView::MatchOnly}),
                 None,
             ),
             ls_query(
-                serde_json::json!({"searchText": "token".to_string(), "resultView": ResultView::MatchOnly, "matchWindow": 20}),
+                serde_json::json!({"searchText": "token".to_string(), "resultView": LocalSearchQueryResultView::MatchOnly, "matchWindow": 20}),
                 None,
             ),
             ls_query(
-                serde_json::json!({"searchText": "end".to_string(), "resultView": ResultView::MatchOnly, "matchWindow": 30}),
+                serde_json::json!({"searchText": "end".to_string(), "resultView": LocalSearchQueryResultView::MatchOnly, "matchWindow": 30}),
                 None,
             ),
             ls_query(
@@ -583,7 +583,7 @@ mod tests {
         let body = search_fixture(
             &[("sec.txt", &format!("{file}plain needle line\n"))],
             ls_query(
-                serde_json::json!({"searchText": "needle".to_string(), "resultView": ResultView::MatchOnly}),
+                serde_json::json!({"searchText": "needle".to_string(), "resultView": LocalSearchQueryResultView::MatchOnly}),
                 None,
             ),
         );
@@ -596,7 +596,7 @@ mod tests {
         let body = search_fixture(
             &[("key.rs", file)],
             ls_query(
-                serde_json::json!({"searchText": "interior".to_string(), "resultView": ResultView::MatchOnly, "matchWindow": 6}),
+                serde_json::json!({"searchText": "interior".to_string(), "resultView": LocalSearchQueryResultView::MatchOnly, "matchWindow": 6}),
                 None,
             ),
         );
@@ -614,7 +614,7 @@ mod tests {
         let body = search_fixture(
             &files,
             ls_query(
-                serde_json::json!({"searchText": "foo".to_string(), "pageSize": 2, "matchPage": 3, "maxMatchesPerFile": 2, "contextLines": 0, "sort": SortMode::Path}),
+                serde_json::json!({"searchText": "foo".to_string(), "pageSize": 2, "matchPage": 3, "maxMatchesPerFile": 2, "contextLines": 0, "sort": LocalSearchQuerySort::Path}),
                 None,
             ),
         );
@@ -628,7 +628,7 @@ mod tests {
         let body = search_fixture(
             &files,
             ls_query(
-                serde_json::json!({"searchText": "foo".to_string(), "pageSize": 2, "page": 2, "maxMatchesPerFile": 2, "contextLines": 0, "sort": SortMode::Path}),
+                serde_json::json!({"searchText": "foo".to_string(), "pageSize": 2, "page": 2, "maxMatchesPerFile": 2, "contextLines": 0, "sort": LocalSearchQuerySort::Path}),
                 None,
             ),
         );
@@ -641,7 +641,7 @@ mod tests {
         let files = [("a.txt", many.as_str()), ("b.txt", "foo\n")];
         let request = |match_page| {
             ls_query(
-                serde_json::json!({"searchText": "foo".to_string(), "matchPage": match_page, "maxMatchesPerFile": 2, "contextLines": 0, "sort": SortMode::Path}),
+                serde_json::json!({"searchText": "foo".to_string(), "matchPage": match_page, "maxMatchesPerFile": 2, "contextLines": 0, "sort": LocalSearchQuerySort::Path}),
                 None,
             )
         };
@@ -663,7 +663,7 @@ mod tests {
         let body = search_fixture(
             &[("a.txt", &"foo\n".repeat(15))],
             ls_query(
-                serde_json::json!({"searchText": "foo".to_string(), "resultView": ResultView::Files}),
+                serde_json::json!({"searchText": "foo".to_string(), "resultView": LocalSearchQueryResultView::Files}),
                 None,
             ),
         );
@@ -718,7 +718,7 @@ mod tests {
         let body = search_fixture(
             &fixtures,
             ls_query(
-                serde_json::json!({"searchText": "needle".to_string(), "sort": SortMode::Path}),
+                serde_json::json!({"searchText": "needle".to_string(), "sort": LocalSearchQuerySort::Path}),
                 None,
             ),
         );
@@ -731,7 +731,7 @@ mod tests {
         let detailed = search_fixture(
             &[("a.txt", &numbered(30, &[20]))],
             ls_query(
-                serde_json::json!({"searchText": "needle".to_string(), "resultView": ResultView::Detailed}),
+                serde_json::json!({"searchText": "needle".to_string(), "resultView": LocalSearchQueryResultView::Detailed}),
                 None,
             ),
         );
@@ -810,7 +810,7 @@ mod tests {
         let body = search_fixture(
             &[("a.txt", &file)],
             ls_query(
-                serde_json::json!({"searchText": "needle".to_string(), "resultView": ResultView::MatchOnly}),
+                serde_json::json!({"searchText": "needle".to_string(), "resultView": LocalSearchQueryResultView::MatchOnly}),
                 None,
             ),
         );
@@ -887,7 +887,7 @@ mod tests {
                 None,
             )
         };
-        let body = search_fixture(&[("a.txt", &file)], make(ResultView::MatchOnly));
+        let body = search_fixture(&[("a.txt", &file)], make(LocalSearchQueryResultView::MatchOnly));
         let next = &body["next"]["nextMatchPage"]["query"];
         assert!(next.get("contextLines").is_none(), "{next}");
 
@@ -901,7 +901,7 @@ mod tests {
         let security = ContentSecurity::new();
         let request = ls_query(
             serde_json::json!({"path": root.path().to_string_lossy().into_owned()}),
-            Some(&make(ResultView::Detailed)),
+            Some(&make(LocalSearchQueryResultView::Detailed)),
         );
         let first =
             execute_local_search(&request, &policy, &security, &NeverCancel).expect("first page");
@@ -955,7 +955,7 @@ mod tests {
         }
         let (policy, security) = policy_for(root.path());
         let request = ls_query(
-            serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "needle-only-here".to_string(), "regex": RegexMode::Literal, "noIgnore": true}),
+            serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "needle-only-here".to_string(), "regex": LocalSearchQueryRegex::Literal, "noIgnore": true}),
             None,
         );
         let outcome = execute_local_search(&request, &policy, &security, &NeverCancel);
@@ -984,7 +984,7 @@ mod tests {
         }
         let (policy, security) = policy_for(root.path());
         let request = ls_query(
-            serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "needle-only-here".to_string(), "regex": RegexMode::Literal, "noIgnore": true}),
+            serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "needle-only-here".to_string(), "regex": LocalSearchQueryRegex::Literal, "noIgnore": true}),
             None,
         );
         let outcome = execute_local_search(&request, &policy, &security, &NeverCancel);
@@ -1010,7 +1010,7 @@ mod tests {
         .expect("fixture");
         let (policy, security) = policy_for(root.path());
         let request = ls_query(
-            serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "alpha".to_string(), "regex": RegexMode::Literal}),
+            serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "alpha".to_string(), "regex": LocalSearchQueryRegex::Literal}),
             None,
         );
         let result =
@@ -1055,7 +1055,7 @@ mod tests {
         fs::write(root.path().join("zzz-hot.txt"), "hit\n".repeat(40)).expect("fixture");
         let (policy, security) = policy_for(root.path());
         let request = ls_query(
-            serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "hit".to_string(), "regex": RegexMode::Literal}),
+            serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "hit".to_string(), "regex": LocalSearchQueryRegex::Literal}),
             None,
         );
         let result =

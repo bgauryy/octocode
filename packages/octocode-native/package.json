@@ -124,7 +124,7 @@
     "version:sync": "node scripts/sync-versions.cjs",
     "pack:check": "node scripts/check-pack-size.cjs",
     "docs:claims": "node scripts/check-doc-claims.cjs",
-    "verify": "yarn fmt:rust:check && yarn lint && yarn typecheck && yarn test && yarn deps:rust && yarn loader:check && yarn verify:napi-abi && yarn version:check && yarn workspace @octocodeai/config check:tool-contract && yarn workspace @octocodeai/config check:core-contract-sync && yarn docs:claims",
+    "verify": "yarn fmt:rust:check && yarn lint && yarn typecheck && yarn test && yarn deps:rust && yarn loader:check && yarn verify:napi-abi && yarn version:check && yarn workspace @octocodeai/config check:tool-contract && yarn docs:claims",
     "prepublishOnly": "yarn version:sync && node ../octocode/scripts/check-no-workspace-protocol.mjs && yarn workspace @octocodeai/config check:core-contract-sync:published"
   }
 }

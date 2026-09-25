@@ -66,7 +66,7 @@ pub fn execute_local_search(
         });
     }
     let view = query.result_view;
-    if query.match_window.is_some() && view != ResultView::MatchOnly {
+    if query.match_window.is_some() && view != LocalSearchQueryResultView::MatchOnly {
         return Err(LocalSearchError {
             code: "invalidQuery",
             message: "`matchWindow` requires resultView:\"matchOnly\"".into(),
@@ -74,7 +74,7 @@ pub fn execute_local_search(
             next: None,
         });
     }
-    if query.unique != UniqueMode::Off && view != ResultView::MatchOnly {
+    if query.unique != LocalSearchQueryUnique::Off && view != LocalSearchQueryResultView::MatchOnly {
         return Err(LocalSearchError {
             code: "invalidQuery",
             message: "`unique` requires resultView:\"matchOnly\"".into(),
@@ -99,31 +99,31 @@ pub fn execute_local_search(
         .unwrap_or_else(|| default_context_lines(view));
     let path_sort = matches!(
         query.sort,
-        SortMode::Modified | SortMode::Accessed | SortMode::Created | SortMode::Path
+        LocalSearchQuerySort::Modified | LocalSearchQuerySort::Accessed | LocalSearchQuerySort::Created | LocalSearchQuerySort::Path
     );
     // Match-density orders must choose the collection cap's survivors by match
     // count across every searched file; path-list views rank by path.
-    let density_sort = matches!(requested_sort, SortMode::Relevance | SortMode::MatchCount)
+    let density_sort = matches!(requested_sort, LocalSearchQuerySort::Relevance | LocalSearchQuerySort::MatchCount)
         && !matches!(
             view,
-            ResultView::Files | ResultView::FilesWithout | ResultView::Discovery
+            LocalSearchQueryResultView::Files | LocalSearchQueryResultView::FilesWithout | LocalSearchQueryResultView::Discovery
         );
     let options = RipgrepSearchOptions {
         path: validated.canonical.to_string_lossy().into_owned(),
         pattern: query.search_text.to_string(),
-        fixed_string: Some(regex == RegexMode::Literal),
-        perl_regex: Some(regex == RegexMode::Pcre2),
-        case_sensitive: Some(case == CaseMode::Sensitive),
-        case_insensitive: Some(case == CaseMode::Insensitive),
+        fixed_string: Some(regex == LocalSearchQueryRegex::Literal),
+        perl_regex: Some(regex == LocalSearchQueryRegex::Pcre2),
+        case_sensitive: Some(case == LocalSearchQueryCaseMode::Sensitive),
+        case_insensitive: Some(case == LocalSearchQueryCaseMode::Insensitive),
         whole_word: query.whole_word,
         invert_match: query.invert_match,
-        multiline: Some(multiline != MultilineMode::Off),
-        multiline_dotall: Some(multiline == MultilineMode::Dotall),
+        multiline: Some(multiline != LocalSearchQueryMultiline::Off),
+        multiline_dotall: Some(multiline == LocalSearchQueryMultiline::Dotall),
         // discovery renders the same path list as files; skip content matching.
-        files_only: Some(matches!(view, ResultView::Files | ResultView::Discovery)),
-        files_without_match: Some(view == ResultView::FilesWithout),
-        count_lines_per_file: Some(view == ResultView::CountLines),
-        count_matches_per_file: Some(view == ResultView::CountMatches),
+        files_only: Some(matches!(view, LocalSearchQueryResultView::Files | LocalSearchQueryResultView::Discovery)),
+        files_without_match: Some(view == LocalSearchQueryResultView::FilesWithout),
+        count_lines_per_file: Some(view == LocalSearchQueryResultView::CountLines),
+        count_matches_per_file: Some(view == LocalSearchQueryResultView::CountMatches),
         context_lines: Some(context_lines),
         lang_type: query.lang_type.clone(),
         include: Some(query.include.clone()).filter(|include| !include.is_empty()),
@@ -155,7 +155,7 @@ pub fn execute_local_search(
         no_ignore: query.no_ignore,
         hidden: query.hidden,
         max_depth: query.max_depth(),
-        sort: if requested_sort == SortMode::Traversal {
+        sort: if requested_sort == LocalSearchQuerySort::Traversal {
             Some("traversal".into())
         } else {
             Some(if path_sort {
@@ -169,10 +169,10 @@ pub fn execute_local_search(
         sort_reverse: query.reverse,
         max_snippet_chars: Some(effective_match_content_length(query)),
         classify_matches: Some(false),
-        only_matching: Some(view == ResultView::MatchOnly),
+        only_matching: Some(view == LocalSearchQueryResultView::MatchOnly),
         match_window: query.match_window(),
-        unique: Some(matches!(query.unique, UniqueMode::List | UniqueMode::Count)),
-        count_unique: Some(query.unique == UniqueMode::Count),
+        unique: Some(matches!(query.unique, LocalSearchQueryUnique::List | LocalSearchQueryUnique::Count)),
+        count_unique: Some(query.unique == LocalSearchQueryUnique::Count),
         // The engine keeps the first 10k matched files in the engine sort order
         // above (by match count for relevance/matchCount), chosen across every
         // searched file; stats totals still count all matched files and the
@@ -184,11 +184,11 @@ pub fn execute_local_search(
     };
     // Classify an invalid pattern from the engine's typed validation result
     // (not from search error text) before walking the tree.
-    if regex != RegexMode::Literal {
+    if regex != LocalSearchQueryRegex::Literal {
         let checked = octocode_engine::portable::validate_ripgrep_pattern(
             &query.search_text,
             false,
-            regex == RegexMode::Pcre2,
+            regex == LocalSearchQueryRegex::Pcre2,
         );
         if !checked.valid {
             return Err(invalid_regex(
@@ -327,14 +327,14 @@ pub fn execute_local_search(
         }
     }
     match requested_sort {
-        SortMode::Path => parsed.files.sort_by(|a, b| a.path.cmp(&b.path)),
-        SortMode::MatchCount => parsed.files.sort_by(|a, b| {
+        LocalSearchQuerySort::Path => parsed.files.sort_by(|a, b| a.path.cmp(&b.path)),
+        LocalSearchQuerySort::MatchCount => parsed.files.sort_by(|a, b| {
             b.match_count
                 .cmp(&a.match_count)
                 .then_with(|| a.path.cmp(&b.path))
         }),
-        SortMode::Relevance => rank_relevance(&mut parsed.files, view),
-        SortMode::Traversal => {}
+        LocalSearchQuerySort::Relevance => rank_relevance(&mut parsed.files, view),
+        LocalSearchQuerySort::Traversal => {}
         _ => {}
     }
     // Engine-side time sorts already honour `reverse`; every order the runtime
@@ -343,7 +343,7 @@ pub fn execute_local_search(
     if query.reverse.unwrap_or(false)
         && !matches!(
             requested_sort,
-            SortMode::Modified | SortMode::Accessed | SortMode::Created
+            LocalSearchQuerySort::Modified | LocalSearchQuerySort::Accessed | LocalSearchQuerySort::Created
         )
     {
         parsed.files.reverse();
@@ -358,11 +358,11 @@ pub fn execute_local_search(
     let start = (page - 1).saturating_mul(page_size) as usize;
     let list = matches!(
         view,
-        ResultView::Files
-            | ResultView::FilesWithout
-            | ResultView::Discovery
-            | ResultView::CountLines
-            | ResultView::CountMatches
+        LocalSearchQueryResultView::Files
+            | LocalSearchQueryResultView::FilesWithout
+            | LocalSearchQueryResultView::Discovery
+            | LocalSearchQueryResultView::CountLines
+            | LocalSearchQueryResultView::CountMatches
     );
     let matches_per = query
         .max_matches_per_file()
@@ -383,7 +383,7 @@ pub fn execute_local_search(
                 &output_root.join(&file.path),
                 match_skip..match_skip.saturating_add(matches_per as usize),
                 security,
-                view == ResultView::MatchOnly,
+                view == LocalSearchQueryResultView::MatchOnly,
             ) {
                 unverified_redactions = true;
             }
@@ -425,7 +425,7 @@ pub fn execute_local_search(
     // Keep full values for identity, unique grouping and counts. The engine's
     // match-only path emits exact spans, so apply the public display bound here.
     let match_only_limit =
-        (view == ResultView::MatchOnly).then_some(effective_match_content_length(query) as usize);
+        (view == LocalSearchQueryResultView::MatchOnly).then_some(effective_match_content_length(query) as usize);
     // Distribute the response value-char budget across the matches shown
     // on this page. `display_cap` is the tighter of the matchOnly display bound
     // and the budget-derived per-match cap; a giant match is clipped (flagged
@@ -458,8 +458,8 @@ pub fn execute_local_search(
     // matchOnly carries exact spans and multiline rows span several lines, so
     // neither has per-row windows to merge.
     let merge_context = (!list
-        && view != ResultView::MatchOnly
-        && multiline == MultilineMode::Off
+        && view != LocalSearchQueryResultView::MatchOnly
+        && multiline == LocalSearchQueryMultiline::Off
         && context_lines > 0)
         .then_some(context_lines);
     let files = parsed
@@ -491,8 +491,8 @@ pub fn execute_local_search(
             SearchFile {
                 path: f.path,
                 matches: (!list).then_some(shown),
-                total_occurrences: (view == ResultView::CountMatches).then_some(f.match_count),
-                total_matched_lines: (view == ResultView::CountLines).then_some(f.match_count),
+                total_occurrences: (view == LocalSearchQueryResultView::CountMatches).then_some(f.match_count),
+                total_matched_lines: (view == LocalSearchQueryResultView::CountLines).then_some(f.match_count),
                 // Per-file paging is only reported while it routes somewhere:
                 // more match pages remain, or the requested page is past the end.
                 pagination: (!list && (has_more || out_of_range)).then_some(ItemPagination {
@@ -612,7 +612,7 @@ pub fn execute_local_search(
                 total_files,
                 total_matches: (!matches!(
                     view,
-                    ResultView::Files | ResultView::FilesWithout | ResultView::Discovery
+                    LocalSearchQueryResultView::Files | LocalSearchQueryResultView::FilesWithout | LocalSearchQueryResultView::Discovery
                 ))
                 .then_some(total_matches),
                 has_more,
@@ -694,11 +694,11 @@ fn unreadable_hint(count: u32) -> String {
 
 fn empty_hint(query: &LocalSearchQuery) -> String {
     let mut tips = Vec::new();
-    if query.case_mode != CaseMode::Insensitive {
+    if query.case_mode != LocalSearchQueryCaseMode::Insensitive {
         tips.push("caseMode:\"insensitive\"");
     }
     tips.push("a shorter term");
-    if query.regex == RegexMode::Literal {
+    if query.regex == LocalSearchQueryRegex::Literal {
         tips.push("regex:\"rust\"");
     } else {
         tips.push("regex:\"literal\" if searchText has metacharacters");
@@ -957,7 +957,16 @@ impl RipgrepPathFilter for PolicyFilter {
 
 /// `invalidRegex` with a literal-search repair continuation.
 fn invalid_regex(query: &LocalSearchQuery, message: String) -> LocalSearchError {
-    let mut repaired = normalized_query(query);
+    // The caller's own fields, not the runtime-normalized ones: a fresh
+    // page-1 search re-derives the same view defaults (contextLines,
+    // matchContentLength, pageSize), so spelling them out only adds bytes.
+    let mut repaired = serde_json::to_value(query).unwrap_or_else(|_| json!({}));
+    if let Some(object) = repaired.as_object_mut() {
+        object.retain(|_, value| !value.is_null());
+        for cursor in ["snapshot", "page", "matchPage"] {
+            object.remove(cursor);
+        }
+    }
     repaired["regex"] = json!("literal");
     LocalSearchError {
         code: "invalidRegex",
@@ -968,7 +977,7 @@ fn invalid_regex(query: &LocalSearchQuery, message: String) -> LocalSearchError 
         next: Some(Box::new(json!({"repair":{
             "tool":"localSearch",
             "query":repaired,
-            "why":"Start a new search treating searchText as literal text, if that was intended."
+            "why":"Search searchText as literal text."
         }}))),
     }
 }
@@ -988,11 +997,11 @@ fn cancelled(message: String) -> LocalSearchError {
 /// higher, ties broken by ascending path (a total order, so page 1 never varies
 /// run-to-run). No path, language, or view boosts apply; match density is the
 /// only signal.
-fn rank_relevance(files: &mut [octocode_engine::types::RipgrepFile], view: ResultView) {
+fn rank_relevance(files: &mut [octocode_engine::types::RipgrepFile], view: LocalSearchQueryResultView) {
     // Path-list views carry no per-file match-density signal — order by path.
     if matches!(
         view,
-        ResultView::Files | ResultView::FilesWithout | ResultView::Discovery
+        LocalSearchQueryResultView::Files | LocalSearchQueryResultView::FilesWithout | LocalSearchQueryResultView::Discovery
     ) {
         files.sort_by(|a, b| a.path.cmp(&b.path));
         return;
@@ -1024,27 +1033,27 @@ fn effective_match_content_length(q: &LocalSearchQuery) -> u32 {
     })
 }
 
-fn default_context_lines(view: ResultView) -> u32 {
-    if view == ResultView::Detailed { 3 } else { 0 }
+fn default_context_lines(view: LocalSearchQueryResultView) -> u32 {
+    if view == LocalSearchQueryResultView::Detailed { 3 } else { 0 }
 }
 
 /// Default files per page: snippet views stay lean; path-only views are cheap.
-fn default_page_size(view: ResultView) -> u32 {
+fn default_page_size(view: LocalSearchQueryResultView) -> u32 {
     match view {
-        ResultView::Files
-        | ResultView::FilesWithout
-        | ResultView::Discovery
-        | ResultView::CountLines
-        | ResultView::CountMatches => DEFAULT_LIST_PAGE_SIZE,
+        LocalSearchQueryResultView::Files
+        | LocalSearchQueryResultView::FilesWithout
+        | LocalSearchQueryResultView::Discovery
+        | LocalSearchQueryResultView::CountLines
+        | LocalSearchQueryResultView::CountMatches => DEFAULT_LIST_PAGE_SIZE,
         _ => DEFAULT_SNIPPET_PAGE_SIZE,
     }
 }
 
 /// Views whose match rows carry a context window (so `contextLines` matters).
-fn uses_context(view: ResultView) -> bool {
+fn uses_context(view: LocalSearchQueryResultView) -> bool {
     matches!(
         view,
-        ResultView::Paginated | ResultView::Content | ResultView::Detailed
+        LocalSearchQueryResultView::Paginated | LocalSearchQueryResultView::Content | LocalSearchQueryResultView::Detailed
     )
 }
 
@@ -1146,25 +1155,25 @@ fn fingerprint(
     identity.insert(
         "mode".into(),
         json!(match q.result_view {
-            ResultView::Discovery => "discovery",
-            ResultView::Detailed => "detailed",
+            LocalSearchQueryResultView::Discovery => "discovery",
+            LocalSearchQueryResultView::Detailed => "detailed",
             _ => "paginated",
         }),
     );
     identity.insert(
         "regex".into(),
         json!(match q.regex {
-            RegexMode::Literal => "fixed",
-            RegexMode::Pcre2 => "perl",
-            RegexMode::Rust => "smart",
+            LocalSearchQueryRegex::Literal => "fixed",
+            LocalSearchQueryRegex::Pcre2 => "perl",
+            LocalSearchQueryRegex::Rust => "smart",
         }),
     );
     identity.insert(
         "caseMode".into(),
         json!(match q.case_mode {
-            CaseMode::Sensitive => "sensitive",
-            CaseMode::Insensitive => "insensitive",
-            CaseMode::Smart => "smart",
+            LocalSearchQueryCaseMode::Sensitive => "sensitive",
+            LocalSearchQueryCaseMode::Insensitive => "insensitive",
+            LocalSearchQueryCaseMode::Smart => "smart",
         }),
     );
     identity.insert(
@@ -1181,40 +1190,40 @@ fn fingerprint(
     identity.insert(
         "multiline".into(),
         json!(match q.multiline {
-            MultilineMode::Off => "off",
-            MultilineMode::On => "on",
-            MultilineMode::Dotall => "dotall",
+            LocalSearchQueryMultiline::Off => "off",
+            LocalSearchQueryMultiline::On => "on",
+            LocalSearchQueryMultiline::Dotall => "dotall",
         }),
     );
     identity.insert(
         "sort".into(),
         json!(match q.sort {
-            SortMode::Relevance => "relevance",
-            SortMode::Traversal => "traversal",
-            SortMode::MatchCount => "matchCount",
-            SortMode::Path => "path",
-            SortMode::Modified => "modified",
-            SortMode::Accessed => "accessed",
-            SortMode::Created => "created",
+            LocalSearchQuerySort::Relevance => "relevance",
+            LocalSearchQuerySort::Traversal => "traversal",
+            LocalSearchQuerySort::MatchCount => "matchCount",
+            LocalSearchQuerySort::Path => "path",
+            LocalSearchQuerySort::Modified => "modified",
+            LocalSearchQuerySort::Accessed => "accessed",
+            LocalSearchQuerySort::Created => "created",
         }),
     );
     identity.insert(
         "output".into(),
         json!(match q.result_view {
-            ResultView::MatchOnly => "matchOnly",
-            ResultView::Files => "files",
-            ResultView::FilesWithout => "filesWithout",
-            ResultView::CountLines => "countLines",
-            ResultView::CountMatches => "countMatches",
+            LocalSearchQueryResultView::MatchOnly => "matchOnly",
+            LocalSearchQueryResultView::Files => "files",
+            LocalSearchQueryResultView::FilesWithout => "filesWithout",
+            LocalSearchQueryResultView::CountLines => "countLines",
+            LocalSearchQueryResultView::CountMatches => "countMatches",
             _ => "content",
         }),
     );
     identity.insert(
         "unique".into(),
         json!(match q.unique {
-            UniqueMode::Off => "off",
-            UniqueMode::List => "list",
-            UniqueMode::Count => "count",
+            LocalSearchQueryUnique::Off => "off",
+            LocalSearchQueryUnique::List => "list",
+            LocalSearchQueryUnique::Count => "count",
         }),
     );
     macro_rules! opt {
@@ -1339,5 +1348,28 @@ mod merge_tests {
             2,
             "a merge must not exceed matchContentLength"
         );
+    }
+}
+
+#[cfg(test)]
+mod repair_tests {
+    use super::*;
+
+    #[test]
+    fn invalid_regex_repair_keeps_only_caller_fields() {
+        let query: LocalSearchQuery = serde_json::from_value(json!({
+            "path":"/tmp","searchText":"(unclosed","reasoning":"r","page":3,"pageSize":5
+        }))
+        .expect("query");
+        let error = invalid_regex(&query, "unclosed group".into());
+        let next = error.next.expect("repair");
+        let repair = &next["repair"]["query"];
+        assert_eq!(repair["regex"], "literal");
+        assert_eq!(repair["pageSize"], 5, "caller fields survive: {repair}");
+        for derived in ["contextLines", "matchContentLength", "page", "matchPage"] {
+            assert!(repair.get(derived).is_none(), "{derived} leaked: {repair}");
+        }
+        crate::contracts::validate_query("localSearch", repair.clone())
+            .expect("repair query is contract-valid");
     }
 }

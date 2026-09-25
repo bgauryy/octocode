@@ -7,12 +7,12 @@ use crate::{
     policy::path::PathPolicy, security::ContentSecurity, tools::local_fetch::CancellationCheck,
 };
 
-pub use types::{AstGraphError, AstGraphQuery, AstGraphResult, GraphAnalysis};
+pub use types::{AstGraphError, AstTopologyQuery, AstGraphResult, GraphAnalysis};
 
 /// Execute public `astTopology` through the portable native
 /// fact scanner and Rust-owned graph algorithms.
 pub fn execute_topology(
-    query: &AstGraphQuery,
+    query: &AstTopologyQuery,
     paths: &PathPolicy,
     security: &ContentSecurity,
     cancel: &dyn CancellationCheck,
@@ -22,7 +22,7 @@ pub fn execute_topology(
     // a structured tool error, not tear down the host process.
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         validate_query(query)?;
-        if query.analysis == GraphAnalysis::Drift {
+        if query.analysis() == GraphAnalysis::Drift {
             return analysis::drift(query, paths, security, cancel);
         }
         let built = graph::build_graph(query, paths, security, cancel)?;
@@ -41,147 +41,33 @@ pub fn execute_topology(
     })
 }
 
-fn validate_query(query: &AstGraphQuery) -> Result<(), AstGraphError> {
-    if query.operation != "topology" {
-        return Err(AstGraphError::new(
-            "ast.input.invalid",
-            "operation must be topology",
-        ));
-    }
-    if query.page == 0
-        || query.page > 1000
-        || query.diagnostic_page == 0
-        || query.diagnostic_page > 1000
-    {
+/// Per-analysis field sets are enforced by the generated wire type; these are
+/// the numeric bounds it does not encode.
+fn validate_query(query: &AstTopologyQuery) -> Result<(), AstGraphError> {
+    if query.page() > 1000 || query.diagnostic_page() > 1000 {
         return Err(AstGraphError::new(
             "ast.input.invalid",
             "page fields must be between 1 and 1000",
         ));
     }
-    if query.depth.is_some_and(|x| x == 0 || x > 50) {
+    if query.depth().is_some_and(|x| x > 50) {
         return Err(AstGraphError::new(
             "ast.input.invalid",
             "depth must be between 1 and 50",
         ));
     }
-    if query.page_size.is_some_and(|x| x == 0 || x > 100)
-        || query
-            .diagnostic_page_size
-            .is_some_and(|x| x == 0 || x > 100)
+    if query.page_size().is_some_and(|x| x > 100)
+        || query.diagnostic_page_size().is_some_and(|x| x > 100)
     {
         return Err(AstGraphError::new(
             "ast.input.invalid",
             "pageSize fields must be between 1 and 100",
         ));
     }
-    if query.max_files.is_some_and(|x| x == 0 || x > 50_000)
-        || query.limit.is_some_and(|x| x == 0 || x > 5_000)
-    {
+    if query.max_files().is_some_and(|x| x > 50_000) || query.limit().is_some_and(|x| x > 5_000) {
         return Err(AstGraphError::new(
             "ast.input.invalid",
             "graph bounds exceed the public schema",
-        ));
-    }
-    if query
-        .rust_workspace
-        .as_deref()
-        .is_some_and(|value| !matches!(value, "syntax" | "cargo"))
-    {
-        return Err(AstGraphError::new(
-            "ast.input.invalid",
-            "rustWorkspace must be syntax or cargo",
-        ));
-    }
-    match query.analysis {
-        GraphAnalysis::Dependencies | GraphAnalysis::Dependents => {
-            if query.file.is_none() {
-                return Err(AstGraphError::new(
-                    "invalidGraphQuery",
-                    format!("{} requires file", query.analysis.as_str()),
-                ));
-            }
-            if query.target.is_some()
-                || query.entrypoints.is_some()
-                || query.include_tests.is_some()
-            {
-                return Err(AstGraphError::new(
-                    "invalidGraphQuery",
-                    "traversal analyses reject target, entrypoints, and includeTests",
-                ));
-            }
-        }
-        GraphAnalysis::Path => {
-            if query.file.is_none() || query.target.is_none() {
-                return Err(AstGraphError::new(
-                    "invalidGraphQuery",
-                    "path requires file and target",
-                ));
-            }
-            if query.depth.is_some() || query.entrypoints.is_some() || query.include_tests.is_some()
-            {
-                return Err(AstGraphError::new(
-                    "invalidGraphQuery",
-                    "path rejects depth, entrypoints, and includeTests",
-                ));
-            }
-        }
-        GraphAnalysis::Cycles => {
-            if query.path.is_none() {
-                return Err(AstGraphError::new(
-                    "invalidGraphQuery",
-                    "cycles requires path",
-                ));
-            }
-            if query.file.is_some()
-                || query.target.is_some()
-                || query.depth.is_some()
-                || query.entrypoints.is_some()
-                || query.include_tests.is_some()
-            {
-                return Err(AstGraphError::new(
-                    "invalidGraphQuery",
-                    "cycles rejects file, target, depth, entrypoints, and includeTests",
-                ));
-            }
-        }
-        GraphAnalysis::Reachability | GraphAnalysis::DeadCode => {
-            if query.file.is_some() || query.target.is_some() || query.depth.is_some() {
-                return Err(AstGraphError::new(
-                    "invalidGraphQuery",
-                    "reachability analyses reject file, target, and depth",
-                ));
-            }
-        }
-        GraphAnalysis::Drift => {
-            if query.path.is_none() {
-                return Err(AstGraphError::new(
-                    "invalidGraphQuery",
-                    "drift requires path",
-                ));
-            }
-            if query.baseline.is_none() {
-                return Err(AstGraphError::new(
-                    "invalidGraphQuery",
-                    "drift requires baseline",
-                ));
-            }
-            if query.file.is_some()
-                || query.target.is_some()
-                || query.depth.is_some()
-                || query.entrypoints.is_some()
-                || query.include_tests.is_some()
-            {
-                return Err(AstGraphError::new(
-                    "invalidGraphQuery",
-                    "drift rejects file, target, depth, entrypoints, and includeTests",
-                ));
-            }
-        }
-    }
-    if query.baseline.is_some() && query.analysis != GraphAnalysis::Drift {
-        return Err(AstGraphError::new(
-            "invalidGraphQuery",
-            "baseline is only valid for drift",
         ));
     }
     Ok(())
@@ -208,7 +94,7 @@ mod drift_tests {
         })
         .expect("path policy");
         let security = ContentSecurity::new();
-        let parsed: AstGraphQuery = serde_json::from_value(query).expect("query");
+        let parsed: AstTopologyQuery = serde_json::from_value(query).expect("query");
         execute_topology(&parsed, &paths, &security, &Active)
     }
 
@@ -224,7 +110,7 @@ mod drift_tests {
                     .expect("fixture file");
             }
         }
-        let query = json!({"operation":"topology","analysis":"cycles","path":root.path()});
+        let query = json!({"operation":"topology","reasoning":"test","analysis":"cycles","path":root.path()});
         let error = run(query.clone(), root.path()).expect_err("scope refused");
         assert_eq!(error.code, "ast.graph.scopeTooBroad");
         assert!(
@@ -269,7 +155,7 @@ mod drift_tests {
         })
         .expect("paths");
         let security = ContentSecurity::new();
-        let query: AstGraphQuery = serde_json::from_value(json!({"operation":"topology","analysis":"dependencies","path":root,"file":"include/widget.h","languageGlobs":{"cpp":["include/**/*.h"]}})).expect("query");
+        let query: AstTopologyQuery = serde_json::from_value(json!({"operation":"topology","reasoning":"test","analysis":"dependencies","path":root,"file":"include/widget.h","languageGlobs":{"cpp":["include/**/*.h"]}})).expect("query");
         let built = graph::build_graph(&query, &paths, &security, &Active).expect("graph");
         assert!(
             built
@@ -314,7 +200,7 @@ mod drift_tests {
         let base = root.join("base");
         let out = run(
             json!({
-                "operation":"topology","analysis":"drift",
+                "operation":"topology","reasoning":"test","analysis":"drift",
                 "path": head.to_string_lossy(),
                 "baseline": base.to_string_lossy()
             }),
@@ -343,21 +229,18 @@ mod drift_tests {
         let root = temp.path();
         std::fs::write(root.join("a.ts"), "export const a = 1;\n").unwrap();
 
-        // baseline on a non-drift analysis is rejected.
-        let rejected = run(
-            json!({"operation":"topology","analysis":"cycles","path":root.to_string_lossy(),"baseline":root.to_string_lossy()}),
-            root,
-        )
-        .expect_err("baseline rejected on cycles");
-        assert_eq!(rejected.code, "invalidGraphQuery");
-
-        // drift without baseline is rejected.
-        let missing = run(
-            json!({"operation":"topology","analysis":"drift","path":root.to_string_lossy()}),
-            root,
-        )
-        .expect_err("drift requires baseline");
-        assert_eq!(missing.code, "invalidGraphQuery");
+        // The wire contract scopes baseline to drift and requires it there.
+        let parse = |query: Value| serde_json::from_value::<AstTopologyQuery>(query);
+        assert!(
+            parse(json!({"operation":"topology","reasoning":"test","analysis":"cycles","path":root.to_string_lossy(),"baseline":root.to_string_lossy()}))
+                .is_err(),
+            "baseline rejected on cycles"
+        );
+        assert!(
+            parse(json!({"operation":"topology","reasoning":"test","analysis":"drift","path":root.to_string_lossy()}))
+                .is_err(),
+            "drift requires baseline"
+        );
     }
 
     #[test]
@@ -376,7 +259,7 @@ mod drift_tests {
         std::fs::write(root.join("bar.rs"), "pub fn thing() {}\n").unwrap();
 
         let out = run(
-            json!({"operation":"topology","analysis":"cycles","path":root.to_string_lossy()}),
+            json!({"operation":"topology","reasoning":"test","analysis":"cycles","path":root.to_string_lossy()}),
             root,
         )
         .expect("cycles result");
@@ -420,7 +303,7 @@ mod drift_tests {
         .unwrap();
 
         let out = run(
-            json!({"operation":"topology","analysis":"cycles","path":root.to_string_lossy()}),
+            json!({"operation":"topology","reasoning":"test","analysis":"cycles","path":root.to_string_lossy()}),
             root,
         )
         .expect("cycles result");
@@ -459,7 +342,7 @@ mod drift_tests {
         std::fs::write(root.join("b.ts"), "export const b = 1;\n").unwrap();
 
         let out = run(
-            json!({"operation":"topology","analysis":"path","path":root.to_string_lossy(),"file":"a.ts","target":"b.ts"}),
+            json!({"operation":"topology","reasoning":"test","analysis":"path","path":root.to_string_lossy(),"file":"a.ts","target":"b.ts"}),
             root,
         )
         .expect("path result");
@@ -476,7 +359,7 @@ mod drift_tests {
             std::fs::write(root.join(format!("f{i}.js")), "export const x = 1;\n").unwrap();
         }
         std::fs::write(root.join("a.js"), "export const a = 1;\n").unwrap();
-        let query = |page: u32| json!({"operation":"topology","analysis":"reachability","path":root.to_string_lossy(),"pageSize":2,"page":page});
+        let query = |page: u32| json!({"operation":"topology","reasoning":"test","analysis":"reachability","path":root.to_string_lossy(),"pageSize":2,"page":page});
 
         let first = run(query(1), root).expect("page 1");
         let second = run(query(2), root).expect("page 2");
@@ -501,7 +384,7 @@ mod drift_tests {
         std::fs::write(root.join("unread.ts"), [0xff]).unwrap();
 
         let out = run(
-            json!({"operation":"topology","analysis":"dependencies","path":root.to_string_lossy(),"file":"entry.ts"}),
+            json!({"operation":"topology","reasoning":"test","analysis":"dependencies","path":root.to_string_lossy(),"file":"entry.ts"}),
             root,
         )
         .expect("dependencies result");
@@ -534,7 +417,7 @@ mod drift_tests {
         .unwrap();
 
         let out = run(
-            json!({"operation":"topology","analysis":"dependencies","path":root.to_string_lossy(),"file":"entry.ts"}),
+            json!({"operation":"topology","reasoning":"test","analysis":"dependencies","path":root.to_string_lossy(),"file":"entry.ts"}),
             root,
         )
         .expect("dependencies result");
@@ -557,7 +440,7 @@ mod drift_tests {
         std::fs::write(root.join("two.py"), "def two(): pass\n").unwrap();
 
         let out = run(
-            json!({"operation":"topology","analysis":"cycles","path":root.to_string_lossy()}),
+            json!({"operation":"topology","reasoning":"test","analysis":"cycles","path":root.to_string_lossy()}),
             root,
         )
         .expect("cycles result");
@@ -592,7 +475,7 @@ mod dead_code_root_tests {
         })
         .expect("path policy");
         let security = ContentSecurity::new();
-        let parsed: AstGraphQuery = serde_json::from_value(query).expect("query");
+        let parsed: AstTopologyQuery = serde_json::from_value(query).expect("query");
         execute_topology(&parsed, &paths, &security, &Active)
     }
 
@@ -612,7 +495,7 @@ mod dead_code_root_tests {
         std::fs::write(root.join("src/helper.rs"), "pub fn run() {}\n").unwrap();
 
         let out = run(
-            json!({"operation":"topology","analysis":"deadCode","path":root.to_string_lossy()}),
+            json!({"operation":"topology","reasoning":"test","analysis":"deadCode","path":root.to_string_lossy()}),
             root,
         )
         .expect("dead code result");
@@ -654,7 +537,7 @@ mod dead_code_root_tests {
         std::fs::write(root.join("util.rs"), "pub fn util() {}\n").unwrap();
 
         let out = run(
-            json!({"operation":"topology","analysis":"deadCode","path":root.to_string_lossy()}),
+            json!({"operation":"topology","reasoning":"test","analysis":"deadCode","path":root.to_string_lossy()}),
             root,
         )
         .expect("dead code result");
@@ -679,7 +562,7 @@ mod dead_code_root_tests {
             std::fs::write(root.join(name), content).unwrap();
         }
         let out = run(
-            json!({"operation":"topology","analysis":"deadCode","path":root.to_string_lossy(),"entrypoints":["main.ts"]}),
+            json!({"operation":"topology","reasoning":"test","analysis":"deadCode","path":root.to_string_lossy(),"entrypoints":["main.ts"]}),
             root,
         )
         .expect("dead code result");
@@ -791,7 +674,7 @@ mod dead_code_root_tests {
         std::fs::write(root.join("mod.ts"), "export function unused() {}\n").unwrap();
         std::fs::write(root.join("main.ts"), "import './mod'\n").unwrap();
         let out = run(
-            json!({"operation":"topology","analysis":"deadCode","path":root.to_string_lossy(),"entrypoints":["main.ts"]}),
+            json!({"operation":"topology","reasoning":"test","analysis":"deadCode","path":root.to_string_lossy(),"entrypoints":["main.ts"]}),
             root,
         )
         .expect("dead code result");

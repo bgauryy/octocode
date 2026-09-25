@@ -334,7 +334,7 @@ export interface AgentInboxRegistration {
    * Undo shutdown()'s suppression + detach so a following session can notify
    * again (idempotent). Must be called on session_start — the registration is
    * once-per-process, so without this a single shutdown kills notifications
-   * permanently. Mirrors resumeStatusPanel/resumeAwarenessPanel.
+   * permanently. Mirrors the session status lifecycle.
    */
   resume(): void;
 }

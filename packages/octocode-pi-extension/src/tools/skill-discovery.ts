@@ -5,7 +5,7 @@ import { defaultAgentSkillSources, discoverAgentSkillInventory, resolveAgentSkil
 import { capabilitySourcePaths, repositoryCapabilityDirectories, capabilityDefinitionRevision, stableCapabilitySourceId, type CapabilityPathOptions } from '../contracts/capability-sources.js';
 import { getCapabilitySourceReview, getCapabilitySourceStatus, getSelectedCapabilitySource, listCapabilitySourceReviews, reviewCapabilitySource, type CapabilitySourceStatus } from '../contracts/capability-state.js';
 import { getSkillEnablement } from '../contracts/mcp-state.js';
-import type { ReadableSqlite } from '@octocodeai/octocode-awareness/host';
+import type { ReadableSqlite } from '../runtime/agent-store-schema.js';
 import type { SkillInfo } from '../types.js';
 import { getAssetPaths } from '../assets.js';
 import { extensionStateDbPath } from '../extension-paths.js';

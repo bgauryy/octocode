@@ -10,6 +10,8 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { DatabaseSync } from 'node:sqlite';
 import { createHash } from 'node:crypto';
 
+const probeInput=(command,input)=>['send_message','notify_all','lock','lock_many'].includes(command)?{...( ['send_message','notify_all'].includes(command)?{wake:'action'}:{}),reasoning:`Validate ${command} interoperability in this isolated communication exercise`,...input}:input;
+
 const root = fileURLToPath(new URL('../', import.meta.url));
 const workspace = realpathSync(mkdtempSync('/tmp/communication-attached-'));
 const database = join(workspace, 'audit.sqlite');
@@ -18,7 +20,7 @@ const binary = join(root, 'skills/octocode-agents-communication/scripts/bin', ta
 const children = [], sockets = [], report = { passed: false, senderModelCalls: 0, vendors: {} };
 report.binarySha256 = createHash('sha256').update(readFileSync(binary)).digest('hex');
 const call = (command, input = {}, session) => JSON.parse(execFileSync(binary,
-  [command, JSON.stringify(input), '--workspace', workspace, '--database', database, ...(session ? ['--session', session] : [])],
+  [command, JSON.stringify(probeInput(command,input)), '--workspace', workspace, '--database', database, ...(session ? ['--session', session] : [])],
   { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }));
 const until = async (predicate, label, timeout = 60000) => {
   const end = Date.now() + timeout;

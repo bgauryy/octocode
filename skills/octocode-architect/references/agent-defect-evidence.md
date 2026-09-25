@@ -41,4 +41,4 @@ Three adjacent classes stay weakly evidenced — type-checker escape hatches add
 
 Agent-facing rule files are normative artifacts rather than observations, and they disagree with each other — some forbid removing logging while others forbid adding it — so treat a rule's existence as evidence that practitioners hit the class, never as evidence of its rate. Copied rule files also inflate apparent consensus: the same text recurs verbatim across forks, so count a canonical source once.
 
-Next: to classify a finding load `references/agent-defect-classes.md`; for coordination defects across parallel agents, the Awareness package docs own that evidence.
+Next: to classify a finding load `references/agent-defect-classes.md`; for coordination defects across parallel agents, the `octocode-agents-communication` package docs own that evidence.

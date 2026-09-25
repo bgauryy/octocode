@@ -7,10 +7,72 @@ use std::{
 };
 use tungstenite::{Message, WebSocket, client::client_with_config, protocol::WebSocketConfig};
 
+pub mod grok;
+pub mod opencode;
+pub mod protocol;
+
+/// Capabilities describe this adapter, not permissions or proof that a model read a message.
+pub fn capabilities(mode: &str) -> Value {
+    let Ok(transport) = protocol::NativeTransport::parse(mode) else {
+        return json!({"nativeInput":false,"passiveInjection":null,"actionWake":null,"acceptanceReceipt":"host-confirmation","readReceipt":false});
+    };
+    let mut result = json!({"nativeInput":true,"passiveInjection":!transport.requires_action(),"actionWake":true,"acceptanceReceipt":transport.receipt().name(),"readReceipt":false});
+    match transport {
+        protocol::NativeTransport::Codex => {
+            result["wakePrerequisite"] = json!("loaded-idle-thread")
+        }
+        protocol::NativeTransport::OpenCode => {
+            result["wakePrerequisite"] = json!("existing-idle-session-in-workspace")
+        }
+        _ => {}
+    }
+    result
+}
+
 enum Stream {
     Tcp(TcpStream),
     #[cfg(unix)]
     Unix(std::os::unix::net::UnixStream),
+}
+// Socket timeouts bound one syscall. The deadline also bounds a fragmented frame
+// whose peer keeps every individual read alive indefinitely.
+struct DeadlineStream {
+    inner: Stream,
+    deadline: Instant,
+}
+impl DeadlineStream {
+    fn remaining(&self) -> std::io::Result<Duration> {
+        self.deadline
+            .checked_duration_since(Instant::now())
+            .filter(|remaining| !remaining.is_zero())
+            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::TimedOut, "Codex I/O timed out"))
+    }
+}
+impl Read for DeadlineStream {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let remaining = self.remaining()?;
+        match &self.inner {
+            Stream::Tcp(s) => s.set_read_timeout(Some(remaining))?,
+            #[cfg(unix)]
+            Stream::Unix(s) => s.set_read_timeout(Some(remaining))?,
+        }
+        self.inner.read(buf)
+    }
+}
+impl Write for DeadlineStream {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let remaining = self.remaining()?;
+        match &self.inner {
+            Stream::Tcp(s) => s.set_write_timeout(Some(remaining))?,
+            #[cfg(unix)]
+            Stream::Unix(s) => s.set_write_timeout(Some(remaining))?,
+        }
+        self.inner.write(buf)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.remaining()?;
+        self.inner.flush()
+    }
 }
 impl Read for Stream {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
@@ -45,6 +107,15 @@ pub fn validate(transport: &str, endpoint: Option<&str>) -> Result<()> {
         return Ok(());
     }
     let endpoint = endpoint.ok_or_else(|| anyhow!("Native attachment requires endpoint"))?;
+    if transport == "grok" {
+        return grok::validate(endpoint);
+    }
+    if transport == "opencode" {
+        return opencode::validate(endpoint);
+    }
+    if !matches!(transport, "claude" | "codex") {
+        bail!("Unknown native transport");
+    }
     if transport == "claude" || endpoint.starts_with("unix://") {
         let path = endpoint.strip_prefix("unix://").unwrap_or(endpoint);
         if !std::path::Path::new(path).is_absolute() || path.len() > 103 {
@@ -97,14 +168,10 @@ fn unix(path: &str) -> Result<std::os::unix::net::UnixStream> {
 }
 
 pub struct Codex {
-    socket: WebSocket<Stream>,
+    socket: WebSocket<DeadlineStream>,
     sequence: u64,
-    endpoint: String,
 }
 impl Codex {
-    pub fn endpoint(&self) -> &str {
-        &self.endpoint
-    }
     pub fn connect(endpoint: &str) -> Result<Self> {
         validate("codex", Some(endpoint))?;
         let (stream, url) = if let Some(path) = endpoint.strip_prefix("unix://") {
@@ -125,6 +192,10 @@ impl Codex {
             stream.set_write_timeout(Some(Duration::from_secs(3)))?;
             (Stream::Tcp(stream), endpoint)
         };
+        let stream = DeadlineStream {
+            inner: stream,
+            deadline: Instant::now() + Duration::from_secs(5),
+        };
         let config = WebSocketConfig::default()
             .max_message_size(Some(1024 * 1024))
             .max_frame_size(Some(1024 * 1024));
@@ -133,7 +204,6 @@ impl Codex {
         let mut client = Self {
             socket,
             sequence: 0,
-            endpoint: endpoint.to_owned(),
         };
         client.request("initialize", json!({"clientInfo":{"name":"octocode-communication-dispatch","version":env!("CARGO_PKG_VERSION")},"capabilities":{"experimentalApi":true}}))?;
         client.send(json!({"method":"initialized","params":{}}))?;
@@ -146,8 +216,9 @@ impl Codex {
     fn request(&mut self, method: &str, params: Value) -> Result<Value> {
         self.sequence += 1;
         let id = self.sequence;
-        self.send(json!({"id":id,"method":method,"params":params}))?;
         let deadline = Instant::now() + Duration::from_secs(5);
+        self.socket.get_mut().deadline = deadline;
+        self.send(json!({"id":id,"method":method,"params":params}))?;
         while Instant::now() < deadline {
             match self.socket.read() {
                 Ok(Message::Text(text)) => {
@@ -176,6 +247,43 @@ impl Codex {
     }
     pub fn inject(&mut self, session: &str, content: &str) -> Result<()> {
         self.request("thread/inject_items",json!({"threadId":session,"items":[{"type":"message","role":"user","content":[{"type":"input_text","text":content}]}]}))?;
+        Ok(())
+    }
+    pub fn idle(&mut self, session: &str, workspace: &str) -> Result<bool> {
+        // Metadata only: never fetch recipient history or implicitly load a stopped host.
+        let result = self.request(
+            "thread/read",
+            json!({"threadId":session,"includeTurns":false}),
+        )?;
+        if result["thread"]["id"] != session {
+            bail!("Codex thread/read returned a different or missing thread identity");
+        }
+        let cwd = result["thread"]["cwd"]
+            .as_str()
+            .ok_or_else(|| anyhow!("Codex thread/read returned no workspace"))?;
+        if std::fs::canonicalize(cwd)? != std::path::Path::new(workspace) {
+            bail!("Codex thread/read returned a different workspace");
+        }
+        match result["thread"]["status"]["type"].as_str() {
+            Some("idle") => Ok(true),
+            Some("active" | "notLoaded" | "systemError") => Ok(false),
+            _ => bail!("Codex thread/read returned an unknown runtime status"),
+        }
+    }
+    pub fn start_turn(&mut self, session: &str, content: &str) -> Result<()> {
+        // One input effect; never inject the same body first. Existing host settings remain intact.
+        let result = self.request(
+            "turn/start",
+            json!({"threadId":session,"input":[{"type":"text","text":content}]}),
+        )?;
+        if result["turn"]["id"].as_str().is_none_or(str::is_empty)
+            || !matches!(
+                result["turn"]["status"].as_str(),
+                Some("inProgress" | "completed" | "failed" | "interrupted")
+            )
+        {
+            bail!("Codex turn/start returned no valid acceptance receipt; inspect before retrying");
+        }
         Ok(())
     }
 }

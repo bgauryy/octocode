@@ -13,7 +13,6 @@ import { summarizeAgentCohorts } from './cohorts.js';
 import { OCTOCODE_SPINNER_FRAMES } from '../../ui-extras.js';
 import { hasUiTickSubscriber, setUiTickSubscriber } from '../../tui/ui-ticker.js';
 import { shortId } from '../ids.js';
-import { inspectWorkerAwarenessAutomatically } from '../awareness-worker-audit.js';
 import { truncateUserVisibleToolOutput } from '../../utils.js';
 import type {
   PiContext,
@@ -126,8 +125,6 @@ export function summarizeAgent(record: AgentRecord, opts: { full?: boolean } = {
     agentId: record.id,
     name: record.name,
     status: record.status,
-    awarenessAgentId: record.awarenessAgentId,
-    awarenessInspection: record.awarenessInspection,
     cwd: record.cwd,
     model: getArgValue(record.args, '--model'),
     provider: getArgValue(record.args, '--provider'),
@@ -168,9 +165,6 @@ function formatAgentModelLine(summary: ReturnType<typeof summarizeAgent>): strin
 // ─── Result rendering ─────────────────────────────────────────────────────────
 
 export function renderAgentResult(records: AgentRecord[], header: string): ToolCallResult {
-  for (const record of records) {
-    if (isTerminal(record)) record.awarenessInspection = inspectWorkerAwarenessAutomatically(record);
-  }
   const summaries = records.map((record) => summarizeAgent(record));
   const cohorts = summarizeAgentCohorts(records);
   const lines: string[] = [`${header} (${records.length}):`];
@@ -192,10 +186,6 @@ export function renderAgentResult(records: AgentRecord[], header: string): ToolC
     const modelInfo = ` · ${formatAgentModelLine(s)}`;
     lines.push(`  ${meta.icon} ${s.name} (${shortId(s.agentId)}) · ${meta.label}${exit}${handback}${modelInfo} · ${elapsed}${toolInfo}${preview}`);
     lines.push(`    agentId: ${s.agentId}`);
-    if (s.awarenessInspection) {
-      const inspection = s.awarenessInspection;
-      lines.push(`    Awareness ${inspection.agentId ?? 'identity unavailable'}: ${inspection.status === 'unavailable' ? 'debt unknown' : `${inspection.pendingCount} pending checks, ${inspection.staleActiveCount} stale active`}; inspection is not verification.`);
-    }
   }
   return {
     content: [{ type: 'text', text: lines.join('\n') }],

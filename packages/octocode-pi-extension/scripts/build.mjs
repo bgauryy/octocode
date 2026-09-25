@@ -72,8 +72,6 @@ const SKIPPED_FILES = new Set([
 ]);
 
 const EXCLUDED_BUNDLED_SKILLS = new Set([
-  // Awareness is a native runtime/tool capability, not an optional model-loaded workflow.
-  'octocode-awareness',
   // 3D mannequin/animation workflow is intentionally not part of the coding-agent bundle.
   'octocode-mannequin',
 ]);
@@ -287,6 +285,11 @@ function refreshPackageSkills(targetRoot = SOURCE_PATHS.skills) {
   // guidance is delivered by the native runtime/tool contract and is deliberately
   // not exposed as a second, model-loaded skill.
   const copied = copySkillDirectories(SOURCE_PATHS.octocodeSkills, targetRoot);
+  const communicationSource = path.join(repoRoot, 'packages/octocode-agents-communication/skills/octocode-agents-communication');
+  for (const entry of ['SKILL.md', 'scripts/pi-inbox.mjs', 'scripts/agents-communication']) {
+    if (!fs.existsSync(path.join(communicationSource, entry))) throw new Error(`Missing communication runtime asset: ${entry}. Build @octocodeai/octocode-agents-communication first.`);
+  }
+  copyDirectory(communicationSource, path.join(targetRoot, 'octocode-agents-communication'));
   assertNoHiddenLocalOnlyEntries(targetRoot);
   if (copied === 0) {
     throw new Error(`No Octocode skills found in ${SOURCE_PATHS.octocodeSkills}`);

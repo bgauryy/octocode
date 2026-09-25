@@ -652,7 +652,7 @@ def fingerprint(cli):
     packages = ["packages/octocode/src", "packages/octocode-native/crates/runtime/src",
                 "packages/octocode-native/crates/engine/src", "packages/octocode-config/src",
                 "packages/octocode-pi-extension/src/contracts",
-                "packages/octocode-awareness/src", "yarn.lock"]
+                "yarn.lock"]
     result = {"head": command(["git", "rev-parse", "HEAD"]).strip(),
               "sourceFiles": source_manifest(WORKSPACE, packages),
               "cliRuntimeFiles": runtime_manifest(cli.parent),

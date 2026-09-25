@@ -1,7 +1,6 @@
 import type {PromptMode} from './contracts/protocols.js';
 import fs from 'node:fs';
-import { propagateOctocodeEnv, getOctocodeHome, isPersistentStorageEnabledForExtension as isPersistentStorageEnabled } from "@octocodeai/config";
-import { openPersistentAwareness } from './tools/storage-policy.js';
+import { propagateOctocodeEnv, getOctocodeHome } from "@octocodeai/config";
 import { getInternalErrorLogPath, logInternalError } from './internal-error-log.js';
 export { getInternalErrorLogPath, logInternalError } from './internal-error-log.js';
 export type { InternalErrorLogOptions } from './internal-error-log.js';
@@ -13,21 +12,9 @@ import {
   readTextIfExists,
   listBundledSkills,
   getInstallSource,
-  getAwarenessCLIPath,
-  resolveAwarenessCliPath,
 } from './assets.js';
-// Expose the Awareness CLI for agents. The env var holds the SCRIPT PATH
-// ONLY so `node "$OCTOCODE_AWARENESS_CLI" <command>` works in every shell; a
-// two-token "node /path" value breaks under quoting or zsh. A broken install
-// must not throw at import time and kill the whole extension load.
-try {
-  process.env.OCTOCODE_AWARENESS_CLI = resolveAwarenessCliPath();
-} catch {
-  // Awareness unresolved — leave the env var unset; prompt/status
-  // surfaces fall back to the npx form.
-}
 // Mark this process tree as the Octocode harness so generated agent names
-// (workers here, `agent join` rows in Awareness) tag as octo-* even when
+// worker records tag as octo-* even when
 // the session was launched from a Claude Code / Cursor terminal whose host
 // env vars are inherited. Respect an explicit override.
 process.env.OCTOCODE_AGENT_HOST ||= 'octo';
@@ -83,8 +70,6 @@ import {
   clearInMemoryInteractionState,
   configureInteractionBrokerRoute,
 } from './tools/interaction-broker.js';
-import { claimNativeHookOwner } from '@octocodeai/octocode-awareness/host';
-import { getAwarenessAgentId } from './tools/awareness-shared.js';
 import { registerRuntimeUiPhase } from './tools/runtime-ui-registration.js';
 import {
   activePlanScope,
@@ -95,25 +80,16 @@ import {
   setPlanEntryAppender,
   PLAN_ENTRY_TYPE,
 } from './tools/planning/plan-store.js';
-import {
-  refreshAwarenessPanel,
-  suppressAwarenessPanel,
-  resumeAwarenessPanel,
-  clearAwarenessCacheEntry,
-  setAwarenessMetricsRefreshForUi,
-} from './tools/awareness-status.js';
 import { deriveSessionName } from './ui-extras.js';
 import { paintUi } from './tui/palette.js';
 import { setUiTickSubscriber } from './tui/ui-ticker.js';
 import { closeAllChromeConnections } from './chrome-connection-cache.js';
 import { setPlanMetricsRefreshForUi } from './tools/planning/plan-command.js';
-import { adoptPlanModePolicy, evaluateToolCapability, exitPlanMode, getPlanModePolicy } from './tools/plan-mode.js';
+import { adoptPlanModePolicy, exitPlanMode } from './tools/plan-mode.js';
 import { clearAllReadStates } from './tools/file-state.js';
 import { registerAgentInbox, type AgentInboxRegistration } from './tools/agents/inbox.js';
 import { probeGitHubAuth } from './tools/github-auth-status.js';
 import { registerOctocodeAutocomplete } from './tools/autocomplete-providers.js';
-import { initCheckpointStore } from './tools/checkpoints.js';
-import { registerRewindCommand } from './tools/rewind-command.js';
 import { createSessionArtifactContext } from './tools/session-artifacts.js';
 import { freshSessionScopedState } from './session-scoped-state.js';
 import {
@@ -150,13 +126,6 @@ import { createPiCanonicalRegistryComposition } from './adapters/pi-registry-ada
 import { pickProvider } from './web.js';
 import { createHookComposer, type HookMiddleware } from './hook-composer.js';
 import { registerPiPhysiology } from './adapters/pi-physiology.js';
-import { createPiAwarenessObservationSink } from './adapters/pi-awareness-observation.js';
-import { createPiHistoryAdapter } from './adapters/pi-history-adapter.js';
-import {
-  awarenessMutationGate,
-  runAwarenessMutationGate,
-  updateAwarenessRegistry,
-} from './adapters/pi-awareness-mutation.js';
 export { readPiPhysiology } from './adapters/pi-physiology.js';
 import { createPromptPreflightController } from './tools/prompt-preflight.js';
 import type {PiInstance, PiContext, OctocodePiExtensionOptions, SessionShutdownEvent, ThinkingLevelEvent, NotifyFn} from './types.js';
@@ -195,7 +164,6 @@ export function formatStatus(baseDir?: string): string {
     `system prompt: ${promptStatus}`,
     `skills: ${skills.length}${skills.length > 0 ? ` (${skills.join(', ')})` : ''}`,
     `octocode tools: ${formatOctocodeToolStatus()}`,
-    `awareness CLI: ${getAwarenessCLIPath()} — user CLI: npx -p @octocodeai/octocode-awareness octocode-awareness <concept> <operation> --workspace "$PWD"`,
     `management CLI: npx octocode skill | lsp-server | auth (no bundled CLI — use npx octocode for management tasks)`,
     `disabled/replaced built-ins: overridden: ${OVERRIDDEN_BUILTIN_TOOL_NAMES.join(', ')}${DISABLED_BUILTIN_TOOL_NAMES.length ? `; removed: ${DISABLED_BUILTIN_TOOL_NAMES.join(', ')}` : ''}`,
     `web search: ${searchStatus}`,
@@ -233,7 +201,6 @@ export interface ExtensionHarness {
   extensionCommands: string[];
   skills: string[];
   cliNote: string;
-  awarenessCliNote: string;
 }
 
 export function listExtensionHarness(baseDir?: string): ExtensionHarness {
@@ -246,7 +213,6 @@ export function listExtensionHarness(baseDir?: string): ExtensionHarness {
     extensionCommands: Object.values(EXTENSION_COMMANDS).map(command => `/${command.name}`),
     skills: listBundledSkills(baseDir),
     cliNote: `management: npx octocode skill | lsp-server | auth (no bundled CLI — use npx octocode for management tasks)`,
-    awarenessCliNote: `Awareness CLI: ${getAwarenessCLIPath()}; user CLI: npx -p @octocodeai/octocode-awareness octocode-awareness <concept> <operation> --workspace "$PWD"`,
   };
 }
 
@@ -290,7 +256,6 @@ interface WorkerToolRegistrationArgs {
 function registerWorkerToolPhase({ pi, notify }: WorkerToolRegistrationArgs): AgentInboxRegistration {
   setAgentLedgerMetricsRefreshForUi((ctx) => updateOctocodeMetricsUi(ctx));
   setPlanMetricsRefreshForUi((ctx) => updateOctocodeMetricsUi(ctx));
-  setAwarenessMetricsRefreshForUi((ctx) => updateOctocodeMetricsUi(ctx));
 
   // Worker inbox overlay (/octocode-inbox) + desktop notifications. The unified
   // agent facade initializes the shared ledger runtime during support-tool setup.
@@ -307,7 +272,7 @@ async function wireOctocodePiExtension(
   // session_start; see SessionScopedState for what that boundary guarantees.
   let session = freshSessionScopedState();
   // Live footer ticker: while a turn is active, re-render the footer every second
-  // so `active`/`session` durations advance. Awareness refreshes asynchronously
+  // so `active`/`session` durations advance. Communication refreshes asynchronously
   // behind its own throttle; git is refreshed on boundaries. Runs on the shared ui-ticker
   // clock so this and the agent-ledger refresh never double-render the footer
   // from two out-of-phase timers.
@@ -318,7 +283,6 @@ async function wireOctocodePiExtension(
   // the ticker is never left subscribed against an inactive turn.
   const startMetricsTicker = (ctx: PiContext | undefined): void =>
     setUiTickSubscriber(METRICS_TICK_KEY, () => {
-      refreshAwarenessPanel(ctx);
       updateOctocodeMetricsUi(ctx);
     });
   const toolStartTimes = new Map<string, number>();
@@ -352,13 +316,6 @@ async function wireOctocodePiExtension(
   // and the discovery-file inventory. Builtin overrides register through the
   // same helper as support tools, so no manual pre-seeding is needed.
   const registeredToolNames = new Set<string>();
-  registerRewindCommand(pi, {
-    getEngine: ctx => isPersistentStorageEnabled()
-      ? initCheckpointStore(ctx?.cwd ?? process.cwd(), { agentId: getAwarenessAgentId(ctx) })
-      : undefined,
-    notify,
-  });
-  let latestSessionCwd: string | undefined;
 
   // Register --no-context CLI flag before any session starts so Pi can parse it.
   // default:false → context files load normally (octocode-agent launcher already
@@ -388,13 +345,9 @@ async function wireOctocodePiExtension(
         }
       },
     });
-
-    const physiologyObservationSink = createPiAwarenessObservationSink({
-      onError: error => logInternalError('runtime-observation', error),
-    });
     const physiology = registerPiPhysiology({
       on(event, handler) { hooks.on(event, 'octocode-physiology', handler as HookMiddleware); },
-    }, { onObservation: physiologyObservationSink });
+    });
     const promptPreflight = createPromptPreflightController({
       pi,
       promptMode,
@@ -403,7 +356,6 @@ async function wireOctocodePiExtension(
       getFallbackTools: () => [...activeSupportToolNames()],
       readPhysiology: ctx => physiology.read(ctx),
     });
-    const localHistory = createPiHistoryAdapter({ onError: error => logInternalError('local-history', error) });
 
     hooks.on('agent_start', 'octocode-prompt-preflight', promptPreflight.guardAgentStart);
 
@@ -414,7 +366,7 @@ async function wireOctocodePiExtension(
       return skillPath ? { skillPaths: [skillPath] } : {};
     });
 
-    hooks.on('tool_call', 'octocode-plan-mode-audit', async (event: { toolName?: string; input?: Record<string, unknown> }, ctx: PiContext | undefined) => {
+    hooks.on('tool_call', 'octocode-plan-mode-audit', async (event: { toolName?: string; input?: Record<string, unknown> }) => {
       if (isSubagentProcess()) {
         try {
           await refreshCurrentWorkerCapabilities();
@@ -423,25 +375,7 @@ async function wireOctocodePiExtension(
           return { block: true, reason: error instanceof Error ? error.message : String(error) };
         }
       }
-      const policy = getPlanModePolicy(ctx);
-      const receipt = evaluateToolCapability({ toolName: event.toolName, toolInput: event.input, ...(policy ? { phase: policy.phase } : {}) });
-      if (!process.env['VITEST']) {
-        try {
-          const awareness = openPersistentAwareness({ workspace: ctx?.cwd ?? process.cwd() });
-          try { awareness.recordCapabilityReceipt(receipt); } finally { awareness.close(); }
-        } catch { /* audit persistence cannot weaken the synchronous deny decision */ }
-      }
       return undefined;
-    });
-
-    hooks.on('tool_call', 'awareness-lock-gate', async (event: { toolCallId: string; toolName: string; input: Record<string, unknown> }, ctx: PiContext | undefined) => {
-      const decision = await runAwarenessMutationGate(event, ctx);
-      if (decision?.block) return decision;
-      await localHistory.before(event, ctx);
-      return decision;
-    });
-    hooks.on('tool_execution_end', 'awareness-history-after', async (event: { toolCallId: string; toolName: string; result: unknown; isError: boolean }, ctx: PiContext | undefined) => {
-      await localHistory.after(event, ctx);
     });
 
     // Snapshot every plan mutation into a session CustomEntry (state channel —
@@ -466,17 +400,13 @@ async function wireOctocodePiExtension(
       disposeCapabilityAdapters(ctx);
       appendSessionAuditForContext(ctx, { event: 'session.shutdown', detail: { reason } });
       const canUseShutdownContext = reason === 'quit';
-      awarenessMutationGate.cleanup();
-      updateAwarenessRegistry('leave', undefined, latestSessionCwd);
       stopMcpConfigWatchers();
       closeConfiguration(ctx);
       stopMetricsTicker();
       runtimeStoreFor(ctx)?.getState().setFooter({ activeTurnStartedAt: undefined });
-      suppressAwarenessPanel();
       agentInbox?.shutdown({ restoreTitle: canUseShutdownContext });
       setAgentLedgerMetricsRefreshForUi(undefined);
       setPlanMetricsRefreshForUi(undefined);
-      setAwarenessMetricsRefreshForUi(undefined);
       // Fix 2: clear this session’s registered context sources by ctx identity.
       // The no-ctx clear-all that used to live in compaction-hooks’ session_shutdown
       // handler races with a concurrently starting session, so we clear only the
@@ -494,14 +424,13 @@ async function wireOctocodePiExtension(
       pendingMcpDiscoveryWrite = undefined;
       const closedChrome = closeAllChromeConnections();
       if (closedChrome > 0 && canUseShutdownContext) notify(ctx, `Closed ${closedChrome} cached CDP connection(s).`, 'info');
-      const interactionWorkspace = ctx?.cwd ?? latestSessionCwd;
+      const interactionWorkspace = ctx?.cwd ?? ctx?.cwd;
       if (interactionWorkspace) {
         clearInMemoryInteractionState({
           workspace: interactionWorkspace,
           ...(ctx ? { sessionId: brokerSessionId(ctx) } : {}),
         });
       }
-      latestSessionCwd = undefined;
       resetOctocodeFooterRegistration(ctx);
       if (canUseShutdownContext && ctx?.hasUI) {
         if (cleanedAgents > 0) ctx.ui?.notify?.(`Octocode closed ${cleanedAgents} spawned subagent(s).`, 'info');
@@ -548,8 +477,6 @@ async function wireOctocodePiExtension(
       });
       runtimeStore.getState().setStage('restoring session');
       initializeCapabilityAdapters(ctx);
-      // Undo the shutdown-time suppression from a previous session in this process.
-      resumeAwarenessPanel();
       // Re-arm worker desktop notifications: the inbox is registered once per
       // process and session_shutdown suppresses + detaches its ledger listener,
       // so without this resume a single /new or /resume kills notifications for
@@ -567,7 +494,6 @@ async function wireOctocodePiExtension(
       resetOctocodeFooterRegistration(ctx);
       setAgentLedgerMetricsRefreshForUi((ctx) => updateOctocodeMetricsUi(ctx));
       setPlanMetricsRefreshForUi((ctx) => updateOctocodeMetricsUi(ctx));
-      setAwarenessMetricsRefreshForUi((ctx) => updateOctocodeMetricsUi(ctx));
       // Read-states recorded in a previous session must not satisfy the edit
       // tool's stale-read gate in this one, and the auto-compaction edge
       // trigger must not carry the old session's threshold crossing.
@@ -631,8 +557,6 @@ async function wireOctocodePiExtension(
           thinking: pi.getThinkingLevel?.(),
         });
       }
-      // Force a fresh Awareness poll: never paint a prior session's cached status for this cwd.
-      if (ctx?.cwd) clearAwarenessCacheEntry(ctx.cwd);
       // Drop dead worker records so the agent ledger reflects only this session.
       pruneDroppableAgentsForSession();
       runtimeStore.getState().setFooter({
@@ -641,7 +565,6 @@ async function wireOctocodePiExtension(
         usage: undefined,
       });
       stopMetricsTicker();
-      latestSessionCwd = ctx?.cwd;
       // Branch-correct plan state: adopt the newest octocode-plan snapshot on
       // this session's branch (pi copies entries up to the fork point, so a
       // fork restores exactly the plan that existed there). clearWhenMissing
@@ -696,10 +619,6 @@ async function wireOctocodePiExtension(
         runtimeStore.getState().setFooter({ githubAuth: authState });
         updateOctocodeMetricsUi(ctx);
       }));
-      // Announce this session in the shared Awareness agent registry with
-      // its name and provider. Peers discover it through context.orient and
-      // communicate with message.send.
-      updateAwarenessRegistry('join', ctx);
       // Full MCP discovery at init: connect every enabled configured server and
       // cache only enabled tools with descriptions and exact input schemas.
       // Fire-and-forget here; before_agent_start awaits it (bounded) so turn 1's
@@ -795,7 +714,6 @@ async function wireOctocodePiExtension(
 
     hooks.on('session_start', 'octocode-session-start', async (event: { reason?: string }, ctx: PiContext | undefined) => {
       try {
-        claimNativeHookOwner({ workspace: ctx?.cwd ?? process.cwd(), host: 'pi' });
         await initializeOctocodeSession(ctx, event?.reason);
       } catch (error) {
         sessionRuntime?.store.getState().failed(error);
@@ -819,7 +737,6 @@ async function wireOctocodePiExtension(
     });
 
     hooks.on('model_select', 'octocode-model-select', async (_event: unknown, ctx: PiContext | undefined) => {
-      updateAwarenessRegistry('join', ctx);
       // thinking_level_select fires before model_select when the model change
       // clamps the thinking level, so pi.getThinkingLevel() is already updated.
       applyOctocodeUi(ctx, pi.getThinkingLevel?.());
@@ -827,10 +744,6 @@ async function wireOctocodePiExtension(
       // refresher), so calling updateOctocodeMetricsUi here built the footer
       // twice per model switch.
       refreshAgentLedgerUi(ctx);
-    });
-
-    hooks.on('session_info_changed', 'octocode-awareness-name-refresh', async (_event: unknown, ctx: PiContext | undefined) => {
-      updateAwarenessRegistry('join', ctx);
     });
 
     hooks.on('thinking_level_select', 'octocode-thinking-select', async (event: ThinkingLevelEvent, ctx: PiContext | undefined) => {
@@ -876,17 +789,6 @@ async function wireOctocodePiExtension(
       if (key) toolStartTimes.delete(key);
       const toolInput = key ? toolInputs.get(key) : undefined;
       if (key) toolInputs.delete(key);
-      awarenessMutationGate.complete(
-        {
-          toolName: event.toolName,
-          input: toolInput && typeof toolInput === 'object'
-            ? toolInput as Record<string, unknown>
-            : {},
-        },
-        ctx?.cwd ?? process.cwd(),
-        getAwarenessAgentId(ctx),
-        !event.isError,
-      );
       // Re-open the bash suppression window at completion too: a long-running
       // bash command's fs churn lands at the end of the call, not the start.
       if (!event.isError && ctx && event.toolCallId && event.toolName) {

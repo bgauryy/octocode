@@ -25,11 +25,11 @@ The live source inventory is authoritative. Use `/config` inside Pi to open the 
 | Surface | Count |
 |---|---:|
 | Native Octocode research tools | 0 (research is served through `MCPTool`) |
-| Pi support tools | 14 |
+| Pi support tools | 26 |
 | Guarded Pi builtin overrides | 1 (`bash`) |
 | Disabled Pi builtins | 6 |
-| Slash command entries | 5 |
-| Bundled main-agent skills | 15 |
+| Slash command entries | 4 |
+| Bundled main-agent skills | 17 |
 
 ### Support tools
 
@@ -43,7 +43,6 @@ The live source inventory is authoritative. Use `/config` inside Pi to open the 
 | `skill` | Load and manage installed skills. |
 | `plan` | Manage session and shared plans with verification receipts. |
 | `localServer` | Serve an inspected local directory on loopback for review. |
-| `awareness` | Invoke the canonical host-bound Awareness operations without shell syntax. |
 | `MCPTool` | Discover, describe, call, and manage MCP tools and servers. |
 | `askUser` | Request structured input through Pi's UI. |
 | `inspectMedia` | Inspect images, video, and audio. |
@@ -51,21 +50,6 @@ The live source inventory is authoritative. Use `/config` inside Pi to open the 
 | `runFfmpeg` | Run guarded ffmpeg or ffprobe argument lists. |
 
 The extension overrides `bash` with command and path guards. It removes Pi's public `read`, `edit`, `write`, `grep`, `find`, and `ls` tools; use Octocode research tools for reads and discovery, and `file` for mutations.
-
-Awareness coordination uses the native `awareness` facade for direct, host-bound
-operation calls through the imported Awareness API. The bundled skill provides workflow guidance. Pi
-supplies the database, workspace and agent identity; native calls never launch the Awareness CLI. Signals,
-locks, memory and bookkeeping share the same SQLite ledger as native
-Pi events and external CLI agents. Pi retains automatic registry/event delivery,
-mutation guards and plan UI. Peers use the same physical database with distinct stable
-IDs; workers keep their own physical worktree as the workspace for file and lock
-ownership. `OCTOCODE_AWARENESS_DB` is the canonical inherited binding across native
-calls, the guarded CLI fallback, worker lifecycle and delivery; no database copies are
-created. See [Awareness agent flow](docs/AWARENESS_AGENT_FLOW.md).
-
-Operator-only retention and whole-store retirement stay on the Awareness CLI/admin surface and are not exposed as routine Pi model operations.
-
-The default Awareness flow is one peer briefing plus native message delivery. Scheduled status checks require `OCTOCODE_CRON_STATUS=1`. Work bookkeeping and worker audits require the guard/full workspace profile; full enables bounded local file history around native `file` mutations with bundled private Git storage. `/octocode-rewind` previews and explicitly applies a selected file restore in interactive Pi; headless sessions use the same `history` commands through the native `awareness` facade. This does not snapshot the workspace on every prompt or rewind the conversation.
 
 Workers receive versioned grants drawn from the parent's enabled native tools, exact skill source IDs, and MCP server/tool pairs. The parent can replace a worker's selections with `agent type:"configure"`; removals take effect immediately and additions become available before its next turn. Custom workers require an explicit tool allowlist and a non-empty role prompt. See [capability and grant contracts](docs/CAPABILITIES.md#worker-grants).
 
@@ -90,20 +74,17 @@ Existing `.octocoderc` files remain valid. The optional storage setting is backw
 }
 ```
 
-Set `OCTOCODE_HOME` to change the Octocode home directory. Set `OCTOCODE_STORAGE_MODE=memory` for an environment override. In memory mode, Octocode disables response-disk caching, clone and exact-file materialization, session/stat persistence, and the extension's SQLite-backed Awareness state. The extension keeps active interaction and authorization state in process memory until exit. It does not delete existing files or disable user-authored configuration and credentials. Invalid environment values do not weaken a valid `.octocoderc` memory setting.
-
 Native workspace capabilities live in `.agents/`: `mcp.json`, `models.json`, `skills/`, `hooks/`, and optional `AGENTS.md`. Global Octocode sources use the corresponding paths under `OCTOCODE_HOME`. Pi resources remain available, including `PI_CODING_AGENT_DIR` and explicit skill paths. Claude, Codex, and Cursor MCP/skill definitions appear as disabled candidates until their exact source revision is reviewed and linked. [Capability sources](docs/CAPABILITIES.md) documents precedence, trust, imports, models, and command hooks.
 
 MCP servers use stdio or Streamable HTTP. Startup gets one bounded retry by default; set `startupRetries` from 0–5 and `retryDelayMs` from 0–10000 on a server definition to tune it. Retry waits honor cancellation. `MCPTool action:"status"` actively pings running servers and reports healthy, unhealthy, and disconnected states. Legacy SSE is intentionally not enabled without a reviewed active server that requires it.
 
 See the repository [configuration guide](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) for every supported key and [docs/SETTINGS.md](docs/SETTINGS.md) for Pi's control center, persistence, and security behavior.
 
-## Slash command entries (5)
+## Slash command entries (4)
 
 | Command | Purpose |
 |---|---|
 | `/config` | Open the configuration page in the OS browser. |
-| `/octocode-rewind` | Preview and explicitly apply a local file-history restore. |
 | `/octocode-inbox` | Inspect, steer, or stop spawned workers through a keyboard-driven picker. |
 | `/octocode-status` | Inspect session usage, tools, skills, plan, agents, and pending decisions; `events` shows the selected branch’s execution journal and `export` saves JSONL. |
 | `/configuration` | Alias for `/config`. |
@@ -113,10 +94,10 @@ skill sources, command hooks, permissions, theme, effort, and footer density. It
 for review. Host-provided and user-installed commands remain in the live inventory.
 The recovery command remains preview-first and does not rewrite input through regex triggers.
 
-## Bundled skills (15)
+## Bundled skills (17)
 
-The build copies these optional workflow skills into `dist/skills/`. Awareness is provided by the native runtime and `awareness` tool; it is intentionally not bundled as a skill.
-
+- `octocode-agents-communication`
+- `octocode-architecture-view`
 - `octocode-architect`
 - `octocode-brainstorming`
 - `octocode-chrome-devtools`
@@ -156,4 +137,6 @@ yarn workspace @octocodeai/pi-extension typecheck
 
 The package's production test suite checks the documented inventories against the executable harness so counts and names cannot drift silently. Conformance helpers (`createProductionPiScenarioSuite`, `captureProductionPiLifecycle`) are test-only: they live in `tests/helpers/production-pi.ts` and are not published, so the package exposes no conformance subpath.
 
-Awareness uses one compact cooperation policy with full CLI/skill detail on demand. See [agent flow](docs/AWARENESS_AGENT_FLOW.md#final-worker-audits-and-context-estimates) for bounded wake-ups, final worker debt audits and context-estimate limits.
+## Communication and session persistence
+
+The bundled communication runtime owns peer presence, messages, documents, and advisory leases. Pi owns plans, context recovery, and durable user approvals. See [communication and local state](docs/COMMUNICATION_AGENT_FLOW.md).

@@ -10,6 +10,26 @@ const argv = process.argv.slice(2);
 const getArg  = (flag, def) => { const i = argv.indexOf(flag); return i !== -1 && argv[i + 1] ? argv[i + 1] : def; };
 const hasFlag = (flag) => argv.includes(flag);
 
+if (hasFlag('--help') || hasFlag('-h')) {
+  console.log(`Usage: open-browser.mjs [options]
+
+Launch or reuse a Chrome DevTools Protocol session.
+
+Options:
+  --port <n>              CDP port (default: 9222)
+  --url <url>             Initial URL
+  --headless              Use an isolated headless profile
+  --profile <name>        Chrome profile name (default: Default)
+  --chromePath <path>     Explicit Chrome executable
+  --windowSize <WxH>      Browser window size
+  --enableFeatures <csv>  Chrome feature flags
+  --config <path>         Proxy configuration file
+  --cleanup               Stop the tracked isolated session
+  --dry-run               Preview cleanup without stopping Chrome
+  -h, --help              Show this help and exit`);
+  process.exit(0);
+}
+
 const PORT        = getArg('--port', '9222');
 const PROFILE     = getArg('--profile', 'Default');
 const URL_ARG     = getArg('--url', '');

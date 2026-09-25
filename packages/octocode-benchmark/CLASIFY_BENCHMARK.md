@@ -1,6 +1,6 @@
 # Clasify benchmark
 
-Evaluate whether optional `clasify` and `semanticRerank` improve GitHub research at equal evidence quality. This is a separate pilot, not the historical GitHub campaign or the naming-only routing eval.
+Historical sections below include a retired `semanticRerank` comparison. The current public surface has exactly one semantic tool, `clasify`; do not use the historical name or arm protocol for new runs. This document is retained as evidence for the direct-read default and optional Scout gate.
 
 Latest campaign: [full local rebuild and actual Jev-assisted MCP research](#full-local-rebuild-and-actual-jev-assisted-mcp-research). Two fresh Sol/medium workers both scored 5/5; the assisted worker used Scout and Judge, with 10.34% more captured payload and 44,156 additional provider tokens.
 

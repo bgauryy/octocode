@@ -9,7 +9,7 @@ use octocode_engine::structural::{
 use serde_json::{Value, json};
 use std::{cell::RefCell, collections::HashMap};
 
-use super::{AstRewriteQuery, RewriteError, engine_error, rule_config};
+use super::{RewriteError, RewriteRequest, engine_error, rule_config};
 
 thread_local! {
     /// Engine parses issued by astRewrite on this thread (tests assert the
@@ -44,12 +44,15 @@ pub(super) struct StagedAnalyzer {
 
 impl StagedAnalyzer {
     /// Validates the rule by compiling it (no probe parse).
-    pub(super) fn new(query: &AstRewriteQuery) -> Result<Self, RewriteError> {
+    pub(super) fn new(query: &RewriteRequest) -> Result<Self, RewriteError> {
         let config = rule_config(query);
         let compiled = compile_rewrite(config.clone()).map_err(engine_error)?;
         Ok(Self {
-            compiled: RefCell::new(HashMap::from([(query.lang_type.clone(), Some(compiled))])),
-            selector: query.lang_type.clone(),
+            compiled: RefCell::new(HashMap::from([(
+                query.lang_type().to_owned(),
+                Some(compiled),
+            )])),
+            selector: query.lang_type().to_owned(),
             config,
         })
     }

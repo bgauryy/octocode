@@ -60,6 +60,22 @@ test('extractBashWriteTargets finds cp/mv destinations', () => {
   assert.deepEqual(targets, [path.join(cwd, 'b.ts')]);
 });
 
+test('extractBashWriteTargets covers removals, rename sources and explicit destination directories', () => {
+  const cwd = '/tmp/work';
+  assert.deepEqual(new Set(extractBashWriteTargets('mv --target-directory=dest source.txt', cwd)), new Set(['/tmp/work/dest', '/tmp/work/source.txt']));
+  assert.deepEqual(extractBashWriteTargets('rm -rf -- -data', cwd), ['/tmp/work/-data']);
+  assert.deepEqual(new Set(extractBashWriteTargets('mv -S .bak old.txt new.txt', cwd)), new Set(['/tmp/work/old.txt', '/tmp/work/new.txt']));
+  assert.deepEqual(extractBashWriteTargets("printf '%s' 'rm private.txt'", cwd), []);
+});
+
+test('copy target-directory options guard destinations without treating sources as writes', () => {
+  for (const flag of ['-t destination', '-tdestination', '--target-directory destination', '--target-directory=destination']) {
+    assert.deepEqual(extractBashWriteTargets(`cp ${flag} source.txt`, '/repo'), ['/repo/destination']);
+  }
+  assert.deepEqual(extractBashWriteTargets('cp -t "target dir" -- source-a source-b', '/repo'), ['/repo/target dir']);
+  assert.deepEqual(extractBashWriteTargets('cp -- -source -destination', '/repo'), ['/repo/-destination']);
+});
+
 test('bash abort terminates the shell process and rejects without hanging', async () => {
   const { default: extension } = await import('../src/index.js');
   const tools = new Map<

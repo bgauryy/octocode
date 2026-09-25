@@ -1,12 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { buildAwarenessCliInvocation } from './assets.js';
 
 /** A command to spawn, or an actionable error explaining why it could not be built. */
 export type SurfaceSpec = { cmd: string; args: string[] } | { error: string };
 
 /** Octocode launcher surface verbs owned by the core extension. */
-export type SurfaceVerb = 'memory' | 'awareness' | 'tools' | 'skills';
+export type SurfaceVerb = 'tools' | 'skills';
 
 /**
  * Build the spawn spec for an Octocode surface verb.
@@ -18,11 +17,6 @@ export function buildSurfaceSpec(
   _env: NodeJS.ProcessEnv = process.env,
 ): SurfaceSpec {
   switch (verb) {
-    case 'memory':
-    case 'awareness': {
-      const prefix = verb === 'memory' ? ['memory'] : [];
-      return buildAwarenessCliInvocation([...prefix, ...rest]);
-    }
     case 'tools':
       // The v20 CLI exposes `scheme` and direct tool names at the root. Keep
       // the Pi surface name for callers, but do not reintroduce the removed

@@ -1,0 +1,23 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { DatabaseSync } from 'node:sqlite';
+import { execFileSync } from 'node:child_process';
+import { readFileSync,mkdtempSync,rmSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+const root=fileURLToPath(new URL('../',import.meta.url));
+const binary=join(root,'skills/octocode-agents-communication/scripts/agents-communication');
+test('explicit v3 migration preserves direct wake and makes historical fanout passive',t=>{
+ const workspace=mkdtempSync(join(tmpdir(),'wake-v3-')),database=join(workspace,'db.sqlite');t.after(()=>rmSync(workspace,{recursive:true,force:true}));
+ const db=new DatabaseSync(database);t.after(()=>db.close());
+ for(const v of [1,2,3])db.exec(readFileSync(join(root,`rust/schema-v${v}.sql`),'utf8'));
+ db.exec('PRAGMA application_id=1329678147; PRAGMA user_version=3; PRAGMA journal_mode=WAL');
+ for(const id of ['a','b'])db.prepare('INSERT INTO sessions(id,workspace,name,vendor,expiresAt) VALUES(?,?,?,?,0)').run(id,workspace,id,'raw');
+ for(const [key,target]of [['direct','b'],['broadcast','*']])db.prepare('INSERT INTO messages(sender,target,body,key,expiresAt,reasoning) VALUES(?,?,?,?,?,?)').run('a',target,'fact',key,Date.now()+60000,'Historical intent');
+ const result=JSON.parse(execFileSync(binary,['db','migrate','--workspace',workspace,'--database',database],{encoding:'utf8'}));
+ assert.deepEqual(result,{schemaVersion:6,migrated:true});
+ assert.equal(db.prepare("SELECT wake FROM messages WHERE key='direct'").get().wake,'action');
+ assert.equal(db.prepare("SELECT wake FROM messages WHERE key='broadcast'").get().wake,'passive');
+ assert.throws(()=>db.exec("UPDATE messages SET wake='action' WHERE key='broadcast'"),/immutable/);
+});

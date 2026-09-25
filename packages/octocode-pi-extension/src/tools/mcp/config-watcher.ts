@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { ensurePrivateDirectory } from '@octocodeai/octocode-awareness/host';
+import { ensurePrivateDirectory } from '../../runtime/permissions.js';
 import type { NotifyFn, PiContext } from '../../types.js';
 import { isWorkerCapabilityClient } from '../worker-capabilities.js';
 import { computeReload } from './catalog-refresh.js';

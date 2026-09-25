@@ -15,7 +15,6 @@ export function nativePlatformPackages(nativePackage) {
 
 export function workspaceResolutionPackages(nativePackage) {
   return [
-    '@octocodeai/octocode-awareness',
     '@octocodeai/octocode-skill-installer',
     '@octocodeai/config',
     '@octocodeai/octocode-extension-rust',

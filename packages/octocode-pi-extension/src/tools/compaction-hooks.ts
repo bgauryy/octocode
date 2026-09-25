@@ -1,16 +1,16 @@
+import { openInteractionStore } from './interaction-store.js';
 import type { PiContext, PiInstance, SessionBeforeCompactEvent, SessionCompactEvent, NotifyFn } from '../types.js';
 import { activePlanScope, getPlan, getPlanCoordination, getPlanReviewState } from './planning/plan-store.js';
 import { getCurrentPlanReadModel, renderPlanContext } from './plan-read-model.js';
 import { emitCompactionCheckpoint, type CompactionCheckpointDetails } from './custom-messages.js';
 import { writeCompactionArtifact } from './compaction-artifacts.js';
 import { clearAllReadStates } from './file-state.js';
-import { contentDigest } from '@octocodeai/octocode-awareness/host';
+import { contentDigest } from '../runtime/continuity-contracts.js';
 import { createSessionArtifactContext, writeRehydrationLedger } from './session-artifacts.js';
 import { listPendingInteractionIds, listPendingInteractions } from './interaction-broker.js';
 import { clearPendingRehydration, runAndRecordRehydration } from './rehydration-orchestrator.js';
 import { captureCurrentContextSources } from './context-source-registry.js';
 import { redactCompactionText } from './compaction-redaction.js';
-import { openPersistentAwareness } from './storage-policy.js';
 import { appendSessionAuditEntry } from './session-audit.js';
 import { renderUserRequestContext } from './user-request-context.js';
 
@@ -403,9 +403,9 @@ export function registerCompactionHooks(pi: PiInstance, notify: NotifyFn): void 
           });
           let consumerCursors: Record<string, number> = {};
           try {
-            const awareness = openPersistentAwareness({ workspace: ctx.cwd ?? process.cwd() });
-            try { consumerCursors = { tui: awareness.getConsumerCursor('tui'), rpc: awareness.getConsumerCursor('rpc') }; }
-            finally { awareness.close(); }
+            const interactions = openInteractionStore(ctx.cwd ?? process.cwd());
+            try { consumerCursors = { tui: interactions.getConsumerCursor('tui'), rpc: interactions.getConsumerCursor('rpc') }; }
+            finally { interactions.close(); }
           } catch { /* continuity metadata is best-effort; plan checkpoint still persists */ }
           writeRehydrationLedger(artifactContext, {
             capturedAt: new Date().toISOString(),

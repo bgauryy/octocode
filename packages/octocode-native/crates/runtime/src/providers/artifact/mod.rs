@@ -9,9 +9,11 @@ mod util;
 pub use http::{
     ArtifactHttp, ArtifactHttpFuture, ArtifactHttpRequest, ArtifactHttpResponse, SystemArtifactHttp,
 };
+#[cfg(test)]
+pub(crate) use types::artifact_query;
 pub use types::{
-    ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState, ArtifactQuery,
-    ArtifactType, ResolvedNpmRegistry,
+    ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState, ArtifactSearchQuery,
+    ArtifactSearchQueryType, ResolvedNpmRegistry,
 };
 
 use crate::providers::RequestBudget;
@@ -34,7 +36,7 @@ pub struct ArtifactProviderContext<'a> {
 }
 
 pub async fn execute_artifact(
-    query: &ArtifactQuery,
+    query: &ArtifactSearchQuery,
     context: &ArtifactProviderContext<'_>,
 ) -> Result<ArtifactProviderPage, ArtifactError> {
     let client = RegistryClient {
@@ -46,7 +48,7 @@ pub async fn execute_artifact(
     // Cursors are opaque continuation state; a cursor that does not parse is
     // caller-constructed or stale and must fail loudly instead of silently
     // serving page 1 again.
-    let state: ArtifactProviderState = match query.cursor.as_deref() {
+    let state: ArtifactProviderState = match query.cursor() {
         Some(cursor) => serde_json::from_str(cursor).map_err(|_| {
             ArtifactError::new(
                 "invalid_query",
@@ -56,8 +58,8 @@ pub async fn execute_artifact(
         None => ArtifactProviderState::default(),
     };
     validate_cursor_state(&state)?;
-    match query.artifact_type {
-        ArtifactType::Npm => {
+    match query.type_ {
+        ArtifactSearchQueryType::Npm => {
             let default_registry = ResolvedNpmRegistry {
                 base: Url::parse("https://registry.npmjs.org/").map_err(|_| {
                     ArtifactError::new("invalid_query", "Invalid default npm registry URL.")
@@ -75,13 +77,13 @@ pub async fn execute_artifact(
             )
             .await
         }
-        ArtifactType::PyPi => registries::pypi(query, &client).await,
-        ArtifactType::Crates => registries::crates(query, &state, &client).await,
-        ArtifactType::Go => registries::go(query, &state, &client).await,
-        ArtifactType::Packagist => registries::packagist(query, &state, &client).await,
-        ArtifactType::Rubygems => registries::rubygems(query, &state, &client).await,
-        ArtifactType::Maven => maven::maven(query, &state, &client).await,
-        ArtifactType::Nuget => nuget::nuget(query, &state, &client).await,
+        ArtifactSearchQueryType::Pypi => registries::pypi(query, &client).await,
+        ArtifactSearchQueryType::Crates => registries::crates(query, &state, &client).await,
+        ArtifactSearchQueryType::Go => registries::go(query, &state, &client).await,
+        ArtifactSearchQueryType::Packagist => registries::packagist(query, &state, &client).await,
+        ArtifactSearchQueryType::Rubygems => registries::rubygems(query, &state, &client).await,
+        ArtifactSearchQueryType::Maven => maven::maven(query, &state, &client).await,
+        ArtifactSearchQueryType::Nuget => nuget::nuget(query, &state, &client).await,
     }
 }
 

@@ -21,7 +21,7 @@ const EXCLUDES: &[&str] = &[
 ];
 
 pub(crate) fn build_graph(
-    q: &AstGraphQuery,
+    q: &AstTopologyQuery,
     paths: &PathPolicy,
     security: &ContentSecurity,
     cancel: &dyn CancellationCheck,
@@ -29,29 +29,29 @@ pub(crate) fn build_graph(
     cancel
         .check()
         .map_err(|e| AstGraphError::new("ast.cancelled", e))?;
-    let requested_root=q.path.as_deref().map(PathBuf::from).or_else(|| infer_root(q)).ok_or_else(||AstGraphError::new("invalidGraphQuery","path is required — or provide an absolute file path to infer its nearest Cargo.toml (Rust) or package.json root"))?;
+    let requested_root=q.path().map(PathBuf::from).or_else(|| infer_root(q)).ok_or_else(||AstGraphError::new("invalidGraphQuery","path is required — or provide an absolute file path to infer its nearest Cargo.toml (Rust) or package.json root"))?;
     let validated = paths
         .validate(&requested_root)
         .map_err(|e| AstGraphError::new("ast.path.invalid", e.message))?;
     let mut exclude = EXCLUDES.iter().map(|x| x.to_string()).collect::<Vec<_>>();
-    if let Some(extra) = &q.exclude_dir {
+    if let Some(extra) = q.exclude_dir() {
         for e in extra {
             if !exclude.contains(e) {
                 exclude.push(e.clone())
             }
         }
     }
-    if q.max_files.is_none() {
+    if q.max_files().is_none() {
         admit_scope(q, &validated.canonical, &exclude, paths, cancel)?;
     }
-    let max_files = q.max_files.unwrap_or(20_000).clamp(1, 50_000);
+    let max_files = q.max_files().unwrap_or(20_000).clamp(1, 50_000);
     let scan = octocode_engine::portable::scan_typed_graph_facts_filtered(
         GraphFactsScanOptions {
             path: validated.canonical.to_string_lossy().into_owned(),
             exclude_dir: Some(exclude),
             max_files: Some(max_files),
             max_file_bytes: Some(1_000_000),
-            language_globs: q.language_globs.as_ref().map(|map| {
+            language_globs: q.language_globs().as_ref().map(|map| {
                 map.iter()
                     .flat_map(|(language, globs)| {
                         globs.iter().map(|glob| GraphLanguageGlob {
@@ -106,7 +106,7 @@ pub(crate) fn build_graph(
     if scan.truncated || scan.files_skipped > 0 {
         graph_builder.mark_incomplete("scan-incomplete", scan.files_skipped);
     }
-    let rust_cargo_unavailable = q.rust_workspace.as_deref() == Some("cargo")
+    let rust_cargo_unavailable = q.rust_workspace() == Some(AstTopologyQueryRustWorkspace::Cargo)
         && known.iter().any(|file| file.ends_with(".rs"))
         && !has_cargo_manifest(&built.root, &known);
     if rust_cargo_unavailable {
@@ -117,22 +117,23 @@ pub(crate) fn build_graph(
             message: "Cargo metadata cargo-manifest-missing: No Cargo.toml was found at the scan root or known Rust-file ancestors. Point astTopology at the crate root that contains Cargo.toml (not a nested src/ directory); crate:: imports cannot be resolved otherwise.".into(),
         });
     }
-    let cargo_crates = if q.rust_workspace.as_deref() == Some("cargo") && !rust_cargo_unavailable {
-        match load_cargo_crates(&built.root) {
-            Ok(map) => map,
-            Err(message) => {
-                built.diagnostics.push(Diagnostic {
-                    file: ".".into(),
-                    line: None,
-                    code: "unsupported-linking".into(),
-                    message: format!("Cargo metadata failed: {message}"),
-                });
-                BTreeMap::new()
+    let cargo_crates =
+        if q.rust_workspace() == Some(AstTopologyQueryRustWorkspace::Cargo) && !rust_cargo_unavailable {
+            match load_cargo_crates(&built.root) {
+                Ok(map) => map,
+                Err(message) => {
+                    built.diagnostics.push(Diagnostic {
+                        file: ".".into(),
+                        line: None,
+                        code: "unsupported-linking".into(),
+                        message: format!("Cargo metadata failed: {message}"),
+                    });
+                    BTreeMap::new()
+                }
             }
-        }
-    } else {
-        BTreeMap::new()
-    };
+        } else {
+            BTreeMap::new()
+        };
     let workspace_packages = load_workspace_packages(&built.root, &known, paths, security);
     for skipped in scan.skipped {
         built.diagnostics.push(Diagnostic {
@@ -225,15 +226,15 @@ fn has_cargo_manifest(root: &Path, known: &BTreeSet<String>) -> bool {
         })
 }
 
-fn infer_root(q: &AstGraphQuery) -> Option<PathBuf> {
+fn infer_root(q: &AstTopologyQuery) -> Option<PathBuf> {
     let candidate = q
-        .file
-        .iter()
-        .chain(q.target.iter())
-        .chain(q.entrypoints.iter().flatten())
+        .file()
+        .into_iter()
+        .chain(q.target())
+        .chain(q.entrypoints().into_iter().flatten().map(String::as_str))
         .map(PathBuf::from)
         .find(|p| p.is_absolute())?;
-    let rust = q.rust_workspace.as_deref() == Some("cargo")
+    let rust = q.rust_workspace() == Some(AstTopologyQueryRustWorkspace::Cargo)
         || candidate.extension().is_some_and(|x| x == "rs");
     let mut dir = candidate.parent()?.to_path_buf();
     let mut pkg = None;
@@ -976,7 +977,7 @@ const SCOPE_COUNT_FILES: u32 = 100_000;
 
 /// Cheap discovery-only preflight (no parsing) for an implicit-default scan.
 fn admit_scope(
-    q: &AstGraphQuery,
+    q: &AstTopologyQuery,
     root: &Path,
     exclude: &[String],
     paths: &PathPolicy,

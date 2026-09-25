@@ -306,12 +306,11 @@ mod tests {
         }))
         .expect("GitHub history test data should be valid");
         assert!(super::graphql_complete_collection_eligible(&query));
-        let file_page: HistoryItemRequest =
-            HistoryItemRequest::from_row(json!({
-                "operation":"pullRequest","reasoning":"test","owner":"a","repo":"b","number":1,
-                "content":{"body":true,"changedFiles":true},"filePage":2
-            }))
-            .expect("GitHub history test data should be valid");
+        let file_page: HistoryItemRequest = HistoryItemRequest::from_row(json!({
+            "operation":"pullRequest","reasoning":"test","owner":"a","repo":"b","number":1,
+            "content":{"body":true,"changedFiles":true},"filePage":2
+        }))
+        .expect("GitHub history test data should be valid");
         assert!(!super::graphql_complete_collection_eligible(&file_page));
         // Legacy provider cursors are not part of the wire contract.
         assert!(

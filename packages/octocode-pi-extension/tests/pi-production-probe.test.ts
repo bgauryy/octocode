@@ -155,7 +155,8 @@ describe("Pi production scenario probe", () => {
     expect(receipt.observations).toEqual([
       {
         kind: "persistence.durable-entry-count",
-        data: { count: 15, recoveredCustomEntry: true },
+        // Communication adds one retained session identity alongside Pi state.
+        data: { count: 16, recoveredCustomEntry: true },
       },
     ]);
   }, 20_000);

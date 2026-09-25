@@ -69,17 +69,19 @@ Note friction, gaps, or wrong defaults and log them (comment/issue) instead of s
 | Step | Where | Rule |
 |---|---|---|
 | 1. Author | `@octocodeai/octocode-core` (`../octocode-mcp-host/packages/octocode-core`) | Every tool schema (Zod), description, instruction, and limit. Nothing else authors contract content. |
-| 2. Generate | `yarn contracts:regen` (repo root) | Refreshes the `file:` core **copy** (`yarn install`), then runs `@octocodeai/config generate:tool-contract` — the **only** generator. Needs `cargo install cargo-typify --version 0.8.0 --locked`. |
+| 2. Generate | build core, then `yarn contracts:regen` (repo root) | Refreshes the `file:` core **copy** (`yarn install`), then runs `@octocodeai/config generate:tool-contract` — the **only** generator. Needs `cargo install cargo-typify --version 0.8.0 --locked`. |
 | 3. Output | `packages/octocode-config/contract/` + `src/contracts/toolTypes.generated.ts` | Committed, never hand-edited. `check:tool-contract` (in `build`/`lint`) fails when stale. |
 | 4a. TS consumers | `@octocodeai/config/schema` · `@octocodeai/config/mcp` | Zod schemas + generated types (`<Tool>Query`, `<Tool>Input`, `<Tool>Output`, `ToolQuery<N>`). Never import core directly. |
 | 4b. Native | `crates/runtime/build.rs` | Embeds `contract/` **in place** (no copy); `contracts::tool_types` includes `contract/tool_types.rs`. Build fails on a fingerprint mismatch; cargo rebuilds when `contract/` changes. |
 
 **Hard rules**
-- Change a contract → edit core → `yarn contracts:regen` → rebuild. That is the whole change; there is no native script, copy, or pin to update.
+- Change a contract → edit core → `yarn contracts:regen` → rebuild. That is the whole change; there is no native script, copy, or pin to update. Rebuild native (`build:<platform>` **and** `build:addon`) right after every regen: until then the MCP server fails closed on the core/native fingerprint mismatch and new MCP sessions cannot start.
 - **Never hand-write a tool wire type** — no TS interface/Zod copy in interfaces, no serde query/result struct in native. Native tools parse rows straight into the generated `<Tool>Query` and build continuations from it; they may add accessor `impl` blocks (e.g. `usize` getters) on generated types, nothing more.
 - Generated-output payloads that core leaves open (`unknown[]`) stay open — tighten the Zod output schema in core, don't add a Rust/TS shape.
 - The only native-side follow-up a contract change can force: a **new** field or discriminator value must be declared in `crates/runtime/src/contracts/field-effect-coverage.json` (and implemented). Public limit changes also trip `public_response_and_tree_limits_are_pinned` by design.
-- Release gate: `yarn workspace @octocodeai/config check:core-contract-sync[:published]` — publish core first.
+- Name a vocabulary shared across tools in core with `.meta({ title: "Name" })` — generated type names come only from core titles/ids or structure; an unnamed recursive schema fails generation.
+- Drift is fail-closed: MCP refuses to start and CLI `scheme` refuses to describe tools when core's fingerprint ≠ the native embed (`OCTOCODE_ALLOW_CONTRACT_DRIFT=1` overrides outside production). Fix by regenerating, not overriding.
+- Release gate: `yarn workspace @octocodeai/config check:core-contract-sync:published` — publish core first.
 - Never hand-write tool guidance in interface packages.
 
 **Config:** Everything flows through `@octocodeai/config`. Never reimplement `getOctocodeHome`, `propagateOctocodeEnv`, or `.env` parsing. Skills use injected `octocode-config.mjs`; packages import from `@octocodeai/config`.
@@ -88,7 +90,7 @@ Note friction, gaps, or wrong defaults and log them (comment/issue) instead of s
 
 ## Packages
 
-12 workspace packages (`packages/*`) plus the `skills` workspace, and 1 external core. Each package has its own `ARCHITECTURE.md` and `README.md`. Full overview: [`docs/PACKAGES.md`](docs/PACKAGES.md).
+Workspace packages (`packages/*`) and one external core. Each package has its own `ARCHITECTURE.md` and `README.md`. Full overview: [`docs/PACKAGES.md`](docs/PACKAGES.md).
 
 ### Core stack
 
@@ -106,21 +108,19 @@ Note friction, gaps, or wrong defaults and log them (comment/issue) instead of s
 | [`octocode-mcp`](packages/octocode-mcp) | `octocode-mcp` | Thin MCP stdio server: lifecycle → security → tool registration → sanitized output. No logic. |
 | [`octocode`](packages/octocode) | `octocode` | CLI: one command per tool (`<toolName> '<json>'`) + `scheme`, `skill`, `config`, `login`/`logout`/`auth`, `install`. Use `node packages/octocode/out/octocode.js` in-repo. |
 | [`octocode-vscode`](packages/octocode-vscode) | `octocode-mcp-vscode` | VS Code extension: GitHub OAuth, MCP install into Cursor/Windsurf/etc., token sync. |
-| [`octocode-pi-extension`](packages/octocode-pi-extension) | `@octocodeai/pi-extension` | Pi integration: native tools, bundled CLI/MCP wiring, Awareness assets, prompts, harness hooks. Contracts under `src/contracts/`. |
+| [`octocode-pi-extension`](packages/octocode-pi-extension) | `@octocodeai/pi-extension` | Pi integration: native tools, bundled CLI/MCP wiring, host state, prompts, harness hooks. Contracts under `src/contracts/`. |
 
 ### Support / platform
 
 | Package | npm name | Role |
 |---|---|---|
 | [`octocode-skill-installer`](packages/octocode-skill-installer) | `@octocodeai/octocode-skill-installer` *(private)* | Shared durable skill materialization: platform paths, links/junctions, conflict policy. Bundled into callers. |
-| [`octocode-awareness`](packages/octocode-awareness) | `@octocodeai/octocode-awareness` | Coordination runtime: plans, locks, messages, memory, reflection, verification, hooks. Pi-facing subset via `…/host`. Ships the `octocode-awareness` skill (`packages/octocode-awareness/skills/`). Has its own `AGENTS.md`. |
 | [`octocode-agents-communication`](packages/octocode-agents-communication) | `@octocodeai/octocode-agents-communication` *(private)* | Session identity, advisory path leases, and direct messages. The skill folder ships the Rust CLI. Unpublished. |
 | [`octocode-benchmark`](packages/octocode-benchmark) | `@octocodeai/octocode-benchmark` *(private)* | Internal evals: head-to-head comparisons, VRPT scoring. Ships the `octocode-benchmark` skill. |
 | [`octocode-jev-lab`](packages/octocode-jev-lab) | `@octocodeai/jev-lab` *(private)* | Direct Jev/clasify provider probe for latency and multi-resource experiments, bypassing the runtime adapter. `yarn jev:probe --input <manifest>`. |
 
 **Cross-cutting rules:**
 - Pi contracts → `packages/octocode-pi-extension/src/contracts`
-- Awareness host API → build Awareness before rebuilding Pi after any `…/host` change
 - Local core changes → build core → `yarn contracts:regen` (refreshes the `file:` copy + regenerates config `contract/`) → rebuild consumers
 
 ---
@@ -178,7 +178,7 @@ Three skill trees. Entries in [`.agents/skills/`](.agents/skills/) (gitignored) 
 | `octocode-scraping` | Fetch public URLs / crawl a site into a local corpus |
 | `octocode-chrome-devtools` | Real browser needed: JS-rendered pages, DOM, HAR, console, auth sessions |
 
-Package-owned skills, not in `skills/`: `octocode-awareness` ([`packages/octocode-awareness/skills/`](packages/octocode-awareness/skills/)), `octocode-benchmark` ([`packages/octocode-benchmark/skills/`](packages/octocode-benchmark/skills/)), `octocode-agents-communication` ([`packages/octocode-agents-communication/skills/`](packages/octocode-agents-communication/skills/)). Public folder contract: [`skills/README.md`](skills/README.md).
+Package-owned skills, not in `skills/`: `octocode-benchmark` ([`packages/octocode-benchmark/skills/`](packages/octocode-benchmark/skills/)), `octocode-agents-communication` ([`packages/octocode-agents-communication/skills/`](packages/octocode-agents-communication/skills/)). Public folder contract: [`skills/README.md`](skills/README.md).
 
 ### Tested — [`skills-beta/`](skills-beta/) (not published)
 

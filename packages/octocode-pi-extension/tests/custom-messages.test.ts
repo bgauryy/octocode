@@ -19,7 +19,6 @@ import {
   COMPACTION_CHECKPOINT_TYPE,
   buildCompactionCard,
   buildExecutionEventCard,
-  buildPeerEventCard,
   buildRecoveryCard,
   emitCompactionCheckpoint,
   renderCompactionContextMarker,
@@ -244,7 +243,7 @@ test('registerOctocodeMessageRenderers registers lifecycle and peer types', () =
   registerOctocodeMessageRenderers(pi);
   assert.deepEqual(
     [...renderers.keys()].sort(),
-    [COMPACTION_CHECKPOINT_TYPE, 'octocode-peer-event'].sort(),
+    [COMPACTION_CHECKPOINT_TYPE],
   );
   assert.deepEqual([...entryRenderers.keys()], [EXECUTION_TRANSCRIPT_ENTRY_TYPE]);
 });
@@ -305,22 +304,6 @@ test('registered execution entry renderer reads durable entry data', () => {
     theme,
   ) as { render(width: number): string[] };
   assert.match(component.render(100).join('\n'), /Run the smoke test/);
-});
-
-test('peer cards show attribution and bounded previews, with complete expandable content', () => {
-  const message = {
-    content: '[peer:worker-1; class:blocking; authority:data]\nNeed the test result\n' + '界'.repeat(180),
-    details: { messageClass: 'blocking', eventId: 'event-1' },
-  };
-  const collapsed = buildPeerEventCard(message, false, undefined, 50);
-  assert.match(collapsed.join('\n'), /Awareness.*blocking/);
-  assert.match(collapsed.join('\n'), /worker-1/);
-  assert.match(collapsed.join('\n'), /Need the test result/);
-  assert.ok(collapsed.length <= 3);
-  const expanded = buildPeerEventCard(message, true, undefined, 50);
-  assert.match(expanded.join('\n'), /Peer data/);
-  assert.ok(expanded.every((line) => visibleWidth(line) <= 50));
-  assert.equal(expanded.join('').match(/界/g)?.length, 180, 'expansion wraps rather than drops long peer content');
 });
 
 test('recovery cards distinguish validated, restored, and omitted context without claiming full recovery', () => {

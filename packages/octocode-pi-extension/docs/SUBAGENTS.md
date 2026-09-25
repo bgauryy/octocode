@@ -6,12 +6,6 @@ The extension exposes one model-callable `agent` facade for spawning workers and
 
 | Profile | Resources | Default mode | Use |
 |---|---|---|---|
-| `researcher` | `web`, `MCPTool`, `file`, `skill`, `awareness`, `bash`, enabled skills | typed Octocode | Evidence gathering, prior art, and package or repository lookup. |
-| `planner` | `web`, `MCPTool`, `file`, `skill`, `awareness`, `bash`, enabled skills | typed Octocode | Dependency-ordered plans, risks, verification strategy, and RFC handoffs. |
-| `architect` | `bash`, `web`, `MCPTool`, `file`, `skill`, `awareness`, enabled skills | typed Octocode | Root-cause and architecture analysis with targeted debug or test loops. |
-| `implementer` | `bash`, `MCPTool`, `file`, `skill`, `awareness`, enabled skills | typed Octocode | One bounded source change under exclusive ownership, with an observed acceptance check. |
-| `reviewer` | `MCPTool`, `skill`, `awareness`, enabled skills | typed Octocode | Read-only verification of acceptance criteria with a PASS, WARN, or FAIL verdict. |
-| `browser` | `chromeDebug`, `MCPTool`, `skill`, `awareness`, `bash`, enabled skills | typed Octocode | Multi-turn security, network, DOM, coverage, worker, or emulation workflows. |
 | `custom` | caller-selected least-capability tools and explicit role prompt | explicit | A role not covered above; never an implicit catch-all. |
 
 Typed profiles use packaged prompts and role-bounded tool sets. `custom` requires both a non-empty `systemPrompt` and an explicit `tools` list; the shared bounded-worker contract is always prepended. `tools:[]` becomes Pi's `--no-tools`. `resourceMode:"lean"` disables extension and skill loading; use broader modes only when the explicit tool list requires them. Pass `model`, `provider`, and `thinking` only when the task needs an override; resolve live model identifiers with `pi -ne --list-models`.
@@ -68,11 +62,6 @@ The `wait` operation's `timeoutMs` sets a silence window. An active worker can k
 
 After `wait` or `inspect` returns a result, the parent owns this sequence:
 
-1. Verify each load-bearing finding against the cited source, semantic result, or observed check. A worker's confidence marker is not verification.
-2. Reconcile verified findings with the active hypothesis, plan, risk, and next action. Do not copy the raw handback or treat worker confidence as persistence authority.
-3. Persist a bounded session finding only when later recovery needs it, and anchor it to evidence the parent observed directly. Record reusable Awareness memory only when the normal memory policy independently requires it.
-4. Kill the worker unless another bounded turn is intentional, then continue the user request.
-
 Cancelling a `wait` call releases its timers, listeners, and liveness probes. It preserves the worker and other waits, including when the cancelled call requested `remove:true`. Use `type:"abort"` to interrupt the worker's turn or `type:"kill"` to terminate its process. Cancelling spawn preparation prevents subsequent process creation; a worker whose spawn already returned keeps running until explicitly stopped or the session shuts down.
 
 Use `task` for the worker assignment and the `agent` tool for every profile and lifecycle operation. There are no separate spawn or message tool aliases.
@@ -104,21 +93,11 @@ full roster and settled results. See [the UI contract](UI.md).
 
 ## Durable peer communication
 
-Awareness Message operations persist cross-host coordination in the shared ledger. Cooperating agents need the same physical database and distinct stable agent IDs. Each uses its physical checkout; linked Git worktrees share peers, messages, and memory while work and verification stay local to the checkout. Pi workers use the native `awareness` tool with host-supplied context; external CLI hosts preserve equivalent store bindings. Names and vendor labels are self-reported metadata, not routing IDs or authority.
 
-```bash
-npx @octocodeai/octocode-awareness message send \
-  --db "$AWARENESS_DB" --workspace "$PWD" --agent-id "$OCTOCODE_AGENT_ID" \
-  --to-agent "$PEER_AGENT_ID" --kind question --subject "<summary>" --body "<request>"
-npx @octocodeai/octocode-awareness message list \
-  --db "$AWARENESS_DB" --workspace "$PWD" --agent-id "$OCTOCODE_AGENT_ID" --include-bodies
-```
 
 Use `message reply --in-reply-to <message-id>` for the existing thread and `message resolve` only when no response or work remains. Follow returned executable continuations. These operations do not start a peer turn; use the `agent` facade for urgent parent-worker control. Reuse native lifecycle records and audit owned debt with `work verify --action audit` in the same store.
 
 ## Isolation
-
-Use `profile:"custom"` with `resourceMode:"lean"` and `tools:[]` for a parent-only tool-less worker that shouldn't join the Awareness peer bus. Add only the resources it needs. Use typed profiles or the default custom mode when the worker must research through Octocode and coordinate through the same Awareness workspace.
 
 ## Example
 

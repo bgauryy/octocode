@@ -53,22 +53,22 @@ fn lock_overlap_generation_and_expiry() -> Result<()> {
     let f = Fixture::new()?;
     let first = f
         .store
-        .call(&f.a, "lock", &json!({"path":"src","kind":"tree"}))?;
+        .call(&f.a, "lock", &json!({"reasoning":"Exercise lock contract in an isolated regression fixture","path":"src","kind":"tree"}))?;
     assert_eq!(first["ok"], true);
     assert_eq!(
-        f.store.call(&f.b, "lock", &json!({"path":"src/file"}))?["ok"],
+        f.store.call(&f.b, "lock", &json!({"reasoning":"Exercise lock contract in an isolated regression fixture","path":"src/file"}))?["ok"],
         false
     );
     assert_eq!(
         f.store
-            .call(&f.b, "lock", &json!({"path":"src-other/file"}))?["ok"],
+            .call(&f.b, "lock", &json!({"reasoning":"Exercise lock contract in an isolated regression fixture","path":"src-other/file"}))?["ok"],
         true
     );
     f.sql(
         "UPDATE leases SET expiresAt=0 WHERE id=?",
         &[first["lease"]["id"].clone()],
     )?;
-    let next = f.store.call(&f.b, "lock", &json!({"path":"src/file"}))?;
+    let next = f.store.call(&f.b, "lock", &json!({"reasoning":"Exercise lock contract in an isolated regression fixture","path":"src/file"}))?;
     assert_eq!(next["ok"], true);
     assert_eq!(
         f.store
@@ -94,7 +94,7 @@ fn lease_ttl_starts_after_writer_wait() -> Result<()> {
         let store = Store::open(database, &workspace, false, false)?;
         ready.send(())?;
         start.recv()?;
-        store.call(&actor, "lock", &json!({"path":"blocked","ttlMs":1000}))
+        store.call(&actor, "lock", &json!({"reasoning":"Exercise lock contract in an isolated regression fixture","path":"blocked","ttlMs":1000}))
     });
     wait.recv()?;
     let blocker = Connection::open(&f.store.database)?;
@@ -119,16 +119,16 @@ fn symlinks_and_missing_paths_are_canonical() -> Result<()> {
     symlink(root.join("real"), root.join("alias"))?;
     symlink(root.join("real/missing"), root.join("dangling"))?;
     f.store
-        .call(&f.a, "lock", &json!({"path":"real/missing"}))?;
+        .call(&f.a, "lock", &json!({"reasoning":"Exercise lock contract in an isolated regression fixture","path":"real/missing"}))?;
     for path in ["alias/missing", "dangling", "other/../real/missing"] {
         assert_eq!(
-            f.store.call(&f.b, "lock", &json!({"path":path}))?["ok"],
+            f.store.call(&f.b, "lock", &json!({"reasoning":"Exercise lock contract in an isolated regression fixture","path":path}))?["ok"],
             false
         );
     }
     assert!(
         f.store
-            .call(&f.b, "lock", &json!({"path":"../escape"}))
+            .call(&f.b, "lock", &json!({"reasoning":"Exercise lock contract in an isolated regression fixture","path":"../escape"}))
             .is_err()
     );
     Ok(())
@@ -143,10 +143,10 @@ fn portable_case_and_unicode_aliases_conflict_before_creation() -> Result<()> {
         ("CAFÉ/file", "cafe\u{301}/FILE"),
         ("Straße", "STRASSE"),
     ] {
-        let held = f.store.call(&f.a, "lock", &json!({"path":first}))?;
+        let held = f.store.call(&f.a, "lock", &json!({"reasoning":"Exercise lock contract in an isolated regression fixture","path":first}))?;
         assert_eq!(held["ok"], true);
         assert_eq!(
-            f.store.call(&f.b, "lock", &json!({"path":second}))?["ok"],
+            f.store.call(&f.b, "lock", &json!({"reasoning":"Exercise lock contract in an isolated regression fixture","path":second}))?["ok"],
             false
         );
         let view = f
@@ -157,14 +157,14 @@ fn portable_case_and_unicode_aliases_conflict_before_creation() -> Result<()> {
             .call(&f.a, "unlock", &json!({"lease":held["lease"]["id"]}))?;
     }
     f.store
-        .call(&f.a, "lock", &json!({"path":"SRC","kind":"tree"}))?;
+        .call(&f.a, "lock", &json!({"reasoning":"Exercise lock contract in an isolated regression fixture","path":"SRC","kind":"tree"}))?;
     assert_eq!(
-        f.store.call(&f.b, "lock", &json!({"path":"src/nested"}))?["ok"],
+        f.store.call(&f.b, "lock", &json!({"reasoning":"Exercise lock contract in an isolated regression fixture","path":"src/nested"}))?["ok"],
         false
     );
     assert_eq!(
         f.store
-            .call(&f.b, "lock", &json!({"path":"src-other/nested"}))?["ok"],
+            .call(&f.b, "lock", &json!({"reasoning":"Exercise lock contract in an isolated regression fixture","path":"src-other/nested"}))?["ok"],
         true
     );
     Ok(())
@@ -180,33 +180,33 @@ fn symlink_parent_traversal_matches_os_identity() -> Result<()> {
     symlink("real/sub", root.join("alias"))?;
     let held = f
         .store
-        .call(&f.a, "lock", &json!({"path":"alias/../shared.txt"}))?;
+        .call(&f.a, "lock", &json!({"reasoning":"Exercise lock contract in an isolated regression fixture","path":"alias/../shared.txt"}))?;
     assert_eq!(
         held["lease"]["path"],
         json!(fs::canonicalize(root.join("alias/../shared.txt"))?)
     );
     assert_eq!(
         f.store
-            .call(&f.b, "lock", &json!({"path":"real/shared.txt"}))?["ok"],
+            .call(&f.b, "lock", &json!({"reasoning":"Exercise lock contract in an isolated regression fixture","path":"real/shared.txt"}))?["ok"],
         false
     );
     symlink("real/missing/../new", root.join("dangling-parent"))?;
     f.store
-        .call(&f.a, "lock", &json!({"path":"dangling-parent"}))?;
+        .call(&f.a, "lock", &json!({"reasoning":"Exercise lock contract in an isolated regression fixture","path":"dangling-parent"}))?;
     assert_eq!(
-        f.store.call(&f.b, "lock", &json!({"path":"real/new"}))?["ok"],
+        f.store.call(&f.b, "lock", &json!({"reasoning":"Exercise lock contract in an isolated regression fixture","path":"real/new"}))?["ok"],
         false
     );
     symlink(".", root.join("self"))?;
     assert!(
         f.store
-            .call(&f.a, "lock", &json!({"path":"self/../outside"}))
+            .call(&f.a, "lock", &json!({"reasoning":"Exercise lock contract in an isolated regression fixture","path":"self/../outside"}))
             .is_err()
     );
     symlink("cycle", root.join("cycle"))?;
     assert!(
         f.store
-            .call(&f.a, "lock", &json!({"path":"cycle"}))
+            .call(&f.a, "lock", &json!({"reasoning":"Exercise lock contract in an isolated regression fixture","path":"cycle"}))
             .is_err()
     );
     Ok(())
@@ -214,7 +214,7 @@ fn symlink_parent_traversal_matches_os_identity() -> Result<()> {
 #[test]
 fn durable_messages_claim_recovery_and_ack() -> Result<()> {
     let f = Fixture::new()?;
-    let args = json!({"to":f.b,"body":"hello","key":"one"});
+    let args = json!({"reasoning":"Verify durable message receipt and recovery","to":f.b,"body":"hello","key":"one"});
     let sent = f.store.call(&f.a, "send_message", &args)?;
     assert_eq!(f.store.call(&f.a, "send_message", &args)?["id"], sent["id"]);
     assert!(
@@ -222,7 +222,7 @@ fn durable_messages_claim_recovery_and_ack() -> Result<()> {
             .call(
                 &f.a,
                 "send_message",
-                &json!({"to":f.b,"body":"changed","key":"one"})
+                &json!({"reasoning":"Exercise send_message contract in an isolated regression fixture","to":f.b,"body":"changed","key":"one"})
             )
             .is_err()
     );
@@ -257,11 +257,11 @@ fn topics_snapshot_and_resume_do_not_revive_leases() -> Result<()> {
     f.store.call(
         &f.a,
         "send_message",
-        &json!({"topic":"build","body":"ready"}),
+        &json!({"reasoning":"Exercise send_message contract in an isolated regression fixture","topic":"build","body":"ready"}),
     )?;
     let lease = f
         .store
-        .call(&f.b, "lock", &json!({"path":"owned","ttlMs":600000}))?;
+        .call(&f.b, "lock", &json!({"reasoning":"Exercise lock contract in an isolated regression fixture","path":"owned","ttlMs":600000}))?;
     assert_eq!(f.store.inbox(&f.a, 0)?["items"], json!([]));
     assert_eq!(f.store.claim(&f.b, "old")?.len(), 1);
     assert!(
@@ -272,7 +272,7 @@ fn topics_snapshot_and_resume_do_not_revive_leases() -> Result<()> {
     f.sql("UPDATE sessions SET expiresAt=0 WHERE id=?", &[json!(f.b)])?;
     assert!(f.store.call(&f.b, "heartbeat", &json!({})).is_err());
     f.store
-        .call(&f.a, "send_message", &json!({"to":f.b,"body":"offline"}))?;
+        .call(&f.a, "send_message", &json!({"reasoning":"Exercise send_message contract in an isolated regression fixture","to":f.b,"body":"offline"}))?;
     f.store.call(&f.b, "resume", &json!({"vendor":"claude"}))?;
     assert_eq!(f.store.claim(&f.b, "new")?.len(), 2);
     assert_eq!(
@@ -316,7 +316,7 @@ fn entity_visibility_updates_and_pagination() -> Result<()> {
         f.store.call(
             &f.a,
             "send_message",
-            &json!({"to":f.b,"body":i.to_string()}),
+            &json!({"reasoning":"Exercise send_message contract in an isolated regression fixture","to":f.b,"body":i.to_string()}),
         )?;
     }
     let first = f
@@ -391,7 +391,7 @@ fn notify_all_snapshots_active_workspace_peers_and_retries_once() -> Result<()> 
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("id"))?;
     f.store.call(c, "leave", &json!({}))?;
-    let input = json!({"body":"all active peers","key":"broadcast-once"});
+    let input = json!({"reasoning":"Verify one broadcast snapshots active peers","body":"all active peers","key":"broadcast-once"});
     let sent = f.store.call(&f.a, "notify_all", &input)?;
     assert_eq!(sent["recipients"], 1);
     assert_eq!(f.store.inbox(&f.b, 0)?["items"][0]["id"], sent["id"]);
@@ -405,30 +405,30 @@ fn notify_all_snapshots_active_workspace_peers_and_retries_once() -> Result<()> 
             .call(
                 &f.a,
                 "notify_all",
-                &json!({"body":"changed","key":"broadcast-once"})
+                &json!({"reasoning":"Exercise notify_all contract in an isolated regression fixture","body":"changed","key":"broadcast-once"})
             )
             .is_err()
     );
     assert!(
         f.store
-            .call(&f.a, "notify_all", &json!({"body":"bad","to":f.b}))
+            .call(&f.a, "notify_all", &json!({"reasoning":"Exercise notify_all contract in an isolated regression fixture","body":"bad","to":f.b}))
             .is_err()
     );
     assert_eq!(
         f.store
-            .call(&f.a, "notify_all", &json!({"body":"new snapshot"}))?["recipients"],
+            .call(&f.a, "notify_all", &json!({"reasoning":"Exercise notify_all contract in an isolated regression fixture","body":"new snapshot"}))?["recipients"],
         2
     );
     f.store.call(&f.b, "leave", &json!({}))?;
     f.store.call(c, "leave", &json!({}))?;
     assert_eq!(
-        f.store.call(&f.a, "notify_all", &json!({"body":"alone"}))?["recipients"],
+        f.store.call(&f.a, "notify_all", &json!({"reasoning":"Exercise notify_all contract in an isolated regression fixture","body":"alone"}))?["recipients"],
         0
     );
     f.store.call(&f.a, "leave", &json!({}))?;
     assert!(
         f.store
-            .call(&f.a, "notify_all", &json!({"body":"expired"}))
+            .call(&f.a, "notify_all", &json!({"reasoning":"Exercise notify_all contract in an isolated regression fixture","body":"expired"}))
             .is_err()
     );
     Ok(())
@@ -443,7 +443,7 @@ fn notify_all_rolls_back_message_and_partial_fanout_on_failure() -> Result<()> {
     f.sql("CREATE TRIGGER fail_second_delivery BEFORE INSERT ON deliveries WHEN (SELECT count(*) FROM deliveries)>0 BEGIN SELECT RAISE(ABORT, 'injected delivery failure'); END", &[])?;
     assert!(
         f.store
-            .call(&f.a, "notify_all", &json!({"body":"atomic"}))
+            .call(&f.a, "notify_all", &json!({"reasoning":"Exercise notify_all contract in an isolated regression fixture","body":"atomic"}))
             .is_err()
     );
     let db = Connection::open(&f.store.database)?;
@@ -466,16 +466,16 @@ fn deleting_and_recreating_files_does_not_release_path_reservations() -> Result<
     fs::write(root.join("tree/file"), "before")?;
     let held = f
         .store
-        .call(&f.a, "lock", &json!({"path":"tree","kind":"tree"}))?;
+        .call(&f.a, "lock", &json!({"reasoning":"Exercise lock contract in an isolated regression fixture","path":"tree","kind":"tree"}))?;
     fs::remove_dir_all(root.join("tree"))?;
     assert_eq!(
-        f.store.call(&f.b, "lock", &json!({"path":"tree/file"}))?["ok"],
+        f.store.call(&f.b, "lock", &json!({"reasoning":"Exercise lock contract in an isolated regression fixture","path":"tree/file"}))?["ok"],
         false
     );
     fs::create_dir(root.join("tree"))?;
     fs::write(root.join("tree/file"), "after")?;
     assert_eq!(
-        f.store.call(&f.b, "lock", &json!({"path":"tree/file"}))?["ok"],
+        f.store.call(&f.b, "lock", &json!({"reasoning":"Exercise lock contract in an isolated regression fixture","path":"tree/file"}))?["ok"],
         false
     );
     assert_eq!(
@@ -483,7 +483,7 @@ fn deleting_and_recreating_files_does_not_release_path_reservations() -> Result<
             .call(&f.a, "unlock", &json!({"lease":held["lease"]["id"]}))?["released"],
         true
     );
-    let next = f.store.call(&f.b, "lock", &json!({"path":"tree/file"}))?;
+    let next = f.store.call(&f.b, "lock", &json!({"reasoning":"Exercise lock contract in an isolated regression fixture","path":"tree/file"}))?;
     assert_eq!(next["ok"], true);
     assert_ne!(next["lease"]["id"], held["lease"]["id"]);
     assert_eq!(
@@ -499,10 +499,10 @@ fn pruning_preserves_audit_messages_and_deliveries() -> Result<()> {
     let f = Fixture::new()?;
     let old = f
         .store
-        .call(&f.a, "send_message", &json!({"to":f.b,"body":"old"}))?;
+        .call(&f.a, "send_message", &json!({"reasoning":"Exercise send_message contract in an isolated regression fixture","to":f.b,"body":"old"}))?;
     let live = f
         .store
-        .call(&f.a, "send_message", &json!({"to":f.b,"body":"live"}))?;
+        .call(&f.a, "send_message", &json!({"reasoning":"Exercise send_message contract in an isolated regression fixture","to":f.b,"body":"live"}))?;
     f.sql(
         "UPDATE messages SET expiresAt=0 WHERE id=?",
         &[old["id"].clone()],
@@ -539,6 +539,102 @@ fn live_store_rejects_deleted_or_replaced_database() -> Result<()> {
     assert!(
         f.store.call("", "peers", &json!({})).is_err(),
         "replacement must not preserve an orphaned store"
+    );
+    Ok(())
+}
+
+#[test]
+fn passive_mail_waits_for_action_and_action_cannot_be_starved() -> Result<()> {
+    let f = Fixture::new()?;
+    for index in 0..19 {
+        f.store.call(&f.a, "send_message", &json!({"to":f.b,"body":format!("FYI {index}"),"reasoning":"Record passive facts","wake":"passive"}))?;
+    }
+    assert!(f.store.stage(&f.b, "managed:codex")?.is_empty());
+    let db = Connection::open(&f.store.database)?;
+    assert_eq!(
+        query(&db, "SELECT count(*) AS n FROM dispatches", &[])?[0]["n"],
+        0
+    );
+    let action = f.store.call(
+        &f.a,
+        "send_message",
+        &json!({"to":f.b,"body":"Handle the authorized request","reasoning":"Resume useful work"}),
+    )?;
+    let items = f.store.stage(&f.b, "managed:codex")?;
+    assert_eq!(items.len(), 16);
+    assert_eq!(items[0]["id"], action["id"]);
+    f.store.finish_dispatch(&f.b, &items, None)?;
+    assert!(f.store.stage(&f.b, "managed:codex")?.is_empty());
+    assert_eq!(
+        f.store.inbox(&f.b, 0)?["items"]
+            .as_array()
+            .ok_or_else(|| anyhow::anyhow!("Expected array"))?
+            .len(),
+        20
+    );
+    assert_eq!(f.store.stage(&f.b, "initial")?.len(), 4);
+    Ok(())
+}
+
+#[test]
+fn wake_intent_is_idempotent_and_broadcast_defaults_passive() -> Result<()> {
+    let f = Fixture::new()?;
+    f.store.call(
+        &f.a,
+        "notify_all",
+        &json!({"body":"FYI","reasoning":"Broadcast fact"}),
+    )?;
+    assert!(!f.store.has_action(&f.b)?);
+    let input =
+        json!({"to":f.b,"body":"FYI","reasoning":"Record fact","key":"same","wake":"passive"});
+    let first = f.store.call(&f.a, "send_message", &input)?;
+    assert_eq!(first, f.store.call(&f.a, "send_message", &input)?);
+    let mut other = input;
+    other["wake"] = json!("action");
+    assert!(f.store.call(&f.a, "send_message", &other).is_err());
+    assert!(
+        f.sql(
+            "UPDATE messages SET wake='action' WHERE id=?",
+            &[first["id"].clone()]
+        )
+        .is_err()
+    );
+    Ok(())
+}
+
+#[test]
+fn path_guard_is_read_only_and_checks_live_foreign_tree_leases() -> Result<()> {
+    let f = Fixture::new()?;
+    let lease = f.store.call(
+        &f.a,
+        "lock",
+        &json!({"path":"src","kind":"tree","reasoning":"Changing module"}),
+    )?;
+    let paths = json!({"paths":[{"path":"SRC/file.rs"},{"path":"src/other.rs"}]});
+    let blocked = f.store.call(&f.b, "check_paths", &paths)?;
+    assert_eq!(blocked["ok"], false);
+    assert_eq!(
+        blocked["conflicts"]
+            .as_array()
+            .ok_or_else(|| anyhow::anyhow!("Expected array"))?
+            .len(),
+        1
+    );
+    assert_eq!(blocked["conflicts"][0]["reasoning"], "Changing module");
+    assert_eq!(f.store.call(&f.a, "check_paths", &paths)?["ok"], true);
+    f.sql(
+        "UPDATE leases SET expiresAt=0 WHERE id=?",
+        &[lease["lease"]["id"].clone()],
+    )?;
+    assert_eq!(f.store.call(&f.b, "check_paths", &paths)?["ok"], true);
+    assert!(
+        f.store
+            .call(
+                &f.b,
+                "check_paths",
+                &json!({"paths":[{"path":"../escape"}]})
+            )
+            .is_err()
     );
     Ok(())
 }

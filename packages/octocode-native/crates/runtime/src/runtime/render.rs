@@ -211,7 +211,7 @@ pub fn render_tool(tool: &str, response: &Value, query: &Value, format: TextForm
                             "returnedLines",
                             "errorCode",
                             "partialReasons",
-                            "resolvedBranch",
+                            "commitSha",
                             "next",
                             "isPartial",
                         ],

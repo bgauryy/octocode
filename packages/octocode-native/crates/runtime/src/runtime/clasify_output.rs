@@ -16,8 +16,10 @@ use sha2::{Digest, Sha256};
 /// README as a single page in the GitHub eval).
 pub(super) const COALESCE_BYTES: usize = 24 * 1024;
 
-/// Probabilities below this are dropped from Choice/Score answers.
-const MIN_PROBABILITY: f64 = 0.01;
+/// Nearby locate windows usually belong to one useful verification excerpt.
+/// Coalescing them here prevents every host from independently expanding the
+/// same matches into too many read calls.
+const VERIFY_MERGE_GAP_LINES: u64 = 32;
 
 /// Outcome of one assessed (or failed) page, before rendering.
 pub(super) enum PageOutcome {
@@ -28,8 +30,6 @@ pub(super) enum PageOutcome {
     Assessed {
         receipt: Value,
         answers: Vec<Result<Value, ClassificationError>>,
-        /// Best ~40-line window of a high-scoring page, when narrowed.
-        focus: Option<Value>,
     },
 }
 
@@ -41,42 +41,25 @@ fn error_value(error: &ClassificationError) -> Value {
     value
 }
 
-fn trimmed_probabilities(value: &Value) -> Value {
-    let Some(probabilities) = value.as_object() else {
-        return value.clone();
-    };
-    Value::Object(
-        probabilities
-            .iter()
-            .filter(|(_, probability)| probability.as_f64().is_some_and(|p| p >= MIN_PROBABILITY))
-            .map(|(label, probability)| (label.clone(), rounded(probability)))
-            .collect(),
-    )
-}
-
-/// Three decimals: provider floats such as 0.9400000000000001 carry no
-/// signal beyond that and cost bytes.
-fn rounded(value: &Value) -> Value {
-    value.as_f64().map_or_else(
-        || value.clone(),
-        |number| json!((number * 1000.0).round() / 1000.0),
-    )
-}
-
 /// Project a provider answer (`{type, noul|choice|score, ...}`) to the typed
-/// verdict only: no `type`, no echoed `legend`, no near-zero probabilities.
+/// verdict only: no `type` or echoed `legend`. Numeric values and complete
+/// probability distributions are preserved from the validated response.
 pub(super) fn compact_answer(answer: &Value) -> Value {
     match answer["type"].as_str() {
-        Some("noul") => json!({"noul":rounded(&answer["noul"])}),
+        Some("noul") => json!({"noul":answer["noul"]}),
         Some("choice") => json!({
             "choice":answer["choice"],
-            "confidence":rounded(&answer["confidence"]),
-            "probabilities":trimmed_probabilities(&answer["probabilities"])
+            "confidence":answer["confidence"],
+            "probabilities":answer["probabilities"]
         }),
         Some("score") => json!({
-            "score":rounded(&answer["score"]),
-            "confidence":rounded(&answer["confidence"]),
-            "probabilities":trimmed_probabilities(&answer["probabilities"])
+            "score":answer["score"],
+            "confidence":answer["confidence"],
+            "probabilities":answer["probabilities"]
+        }),
+        Some("locate") => json!({
+            "exists":answer["exists"],
+            "matches":answer["matches"]
         }),
         _ => answer.clone(),
     }
@@ -107,7 +90,51 @@ fn page_base(receipt: &Value) -> Map<String, Value> {
     if let Some(limitations) = limitations(receipt) {
         page.insert("limitations".into(), limitations);
     }
+    if let Some(read) = receipt.get("read") {
+        page.insert("next".into(), json!({"read":read}));
+    }
     page
+}
+
+fn verification_ranges(answers: &Map<String, Value>) -> Option<Value> {
+    let mut ranges = answers
+        .values()
+        .flat_map(|answer| {
+            answer
+                .get("matches")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|matched| {
+                    Some((
+                        matched.get("startLine")?.as_u64()?,
+                        matched.get("endLine")?.as_u64()?,
+                    ))
+                })
+        })
+        .collect::<Vec<_>>();
+    ranges.sort_by_key(|(start, end)| (*start, *end));
+
+    let mut merged: Vec<(u64, u64)> = Vec::new();
+    for (start, end) in ranges {
+        if let Some((_, merged_end)) = merged.last_mut()
+            && start <= merged_end.saturating_add(VERIFY_MERGE_GAP_LINES + 1)
+        {
+            *merged_end = (*merged_end).max(end);
+        } else {
+            merged.push((start, end));
+        }
+    }
+    (!merged.is_empty()).then(|| {
+        Value::Array(
+            merged
+                .into_iter()
+                .map(|(start_line, end_line)| {
+                    json!({"startLine":start_line,"endLine":end_line})
+                })
+                .collect(),
+        )
+    })
 }
 
 /// Render one resource. `question_ids` orders the per-page answer map.
@@ -130,11 +157,7 @@ pub(super) fn resource(
                 page.insert("error".into(), error_value(&error));
                 Value::Object(page)
             }
-            PageOutcome::Assessed {
-                receipt,
-                answers,
-                focus,
-            } => {
+            PageOutcome::Assessed { receipt, answers } => {
                 terminal_partial = receipt["coverage"] == "partial";
                 let mut page = page_base(&receipt);
                 let mut by_question = Map::new();
@@ -152,10 +175,10 @@ pub(super) fn resource(
                     };
                     by_question.insert(key, value);
                 }
-                page.insert("answers".into(), Value::Object(by_question));
-                if let Some(focus) = focus {
-                    page.insert("focus".into(), focus);
+                if let Some(ranges) = verification_ranges(&by_question) {
+                    page.insert("verificationRanges".into(), ranges);
                 }
+                page.insert("answers".into(), Value::Object(by_question));
                 Value::Object(page)
             }
         })
@@ -349,42 +372,6 @@ pub(super) fn query_meta(
     meta
 }
 
-/// Heuristic for an optional low-signal hint; no candidate is removed.
-const LOW_SIGNAL_MAX_NOUL: f64 = 0.3;
-
-/// Noul question IDs whose complete candidate pages all scored below the
-/// heuristic. Callers may widen or repair the search; this does not prove
-/// absence or suppress any answer or resource. Partial or errored resources
-/// keep the hint off.
-pub(super) fn low_signal(questions: &Value, resources: &[Value]) -> Option<Value> {
-    if resources.len() < 2
-        || resources
-            .iter()
-            .any(|resource| resource["coverage"] != "complete")
-    {
-        return None;
-    }
-    let ids: Vec<Value> = questions
-        .as_array()?
-        .iter()
-        .filter(|question| question["question"]["type"] == "noul")
-        .filter_map(|question| question["id"].as_str())
-        .filter(|id| {
-            resources.iter().all(|resource| {
-                resource["pages"].as_array().is_some_and(|pages| {
-                    pages.iter().all(|page| {
-                        page["answers"][*id]["noul"]
-                            .as_f64()
-                            .is_some_and(|noul| noul <= LOW_SIGNAL_MAX_NOUL)
-                    })
-                })
-            })
-        })
-        .map(|id| json!(id))
-        .collect();
-    (!ids.is_empty()).then_some(Value::Array(ids))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -399,20 +386,65 @@ mod tests {
     }
 
     #[test]
-    fn answers_drop_type_legend_and_near_zero_probabilities() {
+    fn answers_drop_redundant_fields_but_keep_all_probabilities_and_precision() {
         assert_eq!(
-            compact_answer(&json!({"type":"noul","noul":0.97})),
-            json!({"noul":0.97})
+            compact_answer(&json!({"type":"noul","noul":0.973456789})),
+            json!({"noul":0.973456789})
         );
         assert_eq!(
-            compact_answer(&json!({"type":"choice","choice":"a","confidence":0.9,
-                "probabilities":{"a":0.95,"b":0.05,"c":0.0,"d":0.004}})),
-            json!({"choice":"a","confidence":0.9,"probabilities":{"a":0.95,"b":0.05}})
+            compact_answer(
+                &json!({"type":"choice","choice":"a","confidence":0.923456789,
+                "probabilities":{"a":0.995,"b":0.004,"c":0.001,"d":0.0}})
+            ),
+            json!({"choice":"a","confidence":0.923456789,
+                "probabilities":{"a":0.995,"b":0.004,"c":0.001,"d":0.0}})
         );
         assert_eq!(
-            compact_answer(&json!({"type":"score","score":2.1,"confidence":0.8,
-                "probabilities":{"0":0.0,"1":0.1,"2":0.7,"3":0.2},"legend":{"0":"low"}})),
-            json!({"score":2.1,"confidence":0.8,"probabilities":{"1":0.1,"2":0.7,"3":0.2}})
+            compact_answer(
+                &json!({"type":"score","score":2.123456789,"confidence":0.823456789,
+                "probabilities":{"0":0.0001,"1":0.0999,"2":0.7,"3":0.2},"legend":{"0":"low"}})
+            ),
+            json!({"score":2.123456789,"confidence":0.823456789,
+                "probabilities":{"0":0.0001,"1":0.0999,"2":0.7,"3":0.2}})
+        );
+        assert_eq!(
+            compact_answer(&json!({"type":"locate","exists":0.98,"matches":[{
+                "startLine":41,"endLine":44,"probability":0.91
+            }]})),
+            json!({"exists":0.98,"matches":[{
+                "startLine":41,"endLine":44,"probability":0.91
+            }]})
+        );
+    }
+
+    #[test]
+    fn nearby_locate_matches_become_one_host_verification_plan() {
+        let answers = Map::from_iter([
+            (
+                "completion".into(),
+                json!({"exists":0.9,"matches":[
+                    {"startLine":35,"endLine":42,"probability":0.6}
+                ]}),
+            ),
+            (
+                "deferred".into(),
+                json!({"exists":0.9,"matches":[
+                    {"startLine":339,"endLine":350,"probability":0.5}
+                ]}),
+            ),
+            (
+                "failure".into(),
+                json!({"exists":0.9,"matches":[
+                    {"startLine":363,"endLine":370,"probability":0.4}
+                ]}),
+            ),
+        ]);
+        assert_eq!(
+            verification_ranges(&answers),
+            Some(json!([
+                {"startLine":35,"endLine":42},
+                {"startLine":339,"endLine":370}
+            ]))
         );
     }
 
@@ -421,7 +453,10 @@ mod tests {
         let ids = [json!("retry"), json!("role")];
         let ids = ids.iter().collect::<Vec<_>>();
         let receipt = json!({"source":"tool","tool":"localFetch","resultHash":"x","coverage":"bounded",
-            "scope":{"startLine":1,"endLine":9,"totalLines":9}});
+        "scope":{"startLine":1,"endLine":9,"totalLines":9},
+        "read":{"tool":"localFetch","confidence":"exact","query":{
+            "reasoning":"Verify evidence.","path":"/repo/a.rs","startLine":1,"endLine":9
+        }}});
         let rendered = resource(
             &json!("file"),
             &ids,
@@ -431,7 +466,6 @@ mod tests {
                     Ok(json!({"answer":{"type":"noul","noul":0.9},"resolvedModel":"m"})),
                     Err(provider_error("timeout")),
                 ],
-                focus: Some(json!({"retry":{"startLine":3,"endLine":5,"confidence":0.9}})),
             }],
             false,
         );
@@ -439,8 +473,10 @@ mod tests {
             rendered,
             json!({"resourceId":"file","coverage":"partial","pages":[{
                 "scope":{"startLine":1,"endLine":9,"totalLines":9},
-                "answers":{"retry":{"noul":0.9},"role":{"error":{"code":"timeout","message":"failed"}}},
-                "focus":{"retry":{"startLine":3,"endLine":5,"confidence":0.9}}
+                "next":{"read":{"tool":"localFetch","confidence":"exact","query":{
+                    "reasoning":"Verify evidence.","path":"/repo/a.rs","startLine":1,"endLine":9
+                }}},
+                "answers":{"retry":{"noul":0.9},"role":{"error":{"code":"timeout","message":"failed"}}}
             }]})
         );
     }
@@ -471,7 +507,6 @@ mod tests {
             &json!("r"),
             &ids,
             vec![PageOutcome::Assessed {
-                focus: None,
                 receipt: json!({"coverage":"partial","limitations":[PAGE_ONLY_LIMITATION]}),
                 answers: vec![Ok(json!({"answer":{"type":"noul","noul":0.1}}))],
             }],
@@ -587,24 +622,5 @@ mod tests {
             Value::Object(meta),
             json!({"model":"jev-1.13.0","usage":{"input_tokens":15,"output_tokens":3}})
         );
-    }
-
-    #[test]
-    fn low_signal_flags_only_complete_all_low_noul_screens() {
-        let questions = json!([
-            {"id":"q","question":{"type":"noul"}},
-            {"id":"c","question":{"type":"choice"}}
-        ]);
-        let page =
-            |noul: f64| json!({"answers":{"q":{"noul":noul},"c":{"choice":"a","confidence":0.2}}});
-        let resource =
-            |coverage: &str, noul: f64| json!({"coverage":coverage,"pages":[page(noul)]});
-        let low = [resource("complete", 0.22), resource("complete", 0.1)];
-        assert_eq!(low_signal(&questions, &low), Some(json!(["q"])));
-        let one_high = [resource("complete", 0.22), resource("complete", 0.8)];
-        assert_eq!(low_signal(&questions, &one_high), None);
-        let partial = [resource("complete", 0.1), resource("partial", 0.1)];
-        assert_eq!(low_signal(&questions, &partial), None);
-        assert_eq!(low_signal(&questions, &[resource("complete", 0.1)]), None);
     }
 }

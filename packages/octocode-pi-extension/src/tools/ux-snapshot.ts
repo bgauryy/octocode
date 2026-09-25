@@ -8,8 +8,7 @@ import {
   createExecutionState,
   type ExecutionState,
 } from './execution-events.js';
-import { classifyEvidenceAuthority } from './evidence-authority.js';
-import { elapsedSince, formatDurationShort } from '../ui-extras.js';
+import { elapsedSince } from '../ui-extras.js';
 import { projectUxAgents, type UxAgentV1 } from './ux-agent-projection.js';
 
 export type { UxAgentV1 } from './ux-agent-projection.js';
@@ -96,7 +95,7 @@ export interface UxAttentionV1 {
 }
 
 export interface UxProvenanceV1 {
-  owner: 'runtime' | 'plan' | 'workers' | 'awareness';
+  owner: 'runtime' | 'plan' | 'workers';
   sequence: number;
   observedAt: number;
   staleAfterMs?: number;
@@ -133,14 +132,6 @@ export interface UxSnapshotInput {
   agents?: Parameters<typeof projectUxAgents>[0];
   goal?: UxSnapshotV1['goal'];
   dynamicPlan?: boolean;
-  awareness?: {
-    unread: number;
-    observedAt: number;
-    staleAfterMs: number;
-    sequence?: number;
-    latestSender?: string;
-    latestSubject?: string;
-  };
 }
 
 const PRIORITY_ORDER: Record<UxPriority, number> = {
@@ -341,7 +332,7 @@ export function deriveUxSnapshot(input: UxSnapshotInput): UxSnapshotV1 {
     });
   }
   const queued = agents.reduce((sum, agent) => sum + agent.pendingMessages, 0);
-  const unread = Math.max(0, input.awareness?.unread ?? 0);
+  const unread = 0;
   if (queued + unread > 0) {
     // Use the earliest known arrival time so messages sort correctly against
     // other P2 items. Using 'createdAt: now' always stamped them as newest,
@@ -352,9 +343,7 @@ export function deriveUxSnapshot(input: UxSnapshotInput): UxSnapshotV1 {
             .filter(a => a.pendingMessages > 0)
             .reduce<number>((min, a) => Math.min(min, a.updatedAt), now)
         : now;
-    const unreadSince =
-      unread > 0 && input.awareness ? input.awareness.observedAt : now;
-    const messagesSince = Math.min(queuedSince, unreadSince);
+    const messagesSince = queuedSince;
     addAttention({
       id: 'messages:pending',
       kind: 'messages',
@@ -378,27 +367,6 @@ export function deriveUxSnapshot(input: UxSnapshotInput): UxSnapshotV1 {
       requiredAction: 'Compact or finish current work',
       detailRoute: '/configuration',
       createdAt: now,
-    });
-
-  const awarenessAuthority = input.awareness
-    ? classifyEvidenceAuthority({
-        observedAt: input.awareness.observedAt,
-        now,
-        staleAfterMs: input.awareness.staleAfterMs,
-      })
-    : undefined;
-  const awarenessStale = awarenessAuthority !== undefined && awarenessAuthority.authority !== 'live';
-  if (awarenessStale)
-    addAttention({
-      id: 'awareness:stale',
-      kind: 'stale_source',
-      priority: 'P3',
-      severity: 'warning',
-      actor: 'Awareness',
-      reason: `Coordination status last updated ${formatDurationShort(elapsedSince(input.awareness!.observedAt, now))} ago`,
-      requiredAction: 'Inspect session details',
-      detailRoute: '/octocode-status',
-      createdAt: input.awareness!.observedAt,
     });
 
   attention.sort(
@@ -461,12 +429,6 @@ export function deriveUxSnapshot(input: UxSnapshotInput): UxSnapshotV1 {
     messages: {
       unread,
       queued,
-      ...(input.awareness?.latestSender
-        ? { latestSender: input.awareness.latestSender }
-        : {}),
-      ...(input.awareness?.latestSubject
-        ? { latestSubject: input.awareness.latestSubject }
-        : {}),
       detailRoute: '/octocode-inbox',
     },
     provenance: [
@@ -495,17 +457,6 @@ export function deriveUxSnapshot(input: UxSnapshotInput): UxSnapshotV1 {
         observedAt: now,
         stale: false,
       },
-      ...(input.awareness
-        ? [
-            {
-              owner: 'awareness' as const,
-              sequence: input.awareness.sequence ?? input.awareness.observedAt,
-              observedAt: input.awareness.observedAt,
-              staleAfterMs: input.awareness.staleAfterMs,
-              stale: awarenessStale,
-            },
-          ]
-        : []),
     ],
   };
   return freezeDeep(snapshot);

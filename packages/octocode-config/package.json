@@ -41,8 +41,7 @@
   "files": [
     "dist/**",
     "README.md",
-    "LICENSE",
-    "contract/**"
+    "LICENSE"
   ],
   "homepage": "https://octocode.ai",
   "keywords": [
@@ -64,8 +63,7 @@
   "scripts": {
     "build": "node scripts/generate-config-contract.ts && node scripts/generate-tool-contract.ts --check && node build.mjs",
     "check:config-contract": "node scripts/generate-config-contract.ts --check",
-    "check:core-contract-sync": "node scripts/check-core-contract-sync.cjs",
-    "check:core-contract-sync:published": "node scripts/check-core-contract-sync.cjs --published",
+    "check:core-contract-sync:published": "node scripts/check-core-contract-sync.cjs",
     "check:tool-contract": "node scripts/generate-tool-contract.ts --check",
     "clean": "rm -rf dist/",
     "generate:config-contract": "node scripts/generate-config-contract.ts",

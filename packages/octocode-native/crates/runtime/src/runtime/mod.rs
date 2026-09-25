@@ -16,7 +16,6 @@ mod maintenance;
 pub mod render;
 pub mod response;
 mod response_stage;
-mod semantic_rerank;
 mod session_stats;
 
 pub use cursor::CursorError;

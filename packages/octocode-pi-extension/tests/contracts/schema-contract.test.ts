@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { AGENT_APPLICATION_ID, DatabaseSync } from '@octocodeai/octocode-awareness/host';
+import { AGENT_APPLICATION_ID } from '../../src/runtime/agent-store-schema.js';
+import { DatabaseSync } from '../../src/runtime/sqlite.js';
 import { closeOctocodeDb, openOctocodeDb } from '../../src/contracts/db.js';
 
 const directories: string[] = [];

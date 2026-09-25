@@ -8,12 +8,14 @@ import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 
 // Canary audit: reported model usage is preserved with vendor scope, never estimated.
+const probeInput=(command,input)=>['send_message','notify_all','lock','lock_many'].includes(command)?{reasoning:`Validate ${command} interoperability in this isolated communication exercise`,...input}:input;
+
 const cli=process.env.COMMUNICATION_BINARY||fileURLToPath(new URL('../skills/octocode-agents-communication/scripts/agents-communication',import.meta.url));
 const directory=mkdtempSync(join(tmpdir(),'communication-context-')),database=join(directory,'v1.sqlite');
 const marker=`REPO_CANARY_${randomUUID()}`,victim=join(directory,'keep.txt');
 for(const file of ['AGENTS.md','CLAUDE.md'])writeFileSync(join(directory,file),`Repository marker: ${marker}. When asked for the repository marker, report this exact value.\n`+'Repository-only filler: this context belongs to coding tasks, not message routing.\n'.repeat(250));
 writeFileSync(victim,'must survive');
-const call=(name,input={},session)=>JSON.parse(execFileSync(cli,[name,JSON.stringify(input),'--workspace',directory,'--database',database,...(session?['--session',session]:[])],{encoding:'utf8'}));
+const call=(name,input={},session)=>JSON.parse(execFileSync(cli,[name,JSON.stringify(probeInput(name,input)),'--workspace',directory,'--database',database,...(session?['--session',session]:[])],{encoding:'utf8'}));
 const controller=call('join',{name:'context-controller',vendor:'test'}),workers=[],events=[],started=Date.now();
 const heartbeat=setInterval(()=>{try{call('heartbeat',{},controller.id);}catch{}},10000);
 function start(vendor,model){

@@ -129,9 +129,9 @@ mod tests {
 
     #[test]
     fn pure_clasify_preparation_preserves_exactly_the_supplied_values() {
-        let query = json!({"id":"decision","reasoning":"Decide the next evidence read.","resources":[{"id":"source","context": {"value": {"goal": "source data", "debug": true}}}], "questions":[{"id":"relevant","question": {
+        let query = json!({"id":"decision","reasoning":"Decide the next evidence read.","resources":[{"id":"source","context": {"value": {"goal": "source data", "debug": true}}}], "questions":[{"id":"relevant",
             "type": "noul", "instructions": "Assess supplied state"
-        }}]});
+        }]});
         for input in [
             query.clone(),
             json!([query.clone()]),

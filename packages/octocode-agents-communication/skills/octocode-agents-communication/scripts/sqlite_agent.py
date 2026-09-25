@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Minimal direct-SQL v2 agent. Run agents-communication db protocol for the complete contract.
+"""Minimal direct-SQL v6 agent. Run agents-communication db protocol for the complete contract.
 
 Usage: python sqlite_agent.py DATABASE WORKSPACE OPERATION JSON
 Requires SQLite >=3.51.3. Initialize the store once with the package CLI.
@@ -17,8 +17,8 @@ import unicodedata
 from pathlib import Path
 
 APPLICATION_ID = 1329678147
-SCHEMA_VERSION = 2
-SCHEMA_SHA256 = 'b1bb2c7d0af6840002a2cd5c6a92e930815672f2de3878b7157f6fe84b390e05'
+SCHEMA_VERSION = 6
+SCHEMA_SHA256 = '25ea31fe4a10046cc11bd6c8785891fcb00f2e237b951d436d6246949052a73f'
 
 
 def now():
@@ -28,6 +28,13 @@ def now():
 def text(value, maximum=256):
     if not isinstance(value, str) or not value.strip() or len(value.encode('utf-16-le')) // 2 > maximum:
         raise ValueError('Invalid text')
+    return value
+
+
+def reasoning(data):
+    value = text(data.get('reasoning'), 512)
+    if len(value.encode('utf-8')) > 512:
+        raise ValueError('reasoning exceeds 512 UTF-8 bytes')
     return value
 
 
@@ -113,6 +120,7 @@ def main(database, workspace, operation, data):
             db.execute('UPDATE sessions SET expiresAt=? WHERE id=?', (stamp, session))
             result = {'left': True}
         elif operation == 'lock':
+            intent = reasoning(data)
             raw = str(Path(workspace) / text(data['path'], 4096))
             lease_parts(raw)
             path = os.path.realpath(raw, strict=os.path.ALLOW_MISSING)
@@ -128,8 +136,8 @@ def main(database, workspace, operation, data):
             if conflict:
                 result = {'ok': False, 'conflict': conflict}
             else:
-                row = db.execute('INSERT INTO leases(workspace,path,kind,owner,expiresAt) VALUES(?,?,?,?,?)', (workspace, path, kind, session, expiry))
-                result = {'ok': True, 'lease': {'id': row.lastrowid, 'path': path, 'kind': kind, 'owner': session, 'expiresAt': expiry}}
+                row = db.execute('INSERT INTO leases(workspace,path,kind,owner,expiresAt,reasoning) VALUES(?,?,?,?,?,?)', (workspace, path, kind, session, expiry, intent))
+                result = {'ok': True, 'lease': {'id': row.lastrowid, 'path': path, 'kind': kind, 'owner': session, 'expiresAt': expiry, 'reasoning': intent}}
         elif operation in ('renew', 'unlock'):
             if operation == 'renew':
                 cursor = db.execute('UPDATE leases SET expiresAt=? WHERE id=? AND owner=? AND expiresAt>?', (stamp + ttl(data.get('ttlMs'), 60000), data['lease'], session, stamp))
@@ -137,14 +145,40 @@ def main(database, workspace, operation, data):
                 cursor = db.execute('DELETE FROM leases WHERE id=? AND owner=? AND expiresAt>?', (data['lease'], session, stamp))
             result = {('renewed' if operation == 'renew' else 'released'): cursor.rowcount == 1}
         elif operation in ('send_message', 'notify_all'):
+            intent = reasoning(data)
             broadcast = operation == 'notify_all'
+            ack_reply = data.get('ackReply', False)
+            if type(ack_reply) is not bool or (broadcast and 'ackReply' in data) or (ack_reply and ('topic' in data or 'replyTo' not in data)):
+                raise ValueError('ackReply requires a direct replyTo to an incoming message')
+            wake = data.get('wake', 'passive' if broadcast else 'action')
+            if wake not in ('action', 'passive'): raise ValueError('Invalid wake intent')
             if 'topic' in data or (broadcast and 'to' in data):
                 raise ValueError('Use a direct target for send_message, or no target for notify_all')
-            target, body, key = ('*' if broadcast else text(data['to'])), text(data['body'], 16384), text(data.get('key', str(uuid.uuid4())))
+            target = '*' if broadcast else (text(data['to']) if 'to' in data else None)
+            body, key = text(data['body'], 16384), text(data.get('key', str(uuid.uuid4())))
             expiry = stamp + ttl(data.get('ttlMs'), 3600000)
+            conversation, reply = data.get('conversationId'), data.get('replyTo')
+            if 'conversationId' in data and (not isinstance(conversation, str) or not re.fullmatch(r'[A-Za-z0-9._:-]{1,128}', conversation)):
+                raise ValueError('Invalid conversationId')
+            if 'replyTo' in data:
+                if type(reply) is not int or not 1 <= reply <= 9007199254740991:
+                    raise ValueError('Invalid replyTo')
+                parent = db.execute('SELECT m.conversationId,m.sender FROM messages m JOIN sessions s ON s.id=m.sender WHERE m.id=? AND s.workspace=? AND (m.sender=? OR EXISTS(SELECT 1 FROM deliveries d WHERE d.message=m.id AND d.recipient=?))', (reply, workspace, session, session)).fetchone()
+                if parent is None:
+                    raise ValueError('Reply requires a visible parent in this workspace')
+                if 'conversationId' in data and conversation != parent['conversationId']:
+                    raise ValueError('Reply conversationId must match its parent')
+                conversation = parent['conversationId']
+                if target is None:
+                    target = parent['sender']
+            if target is None:
+                raise ValueError('Supply to or replyTo for a direct message')
+            if ack_reply and (target != parent['sender'] or not db.execute(
+                    'SELECT 1 FROM deliveries WHERE message=? AND recipient=?', (reply, session)).fetchone()):
+                raise ValueError('ackReply requires replying to the sender of a message received by this session')
             previous = db.execute('SELECT * FROM messages WHERE sender=? AND key=?', (session, key)).fetchone()
             if previous:
-                if previous['target'] != target or previous['body'] != body or previous['topic'] is not None:
+                if previous['target'] != target or previous['body'] != body or previous['topic'] is not None or previous['reasoning'] != intent or previous['wake'] != wake or previous['conversationId'] != conversation or previous['replyTo'] != reply:
                     raise ValueError('Message key reused with different content')
                 count = db.execute('SELECT count(*) FROM deliveries WHERE message=?', (previous['id'],)).fetchone()[0]
                 result = {'id': previous['id'], 'recipients': count}
@@ -155,11 +189,14 @@ def main(database, workspace, operation, data):
                     if not db.execute('SELECT 1 FROM sessions WHERE id=? AND workspace=?', (target, workspace)).fetchone():
                         raise ValueError('Unknown recipient in this workspace')
                     recipients = [target]
-                message = db.execute('INSERT INTO messages(sender,target,topic,body,key,expiresAt) VALUES(?,?,NULL,?,?,?)', (session, target, body, key, expiry)).lastrowid
+                message = db.execute('INSERT INTO messages(sender,target,topic,body,key,expiresAt,reasoning,wake,conversationId,replyTo) VALUES(?,?,NULL,?,?,?,?,?,?,?)', (session, target, body, key, expiry, intent, wake, conversation, reply)).lastrowid
                 db.executemany('INSERT INTO deliveries(message,recipient) VALUES(?,?)', [(message, recipient) for recipient in recipients])
                 result = {'id': message, 'recipients': len(recipients)}
+            if ack_reply:
+                db.execute('UPDATE deliveries SET acknowledgedAt=? WHERE message=? AND recipient=? AND acknowledgedAt IS NULL', (stamp, reply, session))
+                result['acknowledged'] = True
         elif operation == 'inbox':
-            rows = [dict(row) for row in db.execute('SELECT m.id,m.sender,m.body,m.topic,m.expiresAt FROM messages m JOIN deliveries d ON d.message=m.id WHERE d.recipient=? AND d.acknowledgedAt IS NULL AND m.expiresAt>? AND m.id>? ORDER BY m.id LIMIT 101', (session, stamp, data.get('after', 0)))]
+            rows = [dict(row) for row in db.execute('SELECT m.id,m.sender,m.body,m.reasoning,m.topic,m.expiresAt,m.wake,m.conversationId,m.replyTo FROM messages m JOIN deliveries d ON d.message=m.id WHERE d.recipient=? AND d.acknowledgedAt IS NULL AND m.expiresAt>? AND m.id>? ORDER BY m.id LIMIT 101', (session, stamp, data.get('after', 0)))]
             result = page(rows)
         elif operation == 'ack':
             row = db.execute('UPDATE deliveries SET acknowledgedAt=coalesce(acknowledgedAt,?) WHERE message=? AND recipient=?', (stamp, data['message'], session))

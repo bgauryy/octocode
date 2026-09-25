@@ -48,8 +48,6 @@ function renderPlanContinuation(details: CompactionCheckpointDetails): string[] 
     `Displayed revision: ${mdValue(review.revision)}`,
     `Accepted revision: ${mdValue(review.acceptedRevision)}`,
     `Coordination: ${coordination.mode}`,
-    `Awareness plan: ${mdValue(coordination.awarenessPlanId)}`,
-    `Materialized revision: ${mdValue(coordination.materializedRevision)}`,
     '',
   ];
   if (review.decisions.length > 0) {
@@ -71,7 +69,6 @@ function renderPlanContinuation(details: CompactionCheckpointDetails): string[] 
     if (step.reasoning) lines.push(`  - Reasoning: ${step.reasoning}`);
     if (step.acceptance) lines.push(`  - Acceptance: ${step.acceptance}`);
     if (step.checkCommand) lines.push(`  - Check: \`${step.checkCommand}\``);
-    if (step.awarenessTaskId) lines.push(`  - Awareness task: ${step.awarenessTaskId}`);
   }
   lines.push('');
   return lines;

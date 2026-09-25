@@ -12,11 +12,9 @@ Start with a Surface Plan: local, GitHub, packages, PR/history, web, and reasons
 | Investigate | structure → symptom/symbol search → exact boundary reads → graph for file topology + LSP/AST for identity/shape → history/tests; keep two hypotheses |
 | Plan | current contract/invariants → graph/LSP affected scope → boundary checks → local pattern → options/safest next step |
 
-## Semantic checkpoint
+## Classification capability
 
-Place the optional `clasify` checkpoint after paths, metadata, snippets, and direct reasoning have produced ambiguous unread candidates, and before a substantial read that screening could change. Ask one concrete relevance question for the research direction; a partial fact, constraint, counterexample, doc, test, or caller can be useful even when it is not a complete answer or implementer. Keep exact metadata, known deciding spans, counts, symbol identity, required proof, and completeness-sensitive absence checks on the direct path. Candidate count or size alone does not trigger a call.
-
-Retain candidates whose result is relevant, insufficient, partial, or otherwise uncertain, then inspect the smallest complete meaning-preserving source section or run the deciding test. A confident exclusion applies only to the returned scope; no universal score cutoff proves irrelevance. Put several questions over the same resources only when each changes an action; use root `queries[]` only for independent matrices. Shared capture and inference may reduce provider input, but verification remains separate.
+`octocode-clasify` owns the decision gate and question design. Ordinary Map/Validate/Investigate/Plan work searches and reads directly. Use classification examples only for a request or experiment admitted by that skill; ambiguity alone does not authorize a call.
 
 For package comparisons, gather decision-relevant version, maintenance, license, and integration evidence when available. Popularity and activity alone do not establish suitability. Apply the authorization rule in `SKILL.md`.
 

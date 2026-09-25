@@ -12,7 +12,7 @@ import {
   getPlanRfc, setPlanRfc, readPersistedRfcForTests,
   getPlanDecisions, addPlanDecision, setPlanDecisions, readPersistedDecisionsForTests,
   getPlanLifecycle, setPlanLifecycle, finishPlanVerification, getPlanReviewState, readPersistedLifecycleForTests,
-  currentRfcRevision, setPlanAwarenessMappings, getPlanCoordination,
+  currentRfcRevision,
 } from '../src/tools/planning/plan-store.js';
 import { addStep, startStep, completeStep, activatePlan } from '../src/tools/planning/plan-executor.js';
 import { depsMet, displayStatus, type PlanDecision, type PlanStep } from '../src/tools/planning/plan-types.js';
@@ -130,15 +130,13 @@ test('fork recovery demotes executing work and clears inherited Awareness owners
       acceptedRevision: 'abc',
       acceptAuthorizationReceiptId: 'consumed-parent-accept',
       startAuthorizationReceiptId: 'consumed-parent-start',
-      coordination: { mode: 'required', sourcePlanKey: 'parent', awarenessPlanId: 'plan-parent', coordinationWorkspace: cwd },
-      steps: [{ id: 'step-a', text: 'Implement', status: 'doing', awarenessTaskId: 'task-parent' }],
+      coordination: { mode: 'required', sourcePlanKey: 'parent', coordinationWorkspace: cwd },
+      steps: [{ id: 'step-a', text: 'Implement', status: 'doing' }],
     },
   }], { fork: true });
   assert.equal(adopted, true);
   assert.equal(getPlanLifecycle(cwd), 'accepted');
   assert.equal(getPlan(cwd)[0]?.status, 'todo');
-  assert.equal(getPlan(cwd)[0]?.awarenessTaskId, undefined);
-  assert.equal(getPlanCoordination(cwd).awarenessPlanId, undefined);
   assert.equal(getPlanReviewState(cwd).startAuthorizationReceiptId, undefined, 'a fork cannot inherit consumed Start authority');
   assert.equal(getPlanReviewState(cwd).acceptAuthorizationReceiptId, undefined, 'a fork cannot inherit consumed Accept authority');
   clearPlan(cwd);
@@ -434,7 +432,7 @@ test('addendum shows markers and a next-step line', () => {
   assert.match(out, /<\/active_plan>$/);
 });
 
-test('addendum is a complete drift projection for RFC, decisions, task contracts, and Awareness mappings', () => {
+test('addendum is a complete drift projection for RFC, decisions, task contracts', () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-plan-context-'));
   const rfcDir = path.join(workspace, '.octocode', 'rfc', 'context');
   fs.mkdirSync(rfcDir, { recursive: true });
@@ -449,11 +447,7 @@ test('addendum is a complete drift projection for RFC, decisions, task contracts
   }], 'draft');
   setPlanRfc(workspace, rfcPath);
   setPlanDecisions(workspace, [{ q: 'Context source?', a: 'Canonical projection' }]);
-  setPlanAwarenessMappings(workspace, {
-    awarenessPlanId: 'plan-aware',
-    taskIdsByStepId: { [getPlan(workspace)[0]!.id]: 'task-aware' },
-    materializedRevision: 'materialized-v1',
-  });
+
 
   const out = renderActivePlanAddendum(workspace);
   assert.match(out, /phase=draft/);
@@ -462,8 +456,6 @@ test('addendum is a complete drift projection for RFC, decisions, task contracts
   assert.match(out, /paths=src\/context\.ts/);
   assert.match(out, /accept=Metadata-only updates reach the model/);
   assert.match(out, /check=yarn test context/);
-  assert.match(out, /awareness-plan=plan-aware/);
-  assert.match(out, /awareness-task=task-aware/);
   clearPlan(workspace);
 });
 
@@ -1502,7 +1494,6 @@ test('unified orchestration fixtures encode retry, fork, and worker terminal con
 
   assert.equal(FORKED_SESSION_FIXTURE.parent.lifecycle, 'executing');
   assert.equal(FORKED_SESSION_FIXTURE.fork.lifecycle, 'accepted');
-  assert.equal(FORKED_SESSION_FIXTURE.fork.awarenessPlanId, undefined);
   assert.equal(FORKED_SESSION_FIXTURE.fork.requiresExplicitStart, true);
 
   const done = TASK_LINKED_WORKER_TERMINAL_FIXTURES.find((entry) => entry.terminal === 'done');

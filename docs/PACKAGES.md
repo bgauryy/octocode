@@ -1,6 +1,6 @@
 # Octocode package overview
 
-Ten workspace packages and one external contract package provide the Octocode research and agent-integration stack.
+Workspace packages and one external contract package provide the Octocode research and agent-integration stack.
 
 ## Runtime flow
 
@@ -45,7 +45,7 @@ VS Code extension for GitHub OAuth, token synchronization, and MCP installation 
 
 ### [`packages/octocode-pi-extension`](../packages/octocode-pi-extension) — `@octocodeai/pi-extension`
 
-Pi integration, native workspace tools, Awareness assets, prompts, capability contracts, dynamic tools, and harness hooks.
+Pi integration, native workspace tools, host state, prompts, capability contracts, dynamic tools, and harness hooks.
 
 ## Support packages
 
@@ -53,9 +53,9 @@ Pi integration, native workspace tools, Awareness assets, prompts, capability co
 
 Private shared implementation for durable canonical skill copies, platform links or copies, upgrades, conflict policy, and atomic replacement. Calling CLIs own argument parsing and presentation.
 
-### [`packages/octocode-awareness`](../packages/octocode-awareness) — `@octocodeai/octocode-awareness`
+### [`packages/octocode-agents-communication`](../packages/octocode-agents-communication) — `@octocodeai/octocode-agents-communication`
 
-SQLite-backed coordination runtime for plans, work state, locks, messages, memory, reflection, verification, and host hooks.
+Private Rust CLI and communication skill for shared session identity, path leases, messages, delivery, and handoff documents.
 
 ### [`packages/octocode-extension-rust`](../packages/octocode-extension-rust) — `@octocodeai/octocode-extension-rust`
 
@@ -73,4 +73,3 @@ Private evaluation workspace for controlled comparisons, VRPT scoring, routing r
 - Public contracts come from `@octocodeai/octocode-core`.
 - Configuration comes from `@octocodeai/config`.
 - Skill filesystem behavior comes from `@octocodeai/octocode-skill-installer`.
-- Awareness host API changes require Awareness to be built before the Pi extension.

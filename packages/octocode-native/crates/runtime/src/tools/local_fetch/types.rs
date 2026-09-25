@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-pub use crate::contracts::tool_types::{ChunkType, LocalFetchQuery, Minify};
+pub use crate::contracts::tool_types::{ChunkType, LocalFetchQuery, MinifyMode};
 
 /// The engine works in `usize`; the wire contract (generated from the core
 /// Zod schema) owns the field set and its JSON integer types.
@@ -31,8 +31,8 @@ impl LocalFetchQuery {
     pub fn path(&self) -> &str {
         self.path.as_str()
     }
-    pub fn minify_mode(&self) -> Minify {
-        self.minify.unwrap_or(Minify::None)
+    pub fn minify_mode(&self) -> MinifyMode {
+        self.minify.unwrap_or(MinifyMode::None)
     }
 }
 
@@ -94,8 +94,8 @@ pub struct NextCalls {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MinifyFallback {
-    pub requested: Minify,
-    pub applied: Minify,
+    pub requested: MinifyMode,
+    pub applied: MinifyMode,
     pub reason: String,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -126,7 +126,7 @@ pub struct LocalFetchResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub content_view: Option<Minify>,
+    pub content_view: Option<MinifyMode>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub minify_fallback: Option<MinifyFallback>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -325,7 +325,7 @@ impl Serialize for LocalFetchResult {
         }
         opt!("content", self.content);
         // `none` is the default view; only a transformed view is news.
-        if let Some(view) = self.content_view.filter(|view| *view != Minify::None) {
+        if let Some(view) = self.content_view.filter(|view| *view != MinifyMode::None) {
             map.serialize_entry("contentView", &view)?;
         }
         opt!("minifyFallback", self.minify_fallback);

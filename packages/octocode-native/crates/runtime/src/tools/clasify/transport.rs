@@ -26,6 +26,15 @@ const MAX_RETRY_AFTER: Duration = Duration::from_secs(24 * 60 * 60);
 /// Runtimes whose clients stay cached; older entries are evicted.
 const MAX_CACHED_CLIENTS: usize = 8;
 
+fn is_loopback_endpoint(endpoint: &Url) -> bool {
+    match endpoint.host() {
+        Some(url::Host::Domain(host)) => host.eq_ignore_ascii_case("localhost"),
+        Some(url::Host::Ipv4(address)) => address.is_loopback(),
+        Some(url::Host::Ipv6(address)) => address.is_loopback(),
+        None => false,
+    }
+}
+
 /// One pooled client per Tokio runtime, shared by every classification
 /// request on that runtime (all threads, all tool calls).
 ///
@@ -38,18 +47,22 @@ const MAX_CACHED_CLIENTS: usize = 8;
 /// did not: clasify fans out on fresh scoped threads, so every call got a
 /// cold pool) while never sharing connections across runtimes. The cache is
 /// small and LRU-evicted, so short-lived runtimes cannot grow it unbounded.
-fn shared_client() -> Result<reqwest::Client, ClassificationError> {
-    static CLIENTS: OnceLock<Mutex<Vec<(tokio::runtime::Id, reqwest::Client)>>> = OnceLock::new();
+fn shared_client(endpoint: &Url) -> Result<reqwest::Client, ClassificationError> {
+    static CLIENTS: OnceLock<Mutex<Vec<(tokio::runtime::Id, bool, reqwest::Client)>>> =
+        OnceLock::new();
+    // A loopback provider is local to this machine. Avoid macOS system-proxy
+    // discovery for it; remote providers still honor the user's proxy setup.
+    let bypass_proxy = is_loopback_endpoint(endpoint);
     let build = || {
         let builder = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(CONNECT_TIMEOUT)
             .user_agent(concat!("octocode-native/", env!("CARGO_PKG_VERSION")));
-        #[cfg(test)]
-        // Unit transports use loopback fixtures, never the host's proxy/PAC.
-        // System-proxy discovery can otherwise consume the request deadline
-        // before any fixture request is sent.
-        let builder = builder.no_proxy();
+        let builder = if bypass_proxy {
+            builder.no_proxy()
+        } else {
+            builder
+        };
         builder.build().map_err(|_| transport_error())
     };
     let Ok(runtime) = tokio::runtime::Handle::try_current() else {
@@ -60,9 +73,12 @@ fn shared_client() -> Result<reqwest::Client, ClassificationError> {
         .get_or_init(Mutex::default)
         .lock()
         .unwrap_or_else(PoisonError::into_inner);
-    if let Some(index) = clients.iter().position(|(cached, _)| *cached == id) {
+    if let Some(index) = clients
+        .iter()
+        .position(|(cached, bypass, _)| *cached == id && *bypass == bypass_proxy)
+    {
         let entry = clients.remove(index);
-        let client = entry.1.clone();
+        let client = entry.2.clone();
         clients.push(entry);
         return Ok(client);
     }
@@ -70,7 +86,7 @@ fn shared_client() -> Result<reqwest::Client, ClassificationError> {
     if clients.len() >= MAX_CACHED_CLIENTS {
         clients.remove(0);
     }
-    clients.push((id, client.clone()));
+    clients.push((id, bypass_proxy, client.clone()));
     Ok(client)
 }
 
@@ -545,69 +561,6 @@ async fn attempt(
     }))
 }
 
-/// POST one classification request through the process-wide provider gate.
-///
-/// Retries (up to `retries`) HTTP 408/429/500/502/503/504/529 and
-/// connect/reset/timeout transport failures with the provider's
-/// `Retry-After` (seconds, HTTP-date, or `retry-after-ms`) or full-jitter
-/// backoff. The gate permit is released before every backoff sleep. When the
-/// next delay cannot fit the remaining deadline a throttled request fails as
-/// `classificationRateLimited` carrying `retry_after`, not as `timeout`.
-/// Patterns that trip the provider's edge firewall (an HTML 403 before the
-/// model sees the request) and their zero-width-broken forms. Security code and
-/// config routinely contain them; the model reads the broken form the same way.
-const FIREWALL_TRIGGERS: [(&str, &str); 8] = [
-    ("/etc/", "/e\u{200b}tc/"),
-    ("../", ".\u{200b}./"),
-    ("..\\", ".\u{200b}.\\"),
-    ("<script", "<scr\u{200b}ipt"),
-    ("javascript:", "java\u{200b}script:"),
-    ("/bin/sh", "/b\u{200b}in/sh"),
-    ("union select", "union\u{200b} select"),
-    ("UNION SELECT", "UNION\u{200b} SELECT"),
-];
-
-/// Copy of `request` with every firewall trigger broken in string leaves.
-pub(crate) fn defang(request: &Value) -> Value {
-    match request {
-        Value::String(text) => Value::String(
-            FIREWALL_TRIGGERS
-                .iter()
-                .fold(text.clone(), |text, (from, to)| text.replace(from, to)),
-        ),
-        Value::Array(items) => Value::Array(items.iter().map(defang).collect()),
-        Value::Object(fields) => Value::Object(
-            fields
-                .iter()
-                .map(|(key, value)| (key.clone(), defang(value)))
-                .collect(),
-        ),
-        other => other.clone(),
-    }
-}
-
-/// Send once; if the provider's edge firewall blocks the content, retry one
-/// time with triggers defanged. Ordinary content is never altered.
-pub(crate) async fn post(
-    request: &Value,
-    key: &SecretString,
-    endpoint: Url,
-    budget: &RequestBudget,
-    retries: u32,
-    gate: &GateLease,
-) -> Result<Value, ClassificationError> {
-    match post_once(request, key, endpoint.clone(), budget, retries, gate).await {
-        Err(error) if error.code == CONTENT_BLOCKED => {
-            let defanged = defang(request);
-            if defanged == *request {
-                return Err(error);
-            }
-            post_once(&defanged, key, endpoint, budget, retries, gate).await
-        }
-        result => result,
-    }
-}
-
 const CONTENT_BLOCKED: &str = "classificationContentBlocked";
 
 fn content_blocked() -> ClassificationError {
@@ -618,7 +571,11 @@ fn content_blocked() -> ClassificationError {
     )
 }
 
-async fn post_once(
+/// POST the supplied request unchanged through the process-wide provider gate.
+/// Retry transient HTTP/transport failures within the deadline, preserving the
+/// payload. Content rejection is terminal: rewriting evidence or instructions
+/// would classify a different request without the caller's knowledge.
+pub(crate) async fn post(
     request: &Value,
     key: &SecretString,
     endpoint: Url,
@@ -626,7 +583,7 @@ async fn post_once(
     retries: u32,
     gate: &GateLease,
 ) -> Result<Value, ClassificationError> {
-    let client = shared_client()?;
+    let client = shared_client(&endpoint)?;
     let mut attempt_index = 0;
     loop {
         check_budget(budget)?;
@@ -682,6 +639,31 @@ mod tests {
     use serde_json::json;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn loopback_proxy_policy_handles_domain_ipv4_and_ipv6() {
+        for endpoint in [
+            "http://localhost:1234/v1/systemone",
+            "http://LOCALHOST:1234/v1/systemone",
+            "http://127.0.0.2:1234/v1/systemone",
+            "http://[::1]:1234/v1/systemone",
+        ] {
+            assert!(
+                is_loopback_endpoint(&Url::parse(endpoint).unwrap()),
+                "{endpoint}"
+            );
+        }
+        for endpoint in [
+            "https://api.jev.ai/v1/systemone",
+            "http://192.0.2.1:1234/v1/systemone",
+            "http://[2001:db8::1]:1234/v1/systemone",
+        ] {
+            assert!(
+                !is_loopback_endpoint(&Url::parse(endpoint).unwrap()),
+                "{endpoint}"
+            );
+        }
+    }
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use wiremock::{Mock, MockServer, ResponseTemplate, matchers::method};
 
@@ -720,68 +702,37 @@ mod tests {
         .await
     }
 
-    #[test]
-    fn defang_breaks_only_firewall_triggers() {
-        let request = json!({"state":{"content":"reads /etc/passwd and ../x; ok"},"n":1});
-        let defanged = defang(&request);
-        let text = defanged["state"]["content"].as_str().unwrap();
-        assert!(!text.contains("/etc/passwd") && !text.contains("../"));
-        assert!(text.ends_with("; ok"));
-        assert_eq!(defanged["n"], 1);
-        let plain = json!({"state":"nothing risky"});
-        assert_eq!(defang(&plain), plain);
-    }
-
     #[tokio::test]
-    async fn firewall_block_is_named_and_retried_once_defanged() {
+    async fn firewall_block_preserves_request_and_is_not_retried() {
         let server = MockServer::start().await;
+        let request = json!({
+            "state": {"content": "path is /etc/passwd and ../x"},
+            "questions": {"q": {"instructions": "Does this read /etc/passwd?"}}
+        });
         Mock::given(method("POST"))
-            .and(wiremock::matchers::body_string_contains("/etc/passwd"))
+            .and(wiremock::matchers::body_json(request.clone()))
             .respond_with(
                 ResponseTemplate::new(403)
                     .set_body_raw("<!DOCTYPE html><html>blocked</html>", "text/html"),
             )
-            .with_priority(1)
             .expect(1)
             .mount(&server)
             .await;
-        Mock::given(method("POST"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"ok":true})))
-            .with_priority(2)
-            .expect(1)
-            .mount(&server)
-            .await;
-        let result = post(
-            &json!({"state":{"content":"path is /etc/passwd"}}),
+        let error = post(
+            &request,
             &SecretString::from("test-key".to_owned()),
             endpoint(&server.uri(), "v1/systemone").unwrap(),
             &test_budget(Duration::from_secs(10)),
-            0,
-            &fresh_gate(4),
-        )
-        .await
-        .expect("defanged retry succeeds");
-        assert_eq!(result, json!({"ok":true}));
-
-        let blocked_again = MockServer::start().await;
-        Mock::given(method("POST"))
-            .respond_with(
-                ResponseTemplate::new(403).set_body_raw("<html>blocked</html>", "text/html"),
-            )
-            .mount(&blocked_again)
-            .await;
-        let error = post(
-            &json!({"state":"benign"}),
-            &SecretString::from("test-key".to_owned()),
-            endpoint(&blocked_again.uri(), "v1/systemone").unwrap(),
-            &test_budget(Duration::from_secs(10)),
-            0,
+            3,
             &fresh_gate(4),
         )
         .await
         .unwrap_err();
         assert_eq!(error.code, "classificationContentBlocked");
         assert!(!error.hints[0].contains("OCTOCODE_CLASSIFICATION_API"));
+        let received = server.received_requests().await.unwrap();
+        assert_eq!(received.len(), 1);
+        assert_eq!(received[0].body_json::<Value>().unwrap(), request);
     }
 
     #[tokio::test]

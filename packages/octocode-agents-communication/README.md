@@ -1,251 +1,215 @@
 # Octocode agents communication
 
-`@octocodeai/octocode-agents-communication` is a Rust agentic CLI distributed inside
-its [communication skill](skills/octocode-agents-communication/SKILL.md). Agents use
-the skill's launcher; the built skill contains the executable and SQLite. Node, npm,
-Cargo, and a separate CLI installation are unnecessary for coordination. Managed
-workers use their vendor CLI and its runtime (Pi requires Node).
+Give agents from different vendors a shared way to discover teammates, coordinate edits, and hand off work.
 
-It coordinates session identity, advisory path leases, direct messages, and exact
-topic subscriptions. `notify_all` broadcasts to all other active peers in the same
-workspace without subscriptions. SQLite v2 stores every participating identity,
-message, delivery and audit event. Existing v1 stores require explicit `db migrate`
-after stopping workers. Awareness stays independent and unchanged.
+`@octocodeai/octocode-agents-communication` combines a [38-line skill](skills/octocode-agents-communication/SKILL.md) with a bundled Rust CLI and a local SQLite database. The skill teaches agents **when and why to coordinate**. The CLI handles identities, messages, path reservations, delivery, and audit history.
 
-## Use the skill
+Use Claude Code, Codex, Grok Build, Pi, OpenCode, Cursor, or another agent in the same workspace. Message routing requires **no proxy agent or extra model call**. Recipient work still uses its own model and context.
 
-Install or copy the **built** `skills/octocode-agents-communication/` folder. From any
-project, invoke the launcher using its installed absolute path:
+[Read the skill](skills/octocode-agents-communication/SKILL.md) · [Features](#features) · [Connect agents](#get-started) · [Supported hosts](#supported-hosts) · [Readiness and evidence](docs/PRODUCTION_READINESS.md)
 
-```sh
-/absolute/skill/scripts/agents-communication --help
-/absolute/skill/scripts/agents-communication send_message --help
-/absolute/skill/scripts/agents-communication db info
-/absolute/skill/scripts/agents-communication schema entities
-/absolute/skill/scripts/agents-communication join \
-  '{"name":"reviewer","vendor":"other"}' --workspace /absolute/project
+## Why use the skill?
+
+Use this skill when several agents work in the same repository and need to coordinate, even when they come from different vendors. It gives them shared identities, messages, file reservations, and a record of what happened.
+
+The CLI supplies the capabilities. **The skill teaches agents when to use them:** discover peers before planning, explain intent, reserve paths before editing, avoid reply loops, acknowledge completed work, and share documents instead of repeating history.
+
+Routing, storage, broadcasts, and locks require no extra model calls. Recipient work still uses its own model. The skill helps cooperating agents share a workspace; a single isolated agent gains less. It guides coordination without automatically assigning the team's tasks.
+
+## Features
+
+| Feature | What agents can do | Why it helps |
+| --- | --- | --- |
+| Identity and presence | Register a name, vendor, and session; heartbeat, resume, or leave | Identify active collaborators and distinguish separate sessions |
+| Peer discovery | Find active agents in the workspace | Check for overlapping work before starting |
+| Direct messages | Send questions, answers, requests, and handoffs | Collaborate across vendors |
+| Topics and broadcasts | Subscribe to topics or notify all other active workspace peers | Coordinate shared changes without contacting everyone individually |
+| Intent | Include required `reasoning` with messages and reservations | Explain why an action matters |
+| Conversation tracking | Reply to message IDs and group related messages | Connect requests with their answers |
+| Acknowledgements | ACK up to 100 handled IDs atomically; combine a final direct reply and ACK | Distinguish delivery from completion with fewer tool calls |
+| Duplicate control | Use stable message keys and inspect uncertain deliveries before retrying | Reduce repeated messages and context |
+| File and directory reservations | Reserve files, trees, or multiple paths atomically | Coordinate edits, new files, renames, and deletions |
+| Conflict handling | Ask the owner, release held reservations, and continue independent work | Reduce agents blocking each other |
+| Expiry and recovery | Renew leases; let abandoned reservations expire | Recover when an agent crashes or closes |
+| Optional edit guards | Check ownership before supported Claude, Pi, and OpenCode edits | Block some accidental unreserved writes |
+| Shared documents | Publish immutable documents and read selected portions | Share large context without repeatedly pasting it |
+| Recent activity | Inspect bounded file/Git activity with time and path filters | Understand recent repository changes; this is not a shell-command log |
+| Native delivery | Deliver into existing supported vendor sessions | Avoid creating a proxy agent for routing |
+| No-API operation | Communicate through context hooks, manual CLI reads, or compatible SQLite clients | Include agents without messaging SDKs |
+| Context control | Load `skill --vendor <host>` once, expose needed tools, and batch ready messages | Derived instructions are 15–21% smaller in bytes; receiver history still consumes context |
+| Bounded completion recovery | Optionally check Claude's submitted pending IDs at Stop; retrieve only missing bodies | Recover overlooked work without replaying the inbox or creating a second delivery owner |
+| Audit and usage | Inspect messages, delivery attempts, acknowledgements, and reported usage | Diagnose problems and inspect available usage; missing counters remain unknown |
+| Health and storage | Inspect stalled deliveries, export snapshots, migrate storage, and compact the DB | Operate and recover the service |
+| Optional managed workers | Start explicitly requested Claude, Codex, or Pi workers through `run` | Give new workers the skill and bound tools |
+
+Message and broadcast recipients are snapshots: late joiners do not receive earlier fanout automatically. Delivery receipts and acknowledgements have different meanings, and ambiguous external delivery does not promise exactly-once effects. See the [service protocol](docs/SERVICE_PROTOCOL.md) for those boundaries.
+
+The [six-agent recovery test](docs/CONTEXT_PROFILES.md) passed all 30 questions, 30 replies and six broadcast recipients with no pending messages. It follows two preserved failed trials that exposed handling and identity-recovery gaps. CLI replay proves smaller delivery overhead. All eight [matched context trials](docs/CONTEXT_PROFILES.md#result-narrower-context-cost-target-missed) completed, but **the token-reduction and latency targets failed**. Scoped instructions remain an explicit option; managed workers keep the full skill.
+
+## What a team can accomplish
+
+For example, assign an API change across your agents:
+
+1. **Claude** reserves the API files and implements the change.
+2. **Codex** discovers Claude, asks about the new interface, and updates callers. If it needs a reserved file, it asks for a handoff and continues independent work while waiting.
+3. **Pi** reads the shared design document and writes tests.
+4. **Grok** reviews the results and sends findings in the same conversation.
+5. **OpenCode, Cursor, or a generic agent** handles documentation through its available integration.
+
+Each agent explains intent, reserves paths before writing, and acknowledges handled messages. Large handoffs use documents in `.octocode/communication/`. You choose the jobs and permissions; the skill provides the shared working routine.
+
+Reservations remain advisory outside supported edit guards. Agents without an API or suitable hook read messages while already running. The [host matrix](#supported-hosts) distinguishes native integration, fallback, and validation coverage.
+
+## The layers
+
+| Layer | Responsibility | Required for every agent? |
+| --- | --- | --- |
+| Skill | When to discover peers, ask, reserve paths, reply, and hand off | Read once; no vendor SDK needed |
+| Interface | Bundled CLI or bound tools; conforming SQL clients can access the DB directly | Choose an interface the host can use |
+| Rust runtime | Validate intent and identity; manage leases, messages, deduplication, and acknowledgements | Used by CLI/tools; SQL clients follow the same protocol |
+| Local database and documents | Keep identities, messages, delivery state, and audit in SQLite; store shared documents in the workspace | All participants share the same DB and canonical workspace |
+| Delivery adapter | Offer pending messages through a native API, a supported context hook, or a manual read | Select one delivery owner per identity |
+| Recipient host | Put messages into context, schedule work, and provide reply tools | The host controls execution and permissions |
+
+Native APIs change how context reaches an agent. They do not replace the shared database, leases, message protocol, or audit. Routing and storage require no model inference.
+
+The [unified adapter protocol](docs/SERVICE_PROTOCOL.md#unified-adapter-protocol)
+gives Claude, Codex, Grok and OpenCode one internal delivery lifecycle: prepare,
+offer once, observe a receipt, and finalize. It preserves each API's receipt
+strength. Pi and generic hooks use the same DB staging and acknowledgement rules
+through their host-owned bridge. Every route keeps one identity, one audit and
+one delivery owner.
+
+```mermaid
+flowchart LR
+    A[Agent using the skill] --> B[Rust CLI or bound tools]
+    B --> C[(Local SQLite and audit)]
+    C --> D[Delivery owner]
+    D --> E[Existing recipient via native API]
+    D --> F[Supported context hook or manual inbox]
+    E --> G[Recipient handles and acknowledges]
+    F --> G
+    G --> B
 ```
 
-Use `scripts/agents-communication.ps1` on Windows. The launcher chooses a bundled
-platform executable under `scripts/bin/<Rust target>/`. It does not download or build
-code on an agent's behalf. Source-only GitHub checkouts need the maintainer build;
-release skill bundles must include binaries for their advertised platforms. This
-package is private and unpublished. The built and tested artifact in this checkout
-is macOS ARM64; other target selectors are present but not validated here.
+Every participant shares one database and canonical workspace. Each has its own registered identity and one delivery owner. Vendor names describe agents; an explicit attachment selects their delivery mechanism. Separate Git worktrees have separate workspace identities.
 
-The CLI's help links to the skill's GitHub source, and `skill` returns its embedded
-instructions offline. The GitHub links resolve after the package is pushed. The npm
-name remains an optional distribution identity; using the skill requires no npm step.
-`SKILL.md` is the only instruction file (49 lines): it explains peer awareness,
-intent and reasons, reservations before edits/renames/deletions, and verified handoffs.
-Detailed contracts live in CLI help; `db protocol` returns the embedded SQLite
-protocol and DDL offline, without opening a database or requiring another document.
+The working routine is **discover → coordinate → reserve → verify → hand off**. Agents send short requests with stable message keys, reply to message IDs, and acknowledge completed handling. A final direct reply can store the reply and acknowledgement together with `ackReply:true`.
 
-## Coordinate
+Context stays focused: load the skill once, expose only the needed tools, and share large material through immutable documents in `.octocode/communication/`. Passive updates avoid requesting a new turn where the host supports that distinction. Agents do not need to poll in a model loop. An uncertain delivery requires inspection before retry, because blindly resending can repeat context.
 
-Every participant uses the same database and canonical workspace. The default is
-`<Octocode home>/agents-communication/v1.sqlite`; `--database` overrides it. `db info`
-reports the resolved location and compatibility without creating storage. Worktrees
-have separate workspace identities. Use a local filesystem.
+## Get started
 
-`--help` gives a compact workflow and command list. `<command> --help` or
-`schema <command>` gives just that command’s usage and input schema. Bare `schema`
-returns the complete catalog and DDL; `schema entity <name>` describes fields, filters,
-and allowed edits for sessions, leases, messages, deliveries, subscriptions,
-attachments, dispatch receipts and audit events.
+The package is **private and unpublished**. Copy or install a built `skills/octocode-agents-communication/` folder into your host's skill location and have the agent read its `SKILL.md` file. The folder includes the platform executable and SQLite; raw CLI use requires no Node, Cargo, SDK, or separate npm installation. Source checkouts need a [maintainer build](#build-and-validate).
+
+The locally validated bundle is macOS ARM64. Other platform selectors require their own built and validated binaries. Windows uses `scripts/agents-communication.ps1`.
+
+For a manual CLI participant, replace these absolute paths with your installed launcher, repository, and shared database:
 
 ```sh
-/absolute/skill/scripts/agents-communication entity get session SESSION_ID \
-  --session SESSION_ID --workspace /absolute/project
-/absolute/skill/scripts/agents-communication entity set subscriptions SESSION_ID \
-  '{"topics":["review"]}' --session SESSION_ID --workspace /absolute/project
-/absolute/skill/scripts/agents-communication send_message \
-  '{"to":"RECIPIENT_ID","body":"Review ready","key":"review-1"}' \
-  --session SESSION_ID --workspace /absolute/project
-/absolute/skill/scripts/agents-communication notify_all \
-  '{"body":"Review complete","key":"review-complete-1"}' \
-  --session SESSION_ID --workspace /absolute/project
-/absolute/skill/scripts/agents-communication lock '{"path":"src/api","kind":"tree"}' \
-  --session SESSION_ID --workspace /absolute/project
+COMMUNICATION_CLI=/absolute/skill/scripts/agents-communication
+COMMUNICATION_WORKSPACE=/absolute/project
+COMMUNICATION_DB=/absolute/shared/communication.sqlite
+comm() {
+  "$COMMUNICATION_CLI" "$@" --workspace "$COMMUNICATION_WORKSPACE" \
+    --database "$COMMUNICATION_DB"
+}
+comm join '{"name":"reviewer","vendor":"other"}'
 ```
 
-Manual sessions send `heartbeat` about every 15 seconds and `leave` when finished.
-Presence expires after 60 seconds. `resume` with the same vendor restores an expired
-identity and pending messages, discarding old leases. `inbox wait` polls for up to
-60 seconds; another process must maintain presence. Reads never acknowledge; use
-`ack` after processing. Pages target 256 KiB and at most 100 rows; continue through `next` using `after`.
-
-Leases require cooperative writers; they do not prevent arbitrary OS writes or SQL.
-Keep the acquisition ID, renew before expiry, and stop editing on failed renewal.
-Lease names use Unicode 16 canonical caseless comparison on every filesystem:
-case/normalization aliases conflict before creation, including on case-sensitive
-volumes. Stored and accessed paths retain their spelling. Resolve symlinks before
-parent traversal. This conservative rule keeps native and DB-only clients aligned
-without filesystem probes or placeholder files. Stop old workers and release or
-expire their leases before upgrading all participants to these rules.
-Messages remain in the audit store after expiry and use sender-scoped retry keys.
-Delivery eligibility expires; native/hook delivery never automatically replays an
-attempt after a crash. Inspect uncertain attempts before an explicit retry. Topic sends snapshot active subscribers. The [SQLite protocol](docs/DB.md)
-defines transactions and visibility; its Python example needs no vendor binaries (Python 3.14 / Unicode 16 for path leases).
-The former JavaScript client has been removed. Programmatic consumers can use the
-Rust `Store`, CLI JSON, or the SQLite protocol.
-
-## Deliver into existing agents
-
-No sender/proxy model is needed. Every sender and recipient first joins the same
-DB/workspace. Use that identity's `--session`, `--workspace` and optional `--database`
-on each command. All peer messages and replies use `send_message`/`notify_all` so
-routing and audit remain in our DB.
+Keep the returned `id` as `SESSION_ID`. Reuse an identity supplied by a managed host instead of registering it again. All participants must use the same database path.
 
 ```sh
-# Any vendor, including one without an SDK:
-/absolute/skill/scripts/agents-communication attach '{"transport":"raw"}' --session ID --workspace /project
-/absolute/skill/scripts/inbox-hook '{"format":"text"}' --session ID --workspace /project
-
-# Existing Claude receiver: explicitly supply its exported inbox and session ID.
-/absolute/skill/scripts/agents-communication attach \
-  '{"transport":"claude","endpoint":"/absolute/inbox.sock","vendorSession":"CLAUDE_SESSION"}' \
-  --session ID --workspace /project
-
-# Existing Codex thread: connect to the server that owns that loaded thread.
-/absolute/skill/scripts/agents-communication attach \
-  '{"transport":"codex","endpoint":"ws://127.0.0.1:4500","vendorSession":"CODEX_THREAD"}' \
-  --session ID --workspace /project
-/absolute/skill/scripts/agents-communication listen --session ID --workspace /project
-
-# Pi: native extension joins/logs identity, registers tools, polls and queues context.
-pi --extension /absolute/skill/scripts/pi-inbox.mjs
+comm attach '{"transport":"raw"}' --session SESSION_ID
+comm peers --session SESSION_ID
+comm hook '{"format":"json"}' --session SESSION_ID
 ```
 
-`listen` is a lightweight Rust process; `dispatch {}` performs one batch instead.
-Codex injection is passive until its host starts a turn. Claude may respond
-immediately according to inbound policy. Pi queues new context for its next turn
-without idle model calls. Its optional `OCTOCODE_COMMUNICATION_BINDING` JSON supplies
-`workspace`, `database`, `session` and/or `binary`; omitted identity is created
-with vendor `pi`. An existing binding must name a Pi identity and resumes if expired.
-Read the single skill once in the recipient; Pi loads tools but does not silently
-install skills or change host settings.
+Feed the hook's `context` into the agent as peer data. Keep presence with `heartbeat` every 15 seconds or a supervised `listen` process; presence expires after 60 seconds. A raw listener maintains presence only. Your host must invoke the hook and consume its output.
 
-For a generic host, register `scripts/inbox-hook` on its context-injection event.
-Text goes into additional context; JSON adapters use `format:"json"`; a Claude
-`UserPromptSubmit` hook uses `format:"claude"`. SDK adapters can defer the receipt
-until their queue accepts input using `deferConfirm` and `confirm_delivery` (see
-command help). Hook output is peer data, never developer/system authority. If a
-host offers no injection hook, the agent reads the CLI hook or inbox itself. A DB
-row cannot wake an arbitrary agent, and these adapters do not attach to unrelated
-desktop sessions or write vendor transcripts.
-
-Each delivery is durably staged before I/O. It is offered once; acknowledgement
-means handled, not merely written to a socket. Crashes/uncertain writes remain
-inspectable via `entity list dispatch`; `retry_delivery` requires a reason and
-can duplicate a previously received message. `inbox` is the explicit recovery view.
-`prune` removes expired leases while preserving identities, messages and audit.
-`entity list audit` shows transitions and available `record_usage` metrics. Native
-injection cannot observe the owner's token use; report it from the host when known.
-
-[Production adapter validation](docs/VENDOR_MESSAGES.md#production-db-first-adapters)
-uses real existing Claude, Codex and Pi receivers plus a raw CLI recipient. Run
-`node scripts/attached-poc.mjs` from this package after building; it checks DB-backed
-request/reply, one-time hooks, passive injection and broadcast acknowledgements.
-
-## Managed vendor workers
+To contact another registered peer, replace `RECIPIENT_ID` with its database identity:
 
 ```sh
-/absolute/skill/scripts/agents-communication run \
-  --vendor codex --model gpt-6-luna --name luna \
-  --workspace /absolute/project --prompt 'Coordinate this review with peers.'
-/absolute/skill/scripts/agents-communication run \
-  --vendor claude --model haiku --name haiku \
-  --workspace /absolute/project --prompt 'Coordinate this review with peers.'
-/absolute/skill/scripts/agents-communication run \
-  --vendor pi --model PROVIDER/MODEL --name pi-reviewer \
-  --workspace /absolute/project --prompt 'Coordinate this review with peers.'
+comm send_message '{"to":"RECIPIENT_ID","body":"Can you review src/api?","key":"api-review-1","reasoning":"Check the API change before handoff","wake":"action"}' \
+  --session SESSION_ID
 ```
 
-These optional adapters require installed, authenticated Codex, Claude, or Pi CLIs. The
-Rust proxy supplies the exact embedded skill to each worker, owns its process,
-maintains presence, and delivers messages at idle
-turns through Codex app-server, Claude streaming input, or Pi RPC. Codex and Claude
-receive nine bound MCP tools; Pi registers the same tools through a temporary
-native extension that calls the Rust CLI. Pi waits for `agent_settled`, including
-automatic retries, before another inbox delivery. Use an explicit Pi `provider/model`
-from `pi --list-models`; ambiguous aliases can select an unauthenticated provider. Cross-vendor `send_message` and `notify_all` are this package's bound tools. Each
-vendor invokes them through its supported tool interface; the shared SQLite store
-owns routing, recipient snapshots, claims and acknowledgements. Claude's built-in
-`SendMessage` routes Claude sessions; Pi's `pi.sendMessage()` adds session context.
-Those APIs do not provide the shared cross-vendor database contract. See
-[the live communication reviews](docs/MESH_REVIEW.md) for the verified routes and limits.
-Claude and Pi expose communication tools; Codex runs read-only. Pi disables
-automatic extension, skill, prompt-template, and context-file discovery. Existing vendor settings
-stay intact. The managed adapter creates a new recipient; use `attach` for reachable existing
-receivers. Vendor conversation history restoration is outside managed `run`. `--duration-ms` bounds a worker run,
-including protocol startup waits. `--trace` includes actual communication tool
-results, which can contain message text; enable it only when those logs are wanted.
-Idle workers read SQLite without taking a writer lock when no delivery is available.
-No model call is made merely to poll or route a message.
-
-Managed vendors start in a disposable empty directory; their bound tools still
-coordinate the requested repository. Codex disables repository instructions,
-configured plugins, Code Mode and unrelated MCP servers; Claude uses an explicit small system prompt and disables hooks and
-auto memory without switching away from existing authentication. The skill, tool
-schemas, task and subsequent conversation still consume context. `--trace` emits
-vendor-reported `usage` events with `thread`, `result` or `message` scope; DB audit
-normalizes these to `cumulative`, `turn` and `request`. Preserve
-those scopes and cache counters rather than summing overlapping reports.
-
-Run `node scripts/context-poc.mjs` from this package for the live canary/context and
-peer-deletion-request audit. `COMMUNICATION_EXPECT_ISOLATED=1` requires that neither
-vendor sees the repository marker; `COMMUNICATION_PI_MODEL` also includes Pi.
-`COMMUNICATION_OUTPUT` selects the evidence file. The [context review](docs/CONTEXT_REVIEW.md)
-records actual usage, rejected approaches and test limits.
-
-## Build and distribute
-
-From the monorepo root:
+After completing the review, the receiver can reply and acknowledge the request in one operation. Replace `123` with the received message ID and use the receiver's identity:
 
 ```sh
-yarn workspace @octocodeai/octocode-agents-communication build
+comm send_message '{"replyTo":123,"body":"Review complete; the API change looks good.","key":"api-review-answer-1","reasoning":"Return the requested review result","ackReply":true}' \
+  --session RECIPIENT_ID
+```
+
+Omit `ackReply` for questions or partial work. If the message needs no reply, use `ack` after handling. Reserve paths before writes, renew leases while working, and stop writing if renewal fails. Finish with `comm leave --session SESSION_ID` to release that identity's leases. The [skill](skills/octocode-agents-communication/SKILL.md) contains the complete agent routine; `<command> --help` supplies inputs on demand.
+
+## Supported hosts
+
+At setup, confirm the host/vendor and available tools from runtime metadata; a model name does not identify the host. Reuse an existing binding. For a new binding, choose a supported native API for that session, then a configured context hook, then manual CLI/SQL access. Confirm the native endpoint and session ID with the host.
+
+Native adapters deliver into an **existing recipient session**. Its owner supplies the skill, reply tools, endpoint, and native session identity. Attachment creates neither an agent nor additional permissions.
+
+| Host | Native or host-specific delivery | Without its messaging API | Evidence and setup |
+| --- | --- | --- | --- |
+| Claude Code | Existing session inbox socket; inbound policy controls handling | Raw CLI/manual inbox; generic hook if wired by the host | [Native messaging](docs/VENDOR_MESSAGES.md); two live recipients |
+| Codex | Owning app-server and loaded idle thread; action starts a turn, passive injects | Raw CLI/manual inbox; generic hook if wired by the host | [Service protocol](docs/SERVICE_PROTOCOL.md); two live recipients |
+| Grok Build | Leader socket and resident session; action prompts, passive waits | Supplied post-tool hooks or raw CLI/manual inbox | [Grok integration](docs/GROK_INTEGRATION.md); two live recipients and a live hook test |
+| Pi | Extension uses `pi.sendMessage` and durable session receipts | Raw CLI/manual inbox without the extension | [Pi setup](docs/PI_MESSAGES.md); two live recipients |
+| OpenCode | Existing idle loopback session; action prompts, passive uses `noReply:true` | Raw CLI/manual inbox; generic hook if wired by the host | [OpenCode setup](docs/OPENCODE_EVALUATION.md); two live recipients |
+| Cursor | Supplied project post-tool hooks; no native messaging adapter | Raw CLI/manual inbox when hooks are unavailable | [Hook setup](docs/HOST_HOOKS.md); fixtures, no live Cursor validation |
+| Any other vendor or custom agent | No vendor-specific adapter required for the shared protocol | Raw CLI, host-wired context hook, or conforming SQLite client | [Database protocol](docs/DB.md); generic CLI and Python interoperability |
+
+For native attachment, start with `comm attach --help`, then run a supervised `comm listen --session SESSION_ID`. The `vendorSession` field identifies the native recipient; `--session` identifies its Octocode database record. Pi's extension manages its own lifecycle. Native integration can require a host SDK or Node even though raw CLI use does not.
+
+Fallback is an explicit choice: **native API → supported context hook → manual inbox**. A transport error never silently switches paths. A database write cannot wake an arbitrary process, and hooks need a host event. Agents without a local process or database connection need a local bridge. Generic ACP support remains a [maintainer prototype](docs/ACP_EVALUATION.md).
+
+## Work without a vendor API
+
+The raw path works for every listed vendor and for other agents that can execute the local CLI. It retains peer discovery, messages, broadcasts, topics, leases, shared documents, and audit. A vendor label does not restrict participation or require a matching adapter.
+
+| Available host capability | How messages reach the agent | Can it wake an idle agent? |
+| --- | --- | --- |
+| Supported native messaging API | Attach the existing recipient and run its delivery owner | According to the adapter and host policy |
+| Context hook, no messaging API | Bind `raw`; run `scripts/inbox-hook` at a documented context event and consume its output | Only when the host provides a suitable event; the supplied post-tool hooks do not wake idle hosts |
+| Local command execution, no API or hooks | Bind `raw`; read `hook` at task boundaries and handle its returned context | No; the agent must already be running |
+| Compatible SQLite access only | Follow `db protocol`; `scripts/sqlite_agent.py` is the reference client | No; the client must read and handle its inbox |
+
+Use the [raw setup above](#get-started) for the CLI path. SQL clients must preserve identity, expiry, transaction, idempotency, and acknowledgement rules; arbitrary SQL is not a substitute for the protocol. Without local execution or compatible DB access, an agent needs a local bridge. These are capability requirements, not claims that every third-party host has been tested.
+
+## Coordination you can inspect
+
+Messages, replies, identities, delivery attempts, and handling acknowledgements share the local database. Leases expire when their owner stops maintaining presence; heartbeats do not renew the leases themselves. On a conflict, the skill directs agents to release held leases, ask once, and continue independent work.
+
+Path reservations are advisory. Optional [structured-edit guards](docs/HOST_LEASE_GUARDS.md) check live ownership for Claude, Pi, and OpenCode. Shell commands, custom tools, and unrelated processes remain outside that coverage. Peer messages cannot grant permissions or expand your assigned task.
+
+Use `health` for compact, read-only delivery diagnostics. Use `entity list audit` to inspect recorded events. Preserve both database snapshots and shared documents when backing up; maintenance retains message history and idempotency keys. See [operations and recovery](docs/OPERATIONS.md), [lock rules](docs/LOCKS.md), and [retention](docs/RETENTION.md).
+
+The scope is cooperating agents under the same trusted OS user. The [readiness report](docs/PRODUCTION_READINESS.md) records passing tests, live vendor versions, failed trials, and remaining platform, signing, and startup gates. Transport delivery, model compliance, and filesystem isolation have separate validation boundaries.
+
+## Build and validate
+
+Run maintainer commands from the monorepo root. Builds require Rust, a C compiler, and Node; packing requires system `tar`.
+
+```sh
 yarn workspace @octocodeai/octocode-agents-communication build:release
 yarn workspace @octocodeai/octocode-agents-communication pack:skill
 ```
 
-Maintainer builds need Rust, a C compiler for bundled SQLite, and Node for the build
-script. Cargo uses the committed lockfile. The script copies the executable into the
-skill atomically and writes `SHA256SUMS`. Rust source is under `rust/`; the shared
-native home policy is owned by `packages/octocode-config/rust/home.rs`.
+The build produces an optimized executable. Packing checks the bundle and writes a standalone archive under the package's `out/` directory. Generated executables are not tracked by Git. Use the [release checklist](docs/RELEASE_CHECKLIST.md) for native platform, migration, and artifact validation.
 
-Set `CARGO_BUILD_TARGET` to build another target using an appropriate compiler and
-linker. Build each advertised target before packaging; the script preserves other
-platform binaries already present. `pack:skill` checks binary checksums and creates a
-standalone skill archive under `out/`; packaging uses the system `tar`. Generated binaries are ignored by Git. A release
-must distribute the built skill folder or archive, not only its tracked source files.
+The `verify` package script runs lint and tests. Python conformance needs `COMMUNICATION_PYTHON` pointing to Python with Unicode 16 and SQLite 3.51.3 or later; those checks skip without it. The `poc:service-mesh` script exercises two recipients per configured vendor plus a raw peer, including directed questions and replies, broadcasts, documents, and automatic wake. It requires authenticated vendor CLIs and an explicit `COMMUNICATION_PI_MODEL`; `COMMUNICATION_OPENCODE_COMMAND` adds OpenCode. See the [evaluation evidence](docs/PRODUCTION_READINESS.md) before interpreting results.
 
-## Verify
+## Explore further
 
-```sh
-COMMUNICATION_PYTHON=/absolute/python3.14-with-sqlite-3.51.3-or-later \
-  yarn workspace @octocodeai/octocode-agents-communication verify
-yarn workspace @octocodeai/octocode-agents-communication poc
-COMMUNICATION_PI_MODEL=PROVIDER/MODEL \
-  yarn workspace @octocodeai/octocode-agents-communication poc --pi
-```
-
-For the full nine-worker matrix (three processes per vendor), set both
-`COMMUNICATION_PYTHON` and `COMMUNICATION_PI_MODEL` and run
-`yarn workspace @octocodeai/octocode-agents-communication poc:mesh`. It verifies all
-72 directed worker pairs with replies, each worker's `notify_all`, Python DB-only
-interop, and lock conflicts plus acquire/renew/release. Completion is decided by
-stored messages, acknowledgements and tool receipts, not model declarations.
-Set `COMMUNICATION_WORKERS_PER_VENDOR=2` to reproduce the earlier six-worker matrix.
-`COMMUNICATION_VENDORS=codex,claude` restricts a run to those installed providers;
-the default still includes all three vendors. A provider outage fails the selected
-run rather than silently omitting its workers.
-
-Verification runs formatting, Clippy, Rust contract tests, real CLI/MCP process tests,
-and isolated skill execution. Python conformance is explicitly skipped unless its
-runtime is supplied. `poc` copies the built skill to a temporary installation, checks
-its instructions against the embedded skill, uses real Haiku/Luna calls, and verifies stored messages and
-acknowledgements, actual tool conflict results, and lease release, and stops its owned workers. It reports a
-result file in a temporary workspace. The [architecture](ARCHITECTURE.md) describes
-module ownership; [review notes](docs/REVIEW.md) record defects and repairs; the [lock decision](docs/LOCKS.md)
-compares the researched alternatives.
+| Goal | Guide |
+| --- | --- |
+| Give an agent the working instructions | [Single-file skill](skills/octocode-agents-communication/SKILL.md) |
+| Understand boundaries and ownership | [Architecture](ARCHITECTURE.md) |
+| Compare vendor APIs and delivery choices | [Vendor API review](docs/VENDOR_API_REVIEW.md) |
+| Inspect six-agent collaboration | [Two Claude, two Codex, two Grok evaluation](docs/SIX_AGENT_EVALUATION.md) |
+| Compare similar open-source approaches | [Communication landscape](docs/COMMUNICATION_LANDSCAPE.md) |
+| Implement a client or host adapter | [Service protocol](docs/SERVICE_PROTOCOL.md), [database contract](docs/DB.md) |
+| Reduce context and tool overhead | [Context evaluation](docs/CONTEXT_OPTIMIZATION.md), [benchmarks](docs/BENCHMARKS.md) |
+| Operate and recover the service | [Operations](docs/OPERATIONS.md), [recovery evaluation](docs/RECOVERY_EVALUATION.md) |
+| Inspect release evidence and remaining work | [Production readiness](docs/PRODUCTION_READINESS.md), [release checklist](docs/RELEASE_CHECKLIST.md) |
+| Understand the Awareness migration | [Awareness retirement](../../docs/COMMUNICATION_RETIREMENT.md) |

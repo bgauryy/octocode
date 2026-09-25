@@ -249,7 +249,7 @@ Settings tables, defaults, ranges, enum values, aliases, protected-environment p
 
 Stats persistence (`OCTOCODE_ENABLE_STATS`) and the ghCloneRepo cache (`cloneCache.ttl` / `OCTOCODE_CACHE_TTL_MS`, `cloneCache.maxSize` / `OCTOCODE_MAX_CACHE_SIZE`, `cloneCache.maxClones` / `OCTOCODE_MAX_CLONES`) are contract settings: defaults, ranges, and `.octocoderc` support are in [generated settings](generated/CONFIG_SETTINGS.md). `storage.mode="memory"` overrides settings that otherwise enable disk caching or stats.
 
-Response-cache entry counts/sizes and per-surface tool-call timeouts are bounded internally and not configurable via env vars (CLI uses a longer window for LSP cold starts). Network timeout/retries use `REQUEST_TIMEOUT` / `MAX_RETRIES`. Classification provider requests (`clasify` and semantic rerank) share one process-wide gate per provider endpoint: at most `OCTOCODE_CLASSIFICATION_CONCURRENCY` (`classification.maxConcurrency`, default `10`, range 1–64) in flight, one tool call may use up to three quarters of it, and the gate halves itself on provider throttling (429/503/529, `Retry-After` pauses every caller) and recovers gradually. Use `octocode cache clear` / `octocode cache status` for the GitHub content cache.
+Response-cache entry counts/sizes and per-surface tool-call timeouts are bounded internally and not configurable via env vars (CLI uses a longer window for LSP cold starts). Network timeout/retries use `REQUEST_TIMEOUT` / `MAX_RETRIES`. Classification provider requests (`clasify`) share one process-wide gate per provider endpoint: at most `OCTOCODE_CLASSIFICATION_CONCURRENCY` (`classification.maxConcurrency`, default `10`, range 1–64) in flight, one tool call may use up to three quarters of it, and the gate halves itself on provider throttling (429/503/529, `Retry-After` pauses every caller) and recovers gradually. Use `octocode cache clear` / `octocode cache status` for the GitHub content cache.
 
 ### Protected keys — never sourced from `.env`
 
@@ -267,7 +267,7 @@ Octocode always ignores these when loading any `.env`, whatever their values. Se
 | `NODE_OPTIONS` | Node runtime flags — a security risk if `.env` could set them |
 | `PYTHON` | Python interpreter path |
 | `GITHUB_API_URL` | GitHub API root — set via shell or `.octocoderc` (`github.apiUrl`), never `.env`, so an untrusted project can't redirect API traffic |
-| `OCTOCODE_CLASSIFICATION_API` (jev alias `OCTOCODE_JEV_KEY`) | Classification credential — shell, `.octocoderc` (`classification.api`), or the trusted home `.env`; never a project `.env`. Excluded from resolved config. Set it to an empty string in the process env (`OCTOCODE_CLASSIFICATION_API=`) to disable `clasify` and `semanticRerank` for that process; no file or vendor-key fallback applies |
+| `OCTOCODE_CLASSIFICATION_API` (jev alias `OCTOCODE_JEV_KEY`) | Classification credential — shell, `.octocoderc` (`classification.api`), or the trusted home `.env`; never a project `.env`. Excluded from resolved config. Set it to an empty string in the process env (`OCTOCODE_CLASSIFICATION_API=`) to disable `clasify` for that process; no file or vendor-key fallback applies |
 | `OCTOCODE_CLASSIFICATION_API_HOST` | Vendor API-root override — controls where the key is sent; same placement rules as the key |
 | `OCTOCODE_CLASSIFICATION_TYPE` | Vendor selector (`classification.type`, default `jev`) |
 

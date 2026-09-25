@@ -113,10 +113,10 @@ describe('scheme availability-scoped guidance', () => {
       ).resolves.toBe(0);
       const result = JSON.parse(String(output.mock.calls[0]?.[0]));
       const description = result.description ?? result.querySchema.description;
-      expect(description.includes('clasify')).toBe(enabled);
+      expect(description.includes('semanticRerank')).toBe(false);
       expect(
         JSON.stringify(result.querySchema).includes('semanticRerank')
-      ).toBe(enabled);
+      ).toBe(false);
     }
   );
 });

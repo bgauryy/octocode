@@ -399,7 +399,7 @@ export async function executeSpawnQuery(
       task: spawnConfig.task,
       name: name ?? `Browser Agent · ${getRandomAgentName()}`,
       cwd,
-      tools: [...new Set([...spawnConfig.tools, 'MCPTool', 'skill', 'awareness', 'bash'])],
+      tools: [...new Set([...spawnConfig.tools, 'MCPTool', 'skill', 'peers', 'send_message', 'inbox', 'ack', 'read_document', 'activity', 'bash'])],
       skills: resolveSubagentSkills(
         SUBAGENT_REGISTRY['browser-agent'],
         cwd ?? ctx?.cwd ?? process.cwd(),
@@ -427,7 +427,7 @@ export async function executeSpawnQuery(
       task: fullTask,
       name: name ?? `Worker · ${getRandomAgentName()}`,
       cwd,
-      tools: tools ?? (resourceMode === 'lean' ? [] : ['MCPTool', 'skill', 'awareness', 'bash']),
+      tools: tools ?? (resourceMode === 'lean' ? [] : ['MCPTool', 'skill', 'peers', 'send_message', 'inbox', 'ack', 'read_document', 'activity', 'bash']),
       skills: resourceMode === 'octocode'
         ? resolveSubagentSkills({}, workerCwd)
         : undefined,

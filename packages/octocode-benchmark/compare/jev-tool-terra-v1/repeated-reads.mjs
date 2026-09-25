@@ -13,7 +13,7 @@ for (let n = 1; n <= 30; n++) {
     for (const row of call.result?.structuredContent?.results ?? []) {
       const query = (call.input.queries ?? [call.input])[row.index];
       for (const source of row.data?.files ?? []) {
-        const revision = source.resolvedBranch ?? (/^[a-f0-9]{40}$/i.test(query?.branch ?? '') ? query.branch : null);
+        const revision = source.commitSha ?? source.resolvedBranch ?? (/^[a-f0-9]{40}$/i.test(query?.branch ?? '') ? query.branch : null);
         if (!revision || !source.content || !Array.isArray(source.sourceLineRanges) || source.contentView === 'symbols' || query?.minify === 'symbols') continue;
         const key = [row.data.owner, row.data.repo, revision, source.path].join('/');
         const prior = seen.get(key) ?? new Set(), lines = new Set();

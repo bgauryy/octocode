@@ -8,6 +8,7 @@ This directory contains the active GitHub Actions workflows for the Octocode mon
 |---|---|---|
 | `ci.yml` | Pull requests and pushes to `main` | Documentation, lint, build-output, typecheck, test, and coverage checks |
 | `engine.yml` | Engine-related pull requests and pushes to `main` | Rust tests, Clippy, native ABI, and Rust↔JavaScript parity checks |
+| `agents-communication.yml` | Communication package changes and manual dispatch | Six native release targets, CLI/MCP and upgrade/restore checks, dependency audit, archive receipt gate |
 
 ## CI (`ci.yml`)
 

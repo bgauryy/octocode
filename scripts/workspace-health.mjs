@@ -13,7 +13,6 @@ const PACKAGE_SCRIPT_POLICY = ['build', 'lint', 'test', 'typecheck', 'verify'];
 const SKILL_SCRIPT_POLICY = ['build', 'lint', 'test'];
 const VERIFY_ORDER = ['@octocodeai/octocode-native', 'octocode-mcp', 'octocode', 'octocode-mcp-vscode'];
 const BUILD_OUTPUTS = {
-  'packages/octocode-awareness': ['out/index.js', 'out/octocode-awareness.js', 'out/types/src/index.d.ts', 'out/skills/octocode-awareness/SKILL.md'],
   'packages/octocode-mcp': ['dist/index.js'],
   'packages/octocode': ['out/octocode.js'],
   'packages/octocode-vscode': ['out/extension.js'],

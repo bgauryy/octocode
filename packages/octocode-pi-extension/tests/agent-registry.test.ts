@@ -1,32 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { withPeerCoordination } from '../src/tools/agents/coordination.js';
+import { withWorkerCoordination } from '../src/tools/agents/coordination.js';
 
-describe('withPeerCoordination', () => {
-  it('appends self id and peer ids, excluding self and blanks', () => {
-    const out = withPeerCoordination('do work', 'me', ['me', 'peer-a', '', 'peer-b']);
+describe('withWorkerCoordination', () => {
+  it('routes communication discovery through the bound peers tool', () => {
+    const out = withWorkerCoordination('do work');
     expect(out).toContain('do work');
-    expect(out).toContain('your agent id: me');
-    expect(out).toContain('peers: peer-a, peer-b');
-    expect(out).toContain('context.orient');
-    expect(out).not.toContain('message send');
+    expect(out).toContain('call peers to discover recipient session IDs');
+    expect(out).toContain('Local worker identities are not communication recipient IDs');
+    expect(out).not.toMatch(/your agent id:|parent agent id:|peers:/);
   });
 
-  it('appends parent id and durable handback file when provided', () => {
-    const out = withPeerCoordination('do work', 'worker-1', [], {
-      parentId: 'parent-1',
+  it('preserves the exact durable handback destination without a synthetic parent route', () => {
+    const out = withWorkerCoordination('do work', {
       handbackPath: '/repo/.octocode/tmp/agents/abc/handback.md',
     });
-    expect(out).toContain('parent agent id: parent-1');
     expect(out).toContain('durable handback file: /repo/.octocode/tmp/agents/abc/handback.md');
     expect(out).toContain('[ARTIFACT] <path>');
-  });
-
-  it('notes no peers when only self is present', () => {
-    const out = withPeerCoordination('do work', 'me', ['me']);
-    expect(out).toContain('peers: none yet');
-  });
-
-  it('is a no-op when there is no self id', () => {
-    expect(withPeerCoordination('do work', undefined, ['peer-a'])).toBe('do work');
+    expect(out).not.toContain('parent agent id:');
   });
 });

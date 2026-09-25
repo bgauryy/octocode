@@ -4,7 +4,7 @@ import { readOwnVersion } from '../package-metadata.js';
 import { OCTOCODE_BANNER_ENTRY_TYPE, updateOctocodeMetricsUi } from '../extension-ui.js';
 import { registerRuntimeInspectors } from '../tui/runtime-inspector.js';
 import type { NotifyFn, PiInstance } from '../types.js';
-import { registerAwarenessRuntime } from './awareness-runtime.js';
+import { registerCommunicationRuntime } from './communication-runtime.js';
 import { registerCompactionHooks } from './compaction-hooks.js';
 import { registerCompactionPolicyGuidance } from './compaction-policy-guidance.js';
 import { buildRecoveryCard, registerOctocodeMessageRenderers } from './custom-messages.js';
@@ -23,9 +23,9 @@ export function registerRuntimeUiPhase({ pi, notify }: RuntimeUiRegistrationArgs
   registerRuntimeInspectors(pi);
   registerCompactionHooks(pi, notify);
   registerCompactionPolicyGuidance(pi, notify);
-  registerAwarenessRuntime(pi, { refreshUi: updateOctocodeMetricsUi });
+  registerCommunicationRuntime(pi, { refreshUi: updateOctocodeMetricsUi });
 
-  // Branded conversation cards (compaction checkpoints / awareness peer events)
+  // Branded conversation cards (compaction checkpoints)
   // must be registered before compaction-hooks emits the first card.
   registerOctocodeMessageRenderers(pi);
   pi.registerEntryRenderer?.(REHYDRATION_RECEIPT_ENTRY_TYPE, (entry, options, theme) =>

@@ -1,4 +1,4 @@
-use super::{ArtifactError, ArtifactType};
+use super::{ArtifactError, ArtifactSearchQueryType};
 use crate::cache::{BoundedCache, CacheConfig, CacheKey, CacheLookup, CachePartition};
 use crate::providers::RequestBudget;
 use bytes::BytesMut;
@@ -230,7 +230,7 @@ pub(crate) struct RegistryClient<'a> {
 impl RegistryClient<'_> {
     pub async fn json(
         &self,
-        artifact_type: ArtifactType,
+        artifact_type: ArtifactSearchQueryType,
         url: Url,
         not_found_is_empty: bool,
         authorization: Option<SecretString>,
@@ -241,7 +241,7 @@ impl RegistryClient<'_> {
 
     pub(crate) async fn json_with_dns_pin(
         &self,
-        artifact_type: ArtifactType,
+        artifact_type: ArtifactSearchQueryType,
         url: Url,
         not_found_is_empty: bool,
         authorization: Option<SecretString>,
@@ -297,7 +297,7 @@ impl RegistryClient<'_> {
 
     pub async fn text(
         &self,
-        artifact_type: ArtifactType,
+        artifact_type: ArtifactSearchQueryType,
         url: Url,
         not_found_is_empty: bool,
     ) -> Result<Option<String>, ArtifactError> {
@@ -320,7 +320,7 @@ impl RegistryClient<'_> {
 
     fn status(
         &self,
-        artifact_type: ArtifactType,
+        artifact_type: ArtifactSearchQueryType,
         response: ArtifactHttpResponse,
         not_found_is_empty: bool,
     ) -> Result<Option<Vec<u8>>, ArtifactError> {
@@ -362,7 +362,7 @@ impl RegistryClient<'_> {
     }
 }
 
-pub(crate) fn invalid_response(artifact_type: ArtifactType) -> ArtifactError {
+pub(crate) fn invalid_response(artifact_type: ArtifactSearchQueryType) -> ArtifactError {
     ArtifactError::new(
         "provider_error",
         format!(
@@ -420,7 +420,7 @@ mod tests {
             cache_enabled: false,
         };
         client.status(
-            ArtifactType::Npm,
+            ArtifactSearchQueryType::Npm,
             ArtifactHttpResponse {
                 status,
                 body: vec![],
@@ -490,11 +490,11 @@ mod tests {
         let url = Url::parse("https://cache-disabled-test.invalid/pkg").expect("test URL");
         // First call — must hit HTTP.
         let _ = client
-            .json(ArtifactType::Npm, url.clone(), false, None)
+            .json(ArtifactSearchQueryType::Npm, url.clone(), false, None)
             .await;
         assert_eq!(calls.load(Ordering::Relaxed), 1, "first call must hit HTTP");
         // Second call with the same URL — must hit HTTP again (nothing written to cache).
-        let _ = client.json(ArtifactType::Npm, url, false, None).await;
+        let _ = client.json(ArtifactSearchQueryType::Npm, url, false, None).await;
         assert_eq!(
             calls.load(Ordering::Relaxed),
             2,
@@ -528,7 +528,7 @@ mod tests {
             cache_enabled: true,
         };
         let _ = client_rev1
-            .json(ArtifactType::Npm, url.clone(), false, None)
+            .json(ArtifactSearchQueryType::Npm, url.clone(), false, None)
             .await;
         assert_eq!(
             calls.load(Ordering::Relaxed),
@@ -538,7 +538,7 @@ mod tests {
 
         // Read at the same revision — must be a cache hit (HTTP not called again).
         let _ = client_rev1
-            .json(ArtifactType::Npm, url.clone(), false, None)
+            .json(ArtifactSearchQueryType::Npm, url.clone(), false, None)
             .await;
         assert_eq!(
             calls.load(Ordering::Relaxed),
@@ -553,7 +553,7 @@ mod tests {
             cache_revision: 2,
             cache_enabled: true,
         };
-        let _ = client_rev2.json(ArtifactType::Npm, url, false, None).await;
+        let _ = client_rev2.json(ArtifactSearchQueryType::Npm, url, false, None).await;
         assert_eq!(
             calls.load(Ordering::Relaxed),
             2,

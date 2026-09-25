@@ -3,7 +3,7 @@ use anyhow::{Result, anyhow, bail};
 use clap::Parser;
 use serde_json::{Value, json};
 use std::{
-    io::{Write, stdout},
+    io::{Read, Write, stdout},
     path::PathBuf,
     thread,
     time::{Duration, Instant},
@@ -26,6 +26,8 @@ pub struct Args {
     pub name: Option<String>,
     #[arg(long)]
     pub prompt: Option<String>,
+    #[arg(long)]
+    pub tools: Option<String>,
     #[arg(long)]
     pub duration_ms: Option<u64>,
     #[arg(long)]
@@ -58,6 +60,13 @@ pub fn run() -> Result<()> {
     }
     let command = &args.args[0];
     let rest = &args.args[1..];
+    if let Some(selection) = args.tools.as_deref() {
+        if !(matches!(command.as_str(), "mcp" | "run") || command == "schema" && rest == ["tools"])
+        {
+            bail!("--tools is supported only for mcp, run, and schema tools");
+        }
+        catalog::selected_tools(Some(selection))?;
+    }
     match command.as_str() {
         "host-hook" | "host-config" => {
             arity(rest, 0, 0)?;
@@ -70,7 +79,7 @@ pub fn run() -> Result<()> {
         "skill" => {
             arity(rest, 0, 0)?;
             let mut skill = catalog::skill();
-            skill["instructions"] = json!(catalog::SKILL);
+            skill["instructions"] = json!(catalog::skill_instructions(args.vendor.as_deref()));
             return output(&skill);
         }
         "schema" => {
@@ -81,6 +90,7 @@ pub fn run() -> Result<()> {
                 .as_slice()
             {
                 [] => catalog::catalog()?,
+                ["tools"] => json!(catalog::selected_tools(args.tools.as_deref())?),
                 ["entities"] => catalog::catalog()?["entities"].clone(),
                 ["entity", action @ ("get" | "list" | "set")] => {
                     catalog::definition(&format!("entity {action}"))?
@@ -91,6 +101,30 @@ pub fn run() -> Result<()> {
             return output(&value);
         }
         "db" => {
+            if matches!(
+                rest.first().map(String::as_str),
+                Some("retention" | "compact")
+            ) {
+                arity(rest, 1, 2)?;
+                let input: Value =
+                    serde_json::from_str(rest.get(1).map(String::as_str).unwrap_or("{}"))?;
+                catalog::command(&format!("db {}", rest[0]), &input)?;
+                let path = database::path(args.database.as_deref())?;
+                return output(&if rest[0] == "retention" {
+                    crate::retention::report(&path, &input)?
+                } else {
+                    crate::retention::compact(&path)?
+                });
+            }
+            if rest.first().is_some_and(|action| action == "export") {
+                arity(rest, 2, 2)?;
+                let input: Value = serde_json::from_str(&rest[1])?;
+                catalog::command("db export", &input)?;
+                return output(&database::export(
+                    &database::path(args.database.as_deref())?,
+                    std::path::Path::new(catalog::text(&input, "path")?),
+                )?);
+            }
             arity(rest, 1, 1)?;
             if rest[0] == "migrate" {
                 return output(&database::migrate(&database::path(
@@ -104,7 +138,9 @@ pub fn run() -> Result<()> {
                 }));
             }
             if rest[0] != "info" {
-                bail!("Use db info, db protocol, or db migrate");
+                bail!(
+                    "Use db info, db protocol, db migrate, db export, db retention, or db compact"
+                );
             }
             return output(&database::inspect(
                 &database::path(args.database.as_deref())?,
@@ -178,32 +214,53 @@ pub fn run() -> Result<()> {
             1
         },
     )?;
-    let input: Value = serde_json::from_str(
-        rest.get(usize::from(wait))
-            .map(String::as_str)
-            .unwrap_or("{}"),
-    )?;
+    let argument = rest
+        .get(usize::from(wait))
+        .map(String::as_str)
+        .unwrap_or("{}");
+    let mut stdin = String::new();
+    if argument == "-" {
+        std::io::stdin()
+            .take(8 * 1024 * 1024 + 1)
+            .read_to_string(&mut stdin)?;
+        if stdin.len() > 8 * 1024 * 1024 {
+            bail!("JSON input exceeds 8 MiB");
+        }
+    }
+    let input: Value = serde_json::from_str(if argument == "-" { &stdin } else { argument })?;
     catalog::command(if wait { "inbox wait" } else { command }, &input)?;
+    if command == "activity" {
+        return output(&crate::activity::read(&args.workspace, &input)?);
+    }
     let session = args.session.as_deref().unwrap_or("");
-    if !matches!(command.as_str(), "join" | "peers" | "prune") && session.trim().is_empty() {
+    if !matches!(command.as_str(), "join" | "peers" | "prune" | "health")
+        && session.trim().is_empty()
+    {
         bail!("--session required");
     }
     let store = Store::open(
         database::path(args.database.as_deref())?,
         &args.workspace,
-        matches!(command.as_str(), "peers" | "inbox"),
+        matches!(
+            command.as_str(),
+            "peers"
+                | "inbox"
+                | "read_document"
+                | "check_paths"
+                | "check_write"
+                | "health"
+                | "completion-check"
+        ),
         command == "join",
     )?;
     if command == "mcp" {
-        return crate::mcp::serve(&store, session);
+        return crate::mcp::serve(&store, session, args.tools.as_deref());
     }
     match command.as_str() {
+        "completion-check" => return output(&store.completion_check(session, &input)?),
         "attach" => return output(&store.attach(session, &input)?),
         "hook" => return crate::dispatch::hook(&store, session, &input),
-        "dispatch" => {
-            store.present(session)?;
-            return output(&crate::dispatch::once(&store, session, &mut None)?);
-        }
+        "dispatch" => return output(&crate::dispatch::dispatch(&store, session)?),
         "retry_delivery" => return output(&store.retry_delivery(session, &input)?),
         "record_usage" => return output(&store.record_usage(session, &input)?),
         "confirm_delivery" => {

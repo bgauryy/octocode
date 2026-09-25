@@ -9,8 +9,6 @@ This design gives users one truthful answer to four questions:
 3. What needs my attention?
 4. Where can I inspect or act on the details?
 
-It covers status and progress for the Pi footer, activity indicator, transcript, plans, tasks, subagents, peer messages, verification, and noninteractive output. It does not replace canonical plan, worker, or Awareness storage.
-
 ## Decision
 
 Derive one versioned **UX snapshot** from existing authoritative state, then project that snapshot through a **salience- and space-aware policy** to every surface.
@@ -29,13 +27,10 @@ The existing architecture has strong foundations but an inflexible final project
 | Area | Current behavior | Design consequence |
 |---|---|---|
 | Canonical plan state | `tools/plan-read-model.ts` exposes phase, revision, task states, dependencies, receipts, pending interactions, and summary counts to terminal, browser, RPC, prompt, and Markdown projections. | Keep this owner. Adapt it into the UX snapshot; do not create another plan store. |
-| Footer controller | `extension-ui.ts` is the production owner that reads runtime, plan, worker, Awareness, identity, and context state before calling `tui/footer-view.ts`. | Keep one controller and one registered footer component. |
 | Footer layout | `tui/status-policy.ts` applies automatic, compact, or expanded row budgets; active workers have named rows and blocked/failed workers take priority. `tui/footer-view.ts` renders one physical line per selected row. | Keep selection pure and rendering bounded; route overflow to the complete inbox. |
 | Foreground activity | `tools/runtime-store.ts` remains the canonical discriminated activity store. `tools/execution-events.ts` provides typed lifecycle events, sequence rejection, and replay; `tools/execution-runtime.ts` binds the selected Pi branch. | Wire producer-owned source sequences and leases through every activity publisher before claiming end-to-end stale-completion protection. |
 | Progress | `tools/ux-snapshot.ts` classifies linear, graph, dynamic, and indeterminate progress. The policy shows a denominator only for a stable linear plan and uses state counts for graph or dynamic work. | Extend canonical verification/task fields when all plan surfaces can consume the richer states. |
 | Agents | `tools/ux-snapshot.ts` preserves process/result precedence, assignments, active operations, messages, elapsed time, and update time. The footer names live workers and their updates; blocked/failed outcomes remain visible with `/octocode-inbox`, and done/killed outcomes remain briefly visible before expiring. | Keep the inbox as the complete ledger and gate actions on process liveness. |
-| Messages | Worker queued counts and cached Awareness unread counts merge only in the UX snapshot and policy; canonical stores remain separate. Plan changes, worker messages, and worker state transitions append durable, zero-context-cost transcript cards with consecutive reply deduplication. | Extend the same transition grammar and durable coalescing contract to peer notifications. |
-| Detail | `/octocode-inbox`, plan HTML, terminal plan output, Awareness detail, `/configuration`, and transcript routes remain complete drill-down surfaces. The one-line renderer promotes routes before optional tail detail. | Preserve a real detail route before reducing ambient detail further. |
 
 ### Structural verification snapshot
 
@@ -59,12 +54,6 @@ Lead with goal, active task, meaningful progress, and next action. Tool names, m
 
 Canonical stores own facts. The UX layer only derives and ranks projections.
 
-- Plan and task truth: `tools/plan-read-model.ts` and Awareness task state.
-- Worker truth: the worker ledger and normalized worker result.
-- Session activity: `tools/runtime-store.ts`.
-- Peer and verification truth: Awareness read models.
-- Rendering and density: the TUI projection policy.
-
 No renderer mutates workflow state. No notification becomes canonical evidence.
 
 ### 3. A bounded ambient surface, complete drill-down
@@ -82,8 +71,6 @@ This is more truthful than either eight persistent rows or an unexplained `+7`.
 ### 4. Attention preempts decoration
 
 Input requests, permission decisions, stale authority, failed checks, blocked active work, and failed workers outrank identity and metrics. Normal completions do not interrupt you unless they complete background work you are waiting for.
-
-Session metadata uses remaining capacity; compact mode does not reserve a row for it. Worker state precedes the name as a separate token. Repainting cached Awareness counts preserves their original observation time.
 
 ### 5. Progress must state its confidence
 
@@ -199,16 +186,6 @@ Higher-priority items preempt lower-priority items. Within a priority, prefer ne
 
 ### Row packing
 
-- Preserve state and required action before labels and elapsed time.
-- List live workers by name, state, and current update; use stable worker IDs to order normal rows.
-- Keep full finished-worker details in the inbox. Show a short-lived done/killed outcome row, then expire it; count omitted live rows and preserve their inbox route.
-- Combine plan progress, running task, and current tool in compact layouts so worker names have room.
-- Merge duplicate local-plan and shared-Awareness counts by stable task identity.
-- Never truncate `blocked`, `failed`, `input needed`, or the action route.
-- Truncate long labels with an ellipsis; expose the full label in the plan or inbox.
-- Wrap explanatory helper text in decision/detail surfaces, not in the ambient footer.
-- On resize, recompute from the same snapshot; do not change underlying state.
-
 ### Example projections
 
 Wide, active plan:
@@ -282,21 +259,12 @@ Examples:
 
 The projection layer must resolve competing updates explicitly:
 
-1. Reject an event whose source sequence is older than the snapshot’s sequence for that entity.
-2. Prefer canonical plan/Awareness state over ephemeral activity after reload.
-3. Treat process state and normalized worker result as separate inputs; derive one display state with a documented precedence table.
-4. Expire transient tool and heartbeat state by lease; never expire durable blockers or unread messages silently.
-5. Mark stale external state as stale with its last observation time.
-6. Rebuild the snapshot from canonical stores on session start, resume, fork, and compaction recovery.
-7. Emit one reconciliation milestone only when the visible result changes.
-
 ## Proposed implementation boundaries
 
 These names are targets, not an instruction to duplicate current owners.
 
 | Boundary | Responsibility |
 |---|---|
-| `tools/ux-snapshot.ts` | Pure adapters from runtime, plan, worker, and Awareness read models into `UxSnapshotV1`. |
 | `tools/execution-events.ts` | Typed execution events, sequence rejection, and replay of the semantic journal. |
 | `tui/status-policy.ts` | Pure priority, grouping, row-budget, and width policy. |
 | `tui/footer-view.ts` | Render selected semantic rows only; no state reads or ranking. |

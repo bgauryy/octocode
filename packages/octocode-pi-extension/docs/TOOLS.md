@@ -22,7 +22,7 @@ developer code map.
 
 ## Tool inventory
 
-The direct palette contains 15 extension-owned tools: 14 support tools and the guarded `bash` override. GitHub, local, LSP, and npm research tools are provided indirectly through the built-in `octocode` MCP server.
+The direct palette contains 27 tools: 13 Pi support tools, 13 communication tools and the guarded `bash` override. Communication uses the Rust catalog’s direct JSON schemas; Pi support tools use `queries[]`. GitHub, local, LSP, and npm research tools are provided indirectly through the built-in `octocode` MCP server.
 
 | Family                   | Direct tools                             |
 | ------------------------ | ---------------------------------------- |
@@ -31,9 +31,10 @@ The direct palette contains 15 extension-owned tools: 14 support tools and the g
 | Media and web            | `inspectMedia`, `media`, `runFfmpeg`, `web` |
 | MCP                      | `MCPTool`                                |
 | Dynamic capabilities     | `callTool`, `skill`                      |
-| Planning and coordination | `plan`, `awareness`, `askUser`, `localServer` |
+| Planning and interaction | `plan`, `askUser`, `localServer` |
+| Communication | `peers`, `send_message`, `notify_all`, `inbox`, `ack`, `subscribe`, `lock`, `lock_many`, `renew`, `unlock`, `share_document`, `read_document`, `activity` |
 
-Every direct tool exposes a `queries` batch. Each query may include a `reasoning` batch label of at most 400 characters; the adapter trims supplied labels, omits blanks, and does not synthesize one. A call accepts at most 100 queries. Preflight checks declared inputs across the batch before execution; live permissions, remote schemas, and mutable state are checked again when needed at execution. This is not a transaction or a promise that every operation will succeed. Sequential mode executes in source order and stops on the first runtime failure. Tools that expose `queryRunType:"parallel"` overlap independent operations, run at most four queries concurrently by default, and return results in source order. Receipts distinguish successful, failed, and not-run items. Partial failures preserve completed child content and returned error diagnostics through the shared output budget; cancellation does not label unstarted queued work as executed. Successful one-query calls preserve the underlying detail shape.
+Pi-owned support tools and the guarded `bash` override expose a `queries` batch. The communication tools use their direct Rust schemas and require a brief intent for messages and leases. Each query may include a `reasoning` batch label of at most 400 characters; the adapter trims supplied labels, omits blanks, and does not synthesize one. A call accepts at most 100 queries. Preflight checks declared inputs across the batch before execution; live permissions, remote schemas, and mutable state are checked again when needed at execution. This is not a transaction or a promise that every operation will succeed. Sequential mode executes in source order and stops on the first runtime failure. Tools that expose `queryRunType:"parallel"` overlap independent operations, run at most four queries concurrently by default, and return results in source order. Receipts distinguish successful, failed, and not-run items. Partial failures preserve completed child content and returned error diagnostics through the shared output budget; cancellation does not label unstarted queued work as executed. Successful one-query calls preserve the underlying detail shape.
 
 ### Prompt and schema ownership
 
@@ -51,7 +52,7 @@ boundaries, with ownership and handback policy supplied by the shared contract.
 
 ### Tool transcript UI contract
 
-Tool request and result rows use one compositional view shape: **state glyph → tool identity → tool-specific semantic segments → optional evidence body → optional disclosure hint**. Each tool still chooses the useful segments for its domain—for example paths and byte counts for file operations, URLs and pagination for web, exit codes and line counts for Bash, or action/target for Awareness—but the reading order and state language stay stable.
+Pi-owned tool rows use a consistent reading order: state, tool identity, domain-specific details, evidence, then disclosure. Paths and byte counts describe files; URLs and pagination describe web results; exit codes and line counts describe shell results.
 
 Colors convey meaning rather than decoration:
 
@@ -78,8 +79,6 @@ MCP call details likewise retain only block counts and status metadata; full tex
 structured content, and image bytes remain in model-facing content. Equivalent
 JSON text and structured payloads appear once. Table mode adds a summary without
 replacing evidence or continuations. See [MCP result conversion](../src/tools/mcp/sanitize.ts).
-
-The `awareness` tool exposes canonical operations across Context, Work, Message, Memory, and History. A query supplies `operation` plus validated `params`; Pi binds database, workspace, actor, and scope. Use `describe:true` without `params` to inspect an operation's exact schema without executing it or opening storage. Read operations can be batched, while a mutation must be the only query. Host lifecycle callbacks are available only through the explicit host API.
 
 `OCTOCODE_SUPPORT_TOOL_NAMES` in `src/constants.ts` is the direct support-tool source of truth.
 
@@ -120,9 +119,6 @@ The `awareness` tool exposes canonical operations across Context, Work, Message,
 | Multi-turn browser session                              | `agent` spawn, then wait/message/steer/abort/kill queries      |
 | Spawn background Pi worker                              | `agent` with `type:"spawn"`                                    |
 | Coordinate spawned workers                              | `agent` lifecycle queries                                      |
-| Read Awareness state                                    | `awareness` with a direct read operation such as `context.orient` or `message.list` |
-| Change Awareness state                                  | `awareness` with one direct mutation operation per batch       |
-| Handle internal Awareness hook callbacks                | Host lifecycle (`hook run`, `hooks pre-edit`); excluded from model calls |
 | Fetch a URL / web search                                | `web`                                                          |
 | List / call an external MCP server tool                 | `MCPTool`                                                      |
 | Add / remove / restart an MCP server (no agent restart) | `MCPTool` (action: add/remove/restart)                         |
@@ -138,12 +134,6 @@ The `awareness` tool exposes canonical operations across Context, Work, Message,
 | Reuse/create/maintain a verified dynamic capability | `callTool` |
 | Load or manage a reusable multi-step workflow | `skill` with `type:"load"|"call"` |
 | Compact or reset context | Pi's native auto-compaction or user `/compact` / `/new`; configure Pi's reserve threshold for 80% |
-| Recall prior lessons that may change the approach | `awareness` operation `memory.recall` |
-| Record a verified reusable root cause or decision | `awareness` operation `memory.record` |
-| Read decision-changing shared state | `awareness` operation `context.orient` |
-| Send or read needed peer messages | `awareness` operations `message.send` and `message.list` |
-| Protect sensitive, non-mergeable files | `awareness` operation `work.protect` |
-| Inspect shared work or verification debt | `awareness` operations `work.list`, `work.show`, and `work.verify` |
 
 ---
 
@@ -254,8 +244,6 @@ Spawn profiles:
 | `browser`    | Routed multi-turn Chrome DevTools work.                                                  |
 | `custom`     | An explicit uncovered role with caller-selected tools and a required system prompt.      |
 
-Typed workers use Octocode `MCPTool` and matching skills for repository research; the implementer additionally receives `file` for its explicit ownership. The reviewer receives only `MCPTool`, `skill`, and `awareness`; it is advisory and can't mutate files or mark a plan complete. Role policy keeps researcher/planner/architect/browser product work read-only except for assigned artifacts, and limits shell to Awareness or role-bounded checks. Each worker has a distinct Awareness identity in the parent's database/workspace. Browser workers receive `chromeDebug`, `MCPTool`, `skill`, `awareness`, and `bash`. Custom workers must declare a non-empty role `systemPrompt` and an explicit least-capability `tools` list; `tools:[]` maps to Pi's `--no-tools`, and lean mode disables extension and skill loading.
-
 ```text
 agent({queries:[{
   type:"spawn",
@@ -340,12 +328,6 @@ cannot be created (e.g., workspace does not yet exist).
 
 Large generic tool results and bash logs are intentionally not durable session artifacts. They use private files under `$OCTOCODE_HOME/extension/tmp/tool-results/`, include an exact path in the bounded result, support chunked reads through `localFetch`, and are removed during `session_shutdown`. A later write prunes crash leftovers older than 24 hours.
 
-## Local file history
-
-Successful native `file` mutations are captured before and after through the shared Awareness history store. Awareness owns the private bundled Git objects and metadata; Pi does not invoke system Git or write a second history database. Use `/octocode-rewind` to select a bounded timeline entry, inspect its file-level preview, and approve the same preview for apply. In headless sessions, use `history.timeline`, `history.read`, and `history.restore` through the native tool; restore selects `action: preview` or `action: apply`. Pi never snapshots the whole workspace on input and never rewinds conversation state.
-
----
-
 ## Internal error log
 
 The extension appends extension-visible errors to `logs/error.txt` inside the session
@@ -363,13 +345,9 @@ Pi-core/runtime banners that do not pass through extension hooks, such as a mode
 
 ---
 
-## Memory and Awareness
+## Planning and communication
 
-`plan` is for complex dependencies, coordinated ownership, consequential risk, substantial work spanning sessions, or an explicit planning request. Skip it for routine fixes. Pi projects shared plan state through canonical Work operations when needed and reuses native IDs and observed receipts.
-
-Pi uses `createAwarenessClient` for routine operations and `createAwarenessHost` for lifecycle-owned history capture. It claims native lifecycle ownership at session start, so shell hooks do not duplicate Pi events. External hosts use the CLI with the same physical database and distinct stable identities. Linked Git worktrees can share coordination state; separate clones or databases cannot.
-
-The model starts with a host briefing or `context.orient`. It uses Context for attributed observations and advisory feedback, Work for ownership, dependencies, path protection, and verification, Message for decision-changing communication, Memory for verified reusable learning, and History for inspection or authorized restore. For the exact twenty-one-operation catalog, see [AWARENESS_AGENT_FLOW.md](AWARENESS_AGENT_FLOW.md) and the [API reference](../../octocode-awareness/docs/API.md).
+`plan` is for complex dependencies, coordinated ownership, consequential risk, substantial work spanning sessions, or an explicit planning request. Skip it for routine fixes. Pi owns branch-local plan state and observed receipts. Use communication tools for shared identities, messages, documents and advisory path leases; see [agent flow](COMMUNICATION_AGENT_FLOW.md).
 
 ## MCP Servers
 
@@ -651,7 +629,7 @@ subprocess — never registered as first-class Pi tools at runtime.
   both declaration (manifest) and approval (caller) must agree before a capability is granted.
 - **Mandatory reason** — every created tool records why it should exist.
 - **Deterministic result cache** — a tool created with `deterministic:true` and no capabilities memoizes results per (name, version, metadata); repeat calls skip the subprocess (`[REUSED …, cached]`). Re-registering a new version busts the cache.
-- **Awareness projection** — a live `<dynamic_capabilities>` block is injected into the system prompt each turn (empty when no dynamic tools/skills exist), so the agent knows its self-created tools/skills without an explicit `list`. Rebuilt from disk per turn — no watcher.
+- **Capability projection** — a live `<dynamic_capabilities>` block is injected into the system prompt each turn (empty when no dynamic tools/skills exist), so the agent knows its self-created tools/skills without an explicit `list`. Rebuilt from disk per turn — no watcher.
 - **Concurrency + rollback** — registry writes take a cross-process lock (shared under
   `getOctocodeHome()` across parallel agents); a failed `enhance`/`fix` rolls back to the
   previous good tool, so there is never a soft-broken (stale-checksum) state.

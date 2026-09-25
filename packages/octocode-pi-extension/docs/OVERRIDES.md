@@ -53,14 +53,6 @@ file-mutation route and one schema cost.
 | New file or intentional full rewrite | `file({queries:[{type:"write", path, content}]})` |
 | Explicitly scoped file/symlink removal | `file({queries:[{type:"delete", path}]})` |
 | Builds, tests, package commands, mechanical work | `bash` |
-| Shared Context, Work, Message, Memory, and History operations | Native `awareness` tool → imported package API |
-
-Pi supplies `OCTOCODE_NODE`, `OCTOCODE_AWARENESS_CLI`, `OCTOCODE_AWARENESS_DB`,
-`OCTOCODE_AWARENESS_WORKSPACE` and `OCTOCODE_AGENT_ID` to guarded shell calls.
-Use `"$OCTOCODE_NODE" "$OCTOCODE_AWARENESS_CLI" --db "$OCTOCODE_AWARENESS_DB" <command>`
-with the supplied workspace and identity on scoped operations. CLI calls and native
-mutation guards share the same ledger. No duplicate model-facing coordination
-wrapper is registered; native event delivery, registry and plan UI remain.
 
 Read existing files before edit or delete. Prefer exact `oldText`; use `matchMode:"normalized"` only for representation drift and `lineRange` only with freshly read line numbers. Do not use shell redirection, `sed`, or `rm` for ordinary mutations when `file` is available.
 
@@ -87,7 +79,6 @@ Structured mutations and detected bash write targets are limited to:
 | Read-state and mutation queue | `src/tools/file-state.ts` |
 | Path policy | `src/tools/path-guard.ts` |
 | Guarded shell | `src/tools/bash-tool.ts` |
-| Awareness shell bindings | `src/tools/awareness-cli-context.ts` |
 | Plan-mode effects | `src/tools/plan-mode.ts` |
 
 The edit/write modules remain internal engines; only `file` is registered publicly.

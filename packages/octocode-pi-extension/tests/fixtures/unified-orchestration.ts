@@ -13,7 +13,6 @@ export const RETRY_AFTER_SHARED_COMMIT_FIXTURE = {
 export const FORKED_SESSION_FIXTURE = {
   parent: {
     lifecycle: 'executing',
-    awarenessPlanId: 'plan_parent',
     awarenessTaskIds: ['task_parent_schema', 'task_parent_runtime'],
   },
   fork: {

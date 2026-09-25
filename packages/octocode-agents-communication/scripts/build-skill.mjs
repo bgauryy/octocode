@@ -1,11 +1,12 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, copyFileSync, mkdirSync, readFileSync, writeFileSync, renameSync, rmSync } from 'node:fs';
+import { mkdirSync, writeFileSync, renameSync, rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { createHash } from 'node:crypto';
+import { installExecutable } from './artifact-checks.mjs';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
-const target = process.env.CARGO_BUILD_TARGET ?? execFileSync('rustc', ['-vV'], { encoding: 'utf8' }).match(/^host: (.+)$/m)[1];
+const hostTarget = execFileSync('rustc', ['-vV'], { encoding: 'utf8' }).match(/^host: (.+)$/m)[1];
+const target = process.env.CARGO_BUILD_TARGET ?? hostTarget;
 const release = process.argv.includes('--release');
 const flags = ['build', '--locked', '--manifest-path', join(root, 'Cargo.toml'), '--target', target];
 if (release) flags.push('--release');
@@ -15,11 +16,11 @@ const source = join(process.env.CARGO_TARGET_DIR ?? join(root, 'target'), target
 const directory = join(root, 'skills/octocode-agents-communication/scripts/bin', target);
 mkdirSync(directory, { recursive: true });
 const destination = join(directory, filename);
-const temporary = `${destination}.${process.pid}.tmp`;
+const installed = installExecutable(source, destination, { target, hostTarget });
+const checksum = join(directory, 'SHA256SUMS');
+const temporary = `${checksum}.${process.pid}.tmp`;
 try {
-  copyFileSync(source, temporary);
-  chmodSync(temporary, 0o755);
-  renameSync(temporary, destination);
+  writeFileSync(temporary, `${installed.sha256}  ${filename}\n`);
+  renameSync(temporary, checksum);
 } finally { rmSync(temporary, { force: true }); }
-writeFileSync(join(directory, 'SHA256SUMS'), `${createHash('sha256').update(readFileSync(destination)).digest('hex')}  ${filename}\n`);
-console.log(`Skill executable: ${destination}`);
+console.log(JSON.stringify({ executable: destination, ...installed }));

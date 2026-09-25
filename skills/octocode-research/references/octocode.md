@@ -25,7 +25,7 @@ Pass arguments as an object. Direct MCP uses `{ "queries": [query] }`; CLI also 
 | Repeated cross-file GitHub analysis | `ghCloneRepo` when enabled |
 | Local text / syntax / file-graph topology / structural rewrite / exact content / symbol identity | `localSearch` / `astSearch` / `astTopology` / `astRewrite` / `localFetch` / `lspSearch` |
 | Package metadata or capability discovery | `artifactSearch` |
-| Provisional typed judgment at an unresolved evidence fork | `clasify` when a nonblank `OCTOCODE_CLASSIFICATION_API` is resolved |
+| Explicit classification capability | `octocode-clasify` owns admission; `clasify` also needs a nonblank `OCTOCODE_CLASSIFICATION_API` |
 
 The default catalog contains 9 tools. The full CLI discovery catalog also includes opt-in `ghCloneRepo`, beta-gated `astTopology` and `astRewrite` (`OCTOCODE_BETA`), and credential-gated `clasify`. MCP omits `clasify` when the resolved `OCTOCODE_CLASSIFICATION_API` is missing or blank; a direct CLI assessment names the missing key. Local access, clone, storage, credentials, and tool filters determine availability. Check the live catalog before using a follow-up. Check auth only when needed. If the current interface is unavailable, state the fallback and its coverage; do not present an unsupported call as an empty result.
 

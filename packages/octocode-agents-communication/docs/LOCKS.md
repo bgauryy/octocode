@@ -40,7 +40,8 @@ model keeps the skill usable by generic agents.
    overlaps still conflict; callers must retain and renew their existing lease.
 
 Lease inspection uses the exact same overlap function as acquisition, through a
-connection-local SQLite function. The SQL schema is unchanged. All participants
+connection-local SQLite function. Path comparison itself requires no schema change; the
+required intent field uses [schema v3](DB.md). All participants
 must upgrade together after old workers stop and their leases are released or their
 presence expires; the earlier comparison algorithm is not compatible with the new
 one for mixed-client acquisition.
@@ -69,3 +70,47 @@ case-alias contenders, and both directions of Python/Rust conflict checks.
 - [Rust canonicalize](https://doc.rust-lang.org/std/fs/fn.canonicalize.html): resolves links for existing paths; missing paths require deliberate handling.
 - [caseless implementation](https://docs.rs/caseless/0.2.2/src/caseless/lib.rs.html): canonical caseless comparison applies normalization and full case folding.
 - [Agent Mail guard](https://github.com/Dicklesworthstone/mcp_agent_mail/blob/main/src/mcp_agent_mail/guard.py): inspected prior art uses case detection for guard matching; this is evidence of a different policy, not proof of its lease guarantees.
+
+## Recovery and multi-path coordination
+
+`lock_many` reserves a complete set (up to 32 paths) in one `BEGIN IMMEDIATE`
+transaction. Conflicting sets cannot each receive a partial reservation. Requests
+with internally overlapping aliases/trees are rejected before any insert. Every
+returned ID must still be renewed/released explicitly.
+
+A request requires `reasoning`: a nonblank explanation of why the paths are needed,
+limited to 512 UTF-8 bytes. A bundle shares one reason. The reason is stored with
+each lease and its audit events; renewal and release retain the original intent.
+
+A conflict returns the owner's reason, current effective expiry, your held IDs, and a
+stable keyed question carrying your reason to request a handoff. Release held reservations before
+waiting, ask once, and use independent work instead of a model polling loop.
+Self-conflicts tell the owner to reuse its covering lease or release/reacquire.
+A timeout is a cue to retry acquisition, never permission to write unlocked.
+
+Default lease TTL is 60 seconds. Presence expires after 60 seconds without a
+heartbeat, and heartbeats never renew leases. A stalled worker with a live
+listener therefore loses unrenewed locks; an orderly exit releases immediately.
+User-selected long TTLs and deliberate renewals can extend blocking. There is
+no fairness queue or automatic force-steal; atomic acquisition prevents partial
+sets, while cooperation is still required for pre-existing separately held locks.
+Wall-clock changes affect expiry, and advisory locks do not fence OS writes.
+
+Research: [SQLite transactions](https://www.sqlite.org/lang_transaction.html)
+document single-writer and `BEGIN IMMEDIATE` behavior. [PostgreSQL deadlock
+ guidance](https://www.postgresql.org/docs/current/explicit-locking.html#LOCKING-DEADLOCKS)
+recommends consistent acquisition order and avoiding long-held transactions.
+[etcd leases](https://etcd.io/docs/v3.6/learning/api/#lease-api) separate TTL from
+explicit keep-alive; our presence and path leases intentionally have separate
+renewals. These sources inform the design, not a claim of distributed consensus.
+
+Regression evidence: `tests/leases.test.mjs` covers concurrent reversed sets,
+no partial grants, one keyed owner question, internal alias overlap, stale ID
+rejection, stalled-owner expiry, orderly leave, and expired-owner cleanup.
+See [the six-worker exercise](COORDINATION_MESH.md) for real vendor coordination.
+
+The separate `scripts/lease-crash-poc.mjs` kills a real raw listener with SIGKILL,
+keeps a peer alive, and waits for natural owner presence expiry. The live run
+recovered a 120-second lease after 60,063 ms, before the lease's own expiry.
+Stale renewal failed both before and after resuming the dead owner's identity.
+The fixture changes no timestamps; `out/lease-crash-poc.json` retains the evidence.

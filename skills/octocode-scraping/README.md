@@ -1,6 +1,6 @@
 # Octocode Scraping
 
-Fetch public web pages into a local, cited corpus and query them with clasify — without reading raw bodies into chat.
+Fetch public web pages into a local corpus, search targeted spans, and cite inspected source.
 
 ---
 
@@ -10,7 +10,7 @@ Fetch public web pages into a local, cited corpus and query them with clasify �
 |---|---|
 | Scrape or crawl public URLs, docs, tables, pricing pages | ✅ This skill |
 | Extract structured data (links, forms, headings, JSON-LD) from a static page | ✅ This skill |
-| Triage ambiguous unread pages when metadata and snippets do not settle the next read | ✅ This skill (optional clasify SCREEN) |
+| Supply saved pages for an explicit classification request | → `octocode-clasify` owns admission |
 | Page renders in the browser but has no content when fetched statically | ❌ → `octocode-chrome-devtools` |
 | You need to click, fill, log in, or interact with a live page | ❌ → `octocode-chrome-devtools` |
 | You want network HAR, console errors, or live DOM state | ❌ → `octocode-chrome-devtools` |
@@ -27,13 +27,13 @@ Fetch public web pages into a local, cited corpus and query them with clasify �
 ## Workflow
 
 ```
-FRAME → POLICY → ROUTE → FETCH → CORPUS → SCREEN → CITE → RECOVER
+FRAME → POLICY → ROUTE → FETCH → CORPUS → READ → CITE → RECOVER
 ```
 
 1. **FRAME** — set URL, goal, depth, output path before fetching
 2. **FETCH** — `scripts/fetch.mjs` (or `fetch-and-brief.mjs` for a quick summary)
 3. **CORPUS** — pages land in `.octocode/tmp/scrape/<sessionId>/text/`, extracts in `/extracts/`
-4. **SCREEN, when useful** — use metadata and snippets first; clasify ambiguous unread pages when it changes the next read. See [references/clasify-screen.md](references/clasify-screen.md)
+4. **READ** — use metadata and snippets to select deciding source spans. Classification delegates to `octocode-clasify`. See [references/clasify-screen.md](references/clasify-screen.md)
 5. **LITERAL VERIFY** — inspect the selected source and use `corpus-run.mjs --regex <pattern>` for exact text checks
 6. **CITE** — report artifact paths + URL metadata; never paste raw HTML into chat
 

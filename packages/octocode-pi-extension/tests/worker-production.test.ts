@@ -6,51 +6,6 @@ import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { createWorkerMcpBroker, type WorkerBrokerBinding } from '../src/tools/mcp/broker.js';
 import type { CapabilitySnapshot } from '../src/contracts/capabilities.js';
-import { getAwarenessOperationDescriptor } from '@octocodeai/octocode-awareness';
-
-it('lets an Awareness-only worker discover and execute the native API without shell access or duplicate standing policy', async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-awareness-worker-'));
-  const snapshot: CapabilitySnapshot = { schemaVersion: 1, revision: 'awareness-only', nativeTools: ['awareness'], skills: [], mcpTools: [] };
-  const broker = await createWorkerMcpBroker({ snapshot, dispatchMcp: async () => { throw new Error('No MCP grant'); } });
-  try {
-    const binding = broker.registerWorker('awareness-child', { nativeTools: ['awareness'], skills: [], mcpTools: [] });
-    const { receipt } = await runWorker(root, binding, 'index.js', 'awareness', [
-      { name: 'awareness', arguments: { queries: [{ reasoning: 'Inspect unfamiliar fields', operation: 'message.send', describe: true }] } },
-      { name: 'awareness', arguments: { queries: [{ reasoning: 'Read bound context', operation: 'context.orient' }] } },
-    ], 'high');
-    expect(receipt.activeTools).toEqual(['awareness']);
-    expect(receipt.reasoning).toBe('high');
-    expect(receipt.awarenessPolicyCopies).toBe(1);
-    expect(receipt.results).toHaveLength(2);
-    expect(receipt.results.map((result: { isError: boolean }) => result.isError), JSON.stringify(receipt.results)).toEqual([false, false]);
-    const firstSchema = JSON.parse(receipt.results[0].text) as {
-      inputSchemaText?: string;
-      inputSchemaTextPart?: string;
-      schemaPart?: { index: number; total: number };
-      next?: { queries: Array<Record<string, unknown>> };
-    };
-    const schemaParts = firstSchema.inputSchemaText === undefined ? [firstSchema.inputSchemaTextPart!] : [];
-    if (firstSchema.schemaPart && firstSchema.next) {
-      const followups = Array.from({ length: firstSchema.schemaPart.total - 1 }, (_, index) => ({
-        name: 'awareness',
-        arguments: { queries: [{ ...firstSchema.next!.queries[0], part: index + 1 }] },
-      }));
-      const continued = await runWorker(root, binding, 'index.js', 'awareness', followups, 'high');
-      expect(continued.receipt.results.every((result: { isError: boolean }) => !result.isError)).toBe(true);
-      for (const result of continued.receipt.results) {
-        const payload = JSON.parse(result.text) as { inputSchemaTextPart: string; schemaPart: { index: number } };
-        schemaParts[payload.schemaPart.index] = payload.inputSchemaTextPart;
-      }
-    }
-    const schemaText = firstSchema.inputSchemaText ?? schemaParts.join('');
-    expect(schemaText).toBe(getAwarenessOperationDescriptor('message.send')!.inputSchemaText);
-    expect(JSON.parse(schemaText)).toEqual(getAwarenessOperationDescriptor('message.send')!.inputSchema);
-    expect(JSON.parse(receipt.results[1].text).self.actorId).toBeTruthy();
-  } finally {
-    await broker.dispose();
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-}, 35_000);
 
 /** Installed Pi executes the packaged extension; the provider is deterministic and offline. */
 it('enforces the parent grant through a real installed Pi worker turn', async () => {

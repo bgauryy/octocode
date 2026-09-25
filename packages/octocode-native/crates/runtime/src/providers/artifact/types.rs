@@ -3,25 +3,13 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use url::Url;
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ArtifactType {
-    Npm,
-    #[serde(rename = "pypi")]
-    PyPi,
-    Crates,
-    Maven,
-    Nuget,
-    Go,
-    Packagist,
-    Rubygems,
-}
+pub use crate::contracts::tool_types::{ArtifactSearchQuery, ArtifactSearchQueryType};
 
-impl ArtifactType {
+impl ArtifactSearchQueryType {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Npm => "npm",
-            Self::PyPi => "pypi",
+            Self::Pypi => "pypi",
             Self::Crates => "crates",
             Self::Maven => "maven",
             Self::Nuget => "nuget",
@@ -32,23 +20,55 @@ impl ArtifactType {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ArtifactQuery {
-    #[serde(rename = "type")]
-    pub artifact_type: ArtifactType,
-    pub package_name: Option<String>,
-    pub keywords: Option<Vec<String>>,
-    pub page_size: Option<usize>,
-    pub cursor: Option<String>,
-    pub registry: Option<String>,
+/// Registry-facing views over the generated wire query.
+impl ArtifactSearchQuery {
+    pub fn package_name(&self) -> Option<&str> {
+        self.package_name.as_deref().map(String::as_str)
+    }
+    pub fn cursor(&self) -> Option<&str> {
+        self.cursor.as_deref().map(String::as_str)
+    }
+    pub fn page_size(&self) -> Option<usize> {
+        self.page_size
+            .map(|size| usize::try_from(size.get()).unwrap_or(usize::MAX))
+    }
+    /// Keywords as one space-joined registry search text.
+    pub fn terms(&self) -> String {
+        self.keywords
+            .iter()
+            .map(|keyword| keyword.as_str())
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+}
+
+/// Parses an artifactSearch query from JSON fields layered over `base`
+/// (or a minimal npm query); a `null` field removes it.
+#[cfg(test)]
+pub(crate) fn artifact_query(
+    fields: serde_json::Value,
+    base: Option<&ArtifactSearchQuery>,
+) -> ArtifactSearchQuery {
+    let mut value = base.map_or_else(
+        || serde_json::json!({"type": "npm", "reasoning": "test"}),
+        |base| serde_json::to_value(base).expect("query serializes"),
+    );
+    let object = value.as_object_mut().expect("query object");
+    for (key, field) in fields.as_object().expect("fields object") {
+        if field.is_null() {
+            object.remove(key);
+        } else {
+            object.insert(key.clone(), field.clone());
+        }
+    }
+    serde_json::from_value(value).expect("valid artifactSearch query")
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ArtifactItem {
     #[serde(rename = "type")]
-    pub artifact_type: ArtifactType,
+    pub artifact_type: ArtifactSearchQueryType,
     pub name: String,
     pub registry_url: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -70,7 +90,7 @@ pub struct ArtifactItem {
 }
 
 impl ArtifactItem {
-    pub(crate) fn new(artifact_type: ArtifactType, name: String, registry_url: String) -> Self {
+    pub(crate) fn new(artifact_type: ArtifactSearchQueryType, name: String, registry_url: String) -> Self {
         Self {
             artifact_type,
             name,

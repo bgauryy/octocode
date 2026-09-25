@@ -189,7 +189,8 @@ test('spawnRpcAgent assigns a globally durable workspace-scoped handback and inj
     assert.equal(fs.existsSync(path.dirname(record.handbackPath)), true, 'handback directory should be created before the worker starts');
     assert.match(initialPrompt, /durable handback file:/);
     assert.match(initialPrompt, new RegExp(record.handbackPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
-    assert.match(initialPrompt, /parent agent id:/);
+    assert.match(initialPrompt, /call peers to discover recipient session IDs/);
+    assert.doesNotMatch(initialPrompt, /your agent id:|parent agent id:|peers:/);
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }

@@ -70,7 +70,7 @@ pub(super) async fn locations(
                 .is_some_and(|uri| sources.uri_authorized(uri))
         })
         .collect::<Vec<_>>();
-    if let Some(context_lines) = query.context_lines {
+    if let Some(context_lines) = query.context_lines() {
         for location in &mut locations {
             apply_context_lines(location, context_lines, sources).await;
         }
@@ -94,7 +94,7 @@ pub(super) async fn locations(
     }
     // groupByFile summarizes per file INSTEAD of returning every location, so
     // the page unit becomes a file summary.
-    let grouped = query.group_by_file == Some(true);
+    let grouped = query.group_by_file() == Some(true);
     let entries = if grouped {
         group_by_file(&locations, workspace_root)
     } else {
@@ -102,8 +102,8 @@ pub(super) async fn locations(
     };
     let (page, mut pagination) = paginate(
         &entries,
-        query.page.unwrap_or(1),
-        query.page_size.unwrap_or(40),
+        query.page().unwrap_or(1),
+        query.page_size().unwrap_or(40),
     );
     pagination["snapshot"] = json!(snapshot);
     let mut payload = if grouped {
@@ -147,8 +147,8 @@ pub(super) async fn locations(
         payload["coverage"] = json!({ "scope": "languageServer", "exhaustive": false });
     }
     json!({
-        "type": query.operation,
-        "uri": query.uri,
+        "type": query.operation(),
+        "uri": query.uri(),
         "lsp": { "serverAvailable": true, "provider": provider },
         "payload": payload,
         "pagination": pagination
@@ -358,9 +358,12 @@ pub(super) fn group_by_file(locations: &[Value], workspace_root: &str) -> Vec<Va
 
 pub(super) fn semantic_snapshot(query: &LspSearchQuery, kind: &str, items: &[Value]) -> String {
     use sha2::{Digest, Sha256};
-    let mut scope = query.clone();
-    scope.page = None;
-    scope.snapshot = None;
+    let mut scope = query.to_row();
+    if let Some(object) = scope.as_object_mut() {
+        for field in ["goal", "reasoning", "debug", "page", "snapshot"] {
+            object.remove(field);
+        }
+    }
     let bytes = serde_json::to_vec(&json!({
         "query": scope,
         "kind": kind,
@@ -371,7 +374,7 @@ pub(super) fn semantic_snapshot(query: &LspSearchQuery, kind: &str, items: &[Val
 }
 
 pub(super) fn snapshot_mismatch(query: &LspSearchQuery, actual: &str) -> bool {
-    query.page.unwrap_or(1) > 1 && query.snapshot.as_deref() != Some(actual)
+    query.page().unwrap_or(1) > 1 && query.snapshot() != Some(actual)
 }
 
 pub(super) fn snapshot_changed(query: &LspSearchQuery, snapshot: String) -> Value {
@@ -384,8 +387,8 @@ pub(super) fn snapshot_changed(query: &LspSearchQuery, snapshot: String) -> Valu
         "status": "error",
         "errorCode": "lsp.snapshot.changed",
         "error": "The LSP result or query changed, or this continuation omitted its snapshot. Discard earlier pages and restart.",
-        "type": query.operation,
-        "uri": query.uri,
+        "type": query.operation(),
+        "uri": query.uri(),
         "snapshot": snapshot,
         "complete": false,
         "next": { "restart": continuation(restart) }
@@ -419,13 +422,13 @@ pub(super) fn items_payload(query: &LspSearchQuery, kind: &str, value: Value) ->
     }
     let (page, mut pagination) = paginate(
         &raw_items,
-        query.page.unwrap_or(1),
-        query.page_size.unwrap_or(40),
+        query.page().unwrap_or(1),
+        query.page_size().unwrap_or(40),
     );
     pagination["snapshot"] = json!(snapshot);
     json!({
-        "type": query.operation,
-        "uri": query.uri,
+        "type": query.operation(),
+        "uri": query.uri(),
         "lsp": { "serverAvailable": true },
         "payload": { "kind": kind, "items": page },
         "pagination": pagination
@@ -456,8 +459,8 @@ fn document_symbols_payload(query: &LspSearchQuery, raw_items: &[Value]) -> Valu
     }
     let (page, mut pagination) = paginate(
         &symbols,
-        query.page.unwrap_or(1),
-        query.page_size.unwrap_or(40),
+        query.page().unwrap_or(1),
+        query.page_size().unwrap_or(40),
     );
     pagination["snapshot"] = json!(snapshot);
     let mut kinds = serde_json::Map::new();
@@ -472,7 +475,7 @@ fn document_symbols_payload(query: &LspSearchQuery, raw_items: &[Value]) -> Valu
     }
     json!({
         "type": "documentSymbols",
-        "uri": query.uri,
+        "uri": query.uri(),
         "lsp": {
             "serverAvailable": true,
             "provider": "documentSymbolProvider",

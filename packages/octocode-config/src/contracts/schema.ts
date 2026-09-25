@@ -5,12 +5,3 @@
 // imports contracts and types from "@octocodeai/config/schema".
 export * from "@octocodeai/octocode-core/schema";
 export * from "./toolTypes.generated.js";
-// Generated types own these names; core's z.infer aliases are not re-exported.
-export type {
-  AstRewriteQuery,
-  AstSearchQuery,
-  AstTopologyQuery,
-  ClasifyInput,
-  ClasifyOutput,
-  LocalSearchQuery,
-} from "./toolTypes.generated.js";

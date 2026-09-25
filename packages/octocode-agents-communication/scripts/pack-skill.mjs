@@ -1,23 +1,62 @@
 import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { checkSkill, checkStartup, digest, verifyExecutable } from './artifact-checks.mjs';
 
-const root = dirname(dirname(fileURLToPath(import.meta.url)));
-const skill = join(root, 'skills/octocode-agents-communication');
-const bin = join(skill, 'scripts/bin');
-if (!existsSync(bin)) throw new Error('Build the skill before packaging it.');
-const targets = readdirSync(bin, { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => entry.name).sort();
-if (!targets.length) throw new Error('No platform binaries to package.');
-for (const target of targets) {
-  const name = `octocode-agents-communication${target.includes('windows') ? '.exe' : ''}`;
-  const bytes = readFileSync(join(bin, target, name));
-  const expected = `${createHash('sha256').update(bytes).digest('hex')}  ${name}\n`;
-  if (readFileSync(join(bin, target, 'SHA256SUMS'), 'utf8') !== expected) throw new Error(`Checksum mismatch: ${target}`);
+export function packSkill(root, { hostTarget, timeoutMs = 10000 }) {
+  const skill = join(root, 'skills/octocode-agents-communication');
+  const bin = join(skill, 'scripts/bin');
+  if (!existsSync(bin)) throw new Error('Build the skill before packaging it.');
+  const targets = readdirSync(bin, { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => entry.name).sort();
+  if (!targets.length) throw new Error('No platform binaries to package.');
+  const checkHashes = base => {
+    for (const target of targets) {
+      const name = `octocode-agents-communication${target.includes('windows') ? '.exe' : ''}`;
+      for (const entry of readdirSync(join(base, target), { withFileTypes: true })) {
+        if (!entry.isFile() || ![name, 'SHA256SUMS'].includes(entry.name)) {
+          throw new Error(`Unexpected platform artifact: ${target}/${entry.name}; finish the build before packaging.`);
+        }
+      }
+      const expected = `${digest(join(base, target, name))}  ${name}\n`;
+      if (readFileSync(join(base, target, 'SHA256SUMS'), 'utf8') !== expected) throw new Error(`Checksum mismatch: ${target}`);
+    }
+  };
+  checkHashes(bin);
+  const { version } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+  const out = join(root, 'out');
+  mkdirSync(out, { recursive: true });
+  const name = `octocode-agents-communication-${version}-${targets.length === 1 ? targets[0] : 'multi-platform'}.tar.gz`;
+  const archive = join(out, name);
+  const staging = mkdtempSync(join(out, '.communication-pack-'));
+  try {
+    const candidate = join(staging, name);
+    const extracted = join(staging, 'extracted');
+    mkdirSync(extracted);
+    execFileSync('tar', ['-czf', candidate, '-C', join(root, 'skills'), 'octocode-agents-communication'], { timeout: 60000, killSignal: 'SIGKILL' });
+    execFileSync('tar', ['-xzf', candidate, '-C', extracted], { timeout: 60000, killSignal: 'SIGKILL' });
+    const extractedSkill = join(extracted, 'octocode-agents-communication');
+    const extractedBin = join(extractedSkill, 'scripts/bin');
+    checkHashes(extractedBin);
+    const verification = Object.fromEntries(targets.map(target => {
+      const filename = `octocode-agents-communication${target.includes('windows') ? '.exe' : ''}`;
+      const executable = join(extractedBin, target, filename);
+      const checks = verifyExecutable(executable, { target, hostTarget, timeoutMs });
+      checks.skill = target === hostTarget
+        ? checkSkill(executable, join(extractedSkill, 'SKILL.md'), timeoutMs)
+        : { passed: null, reason: 'foreign-target-needs-native-CI' };
+      return [target, checks];
+    }));
+    const launcher = process.platform !== 'win32' && targets.includes(hostTarget)
+      ? checkStartup(join(extractedSkill, 'scripts/agents-communication'), timeoutMs)
+      : { passed: null, reason: 'launcher-needs-native-CI' };
+    renameSync(candidate, archive);
+    return { archive, sha256: digest(archive), targets, verification, launcher };
+  } finally { rmSync(staging, { recursive: true, force: true }); }
 }
-const { version } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
-mkdirSync(join(root, 'out'), { recursive: true });
-const archive = join(root, 'out', `octocode-agents-communication-${version}-${targets.length === 1 ? targets[0] : 'multi-platform'}.tar.gz`);
-execFileSync('tar', ['-czf', archive, '-C', join(root, 'skills'), 'octocode-agents-communication']);
-console.log(JSON.stringify({ archive, targets }));
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const root = dirname(dirname(fileURLToPath(import.meta.url)));
+  const hostTarget = execFileSync('rustc', ['-vV'], { encoding: 'utf8' }).match(/^host: (.+)$/m)[1];
+  console.log(JSON.stringify(packSkill(root, { hostTarget })));
+}

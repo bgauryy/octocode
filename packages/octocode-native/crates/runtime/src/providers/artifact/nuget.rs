@@ -1,19 +1,19 @@
 use super::http::RegistryClient;
 use super::util::{endpoint, object_for, parse_url, required, rows, safe_url, string, total};
 use super::{
-    ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState, ArtifactQuery,
-    ArtifactType,
+    ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState, ArtifactSearchQuery,
+    ArtifactSearchQueryType,
 };
 use serde_json::{Map, Value};
 use std::cmp::Ordering;
 use url::Url;
 
 pub(crate) async fn nuget(
-    query: &ArtifactQuery,
+    query: &ArtifactSearchQuery,
     state: &ArtifactProviderState,
     client: &RegistryClient<'_>,
 ) -> Result<ArtifactProviderPage, ArtifactError> {
-    if let Some(name) = query.package_name.as_deref() {
+    if let Some(name) = query.package_name() {
         return exact(name, client).await;
     }
     let offset = state.offset.unwrap_or(0);
@@ -30,21 +30,15 @@ pub(crate) async fn nuget(
     let size = if offset == 3000 {
         1000
     } else {
-        query.page_size.unwrap_or(10).min((3000 - offset) as usize)
+        query
+            .page_size()
+            .unwrap_or(10)
+            .min((3000 - offset) as usize)
     };
     let url = endpoint(
         base.as_str(),
         &[
-            (
-                "q",
-                Some(
-                    query
-                        .keywords
-                        .as_ref()
-                        .map(|v| v.join(" "))
-                        .unwrap_or_default(),
-                ),
-            ),
+            ("q", Some(query.terms())),
             ("skip", Some(offset.to_string())),
             ("take", Some(size.to_string())),
             ("prerelease", Some("true".into())),
@@ -52,17 +46,17 @@ pub(crate) async fn nuget(
         ],
     )?;
     let response = client
-        .json(ArtifactType::Nuget, url, false, None)
+        .json(ArtifactSearchQueryType::Nuget, url, false, None)
         .await?
-        .ok_or_else(|| super::util::invalid(ArtifactType::Nuget))?;
-    let data = object_for(&response, ArtifactType::Nuget)?;
+        .ok_or_else(|| super::util::invalid(ArtifactSearchQueryType::Nuget))?;
+    let data = object_for(&response, ArtifactSearchQueryType::Nuget)?;
     let artifacts = rows(
         data.get("data")
-            .ok_or_else(|| super::util::invalid(ArtifactType::Nuget))?,
-        ArtifactType::Nuget,
+            .ok_or_else(|| super::util::invalid(ArtifactSearchQueryType::Nuget))?,
+        ArtifactSearchQueryType::Nuget,
     )?
     .iter()
-    .map(|value| item(object_for(value, ArtifactType::Nuget)?))
+    .map(|value| item(object_for(value, ArtifactSearchQueryType::Nuget)?))
     .collect::<Result<Vec<_>, _>>()?;
     let count = total(data.get("totalHits"));
     let next_offset = offset + artifacts.len() as u64;
@@ -98,24 +92,24 @@ async fn exact(
         base.as_str().trim_end_matches('/'),
         super::util::encode_component(&package_name.to_ascii_lowercase())
     ))?;
-    let Some(response) = client.json(ArtifactType::Nuget, url, true, None).await? else {
+    let Some(response) = client.json(ArtifactSearchQueryType::Nuget, url, true, None).await? else {
         return Ok(ArtifactProviderPage::empty(Some(0)));
     };
     let pages = rows(
-        object_for(&response, ArtifactType::Nuget)?
+        object_for(&response, ArtifactSearchQueryType::Nuget)?
             .get("items")
-            .ok_or_else(|| super::util::invalid(ArtifactType::Nuget))?,
-        ArtifactType::Nuget,
+            .ok_or_else(|| super::util::invalid(ArtifactSearchQueryType::Nuget))?,
+        ArtifactSearchQueryType::Nuget,
     )?;
     if pages.is_empty() {
         return Ok(ArtifactProviderPage::empty(Some(0)));
     }
-    let mut highest = object_for(&pages[0], ArtifactType::Nuget)?;
+    let mut highest = object_for(&pages[0], ArtifactSearchQueryType::Nuget)?;
     for page in &pages[1..] {
-        let page = object_for(page, ArtifactType::Nuget)?;
+        let page = object_for(page, ArtifactSearchQueryType::Nuget)?;
         if compare_versions(
-            &required(page.get("upper"), ArtifactType::Nuget)?,
-            &required(highest.get("upper"), ArtifactType::Nuget)?,
+            &required(page.get("upper"), ArtifactSearchQueryType::Nuget)?,
+            &required(highest.get("upper"), ArtifactSearchQueryType::Nuget)?,
         )? == Ordering::Greater
         {
             highest = page;
@@ -127,23 +121,23 @@ async fn exact(
     } else {
         let advertised = official_url(highest.get("@id"))?;
         owned_page = client
-            .json(ArtifactType::Nuget, advertised, false, None)
+            .json(ArtifactSearchQueryType::Nuget, advertised, false, None)
             .await?
-            .ok_or_else(|| super::util::invalid(ArtifactType::Nuget))?;
-        object_for(&owned_page, ArtifactType::Nuget)?
+            .ok_or_else(|| super::util::invalid(ArtifactSearchQueryType::Nuget))?;
+        object_for(&owned_page, ArtifactSearchQueryType::Nuget)?
             .get("items")
-            .ok_or_else(|| super::util::invalid(ArtifactType::Nuget))?
+            .ok_or_else(|| super::util::invalid(ArtifactSearchQueryType::Nuget))?
     };
-    let leaves = rows(page, ArtifactType::Nuget)?;
+    let leaves = rows(page, ArtifactSearchQueryType::Nuget)?;
     if leaves.is_empty() {
-        return Err(super::util::invalid(ArtifactType::Nuget));
+        return Err(super::util::invalid(ArtifactSearchQueryType::Nuget));
     }
     let mut latest = catalog(&leaves[0])?;
     for leaf in &leaves[1..] {
         let candidate = catalog(leaf)?;
         if compare_versions(
-            &required(candidate.get("version"), ArtifactType::Nuget)?,
-            &required(latest.get("version"), ArtifactType::Nuget)?,
+            &required(candidate.get("version"), ArtifactSearchQueryType::Nuget)?,
+            &required(latest.get("version"), ArtifactSearchQueryType::Nuget)?,
         )? == Ordering::Greater
         {
             latest = candidate;
@@ -161,18 +155,18 @@ async fn exact(
 async fn service_endpoint(kind: &str, client: &RegistryClient<'_>) -> Result<Url, ArtifactError> {
     let index = client
         .json(
-            ArtifactType::Nuget,
+            ArtifactSearchQueryType::Nuget,
             parse_url("https://api.nuget.org/v3/index.json")?,
             false,
             None,
         )
         .await?
-        .ok_or_else(|| super::util::invalid(ArtifactType::Nuget))?;
+        .ok_or_else(|| super::util::invalid(ArtifactSearchQueryType::Nuget))?;
     let resources = rows(
-        object_for(&index, ArtifactType::Nuget)?
+        object_for(&index, ArtifactSearchQueryType::Nuget)?
             .get("resources")
-            .ok_or_else(|| super::util::invalid(ArtifactType::Nuget))?,
-        ArtifactType::Nuget,
+            .ok_or_else(|| super::util::invalid(ArtifactSearchQueryType::Nuget))?,
+        ArtifactSearchQueryType::Nuget,
     )?;
     let preferred = if kind == "RegistrationsBaseUrl" {
         "RegistrationsBaseUrl/3.6.0"
@@ -224,16 +218,16 @@ fn official_url(value: Option<&Value>) -> Result<Url, ArtifactError> {
 }
 
 fn catalog(value: &Value) -> Result<&Map<String, Value>, ArtifactError> {
-    object_for(value, ArtifactType::Nuget)?
+    object_for(value, ArtifactSearchQueryType::Nuget)?
         .get("catalogEntry")
-        .ok_or_else(|| super::util::invalid(ArtifactType::Nuget))
-        .and_then(|value| object_for(value, ArtifactType::Nuget))
+        .ok_or_else(|| super::util::invalid(ArtifactSearchQueryType::Nuget))
+        .and_then(|value| object_for(value, ArtifactSearchQueryType::Nuget))
 }
 
 fn item(row: &Map<String, Value>) -> Result<ArtifactItem, ArtifactError> {
-    let name = required(row.get("id"), ArtifactType::Nuget)?;
+    let name = required(row.get("id"), ArtifactSearchQueryType::Nuget)?;
     let mut artifact = ArtifactItem::new(
-        ArtifactType::Nuget,
+        ArtifactSearchQueryType::Nuget,
         name.clone(),
         format!(
             "https://www.nuget.org/packages/{}",
@@ -271,9 +265,9 @@ fn compare_versions(left: &str, right: &str) -> Result<Ordering, ArtifactError> 
             .split('.')
             .map(str::parse::<u64>)
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|_| super::util::invalid(ArtifactType::Nuget))?;
+            .map_err(|_| super::util::invalid(ArtifactSearchQueryType::Nuget))?;
         if values.is_empty() || values.len() > 4 {
-            return Err(super::util::invalid(ArtifactType::Nuget));
+            return Err(super::util::invalid(ArtifactSearchQueryType::Nuget));
         }
         Ok((
             values,
@@ -331,6 +325,7 @@ fn limit_reason() -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::super::types::artifact_query;
     use super::*;
     use crate::providers::RequestBudget;
     use crate::providers::artifact::http::{
@@ -432,14 +427,10 @@ mod tests {
             cache_revision: 0,
             cache_enabled: false,
         };
-        let q = ArtifactQuery {
-            artifact_type: ArtifactType::Nuget,
-            package_name: Some("Newtonsoft.Json".into()),
-            keywords: None,
-            page_size: None,
-            cursor: None,
-            registry: None,
-        };
+        let q = artifact_query(
+            serde_json::json!({"type": ArtifactSearchQueryType::Nuget, "packageName": "Newtonsoft.Json".to_string()}),
+            None,
+        );
         let page = nuget(&q, &ArtifactProviderState::default(), &client)
             .await
             .expect("nuget exact");
@@ -494,14 +485,10 @@ mod tests {
             cache_revision: 0,
             cache_enabled: false,
         };
-        let q = ArtifactQuery {
-            artifact_type: ArtifactType::Nuget,
-            package_name: Some("Serilog".into()),
-            keywords: None,
-            page_size: None,
-            cursor: None,
-            registry: None,
-        };
+        let q = artifact_query(
+            serde_json::json!({"type": ArtifactSearchQueryType::Nuget, "packageName": "Serilog".to_string()}),
+            None,
+        );
         let page = nuget(&q, &ArtifactProviderState::default(), &client)
             .await
             .expect("nuget exact");

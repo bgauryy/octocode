@@ -44,7 +44,6 @@ export PATH="<repo>/node_modules/.bin:$PATH"             # typescript-language-s
 export BIN=<repo>/packages/octocode-native/npm/darwin-arm64/octocode   # native CLI
 export NODECLI=<repo>/packages/octocode/out/octocode.js                # node CLI
 export MCP=<repo>/packages/octocode-mcp/dist/index.js                  # MCP server
-export ENABLE_CLONE=true                                # opt in for the ghCloneRepo checks
 export OCTOCODE_BETA=true                                # opt in for astRewrite and astTopology
 ```
 
@@ -67,11 +66,13 @@ cd "$FIX"
 the stated content check holds.
 
 **0.5 — Availability and automated runners.** `scheme` always discovers 13
-tools. With clone and beta tools disabled and no `OCTOCODE_CLASSIFICATION_API`,
-9 are available. MCP registers only available tools, so it omits `clasify`,
-`ghCloneRepo`, `astRewrite`, and `astTopology`; the CLI keeps all commands and
-schemas discoverable and reports the missing gate when one is called. This setup
-opts into clone and beta tools. Section 13 runs the 12 non-provider tools across
+tools. `ghCloneRepo` is CLI-only: the CLI enables it with persistent storage
+(`OCTOCODE_STORAGE_MODE`, persistent by default), and MCP never registers it —
+`ENABLE_CLONE` has no effect. Without `OCTOCODE_BETA` and
+`OCTOCODE_CLASSIFICATION_API`, MCP registers 9 tools and omits `clasify`,
+`astRewrite`, and `astTopology`; the CLI keeps all commands and schemas
+discoverable and reports the missing gate when one is called. This setup opts
+into beta tools. Section 13 runs the 12 non-provider tools across
 three surfaces, section 12 checks the gated semantic tool, and section 14 covers
 advanced variants. Use the corresponding tool section to diagnose a failure.
 
@@ -379,6 +380,7 @@ require `uri` + (`symbolName`+`lineHint`) **or** `position`. `documentSymbols`/
 ## 11. ghCloneRepo
 
 **Purpose:** clone a repo locally for repeated deep analysis. **Network + git auth.**
+CLI only (persistent storage); MCP does not expose this tool.
 
 **Schema:** required `reasoning`, `owner`, `repo`. Advanced: `branch`, `sparsePath`,
 `forceRefresh`.
@@ -459,7 +461,8 @@ and run `next.clasify` unchanged when present.
 ## 13. Core matrix runner (12 non-provider tools × 3 surfaces)
 
 Run from the fixture cwd (§0.3) with the env from §0.2. Prints a pass grid;
-`ghCloneRepo` shows `reached-net(auth)` in credential-less sandboxes.
+`ghCloneRepo` shows `reached-net(auth)` in credential-less sandboxes and is
+expected to be absent on MCP (`Tool ghCloneRepo not found`) because clone is CLI-only.
 
 ```bash
 BIN="$BIN" NODECLI="$NODECLI" MCP="$MCP" FIXROOT="$FIX" node - <<'NODE'

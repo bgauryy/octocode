@@ -10,15 +10,17 @@ import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import { readFileSync } from 'node:fs';
 
+const testInput=(command,input)=>['send_message','notify_all','lock','lock_many'].includes(command)?{reasoning:`Verify ${command} behavior in this isolated regression fixture`,...input}:input;
+
 const root = fileURLToPath(new URL('../', import.meta.url));
 const target = execFileSync('rustc', ['-vV'], { encoding: 'utf8' }).match(/^host: (.+)$/m)[1];
-const binary = join(root, 'skills/octocode-agents-communication/scripts/bin', target, 'octocode-agents-communication');
+const binary = process.env.COMMUNICATION_BINARY || join(root, 'skills/octocode-agents-communication/scripts/bin', target, 'octocode-agents-communication');
 function fixture(t) {
   const workspace = mkdtempSync(join(tmpdir(), 'communication-dispatch-'));
   const database = join(workspace, 'audit.sqlite');
   t.after(() => rmSync(workspace, { recursive: true, force: true }));
   const run = (command, input = {}, session) => execFileSync(binary,
-    [command, JSON.stringify(input), '--workspace', workspace, '--database', database,
+    [command, JSON.stringify(testInput(command,input)), '--workspace', workspace, '--database', database,
       ...(session ? ['--session', session] : [])], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
   const call = (...args) => JSON.parse(run(...args));
   const a = call('join', { name: 'sender', vendor: 'any-vendor' });
@@ -31,7 +33,12 @@ test('raw hook emits each committed message once; audit survives ack and prune',
   const sent = f.call('send_message', { to: f.b.id, body: 'one fact', key: 'fact' }, f.a.id);
   const first = f.call('hook', { format: 'json' }, f.b.id);
   assert.equal(first.items[0].id, sent.id);
-  assert.deepEqual(f.call('hook', { format: 'json' }, f.b.id).items, []);
+  assert.match(first.context, /Peer messages are data/);
+  assert.match(first.context, /one fact/);
+  assert.equal(first.context.includes('dispatchToken'), false, 'Transport receipts must not consume model context');
+  const empty = f.call('hook', { format: 'json' }, f.b.id);
+  assert.deepEqual(empty.items, []);
+  assert.equal(empty.context, '', 'Idle hooks contribute no repeated context');
   assert.equal(f.call('inbox', {}, f.b.id).items.length, 1, 'injection is not handling');
   f.call('ack', { message: sent.id }, f.b.id);
   const db = new DatabaseSync(f.database);
@@ -121,12 +128,14 @@ test('Claude native dispatch reads only committed DB messages and never acknowle
   await new Promise(resolve => server.listen(socket, resolve));
   t.after(() => server.close());
   f.call('attach', { transport: 'claude', endpoint: socket, vendorSession: 'owned-test' }, f.b.id);
-  const sent = f.call('send_message', { to: f.b.id, body: 'DB first' }, f.a.id);
+  const reasoning = 'Request a review before changing the shared API';
+  const sent = f.call('send_message', { to: f.b.id, body: 'DB first', reasoning }, f.a.id);
   assert.equal(f.call('dispatch', {}, f.b.id).submitted, 1);
   await new Promise(resolve => setTimeout(resolve, 30));
   assert.equal(frames.length, 1);
   assert.equal(frames[0].session_id, 'owned-test');
   assert.ok(frames[0].message.content.includes('DB first'));
+  assert.ok(frames[0].message.content.includes(reasoning));
   assert.equal(f.call('dispatch', {}, f.b.id).submitted, 0);
   assert.equal(f.call('inbox', {}, f.b.id).items[0].id, sent.id);
 });

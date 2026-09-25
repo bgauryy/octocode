@@ -560,18 +560,6 @@ impl ToolRuntime {
             }
             None => (tool, input, false),
         };
-        let (input, mut semantic_rerank_specs) = super::semantic_rerank::extract(&tool, input)
-            .map_err(|error| RuntimeError::new("invalidInput", error.0))?;
-        if super::semantic_rerank::has_requests(&semantic_rerank_specs) {
-            if !self.is_available("clasify") {
-                return Err(RuntimeError::new(
-                    "missingConfiguration",
-                    "Search semantic reranking requires an available classification provider. Set OCTOCODE_CLASSIFICATION_API (or the configured vendor key), restart the process, and retry.",
-                ));
-            }
-            super::semantic_rerank::sanitize_specs(&mut semantic_rerank_specs, &self.security)
-                .map_err(|error| RuntimeError::new("securityValidationFailed", error.0))?;
-        }
         // Semantic assessment is nondeterministic and billed per evaluation. Query replay cannot
         // serve a page of the original judgment, including authenticated cursors.
         if tool == "clasify"
@@ -638,18 +626,6 @@ impl ToolRuntime {
                             )),
                         }
                     }
-                    if !semantic_rerank_specs.is_empty() {
-                        let rejected = rejected_rows
-                            .iter()
-                            .map(|(index, _)| *index)
-                            .collect::<std::collections::HashSet<_>>();
-                        semantic_rerank_specs = std::mem::take(&mut semantic_rerank_specs)
-                            .into_iter()
-                            .enumerate()
-                            .filter(|(index, _)| !rejected.contains(index))
-                            .map(|(_, spec)| spec)
-                            .collect();
-                    }
                     prepared
                 }
             }
@@ -668,8 +644,11 @@ impl ToolRuntime {
             }
             queries.push(Value::Object(checked.sanitized_params));
         }
-        let response_query =
-            super::semantic_rerank::response_query(&queries, &semantic_rerank_specs);
+        let response_query = if queries.len() == 1 {
+            queries[0].clone()
+        } else {
+            json!({"queries":queries})
+        };
         let paths = self.paths.clone();
         let security = self.security.clone();
         let regex = LocalFetchRegex::new(self.regex.clone());
@@ -793,15 +772,7 @@ impl ToolRuntime {
                     response::apply_hint_policy(&mut row, &tool, query);
                     rows.push(row);
                 }
-                let rejected_indices = rejected_rows
-                    .iter()
-                    .map(|(index, _)| *index)
-                    .collect::<Vec<_>>();
                 merge_rejected_rows(&mut rows, &mut source_digests, rejected_rows);
-                super::semantic_rerank::restore_rejected_positions(
-                    &mut semantic_rerank_specs,
-                    &rejected_indices,
-                );
                 // Clasify receipts and caller-authored rubric values are opaque JSON:
                 // path compaction would mutate their identity and meaning.
                 let mut structured = if tool == "clasify" {
@@ -825,59 +796,6 @@ impl ToolRuntime {
                     &context,
                     redact_emails,
                 )?;
-                let rerank_jobs = super::semantic_rerank::build_jobs(
-                    &mut structured,
-                    &tool,
-                    &semantic_rerank_specs,
-                );
-                if !rerank_jobs.is_empty() {
-                    context.check()?;
-                    let matrices = rerank_jobs
-                        .iter()
-                        .map(|job| job.matrix.clone())
-                        .collect::<Vec<_>>();
-                    let Some(key) = classification_key_secret.as_ref() else {
-                        return Err(ExecutionError::WorkerFailed);
-                    };
-                    let evaluation_context = ExecutionContext {
-                        deadline: context
-                            .deadline
-                            .min(Instant::now() + classification_timeout),
-                        ..context.clone()
-                    };
-                    match super::clasify_batch::execute(
-                        &matrices,
-                        &dispatcher,
-                        &evaluation_context,
-                        super::clasify_batch::ProviderConfig {
-                            key,
-                            base_url: &classification_base_url,
-                            endpoint_path: &classification_endpoint_path,
-                            model: &classification_model,
-                            provider: classification_provider,
-                            retries: classification_retries,
-                            max_concurrency: classification_max_concurrency,
-                        },
-                        |usage| {
-                            super::session_stats::record_classification(
-                                &home,
-                                stats_enabled,
-                                usage,
-                            );
-                        },
-                    ) {
-                        Ok(assessments) => super::semantic_rerank::apply_assessments(
-                            &mut structured,
-                            &semantic_rerank_specs,
-                            &rerank_jobs,
-                            &assessments,
-                        ),
-                        Err(_) => {
-                            context.check()?;
-                            super::semantic_rerank::apply_failure(&mut structured, &rerank_jobs);
-                        }
-                    }
-                }
                 if tool != "clasify" {
                     super::continuations::filter_unavailable_cross_tool_next(
                         &mut structured,
@@ -898,11 +816,7 @@ impl ToolRuntime {
                         failure,
                         auto_page_chars,
                         text_format,
-                        // Model-scored rerank output is nondeterministic: a page
-                        // replay would re-score and never match the snapshot.
-                        allow_auto_paging: !super::semantic_rerank::has_requests(
-                            &semantic_rerank_specs,
-                        ),
+                        allow_auto_paging: true,
                         cursor_scope: &cursor_scope,
                         source_digests: &source_digests,
                         source_digest,

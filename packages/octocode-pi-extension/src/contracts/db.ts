@@ -2,9 +2,8 @@
  * db.ts — the Agent control and session-index SQLite store.
  *
  * The Agent control file, `<home>/agent/agent.sqlite3`, is opened once per process and cached by
- * resolved path. It holds only Agent control and session-index tables. Awareness
- * coordination uses its own workspace- or global-scope database and must never
- * initialise coordination tables on this connection.
+ * resolved path. It holds only Agent control and session-index tables. Communication
+ * and interaction receipts use independent databases and never add tables here.
  *
  * The low-level `node:sqlite` runtime (warning-filtered `DatabaseSync`, BUSY
  * retry, WAL checkpoint) lives in sqlite.ts; version-gated journal selection in
@@ -12,19 +11,10 @@
  */
 import { resolve } from 'node:path';
 import { agentDbPath } from './paths.js';
-import {
-  AGENT_APPLICATION_ID,
-  assertSchemaObjects,
-  DatabaseSync,
-  hardenSqliteFiles,
-  initOctocodeSchema,
-  journalModeForSqliteVersion,
-  preparePrivateSqlitePath,
-  readSchemaObjects,
-  SQLITE_BUSY_DEADLINE_MS,
-  withSqliteBusyRetry,
-  type SchemaObject,
-} from '@octocodeai/octocode-awareness/host';
+import { AGENT_APPLICATION_ID, assertSchemaObjects, initOctocodeSchema, readSchemaObjects, type SchemaObject } from '../runtime/agent-store-schema.js';
+import { DatabaseSync, SQLITE_BUSY_DEADLINE_MS, withSqliteBusyRetry } from '../runtime/sqlite.js';
+import { hardenSqliteFiles, preparePrivateSqlitePath } from '../runtime/permissions.js';
+import { journalModeForSqliteVersion } from '../runtime/sqlite-version.js';
 
 // Cache one connection per resolved path so tests and multiple homes stay
 // isolated while the common (single-home) case reuses one handle.

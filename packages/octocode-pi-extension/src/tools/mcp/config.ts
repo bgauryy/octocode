@@ -8,7 +8,7 @@ import { readMcpConfigText } from '../../contracts/agent-skills.js';
 import { capabilitySourcePaths, type CapabilityPathOptions } from '../../contracts/capability-sources.js';
 import type { CapabilitySourceStatus } from '../../contracts/capability-state.js';
 import { DEFAULT_MCP_RETRY_DELAY_MS, DEFAULT_MCP_STARTUP_RETRIES, validateMcpRetryPolicy } from '../../contracts/mcp-connection-policy.js';
-import type { ReadableSqlite } from '@octocodeai/octocode-awareness/host';
+import type { ReadableSqlite } from '../../runtime/agent-store-schema.js';
 import type { PiContext } from '../../types.js';
 import { extensionCacheRoot, extensionStateDbPath } from '../../extension-paths.js';
 import { readOwnDependencyVersion } from '../../package-metadata.js';
@@ -97,8 +97,8 @@ const DEFAULT_OCTOCODE_MCP_NPX_CACHE = path.join(extensionCacheRoot(), 'mcp-npx'
  * - ENABLE_LOCAL: turns on the local tool family (localSearch, localFetch, etc.). Force
  *   it rather than trusting octocode-mcp's own internal default — if that
  *   upstream default ever flips, local tools must not silently disappear here.
- * - ENABLE_CLONE: enables ghCloneRepo so the agent can clone a repo once and
- *   use local tools for deep research instead of many ghGetFileContent calls.
+ * - ENABLE_CLONE: legacy and ignored. ghCloneRepo is CLI-only (persistent
+ *   storage); octocode-mcp never registers it. Kept for older servers.
  * - npm_config_*: ensure npx resolves the local cache with the native addon.
  * User-supplied env values always take precedence over these defaults.
  */

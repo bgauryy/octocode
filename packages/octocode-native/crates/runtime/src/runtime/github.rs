@@ -570,10 +570,11 @@ impl GitHubServices {
                     .into_iter()
                     .flatten()
                 {
-                    if file["resolvedBranch"].as_str() == query.branch.as_deref()
+                    // A caller-supplied full SHA is not restated.
+                    if file["commitSha"].as_str() == query.branch.as_deref()
                         && let Some(map) = file.as_object_mut()
                     {
-                        map.remove("resolvedBranch");
+                        map.remove("commitSha");
                     }
                 }
                 Ok(DomainResult {

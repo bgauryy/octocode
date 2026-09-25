@@ -10,7 +10,7 @@ test('page ranking retains partial coverage, uncertainty, and source ranges', ()
   const result = rankResources([
     { path: '/a', coverage: 'partial', pages: [
       { scope: { startLine: 1, endLine: 80 }, answers: { q: { noul: 0.2 } } },
-      { scope: { startLine: 81, endLine: 160 }, focus: { q: { startLine: 91, endLine: 99 } }, answers: { q: { noul: 0.9 } } }
+      { scope: { startLine: 81, endLine: 160 }, answers: { q: { noul: 0.9 } } }
     ] },
     { path: '/b', coverage: 'complete', pages: [{ answers: { q: { noul: 0.7 } } }] },
     { path: '/c', coverage: 'error', error: 'provider unavailable', pages: [] }
@@ -18,8 +18,8 @@ test('page ranking retains partial coverage, uncertainty, and source ranges', ()
   assert.equal(result.length, 3);
   assert.equal(result[0].coverage, 'partial');
   assert.equal(result[0].bestPageValue, 0.9);
-  assert.equal(result[0].read.query.startLine, 91);
-  assert.equal(result[0].read.query.endLine, 99);
+  assert.equal(result[0].read.query.startLine, 81);
+  assert.equal(result[0].read.query.endLine, 160);
   assert.equal(result[1].read.query.startLine, undefined);
   assert.equal(result[2].bestPageValue, null);
   assert.equal(result[2].error, 'provider unavailable');
@@ -40,17 +40,15 @@ test('Score keeps its native scale instead of pretending to be P(yes)', () => {
   assert.equal(result[0].bestPageValue, 2.4);
 });
 
-test('a focus selected for another question does not narrow a multi-question read', () => {
-  const result = rankResources([{ path: '/a', coverage: 'complete', pages: [{ scope: { startLine: 1, endLine: 300 }, focus: { isolation: { startLine: 10, endLine: 20 } }, answers: { isolation: { noul: 0.9 }, shutdown: { noul: 0.95 } } }] }], 'shutdown');
-  assert.equal(result[0].read.query.startLine, 1);
-  assert.equal(result[0].read.query.endLine, 300);
-});
-
-test('each question follows its own source focus and preserves evidence identity', () => {
-  const resource = { path: '/a', coverage: 'complete', pages: [{ source: { evidenceHash: 'a'.repeat(64), modified: '2026-09-25' }, scope: { startLine: 1, endLine: 300 }, focus: { isolation: { startLine: 10, endLine: 20 }, shutdown: { startLine: 200, endLine: 220 } }, answers: { isolation: { noul: 0.9 }, shutdown: { noul: 0.95 } } }] };
+test('questions select their own assessed page and preserve evidence identity', () => {
+  const resource = { path: '/a', coverage: 'complete', pages: [
+    { source: { evidenceHash: 'a'.repeat(64) }, scope: { startLine: 1, endLine: 100 }, answers: { isolation: { noul: 0.9 }, shutdown: { noul: 0.1 } } },
+    { source: { evidenceHash: 'b'.repeat(64) }, scope: { startLine: 101, endLine: 200 }, answers: { isolation: { noul: 0.1 }, shutdown: { noul: 0.95 } } }
+  ] };
+  assert.equal(rankResources([resource], 'isolation')[0].read.query.startLine, 1);
   const result = rankResources([resource], 'shutdown');
-  assert.equal(result[0].read.query.startLine, 200);
-  assert.equal(result[0].source.evidenceHash, 'a'.repeat(64));
+  assert.equal(result[0].read.query.startLine, 101);
+  assert.equal(result[0].source.evidenceHash, 'b'.repeat(64));
 });
 
 test('section selection includes nested headings, ends at a peer, and avoids overlap', () => {

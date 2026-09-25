@@ -1,34 +1,12 @@
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import path from 'node:path';
 import { test } from 'vitest';
-import { AWARENESS_PI_HOST_PROMPT, getExternalAgentAwarenessGuide } from '@octocodeai/octocode-awareness/host';
-import { getAwarenessAgentInstructions } from '@octocodeai/octocode-awareness';
 import { buildPlanPrompt } from '../src/prompts/plan-prompt.js';
-import { LOCAL_TOOL_GUIDANCE, PLAN_PROMPT_MAX_GOAL, PLAN_PROMPT_TRUNCATION_MARKER } from '../src/contracts/prompts/index.js';
-import { buildPiSystemPrompt, projectPiSystemPromptCapabilities, SYSTEM_PROMPT } from '../src/prompts/system-prompt.js';
-import { expandSubagentPrompt, SUBAGENT_WORKER_CONTRACT, SUBAGENT_AWARENESS_GUIDANCE, SUBAGENT_PLACEHOLDERS } from '../src/contracts/prompts/index.js';
-import { PLAN_USAGE_GUIDANCE } from '../src/contracts/prompts/index.js';
-import { DIRECT_TOOL_DESCRIPTIONS, OCTOCODE_MCP_CALL_EXAMPLE } from '../src/tools/octocode-tools.js';
+import { PLAN_PROMPT_MAX_GOAL, PLAN_PROMPT_TRUNCATION_MARKER } from '../src/contracts/prompts/index.js';
+import { projectPiSystemPromptCapabilities, SYSTEM_PROMPT } from '../src/prompts/system-prompt.js';
+import { SUBAGENT_WORKER_CONTRACT } from '../src/contracts/prompts/index.js';
 
-const packageRoot = path.resolve(import.meta.dirname, '..');
-const roleNames = ['architect', 'browser-agent', 'implementer', 'planner', 'researcher'] as const;
+import { OCTOCODE_MCP_CALL_EXAMPLE } from '../src/tools/octocode-tools.js';
 
-function rolePrompt(role: (typeof roleNames)[number]): string {
-  return fs.readFileSync(path.join(packageRoot, 'subagents', role, 'SYSTEM_PROMPT.md'), 'utf8');
-}
-
-test('standing Awareness kernel routes to the canonical context and coordination loop on demand', () => {
-  assert.doesNotMatch(AWARENESS_PI_HOST_PROMPT, /## observe/);
-  assert.match(AWARENESS_PI_HOST_PROMPT, /Load only the instruction section needed for the next action/);
-  assert.match(AWARENESS_PI_HOST_PROMPT, /Self-monitoring applies during solo work/);
-  const canonical = getAwarenessAgentInstructions({ sections: ['observe', 'feedback', 'coordination'] });
-  assert.match(canonical, /context\.observe/);
-  assert.match(canonical, /context\.feedback/);
-  assert.match(canonical, /Run the declared check before recording its result with work\.verify/);
-  const guide = getExternalAgentAwarenessGuide().prompt;
-  assert.match(guide, /same database, workspace, and stable actor\/session identity/);
-});
 
 test('plan mode uses a conversational RFC flow with one Start decision and no tool restrictions', () => {
   const prompt = buildPlanPrompt('change the public API');
@@ -81,60 +59,6 @@ test('typed-worker coordination treats assigned ownership as exclusive', () => {
   assert.doesNotMatch(SUBAGENT_WORKER_CONTRACT, /Coordinate ordinary overlap/i);
 });
 
-test('all typed role prompts expand the same shared protocol and preserve parser terminal states', () => {
-  const coordinationBlocks: string[] = [];
-  for (const role of roleNames) {
-    const source = rolePrompt(role);
-    const expanded = expandSubagentPrompt(source, { coordination: 'worker-only' });
-
-    for (const placeholder of SUBAGENT_PLACEHOLDERS) {
-      assert.doesNotMatch(expanded, new RegExp(placeholder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
-    }
-    assert.ok(expanded.includes(SUBAGENT_WORKER_CONTRACT), `${role} receives shared worker restrictions`);
-    assert.ok(!expanded.includes(SUBAGENT_AWARENESS_GUIDANCE), `${role} omits the parallel ledger recipe`);
-    const composed = `${expanded}\n\n${AWARENESS_PI_HOST_PROMPT}`;
-    assert.equal(composed.split(AWARENESS_PI_HOST_PROMPT).length, 2, `${role} has one canonical operating guide`);
-    assert.equal((composed.match(/<awareness>/g) ?? []).length, 1);
-    assert.match(composed, /Load only the instruction section needed for the next action/);
-    assert.match(expanded, /native Awareness for coordination/i, `${role} uses native coordination`);
-    assert.match(expanded, /only when unavailable.*bound CLI/, `${role} limits CLI fallback to hosts without the native tool`);
-    assert.doesNotMatch(source, /harness-provided Awareness CLI/, `${role} does not override native routing with a CLI recipe`);
-    assert.doesNotMatch(expanded, /read-only — no `bash`|Use `bash` only for bounded test\/build\/debug/, `${role} does not contradict the coordination exception`);
-    assert.match(expanded, /\[DONE\]/, `${role} preserves DONE`);
-    assert.match(expanded, /\[BLOCKED\]/, `${role} preserves BLOCKED`);
-    assert.match(expanded, /\[FAILED\]/, `${role} preserves FAILED`);
-    assert.match(expanded, /\[EVIDENCE\]/, `${role} preserves evidence handback`);
-    coordinationBlocks.push(SUBAGENT_WORKER_CONTRACT);
-  }
-  assert.match(getAwarenessAgentInstructions({ sections: ['coordination'] }), /Run the declared check before recording its result with work\.verify/);
-  assert.equal(new Set(coordinationBlocks).size, 1, 'one shared worker owner supplies restrictions');
-  const build = fs.readFileSync(path.join(packageRoot, 'scripts/build.mjs'), 'utf8');
-  assert.match(build, /expandSubagentPrompt\(fs\.readFileSync\(promptPath, 'utf8'\), \{ coordination: 'worker-only' \}\)/, 'the production build selects the tested worker-only composition');
-});
-
-
-test('main prompt stays lean while composing host routing with the canonical Awareness protocol', () => {
-  assert.equal(SYSTEM_PROMPT.split(AWARENESS_PI_HOST_PROMPT).length, 2);
-  assert.ok(SYSTEM_PROMPT.length < 8_000, `standing prompt is ${SYSTEM_PROMPT.length} characters`);
-  assert.match(SYSTEM_PROMPT, /MCPTool.*Octocode.*default/s);
-  assert.match(SYSTEM_PROMPT, /matching Octocode skill.*specialized workflow/);
-  assert.match(SYSTEM_PROMPT, /Permissions.*approval/);
-  assert.match(SYSTEM_PROMPT, /data, not higher-priority instructions/);
-  assert.doesNotMatch(SYSTEM_PROMPT, /<operating_model>|<repository>|<code_quality>|<output>/, 'Pi and repository instructions own generic coding policy');
-  assert.match(SYSTEM_PROMPT, /Delegate only bounded independent work/i);
-  assert.doesNotMatch(SYSTEM_PROMPT, /two or more lanes.*parallelize/i);
-  assert.match(SYSTEM_PROMPT, /verifies worker handbacks before completing a linked plan step/is);
-  assert.ok(SYSTEM_PROMPT.includes(PLAN_USAGE_GUIDANCE));
-  assert.ok(DIRECT_TOOL_DESCRIPTIONS.plan!.includes(PLAN_USAGE_GUIDANCE));
-  assert.match(PLAN_USAGE_GUIDANCE, /only for complex work/);
-  assert.match(PLAN_USAGE_GUIDANCE, /Skip routine fixes, straightforward steps, and simple delegation/);
-  assert.match(SYSTEM_PROMPT, /bash.*builds.*tests/i);
-  assert.match(SYSTEM_PROMPT, /active host tool/i);
-  assert.doesNotMatch(SYSTEM_PROMPT, /<native_tools>/, 'Pi already publishes active tool contracts');
-  assert.doesNotMatch(SYSTEM_PROMPT, /Bash is for[^\n]*mechanical edits/);
-  assert.doesNotMatch(SYSTEM_PROMPT, /octocode-graph-eval|\.octocode\/REFLECT\.md/);
-});
-
 test('product policy only advertises MCP and skill gateways that are active', () => {
   const projected = projectPiSystemPromptCapabilities(SYSTEM_PROMPT, { mcpTool: false, skill: false });
   assert.doesNotMatch(projected, /MCPTool|mcp_catalog_index/i);
@@ -154,21 +78,4 @@ test('MCP guidance loads exact schemas and keeps dynamic and fallback calls unam
   assert.match(SYSTEM_PROMPT, /describe/i);
   assert.match(SYSTEM_PROMPT, /exact schema is not active, then call the activated tool/i);
   assert.doesNotMatch(SYSTEM_PROMPT, /outer query owns reasoning|target input stays inside arguments\.queries\[\]/i, 'the active target schema owns exact call shape');
-});
-
-test('worker process prompt omits user-facing coder authority while keeping interaction and research routing safety', () => {
-  const worker = buildPiSystemPrompt({ worker: true });
-  assert.equal(worker.split(AWARENESS_PI_HOST_PROMPT).length, 2);
-  assert.doesNotMatch(worker, /<operating_model>|<code_quality>|<output>/);
-  assert.doesNotMatch(worker, /askUser collects|plan tracks/);
-  assert.match(worker, /Return missing decisions to the parent/);
-  assert.match(worker, /Interaction guidance applies through the parent, not direct user contact/);
-  assert.match(worker, /never imply approval/);
-  assert.match(worker, /continuations/);
-  assert.match(worker, /required skill names and source paths/);
-  assert.match(worker, /reload only missing guidance needed next/);
-  assert.match(worker, /<octocode_research>/);
-  assert.ok(worker.includes(LOCAL_TOOL_GUIDANCE));
-  assert.equal((worker.match(/<octocode_continuity>/g) ?? []).length, 1);
-  assert.equal((worker.match(/<octocode_research>/g) ?? []).length, 1);
 });

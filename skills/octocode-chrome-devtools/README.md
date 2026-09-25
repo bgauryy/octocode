@@ -15,7 +15,7 @@ Collect live Chrome DevTools Protocol (CDP) evidence: DOM actionability, network
 | Page is behind login, cookies, or session state | ✅ This skill |
 | Scraping static public pages or building a reusable corpus | ❌ → `octocode-scraping` |
 | Bulk crawl of a docs site for later querying | ❌ → `octocode-scraping` |
-| You already have a static fetch and just need clasify triage | ❌ → `octocode-scraping` |
+| You already have a static fetch and need source evidence | ❌ → `octocode-scraping` |
 
 **Rule of thumb:** if you need a running Chrome instance, use this skill. For plain HTTP-fetchable content and corpus building, use `octocode-scraping`.
 
@@ -29,12 +29,12 @@ Collect live Chrome DevTools Protocol (CDP) evidence: DOM actionability, network
 ## Workflow
 
 ```
-OPEN/ATTACH → STEALTH → PICK ONE INTENT → RUN(CDP) → REUSE PORT/TAB → SCREEN → QUERY DISK → CLEANUP
+OPEN/ATTACH → STEALTH → PICK ONE INTENT → RUN(CDP) → REUSE PORT/TAB → QUERY DISK → CLEANUP
 ```
 
 1. **OPEN** — `scripts/open-browser.mjs --headless --port 9222 --url <url>` → emits `BROWSER_READY` only; does **not** capture page content
 2. **RUN** — `scripts/cdp-sandbox.mjs <check-script.mjs> --port 9222` (sequentially — never two in parallel on the same port)
-3. **SCREEN, when useful** — use capture metadata and exact checks first; clasify ambiguous unread artifacts if it changes the next inspection. See [references/clasify-screen.md](references/clasify-screen.md)
+3. **READ** — use capture metadata and exact checks to select source spans. Classification delegates to `octocode-clasify`. See [references/clasify-screen.md](references/clasify-screen.md)
 4. **QUERY DISK** — read the smallest deciding source span
 5. **CLEANUP** — `scripts/open-browser.mjs --cleanup --port 9222`
 
@@ -57,7 +57,7 @@ After CDP capture, hand off to `octocode-scraping`:
 node <octocode-scraping>/scripts/har-ingest.mjs --session-dir <existing-session-dir>
 ```
 
-Then resume the scraping SCREEN/CITE pipeline on the merged session. Do not create a new session.
+Then resume the scraping read/cite flow on the merged session. Do not create a new session.
 
 ---
 
@@ -89,5 +89,5 @@ Ready-made checks: `references/cdp-checks.md`.
 
 ## Related skill
 
-`octocode-scraping` — for static fetch, corpus building, and clasify SCREEN pipeline.
+`octocode-scraping` — for static fetch, corpus building, and exact source reads.
 Bridge: `har-ingest.mjs` in the scraping skill merges CDP data into its corpus.

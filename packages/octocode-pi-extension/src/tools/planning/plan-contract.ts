@@ -1,4 +1,6 @@
-import type { ObservedCheckReceipt, ExternalPlanScope } from '@octocodeai/octocode-awareness/host';
+
+export type ExternalPlanScope = 'auto' | 'session' | 'shared';
+export interface ObservedCheckReceipt { command: string; status: 'SUCCESS' | 'FAILED'; message: string }
 import type { QueryRecord } from '../query-envelope.js';
 import type { StepInput } from './plan-types.js';
 

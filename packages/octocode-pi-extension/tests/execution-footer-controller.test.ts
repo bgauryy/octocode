@@ -13,10 +13,6 @@ const host = vi.hoisted(() => ({
     summary: { total: 0 },
     review: { generation: 0 },
   })),
-  awareness: vi.fn(() => undefined),
-  awarenessHealth: vi.fn(
-    (): { state: 'idle' | 'unavailable'; message?: string } => ({ state: 'idle' })
-  ),
   permission: vi.fn(() => 'default'),
   footer: vi.fn(),
 }));
@@ -31,10 +27,6 @@ vi.mock('../src/tools/runtime-renderer.js', () => ({
 }));
 vi.mock('../src/tools/approval.js', () => ({
   getPermissionLevel: host.permission,
-}));
-vi.mock('../src/tools/awareness-status.js', () => ({
-  getCachedAwarenessStatus: host.awareness,
-  getAwarenessStatusHealth: host.awarenessHealth,
 }));
 vi.mock('../src/tools/agents/ledger.js', () => ({
   listVisibleWorkerLedgerEntries: host.workers,
@@ -102,8 +94,6 @@ it('samples external facts on updates and never reads them during redraws or res
   const reads = [
     host.plan,
     host.workers,
-    host.awareness,
-    host.awarenessHealth,
     host.permission,
     usage,
   ];
@@ -123,15 +113,6 @@ it('samples external facts on updates and never reads them during redraws or res
   updateOctocodeMetricsUi(ctx, 11000);
   component.invalidate();
   expect(component.render(120).join('\n')).toContain('50%');
-  host.awarenessHealth.mockReturnValue({
-    state: 'unavailable',
-    message: 'private database path',
-  });
-  updateOctocodeMetricsUi(ctx, 11500);
-  component.invalidate();
-  const awarenessWarning = component.render(120).join('\n');
-  expect(awarenessWarning).toContain('Awareness status unavailable');
-  expect(awarenessWarning).not.toContain('private database path');
   host.permission.mockReturnValue('relaxed');
   updateOctocodeMetricsUi(ctx, 12000);
   component.invalidate();

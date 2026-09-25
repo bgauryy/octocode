@@ -62,7 +62,7 @@ test('discovery context accounting includes direct tool contracts in the provide
       skills: 1,
       status: 'ready',
       mode: 'routing',
-      contextAwarenessEstimates: { method: 'ceil-utf16-chars/4', total: 100, awarenessInstructions: 25, byKind: { 'product-policy': 100 } },
+      contextAssemblyEstimates: { method: 'ceil-utf16-chars/4', total: 100, byKind: { 'product-policy': 100 } },
     },
   });
 
@@ -74,7 +74,7 @@ test('discovery context accounting includes direct tool contracts in the provide
     directToolChars: 40_000,
     providerSubtotalChars: 57_000,
     estimatedTokens: 14_250,
-    contextAwarenessEstimates: { method: 'ceil-utf16-chars/4', total: 100, awarenessInstructions: 25, byKind: { 'product-policy': 100 } },
+    contextAssemblyEstimates: { method: 'ceil-utf16-chars/4', total: 100, byKind: { 'product-policy': 100 } },
     mcpServers: 1,
     mcpTools: 14,
     skills: 1,

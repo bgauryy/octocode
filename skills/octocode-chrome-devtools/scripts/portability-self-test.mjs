@@ -20,6 +20,9 @@ function run(script, args) {
 }
 function assert(value, message) { if (!value) throw new Error(message); }
 
+const openBrowserHelp = run('open-browser.mjs', ['--help']);
+assert(openBrowserHelp.status === 0 && openBrowserHelp.stdout.includes('--cleanup'), 'open-browser standalone help failed');
+
 for (const script of ['har-ingest-to-scrape.mjs', 'corpus-run-local.mjs']) {
   const help = run(script, ['--help']);
   assert(help.status === 0 && help.stdout.includes('--scraping-skill-dir'), `${script} standalone help failed`);

@@ -86,7 +86,7 @@ fn clasify_missing_key_is_actionable() {
         "id":"decision",
         "reasoning":"Choose the next inspection.",
         "resources":[{"id":"observed","context":{"value":{"fact":"present"}}}],
-        "questions":[{"id":"relevant","question":{"type":"noul","instructions":"Is it relevant?"}}]
+        "questions":[{"id":"relevant","type":"noul","instructions":"Is it relevant?"}]
     });
     let output = workspace
         .cli()
@@ -110,7 +110,7 @@ fn tool_output_is_compact_by_default_and_pretty_on_request() {
         "id":"decision",
         "reasoning":"Exercise output formatting.",
         "resources":[{"id":"observed","context":{"value":{"fact":"present"}}}],
-        "questions":[{"id":"relevant","question":{"type":"noul","instructions":"Is it relevant?"}}]
+        "questions":[{"id":"relevant","type":"noul","instructions":"Is it relevant?"}]
     })
     .to_string();
     let compact = workspace.cli().args(["clasify", &query]).output().unwrap();
@@ -146,7 +146,7 @@ fn blank_classification_key_disables_clasify_despite_home_and_vendor_keys() {
         "id":"decision",
         "reasoning":"Exercise the opt-out.",
         "resources":[{"id":"observed","context":{"value":{"fact":"present"}}}],
-        "questions":[{"id":"relevant","question":{"type":"noul","instructions":"Is it relevant?"}}]
+        "questions":[{"id":"relevant","type":"noul","instructions":"Is it relevant?"}]
     })
     .to_string();
     let output = workspace

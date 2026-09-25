@@ -21,7 +21,6 @@ import {
 import type { PiContext } from '../src/types.js';
 import { makeMockAgentProcess } from './helpers/mock-process.js';
 import { extensionWorkspaceRoot } from '../src/extension-paths.js';
-import { defaultDbPath, openAwarenessStore } from '@octocodeai/octocode-awareness/host';
 
 function git(cwd: string, args: string[]): string {
   const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
@@ -151,9 +150,9 @@ test('spawnRpcAgent runs approved worktree workers in the worktree cwd and clean
   assert.ok(record.worktree, 'record stores worktree metadata');
   assert.equal(spawnedCwd, record.worktree!.path);
   assert.equal(
-    record.awarenessWorkspace,
+    record.cwd,
     record.worktree!.path,
-    'worker ownership and audits use its physical checkout'
+    'worker tools use its physical checkout'
   );
   assert.ok(
     record.handbackPath?.startsWith(extensionWorkspaceRoot(repo)),
@@ -176,67 +175,6 @@ test('spawnRpcAgent runs approved worktree workers in the worktree cwd and clean
     false,
     'clean worktree removed on process close'
   );
-});
-
-test('worktree worker inherits the parent Awareness database and can share messages', () => {
-  const repo = initRepo();
-  cleanupDirs.push(repo);
-  const dbPath = path.join(home, 'shared-awareness.sqlite3');
-  process.env.OCTOCODE_AWARENESS_DB = dbPath;
-  const mock = makeMockAgentProcess();
-  let spawnedEnv: NodeJS.ProcessEnv | undefined;
-  setAgentProcessFactoryForTests((_command, _args, options) => {
-    spawnedEnv = options.env;
-    return mock as never;
-  });
-  const record = spawnRpcAgent({
-    task: 'Goal: g\nContext: c\nScope: s\nOwnership: o\nAcceptance: a\nReturn: r',
-    cwd: repo,
-    isolation: 'worktree',
-    worktreeDecision: 'create',
-  });
-  assert.equal(record.awarenessWorkspace, record.worktree!.path);
-  assert.equal(spawnedEnv?.OCTOCODE_AWARENESS_DB, dbPath);
-
-  const parent = openAwarenessStore({ workspace: repo, dbPath });
-  parent.sendMessage({ fromAgentId: 'parent', toAgentId: record.awarenessAgentId!, topic: 'EVIDENCE', text: 'shared-db' });
-  const workerView = openAwarenessStore({ workspace: record.worktree!.path, dbPath: spawnedEnv?.OCTOCODE_AWARENESS_DB });
-  assert.equal(workerView.listMessages({ agentId: record.awarenessAgentId }).some(message => message.text === 'shared-db'), true);
-  workerView.close();
-  parent.close();
-  delete process.env.OCTOCODE_AWARENESS_DB;
-});
-
-test('worktree worker derives the parent repository-scoped Awareness database', () => {
-  const repo = initRepo();
-  cleanupDirs.push(repo);
-  delete process.env.OCTOCODE_AWARENESS_DB;
-  fs.mkdirSync(path.join(repo, '.octocode'), { recursive: true });
-  fs.writeFileSync(path.join(repo, '.octocode', 'awareness.json'), JSON.stringify({
-    version: 1,
-    storage: { repository: 'repo', memory: 'global' },
-    hooks: { profile: 'coordination' },
-  }));
-  const expectedDb = defaultDbPath(repo, 'repo');
-  const mock = makeMockAgentProcess();
-  let spawnedEnv: NodeJS.ProcessEnv | undefined;
-  setAgentProcessFactoryForTests((_command, _args, options) => {
-    spawnedEnv = options.env;
-    return mock as never;
-  });
-  const record = spawnRpcAgent({
-    task: 'Goal: g\nContext: c\nScope: s\nOwnership: o\nAcceptance: a\nReturn: r',
-    cwd: repo,
-    isolation: 'worktree',
-    worktreeDecision: 'create',
-  });
-  assert.equal(spawnedEnv?.OCTOCODE_AWARENESS_DB, expectedDb);
-  const parent = openAwarenessStore({ workspace: repo, dbPath: expectedDb });
-  parent.sendMessage({ fromAgentId: 'parent', toAgentId: record.awarenessAgentId!, topic: 'EVIDENCE', text: 'repo-policy-shared' });
-  const workerView = openAwarenessStore({ workspace: record.worktree!.path, dbPath: expectedDb });
-  assert.equal(workerView.listMessages({ agentId: record.awarenessAgentId }).filter(message => message.text === 'repo-policy-shared').length, 1);
-  workerView.close();
-  parent.close();
 });
 
 test('spawnRpcAgent keeps unmerged worktrees and makes records non-prunable', () => {

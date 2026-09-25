@@ -7,20 +7,11 @@ the current registry contract. For current tool names, use `src/constants.ts`; f
 current schemas and descriptions, inspect the built catalog. Exact character counts
 below are historical measurements, not current release criteria.
 
-For Awareness behavior, integration, and validation limits, see the
-[canonical guide](../../octocode-awareness/README.md#verification-and-known-limits).
-The scores below remain the dated palette decision, not cross-vendor readiness.
-
 ## Outcome
 
 The direct Pi palette contains **17 tools**: 16 support tools plus the guarded `bash` override.
 
 The palette has three deliberate routing boundaries:
-
-1. `readMedia` is read-only perception; `media` is artifact creation/transformation.
-2. Awareness enters model context only when it is actionable; an unread direct message can
-   trigger a bounded signal, while global dashboard counts remain user-facing.
-3. `file` is the single mutation tool, with explicit `edit`, `write`, and `delete` operations.
 
 The remaining tools each own a distinct effect or capability boundary. Scores use a 10-point agent-utility scale: routing clarity, frequency-adjusted value, safety, result quality, and contract cost. A lower score means “specialized/expensive,” not “broken.”
 
@@ -45,8 +36,6 @@ The remaining tools each own a distinct effect or capability boundary. Scores us
 | `message` | 8.1 | Keep | Resolves concrete peer overlap and carries unread direct input. |
 | `MCPTool` | 9.4 | Keep | Progressive gateway to the 10 catalogued Octocode research tools and configured MCP servers without registering every schema directly. |
 
-## Awareness value/noise audit
-
 | Feature | User value | Agent value | Decision |
 |---|---:|---:|---|
 | Below-editor dashboard | 9/10 | No context cost | Keep: users can see plans, tasks, peers, locks, messages, and verification debt. |
@@ -59,7 +48,6 @@ The remaining tools each own a distinct effect or capability boundary. Scores us
 | Durable `memory` | 7/10 | 8/10 | Keep conditionally: only verified reusable learning. |
 | Generic automatic ledger-count signal | 2/10 | 3/10 | Remove: unrelated global counts distract the agent. |
 | Unread direct-message count | 6/10 | 8/10 | Keep narrowly: it is targeted, bounded, and routes to `message` inbox. |
-| Awareness CLI diagnostics | 5/10 | 8/10 when needed | Keep out of the default palette; use only for overlap, recovery, or deeper diagnosis. |
 
 ## Captured contract-efficiency baseline
 

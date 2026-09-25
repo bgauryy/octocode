@@ -1,10 +1,10 @@
 //! Response-shaping helpers: build the tool output Value from prepared rewrite data.
-use super::{AstRewriteQuery, ExecutableReceipt, PreparedFile, PreparedMatch, RewriteError};
+use super::{ExecutableReceipt, PreparedFile, PreparedMatch, RewriteError, RewriteRequest};
 use serde_json::{Map, Value, json};
 use std::path::Path;
 
 pub(super) fn success_value(
-    query: &AstRewriteQuery,
+    query: &RewriteRequest,
     root: &Path,
     snapshot: &str,
     files: &[PreparedFile],
@@ -12,12 +12,12 @@ pub(super) fn success_value(
     executable: &ExecutableReceipt,
     transaction: Option<Value>,
 ) -> Value {
-    let apply = query.apply;
-    let page = if apply { 1 } else { query.page };
+    let apply = query.apply();
+    let page = if apply { 1 } else { query.page() };
     let page_size = if apply {
         matches.len().max(1)
     } else {
-        query.page_size
+        query.page_size()
     };
     let offset = page.saturating_sub(1).saturating_mul(page_size);
     let shown = if apply {
@@ -43,14 +43,14 @@ pub(super) fn success_value(
         .collect::<Vec<_>>();
     let mut value = json!({
         "operation":"rewrite","mode":if apply {"apply"} else {"preview"},
-        "root":root,"snapshot":snapshot,"executable":executable_value(executable),
-        "isolation":isolation_receipt(),"totalMatches":matches.len(),
+        "root":root,"snapshot":snapshot,"totalMatches":matches.len(),
         "affectedFiles":files.len(),
         "matches":shown.iter().map(|matched| matched.public.clone()).collect::<Vec<_>>(),
         "files":page_files,
         "complete":!has_more,"isPartial":has_more,
         "pagination":{"currentPage":page,"totalPages":total_pages,"pageSize":page_size,"hasMore":has_more}
     });
+    attach_receipts(&mut value, query, executable);
     if has_more {
         let mut next = continuation_query(query, root);
         next["apply"] = json!(false);
@@ -86,50 +86,60 @@ pub(super) fn success_value(
     value
 }
 
-pub(super) fn continuation_query(query: &AstRewriteQuery, canonical_root: &Path) -> Value {
+pub(super) fn continuation_query(query: &RewriteRequest, canonical_root: &Path) -> Value {
     let mut value = Map::new();
-    if let Some(goal) = &query.goal {
+    if let Some(goal) = &query.goal() {
         value.insert("goal".to_owned(), json!(goal));
     }
-    if let Some(reasoning) = &query.reasoning {
-        value.insert("reasoning".to_owned(), json!(reasoning));
-    }
+    value.insert("reasoning".to_owned(), json!(query.reasoning()));
     value.insert("path".to_owned(), json!(canonical_root));
-    value.insert("langType".to_owned(), json!(query.lang_type));
-    value.insert("apply".to_owned(), json!(query.apply));
-    value.insert("maxFiles".to_owned(), json!(query.max_files));
-    value.insert("maxMatches".to_owned(), json!(query.max_matches));
-    value.insert("page".to_owned(), json!(query.page));
-    value.insert("pageSize".to_owned(), json!(query.page_size));
-    value.insert(
-        "ruleKind".to_owned(),
-        json!(query.rule_kind.as_deref().unwrap_or("pattern")),
-    );
+    value.insert("langType".to_owned(), json!(query.lang_type()));
+    value.insert("apply".to_owned(), json!(query.apply()));
+    value.insert("maxFiles".to_owned(), json!(query.max_files()));
+    value.insert("maxMatches".to_owned(), json!(query.max_matches()));
+    value.insert("page".to_owned(), json!(query.page()));
+    value.insert("pageSize".to_owned(), json!(query.page_size()));
+    value.insert("ruleKind".to_owned(), json!(query.rule_kind()));
     for (key, item) in [
-        ("pattern", query.pattern.as_ref().map(|value| json!(value))),
-        ("rewrite", query.rewrite.as_ref().map(|value| json!(value))),
-        ("rule", query.rule.clone()),
-        ("constraints", query.constraints.clone()),
-        ("utils", query.utils.clone()),
-        ("transform", query.transform.clone()),
-        ("fix", query.fix.clone()),
-        ("include", query.include.as_ref().map(|value| json!(value))),
-        ("exclude", query.exclude.as_ref().map(|value| json!(value))),
+        (
+            "pattern",
+            query.pattern().as_ref().map(|value| json!(value)),
+        ),
+        (
+            "rewrite",
+            query.rewrite().as_ref().map(|value| json!(value)),
+        ),
+        ("rule", query.rule().cloned()),
+        ("constraints", query.constraints().cloned()),
+        ("utils", query.utils().cloned()),
+        ("transform", query.transform().cloned()),
+        ("fix", query.fix().cloned()),
+        (
+            "include",
+            query.include().as_ref().map(|value| json!(value)),
+        ),
+        (
+            "exclude",
+            query.exclude().as_ref().map(|value| json!(value)),
+        ),
         (
             "expectedHashes",
-            query.expected_hashes.as_ref().map(|value| json!(value)),
+            query.expected_hashes().as_ref().map(|value| json!(value)),
         ),
         (
             "selectedMatchIds",
-            query.selected_match_ids.as_ref().map(|value| json!(value)),
+            query
+                .selected_match_ids()
+                .as_ref()
+                .map(|value| json!(value)),
         ),
         (
             "postconditions",
-            query.postconditions.as_ref().map(|value| json!(value)),
+            query.postconditions().as_ref().map(|value| json!(value)),
         ),
         (
             "snapshot",
-            query.snapshot.as_ref().map(|value| json!(value)),
+            query.snapshot().as_ref().map(|value| json!(value)),
         ),
     ] {
         if let Some(item) = item {
@@ -159,6 +169,20 @@ pub(super) fn executable_value(executable: &ExecutableReceipt) -> Value {
         value["sha256"] = json!(executable.sha256);
     }
     value
+}
+
+/// The executable and isolation receipts are diagnostics: the snapshot digest
+/// already binds the executable, and nothing a caller does next depends on
+/// them, so they ride only on `debug`.
+pub(super) fn attach_receipts(
+    value: &mut Value,
+    query: &RewriteRequest,
+    executable: &ExecutableReceipt,
+) {
+    if query.debug() {
+        value["executable"] = executable_value(executable);
+        value["isolation"] = isolation_receipt();
+    }
 }
 
 pub(super) fn isolation_receipt() -> Value {

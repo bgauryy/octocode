@@ -1045,9 +1045,9 @@ mod tests {
 
     #[test]
     fn pure_clasify_requires_correlation_and_preserves_provider_entries() {
-        let query = json!({"id":"decision","reasoning":"Decide the next evidence read.","resources":[{"id":"source","context": {"value": {"observation": true}},"maxChars":80000}], "questions":[{"id":"answer","question": {
+        let query = json!({"id":"decision","reasoning":"Decide the next evidence read.","resources":[{"id":"source","context": {"value": {"observation": true}},"maxChars":80000}], "questions":[{"id":"answer",
             "type": "noul", "instructions": {"prompt":"Assess supplied state"}, "criteria":{"true":null,"false":null}
-        }}]});
+        }]});
         let prepared = prepare_and_validate("clasify", query.clone(), PrepareOptions::default())
             .expect("pure semantic query needs no workflow fields");
         assert_eq!(prepared, query);

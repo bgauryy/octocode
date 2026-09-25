@@ -15,6 +15,7 @@ path = "rust/main.rs"
 
 [dependencies]
 anyhow = "1"
+base64 = "0.22"
 clap = { version = "4", features = ["derive"] }
 ctrlc = { version = "3.5", features = ["termination"] }
 jsonschema = { version = "0.57", default-features = false }
@@ -24,6 +25,7 @@ sha2 = "0.11"
 uuid = { version = "1", features = ["v4"] }
 tempfile = "3"
 tungstenite = "0.30"
+ureq = { version = "3", default-features = false, features = ["json"] }
 caseless = "=0.2.2"
 unicode-normalization = "=0.1.24"
 

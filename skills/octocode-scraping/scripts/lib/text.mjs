@@ -79,6 +79,16 @@ export function detectTargetError({ status, providerStatus, text, json }) {
   return null;
 }
 
+export function detectBrowserNeed({ status, contentType, body, cleanText, targetLikelyError }) {
+  if (status === 403 || status === 423) return `direct HTTP returned ${status}; one live-browser diagnostic may distinguish rendering from a bot wall`;
+  if (targetLikelyError || status < 200 || status >= 300 || !/html/i.test(contentType || '')) return null;
+  const visible = String(cleanText || '').replace(/\s+/g, ' ').trim();
+  const html = String(body || '');
+  const appShell = /<script\b[^>]*(?:src=|type=["']module)|\b(?:__NEXT_DATA__|__NUXT__|data-reactroot|id=["'](?:root|app)["'])/i.test(html);
+  if (visible.length < 300 && appShell) return `direct HTML contains only ${visible.length} visible characters plus an application shell; render once in Chrome`;
+  return null;
+}
+
 export function parsePayload(mode, contentType, body) {
   let json = null;
   try { json = JSON.parse(body || ''); } catch {}

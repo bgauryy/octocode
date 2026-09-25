@@ -88,7 +88,7 @@ describe('shared prompts', () => {
     for (const placeholder of SUBAGENT_PLACEHOLDERS) expect(expanded).not.toContain(placeholder);
   });
 
-  it('selects worker-only constraints when the host supplies canonical Awareness guidance', () => {
+  it('selects worker-only constraints when the host supplies communication guidance', () => {
     const prompt = expandSubagentPrompt(SUBAGENT_PLACEHOLDERS.join('\n'), { coordination: 'worker-only' });
     expect(prompt).toContain('The parent owns scope, synthesis, dependent decisions, and user contact');
     expect(prompt).toContain('Edit only explicitly owned paths or symbols');
@@ -100,23 +100,21 @@ describe('shared prompts', () => {
     expect(prompt).not.toContain('signal ack');
     expect(prompt).not.toContain('You are auto-registered');
     expect(prompt).toContain('Never run any Git command unless the current user request explicitly asks');
-    expect(expandSubagentPrompt('{{OCTOCODE_COORDINATION}}')).toContain('context.orient');
+    expect(expandSubagentPrompt('{{OCTOCODE_COORDINATION}}')).toContain('Reuse the host identity');
   });
 
-  it('prefers native Awareness and limits CLI fallback without widening worker shell or Git authority', () => {
+  it('uses bound communication without widening worker shell or Git authority', () => {
     const prompt = expandSubagentPrompt('{{OCTOCODE_SURFACE}}');
-    expect(prompt).toContain('Use native Awareness for coordination');
-    expect(prompt).toContain('only when unavailable, use the bound CLI');
-    expect(prompt).toContain('with the supplied database, workspace, and stable identity');
+    expect(prompt).toContain('Use available communication tools for peer messages and ownership; inherit the host identity');
     expect(prompt).toContain('Shell is limited to role-authorized tests, builds, and debugging');
     expect(prompt).toContain('coding, review, status, and verification alone do not authorize it');
     expect(prompt).toContain('Never run any Git command unless the current user request explicitly asks for Git');
     expect(prompt).toContain('including read-only inspection');
   });
 
-  it('routes worker coordination through the five-concept client vocabulary', () => {
+  it('bounds peer communication to meaningful handoffs', () => {
     const prompt = expandSubagentPrompt('{{OCTOCODE_COORDINATION}}');
-    for (const text of ['context.orient', 'Work', 'message.send', 'message.reply', 'exact message ID', 'Memory', 'History']) {
+    for (const text of ['Reuse the host identity', 'evidence changes its next action', 'active path leases', 'request a handoff']) {
       expect(prompt).toContain(text);
     }
     expect(prompt).not.toMatch(/signal publish|signal reply|signal ack|attend/i);

@@ -16,16 +16,14 @@
  * SCOPE — this guard is PROCESS-LOCAL. The read-state map and mutation queue only
  * serialise edits issued within *this* Pi process. They do NOT protect against a
  * second process (for example, a parallel agent worker) editing the same file
- * concurrently. Cross-process safety is a separate layer: declare edited paths
- * via Awareness (`work.create`) and take exceptional exclusive protection (`work.protect`) for
- * non-mergeable or risky shared files — the Awareness pre-edit `tool_call` gate
- * (wired at activation) enforces those leases across processes. See
- * docs/AWARENESS_AGENT_FLOW.md §"Hooks during edits".
+ * concurrently. Cross-process safety uses advisory communication path leases.
+ * The communication pre-edit tool_call gate checks those leases before mutations.
+ * See docs/COMMUNICATION_AGENT_FLOW.md.
  */
 import { stat } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
-import { ensurePrivateDirectory, hardenPrivateFile } from '@octocodeai/octocode-awareness/host';
+import { ensurePrivateDirectory, hardenPrivateFile } from '../runtime/permissions.js';
 import { canonicalPathKey, resolveCanonicalPath } from './path-guard.js';
 import { assertFileContentSize, replaceNativeFile, snapshotNativeFile } from './native-files.js';
 import type { MutationReceipt } from '@octocodeai/octocode-extension-rust';

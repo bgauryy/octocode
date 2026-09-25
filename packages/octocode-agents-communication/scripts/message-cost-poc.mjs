@@ -10,12 +10,14 @@ import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 
 // Opt-in live model probe. Build with --release before measuring CLI latency.
+const probeInput=(command,input)=>['send_message','notify_all','lock','lock_many'].includes(command)?{...( ['send_message','notify_all'].includes(command)?{wake:'action'}:{}),reasoning:`Validate ${command} interoperability in this isolated communication exercise`,...input}:input;
+
 const cli = fileURLToPath(new URL('../skills/octocode-agents-communication/scripts/agents-communication', import.meta.url));
 const directory = mkdtempSync(join(tmpdir(), 'communication-cost-'));
 const database = join(directory, 'v1.sqlite'), topic = `probe-${randomUUID()}`;
 const workers = [], samples = [], phases = [];
 const call = (command, input = {}, session) => JSON.parse(execFileSync(cli,
-  [command, JSON.stringify(input), '--workspace', directory, '--database', database,
+  [command, JSON.stringify(probeInput(command,input)), '--workspace', directory, '--database', database,
     ...(session ? ['--session', session] : [])], { encoding: 'utf8', timeout: 10000 }));
 const controller = call('join', { name: 'controller', vendor: 'generic' });
 const outsider = call('join', { name: 'not-subscribed', vendor: 'generic' });

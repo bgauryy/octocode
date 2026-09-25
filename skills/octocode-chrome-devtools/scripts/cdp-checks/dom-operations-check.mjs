@@ -141,7 +141,7 @@ const CORE_BODY_JS = `
 
 // DOM_REF looks up the latest page-snapshot.json (written by page-snapshot.mjs)
 // via the session's resource map, so callers don't have to pass a file path.
-function resolveRefBackendNodeId(cdp, ref) {
+function resolveRefEntry(cdp, ref) {
   let resourceMap;
   try {
     resourceMap = JSON.parse(readFileSync(cdp.resourcesFile, 'utf8'));
@@ -153,7 +153,7 @@ function resolveRefBackendNodeId(cdp, ref) {
   const snapshot = JSON.parse(readFileSync(snapshotPath, 'utf8'));
   const entry = snapshot.refs?.[ref];
   if (!entry) throw new Error(`Ref ${ref} not found in ${snapshotPath}. Available: ${Object.keys(snapshot.refs ?? {}).join(', ')}`);
-  return entry.backendDOMNodeId;
+  return entry;
 }
 
 export async function run(cdp) {
@@ -173,11 +173,17 @@ export async function run(cdp) {
 
   if (REF) {
     targetLabel = `ref:${REF}`;
-    const backendNodeId = resolveRefBackendNodeId(cdp, REF);
-    const { object } = await cdp.send('DOM.resolveNode', { backendNodeId });
-    if (!object?.objectId) {
-      result = { result: { value: { ref: REF, found: false, action: ACTION, error: 'stale ref — page changed since the snapshot, take a new one' } } };
-    } else {
+    const entry = resolveRefEntry(cdp, REF);
+    let object = null;
+    try {
+      ({ object } = await cdp.send('DOM.resolveNode', { backendNodeId: entry.backendDOMNodeId }));
+    } catch (error) {
+      // Client-rendered pages can replace a node after the accessibility
+      // snapshot. Recover by the semantic role+name captured in that snapshot
+      // rather than failing the whole run without an artifact.
+      console.log(`[FINDING] STALE_SNAPSHOT_REF ${REF}; recovering by role=${JSON.stringify(entry.role)} name=${JSON.stringify(entry.name)}`);
+    }
+    if (object?.objectId) {
       result = await cdp.send('Runtime.callFunctionOn', {
         objectId: object.objectId,
         awaitPromise: true,
@@ -189,6 +195,33 @@ export async function run(cdp) {
           details.ref = ${JSON.stringify(REF)};
           return details;
         }`,
+      });
+    } else {
+      result = await cdp.send('Runtime.evaluate', {
+        awaitPromise: true,
+        returnByValue: true,
+        expression: `(async () => {
+          ${CORE_BODY_JS}
+          const wantedRole = ${JSON.stringify(entry.role)};
+          const wantedName = ${JSON.stringify(entry.name)};
+          function semanticRole(element) {
+            const explicit = element.getAttribute('role');
+            if (explicit) return explicit;
+            if (element.matches('a[href]')) return 'link';
+            if (element.matches('button, input[type="button"], input[type="submit"], input[type="reset"]')) return 'button';
+            if (/^h[1-6]$/.test(element.localName)) return 'heading';
+            if (element.matches('input:not([type]), input[type="text"], textarea')) return 'textbox';
+            return element.localName;
+          }
+          const element = [...document.querySelectorAll('*')].find((candidate) =>
+            semanticRole(candidate) === wantedRole && accessibleNameGuess(candidate) === wantedName
+          );
+          if (!element) return { ref: ${JSON.stringify(REF)}, found: false, action: ${JSON.stringify(ACTION)}, error: 'stale ref and no current element has the captured role/name', recoveredFromStaleRef: false };
+          const details = await checkElement(element, ${JSON.stringify(ACTION)}, ${JSON.stringify(VALUE)}, ${JSON.stringify(STABILITY_MS)});
+          details.ref = ${JSON.stringify(REF)};
+          details.recoveredFromStaleRef = true;
+          return details;
+        })()`,
       });
     }
   } else {
