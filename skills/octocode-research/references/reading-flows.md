@@ -12,7 +12,7 @@ Load when deciding between search, a compact overview, exact source, or a comple
 ## Code
 
 - API orientation: `localFetch` or `ghGetFileContent` with `minify:"symbols"` gives a compact signature outline with source line labels. It omits bodies and may include imports. Follow with an exact read before explaining behavior.
-- Known local declaration: use `astSearch operation:"symbols"` with `name`. The name filter is a substring; select the intended declaration among candidates, including its path and parent. Convert the returned zero-based range to a one-based fetch range, then read the body. Do not guess a function's end from the next signature: nested declarations and overloads can make that wrong.
+- Known local declaration: use `astSearch operation:"symbols"` with `name`. The name filter is a substring; select the intended declaration among candidates, including its path and parent. Its `line`/`endLine` are one-based and feed `localFetch` `startLine`/`endLine` directly. Do not guess a function's end from the next signature: nested declarations and overloads can make that wrong.
 - Known literal: lexical search or `matchString` gives exact local evidence. Neither a line nor byte match-context window guarantees a complete function. Use a declaration range when the answer needs the body.
 - Cross-file identity, usages, callers, or types: use `lspSearch` with an observed anchor. AST declarations and signature outlines provide syntax, not semantic identity. Inspect provider metadata and re-anchor when necessary.
 
@@ -31,7 +31,7 @@ Byte context follows full-source redaction, keeps UTF-8 characters whole, and jo
 | Local text or literal | `localSearch`, narrow `path`; `regex:"literal"` for plain text; files/count views when snippets are unnecessary | Exact fetch or an observed semantic anchor |
 | Local file or directory discovery | `astSearch` files/tree | Read a known file; outline only when orientation is needed |
 | Local declaration or syntax | `astSearch` symbols/match; filter a known name | Exact source range; LSP for identity |
-| File dependencies | `astSearch` topology, explicit analysis and root | Confirm relevant symbols and dynamic edges before deletion claims |
+| File dependencies | `astTopology` (beta), explicit analysis and root | Confirm relevant symbols and dynamic edges before deletion claims |
 | Local source | `localFetch`, range/match when known | Continue the same view or select a body from its outline |
 | Semantic code question | `lspSearch`, observed source anchor; structured output retains typed locations | Exact source or subsequent semantic query; inspect provider capabilities |
 | Unknown GitHub repo/path/anchor | `ghSearch` repositories/tree/code respectively | Fetch at the intended ref; code search cannot select a non-default branch |

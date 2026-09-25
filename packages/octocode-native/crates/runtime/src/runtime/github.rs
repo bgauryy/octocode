@@ -46,6 +46,12 @@ fn provider_recovery_hint(kind: ProviderErrorKind) -> &'static str {
         ProviderErrorKind::Configuration | ProviderErrorKind::CredentialStoreUnavailable => {
             "Correct GitHub authentication and provider configuration."
         }
+        ProviderErrorKind::Unavailable => {
+            "GitHub blocks this resource for legal reasons; retrying will not help."
+        }
+        ProviderErrorKind::HttpStatus => {
+            "Check httpStatus and the message; this status is not a network failure."
+        }
     }
 }
 
@@ -86,6 +92,10 @@ pub(super) struct GitHubServices {
     timeout: Duration,
     home: PathBuf,
     oauth_client_id: Option<String>,
+    /// Resolved `cloneCache.*` limits for ghCloneRepo.
+    clone_limits: crate::config::CloneCacheConfig,
+    /// `output.pagination.defaultCharLength`: patch pages are sized to fit it.
+    auto_page_chars: usize,
     refresh_lock: std::sync::Mutex<()>,
     /// Sanitized full views of recently paged files (scoped to this runtime's
     /// single security policy), so each `next.continue` skips a full rescan.
@@ -118,6 +128,8 @@ impl GitHubServices {
                 .then(|| home.join("tmp").join("ratelimit")),
         );
         let timeout = Duration::from_secs_f64(config.resolved.network.timeout / 1000.0);
+        let clone_limits = config.resolved.clone_cache.clone();
+        let auto_page_chars = config.resolved.output.pagination.default_char_length as usize;
         let oauth_client_id = config
             .env_value("OCTOCODE_GITHUB_CLIENT_ID")
             .map(str::trim)
@@ -133,6 +145,8 @@ impl GitHubServices {
             timeout,
             home,
             oauth_client_id,
+            clone_limits,
+            auto_page_chars,
             refresh_lock: std::sync::Mutex::new(()),
             sanitized_views: gh_get_file_content::SanitizedViewMemo::new(),
         })
@@ -268,7 +282,7 @@ impl GitHubServices {
         match tool {
             "ghGetFileContent" => {
                 self.execute_file_resolved(
-                    &execution_query,
+                    query,
                     request_context,
                     context,
                     security,
@@ -286,20 +300,22 @@ impl GitHubServices {
                 .await
             }
             "ghSearch" => {
-                self.execute_search_resolved(&execution_query, request_context, context, security)
+                self.execute_search_resolved(query, request_context, context, security)
                     .await
             }
             "ghSearchHistory" => {
                 self.execute_search_history_resolved(
-                    &execution_query,
+                    query,
                     request_context,
                     context,
                     security,
                 )
                 .await
             }
+            // Generated query types carry the meta fields, so they parse the
+            // validated row as-is.
             "ghCloneRepo" => {
-                self.execute_clone_resolved(&execution_query, request_context, context, paths)
+                self.execute_clone_resolved(query, request_context, context, paths)
                     .await
             }
             _ => Err(ExecutionError::WorkerFailed),
@@ -315,8 +331,12 @@ impl GitHubServices {
     ) -> Result<DomainResult, ExecutionError> {
         context.check()?;
         let raw_query = query;
-        let query: gh_get_history_item::GhGetHistoryItemQuery =
-            serde_json::from_value(query.clone()).map_err(|_| ExecutionError::WorkerFailed)?;
+        let mut query: gh_get_history_item::GhGetHistoryItemQuery =
+            match super::dispatch::parse_query(query.clone()) {
+                Ok(query) => query,
+                Err(row) => return Ok(*row),
+            };
+        query.auto_page_chars = Some(self.auto_page_chars);
         // History items are mutable; bypass ConditionalCache intentionally.
         // See gh_get_history_item module-level doc for the full rationale.
         let result = gh_get_history_item::execute(
@@ -341,7 +361,7 @@ impl GitHubServices {
                 failure: None,
             },
             Err(error) => {
-                let pull_request = error.message.contains("is a pull request");
+                let pull_request = error.reason == Some(ProviderErrorReason::IssueIsPullRequest);
                 let mut result = history_error(error, false);
                 if pull_request {
                     attach_pull_request_recovery(&mut result.data, raw_query);
@@ -359,8 +379,10 @@ impl GitHubServices {
         security: &ContentSecurity,
     ) -> Result<DomainResult, ExecutionError> {
         context.check()?;
-        let query: gh_search::GhSearchQuery =
-            serde_json::from_value(query.clone()).map_err(|_| ExecutionError::WorkerFailed)?;
+        let query: gh_search::GhSearchQuery = match super::dispatch::parse_query(query.clone()) {
+            Ok(query) => query,
+            Err(row) => return Ok(*row),
+        };
         let result = gh_search::execute(
             &self.provider,
             &query,
@@ -392,7 +414,10 @@ impl GitHubServices {
     ) -> Result<DomainResult, ExecutionError> {
         context.check()?;
         let query: gh_search_history::GhSearchHistoryQuery =
-            serde_json::from_value(query.clone()).map_err(|_| ExecutionError::WorkerFailed)?;
+            match super::dispatch::parse_query(query.clone()) {
+                Ok(query) => query,
+                Err(row) => return Ok(*row),
+            };
         // History search results are mutable; bypass ConditionalCache intentionally.
         // See gh_search_history module-level doc for the full rationale.
         let result =
@@ -425,11 +450,14 @@ impl GitHubServices {
     ) -> Result<DomainResult, ExecutionError> {
         context.check()?;
         let query: gh_clone_repo::GhCloneRepoQuery =
-            serde_json::from_value(query.clone()).map_err(|_| ExecutionError::WorkerFailed)?;
+            match super::dispatch::parse_query(query.clone()) {
+                Ok(query) => query,
+                Err(row) => return Ok(*row),
+            };
         // Validate owner/repo/sparse-path BEFORE any network call. Otherwise a
         // traversal-shaped owner (e.g. "../x") reaches repository_metadata and
         // is reported as repositoryNotFound (echoing raw input) instead of the
-        // correct clone.input.invalid (N3).
+        // correct clone.input.invalid.
         if let Err(error) = gh_clone_repo::validate_query(&query) {
             return Ok(DomainResult {
                 diagnostics: Default::default(),
@@ -477,7 +505,7 @@ impl GitHubServices {
         let default_branch = metadata.as_ref().map(|value| value.default_branch.as_str());
         // CloneConfig treats cache_home as the octocode home and derives
         // tmp/clone, tmp/clone-locks, tmp/clone-tmp, and tmp/git-home itself.
-        let config = CloneConfig::persistent(self.home.clone());
+        let config = CloneConfig::persistent(self.home.clone()).with_limits(&self.clone_limits);
         let git = SystemGit::default();
         let clone_context = CloneContext {
             config: &config,
@@ -519,7 +547,10 @@ impl GitHubServices {
     ) -> Result<DomainResult, ExecutionError> {
         context.check()?;
         let query: gh_get_file_content::GhGetFileContentQuery =
-            serde_json::from_value(query.clone()).map_err(|_| ExecutionError::WorkerFailed)?;
+            match super::dispatch::parse_query(query.clone()) {
+                Ok(query) => query,
+                Err(row) => return Ok(*row),
+            };
         let result = gh_get_file_content::execute(
             &self.provider,
             &query,
@@ -644,7 +675,7 @@ fn file_error(error: ProviderError, query: &Value) -> DomainResult {
         ]);
     } else if error.kind == ProviderErrorKind::Validation
         && error.status.is_none()
-        && error.message.contains("is a directory")
+        && error.reason == Some(ProviderErrorReason::PathIsDirectory)
     {
         data["hints"] =
             json!(["The path is a directory; list its entries with the viewTree continuation."]);
@@ -653,9 +684,9 @@ fn file_error(error: ProviderError, query: &Value) -> DomainResult {
         tree["confidence"] = json!("exact");
         data["next"] = json!({ "viewTree": tree });
     } else if error.kind == ProviderErrorKind::NotFound {
-        data["hints"] = json!([format!(
-            "verify the path (exact case, no leading slash) and branch; use ghSearch with operation:\"tree\", owner:\"{owner}\", repo:\"{repo}\""
-        )]);
+        data["hints"] = json!([
+            "Check the path's exact case (no leading slash) and the branch; list the parent directory with next.viewTree."
+        ]);
         let parent = std::path::Path::new(requested)
             .parent()
             .map(|path| path.to_string_lossy().into_owned())
@@ -771,6 +802,12 @@ fn search_error(error: ProviderError) -> DomainResult {
     } else if error.kind == ProviderErrorKind::RateLimited {
         data["hints"] = json!([
             "Wait for Retry-After or the rate-limit reset; authenticate for a higher quota."
+        ]);
+    } else if error.kind == ProviderErrorKind::Validation
+        && error.reason == Some(ProviderErrorReason::SearchWindowExceeded)
+    {
+        data["hints"] = json!([
+            "Lower page, or narrow with path, extension, or filename to reach deeper results."
         ]);
     }
     apply_provider_error_metadata(&mut data, &error);
@@ -897,6 +934,39 @@ mod tests {
     use super::*;
 
     #[test]
+    fn legal_block_is_not_rendered_as_a_network_failure() {
+        let error = || ProviderError {
+            kind: ProviderErrorKind::Unavailable,
+            message: "GitHub resource blocked for legal reasons (HTTP 451)".into(),
+            status: Some(451),
+            request_id: None,
+            documentation_url: None,
+            rate_limit: None,
+            retryable: false,
+            reason: None,
+        };
+        for result in [
+            search_error(error()),
+            history_error(error(), true),
+            history_error(error(), false),
+            file_error(error(), &json!({"owner":"a","repo":"b","path":"x"})),
+            provider_error(error()),
+        ] {
+            let text = result.data["error"].as_str().unwrap_or_default();
+            assert!(text.contains("legal reasons"), "{}", result.data);
+            assert_eq!(result.data["retryable"], false);
+            assert_eq!(result.data["errorCode"], "unavailable");
+            let rendered = result.data.to_string();
+            assert!(
+                !rendered.contains("Network connection failed"),
+                "{rendered}"
+            );
+            assert!(!rendered.contains("Retry the request"), "{rendered}");
+            assert!(!rendered.contains("internet connection"), "{rendered}");
+        }
+    }
+
+    #[test]
     fn permission_errors_keep_the_provider_reason_across_github_tools() {
         let reason = "Resource protected by organization SAML SSO authorization";
         let error = || ProviderError {
@@ -907,6 +977,7 @@ mod tests {
             documentation_url: None,
             rate_limit: None,
             retryable: false,
+            reason: None,
         };
         for result in [
             search_error(error()),
@@ -944,6 +1015,7 @@ mod tests {
                 resource: None,
             }),
             retryable: false,
+            reason: None,
         };
 
         let result = history_error(error, true);
@@ -985,6 +1057,7 @@ mod tests {
             documentation_url: None,
             rate_limit: None,
             retryable: false,
+            reason: None,
         };
         let query = json!({
             "owner": "a",
@@ -1017,6 +1090,7 @@ mod tests {
             documentation_url: None,
             rate_limit: None,
             retryable: false,
+            reason: None,
         };
         let result = file_error(error, &query);
         assert_eq!(
@@ -1033,6 +1107,7 @@ mod tests {
             documentation_url: None,
             rate_limit: None,
             retryable: false,
+            reason: None,
         };
         let result = file_error(error, &json!({"owner":"a","repo":"b","path":"src/lib.rs"}));
         assert_eq!(
@@ -1047,7 +1122,8 @@ mod tests {
         let error = ProviderError::new(
             ProviderErrorKind::Validation,
             "Path \"src\" is a directory, not a file; list it with ghSearch operation:\"tree\".",
-        );
+        )
+        .with_reason(ProviderErrorReason::PathIsDirectory);
         let result = file_error(error, &query);
         let data = &result.data;
         assert!(
@@ -1065,6 +1141,19 @@ mod tests {
         let hint = result.data["hints"][0].as_str().unwrap_or_default();
         assert!(!hint.contains("Retry once"), "{hint}");
         assert!(hint.contains("Binary"), "{hint}");
+    }
+
+    /// Recovery keys on the typed reason: the same text without the reason
+    /// gets no directory continuation.
+    #[test]
+    fn directory_recovery_keys_on_the_typed_reason_not_the_message() {
+        let query = json!({"owner":"a","repo":"b","path":"src","branch":"main"});
+        let untyped = ProviderError::new(ProviderErrorKind::Validation, "src is a directory");
+        assert!(
+            file_error(untyped, &query).data["next"]
+                .get("viewTree")
+                .is_none()
+        );
     }
 
     #[test]
@@ -1096,6 +1185,7 @@ mod tests {
             documentation_url: None,
             rate_limit: None,
             retryable: false,
+            reason: None,
         };
 
         let result = history_error(error, false);
@@ -1120,6 +1210,7 @@ mod tests {
             documentation_url: None,
             rate_limit: None,
             retryable: false,
+            reason: None,
         };
         let result = history_error(error, true);
         assert_eq!(

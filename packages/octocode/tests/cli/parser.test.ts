@@ -179,9 +179,10 @@ describe('CLI Parser', () => {
       expect(hasHelpFlag(args)).toBe(true);
     });
 
-    it('should ignore single-dash help spelling', () => {
+    it('should recognize single-dash help without treating it as a command', () => {
       const args = parseArgs(['-h']);
-      expect(hasHelpFlag(args)).toBe(false);
+      expect(hasHelpFlag(args)).toBe(true);
+      expect(args.command).toBeNull();
     });
 
     it('should return false when no help flag', () => {

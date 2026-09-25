@@ -4,11 +4,12 @@ use regex::Regex;
 use serde::Deserialize;
 use tree_sitter::Node;
 
+use crate::structural::kinds::named_kind_id;
 use crate::structural::language::AgLanguage;
 
 use super::matching::{
-    CandidatePlan, CaptureEnv, ExecutionError, SECONDARY_CAPTURE, named_children, node_text,
-    raw_range,
+    CandidatePlan, CaptureEnv, ExecutionError, SECONDARY_CAPTURE, ancestors_from_root,
+    named_children, node_text, raw_range,
 };
 use super::pattern::CompiledPattern;
 
@@ -108,17 +109,12 @@ impl CompiledRule {
     }
 
     pub(super) fn compile(lang: &AgLanguage, raw: &RawRule) -> Result<Self, String> {
-        if let Some(kind) = raw.kind.as_deref() {
-            let language = lang.tree_sitter_language();
-            // ERROR is a built-in recovery node, outside the grammar's symbol table.
-            if kind != "ERROR"
-                && !(0..language.node_kind_count())
-                    .any(|id| language.node_kind_for_id(id as u16) == Some(kind))
-            {
-                return Err(format!(
-                    "unknown node kind '{kind}' for this language grammar"
-                ));
-            }
+        if let Some(kind) = raw.kind.as_deref()
+            && named_kind_id(&lang.tree_sitter_language(), kind).is_none()
+        {
+            return Err(format!(
+                "unknown node kind '{kind}' for this language grammar"
+            ));
         }
         let pattern = raw
             .pattern
@@ -226,10 +222,14 @@ impl CompiledRule {
         self.candidate_plan.matches(candidate)
     }
 
-    pub(super) fn matches(
+    /// `ancestors` is the candidate's ancestor chain (root first, parent
+    /// last) when the caller already has it; `None` recomputes it once from
+    /// the document root, and only if an `inside` matcher needs it.
+    pub(super) fn matches<'t>(
         &self,
-        candidate: Node<'_>,
-        document: &Document<'_>,
+        candidate: Node<'t>,
+        ancestors: Option<&[Node<'t>]>,
+        document: &Document<'_, 't>,
         captures: &mut CaptureEnv,
     ) -> Result<bool, ExecutionError> {
         ExecutionError::check(document.deadline)?;
@@ -241,54 +241,61 @@ impl CompiledRule {
         {
             return Ok(false);
         }
+        // Every matcher binds into `captures` directly; on failure everything
+        // bound since this checkpoint is rolled back, so a `false` result
+        // always leaves the caller's environment unchanged.
+        let checkpoint = captures.checkpoint();
         if let Some(pattern) = &self.pattern
             && !pattern.matches(candidate, document.content, captures, document.deadline)?
         {
+            captures.rollback(checkpoint);
             return Ok(false);
         }
         if let Some(regex) = &self.regex
             && !regex.is_match(node_text(candidate, document.content))
         {
+            captures.rollback(checkpoint);
             return Ok(false);
         }
-        if let Some(rule) = &self.has {
-            let mut branch = captures.clone();
-            if !matches_descendant(rule, candidate, document, &mut branch, 0)? {
-                return Ok(false);
-            }
-            *captures = branch;
+        if let Some(rule) = &self.has
+            && !matches_descendant(rule, candidate, document, captures)?
+        {
+            captures.rollback(checkpoint);
+            return Ok(false);
         }
-        if let Some(rule) = &self.inside {
-            let mut branch = captures.clone();
-            if !matches_ancestor(rule, candidate, document, &mut branch)? {
-                return Ok(false);
-            }
-            *captures = branch;
+        if let Some(rule) = &self.inside
+            && !matches_ancestor(rule, candidate, ancestors, document, captures)?
+        {
+            captures.rollback(checkpoint);
+            return Ok(false);
         }
         for rule in &self.all {
-            let mut branch = captures.clone();
-            if !rule.matches(candidate, document, &mut branch)? {
+            if !rule.matches(candidate, ancestors, document, captures)? {
+                captures.rollback(checkpoint);
                 return Ok(false);
             }
-            *captures = branch;
         }
         if !self.any.is_empty() {
-            let mut matched = None;
+            let mut matched = false;
             for rule in &self.any {
-                let mut branch = captures.clone();
-                if rule.matches(candidate, document, &mut branch)? {
-                    matched = Some(branch);
+                // A failed alternative rolls itself back (see above).
+                if rule.matches(candidate, ancestors, document, captures)? {
+                    matched = true;
                     break;
                 }
             }
-            let Some(branch) = matched else {
+            if !matched {
+                captures.rollback(checkpoint);
                 return Ok(false);
-            };
-            *captures = branch;
+            }
         }
         if let Some(rule) = &self.not {
-            let mut branch = captures.clone();
-            if rule.matches(candidate, document, &mut branch)? {
+            // `not` never contributes bindings, matched or not.
+            let before_not = captures.checkpoint();
+            let negated = rule.matches(candidate, ancestors, document, captures)?;
+            captures.rollback(before_not);
+            if negated {
+                captures.rollback(checkpoint);
                 return Ok(false);
             }
         }
@@ -296,33 +303,29 @@ impl CompiledRule {
     }
 }
 
-pub(super) struct Document<'a> {
+pub(super) struct Document<'a, 't> {
     pub(super) content: &'a str,
     pub(super) deadline: Instant,
+    pub(super) root: Node<'t>,
 }
 
-fn matches_descendant(
+fn matches_descendant<'t>(
     rule: &CompiledRule,
-    candidate: Node<'_>,
-    document: &Document<'_>,
+    candidate: Node<'t>,
+    document: &Document<'_, 't>,
     captures: &mut CaptureEnv,
-    _depth: usize,
 ) -> Result<bool, ExecutionError> {
     let mut stack = named_children(candidate);
     stack.reverse();
     while let Some(child) = stack.pop() {
         ExecutionError::check(document.deadline)?;
-        if rule.matches_candidate(child) {
-            let mut branch = captures.clone();
-            if rule.matches(child, document, &mut branch)? {
-                branch.capture_replace(
-                    SECONDARY_CAPTURE,
-                    node_text(child, document.content).to_owned(),
-                    raw_range(child),
-                );
-                *captures = branch;
-                return Ok(true);
-            }
+        if rule.matches_candidate(child) && rule.matches(child, None, document, captures)? {
+            captures.capture_replace(
+                SECONDARY_CAPTURE,
+                node_text(child, document.content).to_owned(),
+                raw_range(child),
+            );
+            return Ok(true);
         }
         if rule.stop_by_end {
             stack.extend(named_children(child).into_iter().rev());
@@ -331,31 +334,39 @@ fn matches_descendant(
     Ok(false)
 }
 
-fn matches_ancestor(
+fn matches_ancestor<'t>(
     rule: &CompiledRule,
-    candidate: Node<'_>,
-    document: &Document<'_>,
+    candidate: Node<'t>,
+    ancestors: Option<&[Node<'t>]>,
+    document: &Document<'_, 't>,
     captures: &mut CaptureEnv,
 ) -> Result<bool, ExecutionError> {
-    let mut parent = candidate.parent();
-    while let Some(node) = parent {
+    // One chain per candidate: `Node::parent()` searches down from the root on
+    // every call, so walking `stopBy: end` with it was O(depth²) per candidate.
+    let owned;
+    let chain = match ancestors {
+        Some(chain) => chain,
+        None => {
+            owned = ancestors_from_root(document.root, candidate, document.deadline)?;
+            owned.as_slice()
+        }
+    };
+    for index in (0..chain.len()).rev() {
         ExecutionError::check(document.deadline)?;
-        if rule.matches_candidate(node) {
-            let mut branch = captures.clone();
-            if rule.matches(node, document, &mut branch)? {
-                branch.capture_replace(
-                    SECONDARY_CAPTURE,
-                    node_text(node, document.content).to_owned(),
-                    raw_range(node),
-                );
-                *captures = branch;
-                return Ok(true);
-            }
+        let node = chain[index];
+        if rule.matches_candidate(node)
+            && rule.matches(node, Some(&chain[..index]), document, captures)?
+        {
+            captures.capture_replace(
+                SECONDARY_CAPTURE,
+                node_text(node, document.content).to_owned(),
+                raw_range(node),
+            );
+            return Ok(true);
         }
         if !rule.stop_by_end {
             return Ok(false);
         }
-        parent = node.parent();
     }
     Ok(false)
 }

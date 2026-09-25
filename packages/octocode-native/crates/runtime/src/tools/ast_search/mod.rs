@@ -63,8 +63,6 @@ impl From<PolicyError> for AstError {
             PolicyErrorCode::InvalidInput => "invalidInput",
             PolicyErrorCode::InputTooLarge => "inputTooLarge",
             PolicyErrorCode::BinaryContent => "binaryContent",
-            PolicyErrorCode::RegistryFrozen => "registryFrozen",
-            PolicyErrorCode::UnsupportedRegex => "unsupportedRegex",
             PolicyErrorCode::Io => "io",
         };
         Self::new(format!("ast.policy.{suffix}"), error.message)
@@ -242,14 +240,13 @@ pub use syntax::execute_syntax;
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
 
     use serde_json::json;
 
     use super::*;
     use crate::{
         policy::path::{PathPolicy, PathPolicyConfig},
-        security::{ContentSecurity, SecurityRegistry},
+        security::ContentSecurity,
         tools::local_fetch::CancellationCheck,
     };
 
@@ -270,7 +267,7 @@ mod tests {
     fn context() -> (PathPolicy, ContentSecurity) {
         (
             PathPolicy::new(PathPolicyConfig::default()).expect("default path policy"),
-            ContentSecurity::new(Arc::new(SecurityRegistry::default())),
+            ContentSecurity::new(),
         )
     }
 
@@ -310,7 +307,7 @@ mod tests {
             ..Default::default()
         })
         .expect("fixture path policy");
-        let security = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+        let security = ContentSecurity::new();
 
         let syntax = execute_ast(
             json!({

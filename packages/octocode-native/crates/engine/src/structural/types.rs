@@ -56,9 +56,8 @@ pub struct StructuralQueryExplanation {
     pub diagnostics: Vec<StructuralDiagnostic>,
 }
 
-/// A structural match with stable evidence metadata. Existing
-/// `StructuralMatch` remains unchanged for the legacy APIs; detailed APIs add
-/// IDs and confidence without forcing old callers to carry metadata.
+/// A structural match with stable evidence metadata: [`StructuralMatch`] plus
+/// an ID, node kind, and confidence, for the detailed APIs.
 #[cfg_attr(feature = "napi-addon", napi(object))]
 pub struct StructuralDetailedMatch {
     pub id: String,
@@ -80,8 +79,7 @@ pub struct StructuralSearchFilesOptions {
     pub rule: Option<String>,
     pub include: Option<Vec<String>>,
     /// File-path globs to skip (gitignore-style, e.g. `"*.min.js"`, `"src/gen/**"`).
-    /// Mirrors local-search `exclude` so it is honored on the structural
-    /// lane too — previously silently dropped (typed-contract violation).
+    /// Mirrors local-search `exclude`.
     pub exclude: Option<Vec<String>>,
     pub exclude_dir: Option<Vec<String>>,
     /// Include hidden (dot) files. `None` preserves the default walker behavior
@@ -219,7 +217,7 @@ impl StructuralDetailedMatch {
         path: &str,
         query_fingerprint: &str,
         matched: StructuralMatch,
-        node_kind: String,
+        node_kind: impl Into<String>,
     ) -> Self {
         let id = stable_match_id(path, query_fingerprint, &matched);
         Self {
@@ -231,7 +229,7 @@ impl StructuralDetailedMatch {
             text: matched.text,
             metavars: matched.metavars,
             metavar_ranges: matched.metavar_ranges,
-            node_kind: Some(node_kind),
+            node_kind: Some(node_kind.into()),
             // The octo matcher is a precise AST matcher: every match is an exact
             // tree-sitter node match, so there is no partial/fallback tier to
             // report. Keep this in sync with the narrowed `confidence` union in

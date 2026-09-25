@@ -15,6 +15,7 @@ export type McpManagerAction = (
   | { action: 'review-hook'; source: string; hash: string; expectedRevision?: string }
   | { action: 'enable-hook' | 'disable-hook'; source: string; expectedRevision?: string }
   | { action: 'review-skill' | 'review-mcp'; source: string; hash: string; scope: 'project' | 'global' }
+  | { action: 'preview-skill'; source: string; hash: string }
 ) & { capabilityRevision?: string };
 
 const SERVER_NAME = /^[A-Za-z0-9_.-]{1,64}$/;
@@ -67,6 +68,10 @@ function parseMcpManagerActionPayload(raw: unknown): McpManagerAction {
   }
   if (value['scope'] !== undefined && value['scope'] !== 'project' && value['scope'] !== 'global') throw new Error('Invalid MCP scope');
   const scope = value['scope'] === 'global' ? 'global' : 'project';
+  if (action === 'preview-skill') {
+    if (typeof value['source'] !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(value['source']) || typeof value['hash'] !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(value['hash'])) throw new Error('Invalid skill preview');
+    return { action, source: value['source'], hash: value['hash'] };
+  }
   if (action === 'review-skill' || action === 'review-mcp') {
     if (typeof value['source'] !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(value['source']) || typeof value['hash'] !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(value['hash'])) throw new Error('Invalid linked source review');
     return { action, source: value['source'], hash: value['hash'], scope };

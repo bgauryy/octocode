@@ -500,6 +500,7 @@ impl<R: CredentialResolver> GitHubTransport<R> {
                     documentation_url: None,
                     rate_limit: None,
                     retryable: false,
+                    reason: None,
                 });
             }
             if status.is_success() || status == StatusCode::NOT_MODIFIED {
@@ -514,10 +515,26 @@ impl<R: CredentialResolver> GitHubTransport<R> {
                     next,
                 });
             }
-            let body = read_bounded(response, context).await.unwrap_or_default();
+            // A cancel while reading the error body is a cancel, not an empty
+            // body classified by status. An oversized body keeps the status
+            // classification but says the body was not read.
+            let (body, body_note) = match read_bounded(response, context).await {
+                Ok(body) => (body, None),
+                Err(error) if error.kind == ProviderErrorKind::Cancelled => {
+                    drop(admission);
+                    return Err(error);
+                }
+                Err(error) if error.kind == ProviderErrorKind::ResponseTooLarge => {
+                    (Bytes::new(), Some("error body exceeded limit"))
+                }
+                Err(_) => (Bytes::new(), Some("error body could not be read")),
+            };
             drop(admission);
             let failure = classify_failure(status, &headers, &body, config);
             let mut error = response_error(status, &headers, body);
+            if let Some(note) = body_note {
+                error.message = format!("{} ({note})", error.message).into_boxed_str();
+            }
             let retry_wait = match failure {
                 Failure::Primary { reset, wait } => {
                     count_rate_limit();
@@ -722,15 +739,27 @@ fn response_error(status: StatusCode, headers: &HeaderMap, body: Bytes) -> Provi
         404 | 410 => ProviderErrorKind::NotFound,
         400 | 422 => ProviderErrorKind::Validation,
         429 => ProviderErrorKind::RateLimited,
+        451 => ProviderErrorKind::Unavailable,
         500..=599 => ProviderErrorKind::Server,
-        _ => ProviderErrorKind::Transport,
+        _ => ProviderErrorKind::HttpStatus,
+    };
+    let code = status.as_u16();
+    let message = match (kind, parsed.message) {
+        (ProviderErrorKind::Unavailable, Some(detail)) => {
+            format!("GitHub resource blocked for legal reasons (HTTP 451): {detail}")
+        }
+        (ProviderErrorKind::Unavailable, None) => {
+            "GitHub resource blocked for legal reasons (HTTP 451)".to_owned()
+        }
+        (ProviderErrorKind::HttpStatus, Some(detail)) => {
+            format!("GitHub API returned HTTP {code}: {detail}")
+        }
+        (_, Some(detail)) => detail,
+        (_, None) => format!("GitHub API returned HTTP {code}"),
     };
     ProviderError {
         kind,
-        message: parsed
-            .message
-            .unwrap_or_else(|| format!("GitHub API returned HTTP {}", status.as_u16()))
-            .into_boxed_str(),
+        message: message.into_boxed_str(),
         status: Some(status.as_u16()),
         request_id: headers
             .get("x-github-request-id")
@@ -739,6 +768,7 @@ fn response_error(status: StatusCode, headers: &HeaderMap, body: Bytes) -> Provi
         documentation_url: parsed.documentation_url.map(String::into_boxed_str),
         rate_limit: None,
         retryable: status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS,
+        reason: None,
     }
 }
 fn header_u64(headers: &HeaderMap, name: &str) -> Option<u64> {

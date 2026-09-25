@@ -501,6 +501,36 @@ async fn lsp_search_rejects_files_outside_allowed_roots_before_server_discovery(
         rendered.contains("outside allowed directories"),
         "expected path-policy denial, got {rendered}"
     );
+    assert_eq!(row_data(&outcome)["errorCode"], "pathOutsideAllowedRoots");
+    runtime.close().await;
+}
+
+/// Every local tool reports a sandbox refusal under one dedicated code, and
+/// the recovery hint is keyed on that code.
+#[tokio::test]
+async fn local_tools_share_the_path_outside_allowed_roots_code() {
+    let workspace = Workspace::new();
+    let outside = workspace.write_outside_allowed_roots("denied.rs", "pub fn denied() {}\n");
+    let runtime = workspace.runtime(&[]);
+    for (tool, query) in [
+        ("localFetch", json!({"path": outside})),
+        (
+            "localSearch",
+            json!({"path": outside, "searchText": "denied"}),
+        ),
+    ] {
+        let outcome = call(&runtime, tool, query).await.expect("typed denial");
+        assert_eq!(row_status(&outcome), "error", "{tool}");
+        let data = row_data(&outcome);
+        assert_eq!(
+            data["errorCode"], "pathOutsideAllowedRoots",
+            "{tool}: {data}"
+        );
+        assert!(
+            data["hints"].to_string().contains("ALLOWED_PATHS"),
+            "{tool}: {data}"
+        );
+    }
     runtime.close().await;
 }
 

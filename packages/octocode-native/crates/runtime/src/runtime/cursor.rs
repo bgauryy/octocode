@@ -85,26 +85,8 @@ fn load_or_create_key(home: &Path) -> Option<[u8; 32]> {
     let mut key = [0_u8; 32];
     getrandom::fill(&mut key).ok()?;
     let _ = std::fs::create_dir_all(home);
-    write_key_private(&path, &key).ok()?;
+    crate::cache::write_private(&path, &key).ok()?;
     Some(key)
-}
-
-#[cfg(unix)]
-fn write_key_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    use std::io::Write;
-    use std::os::unix::fs::OpenOptionsExt;
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .write(true)
-        .mode(0o600)
-        .open(path)?;
-    file.write_all(bytes)
-}
-
-#[cfg(not(unix))]
-fn write_key_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    std::fs::write(path, bytes)
 }
 
 /// Per-user signing key, resolved once per process. Falls back to the

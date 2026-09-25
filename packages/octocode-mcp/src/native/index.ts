@@ -7,7 +7,10 @@ import {
   getDirectToolDefinitionsWithAddons,
   getNativeContractFingerprint,
 } from '@octocodeai/config/schema';
-import { buildMcpInstructions, type GrammarCapability } from '@octocodeai/config/mcp';
+import {
+  buildMcpInstructions,
+  type GrammarCapability,
+} from '@octocodeai/config/mcp';
 import { NATIVE_ABI_VERSION } from '@octocodeai/octocode-native/runtime';
 import packageJson from '../../package.json';
 
@@ -245,9 +248,12 @@ export function createNativeMcp({
     capabilities: { tools: { listChanged: false } },
     // Availability-scoped instructions, built by core from the tools the
     // native runtime actually enables — the native catalog carries none.
-    instructions: buildMcpInstructions(availableTools.map(tool => tool.name), {
-      grammarCapabilities: catalog.grammarCapabilities ?? [],
-    }),
+    instructions: buildMcpInstructions(
+      availableTools.map(tool => tool.name),
+      {
+        grammarCapabilities: catalog.grammarCapabilities ?? [],
+      }
+    ),
   });
   const registerTool = server.registerTool.bind(server) as RegisterTool;
 

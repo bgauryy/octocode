@@ -6,7 +6,7 @@ mod process;
 use crate::policy::{PolicyErrorCode, path::PathPolicy};
 use crate::providers::github::{GitHubEndpoint, ResolvedCredential};
 use crate::tools::local_fetch::CancellationCheck;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::path::{Component, Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -17,39 +17,7 @@ const DEFAULT_CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 const DEFAULT_MAX_CACHE_SIZE: u64 = 2 * 1024 * 1024 * 1024;
 const DEFAULT_MAX_CLONES: usize = 50;
 
-fn env_duration(key: &str, fallback: Duration) -> Duration {
-    std::env::var(key)
-        .ok()
-        .and_then(|value| value.parse::<u64>().ok())
-        .map(Duration::from_millis)
-        .filter(|value| !value.is_zero())
-        .unwrap_or(fallback)
-}
-fn env_u64(key: &str, fallback: u64) -> u64 {
-    std::env::var(key)
-        .ok()
-        .and_then(|value| value.parse().ok())
-        .filter(|value| *value > 0)
-        .unwrap_or(fallback)
-}
-fn env_usize(key: &str, fallback: usize) -> usize {
-    std::env::var(key)
-        .ok()
-        .and_then(|value| value.parse().ok())
-        .filter(|value| *value > 0)
-        .unwrap_or(fallback)
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct GhCloneRepoQuery {
-    pub owner: String,
-    pub repo: String,
-    pub branch: Option<String>,
-    pub sparse_path: Option<String>,
-    #[serde(default)]
-    pub force_refresh: bool,
-}
+pub use crate::contracts::tool_types::GhCloneRepoQuery;
 
 #[derive(Clone, Debug)]
 pub struct CloneConfig {
@@ -66,11 +34,21 @@ impl CloneConfig {
         Self {
             cache_home: cache_home.into(),
             persistent: true,
-            cache_ttl: env_duration("OCTOCODE_CACHE_TTL_MS", DEFAULT_CACHE_TTL),
-            max_cache_size_bytes: env_u64("OCTOCODE_MAX_CACHE_SIZE", DEFAULT_MAX_CACHE_SIZE),
-            max_clone_count: env_usize("OCTOCODE_MAX_CLONES", DEFAULT_MAX_CLONES),
+            cache_ttl: DEFAULT_CACHE_TTL,
+            max_cache_size_bytes: DEFAULT_MAX_CACHE_SIZE,
+            max_clone_count: DEFAULT_MAX_CLONES,
             lock_wait: Duration::from_secs(5 * 60),
         }
+    }
+
+    /// Apply the resolved `cloneCache.*` settings. The config contract has
+    /// already validated and clamped them (all minimums are positive).
+    #[must_use]
+    pub fn with_limits(mut self, limits: &crate::config::CloneCacheConfig) -> Self {
+        self.cache_ttl = Duration::from_millis(limits.ttl as u64);
+        self.max_cache_size_bytes = limits.max_size as u64;
+        self.max_clone_count = limits.max_clones as usize;
+        self
     }
 }
 
@@ -197,7 +175,7 @@ pub fn execute_clone(
         .map_err(|error| CloneError::new("clone.policy.denied", error.message))?;
     context.git.assert_available(&control(context))?;
     let _lock = cache::CloneLock::acquire(&clone_dir, context)?;
-    if !query.force_refresh
+    if !query.force_refresh.unwrap_or(false)
         && let Some(meta) = cache::valid_clone(&clone_dir, context.config.cache_ttl)
         && meta.source == "clone"
         && meta.matches(
@@ -304,8 +282,8 @@ fn result(
     let local_path = clone_dir.to_string_lossy().into_owned();
     let total_size = cache::checked_out_size(clone_dir);
     Ok(CloneResult {
-        owner: query.owner.clone(),
-        repo: query.repo.clone(),
+        owner: query.owner.to_string(),
+        repo: query.repo.to_string(),
         total_size,
         location: CloneLocation {
             kind: if query.sparse_path.is_some() {
@@ -326,7 +304,7 @@ fn result(
 }
 
 pub(crate) fn validate_query(query: &GhCloneRepoQuery) -> Result<(), CloneError> {
-    for (name, value) in [("owner", &query.owner), ("repo", &query.repo)] {
+    for (name, value) in [("owner", query.owner.as_str()), ("repo", query.repo.as_str())] {
         if value.trim().is_empty()
             || value.contains('/')
             || value.contains('\\')
@@ -436,3 +414,31 @@ fn hash(value: &str, characters: usize) -> String {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod limit_tests {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn contract_defaults_match_persistent_defaults_and_env_overrides_apply() {
+        let defaults = crate::config::resolve_sections(None, &BTreeMap::new()).expect("defaults");
+        let base = CloneConfig::persistent("/h");
+        let resolved = CloneConfig::persistent("/h").with_limits(&defaults.clone_cache);
+        assert_eq!(resolved.cache_ttl, base.cache_ttl);
+        assert_eq!(resolved.max_cache_size_bytes, base.max_cache_size_bytes);
+        assert_eq!(resolved.max_clone_count, base.max_clone_count);
+
+        let env = BTreeMap::from([
+            ("OCTOCODE_CACHE_TTL_MS".to_owned(), "120000".to_owned()),
+            ("OCTOCODE_MAX_CLONES".to_owned(), "7".to_owned()),
+            // Below the contract minimum: clamped, not silently ignored.
+            ("OCTOCODE_MAX_CACHE_SIZE".to_owned(), "5".to_owned()),
+        ]);
+        let overridden = crate::config::resolve_sections(None, &env).expect("env");
+        let config = CloneConfig::persistent("/h").with_limits(&overridden.clone_cache);
+        assert_eq!(config.cache_ttl, Duration::from_secs(120));
+        assert_eq!(config.max_clone_count, 7);
+        assert_eq!(config.max_cache_size_bytes, 1024 * 1024);
+    }
+}

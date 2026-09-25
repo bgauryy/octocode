@@ -9,9 +9,8 @@ pub struct ResponsePageOptions {
     pub response_char_offset: Option<usize>,
     pub response_char_length: Option<usize>,
     pub response_snapshot: Option<String>,
-    /// Opt-in (R9): `"structured"` windows the serialized structuredContent
-    /// envelope instead of the rendered text. Default (`None`/`"text"`)
-    /// behavior is unchanged.
+    /// Opt-in: `"structured"` windows the serialized structuredContent
+    /// envelope instead of the rendered text (default `None`/`"text"`).
     pub response_scope: Option<String>,
     pub render_text: Option<bool>,
 }
@@ -529,6 +528,33 @@ fn row_part_chars(part: usize, of: usize) -> usize {
     json_chars(&json!({"rowPart": {"part": part, "of": of}})) - 1
 }
 
+/// Serialized `"next":…,` a row carries under `data` (or at its top level).
+/// A split row keeps its `next.*` only on its last part: a continuation that
+/// resumes past this row must not be followed before every part is delivered.
+fn row_next_chars(row: &Value) -> usize {
+    [
+        row.get("data").and_then(|data| data.get("next")),
+        row.get("next"),
+    ]
+    .into_iter()
+    .flatten()
+    .map(|next| json_chars(&json!({"next": next})) - 1)
+    .sum()
+}
+
+/// Drop the row-level continuations from a non-final `rowPart`.
+fn strip_row_next(value: &mut Value) {
+    if let Some(data) = value.get_mut("data").and_then(Value::as_object_mut) {
+        data.remove("next");
+    }
+    if let Some(row) = value.as_object_mut() {
+        row.remove("next");
+    }
+}
+
+/// (fragment, row part, page) in output order.
+type PlacedFragment = (Fragment, Option<(usize, usize)>, usize);
+
 /// Row-aware pages: pack whole rows (or fragments of one oversized row) into
 /// complete envelopes. `responseCharOffset` addresses the zero-based page.
 /// Pages are assigned from fragment sizes; only the requested page is built.
@@ -545,18 +571,20 @@ fn paginate_rows(
     let overhead = json_chars(&Value::Object(structured.clone())) + "\"results\":[],".len();
     let row_budget = budget.saturating_sub(overhead).max(1);
     let mut arena = FragmentArena::default();
-    // (fragment, rowPart, page) in output order.
-    let mut placed: Vec<(Fragment, Option<(usize, usize)>, usize)> = Vec::new();
+    let mut placed: Vec<PlacedFragment> = Vec::new();
     let mut page_index = 0usize;
     let mut page_len = 0usize;
     let mut page_chars = 0usize;
     for row in rows {
+        let next_chars = row_next_chars(&row);
         let mut fragments = Vec::new();
         arena.plan(row, row_budget, &mut fragments);
         let parts = fragments.len();
         for (index, (fragment, chars)) in fragments.into_iter().enumerate() {
             let row_part = (parts > 1).then_some((index + 1, parts));
-            let chars = chars + row_part.map_or(0, |(part, of)| row_part_chars(part, of)) + 1;
+            let stripped = if index + 1 < parts { next_chars } else { 0 };
+            let chars =
+                chars + row_part.map_or(0, |(part, of)| row_part_chars(part, of)) + 1 - stripped;
             if page_len > 0 && page_chars + chars > row_budget {
                 page_index += 1;
                 page_len = 0;
@@ -603,6 +631,9 @@ fn paginate_rows(
         .map(|(fragment, row_part, _)| {
             let mut value = arena.materialize(fragment);
             if let Some((part, of)) = row_part {
+                if part < of {
+                    strip_row_next(&mut value);
+                }
                 value["rowPart"] = json!({"part": part, "of": of});
             }
             value
@@ -1244,6 +1275,9 @@ mod lazy_page_tests {
             let parts = fragments.len();
             if parts > 1 {
                 for (index, fragment) in fragments.iter_mut().enumerate() {
+                    if index + 1 < parts {
+                        strip_row_next(fragment);
+                    }
                     fragment["rowPart"] = json!({"part": index + 1, "of": parts});
                 }
             }
@@ -1321,7 +1355,9 @@ mod lazy_page_tests {
         let huge = json!({"line": 9999, "value": "x".repeat(900)});
         json!({"base": "/repo", "results": [
             {"index": 0, "data": {"files": [{"path": "a.rs", "matches": matches.clone()},
-                                            {"path": "b.rs", "matches": [huge]}]}},
+                                            {"path": "b.rs", "matches": [huge]}],
+                                  "next": {"charOffset": {"tool": "localSearch",
+                                                          "query": {"page": 2}}}}},
             {"index": 1, "data": {"content": "small"}},
             {"index": 2, "data": {"files": [{"path": "c.rs", "matches": matches}]}}
         ]})
@@ -1359,6 +1395,33 @@ mod lazy_page_tests {
                 );
             }
         }
+    }
+
+    /// H4: at a small `defaultCharLength` a split row's `next.*` appears only
+    /// on its last `rowPart`, so it cannot be followed before the row is whole.
+    #[test]
+    fn split_row_next_travels_only_with_its_last_part() {
+        let structured = envelope();
+        let full = Value::Object(structured.clone()).to_string();
+        let (_, first) = paginate_rows(structured.clone(), &full, &options(1_000, 0, None));
+        assert!(first.total_pages > 2);
+        let mut carriers = Vec::new();
+        for offset in 0..first.total_pages {
+            let request = options(1_000, offset, Some(first.snapshot.clone()));
+            let (page, _) = paginate_rows(structured.clone(), &full, &request);
+            for row in page["results"].as_array().expect("rows") {
+                if row["index"] != 0 {
+                    continue;
+                }
+                let part = row["rowPart"]["part"].as_u64().expect("row 0 is split");
+                let of = row["rowPart"]["of"].as_u64().expect("parts");
+                if row["data"].get("next").is_some() {
+                    carriers.push((part, of));
+                }
+            }
+        }
+        assert_eq!(carriers.len(), 1, "{carriers:?}");
+        assert_eq!(carriers[0].0, carriers[0].1, "next rides the last part");
     }
 
     #[test]

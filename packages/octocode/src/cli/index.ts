@@ -9,10 +9,10 @@ import { EXIT } from './exit-codes.js';
 
 /**
  * The npm CLI is a launcher, not a second implementation. The native Rust
- * binary owns every command — parsing, help, version, validation, execution.
- * Node retains exactly three responsibilities:
+ * binary owns command parsing, command help, validation, and execution.
+ * Node retains presentation and management responsibilities:
  *  - `scheme`: joins core-owned presentation with the native machine catalog
- *    after a fail-closed fingerprint check,
+ *    after a fail-closed fingerprint check (also supplies root help instructions),
  *  - `skill`: bundled-skill materialization (the native `skill` command
  *    shells back to this CLI; delegating it would recurse), and
  *  - the TTY client picker for a bare `install` (selection only — every
@@ -30,8 +30,8 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
   // A bare `octocode` (no command, no help/version flag) is the agent overview:
   // the same catalog `scheme` emits — short tool descriptions, availability, the
   // `scheme <name>` route to a tool's params, and the canonical instructions.
-  // `--help` falls through to the native command reference; a bare `--version`
-  // prints the launcher and native versions (see version.ts).
+  // Root help appends the same instructions to the native command reference;
+  // a bare `--version` prints launcher and native versions (see version.ts).
   if (args.command === null && !hasHelpFlag(args) && !hasVersionFlag(args)) {
     const { schemeCommand } = await import('./commands/scheme.js');
     await schemeCommand.handler({ ...args, command: 'scheme', args: [] });
@@ -88,6 +88,13 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
     process.exitCode = await runInteractiveInstall(bin, rawArgv);
   } else {
     process.exitCode = await delegateToNative(bin, rawArgv);
+    const rootHelp =
+      (args.command === null && hasHelpFlag(args)) ||
+      (args.command === 'help' && args.args.length === 0);
+    if (process.exitCode === EXIT.OK && rootHelp) {
+      const { printAgentInstructions } = await import('./commands/scheme.js');
+      process.exitCode = await printAgentInstructions();
+    }
   }
   return true;
 }

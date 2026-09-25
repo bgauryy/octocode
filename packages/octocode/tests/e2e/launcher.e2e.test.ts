@@ -48,10 +48,34 @@ function runLauncher(args: string[], env: NodeJS.ProcessEnv = {}) {
 }
 
 describe.skipIf(!ready)('launcher → native binary e2e', () => {
-  it("serves --version with launcher and native versions", () => {
+  it.each(['', 'discovery-only-test-key'])(
+    'shows identical catalog and root-help instructions with classification key %j',
+    key => {
+      const env = { OCTOCODE_CLASSIFICATION_API: key };
+      const main = runLauncher([], env);
+      const scheme = runLauncher(['scheme'], env);
+      expect(main.status).toBe(0);
+      expect(scheme.status).toBe(0);
+      const instructions = JSON.parse(main.stdout).instructions as string;
+      expect(instructions.length).toBeGreaterThan(0);
+      expect(JSON.parse(scheme.stdout).instructions).toBe(instructions);
+      expect(instructions.includes('Use clasify Scout')).toBe(Boolean(key));
+      for (const args of [['--help'], ['-h'], ['help']]) {
+        const help = runLauncher(args, env);
+        expect(help.status).toBe(0);
+        expect(help.stdout.split('Agent instructions:\n')[1]?.trim()).toBe(
+          instructions.trim()
+        );
+      }
+    }
+  );
+
+  it('serves --version with launcher and native versions', () => {
     const result = runLauncher(['--version']);
     expect(result.status).toBe(0);
-    expect(result.stdout).toMatch(/^octocode \d+\.\d+\.\d+ \(native \d+\.\d+\.\d+\)/);
+    expect(result.stdout).toMatch(
+      /^octocode \d+\.\d+\.\d+ \(native \d+\.\d+\.\d+\)/
+    );
   });
 
   it('executes a real tool call end-to-end with exit 0 and structured JSON', () => {

@@ -195,4 +195,8 @@ test('bounds native history reads while preserving exact operation/file/side con
 
   assert.deepEqual(readFileSync(path.join(root, 'utf8.txt')), fixtures[0].after);
   assert.deepEqual(readFileSync(path.join(root, 'binary.bin')), fixtures[1].after);
-});
+  // The budget under test is native call count (MAX_READ_CALLS) and model-text
+  // size, not wall time. The sequential SQLite-backed native reads take ~1s idle
+  // but >5s (vitest's default) when the full suite saturates the CPU, so give the
+  // bounded loop an explicit, load-independent ceiling like other integration tests.
+}, 30_000);

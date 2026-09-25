@@ -175,6 +175,6 @@ test('oneOf diagnostics preserve the selected branch required field and TypeBox 
   });
   const result = validator.validate({ 'a/b': { kind: 'third' } });
   assert.equal(result.valid, false);
-  assert.ok(result.errors.some((error) => error.instancePath === '/a/b' && error.message.includes('value')));
+  assert.ok(result.errors.some((error) => error.instancePath === '/a~1b' && error.message.includes('value')));
   assert.ok(result.errors.every((error) => !/oneOf\/[01](?:\/|$)/.test(error.schemaPath)));
 });

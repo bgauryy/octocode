@@ -1,7 +1,7 @@
 //! Metavariable and capture-name recognition for structural patterns.
 //!
 //! Pure, leaf-level recognizers that turn tree-sitter nodes and raw pattern
-//! text into metavar/capture information (`$X`, `$_`, `$$$BODY`, `<$X>`,
+//! text into metavar/capture information (`$X`, `$_`, `$$$BODY`, `<$X>` (JSX),
 //! `$K: $V`). The match pipeline calls into these; they never depend on the
 //! pipeline's own state (`CompiledPattern`, `CaptureEnv`, `CandidatePlan`,
 //! `ExecutionError`), only on the shared node/text helpers and the `Expando`
@@ -12,28 +12,25 @@ use tree_sitter::Node;
 use super::language::Expando;
 use super::octo::{named_children, node_text};
 
-pub(super) fn html_tag_name_capture(pattern: &str) -> Option<String> {
-    let trimmed = pattern.trim();
-    let inner = trimmed.strip_prefix("<$")?.strip_suffix('>')?;
-    if is_capture_name(inner) {
-        return Some(inner.to_owned());
-    }
-    None
+/// `<$T>`: capture a JSX element's tag name. Only compiled as a special
+/// pattern for grammars with JSX nodes (see `CompiledPattern::new`).
+pub(super) fn tag_name_capture(pattern: &str) -> Option<&str> {
+    let inner = pattern.trim().strip_prefix("<$")?.strip_suffix('>')?;
+    is_capture_name(inner).then_some(inner)
 }
 
-pub(super) fn key_value_pair_capture(pattern: &str) -> Option<(String, String)> {
+/// `$K: $V`: capture a mapping pair's key and value.
+pub(super) fn key_value_pair_capture(pattern: &str) -> Option<(&str, &str)> {
     let (left, right) = pattern.trim().split_once(':')?;
-    let key_capture = capture_name_from_token(left.trim())?;
-    let value_capture = capture_name_from_token(right.trim())?;
-    Some((key_capture, value_capture))
+    Some((
+        capture_name_from_token(left.trim())?,
+        capture_name_from_token(right.trim())?,
+    ))
 }
 
-fn capture_name_from_token(token: &str) -> Option<String> {
+fn capture_name_from_token(token: &str) -> Option<&str> {
     let name = token.strip_prefix('$')?;
-    if is_capture_name(name) {
-        return Some(name.to_owned());
-    }
-    None
+    is_capture_name(name).then_some(name)
 }
 
 pub(super) fn minimum_candidate_nodes(
@@ -52,10 +49,11 @@ pub(super) fn minimum_candidate_nodes(
         .count()
 }
 
+/// A recognized metavariable; names borrow the pattern source.
 #[derive(Debug, PartialEq, Eq)]
-pub(super) enum MetaVar {
-    Single(String),
-    Multi(Option<String>),
+pub(super) enum MetaVar<'a> {
+    Single(&'a str),
+    Multi(Option<&'a str>),
     IgnoredSingle,
     IgnoredMulti,
 }
@@ -94,7 +92,11 @@ pub(super) fn ambiguous_function_body_capture(
 
 /// Recover a metavariable from the grammar-specific expando prefix inserted
 /// during pattern preprocessing.
-pub(super) fn meta_from_node(node: Node<'_>, source: &str, expando: Expando) -> Option<MetaVar> {
+pub(super) fn meta_from_node<'s>(
+    node: Node<'_>,
+    source: &'s str,
+    expando: Expando,
+) -> Option<MetaVar<'s>> {
     if node.kind() == "expression_statement" {
         let named = named_children(node);
         if let [capture] = named.as_slice() {
@@ -107,20 +109,19 @@ pub(super) fn meta_from_node(node: Node<'_>, source: &str, expando: Expando) -> 
     meta_from_text(node_text(node, source), expando)
 }
 
-fn meta_from_text(text: &str, expando: Expando) -> Option<MetaVar> {
-    let mut chars = text.chars();
-    let leading = chars.next()?;
+fn meta_from_text(text: &str, expando: Expando) -> Option<MetaVar<'_>> {
+    let leading = text.chars().next()?;
     if !expando.matches_leading(leading) {
         return None;
     }
 
     let expando_len = text.chars().take_while(|ch| *ch == leading).count();
-    let rest: String = text.chars().skip(expando_len).collect();
+    let rest = &text[expando_len * leading.len_utf8()..];
     match expando_len {
         1 if rest == "_" => Some(MetaVar::IgnoredSingle),
-        1 if is_capture_name(&rest) => Some(MetaVar::Single(rest)),
+        1 if is_capture_name(rest) => Some(MetaVar::Single(rest)),
         3 if rest.is_empty() => Some(MetaVar::IgnoredMulti),
-        3 if is_capture_name(&rest) => Some(MetaVar::Multi(Some(rest))),
+        3 if is_capture_name(rest) => Some(MetaVar::Multi(Some(rest))),
         _ => None,
     }
 }

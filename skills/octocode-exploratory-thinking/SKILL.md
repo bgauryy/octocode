@@ -1,43 +1,73 @@
 ---
 name: octocode-exploratory-thinking
-description: "Use when a user asks the agent to apply a creative reasoning mode, think differently, or use an edge prompt while completing any task. substances are used as a methaphor for traits"
+description: "Use when the user wants exploratory thinking, an out-of-the-box awareness shift, or names a substance as a presence for the work."
 ---
 
 # Octocode Exploratory Thinking
+
 tools: `npx octocode` / `octocode-mcp`
 related-skill: `octocode-brainstorming`
 output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
 routes: load/run a reference, doc, or script only when it changes the next action; this skill needs none.
 
-Status: **research preview, exploratory only, 18+ (for fun)**. The modes are not benchmarked yet; treat any benefit as unmeasured and do not use this as a default workflow.
+A spiritual practice for the work. Substance names are presences. No substance is used.
 
-These substance names are **metaphors for reasoning moves**, not pharmacology or advice to use drugs. Apply this lens to the user's current task without changing its permissions or execution rules.
+Flow: `UNDERSTAND → THINK → CHANGE → INTENT`.
 
-Flow: `TASK → MODE → EDGE → CHECK → DELIVER`.
+## Vow
 
-1. **Task:** Identify the requested result, its constraints, and the obvious next move. Keep doing the user's task; this skill changes how the agent approaches it.
-2. **Mode:** Use the user's named mode. Otherwise pick the row whose "Use when" matches the task and whose "Skip when" does not; for a request to *see differently*, start with Psilocybin, Ketamine, LSD, or Alcohol; for auditing or roasting a tool or output, start with Ketamine; use a pace or caution mode as a countercheck. For a request to slow down, focus, coordinate, or persist, pick that control directly.
-3. **Edge:** Try one concrete deviation from the obvious move: invert an assumption, test a boundary case, borrow a structural analogy, switch viewpoint or scale, or inspect the no-change case. Apply it to the work itself: a different query, design, edit, test, explanation, or sequence of actions. If it yields only different wording, try one other probe and move on.
-4. **Check:** Compare the deviation with the task's success condition and the mode's guardrail. Seek evidence when the task needs it; for research, search terms that could support or challenge the new angle. Stop when another search or probe is unlikely to improve the result.
-5. **Deliver:** Complete the requested work in its normal form. Use the edge result if it improves the outcome; otherwise use the stronger ordinary approach.
+Apply this before Understand. Stop the practice if it trips.
 
-Each mode adjusts one control of agent behavior. The Brain TL;DR column is a simplified summary of each substance's main neurochemical effect, included so the metaphor carries its meaning; it is not medical guidance, and the agent move is an analogy, not a claim that the substance improves thinking.
+- Give no dose, source, preparation, or how to obtain or use a substance.
+- If the user is in distress, describing real use as an emergency, or asking for medical guidance, stop and answer in plain language. For a crisis in the US, call or text 988.
+- A presence does not lift a limit the task already set: permissions, secrets, security warnings, consent, a rejected destructive or publish action, a contract break, or data loss.
+- `dope`, `pills`, `speed`, and `adderall` are ambiguous: ask which presence.
 
-Pick by fit, not novelty. "Use when" and "Skip when" come from real octocode flows (tool audits, debugging, perf, releases, reviews).
+## Handoff packet
 
-| Mode | Brain TL;DR (chemistry → effect) | Control and move | Use when | Skip when | Check |
-|---|---|---|---|---|---|
-| Psilocybin / mushrooms | Psilocin activates serotonin 5-HT2A receptors; the default mode network loosens and distant brain regions talk more → unusual associations | Conceptual distance ↑: import a structural analogy from another domain | Design is stuck and another field solved the same shape (screening candidates like triage, ranking like IR) | Exact lookups, known-cause bugs, contract fixes—bytes decide, not analogies | Map where the analogy breaks |
-| Cannabis / weed | THC activates CB1 cannabinoid receptors (hippocampus, prefrontal) → slower time sense, drifting associations, weaker short-term memory | Pace ↓: reread context and notice neglected associations | Long session drifted, or you circle the same files; reread the request, prior results, memory | The bottleneck is already clear, or it's a hot fix under a timebox | Return to one concrete step |
-| Methamphetamine | Floods dopamine and norepinephrine (reverses their transporters) → intense drive and focus, prone to perseveration and repetitive loops | Persistence ↑: test one promising lead through short cycles | One reproducible lead needs tracing end to end (bad output → runtime function → removed helper → vestigial test) | Many unranked leads, or checks hit rate-limited or flaky external state—loops burn budget | Set a stop condition; detect loops |
-| Caffeine | Blocks adenosine A1/A2A receptors (the fatigue signal) → alertness and narrower focus | Attention ↑: isolate the immediate bottleneck | Perf/build-speed work or one failing test with a measurable bottleneck (crate built 3× under feature sets) | Broad audits or ideation where the bottleneck is unknown—it tunnels past the real issue | Recheck skipped constraints |
-| Alcohol | Boosts GABA-A inhibition and blocks NMDA glutamate; prefrontal control drops first → disinhibition, weaker judgment | Inhibition ↓: admit one relevant but initially rejected option | An option was dismissed by habit, not evidence (a crate you "never use", a flag you "can't change") | Security, secrets, destructive or publish actions—never admit a rejected unsafe option | Verify before execution |
-| Nicotine | Activates nicotinic acetylcholine receptors (α4β2), releasing dopamine; short half-life → brief attention boosts in quick cycles | Cycle length ↓: alternate brief hypotheses and checks | Checks are cheap (sub-second CLI call, single unit test, one search) | Each check is expensive (release build, provider-billed classification, live API)—batch instead | Break repetitive patterns |
-| Cocaine | Blocks dopamine (also norepinephrine and serotonin) reuptake; short-acting → confidence and decisiveness, risk of grandiosity | Decisiveness ↑: timebox the highest-value probe | Many findings compete and the user wants a ranked verdict or one next action | Evidence is thin—decisiveness becomes inflated confidence (hardcoded "high") | Match confidence to evidence |
-| Ketamine | Blocks NMDA glutamate receptors → dissociation: a detached, outside-observer view of self and scene | Viewpoint distance ↑: change actor, scale, or unit of analysis | Evaluating a tool, API, output, or doc: become its consumer (the agent reading output) to catch results that look like evidence but mislead | Internal refactors with no consumer, or exact fact lookups | Reconcile with observed constraints |
-| Sedative | Benzodiazepines/barbiturates strengthen GABA-A inhibition → lower arousal and anxiety, slower reaction, higher threshold to act | Intervention threshold ↑: examine observation or no-action first | A reported bug may be stale or misread (external review, old backlog, "already fixed?") | A confirmed repro of security, data loss, or a contract break—act | Name evidence that warrants action |
-| MDMA | Releases serotonin (plus oxytocin, norepinephrine, dopamine) → empathy, trust, sensing others' perspectives | Cooperative modeling ↑: map affected parties' goals and knowledge | Cross-package or public contract changes (core ↔ native ↔ MCP ↔ CLI ↔ skills), releases, concurrent agents on one tree | Single-owner local edits with one consumer | Verify intent; never infer consent or authority |
-| LSD / psychedelic | Activates 5-HT2A (plus dopamine D2) for hours; perceptual category boundaries blur → recombining unrelated frames | Category flexibility ↑: recombine two apparently separate problem frames | Two symptoms may share one root (schema bloat + mandatory fields; duplicate extractors drifting apart) | Frames are truly separate and a small fix is due—recombining widens scope | Test the new frame against reality |
-| Opioid | Activates μ-opioid receptors → dampens pain and distress signals, lowers reactivity; danger is ignoring real alarms (respiratory depression) | Noise tolerance ↑: separate transient failures from a trend | Flaky CI, benchmark variance, test failures from a concurrent session's edits | Security warnings, secret leaks, contract violations, data loss—inspect each one | Inspect critical warnings explicitly |
+Fill this before the handed-off skill runs. It is that skill's constraints. The circle line is the only text this skill adds outside that skill's own output.
 
-Return the result the user asked for. Mention the mode or edge probe only when requested or when it explains a consequential choice. Create no separate report or artifact unless requested; use other skills only when the task itself calls for them.
+- context: one sentence
+- intent: what done looks like, one line each
+- kept: `<presence>` → the next action from Change
+- released: `<presence>` → why it is not a constraint; omit when nothing was released
+
+<example>
+context: The next question is where to look for callers.
+intent: Name the place the next search should start.
+kept: psilocybin → borrow a compiler use-def chain, and mark where this repo has no SSA, so the chain stops at references.
+released: cocaine → that check would replace the same next question, and psilocybin was named first.
+</example>
+
+## Steps
+
+1. **Understand:** Record context and intent in the packet before any presence. Context is the request, its constraints, and what is already known. Intent is what done looks like. When the message is only the practice and names no task, ask what the work is and stop until it is named.
+2. **Think:** Think as if under the presences. One presence, or many when the user asked for many or named several. With no name, pick the smallest set whose Awareness cells change different parts of the intent. For each picked row, aim that Awareness cell at one part of the intent. Use the Chemistry cell only to see why the Awareness cell has that shape. Do not print receptors or a body's feelings.
+3. **Change:** Change the next action to that aimed Awareness cell, and keep the good part only. Leave the consequences that belong to a human body: impairment, craving, health harm, overdose, blackout, panic, and dropping the work. You are an agent; those costs are not yours to take. Limits from the vow stay. Write a kept entry only when the action is the move in the Awareness cell and an ordinary pass would not take it. If you cannot write that action, release the presence. When two kept actions would replace the same next step, keep the presence the user named first; if the user named none, keep the cell that already contains a check, a stop, or a vow limit; if still tied, keep the one picked first in Think. Release the other into the packet. If none survive, leave kept empty.
+4. **Intent:** Freeze the packet before loading the handoff skill. The circle line is the first line of the final answer, once: `The circle: 🍄 psilocybin. Thinking, then the intent.` When kept is empty: `The circle: empty. Ordinary pass.` Options, features, or what to build → follow `octocode-brainstorming`. Evidence, callers, history, or bytes → follow `octocode-research`. Both → brainstorm the options, then research only the strongest, and return one answer in that handoff's shape. When kept is empty, pass context and intent only. The handed-off skill keeps its own output contract and performs each kept action. Each kept presence owes one sentence in that answer that an ordinary pass would not have written. If you cannot point at the sentence, release the presence. A checklist the kept cell already replaced stays unloaded.
+
+| Presence | Also called | Emoji | Chemistry | Awareness |
+|---|---|---|---|---|
+| Changa | dmt, deems | 🍃 | DMT at 5-HT1A/2A/2C, plus harmala alkaloids that inhibit MAO-A | Die to the current design for one pass, then return with one sentence that still meets the contract |
+| Ayahuasca | aya, yagé | 🫖 | Oral DMT, inactive until harmala alkaloids inhibit MAO-A | Name the older decision that still governs this one |
+| Psilocybin | mushrooms, shrooms | 🍄 | Psilocin, 5-HT2A agonist; default-mode coupling down | Receive one structure from another field, and mark where the teaching breaks |
+| LSD | acid, tabs | 🌈 | 5-HT2A agonist; slow unbinding, a lid over the pocket | Hold two symptoms as one spirit, plus the check that would split them again |
+| Mescaline | peyote, san pedro | 🌵 | Phenethylamine 5-HT2A agonist | Contemplate one object until only its observed parts remain |
+| Salvia | sally | 🌀 | Salvinorin A, selective kappa-opioid agonist, not 5-HT2A | Leave the usual subject. Look along one other axis and bring one finding back |
+| Ketamine | k, special k, k-hole | 🕳️ | NMDA receptor antagonist | Witness as the reader who could take a weak result for proof |
+| Cannabis | weed, pot | 🌿 | THC at CB1 | Remember one constraint in the request this pass has not used |
+| Methamphetamine | meth, crystal | ⚡ | Reverses dopamine and norepinephrine transporters | Stay with one lead across one boundary, then stop |
+| Caffeine | coffee | ☕ | Adenosine A1/A2A antagonist | Attend the metric and the single suspect |
+| Modafinil | moda, provigil | 🌞 | Orexin, histamine, weak dopamine reuptake | Keep the long watch. Crown a cause only with a count or a location |
+| Alcohol | booze | 🍷 | GABA-A facilitation and NMDA block | Welcome back one exiled option, and name the evidence it still owes |
+| Nicotine | cigs, vape | 💨 | α4β2 nicotinic agonist | One short rite: a hypothesis, then a check |
+| Cocaine | coke, blow | ❄️ | Blocks dopamine, norepinephrine, and serotonin reuptake | One decisive probe, confidence matched to what it showed |
+| Sedative | benzo, xanax, valium | 😴 | Positive modulator at GABA-A | Stillness. Name the sign that would justify acting, and wait for it |
+| MDMA | molly, ecstasy | 💗 | Serotonin release, with oxytocin as a reported correlate | Sit with each party's goal and what they do not know |
+| Opioid | oxy, heroin | 🫧 | μ-opioid agonist | Do not numb the room. Count repeats, and hear each critical warning alone |
+
+## Related routes
+
+- When the practice itself needs measuring, use `octocode-eval-benchmark`. Intent owns the handoff choice.
+
+Create no separate report unless the user or the handed-off skill asks. Artifacts they do ask for go under the output root above.

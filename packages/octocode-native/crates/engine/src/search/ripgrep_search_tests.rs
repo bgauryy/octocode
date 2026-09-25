@@ -396,8 +396,8 @@ fn results_are_sorted_by_path() {
 
 #[test]
 fn sort_then_cap_retains_deterministic_sorted_prefix() {
-    // Fix 1: the collection cap must be a STABLE truncation of the sorted
-    // prefix, not a race-dependent subset chosen during the parallel walk.
+    // The collection cap must be a STABLE truncation of the sorted prefix,
+    // not a race-dependent subset chosen during the parallel walk.
     // Feeding an unsorted record set exceeding a small cap must always retain
     // the same sorted prefix, identical across repeated runs.
     fn rec(path: &str) -> FileRec {
@@ -423,7 +423,7 @@ fn sort_then_cap_retains_deterministic_sorted_prefix() {
     o.max_collected_files = Some(3);
     let run = || {
         let mut recs = make();
-        let capped = sort_and_cap(&o, &mut recs);
+        let capped = sort_and_cap(&o, Mode::Normal, &mut recs);
         (
             recs.iter().map(|r| r.path.clone()).collect::<Vec<_>>(),
             capped,
@@ -442,7 +442,7 @@ fn sort_then_cap_retains_deterministic_sorted_prefix() {
     let mut under = vec![rec("b.txt"), rec("a.txt")];
     let mut o2 = opts("/fixture".to_owned(), "p");
     o2.max_collected_files = Some(3);
-    assert!(!sort_and_cap(&o2, &mut under));
+    assert!(!sort_and_cap(&o2, Mode::Normal, &mut under));
     assert_eq!(
         under.iter().map(|r| r.path.as_str()).collect::<Vec<_>>(),
         vec!["a.txt", "b.txt"]
@@ -451,7 +451,7 @@ fn sort_then_cap_retains_deterministic_sorted_prefix() {
 
 #[test]
 fn oversize_file_is_skipped_with_diagnostic_and_normal_file_still_matches() {
-    // Fix 2: a file above the byte ceiling is skipped before it is searched and
+    // A file above the byte ceiling is skipped before it is searched and
     // surfaced as a `maxFileSize` diagnostic; a normal file still matches.
     let t = TmpDir::new();
     t.write("small.txt", "needle\n"); // 7 bytes, under the ceiling
@@ -474,7 +474,7 @@ fn oversize_file_is_skipped_with_diagnostic_and_normal_file_still_matches() {
 
 #[test]
 fn binary_quit_file_is_flagged_not_silently_absent() {
-    // Fix 3: a file quit as binary (NUL byte) is reflected in a diagnostic, and
+    // A file quit as binary (NUL byte) is reflected in a diagnostic, and
     // an ordinary text file still matches.
     let t = TmpDir::new();
     t.write("data.bin", "needle before\u{0}needle after\n");
@@ -493,7 +493,7 @@ fn binary_quit_file_is_flagged_not_silently_absent() {
 #[cfg(feature = "pcre2")]
 #[test]
 fn pcre2_worker_slots_are_bounded_and_released() {
-    // Fix 5: the worker-slot bound rejects new acquisitions once saturated and
+    // The worker-slot bound rejects new acquisitions once saturated and
     // frees a slot on release — tested directly on the counter logic.
     use std::sync::atomic::AtomicUsize;
     let counter = AtomicUsize::new(0);
@@ -513,7 +513,7 @@ fn pcre2_worker_slots_are_bounded_and_released() {
 
 #[test]
 fn traversal_sort_output_is_stable_across_runs() {
-    // Fix 6: with sort:"traversal" the walk is forced single-threaded so the
+    // With sort:"traversal" the walk is forced single-threaded so the
     // emitted order is stable run-to-run on the same tree.
     let t = TmpDir::new();
     for i in 0..40 {
@@ -801,4 +801,253 @@ fn long_leading_context_does_not_hide_the_match() {
     o.context_lines = Some(1);
     let r = search(o).expect("ok");
     assert!(r.files[0].matches[0].value.contains("target"));
+}
+
+#[test]
+fn binary_quit_keeps_matches_before_the_nul() {
+    let t = TmpDir::new();
+    fs::write(
+        t.0.join("mixed.txt"),
+        b"alpha before\0alpha after\nalpha before\n",
+    )
+    .expect("fixture");
+    let r = search(opts(t.path(), "alpha")).expect("ok");
+    assert_eq!(r.files.len(), 1, "{:?}", r.stats);
+    let matches = &r.files[0].matches;
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].line, 1);
+    assert_eq!(matches[0].value, "alpha before");
+    assert_eq!(r.stats.match_count, Some(1));
+    assert_eq!(r.stats.cap_reason.as_deref(), Some("binaryQuit"));
+}
+
+#[test]
+fn binary_prefix_counts_matches_across_earlier_lines() {
+    let t = TmpDir::new();
+    fs::write(
+        t.0.join("mixed.txt"),
+        b"alpha one\nbeta\nalpha two\0alpha three\n",
+    )
+    .expect("fixture");
+    let r = search(opts(t.path(), "alpha")).expect("ok");
+    let lines: Vec<u32> = r.files[0].matches.iter().map(|m| m.line).collect();
+    assert_eq!(lines, vec![1, 3]);
+}
+
+#[test]
+fn open_regular_refuses_a_symlink_swapped_in_after_the_walk() {
+    let t = TmpDir::new();
+    t.write("real.txt", "needle\n");
+    assert!(open_regular(&t.0.join("real.txt")).is_ok());
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(t.0.join("real.txt"), t.0.join("link.txt")).expect("symlink");
+        assert!(open_regular(&t.0.join("link.txt")).is_err());
+        fs::create_dir(t.0.join("dir")).expect("dir");
+        assert!(open_regular(&t.0.join("dir")).is_err());
+        let fifo = t.0.join("pipe");
+        let made = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .is_ok_and(|status| status.success());
+        if made {
+            // Non-blocking open: a FIFO with no writer must not hang.
+            assert!(open_regular(&fifo).is_err());
+        }
+    }
+}
+
+#[test]
+fn match_count_order_keeps_the_most_matched_file_past_the_path_prefix() {
+    let t = TmpDir::new();
+    for i in 0..30 {
+        t.write(&format!("a{i:03}.txt"), "hit\n");
+    }
+    t.write("zzz-hot.txt", &"hit\n".repeat(40));
+    let mut o = opts(t.path(), "hit");
+    o.sort = Some("matchCount".into());
+    o.max_collected_files = Some(10);
+    let r = search(o.clone()).expect("ok");
+    assert_eq!(r.files.len(), 10);
+    assert!(
+        r.files[0].path.ends_with("zzz-hot.txt"),
+        "{}",
+        r.files[0].path
+    );
+    // Ties keep ascending path order, so the retained set is deterministic.
+    assert!(r.files[1].path.ends_with("a000.txt"));
+    assert!(r.files[9].path.ends_with("a008.txt"));
+    // Totals count every matched file, not only the retained ones.
+    assert_eq!(r.stats.files_matched, Some(31));
+    assert_eq!(r.stats.match_count, Some(70));
+    assert_eq!(r.stats.cap_reason.as_deref(), Some("maxCollectedFiles"));
+    for _ in 0..3 {
+        let again = search(o.clone()).expect("ok");
+        let paths =
+            |files: &[RipgrepFile]| files.iter().map(|f| f.path.clone()).collect::<Vec<_>>();
+        assert_eq!(paths(&again.files), paths(&r.files));
+    }
+}
+
+#[test]
+fn bounded_retention_matches_a_full_sort() {
+    fn rec(path: String, hits: u32) -> FileRec {
+        FileRec {
+            path,
+            entry: FileEntry::new(),
+            matched_lines: hits,
+            submatches: hits,
+            om_matches: Vec::new(),
+            sort_time: None,
+        }
+    }
+    let mut o = opts("/fixture".to_owned(), "p");
+    o.sort = Some("matchCount".into());
+    let all: Vec<(String, u32)> = (0..200u32)
+        .map(|i| (format!("f{:03}", (i * 37) % 200), (i * 13) % 7))
+        .collect();
+    let mut full: Vec<FileRec> = all.iter().map(|(p, h)| rec(p.clone(), *h)).collect();
+    sort_recs(&o, Mode::Normal, &mut full);
+    full.truncate(5);
+    let mut bounded = Vec::new();
+    for (p, h) in &all {
+        retain_into(&o, Mode::Normal, Some(5), &mut bounded, rec(p.clone(), *h));
+    }
+    sort_and_cap(
+        &{
+            let mut capped = o.clone();
+            capped.max_collected_files = Some(5);
+            capped
+        },
+        Mode::Normal,
+        &mut bounded,
+    );
+    let paths = |recs: &[FileRec]| recs.iter().map(|r| r.path.clone()).collect::<Vec<_>>();
+    assert_eq!(paths(&bounded), paths(&full));
+}
+
+#[test]
+fn aggregate_totals_saturate_instead_of_overflowing() {
+    let state = CollectState::new();
+    state.record_kept(u32::MAX, u32::MAX);
+    state.record_kept(u32::MAX, u32::MAX);
+    let r = build_result(
+        &opts("/fixture".to_owned(), "p"),
+        Mode::CountMatches,
+        state.snapshot(),
+    );
+    assert_eq!(r.stats.match_count, Some(u32::MAX));
+    assert_eq!(r.stats.matched_lines, Some(u32::MAX));
+    assert_eq!(r.stats.files_matched, Some(2));
+    assert_eq!(saturate_u32(u64::from(u32::MAX) * 2), u32::MAX);
+}
+
+#[test]
+fn cancellation_stops_the_walk_mid_tree() {
+    let t = TmpDir::new();
+    for i in 0..60 {
+        t.write(&format!("f{i:02}.txt"), "needle\n");
+    }
+    let mut o = opts(t.path(), "needle");
+    o.sort = Some("traversal".into());
+    let polls = AtomicU32::new(0);
+    let cancel = || polls.fetch_add(1, Ordering::SeqCst) >= 6;
+    let r = search_cancellable(o, Arc::new(AllowAll), &cancel).expect("ok");
+    let searched = r.stats.files_searched.unwrap_or(0);
+    assert!(searched <= 6, "walk kept going after cancel: {searched}");
+    assert!(
+        r.stats
+            .cap_reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("cancelled")),
+        "{:?}",
+        r.stats
+    );
+    assert_eq!(r.stats.capped, Some(true));
+}
+
+/// Test filter that stalls inside the walk on the Nth file it sees, standing in
+/// for one uninterruptible PCRE2 match.
+#[cfg(feature = "pcre2")]
+struct StallOnNth {
+    seen: AtomicU32,
+    nth: u32,
+    stall: std::time::Duration,
+}
+
+#[cfg(feature = "pcre2")]
+impl RipgrepPathFilter for StallOnNth {
+    fn allows(&self, _: &Path, is_dir: bool) -> bool {
+        if !is_dir && self.seen.fetch_add(1, Ordering::SeqCst) + 1 == self.nth {
+            std::thread::sleep(self.stall);
+        }
+        true
+    }
+}
+
+#[cfg(feature = "pcre2")]
+#[test]
+fn pcre2_hard_deadline_returns_files_finished_so_far() {
+    use std::time::{Duration, Instant};
+    let t = TmpDir::new();
+    for i in 0..6 {
+        t.write(&format!("f{i}.txt"), "needle\n");
+    }
+    let mut o = opts(t.path(), "needle");
+    o.perl_regex = Some(true);
+    o.sort = Some("traversal".into());
+    let filter = Arc::new(StallOnNth {
+        seen: AtomicU32::new(0),
+        nth: 4,
+        stall: Duration::from_millis(1500),
+    });
+    let started = Instant::now();
+    let r = search_with_limits(
+        o,
+        filter,
+        &|| false,
+        Pcre2Limits {
+            deadline: Duration::from_millis(100),
+            grace: Duration::from_millis(100),
+        },
+    )
+    .expect("ok");
+    assert!(
+        started.elapsed() < Duration::from_millis(1200),
+        "driver must not wait for the stuck worker"
+    );
+    assert_eq!(r.files.len(), 3, "{:?}", r.stats);
+    assert_eq!(r.stats.files_searched, Some(3));
+    assert_eq!(r.stats.files_matched, Some(3));
+    assert_eq!(r.stats.capped, Some(true));
+    assert_eq!(r.stats.cap_reason.as_deref(), Some("pcre2Deadline"));
+}
+
+#[cfg(feature = "pcre2")]
+#[test]
+fn pcre2_driver_honours_cancellation_while_the_worker_is_stuck() {
+    use std::time::{Duration, Instant};
+    let t = TmpDir::new();
+    for i in 0..4 {
+        t.write(&format!("f{i}.txt"), "needle\n");
+    }
+    let mut o = opts(t.path(), "needle");
+    o.perl_regex = Some(true);
+    o.sort = Some("traversal".into());
+    let filter = Arc::new(StallOnNth {
+        seen: AtomicU32::new(0),
+        nth: 2,
+        stall: Duration::from_millis(1500),
+    });
+    let started = Instant::now();
+    let cancel = || started.elapsed() >= Duration::from_millis(100);
+    let r = search_with_limits(o, filter, &cancel, PCRE2_LIMITS).expect("ok");
+    assert!(started.elapsed() < Duration::from_millis(1200));
+    assert_eq!(r.files.len(), 1, "{:?}", r.stats);
+    assert!(
+        r.stats
+            .cap_reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("cancelled"))
+    );
 }

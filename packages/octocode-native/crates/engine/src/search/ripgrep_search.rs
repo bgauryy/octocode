@@ -7,9 +7,8 @@
 //!   * the `pcre2` feature (grep-pcre2) for `-P` lookaround/backreferences,
 //!   * `ignore` for the gitignore-aware walk, `-g` override globs and `-t` types.
 //!
-//! It replicates every flag the old `RipgrepCommandBuilder` emitted and returns
-//! the same `RipgrepParseResult` shape the `--json` parser produced, with native
-//! byte/time stats populated by the in-process search path.
+//! It returns the same `RipgrepParseResult` shape as the `--json` parser, with
+//! native byte/time stats populated by the in-process search path.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -33,7 +32,9 @@ use ignore::{WalkBuilder, WalkState};
 
 use crate::search::classify;
 use crate::search::ripgrep_parser::{FileEntry, RawMatch, assemble_file, strip_trailing_newline};
-use crate::text::utf8_offsets::byte_to_char_offset_inner;
+use crate::text::utf8_offsets::{
+    byte_to_char_offset_inner, ceil_char_boundary, floor_char_boundary,
+};
 use crate::types::{
     RipgrepFile, RipgrepMatch, RipgrepParseResult, RipgrepSearchOptions, RipgrepStats,
 };
@@ -90,27 +91,56 @@ pub(crate) const PCRE2_MAX_JIT_STACK_BYTES: usize = 1 << 20;
 ///   1. Cooperatively — the collect walk and the match sink poll the deadline
 ///      between files and between matched lines, so an accumulation of moderately
 ///      expensive matches stops promptly while keeping partial results.
-///   2. Hard — the whole PCRE2 search runs on a worker thread that the driver
-///      abandons after `PCRE2_SEARCH_DEADLINE + PCRE2_DEADLINE_GRACE`. An
-///      abandoned worker keeps running until its current (uninterruptible) match
-///      returns, then exits when it sends into the dropped channel; it is never
-///      joined. Only PCRE2 needs this — the default Rust-regex engine is linear
-///      and cannot catastrophically backtrack.
+///   2. Hard — the whole PCRE2 search runs on a worker thread that writes each
+///      finished file into shared [`CollectState`]. After
+///      `PCRE2_SEARCH_DEADLINE + PCRE2_DEADLINE_GRACE` the driver raises the
+///      shared stop flag and returns the files finished so far, flagged
+///      `pcre2Deadline`. A thread cannot be killed: a worker inside one
+///      uninterruptible match keeps its slot until that match returns, then
+///      sees the stop flag and exits without searching further files.
+///
+/// Only PCRE2 needs this — the default Rust-regex engine is linear and cannot
+/// catastrophically backtrack.
 pub(crate) const PCRE2_SEARCH_DEADLINE: Duration = Duration::from_secs(5);
 
 #[cfg(feature = "pcre2")]
-/// Extra time the driver waits past the cooperative deadline before abandoning a
-/// stuck PCRE2 worker (see [`PCRE2_SEARCH_DEADLINE`]).
+/// Extra time the driver waits past the cooperative deadline before it stops
+/// waiting for a stuck PCRE2 worker (see [`PCRE2_SEARCH_DEADLINE`]).
 pub(crate) const PCRE2_DEADLINE_GRACE: Duration = Duration::from_secs(2);
 
 #[cfg(feature = "pcre2")]
-/// Maximum number of PCRE2 (`-P`) search worker threads allowed to be alive at
-/// once. A worker abandoned on the hard deadline keeps its slot until its
-/// uninterruptible match finally returns, so this also bounds how many
-/// *abandoned* workers can accumulate: once saturated, a new `-P` search is
-/// rejected rather than spawning an unbounded thread (each holding up to a
-/// 1 MiB JIT stack — see [`PCRE2_MAX_JIT_STACK_BYTES`]) (fix 5).
+/// How often the PCRE2 driver wakes to poll caller cancellation and the hard
+/// deadline while it waits for the worker.
+const PCRE2_DRIVER_POLL: Duration = Duration::from_millis(25);
+
+#[cfg(feature = "pcre2")]
+/// Maximum number of PCRE2 (`-P`) search worker threads alive at once,
+/// including workers still finishing an uninterruptible match after the driver
+/// stopped waiting. Once saturated, a new `-P` search is rejected rather than
+/// spawning another thread (each may hold a 1 MiB JIT stack — see
+/// [`PCRE2_MAX_JIT_STACK_BYTES`]).
 const MAX_ACTIVE_PCRE2_WORKERS: usize = 8;
+
+#[cfg(feature = "pcre2")]
+/// Wall-clock limits for one PCRE2 search. Production uses
+/// [`PCRE2_SEARCH_DEADLINE`] and [`PCRE2_DEADLINE_GRACE`]; tests shrink them.
+#[derive(Clone, Copy)]
+struct Pcre2Limits {
+    deadline: Duration,
+    grace: Duration,
+}
+
+#[cfg(feature = "pcre2")]
+const PCRE2_LIMITS: Pcre2Limits = Pcre2Limits {
+    deadline: PCRE2_SEARCH_DEADLINE,
+    grace: PCRE2_DEADLINE_GRACE,
+};
+
+/// Largest pre-NUL prefix re-searched when a file is quit as binary. The
+/// searcher drops the whole buffer that holds the first NUL, so matches before
+/// it would otherwise be lost; beyond this offset the earlier buffers were
+/// already searched and reported normally.
+const MAX_BINARY_PREFIX_BYTES: u64 = 8 * 1024 * 1024;
 
 #[cfg(feature = "pcre2")]
 /// Live PCRE2 worker count (including abandoned-but-still-running workers).
@@ -145,7 +175,7 @@ fn release_worker_slot(counter: &AtomicUsize) {
 
 #[cfg(feature = "pcre2")]
 /// Releases the global PCRE2 worker slot when the worker thread exits — whether
-/// it completed normally or was abandoned after the hard deadline.
+/// it completed normally or finished after the driver stopped waiting.
 struct Pcre2WorkerSlot;
 
 #[cfg(feature = "pcre2")]
@@ -157,24 +187,6 @@ impl Drop for Pcre2WorkerSlot {
 
 fn to_napi_err<E: std::fmt::Display>(e: E) -> Error {
     Error::new(Status::GenericFailure, e.to_string())
-}
-
-/// Largest char boundary `<= i` (clamped to `s.len()`).
-fn floor_char_boundary(s: &str, i: usize) -> usize {
-    let mut i = i.min(s.len());
-    while i > 0 && !s.is_char_boundary(i) {
-        i -= 1;
-    }
-    i
-}
-
-/// Smallest char boundary `>= i` (clamped to `s.len()`).
-fn ceil_char_boundary(s: &str, i: usize) -> usize {
-    let mut i = i.min(s.len());
-    while i < s.len() && !s.is_char_boundary(i) {
-        i += 1;
-    }
-    i
 }
 
 /// Map a byte offset in the raw line `bytes` to the matching byte offset in
@@ -279,10 +291,16 @@ struct FileRec {
     sort_time: Option<SystemTime>,
 }
 
+/// Everything one search accumulated. Totals (`files_matched`, `submatches`,
+/// `matched_lines`) count every kept file, including files the collection cap
+/// later drops from `recs`.
 struct CollectResult {
     recs: Vec<FileRec>,
-    files_searched: u32,
+    files_searched: u64,
     bytes_searched: u64,
+    files_matched: u64,
+    submatches: u64,
+    matched_lines: u64,
     elapsed: Duration,
     /// A per-line only-matching span cap was hit (`maxOnlyMatchingPerLine`).
     span_capped: bool,
@@ -292,24 +310,126 @@ struct CollectResult {
     size_skipped: bool,
     /// At least one file was quit as binary (`binaryQuit`); coverage is partial.
     binary_quit: bool,
+    /// The caller cancelled the search before the walk finished (`cancelled`).
+    cancelled: bool,
     error_count: u32,
     first_error: Option<String>,
 }
 
-fn record_collection_error(count: &AtomicU32, first: &Mutex<Option<String>>, message: String) {
-    count.fetch_add(1, Ordering::Relaxed);
-    if let Ok(mut detail) = first.lock()
-        && detail.is_none()
-    {
-        *detail = Some(message.chars().take(512).collect());
+/// Shared accumulation state for one search. Walk workers write finished files
+/// and counters here; the PCRE2 driver can read a consistent snapshot of the
+/// files finished so far while a worker is still stuck in a match, and raise
+/// `stop` so every worker quits at its next check.
+struct CollectState {
+    started: Instant,
+    recs: Mutex<Vec<FileRec>>,
+    files_searched: AtomicU64,
+    bytes_searched: AtomicU64,
+    files_matched: AtomicU64,
+    submatches: AtomicU64,
+    matched_lines: AtomicU64,
+    span_capped: AtomicBool,
+    timed_out: AtomicBool,
+    size_skipped: AtomicBool,
+    binary_quit: AtomicBool,
+    cancelled: AtomicBool,
+    /// Set when the walk must end now (deadline, cancellation, driver timeout).
+    stop: AtomicBool,
+    error_count: AtomicU32,
+    first_error: Mutex<Option<String>>,
+}
+
+impl CollectState {
+    fn new() -> Self {
+        Self {
+            started: Instant::now(),
+            recs: Mutex::new(Vec::new()),
+            files_searched: AtomicU64::new(0),
+            bytes_searched: AtomicU64::new(0),
+            files_matched: AtomicU64::new(0),
+            submatches: AtomicU64::new(0),
+            matched_lines: AtomicU64::new(0),
+            span_capped: AtomicBool::new(false),
+            timed_out: AtomicBool::new(false),
+            size_skipped: AtomicBool::new(false),
+            binary_quit: AtomicBool::new(false),
+            cancelled: AtomicBool::new(false),
+            stop: AtomicBool::new(false),
+            error_count: AtomicU32::new(0),
+            first_error: Mutex::new(None),
+        }
     }
+
+    fn record_error(&self, message: String) {
+        // Saturate: a count stuck at u32::MAX still reports incomplete coverage.
+        let _ = self
+            .error_count
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
+                Some(n.saturating_add(1))
+            });
+        if let Ok(mut detail) = self.first_error.lock()
+            && detail.is_none()
+        {
+            *detail = Some(message.chars().take(512).collect());
+        }
+    }
+
+    /// Count one kept file in the search-wide totals. Totals are `u64`, so they
+    /// cannot overflow from per-file `u32` counts; output saturates to `u32`.
+    fn record_kept(&self, submatches: u32, matched_lines: u32) {
+        self.files_matched.fetch_add(1, Ordering::Relaxed);
+        self.submatches
+            .fetch_add(u64::from(submatches), Ordering::Relaxed);
+        self.matched_lines
+            .fetch_add(u64::from(matched_lines), Ordering::Relaxed);
+    }
+
+    fn stopped(&self) -> bool {
+        self.stop.load(Ordering::Relaxed)
+    }
+
+    /// Take the files finished so far plus every counter. Files a worker
+    /// finishes after the snapshot are not included.
+    fn snapshot(&self) -> CollectResult {
+        let recs = self
+            .recs
+            .lock()
+            .map(|mut guard| std::mem::take(&mut *guard))
+            .unwrap_or_default();
+        let first_error = self
+            .first_error
+            .lock()
+            .ok()
+            .and_then(|mut detail| detail.take());
+        CollectResult {
+            recs,
+            files_searched: self.files_searched.load(Ordering::Relaxed),
+            bytes_searched: self.bytes_searched.load(Ordering::Relaxed),
+            files_matched: self.files_matched.load(Ordering::Relaxed),
+            submatches: self.submatches.load(Ordering::Relaxed),
+            matched_lines: self.matched_lines.load(Ordering::Relaxed),
+            elapsed: self.started.elapsed(),
+            span_capped: self.span_capped.load(Ordering::Relaxed),
+            timed_out: self.timed_out.load(Ordering::Relaxed),
+            size_skipped: self.size_skipped.load(Ordering::Relaxed),
+            binary_quit: self.binary_quit.load(Ordering::Relaxed),
+            cancelled: self.cancelled.load(Ordering::Relaxed),
+            error_count: self.error_count.load(Ordering::Relaxed),
+            first_error,
+        }
+    }
+}
+
+/// Saturating `u64` → `u32` for the public (napi-compatible) `u32` stats.
+fn saturate_u32(value: u64) -> u32 {
+    u32::try_from(value).unwrap_or(u32::MAX)
 }
 
 /// `grep_searcher::Sink` that accumulates matches/contexts for one file and,
 /// using the matcher, derives the 0-based UTF-16 column of the first submatch.
 struct CollectSink<'a, M: Matcher> {
     matcher: &'a M,
-    entry: &'a mut FileEntry,
+    entry: FileEntry,
     submatches: u32,
     matched_lines: u32,
     work: MatchWork,
@@ -320,23 +440,51 @@ struct CollectSink<'a, M: Matcher> {
     /// A retained span limit must never be reported as an exhaustive search.
     span_cap_reached: bool,
     /// Wall-clock ceiling for this file's search (see [`PCRE2_SEARCH_DEADLINE`]).
-    /// `None` disables cooperative cancellation (linear engines don't need it).
+    /// `None` disables the deadline (linear engines don't need it).
     deadline: Option<Instant>,
+    /// Search-wide stop flag, polled between matched lines.
+    stop: &'a AtomicBool,
     /// Set when `deadline` was hit and the search was stopped early.
     deadline_hit: bool,
-    /// Set when the file was quit as binary (a NUL byte was found). The searcher
-    /// stops at that point, so any matches after it are unsearched — coverage for
-    /// this file is partial, not exhaustive.
-    binary_detected: bool,
+    /// Absolute offset of the first NUL byte when the file was quit as binary.
+    /// The searcher stops there, so bytes after it are unsearched.
+    binary_offset: Option<u64>,
+}
+
+impl<'a, M: Matcher> CollectSink<'a, M> {
+    fn new(
+        matcher: &'a M,
+        work: MatchWork,
+        match_window: usize,
+        deadline: Option<Instant>,
+        stop: &'a AtomicBool,
+    ) -> Self {
+        Self {
+            matcher,
+            entry: FileEntry::new(),
+            submatches: 0,
+            matched_lines: 0,
+            work,
+            match_window,
+            om_matches: Vec::new(),
+            span_cap_reached: false,
+            deadline,
+            stop,
+            deadline_hit: false,
+            binary_offset: None,
+        }
+    }
 }
 
 impl<M: Matcher> Sink for CollectSink<'_, M> {
     type Error = std::io::Error;
 
     fn matched(&mut self, _searcher: &Searcher, mat: &SinkMatch<'_>) -> std::io::Result<bool> {
-        // Cooperative deadline: stop searching this file *before* doing more
-        // per-line work. Returning Ok(false) ends the search cleanly and keeps
-        // whatever partial matches were already collected.
+        // Stop searching this file *before* doing more per-line work. Returning
+        // Ok(false) ends the search cleanly and keeps the matches collected so far.
+        if self.stop.load(Ordering::Relaxed) {
+            return Ok(false);
+        }
         if let Some(deadline) = self.deadline
             && Instant::now() >= deadline
         {
@@ -436,13 +584,12 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
     fn binary_data(
         &mut self,
         _searcher: &Searcher,
-        _binary_byte_offset: u64,
+        binary_byte_offset: u64,
     ) -> std::io::Result<bool> {
         // A NUL byte was detected; with `BinaryDetection::quit` the searcher
-        // stops here. Record it so the file is reported as partially-searched
-        // (a `binaryQuit` diagnostic) rather than silently counted as fully
-        // covered. Returning Ok(true) lets the search quit as configured.
-        self.binary_detected = true;
+        // stops here. Record the offset so the pre-NUL prefix can be searched
+        // and the file reported as partially covered (`binaryQuit`).
+        self.binary_offset = Some(binary_byte_offset);
         Ok(true)
     }
 }
@@ -515,15 +662,19 @@ fn capture_sort_time(opts: &RipgrepSearchOptions, entry: &ignore::DirEntry) -> O
     }
 }
 
-fn build_searcher(opts: &RipgrepSearchOptions, context_lines: u32) -> Searcher {
+fn build_searcher(
+    opts: &RipgrepSearchOptions,
+    context_lines: u32,
+    binary: BinaryDetection,
+) -> Searcher {
     let mut sb = SearcherBuilder::new();
     sb.line_number(true)
-        .binary_detection(BinaryDetection::quit(b'\x00'))
+        .binary_detection(binary)
         // Bound the per-file line/block buffer so a pathological within-ceiling
-        // single-line file cannot allocate unbounded (fix 2).
+        // single-line file cannot allocate unbounded.
         .heap_limit(Some(SEARCH_HEAP_LIMIT_BYTES))
         // Sniff a BOM so BOM-prefixed UTF-8/UTF-16 files are decoded rather than
-        // mis-detected as binary on their first NUL (fix 3). Default is on; set
+        // mis-detected as binary on their first NUL. Default is on; set
         // explicitly so the behavior is not silently lost on a builder change.
         .bom_sniffing(true);
     if opts.multiline.unwrap_or(false) {
@@ -539,33 +690,120 @@ fn build_searcher(opts: &RipgrepSearchOptions, context_lines: u32) -> Searcher {
     sb.build()
 }
 
-/// Per-worker collection buffer. Workers push lock-free into their own `Vec`
-/// and merge into the shared sink once, on drop, after `build_parallel().run()`
-/// finishes — instead of taking a global mutex for every matched file.
-///
-/// The `max_collected_files` cap is deliberately NOT applied here: stopping the
-/// walk mid-collection retains a race-dependent subset of the full match set,
-/// which makes page 1 vary run-to-run and invalidates pagination snapshots on
-/// trees with more matches than the cap. Instead every matching file is
-/// collected, sorted, and then truncated to the cap in [`sort_and_cap`], so the
-/// retained subset is the deterministic sorted prefix (fix 1).
-struct WorkerRecs {
-    local: Vec<FileRec>,
-    sink: Arc<Mutex<Vec<FileRec>>>,
-}
-
-impl WorkerRecs {
-    fn push(&mut self, rec: FileRec) {
-        self.local.push(rec);
+/// Open a walk entry for searching without following a symlink, and confirm
+/// the opened handle is a regular file. The walk reported a regular file, but
+/// the path can be replaced (by a symlink, FIFO, or directory) before the
+/// open; checking the handle closes that window. Unix opens non-blocking so a
+/// FIFO swapped in cannot hang the open. Returns the file and its length.
+fn open_regular(path: &Path) -> std::io::Result<(std::fs::File, u64)> {
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
     }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        // FILE_FLAG_OPEN_REPARSE_POINT: open a symlink itself, not its target.
+        options.custom_flags(0x0020_0000);
+    }
+    let file = options.open(path)?;
+    let meta = file.metadata()?;
+    if !meta.is_file() {
+        return Err(std::io::Error::other(
+            "not a regular file when opened (the path changed after the walk)",
+        ));
+    }
+    Ok((file, meta.len()))
 }
 
-impl Drop for WorkerRecs {
-    fn drop(&mut self) {
-        if let Ok(mut guard) = self.sink.lock() {
-            guard.append(&mut self.local);
+/// Read the first `len` bytes of an already-open file.
+fn read_prefix(file: &std::fs::File, len: u64) -> std::io::Result<Vec<u8>> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut handle = file;
+    handle.seek(SeekFrom::Start(0))?;
+    let mut prefix = Vec::with_capacity(usize::try_from(len).unwrap_or(0));
+    handle.take(len).read_to_end(&mut prefix)?;
+    Ok(prefix)
+}
+
+/// Per-worker collection buffer. Workers push into their own `Vec` and merge
+/// into the shared state on drop, after `build_parallel().run()` finishes,
+/// instead of taking a global mutex per matched file. With `eager` set (the
+/// PCRE2 path) every file is merged at once so the driver's snapshot sees it.
+///
+/// Retention is bounded without depending on walk order: under a total
+/// [`compare_recs`] order, the global first `limit` records are the first
+/// `limit` of the union of each worker's first `limit`, so every buffer is
+/// pruned to `limit` whenever it reaches twice that. Traversal order keeps the
+/// first `limit` records pushed by its single worker.
+struct WorkerRecs<'a> {
+    local: Vec<FileRec>,
+    state: &'a CollectState,
+    opts: &'a RipgrepSearchOptions,
+    mode: Mode,
+    limit: Option<usize>,
+    eager: bool,
+}
+
+impl WorkerRecs<'_> {
+    fn push(&mut self, rec: FileRec) {
+        self.state.record_kept(rec.submatches, rec.matched_lines);
+        if self.eager {
+            if let Ok(mut shared) = self.state.recs.lock() {
+                retain_into(self.opts, self.mode, self.limit, &mut shared, rec);
+            }
+        } else {
+            retain_into(self.opts, self.mode, self.limit, &mut self.local, rec);
         }
     }
+}
+
+impl Drop for WorkerRecs<'_> {
+    fn drop(&mut self) {
+        if self.local.is_empty() {
+            return;
+        }
+        if let Ok(mut shared) = self.state.recs.lock() {
+            for rec in self.local.drain(..) {
+                retain_into(self.opts, self.mode, self.limit, &mut shared, rec);
+            }
+        }
+    }
+}
+
+/// Push `rec` into `buf` while keeping at most `2 * limit` records, pruning to
+/// the first `limit` under the final result order.
+fn retain_into(
+    opts: &RipgrepSearchOptions,
+    mode: Mode,
+    limit: Option<usize>,
+    buf: &mut Vec<FileRec>,
+    rec: FileRec,
+) {
+    let Some(limit) = limit else {
+        buf.push(rec);
+        return;
+    };
+    if preserves_traversal_order(opts) {
+        if buf.len() < limit {
+            buf.push(rec);
+        }
+        return;
+    }
+    buf.push(rec);
+    if buf.len() >= limit.saturating_mul(2) {
+        buf.sort_by(|a, b| compare_recs(opts, mode, a, b));
+        buf.truncate(limit);
+    }
+}
+
+fn collection_limit(opts: &RipgrepSearchOptions) -> Option<usize> {
+    opts.max_collected_files
+        .map(|n| n as usize)
+        .filter(|n| *n > 0)
 }
 
 fn elapsed_human(elapsed: Duration) -> String {
@@ -576,15 +814,110 @@ fn bytes_as_i64(bytes: u64) -> i64 {
     bytes.min(i64::MAX as u64) as i64
 }
 
-/// Run a parallel ignore walk + per-file search for a concrete matcher type.
+/// Result of searching one file.
+struct FileOutcome {
+    entry: FileEntry,
+    submatches: u32,
+    matched_lines: u32,
+    om_matches: Vec<RipgrepMatch>,
+    span_cap_reached: bool,
+    deadline_hit: bool,
+    binary: bool,
+}
+
+impl<M: Matcher> From<CollectSink<'_, M>> for FileOutcome {
+    fn from(sink: CollectSink<'_, M>) -> Self {
+        Self {
+            entry: sink.entry,
+            submatches: sink.submatches,
+            matched_lines: sink.matched_lines,
+            om_matches: sink.om_matches,
+            span_cap_reached: sink.span_cap_reached,
+            deadline_hit: sink.deadline_hit,
+            binary: sink.binary_offset.is_some(),
+        }
+    }
+}
+
+/// Per-worker searchers: the walk searcher quits at the first NUL; the prefix
+/// searcher (built on first use) re-searches the NUL-free bytes before it.
+struct FileSearcher<'a, M: Matcher> {
+    opts: &'a RipgrepSearchOptions,
+    matcher: &'a M,
+    searcher: Searcher,
+    prefix_searcher: Option<Searcher>,
+    context_lines: u32,
+    work: MatchWork,
+    match_window: usize,
+    deadline: Option<Instant>,
+    stop: &'a AtomicBool,
+}
+
+impl<M: Matcher> FileSearcher<'_, M> {
+    /// Search an opened file. When it is quit as binary, the searcher has
+    /// dropped the whole buffer holding the NUL, so the NUL-free prefix is
+    /// searched again from byte 0 and its matches replace the first pass.
+    fn search(&mut self, file: &std::fs::File) -> std::io::Result<FileOutcome> {
+        let mut sink = CollectSink::new(
+            self.matcher,
+            self.work,
+            self.match_window,
+            self.deadline,
+            self.stop,
+        );
+        self.searcher.search_file(self.matcher, file, &mut sink)?;
+        let Some(offset) = sink.binary_offset else {
+            return Ok(sink.into());
+        };
+        if offset == 0 || offset > MAX_BINARY_PREFIX_BYTES {
+            return Ok(sink.into());
+        }
+        let prefix = read_prefix(file, offset)?;
+        let (opts, context_lines) = (self.opts, self.context_lines);
+        let prefix_searcher = self
+            .prefix_searcher
+            .get_or_insert_with(|| build_searcher(opts, context_lines, BinaryDetection::none()));
+        let mut prefix_sink = CollectSink::new(
+            self.matcher,
+            self.work,
+            self.match_window,
+            self.deadline,
+            self.stop,
+        );
+        prefix_searcher.search_slice(self.matcher, &prefix, &mut prefix_sink)?;
+        let mut outcome = FileOutcome::from(prefix_sink);
+        outcome.binary = true;
+        Ok(outcome)
+    }
+}
+
+/// How a walk is bounded and where finished files go.
+#[derive(Clone, Copy)]
+struct WalkControl<'a> {
+    /// Wall-clock ceiling (PCRE2 only); `None` for linear engines.
+    deadline: Option<Instant>,
+    /// Caller cancellation, polled before every walk entry.
+    cancelled: &'a (dyn Fn() -> bool + Sync),
+    /// Merge each finished file into the shared state immediately.
+    eager: bool,
+}
+
+/// Run a parallel ignore walk + per-file search for a concrete matcher type,
+/// writing into `state`. The walk stops at the next entry once `cancelled()`
+/// returns true, `state.stop` is raised, or `deadline` passes.
 fn collect<M: Matcher + Sync>(
     opts: &RipgrepSearchOptions,
     matcher: &M,
     mode: Mode,
     path_filter: Arc<dyn RipgrepPathFilter>,
-    deadline: Option<Instant>,
-) -> Result<CollectResult> {
-    let started = Instant::now();
+    state: &CollectState,
+    control: WalkControl<'_>,
+) -> Result<()> {
+    let WalkControl {
+        deadline,
+        cancelled,
+        eager,
+    } = control;
     let only_matching = opts.only_matching.unwrap_or(false);
     // only-matching emits bare spans; ripgrep's `-o` ignores `-C` context too.
     let context_lines = if mode == Mode::Normal && !only_matching {
@@ -594,25 +927,15 @@ fn collect<M: Matcher + Sync>(
     };
     let match_window = opts.match_window.unwrap_or(0) as usize;
     let keep_unmatched = mode == Mode::FilesWithoutMatch;
+    let limit = collection_limit(opts);
 
     let max_file_bytes = opts
         .max_file_bytes
         .map(u64::from)
         .unwrap_or(DEFAULT_MAX_SEARCH_FILE_BYTES);
 
-    let recs = Arc::new(Mutex::new(Vec::<FileRec>::new()));
-    let files_searched = Arc::new(AtomicU32::new(0));
-    let bytes_searched = Arc::new(AtomicU64::new(0));
-    let span_capped = Arc::new(AtomicBool::new(false));
-    let timed_out = Arc::new(AtomicBool::new(false));
-    let size_skipped = Arc::new(AtomicBool::new(false));
-    let binary_quit = Arc::new(AtomicBool::new(false));
-    let error_count = Arc::new(AtomicU32::new(0));
-    let first_error = Arc::new(Mutex::new(None));
-
     // Traversal ordering is only stable if a single worker drains the walk in a
-    // fixed order; the default parallel walk merges worker buffers arbitrarily,
-    // so a `sort:"traversal"` result would vary run-to-run (fix 6).
+    // fixed order; the default parallel walk merges worker buffers arbitrarily.
     let mut walk_builder = build_walk_builder(opts)?;
     if preserves_traversal_order(opts) {
         walk_builder.threads(1);
@@ -622,34 +945,47 @@ fn collect<M: Matcher + Sync>(
         let path_filter = Arc::clone(&path_filter);
         let mut worker_recs = WorkerRecs {
             local: Vec::new(),
-            sink: Arc::clone(&recs),
+            state,
+            opts,
+            mode,
+            limit,
+            eager,
         };
-        let files_searched = Arc::clone(&files_searched);
-        let bytes_searched = Arc::clone(&bytes_searched);
-        let span_capped = Arc::clone(&span_capped);
-        let timed_out = Arc::clone(&timed_out);
-        let size_skipped = Arc::clone(&size_skipped);
-        let binary_quit = Arc::clone(&binary_quit);
-        let error_count = Arc::clone(&error_count);
-        let first_error = Arc::clone(&first_error);
-        let mut searcher = build_searcher(opts, context_lines);
-        // `mode`/`only_matching` are invariant for the whole search; compute the
-        // per-match work classification once per worker instead of per file.
-        let work = match_work(mode, only_matching);
+        let mut files = FileSearcher {
+            opts,
+            matcher,
+            searcher: build_searcher(opts, context_lines, BinaryDetection::quit(b'\x00')),
+            prefix_searcher: None,
+            context_lines,
+            // `mode`/`only_matching` are invariant for the whole search.
+            work: match_work(mode, only_matching),
+            match_window,
+            deadline,
+            stop: &state.stop,
+        };
 
         Box::new(move |dent| {
-            // Cooperative deadline between files: abandon the rest of the walk
-            // once the wall-clock ceiling is reached, reporting partial coverage.
+            // Between entries: end the walk on stop, cancellation, or the
+            // deadline, keeping the files already finished.
+            if state.stopped() {
+                return WalkState::Quit;
+            }
+            if cancelled() {
+                state.cancelled.store(true, Ordering::Relaxed);
+                state.stop.store(true, Ordering::Relaxed);
+                return WalkState::Quit;
+            }
             if let Some(deadline) = deadline
                 && Instant::now() >= deadline
             {
-                timed_out.store(true, Ordering::Relaxed);
+                state.timed_out.store(true, Ordering::Relaxed);
+                state.stop.store(true, Ordering::Relaxed);
                 return WalkState::Quit;
             }
             let dent = match dent {
                 Ok(d) => d,
                 Err(error) => {
-                    record_collection_error(&error_count, &first_error, error.to_string());
+                    state.record_error(error.to_string());
                     return WalkState::Continue;
                 }
             };
@@ -666,68 +1002,61 @@ fn collect<M: Matcher + Sync>(
             }
             let path: &Path = dent.path();
 
-            // Skip files above the byte ceiling BEFORE opening/searching them, so
-            // a pathological multi-GB file cannot force a giant buffer + lossy
-            // copy. Surfaced as a `maxFileSize` diagnostic, never silently
-            // dropped (fix 2). A skipped file is not counted in `files_searched`.
-            let file_len = dent.metadata().ok().map(|meta| meta.len());
-            if file_len.is_some_and(|len| len > max_file_bytes) {
-                size_skipped.store(true, Ordering::Relaxed);
+            // Skip files above the byte ceiling before opening them, so a
+            // pathological multi-GB file cannot force a giant buffer + lossy
+            // copy. Surfaced as `maxFileSize`; not counted in `files_searched`.
+            let over_ceiling = |len: u64| {
+                if len > max_file_bytes {
+                    state.size_skipped.store(true, Ordering::Relaxed);
+                    true
+                } else {
+                    false
+                }
+            };
+            if dent
+                .metadata()
+                .ok()
+                .is_some_and(|meta| over_ceiling(meta.len()))
+            {
                 return WalkState::Continue;
             }
-
-            let mut entry = FileEntry::new();
-            let (submatches, matched_lines, om_matches, was_binary) = {
-                let mut sink = CollectSink {
-                    matcher,
-                    entry: &mut entry,
-                    submatches: 0,
-                    matched_lines: 0,
-                    work,
-                    match_window,
-                    om_matches: Vec::new(),
-                    span_cap_reached: false,
-                    deadline,
-                    deadline_hit: false,
-                    binary_detected: false,
-                };
-                // Keep successful files, but report incomplete coverage when
-                // traversal or matching fails. A skipped file proves no absence.
-                if let Err(error) = searcher.search_path(matcher, path, &mut sink) {
-                    record_collection_error(
-                        &error_count,
-                        &first_error,
-                        format!("{}: {error}", path.display()),
-                    );
+            // Keep successful files, but report incomplete coverage when
+            // opening or matching fails. A skipped file proves no absence.
+            let (file, file_len) = match open_regular(path) {
+                Ok(opened) => opened,
+                Err(error) => {
+                    state.record_error(format!("{}: {error}", path.display()));
                     return WalkState::Continue;
                 }
-                if sink.span_cap_reached {
-                    span_capped.store(true, Ordering::Relaxed);
-                }
-                if sink.deadline_hit {
-                    timed_out.store(true, Ordering::Relaxed);
-                }
-                (
-                    sink.submatches,
-                    sink.matched_lines,
-                    std::mem::take(&mut sink.om_matches),
-                    sink.binary_detected,
-                )
             };
-            files_searched.fetch_add(1, Ordering::Relaxed);
-            if let Some(len) = file_len {
-                bytes_searched.fetch_add(len, Ordering::Relaxed);
+            if over_ceiling(file_len) {
+                return WalkState::Continue;
             }
-            if was_binary {
-                // Quit as binary: matches after the NUL were not searched, so
-                // coverage for this file is partial (fix 3).
-                binary_quit.store(true, Ordering::Relaxed);
+            let outcome = match files.search(&file) {
+                Ok(outcome) => outcome,
+                Err(error) => {
+                    state.record_error(format!("{}: {error}", path.display()));
+                    return WalkState::Continue;
+                }
+            };
+            drop(file);
+            if outcome.span_cap_reached {
+                state.span_capped.store(true, Ordering::Relaxed);
+            }
+            if outcome.deadline_hit {
+                state.timed_out.store(true, Ordering::Relaxed);
+            }
+            state.files_searched.fetch_add(1, Ordering::Relaxed);
+            state.bytes_searched.fetch_add(file_len, Ordering::Relaxed);
+            if outcome.binary {
+                // Bytes after the NUL were not searched: coverage is partial.
+                state.binary_quit.store(true, Ordering::Relaxed);
             }
 
-            let has_match = matched_lines > 0;
+            let has_match = outcome.matched_lines > 0;
             // A binary file quit before any match is *unknown*, not "without
             // match": rg --files-without-match never lists it either.
-            if was_binary && !has_match && keep_unmatched {
+            if outcome.binary && !has_match && keep_unmatched {
                 return WalkState::Continue;
             }
             if has_match == keep_unmatched {
@@ -736,50 +1065,25 @@ fn collect<M: Matcher + Sync>(
                 return WalkState::Continue;
             }
 
-            let rec = FileRec {
+            worker_recs.push(FileRec {
                 path: dent.path().to_string_lossy().into_owned(),
-                entry,
-                matched_lines,
-                submatches,
-                om_matches,
+                entry: outcome.entry,
+                matched_lines: outcome.matched_lines,
+                submatches: outcome.submatches,
+                om_matches: outcome.om_matches,
                 sort_time: capture_sort_time(opts, &dent),
-            };
-
-            worker_recs.push(rec);
+            });
             WalkState::Continue
         })
     });
-
-    let recs = {
-        let mut guard = recs.lock().map_err(to_napi_err)?;
-        std::mem::take(&mut *guard)
-    };
-
-    let first_error = first_error.lock().map_err(to_napi_err)?.take();
-    Ok(CollectResult {
-        recs,
-        files_searched: files_searched.load(Ordering::Relaxed),
-        bytes_searched: bytes_searched.load(Ordering::Relaxed),
-        elapsed: started.elapsed(),
-        span_capped: span_capped.load(Ordering::Relaxed),
-        timed_out: timed_out.load(Ordering::Relaxed),
-        size_skipped: size_skipped.load(Ordering::Relaxed),
-        binary_quit: binary_quit.load(Ordering::Relaxed),
-        error_count: error_count.load(Ordering::Relaxed),
-        first_error,
-    })
+    Ok(())
 }
 
-/// Apply the collection cap as a stable truncation of the fully sorted result
-/// set. Sorting happens first so the retained subset is the deterministic sorted
-/// prefix (never a race-dependent subset chosen mid-walk). Returns whether any
-/// records were dropped by the cap (fix 1).
-fn sort_and_cap(opts: &RipgrepSearchOptions, recs: &mut Vec<FileRec>) -> bool {
-    sort_recs(opts, recs);
-    if let Some(max) = opts
-        .max_collected_files
-        .map(|n| n as usize)
-        .filter(|n| *n > 0)
+/// Sort `recs` into the final result order and truncate to the collection cap.
+/// Returns whether any records were dropped by the cap.
+fn sort_and_cap(opts: &RipgrepSearchOptions, mode: Mode, recs: &mut Vec<FileRec>) -> bool {
+    sort_recs(opts, mode, recs);
+    if let Some(max) = collection_limit(opts)
         && recs.len() > max
     {
         recs.truncate(max);
@@ -788,20 +1092,51 @@ fn sort_and_cap(opts: &RipgrepSearchOptions, recs: &mut Vec<FileRec>) -> bool {
     false
 }
 
-fn sort_recs(opts: &RipgrepSearchOptions, recs: &mut [FileRec]) {
+fn sort_recs(opts: &RipgrepSearchOptions, mode: Mode, recs: &mut [FileRec]) {
     if preserves_traversal_order(opts) {
         return;
     }
-    match opts.sort.as_deref() {
-        Some("modified") | Some("accessed") | Some("created") => {
-            recs.sort_by_key(|r| r.sort_time);
-        }
-        // Default and explicit "path": lexicographic by full path, matching
-        // `rg --sort path`.
-        _ => recs.sort_by(|a, b| a.path.cmp(&b.path)),
+    recs.sort_by(|a, b| compare_recs(opts, mode, a, b));
+}
+
+/// The per-file weight `matchCount` ordering ranks by: the unit the view
+/// reports as each file's match count (matched lines for line views, spans or
+/// submatches otherwise).
+fn rank_weight(opts: &RipgrepSearchOptions, mode: Mode, rec: &FileRec) -> u32 {
+    match mode {
+        Mode::CountLines => rec.matched_lines,
+        Mode::Normal if !opts.only_matching.unwrap_or(false) => rec.matched_lines,
+        _ => rec.submatches,
     }
+}
+
+/// Total order over collected files, including `sort_reverse`. Every key ends
+/// with the path so a cap always retains the same records.
+///
+/// * `modified` / `accessed` / `created`: ascending timestamp.
+/// * `matchCount`: descending [`rank_weight`] (the most-matched files survive
+///   the collection cap).
+/// * default and `path`: lexicographic by full path, matching `rg --sort path`.
+fn compare_recs(
+    opts: &RipgrepSearchOptions,
+    mode: Mode,
+    a: &FileRec,
+    b: &FileRec,
+) -> std::cmp::Ordering {
+    let order = match opts.sort.as_deref() {
+        Some("modified" | "accessed" | "created") => a
+            .sort_time
+            .cmp(&b.sort_time)
+            .then_with(|| a.path.cmp(&b.path)),
+        Some("matchCount") => rank_weight(opts, mode, b)
+            .cmp(&rank_weight(opts, mode, a))
+            .then_with(|| a.path.cmp(&b.path)),
+        _ => a.path.cmp(&b.path),
+    };
     if opts.sort_reverse.unwrap_or(false) {
-        recs.reverse();
+        order.reverse()
+    } else {
+        order
     }
 }
 
@@ -845,17 +1180,22 @@ fn build_result(
         mut recs,
         files_searched,
         bytes_searched,
+        files_matched,
+        submatches,
+        matched_lines,
         elapsed,
         span_capped,
         timed_out,
         size_skipped,
         binary_quit,
+        cancelled,
         error_count,
         first_error,
     } = collected;
-    // Sort the full match set, THEN truncate to the collection cap, so the
-    // retained subset is the deterministic sorted prefix (fix 1).
-    let cap_truncated = sort_and_cap(opts, &mut recs);
+    // Workers retain a bounded, order-independent candidate set; the final
+    // sort + truncate keeps the first `max_collected_files` in result order.
+    let retained_truncated = sort_and_cap(opts, mode, &mut recs);
+    let cap_truncated = retained_truncated || files_matched > recs.len() as u64;
 
     // Assemble cap reasons in a fixed order so single-cause results carry a
     // stable, exact reason string.
@@ -872,6 +1212,9 @@ fn build_result(
     if size_skipped {
         cap_reasons.push("maxFileSize");
     }
+    if cancelled {
+        cap_reasons.push("cancelled");
+    }
     if binary_quit {
         cap_reasons.push("binaryQuit");
     }
@@ -881,9 +1224,11 @@ fn build_result(
     let context_lines = opts.context_lines.unwrap_or(0);
     let max_snippet = opts.max_snippet_chars.unwrap_or(DEFAULT_MAX_SNIPPET_CHARS) as usize;
 
-    let files_matched = recs.len() as u32;
-    let total_submatches: u32 = recs.iter().map(|r| r.submatches).sum();
-    let total_matched_lines: u32 = recs.iter().map(|r| r.matched_lines).sum();
+    // Totals cover every kept file, including files the cap dropped from the
+    // returned list (see `maxCollectedFiles`).
+    let files_matched = saturate_u32(files_matched);
+    let total_submatches = saturate_u32(submatches);
+    let total_matched_lines = saturate_u32(matched_lines);
 
     let only_matching = opts.only_matching.unwrap_or(false);
     let unique = opts.unique.unwrap_or(false) || opts.count_unique.unwrap_or(false);
@@ -907,7 +1252,7 @@ fn build_result(
             }
             Mode::Normal => assemble_file(r.path, &r.entry, context_lines, max_snippet),
             // files-only / files-without-match: path list, matchCount 1, no
-            // snippets — exactly what the old plain-text parser produced.
+            // snippets.
             Mode::FilesOnly | Mode::FilesWithoutMatch => RipgrepFile {
                 path: r.path,
                 match_count: 1,
@@ -942,7 +1287,7 @@ fn build_result(
         }),
         matched_lines: Some(total_matched_lines),
         files_matched: Some(files_matched),
-        files_searched: Some(files_searched),
+        files_searched: Some(saturate_u32(files_searched)),
         bytes_searched,
         search_time,
         capped: Some(capped),
@@ -965,6 +1310,32 @@ pub(crate) fn search(opts: RipgrepSearchOptions) -> Result<RipgrepParseResult> {
 pub(crate) fn search_filtered(
     opts: RipgrepSearchOptions,
     path_filter: Arc<dyn RipgrepPathFilter>,
+) -> Result<RipgrepParseResult> {
+    search_cancellable(opts, path_filter, &|| false)
+}
+
+/// [`search_filtered`] that stops walking at the next entry once `cancelled`
+/// returns true. The partial result carries `capReason` `cancelled`.
+pub(crate) fn search_cancellable(
+    opts: RipgrepSearchOptions,
+    path_filter: Arc<dyn RipgrepPathFilter>,
+    cancelled: &(dyn Fn() -> bool + Sync),
+) -> Result<RipgrepParseResult> {
+    #[cfg(feature = "pcre2")]
+    {
+        search_with_limits(opts, path_filter, cancelled, PCRE2_LIMITS)
+    }
+    #[cfg(not(feature = "pcre2"))]
+    {
+        search_with_limits(opts, path_filter, cancelled)
+    }
+}
+
+fn search_with_limits(
+    opts: RipgrepSearchOptions,
+    path_filter: Arc<dyn RipgrepPathFilter>,
+    cancelled: &(dyn Fn() -> bool + Sync),
+    #[cfg(feature = "pcre2")] limits: Pcre2Limits,
 ) -> Result<RipgrepParseResult> {
     let mode = resolve_mode(&opts);
 
@@ -1002,53 +1373,7 @@ pub(crate) fn search_filtered(
             .jit_if_available(true)
             .max_jit_stack_size(Some(PCRE2_MAX_JIT_STACK_BYTES));
         let matcher = b.build(&opts.pattern).map_err(to_napi_err)?;
-        // Bound the number of concurrently outstanding PCRE2 worker threads.
-        // Workers abandoned on the hard deadline keep running (uninterruptibly)
-        // and hold their slot until they finish, so a stream of pathological `-P`
-        // patterns cannot accumulate unbounded threads: once saturated, reject
-        // the new search instead of spawning (fix 5).
-        if !try_acquire_worker_slot(&ACTIVE_PCRE2_WORKERS, MAX_ACTIVE_PCRE2_WORKERS) {
-            return Err(Error::new(
-                Status::GenericFailure,
-                "Too many concurrent PCRE2 (-P) searches are in flight (some abandoned on their wall-clock deadline are still running); retry shortly, or use regex:\"literal\"/the default engine.",
-            ));
-        }
-        // Bound the PCRE2 search by wall clock (see PCRE2_SEARCH_DEADLINE). The
-        // search runs on a worker thread with a cooperative deadline; if a single
-        // uninterruptible match blows past the hard grace period, the driver
-        // abandons the worker and returns a partial, timeout-flagged result
-        // rather than blocking the caller indefinitely.
-        let deadline = Instant::now() + PCRE2_SEARCH_DEADLINE;
-        let (tx, rx) = std::sync::mpsc::channel();
-        let opts_worker = opts.clone();
-        let filter_worker = Arc::clone(&path_filter);
-        let spawned = std::thread::Builder::new()
-            .name("pcre2-search".into())
-            .spawn(move || {
-                // Release the slot when this thread exits, whether it completed
-                // or was abandoned by the driver after the deadline.
-                let _slot = Pcre2WorkerSlot;
-                let _ = tx.send(collect(
-                    &opts_worker,
-                    &matcher,
-                    mode,
-                    filter_worker,
-                    Some(deadline),
-                ));
-            });
-        if spawned.is_err() {
-            // Spawn failed: no worker will ever run to release the reserved slot.
-            release_worker_slot(&ACTIVE_PCRE2_WORKERS);
-        }
-        spawned.map_err(to_napi_err)?;
-        return match rx.recv_timeout(PCRE2_SEARCH_DEADLINE + PCRE2_DEADLINE_GRACE) {
-            Ok(collected) => Ok(build_result(&opts, mode, collected?)),
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Ok(pcre2_timeout_result()),
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => Err(Error::new(
-                Status::GenericFailure,
-                "PCRE2 search worker terminated unexpectedly",
-            )),
-        };
+        return search_pcre2(opts, mode, matcher, path_filter, cancelled, limits);
     }
 
     // ── Error when PCRE2 is not compiled in ──────────────────────────────────────────
@@ -1086,33 +1411,98 @@ pub(crate) fn search_filtered(
     let matcher = b.build(&pattern).map_err(to_napi_err)?;
     // The Rust regex engine is linear-time and cannot catastrophically
     // backtrack, so it needs no wall-clock deadline.
-    let collected = collect(&opts, &matcher, mode, path_filter, None)?;
-    Ok(build_result(&opts, mode, collected))
+    let state = CollectState::new();
+    collect(
+        &opts,
+        &matcher,
+        mode,
+        path_filter,
+        &state,
+        WalkControl {
+            deadline: None,
+            cancelled,
+            eager: false,
+        },
+    )?;
+    Ok(build_result(&opts, mode, state.snapshot()))
 }
 
 #[cfg(feature = "pcre2")]
-/// Result returned when a PCRE2 search is abandoned after exceeding its hard
-/// wall-clock ceiling (see [`PCRE2_SEARCH_DEADLINE`]). Reports zero results but
-/// flags the search as capped/incomplete so callers never treat an abandoned
-/// search as an exhaustive (absence-proving) one.
-fn pcre2_timeout_result() -> RipgrepParseResult {
-    RipgrepParseResult {
-        files: Vec::new(),
-        stats: RipgrepStats {
-            match_count: Some(0),
-            matched_lines: Some(0),
-            files_matched: Some(0),
-            files_searched: Some(0),
-            bytes_searched: None,
-            search_time: None,
-            capped: Some(true),
-            cap_reason: Some("pcre2Deadline".into()),
-            error_count: Some(0),
-            first_error: Some(format!(
-                "PCRE2 search exceeded its {}s wall-clock limit and was abandoned; results are incomplete. Narrow the pattern or scope, or use regex:\"literal\"/the default engine.",
-                (PCRE2_SEARCH_DEADLINE + PCRE2_DEADLINE_GRACE).as_secs()
-            )),
-        },
+/// Run a PCRE2 search on a worker thread bounded by `limits` (see
+/// [`PCRE2_SEARCH_DEADLINE`]). The driver polls `cancelled` and the hard
+/// deadline; on either it raises the shared stop flag and returns the files the
+/// worker finished so far, flagged `cancelled` or `pcre2Deadline`.
+fn search_pcre2(
+    opts: RipgrepSearchOptions,
+    mode: Mode,
+    matcher: grep_pcre2::RegexMatcher,
+    path_filter: Arc<dyn RipgrepPathFilter>,
+    cancelled: &(dyn Fn() -> bool + Sync),
+    limits: Pcre2Limits,
+) -> Result<RipgrepParseResult> {
+    // Bound concurrently live PCRE2 worker threads, including workers still
+    // finishing an uninterruptible match after their driver returned.
+    if !try_acquire_worker_slot(&ACTIVE_PCRE2_WORKERS, MAX_ACTIVE_PCRE2_WORKERS) {
+        return Err(Error::new(
+            Status::GenericFailure,
+            "Too many concurrent PCRE2 (-P) searches are in flight (some past their wall-clock deadline are still finishing a match); retry shortly, or use regex:\"literal\"/the default engine.",
+        ));
+    }
+    let started = Instant::now();
+    let deadline = started + limits.deadline;
+    let hard_deadline = deadline + limits.grace;
+    let state = Arc::new(CollectState::new());
+    let (tx, rx) = std::sync::mpsc::channel();
+    let opts_worker = opts.clone();
+    let state_worker = Arc::clone(&state);
+    let spawned = std::thread::Builder::new()
+        .name("pcre2-search".into())
+        .spawn(move || {
+            // Release the slot when this thread exits.
+            let _slot = Pcre2WorkerSlot;
+            let _ = tx.send(collect(
+                &opts_worker,
+                &matcher,
+                mode,
+                path_filter,
+                &state_worker,
+                WalkControl {
+                    deadline: Some(deadline),
+                    cancelled: &|| false,
+                    eager: true,
+                },
+            ));
+        });
+    if spawned.is_err() {
+        // Spawn failed: no worker will ever run to release the reserved slot.
+        release_worker_slot(&ACTIVE_PCRE2_WORKERS);
+    }
+    spawned.map_err(to_napi_err)?;
+    loop {
+        if cancelled() {
+            state.cancelled.store(true, Ordering::Relaxed);
+            state.stop.store(true, Ordering::Relaxed);
+            return Ok(build_result(&opts, mode, state.snapshot()));
+        }
+        let now = Instant::now();
+        if now >= hard_deadline {
+            state.timed_out.store(true, Ordering::Relaxed);
+            state.stop.store(true, Ordering::Relaxed);
+            return Ok(build_result(&opts, mode, state.snapshot()));
+        }
+        match rx.recv_timeout(PCRE2_DRIVER_POLL.min(hard_deadline - now)) {
+            Ok(collected) => {
+                collected?;
+                return Ok(build_result(&opts, mode, state.snapshot()));
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                return Err(Error::new(
+                    Status::GenericFailure,
+                    "PCRE2 search worker terminated unexpectedly",
+                ));
+            }
+        }
     }
 }
 

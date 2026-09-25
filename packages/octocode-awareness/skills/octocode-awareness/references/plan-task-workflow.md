@@ -7,3 +7,5 @@ Use `work.create` with `kind: plan`, `task`, or `standalone`. Inspect existing r
 Transitions use `work.update`: `heartbeat`, `submit`, `release`, `retry`, `touch`, `end`, `join`, `document`, or `status`. The selected transition determines required fields; inspect its schema before calling it.
 
 Completion is receipt-gated: run the declared check, transition the work, then call `work.verify` with `action: mark` and the observed result. Use `action: audit` after final writes. Never infer success from a claim, lease expiry, message, or clean workboard.
+
+Next: read `lock-protocol.md` only when a path needs exclusive protection.

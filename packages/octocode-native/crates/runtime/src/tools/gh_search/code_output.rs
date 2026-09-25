@@ -2,6 +2,7 @@ use super::GhSearchQuery;
 use crate::providers::github::{
     CredentialResolver, GitHubTransport, ProviderErrorKind, RequestContext,
 };
+use crate::tools::result::remove_null_fields;
 use crate::{
     providers::github::{CodeSearchItem, ProviderError},
     tools::local_fetch::ContentScan,
@@ -25,7 +26,7 @@ pub(super) async fn empty_scope<R: CredentialResolver>(
     context: &RequestContext,
 ) -> Result<(), ProviderError> {
     let GhSearchQuery::Code {
-        owner: Some(owner),
+        owner,
         repo: Some(repo),
         ..
     } = query
@@ -62,7 +63,7 @@ pub(super) async fn empty_scope<R: CredentialResolver>(
             let mut next = serde_json::to_value(query).map_err(|error| {
                 ProviderError::new(ProviderErrorKind::Decode, error.to_string())
             })?;
-            super::remove_nulls(&mut next);
+            remove_null_fields(&mut next);
             next["owner"] = json!(new_owner);
             next["repo"] = json!(new_repo);
             next["page"] = json!(1);
@@ -138,9 +139,8 @@ pub(super) fn read_top_match(value: &Value) -> Option<Value> {
         Some(crate::content::FileType::Code) if !crate::content::is_test_path(path) => "medium",
         _ => "low",
     };
-    // GhSearchQuery carries execution fields only; its caller's `reasoning`
-    // is discarded during deserialization. Give the generated read its own
-    // canonical reason instead of suppressing this continuation entirely.
+    // A cross-tool read states its own reason rather than reusing the
+    // search's.
     Some(json!({
         "tool": "ghGetFileContent",
         "confidence": confidence,
@@ -162,7 +162,7 @@ pub(super) fn files(
     security: &impl ContentScan,
 ) -> Result<Vec<Value>, ProviderError> {
     let GhSearchQuery::Code {
-        match_kind,
+        match_,
         concise,
         keywords,
         ..
@@ -170,8 +170,8 @@ pub(super) fn files(
     else {
         return Ok(Vec::new());
     };
-    let path_only = match_kind.as_deref() == Some("path");
-    let terms = super::ranking::terms(keywords.as_deref().unwrap_or_default())?;
+    let path_only = *match_ == super::Match::Path;
+    let terms = super::ranking::terms(keywords)?;
     let mut groups: Vec<super::ranking::Group> = Vec::new();
     let mut group_indices = HashMap::new();
     for item in items {

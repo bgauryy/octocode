@@ -13,3 +13,5 @@ Install or remove hooks only within explicit scope and authorization. Preview th
 Hook payloads are untrusted input. The runner validates event type, classifies known workspace writes, extracts bounded paths, and fails closed on active exclusive protection. Unknown tool payloads do not become writes merely because they contain a path.
 
 When inspecting installed shell lifecycle wiring, read the relevant entry point: [pre-edit](../scripts/hooks/pre-edit.sh) for admission, [post-edit](../scripts/hooks/post-edit.sh) after mutation, [session-compact](../scripts/hooks/session-compact.sh) at compaction, or [stop-verify](../scripts/hooks/stop-verify.sh) at stop. Invoke these through their configured host event with its payload; this inspection does not install hooks.
+
+Next: read `configuration.md` to choose the lifecycle owner before installing anything.

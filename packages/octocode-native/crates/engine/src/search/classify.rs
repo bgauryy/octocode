@@ -1,10 +1,10 @@
-//! Tier 1 Phase 2 — deterministic AST match-kind classification.
+//! Deterministic AST match-kind classification.
 //!
 //! Given a file's content and the positions of text/regex matches, parse the
 //! file once with tree-sitter and label each match with the kind of the
 //! smallest named node covering it: declaration, import, export, callsite,
 //! identifier, comment, string, config key, or heading. This is the AST signal
-//! the native runtime ranker prefers over its regex line heuristics (Phase 1).
+//! the native runtime ranker prefers over its regex line heuristics.
 //!
 //! Properties:
 //!   * Stable labels: each completed classification depends on content + position.
@@ -22,11 +22,11 @@ use tree_sitter::Node;
 
 use crate::signatures::extractor::{AST_EXECUTION_TIMEOUT, parse_before};
 use crate::signatures::languages::find_entry;
+use crate::text::utf8_offsets::LineIndex;
 use crate::types::{RipgrepFile, RipgrepMatch};
 
 /// Default cap on how many files get parsed for classification per search, so
-/// a broad query in a huge tree cannot pay an unbounded parse cost. Matches the
-/// "classify top candidates first" rule in RANKING-ARCHITECTURE.md.
+/// a broad query in a huge tree cannot pay an unbounded parse cost.
 pub const DEFAULT_CLASSIFY_FILE_CAP: usize = 300;
 
 /// Per-file size cap for classification. A matched file larger than this (e.g. a
@@ -121,13 +121,13 @@ fn classify_file_matches_before(
         return;
     };
     let root = tree.root_node();
-    let line_starts = line_start_offsets(content);
+    let index = LineIndex::new(content);
 
     for m in matches.iter_mut() {
         if Instant::now() >= deadline {
             break;
         }
-        let Some(byte) = position_to_byte(content, &line_starts, m.line, m.column) else {
+        let Some(byte) = position_to_byte(content, &index, m.line, m.column) else {
             continue;
         };
         if let Some(node) = root.descendant_for_byte_range(byte, byte) {
@@ -279,38 +279,19 @@ fn is_declaration_kind(k: &str) -> bool {
         || k == "impl_item"
 }
 
-fn line_start_offsets(content: &str) -> Vec<usize> {
-    let mut starts = vec![0usize];
-    for (i, b) in content.bytes().enumerate() {
-        if b == b'\n' {
-            starts.push(i + 1);
-        }
-    }
-    starts
-}
-
-/// Convert a 1-based line + 0-based char column to a byte offset, clamped.
-fn position_to_byte(content: &str, line_starts: &[usize], line: u32, column: u32) -> Option<usize> {
-    if line == 0 {
+/// Convert a 1-based line + 0-based UTF-16 column (ripgrep's unit, see
+/// `byte_to_char_offset_inner`) to a byte offset, clamped to the line.
+///
+/// ripgrep sniffs and strips a leading BOM before matching, so its line-1
+/// columns exclude it; the shared `LineIndex` hides the BOM from row-0
+/// columns the same way, so the offset lands on the matched text.
+fn position_to_byte(content: &str, index: &LineIndex<'_>, line: u32, column: u32) -> Option<usize> {
+    let row = line.checked_sub(1)?;
+    if row as usize >= index.line_starts_utf16().len() {
         return None;
     }
-    let line_idx = (line - 1) as usize;
-    let line_start = *line_starts.get(line_idx)?;
-    let line_end = line_starts
-        .get(line_idx + 1)
-        .copied()
-        .unwrap_or(content.len());
-    let slice = &content[line_start..line_end];
-    // Walk `column` chars into the line, clamped to the line's content.
-    let mut byte = line_start;
-    for (chars, (off, _)) in slice.char_indices().enumerate() {
-        if chars >= column as usize {
-            byte = line_start + off;
-            break;
-        }
-        byte = line_start + off;
-    }
-    Some(byte.min(content.len().saturating_sub(1)).max(line_start))
+    let byte = index.position_to_byte(row, column) as usize;
+    Some(byte.min(content.len().saturating_sub(1)))
 }
 
 #[cfg(test)]
@@ -418,5 +399,70 @@ mod tests {
     #[test]
     fn removed_json_grammar_leaves_lexical_matches_unclassified() {
         assert_eq!(classify_one(r#"{"handler":"build"}"#, "json", 1, 2), None);
+    }
+
+    #[test]
+    fn match_columns_are_utf16_like_ripgrep_reports_them() {
+        // ripgrep columns are UTF-16 code units (`byte_to_char_offset_inner`). Each
+        // emoji is 2 units but 1 char, so counting chars drifts right by one per
+        // emoji: five emoji push `b` into the trailing comment.
+        let src = "const a = \"😀😀😀😀😀\", b=1;//cc\n";
+        let column = src[..src.find("b=1").unwrap()].encode_utf16().count() as u32;
+        let kind = classify_one(src, "ts", 1, column);
+        assert_ne!(
+            kind.as_deref(),
+            Some(KIND_COMMENT),
+            "column drifted into the comment"
+        );
+        assert!(kind.is_some(), "got {kind:?}");
+    }
+
+    #[test]
+    fn bom_bearing_files_map_ripgrep_columns_onto_the_matched_text() {
+        // ripgrep strips a leading BOM, so line-1 columns exclude it.
+        let src = "\u{feff}a;//c\nb;\n";
+        // Column 2 is the comment; counting the BOM would land on `;`.
+        assert_eq!(classify_one(src, "ts", 1, 2).as_deref(), Some(KIND_COMMENT));
+        assert_ne!(classify_one(src, "ts", 1, 0).as_deref(), Some(KIND_COMMENT));
+        // Later lines and BOM-free text are unaffected.
+        assert_ne!(classify_one(src, "ts", 2, 0).as_deref(), Some(KIND_COMMENT));
+        assert_eq!(
+            classify_one(&src[3..], "ts", 1, 2).as_deref(),
+            Some(KIND_COMMENT)
+        );
+    }
+
+    #[test]
+    fn ripgrep_reports_bom_free_columns_that_classify_maps_back() {
+        use crate::search::ripgrep_search::search;
+        use crate::types::RipgrepSearchOptions;
+        let dir =
+            std::env::temp_dir().join(format!("octocode-classify-bom-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("bom.ts");
+        std::fs::write(&path, "\u{feff}// needle\nconst needle = 1;\n").unwrap();
+        let result = search(RipgrepSearchOptions {
+            path: dir.to_string_lossy().into_owned(),
+            pattern: "needle".to_owned(),
+            ..Default::default()
+        })
+        .expect("search");
+        let _ = std::fs::remove_dir_all(&dir);
+        let content = "\u{feff}// needle\nconst needle = 1;\n";
+        let mut matches = result.files[0].matches.clone();
+        let first = matches.iter().find(|m| m.line == 1).expect("line-1 hit");
+        assert_eq!(
+            first.column, 3,
+            "ripgrep strips the BOM from line-1 columns"
+        );
+        classify_file_matches(content, "ts", &mut matches);
+        let kinds = matches
+            .iter()
+            .map(|m| (m.line, m.kind.clone()))
+            .collect::<Vec<_>>();
+        assert!(
+            kinds.contains(&(1, Some(KIND_COMMENT.to_owned()))),
+            "{kinds:?}"
+        );
     }
 }

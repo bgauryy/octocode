@@ -3,22 +3,51 @@
 
 use tree_sitter::Node;
 
-use crate::signatures::nodes::{declaration_name, node_text};
+use crate::signatures::nodes::node_text;
 
 use super::{GraphAccumulator, GraphImport, LineIndex};
 
-pub(super) fn rust_module_attributes(node: Node<'_>, content: &str) -> (Option<String>, bool) {
-    let mut previous = node.prev_named_sibling();
-    let mut path = None;
-    let mut unsupported = false;
-    while let Some(attribute) = previous {
-        if matches!(attribute.kind(), "line_comment" | "block_comment") {
-            previous = attribute.prev_named_sibling();
-            continue;
+/// Outer attributes that precede one item, folded as `(path, unsupported)`.
+#[derive(Clone, Debug, Default)]
+pub(super) struct RustAttributes {
+    pub(super) path: Option<String>,
+    pub(super) unsupported: bool,
+}
+
+/// Context carried down the single graph-fact traversal, so no Rust collector
+/// has to walk `Node::parent()` (a root-down search per call, O(n·depth)) or
+/// `prev_named_sibling()` (a parent search plus a sibling scan).
+#[derive(Clone, Debug, Default)]
+pub(super) struct RustContext {
+    /// Outer attributes directly preceding this node.
+    pub(super) attributes: RustAttributes,
+    /// Some strict ancestor is a `block`, `function_item` or `impl_item`.
+    pub(super) block_local: bool,
+    /// This node or an ancestor carries unsupported outer or inner attributes.
+    pub(super) unsupported: bool,
+}
+
+impl RustContext {
+    /// Context for the children of `node`, whose own context is `self`.
+    pub(super) fn for_children(&self, node: Node<'_>) -> Self {
+        Self {
+            attributes: RustAttributes::default(),
+            block_local: self.block_local
+                || matches!(node.kind(), "block" | "function_item" | "impl_item"),
+            unsupported: self.unsupported,
         }
-        if attribute.kind() != "attribute_item" {
-            break;
-        }
+    }
+}
+
+/// Fold an attribute run (nearest attribute first) the same way the item's
+/// preceding siblings were read: the farthest `#[path]` wins, a repeated
+/// `#[path]` or any non-lint attribute is unsupported.
+fn fold_rust_attributes<'t>(
+    nearest_first: impl Iterator<Item = Node<'t>>,
+    content: &str,
+) -> RustAttributes {
+    let mut folded = RustAttributes::default();
+    for attribute in nearest_first {
         let text = node_text(attribute, content).unwrap_or_default();
         let inner = text
             .trim()
@@ -36,12 +65,12 @@ pub(super) fn rust_module_attributes(node: Node<'_>, content: &str) -> (Option<S
                 if let Some(value) =
                     value.filter(|value| !value.contains('\\') && !value.contains('\0'))
                 {
-                    if path.is_some() {
-                        unsupported = true;
+                    if folded.path.is_some() {
+                        folded.unsupported = true;
                     }
-                    path = Some(value.to_owned());
+                    folded.path = Some(value.to_owned());
                 } else {
-                    unsupported = true;
+                    folded.unsupported = true;
                 }
             }
             "allow"
@@ -52,37 +81,50 @@ pub(super) fn rust_module_attributes(node: Node<'_>, content: &str) -> (Option<S
             | "doc"
             | "deprecated"
             | "no_implicit_prelude" => {}
-            _ => unsupported = true,
+            _ => folded.unsupported = true,
         }
-        previous = attribute.prev_named_sibling();
     }
-    (path, unsupported)
+    folded
 }
 
-pub(super) fn rust_block_local(node: Node<'_>) -> bool {
-    let mut parent = node.parent();
-    while let Some(scope) = parent {
-        if matches!(scope.kind(), "block" | "function_item" | "impl_item") {
-            return true;
+/// Contexts for the named children of `node` (in order), computed in one
+/// sibling pass: each child gets the attribute run directly before it
+/// (comments are skipped, anything else ends the run), plus the inherited
+/// ancestor flags (`inherited` is the parent's [`RustContext::for_children`]).
+/// The caller adds the child's own inner attributes when it enters the child.
+pub(super) fn rust_child_contexts(
+    children: &[Node<'_>],
+    content: &str,
+    inherited: &RustContext,
+) -> Vec<RustContext> {
+    let mut run_start: Option<usize> = None;
+    let mut contexts = Vec::with_capacity(children.len());
+    for (index, child) in children.iter().enumerate() {
+        let attributes = match run_start {
+            Some(start) => fold_rust_attributes(
+                children[start..index]
+                    .iter()
+                    .rev()
+                    .copied()
+                    .filter(|item| item.kind() == "attribute_item"),
+                content,
+            ),
+            None => RustAttributes::default(),
+        };
+        contexts.push(RustContext {
+            unsupported: inherited.unsupported || attributes.unsupported,
+            block_local: inherited.block_local,
+            attributes,
+        });
+        match child.kind() {
+            "attribute_item" => {
+                run_start.get_or_insert(index);
+            }
+            "line_comment" | "block_comment" => {}
+            _ => run_start = None,
         }
-        parent = scope.parent();
     }
-    false
-}
-
-pub(super) fn rust_module_scope(node: Node<'_>, content: &str) -> Vec<String> {
-    let mut names = Vec::new();
-    let mut parent = node.parent();
-    while let Some(scope) = parent {
-        if scope.kind() == "mod_item"
-            && let Some(name) = declaration_name(scope, content)
-        {
-            names.push(name);
-        }
-        parent = scope.parent();
-    }
-    names.reverse();
-    names
+    contexts
 }
 
 pub(super) fn rust_inner_unsupported(node: Node<'_>, content: &str) -> bool {
@@ -112,17 +154,6 @@ pub(super) fn rust_inner_unsupported(node: Node<'_>, content: &str) -> bool {
                 | "no_implicit_prelude"
         )
     })
-}
-
-pub(super) fn rust_unsupported_context(node: Node<'_>, content: &str) -> bool {
-    let mut current = Some(node);
-    while let Some(scope) = current {
-        if rust_module_attributes(scope, content).1 || rust_inner_unsupported(scope, content) {
-            return true;
-        }
-        current = scope.parent();
-    }
-    false
 }
 
 /// Expand Rust use trees through grammar nodes, preserving aliases and multiline groups.

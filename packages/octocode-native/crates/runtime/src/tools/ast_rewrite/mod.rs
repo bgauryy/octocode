@@ -21,7 +21,9 @@ use output::{
     continuation_query, executable_value, isolation_receipt, portable_relative, success_value,
 };
 mod raw;
+mod staged;
 use raw::{RawByteRange, RawCapture, RawMatch, RawMetaVariables, RawPosition, RawRange};
+use staged::{StagedAnalyzer, StagedFacts, note_parses};
 
 const DEFAULT_MAX_FILES: usize = 2_000;
 const DEFAULT_MAX_MATCHES: usize = 10_000;
@@ -61,6 +63,7 @@ struct PrepareContext<'a> {
     security: &'a ContentSecurity,
     cancellation: &'a dyn CancellationCheck,
     options: &'a AstRewriteRuntimeOptions,
+    analyzer: &'a StagedAnalyzer,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -153,6 +156,10 @@ struct PreparedFile {
     patch: String,
     matches: Vec<PreparedMatch>,
     permissions: fs::Permissions,
+    /// ERROR/MISSING nodes in `before`, from the scan's parse.
+    before_errors: u32,
+    /// Facts from the single parse of `after` (`None`: over the parse bound).
+    after_facts: Option<StagedFacts>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -229,6 +236,9 @@ impl RewriteError {
             "errorCode":self.code,
             "error":self.message
         });
+        if let Some(hint) = recovery_hint(self.code) {
+            value["hints"] = json!([hint]);
+        }
         if self.terminal {
             value["complete"] = json!(false);
             value["isPartial"] = json!(true);
@@ -242,6 +252,35 @@ impl RewriteError {
         }
         value
     }
+}
+
+/// Code-specific recovery for the preview→apply guard failures, so each error
+/// names its own fix instead of a generic "preview again" fallback.
+fn recovery_hint(code: &str) -> Option<&'static str> {
+    Some(match code {
+        "ast.rewrite.snapshot_required" | "ast.rewrite.expected_hashes_required" => {
+            "Run the complete preview's next.apply unchanged; it carries snapshot and expectedHashes."
+        }
+        "ast.rewrite.expected_hash_invalid" => {
+            "Key expectedHashes by preview files[].path with its 64-hex beforeHash, or run next.apply unchanged."
+        }
+        "ast.rewrite.expected_hash_set_mismatch" | "ast.rewrite.expected_hash_missing" => {
+            "expectedHashes must list exactly the preview's affected files; run the complete preview's next.apply unchanged."
+        }
+        "ast.rewrite.hash_mismatch" => {
+            "A file changed since preview; follow next.restart, then apply with the new preview's next.apply."
+        }
+        "ast.rewrite.source_mismatch" => {
+            "Match bytes or the generated replacement disagree with the verified source; preview again with the same query."
+        }
+        "ast.rewrite.snapshot_changed" => {
+            "Discard earlier preview pages; follow next.restart and page the new preview to its next.apply."
+        }
+        "ast.rewrite.postcondition_failed" => {
+            "remainingMatches counts only the files this apply rewrites; adjust equals or the selection, then preview again."
+        }
+        _ => return None,
+    })
 }
 
 /// Execute one canonical structural-rewrite query. Domain failures are returned
@@ -289,9 +328,12 @@ fn execute(
             "Apply requires the exact snapshot returned by preview.",
         ));
     }
-    let validated = paths
-        .validate(&query.path)
-        .map_err(|error| RewriteError::new("ast.rewrite.root_unavailable", error.message))?;
+    let validated = paths.validate(&query.path).map_err(|error| {
+        RewriteError::new(
+            error.local_error_code("ast.rewrite.root_unavailable"),
+            error.message,
+        )
+    })?;
     let root = validated.canonical;
     let metadata = fs::metadata(&root).map_err(io_error)?;
     if !metadata.is_file() && !metadata.is_dir() {
@@ -311,6 +353,8 @@ fn execute(
     let lock = RootLock::acquire(&boundary)?;
     recover_transactions(&boundary, cancellation)?;
     let executable = embedded_engine_receipt();
+    // Compiling validates the rule; no probe parse.
+    let analyzer = StagedAnalyzer::new(&query)?;
     let (prepared, coverage) = prepare(
         &query,
         &root,
@@ -320,6 +364,7 @@ fn execute(
             security,
             cancellation,
             options,
+            analyzer: &analyzer,
         },
     )?;
     let snapshot = snapshot(&query, &root, &prepared, &executable);
@@ -352,12 +397,24 @@ fn execute(
         .flat_map(|file| file.matches.iter().cloned())
         .collect::<Vec<_>>();
     let (result_files, result_matches) = if query.apply {
-        select(&query, &prepared, &all_matches, options.max_patch_bytes)?
+        select(
+            &query,
+            &prepared,
+            &all_matches,
+            options.max_patch_bytes,
+            &analyzer,
+        )?
     } else {
         (prepared.clone(), all_matches)
     };
     let transaction = if query.apply {
-        validate_expected_hashes(&query, &result_files, &boundary, paths)?;
+        validate_expected_hashes(&query, &result_files, &boundary, paths).map_err(|error| {
+            if error.code == "ast.rewrite.hash_mismatch" {
+                error.restart(&query)
+            } else {
+                error
+            }
+        })?;
         validate_postconditions(&query, &result_files, cancellation)?;
         Some(commit_transaction(&boundary, &result_files, cancellation)?)
     } else {
@@ -451,15 +508,19 @@ fn embedded_engine_receipt() -> ExecutableReceipt {
     }
 }
 
+/// Map an engine error by its leading `[code]` tag (the engine's typed error
+/// prefix), never by text elsewhere in the message.
 fn engine_error(error: String) -> RewriteError {
-    let code = if error.contains("structural.rewrite.invalid")
-        || error.contains("structural.rewrite.json")
-    {
-        "ast.rewrite.input_invalid"
-    } else if error.contains("structural.rewrite.matchLimit") {
-        "ast.rewrite.match_limit"
-    } else {
-        "ast.rewrite.execution_failed"
+    let tag = error
+        .strip_prefix('[')
+        .and_then(|rest| rest.split_once(']'))
+        .map(|(tag, _)| tag);
+    let code = match tag {
+        Some("structural.rewrite.invalid" | "structural.rewrite.json") => {
+            "ast.rewrite.input_invalid"
+        }
+        Some("structural.rewrite.matchLimit") => "ast.rewrite.match_limit",
+        _ => "ast.rewrite.execution_failed",
     };
     RewriteError::new(code, error)
 }
@@ -508,14 +569,18 @@ impl RewriteCoverage {
     }
 }
 
+/// Scanned matches, coverage, and each matched file's source syntax-error
+/// count (from the scan's own parse).
+type ScanOutput = (Vec<RawMatch>, RewriteCoverage, BTreeMap<String, u32>);
+
 fn run_scan(
     query: &AstRewriteQuery,
     target: &Path,
     cancellation: &dyn CancellationCheck,
-) -> Result<(Vec<RawMatch>, RewriteCoverage), RewriteError> {
+    analyzer: &StagedAnalyzer,
+) -> Result<ScanOutput, RewriteError> {
     cancellation.check().map_err(cancelled)?;
-    let config = rule_config(query);
-    octocode_engine::structural::structural_rewrite("", config.clone()).map_err(engine_error)?;
+    let config = analyzer.config();
     let max_files = u32::try_from(query.max_files).map_err(|_| {
         RewriteError::new(
             "ast.rewrite.input_invalid",
@@ -525,7 +590,7 @@ fn run_scan(
     let files = octocode_engine::structural::rewrite_files(
         octocode_engine::structural::StructuralRewriteFilesOptions {
             path: target.to_string_lossy().into_owned(),
-            rule_config_json: serde_json::to_string(&config).map_err(|error| {
+            rule_config_json: serde_json::to_string(config).map_err(|error| {
                 RewriteError::new("ast.rewrite.input_invalid", error.to_string())
             })?,
             include: query.include.clone(),
@@ -548,8 +613,11 @@ fn run_scan(
         skipped_errored: files.skipped_errored,
     };
 
+    note_parses(files.files.len());
     let mut raw = Vec::new();
+    let mut source_errors = BTreeMap::new();
     for file in files.files {
+        source_errors.insert(file.path.clone(), file.syntax_errors);
         for matched in file.matches {
             let mut meta_variables = RawMetaVariables::default();
             for (name, capture) in matched.captures {
@@ -603,7 +671,7 @@ fn run_scan(
             });
         }
     }
-    Ok((raw, coverage))
+    Ok((raw, coverage, source_errors))
 }
 
 fn prepare(
@@ -611,7 +679,8 @@ fn prepare(
     root: &Path,
     context: &PrepareContext<'_>,
 ) -> Result<(Vec<PreparedFile>, RewriteCoverage), RewriteError> {
-    let (raw_matches, coverage) = run_scan(query, root, context.cancellation)?;
+    let (raw_matches, coverage, source_errors) =
+        run_scan(query, root, context.cancellation, context.analyzer)?;
     if raw_matches.len() > query.max_matches {
         return Err(RewriteError::new(
             "ast.rewrite.match_limit",
@@ -624,7 +693,7 @@ fn prepare(
         .detail(json!({"observed":raw_matches.len(),"maxMatches":query.max_matches}))
         .terminal());
     }
-    let mut grouped = BTreeMap::<PathBuf, Vec<RawMatch>>::new();
+    let mut grouped = BTreeMap::<PathBuf, (Vec<RawMatch>, Option<u32>)>::new();
     for matched in raw_matches {
         context.cancellation.check().map_err(cancelled)?;
         let unresolved = if Path::new(&matched.file).is_absolute() {
@@ -659,7 +728,10 @@ fn prepare(
             )
             .detail(json!({"path":matched.file})));
         }
-        grouped.entry(target.canonical).or_default().push(matched);
+        let errors = source_errors.get(&matched.file).copied();
+        let entry = grouped.entry(target.canonical).or_default();
+        entry.1 = entry.1.or(errors);
+        entry.0.push(matched);
     }
     if grouped.len() > query.max_files {
         return Err(RewriteError::new(
@@ -674,7 +746,7 @@ fn prepare(
     }
     let mut files = Vec::new();
     let mut total_patch_bytes = 0usize;
-    for (absolute, raw) in grouped {
+    for (absolute, (raw, scanned_errors)) in grouped {
         context.cancellation.check().map_err(cancelled)?;
         let metadata = fs::symlink_metadata(&absolute).map_err(io_error)?;
         let before = fs::read(&absolute).map_err(io_error)?;
@@ -700,7 +772,12 @@ fn prepare(
                 "A generated replacement is not valid UTF-8.",
             )
         })?;
-        check_syntax_regression(query, &relative, content, after_text)?;
+        let before_errors = match scanned_errors {
+            Some(errors) => errors,
+            None => context.analyzer.count_errors(&relative, content)?,
+        };
+        let after_facts =
+            check_syntax_regression(context.analyzer, &relative, before_errors, after_text)?;
         let patch = create_unified_patch(&relative, content, after_text);
         total_patch_bytes = total_patch_bytes.saturating_add(patch.len());
         if total_patch_bytes > context.options.max_patch_bytes {
@@ -723,6 +800,8 @@ fn prepare(
             patch,
             matches,
             permissions: metadata.permissions(),
+            before_errors,
+            after_facts,
         });
     }
     files.sort_by(|left, right| left.path.cmp(&right.path));
@@ -800,12 +879,24 @@ fn prepare_matches(
                 ]))
                 .unwrap_or_default(),
             );
-            let public = json!({
+            // Lines are 1-based like astSearch/localFetch; columns are 0-based
+            // UTF-16 code units like astSearch and LSP. `byteRange` names the
+            // replaced span and is emitted only when it differs from the
+            // matched `range.byteOffset`.
+            let range = &matched.range;
+            let mut public = json!({
                 "id":id,"path":path,
-                "byteRange":{"start":start,"end":end},
-                "range":matched.range,"text":matched.text,"replacement":matched.replacement,
+                "range":{
+                    "byteOffset":range.byte_offset,
+                    "start":{"line":range.start.line.saturating_add(1),"column":range.start.column},
+                    "end":{"line":range.end.line.saturating_add(1),"column":range.end.column}
+                },
+                "text":matched.text,"replacement":matched.replacement,
                 "captures":captures
             });
+            if (start, end) != (range.byte_offset.start, range.byte_offset.end) {
+                public["byteRange"] = json!({"start":start,"end":end});
+            }
             PreparedMatch {
                 public,
                 id,
@@ -840,22 +931,17 @@ fn prepare_matches(
 /// node counts keeps rewrites of already-broken files possible while blocking
 /// templates that introduce new damage.
 fn check_syntax_regression(
-    query: &AstRewriteQuery,
+    analyzer: &StagedAnalyzer,
     path: &str,
-    before: &str,
+    before_errors: u32,
     after: &str,
-) -> Result<(), RewriteError> {
+) -> Result<Option<StagedFacts>, RewriteError> {
     // Replacements can grow a near-limit file past the engine's parse bound;
     // an unverifiable-but-legal rewrite must stage rather than hard-fail.
-    if after.len() > octocode_engine::structural::MAX_REWRITE_CONTENT_BYTES {
-        return Ok(());
-    }
-    let count = |content: &str| {
-        octocode_engine::structural::count_syntax_errors(content, &query.lang_type)
-            .map_err(engine_error)
+    let Some(facts) = analyzer.staged(path, after)? else {
+        return Ok(None);
     };
-    let before_errors = count(before)?;
-    let after_errors = count(after)?;
+    let after_errors = facts.syntax_errors;
     if after_errors > before_errors {
         return Err(RewriteError::new(
             "ast.rewrite.broken_syntax",
@@ -868,7 +954,7 @@ fn check_syntax_regression(
             "afterErrorNodes": after_errors,
         })));
     }
-    Ok(())
+    Ok(Some(facts))
 }
 
 fn apply_edits(before: &[u8], matches: &[PreparedMatch]) -> Result<Vec<u8>, RewriteError> {
@@ -898,6 +984,7 @@ fn select(
     files: &[PreparedFile],
     matches: &[PreparedMatch],
     max_patch_bytes: usize,
+    analyzer: &StagedAnalyzer,
 ) -> Result<(Vec<PreparedFile>, Vec<PreparedMatch>), RewriteError> {
     let Some(selected) = query.selected_match_ids.as_deref() else {
         return Ok((files.to_vec(), matches.to_vec()));
@@ -937,7 +1024,8 @@ fn select(
         })?;
         // A subset of individually-clean edits can still break syntax (e.g.
         // dropping one of a paired open/close rewrite), so re-check here.
-        check_syntax_regression(query, &file.path, before_text, after_text)?;
+        let after_facts =
+            check_syntax_regression(analyzer, &file.path, file.before_errors, after_text)?;
         let patch = create_unified_patch(&file.path, before_text, after_text);
         total_patch_bytes = total_patch_bytes.saturating_add(patch.len());
         if total_patch_bytes > max_patch_bytes {
@@ -950,6 +1038,7 @@ fn select(
         let mut selected_file = file.clone();
         selected_file.after_hash = sha256(&after);
         selected_file.after = after;
+        selected_file.after_facts = after_facts;
         selected_file.patch = patch;
         selected_file.matches = file_matches.clone();
         selected_matches.extend(file_matches);
@@ -1036,26 +1125,20 @@ fn validate_postconditions(
     if postconditions.is_empty() {
         return Ok(());
     }
-    let config = rule_config(query);
+    // The staged tree was already parsed by the syntax-regression check.
     let mut remaining = 0usize;
     for file in files {
         cancellation.check().map_err(cancelled)?;
-        let content = std::str::from_utf8(&file.after).map_err(|_| {
-            RewriteError::new(
-                "ast.rewrite.postcondition_execution_failed",
-                "The staged source is not valid UTF-8; no files were changed.",
-            )
-        })?;
-        remaining = remaining.saturating_add(
-            octocode_engine::structural::structural_rewrite(content, config.clone())
-                .map_err(|_| {
-                    RewriteError::new(
-                        "ast.rewrite.postcondition_execution_failed",
-                        "The postcondition scan could not be completed; no files were changed.",
-                    )
-                })?
-                .len(),
-        );
+        let observed = file
+            .after_facts
+            .and_then(|facts| facts.remaining)
+            .ok_or_else(|| {
+                RewriteError::new(
+                    "ast.rewrite.postcondition_execution_failed",
+                    "The postcondition scan could not be completed; no files were changed.",
+                )
+            })?;
+        remaining = remaining.saturating_add(observed);
     }
     for postcondition in postconditions {
         if postcondition.kind != "remainingMatches" || postcondition.equals != remaining {
@@ -1064,7 +1147,9 @@ fn validate_postconditions(
                 "A staged rewrite postcondition failed; no files were changed.",
             )
             .detail(json!({
-                "kind":postcondition.kind,"expected":postcondition.equals,"observed":remaining
+                "kind":postcondition.kind,"expected":postcondition.equals,"observed":remaining,
+                "scope":"rewrittenFiles",
+                "scannedFiles":files.iter().map(|file| file.path.as_str()).collect::<Vec<_>>()
             })));
         }
     }
@@ -1301,11 +1386,8 @@ fn create_unified_patch(path: &str, before: &str, after: &str) -> String {
 mod tests {
     use super::journal::{journal_directory, persist_journal};
     use super::*;
-    use crate::{policy::path::PathPolicyConfig, security::SecurityRegistry};
-    use std::{
-        sync::Arc,
-        time::{SystemTime, UNIX_EPOCH},
-    };
+    use crate::policy::path::PathPolicyConfig;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn overlap_error_identifies_ranges_and_how_to_narrow_the_preview() {
@@ -1409,7 +1491,7 @@ mod tests {
             ..Default::default()
         })
         .expect("policy");
-        let security = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+        let security = ContentSecurity::new();
         (root, policy, security)
     }
 
@@ -1445,6 +1527,41 @@ mod tests {
             &Default::default(),
         );
         assert_eq!(rejected["errorCode"], "ast.rewrite.input_invalid");
+    }
+
+    /// Each matched file is parsed once by the scan and once staged; the
+    /// syntax check and the postcondition reuse those trees, and the rule is
+    /// validated by compiling it rather than parsing an empty probe.
+    #[test]
+    fn preview_and_apply_parse_each_file_twice() {
+        let (root, policy, security) = fixture();
+        fs::write(root.join("b.ts"), "oldCall(3);\n").expect("second file");
+        let mut preview = query(&root);
+        preview["pageSize"] = json!(10);
+        staged::take_parses();
+        let first = execute_ast_rewrite_with_options(
+            preview,
+            &policy,
+            &security,
+            &Active,
+            &Default::default(),
+        );
+        assert_eq!(first["totalMatches"], 3, "{first}");
+        assert_eq!(staged::take_parses(), 4, "2 files × (scan + staged)");
+        let mut apply = first["next"]["apply"]["query"].clone();
+        apply["postconditions"] = json!([{"kind":"remainingMatches","equals":0}]);
+        let options = AstRewriteRuntimeOptions {
+            allow_apply: true,
+            ..Default::default()
+        };
+        let applied =
+            execute_ast_rewrite_with_options(apply, &policy, &security, &Active, &options);
+        assert_eq!(applied["mode"], "apply", "{applied}");
+        assert_eq!(
+            staged::take_parses(),
+            4,
+            "postcondition reuses the staged parse"
+        );
     }
 
     #[test]
@@ -1617,9 +1734,105 @@ mod tests {
             },
         );
         assert_eq!(failed["errorCode"], "ast.rewrite.postcondition_failed");
+        assert_eq!(failed["details"]["scope"], "rewrittenFiles", "{failed}");
+        assert_eq!(
+            failed["details"]["scannedFiles"],
+            json!(["a.ts"]),
+            "{failed}"
+        );
+        assert!(
+            failed["hints"][0]
+                .as_str()
+                .is_some_and(|hint| hint.contains("remainingMatches")),
+            "{failed}"
+        );
         assert_eq!(
             fs::read_to_string(root.join("a.ts")).expect("read"),
             "const first = oldCall(1);\nconst second = oldCall(2);\n"
+        );
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn preview_pages_carry_only_their_files_with_one_based_lines() {
+        let (root, policy, security) = fixture();
+        fs::write(root.join("b.ts"), "const third = oldCall(3);\n").expect("write b");
+        let mut preview_query = query(&root);
+        preview_query["pageSize"] = json!(2);
+        let first = execute_ast_rewrite_with_options(
+            preview_query.clone(),
+            &policy,
+            &security,
+            &Active,
+            &Default::default(),
+        );
+        assert_eq!(first["affectedFiles"], 2, "{first}");
+        let first_files = first["files"].as_array().expect("files");
+        assert_eq!(first_files.len(), 1, "page 1 touches only a.ts: {first}");
+        assert_eq!(first_files[0]["path"], "a.ts");
+        let matched = &first["matches"][0];
+        assert_eq!(matched["range"]["start"]["line"], 1, "{matched}");
+        assert_eq!(first["matches"][1]["range"]["start"]["line"], 2);
+        assert!(matched.get("byteRange").is_none(), "{matched}");
+        assert!(first["executable"].get("sha256").is_none(), "{first}");
+
+        let second = execute_ast_rewrite_with_options(
+            first["next"]["nextPage"]["query"].clone(),
+            &policy,
+            &security,
+            &Active,
+            &Default::default(),
+        );
+        let second_files = second["files"].as_array().expect("files");
+        assert_eq!(second_files.len(), 1, "{second}");
+        assert_eq!(second_files[0]["path"], "b.ts");
+        // The final page's guarded apply still covers every affected file.
+        let apply = second["next"]["apply"]["query"].clone();
+        let hashes = apply["expectedHashes"].as_object().expect("hashes");
+        assert_eq!(hashes.len(), 2, "{apply}");
+
+        let options = AstRewriteRuntimeOptions {
+            allow_apply: true,
+            ..Default::default()
+        };
+        let mut wrong = apply.clone();
+        wrong["expectedHashes"]["a.ts"] = json!("0".repeat(64));
+        let mismatch =
+            execute_ast_rewrite_with_options(wrong, &policy, &security, &Active, &options);
+        assert_eq!(
+            mismatch["errorCode"], "ast.rewrite.hash_mismatch",
+            "{mismatch}"
+        );
+        assert!(
+            mismatch["next"]["restart"]["query"].is_object(),
+            "{mismatch}"
+        );
+        assert!(
+            mismatch["hints"][0]
+                .as_str()
+                .is_some_and(|hint| hint.contains("next.restart")),
+            "{mismatch}"
+        );
+
+        let applied =
+            execute_ast_rewrite_with_options(apply, &policy, &security, &Active, &options);
+        assert_eq!(applied["transaction"]["committed"], true, "{applied}");
+        assert!(
+            applied["transaction"].get("beforeHashes").is_none(),
+            "{applied}"
+        );
+        assert!(
+            applied["transaction"].get("afterHashes").is_none(),
+            "{applied}"
+        );
+        assert_eq!(
+            applied["files"].as_array().map(Vec::len),
+            Some(2),
+            "{applied}"
+        );
+        assert_eq!(
+            fs::read_to_string(root.join("b.ts")).expect("read"),
+            "const third = newCall(3);\n"
         );
         fs::remove_dir_all(root).expect("cleanup");
     }

@@ -72,7 +72,7 @@ pub(super) fn validate_schema(
         && !values.contains(value)
     {
         // Name the allowed values so a wrong resultView/entryType/etc. is
-        // self-correcting instead of a generic rejection (GOTCHAS 2026-09-19).
+        // self-correcting instead of a generic rejection.
         let allowed = values
             .iter()
             .map(|v| v.as_str().map_or_else(|| v.to_string(), |s| s.to_owned()))

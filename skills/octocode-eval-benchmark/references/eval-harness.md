@@ -1,44 +1,23 @@
-# Eval Harness
-Load when adding or extending machine-checkable suites in this monorepo. Why: deterministic floors beat prose claims.
+# Eval harness
+Load when implementing or extending a benchmark runner. Why: reliable execution and records make scores interpretable.
 
-## Octocode pattern
-```text
-evals/cases.json          # tasks + required/forbidden + optional binaryQuestions
-evals/kpi-contract.json   # optional: goal, primary, guardrails, decision rule (rich suites)
-evals/fixtures/           # optional: inputs for live/script runners
-scripts/eval-*.mjs        # grader: patterns, citations, self-test, live invokes
-```
-Worked example — this folder's own suite: `evals/cases.json` + `evals/trigger-cases.json` + `evals/kpi-contract.json`, graded by `scripts/eval-skill.mjs`.
+Use `benchmarks/README.md` for the common definition and per-run results layout. `benchmarks/document-answering/README.md` is the public task/judge starter; `benchmarks/skill-smoke/README.md` describes existing maintenance checks.
 
-## Case shape (minimum)
-- `id`, `prompt` or mode, `minScore`
-- `required[]` / `forbidden[]` with named regex checks
-- Optional `binaryQuestions[]`: `id`, `dimension`, `question`, `passPattern`, `failureSignature`, `suggestedLesson`
-- Optional `--agentic` path: emit advisory questions without changing pass/fail
-- Optional live/script kinds (local-worker style): `kind`, `cmd`/`model`/`grade`, `heldOut`
+## Cases and access
+Keep task IDs, provenance, family/split metadata and evaluator criteria in the controller. Export only the public question, relevant requirements and permitted inputs to the solver. Keep expected answers, private tests, rubric questions and failure-analysis notes evaluator-only. A framework's metadata can reach environment variables or tools; inspect its real export (`clean-lab.md`).
 
-## Rules
-1. Cases come from **real failures** and manual release checks (20–50 is enough to start). Write the failing case **before** the subject patch (TDD).
-2. Two experts must agree on pass/fail; include a **reference solution** that passes.
-3. Do not edit cases to make a bad change pass — fix the subject or discard.
-4. Keep CI floor deterministic; put semantic/LLM layers above it as advisory or calibrated judges.
-5. Isolate trials; same command for baseline and candidate.
-6. Run artifacts → `.octocode/` (temp). Keep `evals/` suite files permanent.
+Build cases from representative tasks and observed failures. Check solvability, valid alternative solutions and deliberately wrong outputs before trusting the grader. Resolve material expert disagreements or mark ambiguity; do not require a ritual number of reviewers for every task.
 
-For tool-calling evals, export input schemas so defaulted fields stay optional;
-use the actual host envelope. Grade tool choice, semantic arguments, schema and
-transport validity, and runtime completion separately. Include negative grader
-tests for wrong scope/ref, irrelevant search terms, and unnecessary calls. Freeze
-the executable validator and model/runtime identity alongside prompts and cases.
-Report sensor failures separately. Native calls, JSON emulation, first attempts,
-and repair attempts are distinct measurements; give repairs actual errors without
-reference answers. A revised grader starts a new version and preserves old results.
-Verify the rendered prompt fits the host's actual context window. Prefer disabling
-silent truncation; otherwise check scoped server diagnostics. Request options,
-raw schema bytes, and post-truncation token counters alone do not prove fidelity.
+Prefer executable checks for objective properties, calibrated model/human judgment for subjective ones. Regexes detect wording, not semantic correctness. Version task/fixture/grader changes and retain original outcomes; never change the harness mid-comparison to make the subject pass.
 
-## This skill’s scripts
-- `scripts/eval-skill.mjs` — grade answers for this skill’s cases (`--case <id>`, `--batch <dir>` for one-command answer-set grading, `--self-test`)
-- `scripts/loop-report.mjs` — structural check that a loop report is complete
+## Runner behavior
+- Create a unique results directory before execution. Record effective settings/identities, actual exported inputs and inclusion/exclusion decisions. Do not create empty logs for unavailable evidence.
+- Start independent trials with reset state and the intended production tools. Freeze available schemas, permissions, runtime/model versions and budgets for the comparison. Preserve legitimate within-trial interactions.
+- Grade tool scope, semantic arguments, schema/transport validity and completion separately when relevant. A familiar tool name is not proof of a valid call.
+- Distinguish first attempts, repairs, solver failures, judge errors, infrastructure errors and Unknowns. Give repairs actual operational errors, not answer hints; record them as additional attempts under the frozen policy.
+- Confirm the actual rendered input fits the host context. Disable silent truncation where possible; otherwise retain evidence of what reached the model. Requested options or raw token estimates alone do not prove prompt fidelity.
+- Seal outputs and final state before grading. Store grader evidence and sufficient source/version identities to reproduce the result. Missing records must remain visible in coverage and denominators.
 
-Next: held-out split → `held-out-and-guards.md`; close improve cycle → `improve-loop.md`.
+Native runner logs can replace the suggested JSON files if they preserve these properties. Add scripts only for recurring deterministic work; do not invent a parallel framework to enforce folder names or report prose.
+
+Next: comparison/splits → `held-out-and-guards.md`; grader calibration → `llm-judge.md`; failure repair → `failure-repair.md`.

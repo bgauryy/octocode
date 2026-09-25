@@ -1,37 +1,12 @@
-# Output
-Load when presenting an eval or loop result. Why: incomplete reports invite vibe acceptance.
+# Reporting results
+Load when presenting an evaluation. Why: show what changed and how far the evidence supports the conclusion.
 
-## Loop report
-```markdown
-## Goal
-## KPI
-- primary (lagging): <name> (<dir>) baseline=… result=… target=…  [serves goal]
-- leading (optional): …
-- guardrails: …
-## Loop level and budget
-experiment | suite | meta; trials/cost
-## Subject and harness
-what changed; whether cases/graders stayed frozen
-## Checks run
-- command + exit code / score
-- held-out: …
-## Verdict
-ACCEPT | REVERT | CONTINUE  (inner-loop KEEP maps to ACCEPT, DISCARD to REVERT)
-## Next (when needed)
-```
+Use the shortest useful format. Include the goal, baseline versus candidate result, relevant guardrails, scope/budget, checks and evidence, uncertainty/coverage, and verdict. Headings, section order and exact words are not grading criteria.
 
-Validate with `scripts/loop-report.mjs` before claiming done.
-Write run artifacts (answers, grades, loop reports) under `.octocode/` in the workspace — never a session temp dir; only permanent suite files live in `evals/`.
+For a saved run, place the summary and evidence under `<output>/benchmarks/<name>/results/<run-id>/` as described in `benchmarks/README.md`. Reference native logs rather than copying them. Preserve failed candidates, missing answers, errors, Unknowns, retries and costs alongside successes.
 
-For multi-iteration runs, add a short retrospective: iterations, hypotheses kept/killed, metric trajectory, and any escalation.
+Distinguish source review, maintenance checks, development measurements and sealed behavioral comparisons. Development KEEP is provisional; use `references/held-out-and-guards.md` for acceptance, rejection, inconclusive and invalid evidence. Explain why a loop stopped or changed direction when that affects interpretation.
 
-## Confidence markers
-| Marker | Minimum |
-|---|---|
-| strong | deterministic check or calibrated multi-trial result |
-| moderate | one solid grader + corroboration |
-| weak | single LLM score, saturated public bench, or narrative only |
+For before/after ratings, define dimensions and score anchors before editing. Label editorial ratings as subjective and link them to concrete defects; never translate them into measured performance gains. Say when behavior remains unmeasured.
 
-Lead with verdict + primary delta. Expand tables only when contested.
-
-Next: route capture → `routing.md`.
+Capture reusable lessons only when supported by the results; a short failure category can help later diagnosis. The report is complete when the reader can assess the result and its limits—not when it satisfies a heading checker.

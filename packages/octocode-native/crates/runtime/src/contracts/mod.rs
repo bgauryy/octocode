@@ -1,6 +1,7 @@
 //! Generated public tool contracts and transport-neutral input preparation.
 
 pub mod generated;
+pub mod tool_types;
 mod prepare;
 mod validate;
 
@@ -262,7 +263,7 @@ fn prepare_validation_error(error: ContractInputError) -> ContractValidationErro
     }
 }
 
-/// Fingerprint of the canonical sibling-core contract used for this build.
+/// Fingerprint of the tool contract `@octocodeai/config` generated from core.
 #[must_use]
 pub const fn contract_fingerprint() -> &'static str {
     generated::CONTRACT_FINGERPRINT
@@ -274,10 +275,10 @@ pub const fn contract_json() -> &'static str {
     generated::CONTRACT_JSON
 }
 
-/// Provenance for the generated contract, including the clean canonical-core
-/// revision and the fingerprint embedded above.
+/// Provenance written by `@octocodeai/config`: core package version, contract
+/// fingerprint, and the digest of the embedded contract bytes.
 pub const fn contract_provenance_json() -> &'static str {
-    include_str!("generated/contract-provenance.json")
+    generated::CONTRACT_PROVENANCE_JSON
 }
 
 #[cfg(test)]
@@ -517,40 +518,22 @@ mod contract_owner_tests {
     }
 
     #[test]
-    fn generated_contract_has_matching_provenance() {
+    fn embedded_contract_is_the_unmodified_config_output() {
+        // octocode-config records the digest of the contract it generated; a
+        // hand edit to the embedded bytes breaks the match. No native-side pin
+        // needs updating on regeneration.
+        use sha2::{Digest, Sha256};
         let provenance: serde_json::Value =
             serde_json::from_str(contract_provenance_json()).expect("provenance JSON");
         assert_eq!(provenance["sourcePackage"], "@octocodeai/octocode-core");
-        assert!(
-            provenance["sourceDirty"].is_boolean(),
-            "local regeneration records whether core had uncommitted changes"
-        );
         assert_eq!(
             provenance["contractFingerprint"],
             super::contract_fingerprint()
         );
-        assert!(
-            provenance["sourceRevision"]
-                .as_str()
-                .is_some_and(|revision| revision.len() == 40
-                    && revision.chars().all(|ch| ch.is_ascii_hexdigit()))
-        );
-    }
-
-    #[test]
-    fn generated_contract_body_hash_is_pinned_against_hand_edits() {
-        // `generated_contract_has_matching_provenance` compares two
-        // co-generated literals; the fingerprint is generator-authored and never
-        // recomputed from the body, so a hand-edit to the generated contract
-        // passes it. This pin recomputes a digest over the embedded bytes:
-        // regeneration from core must update the literal (same discipline as
-        // the napi ABI snapshot); any other change to the generated body fails.
-        use sha2::{Digest, Sha256};
-        let digest = hex::encode(Sha256::digest(contract_json().as_bytes()));
         assert_eq!(
-            digest,
-            super::generated::CONTRACT_BODY_SHA256,
-            "generated contract body changed without regeneration from core"
+            provenance["contractSha256"],
+            hex::encode(Sha256::digest(contract_json().as_bytes())),
+            "embedded contract differs from what octocode-config generated"
         );
     }
 
@@ -927,8 +910,7 @@ mod contract_owner_tests {
         assert_eq!(query["materializeOffset"], 12);
     }
 
-    /// S8 schema single-source guard (RFC 20260917-finish-rust-migration):
-    /// Assert that no `.rs` source file outside `contracts/generated/` defines
+    /// Schema single-source guard: assert that no `.rs` source file outside `contracts/generated/` defines
     /// inline JSON Schema vocabulary (`"$schema"`, `"inputSchema"` as an object
     /// key inside a `json!()` macro call, or `"properties"` as an *lvalue* in a
     /// JSON literal). The provenance check above ensures generated schemas

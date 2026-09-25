@@ -173,7 +173,15 @@ pub fn inspect_with_extension(
         node: tree.root_node(),
         included_parent: None,
     }];
-    let mut all_nodes = Vec::new();
+    // Only the requested window is materialized; every included node still gets
+    // its preorder id so ids, parents and `total_nodes` are page-independent.
+    let window_start = offset;
+    let window_end = offset.saturating_add(limit);
+    let mut page_nodes = Vec::with_capacity(limit.min(1_000));
+    let mut next_id: usize = 0;
+    let mut budget_truncated = false;
+    let mut cursor = tree.walk();
+    let mut children = Vec::new();
     let mut status = if tree.root_node().has_error() {
         "partial".to_owned()
     } else {
@@ -198,6 +206,7 @@ pub fn inspect_with_extension(
     {
         if Instant::now() >= deadline {
             status = "partial".to_owned();
+            budget_truncated = true;
             diagnostics.push(diagnostic(
                 "syntaxTree.budget.deadline",
                 "warning",
@@ -209,8 +218,9 @@ pub fn inspect_with_extension(
         }
         let included = !named_only || node.is_named();
         let next_parent = if included {
-            if all_nodes.len() >= MAX_SYNTAX_TREE_NODES {
+            if next_id >= MAX_SYNTAX_TREE_NODES {
                 status = "partial".to_owned();
+                budget_truncated = true;
                 diagnostics.push(diagnostic(
                     "syntaxTree.budget.nodeLimit",
                     "warning",
@@ -223,51 +233,50 @@ pub fn inspect_with_extension(
                 ));
                 break;
             }
-            let id = all_nodes.len() as u32;
-            let start = line_index.byte_to_position(node.start_byte() as u32);
-            let end = line_index.byte_to_position(node.end_byte() as u32);
-            all_nodes.push(SyntaxTreeNode {
-                id,
-                parent_id: included_parent,
-                kind: node.kind().to_owned(),
-                named: node.is_named(),
-                start_line: start.0 + 1,
-                start_column: start.1,
-                end_line: end.0 + 1,
-                end_column: end.1,
-                start_byte: node.start_byte().min(u32::MAX as usize) as u32,
-                end_byte: node.end_byte().min(u32::MAX as usize) as u32,
-            });
+            let id = next_id as u32;
+            if (window_start..window_end).contains(&next_id) {
+                let start = line_index.byte_to_position(node.start_byte() as u32);
+                let end = line_index.byte_to_position(node.end_byte() as u32);
+                page_nodes.push(SyntaxTreeNode {
+                    id,
+                    parent_id: included_parent,
+                    kind: node.kind().to_owned(),
+                    named: node.is_named(),
+                    start_line: start.0 + 1,
+                    start_column: start.1,
+                    end_line: end.0 + 1,
+                    end_column: end.1,
+                    start_byte: node.start_byte().min(u32::MAX as usize) as u32,
+                    end_byte: node.end_byte().min(u32::MAX as usize) as u32,
+                });
+            }
+            next_id += 1;
             Some(id)
         } else {
             included_parent
         };
 
         // Push children in reverse source order so the stack visits preorder.
-        for index in (0..node.child_count()).rev() {
-            if let Some(child) = node.child(index) {
-                pending.push(Pending {
-                    node: child,
-                    included_parent: next_parent,
-                });
-            }
-        }
+        // One reused cursor: `node.child(i)` scans siblings linearly (O(k²)).
+        children.clear();
+        children.extend(node.children(&mut cursor));
+        pending.extend(children.drain(..).rev().map(|child| Pending {
+            node: child,
+            included_parent: next_parent,
+        }));
     }
 
-    let total_nodes = all_nodes.len().min(u32::MAX as usize) as u32;
-    let start = offset.min(all_nodes.len());
-    let end = start.saturating_add(limit).min(all_nodes.len());
-    let next_offset = if status == "ok" && end < all_nodes.len() {
+    let total_nodes = next_id.min(u32::MAX as usize) as u32;
+    let end = window_end.min(next_id);
+    // A recovered parse (`partial` from syntax errors) still pages; only a
+    // deadline or node-budget stop leaves the tail unknown.
+    let next_offset = if !budget_truncated && end < next_id {
         Some(end as u32)
     } else {
         None
     };
     SyntaxTreeInspectResult {
-        nodes: all_nodes
-            .into_iter()
-            .skip(start)
-            .take(end - start)
-            .collect(),
+        nodes: page_nodes,
         total_nodes,
         next_offset,
         status,
@@ -380,5 +389,38 @@ mod tests {
         );
         assert!(matches!(result.status.as_str(), "ok" | "partial"));
         assert!(!result.nodes.is_empty());
+    }
+
+    #[test]
+    fn recovered_files_still_paginate() {
+        // One syntax error must not freeze paging at page 1: `partial` from
+        // recovery is not a budget truncation.
+        let source = "const a = 1;\nconst b = ;\nconst c = 3;\nconst d = 4;\n";
+        let page = |offset| {
+            inspect_source(
+                source,
+                "broken.ts",
+                Some(SyntaxTreeInspectOptions {
+                    named_only: Some(true),
+                    node_offset: Some(offset),
+                    node_limit: Some(3),
+                }),
+            )
+        };
+        let first = page(0);
+        assert_eq!(first.status, "partial");
+        assert_eq!(first.nodes.len(), 3);
+        let next = first.next_offset.expect("continuation for recovered file");
+        assert_eq!(next, 3);
+        let second = page(next);
+        assert_eq!(second.nodes[0].id, 3);
+        assert_eq!(second.total_nodes, first.total_nodes);
+        // Parent links still point at earlier preorder ids across pages.
+        assert!(
+            second
+                .nodes
+                .iter()
+                .all(|node| node.parent_id.is_none_or(|p| p < node.id))
+        );
     }
 }

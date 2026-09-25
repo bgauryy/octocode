@@ -365,10 +365,8 @@ fn candidate_state(file: &Value) -> Value {
     }
 }
 
-/// Noul criteria that separate the implementer from files that merely mention
-/// the behavior (callers and tests outranked implementers in held-out evals;
-/// the provider's rerank recipe fixes true/false this way). Skipped when the
-/// question itself targets callers, tests, docs, or config.
+/// Narrow implementation lookups without changing general relevance questions.
+/// A caller, test, or document can contribute evidence to an investigation.
 fn implementer_criteria(question: &Value) -> Option<Value> {
     let text = question.as_str()?.to_ascii_lowercase();
     // Contrast clauses describe what to exclude, not the requested role.
@@ -391,6 +389,15 @@ fn implementer_criteria(question: &Value) -> Option<Value> {
         .split(|ch: char| !ch.is_ascii_alphanumeric())
         .filter(|word| !word.is_empty())
         .collect::<Vec<_>>();
+    let asks_for_implementation = words.iter().any(|word| {
+        matches!(
+            *word,
+            "implement" | "implements" | "define" | "defines" | "definition"
+        )
+    });
+    if !asks_for_implementation {
+        return None;
+    }
     let asks_for_other_role = words.iter().any(|word| {
         matches!(
             *word,
@@ -430,6 +437,10 @@ pub(super) fn restore_rejected_positions(
     specs: &mut Vec<Option<SemanticRerankSpec>>,
     rejected_indices: &[usize],
 ) {
+    // Tools without rerank support extract no specs; there is nothing to realign.
+    if specs.is_empty() {
+        return;
+    }
     for &index in rejected_indices {
         specs.insert(index, None);
     }
@@ -690,14 +701,16 @@ fn apply_row(row: &mut Value, spec: &SemanticRerankSpec, assessment: &DomainResu
         "candidates":candidates.iter().map(candidate_entry).collect::<Vec<_>>()
     });
     // Every score below 0.4 means no snippet shows the asked behavior: the
-    // order is noise (evals: all ≤0.27, target shuffled within 0.1).
-    if candidates
-        .iter()
-        .filter_map(|candidate| candidate.score)
-        .fold(None, |best: Option<f64>, score| {
-            Some(best.map_or(score, |b| b.max(score)))
-        })
-        .is_some_and(|best| best < LOW_SIGNAL_SCORE)
+    // order is noise (evals: all ≤0.27, target shuffled within 0.1). A single
+    // candidate has no order to distrust, so it never flags (matches clasify).
+    if total > 1
+        && candidates
+            .iter()
+            .filter_map(|candidate| candidate.score)
+            .fold(None, |best: Option<f64>, score| {
+                Some(best.map_or(score, |b| b.max(score)))
+            })
+            .is_some_and(|best| best < LOW_SIGNAL_SCORE)
     {
         data["semanticRerank"]["lowSignal"] = json!(true);
     }
@@ -789,6 +802,13 @@ mod tests {
                 .get("semanticRerank")
                 .is_none()
         );
+    }
+
+    #[test]
+    fn rejected_rows_without_rerank_specs_do_not_panic() {
+        let mut specs = Vec::new();
+        restore_rejected_positions(&mut specs, &[1]);
+        assert!(specs.is_empty());
     }
 
     #[test]
@@ -1031,6 +1051,9 @@ mod tests {
             "Does this file test retry backoff?",
             "Is this the README for the retry module?",
             "Does this file call retry()?",
+            "Could this file contribute a fact, constraint, or counterexample about retry safety?",
+            "Does this content explain what happens to running work after cancellation?",
+            "Is this content relevant to investigating request admission?",
         ] {
             assert!(
                 implementer_criteria(&json!(question)).is_none(),

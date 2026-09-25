@@ -52,6 +52,8 @@ Hidden maintenance commands (still available, not part of the agent surface):
 
 Use `npx octocode <command> --help` for the live command help.
 
+Bare `npx octocode` and `npx octocode scheme` include agent instructions in the catalog's `instructions` field. Root `--help`, `-h`, and `help` show the same instructions after command usage. Instructions come from the shared MCP contract and reflect runtime tool availability; classification guidance is omitted when classification is disabled.
+
 ## Quick start
 
 ```bash
@@ -68,12 +70,14 @@ npx octocode skill install octocode-research --platform pi --global
 
 Replace `npx octocode` with `octocode` when the package is installed globally.
 
-**Always read the schema before an unfamiliar call:**
+Choose the tool first, then load its schema only if it is unfamiliar or missing
+from context. Use the query view for calls; select a known operation to omit
+unrelated branches. The full view is for auditing contracts.
 
 ```bash
-npx octocode scheme <name>
 npx octocode scheme <name> --view query                     # self-contained query schema
 npx octocode scheme ghSearch --view query --select operation=code
+npx octocode scheme <name> --view full                      # descriptions, examples, rules
 ```
 
 For local tools, use absolute paths in agent or script calls. Relative paths
@@ -303,9 +307,10 @@ tool from discovery until the key is available.
 |---|---|
 | `--help` | Show command help. |
 | `--version` | Show CLI version. |
-| `--compact` | Single-line JSON (default is indented JSON). |
+| `--compact` | Single-line JSON (tool output is already single-line; `scheme` is compact when piped). |
+| `--pretty` | Indented JSON for tool output. |
 | `--input <file>` | Read a tool's JSON query from a file. |
-| `--json-errors` | Emit `{"success":false,"error":"…"}` on stdout instead of stderr text. |
+| `--json-errors` | Emit errors as `{"kind":"octocode.toolError","version":1,"error":"…"}` on stdout instead of stderr text — the same envelope as tool input-validation errors (`tool` and `details` when known). Covers argument/unknown-subcommand errors and `scheme`; exit codes are unchanged. |
 | `--no-color` | Disable ANSI color. `NO_COLOR=1` works too. |
 
 ### Exit codes
@@ -331,12 +336,11 @@ tool from discovery until the key is available.
 | `GITHUB_TOKEN` | GitHub token fallback. |
 | `OCTOCODE_HOME` | Override Octocode data and cache location. |
 | `ENABLE_LOCAL` | Enable local filesystem tools. Defaults to `true`. |
-| `ENABLE_CLONE` | Legacy config setting; CLI cloning requires persistent storage and MCP cloning is unavailable. |
 | `TOOLS_TO_RUN` | Strict allowlist for CLI and MCP tools. |
 | `DISABLE_TOOLS` | Remove named tools from the default set when `TOOLS_TO_RUN` is unset. |
 | `NO_COLOR` | Disable terminal color. |
 
-`ghSearch` and `localSearch` are the only discovery entry points. A nonempty
+A nonempty
 allowlist replaces the default set, so include every tool that the CLI or MCP
 client must retain. Removed compatibility names are rejected.
 

@@ -6,19 +6,19 @@ use crate::policy::path::PathPolicy;
 use crate::security::ContentSecurity;
 use crate::tools::local_fetch::CancellationCheck;
 use octocode_engine::{
-    portable::{RipgrepPathFilter, search_ripgrep_filtered},
+    portable::{RipgrepPathFilter, search_ripgrep_cancellable},
     types::RipgrepSearchOptions,
 };
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
-/// Upper bound (bytes) on a file re-read for the SEC-1 private-key block scan.
+/// Upper bound (bytes) on a file re-read for the private-key block scan.
 /// Matches the secret scanner's own content cap; larger files fall back to the
 /// per-match window sanitizer rather than pay an unbounded read.
 const MAX_KEY_SCAN_BYTES: u64 = 10 * 1024 * 1024;
 
-/// OUT-1: soft budget (in value chars) for a single localSearch response body.
+/// Soft budget (in value chars) for a single localSearch response body.
 /// Distributed across the matches shown on a page so a pathological giant line
 /// or a raised `matchContentLength`/`maxMatchesPerFile` cannot emit a multi-MB
 /// body. It bounds displayed value size only — every match row and its line
@@ -43,7 +43,7 @@ const DEFAULT_SNIPPET_PAGE_SIZE: u32 = 20;
 const DEFAULT_LIST_PAGE_SIZE: u32 = 100;
 
 pub fn execute_local_search(
-    query: &LocalSearchRequest,
+    query: &LocalSearchQuery,
     paths: &PathPolicy,
     security: &ContentSecurity,
     cancel: &impl CancellationCheck,
@@ -65,7 +65,7 @@ pub fn execute_local_search(
             next: None,
         });
     }
-    let view = query.result_view.unwrap_or_default();
+    let view = query.result_view;
     if query.match_window.is_some() && view != ResultView::MatchOnly {
         return Err(LocalSearchError {
             code: "invalidQuery",
@@ -74,7 +74,7 @@ pub fn execute_local_search(
             next: None,
         });
     }
-    if query.unique.unwrap_or_default() != UniqueMode::Off && view != ResultView::MatchOnly {
+    if query.unique != UniqueMode::Off && view != ResultView::MatchOnly {
         return Err(LocalSearchError {
             code: "invalidQuery",
             message: "`unique` requires resultView:\"matchOnly\"".into(),
@@ -83,27 +83,34 @@ pub fn execute_local_search(
         });
     }
     let validated = paths
-        .validate(&query.path)
+        .validate(query.path.as_str())
         .map_err(|error| LocalSearchError {
-            code: "fileAccessFailed",
+            code: error.local_error_code("fileAccessFailed"),
             message: error.message,
             hints: vec![],
             next: None,
         })?;
-    let case = query.case_mode.unwrap_or_default();
-    let regex = query.regex.unwrap_or_default();
-    let multiline = query.multiline.unwrap_or_default();
-    let requested_sort = query.sort.unwrap_or_default();
+    let case = query.case_mode;
+    let regex = query.regex;
+    let multiline = query.multiline;
+    let requested_sort = query.sort;
     let context_lines = query
-        .context_lines
+        .context_lines()
         .unwrap_or_else(|| default_context_lines(view));
     let path_sort = matches!(
         query.sort,
-        Some(SortMode::Modified | SortMode::Accessed | SortMode::Created | SortMode::Path)
+        SortMode::Modified | SortMode::Accessed | SortMode::Created | SortMode::Path
     );
+    // Match-density orders must choose the collection cap's survivors by match
+    // count across every searched file; path-list views rank by path.
+    let density_sort = matches!(requested_sort, SortMode::Relevance | SortMode::MatchCount)
+        && !matches!(
+            view,
+            ResultView::Files | ResultView::FilesWithout | ResultView::Discovery
+        );
     let options = RipgrepSearchOptions {
         path: validated.canonical.to_string_lossy().into_owned(),
-        pattern: query.search_text.clone(),
+        pattern: query.search_text.to_string(),
         fixed_string: Some(regex == RegexMode::Literal),
         perl_regex: Some(regex == RegexMode::Pcre2),
         case_sensitive: Some(case == CaseMode::Sensitive),
@@ -112,18 +119,18 @@ pub fn execute_local_search(
         invert_match: query.invert_match,
         multiline: Some(multiline != MultilineMode::Off),
         multiline_dotall: Some(multiline == MultilineMode::Dotall),
-        files_only: Some(view == ResultView::Files),
+        // discovery renders the same path list as files; skip content matching.
+        files_only: Some(matches!(view, ResultView::Files | ResultView::Discovery)),
         files_without_match: Some(view == ResultView::FilesWithout),
         count_lines_per_file: Some(view == ResultView::CountLines),
         count_matches_per_file: Some(view == ResultView::CountMatches),
         context_lines: Some(context_lines),
         lang_type: query.lang_type.clone(),
-        include: query.include.clone(),
+        include: Some(query.include.clone()).filter(|include| !include.is_empty()),
         exclude: Some(
             query
                 .exclude
                 .clone()
-                .unwrap_or_default()
                 .into_iter()
                 .chain(DISCOVERY_IGNORED_FILE_NAMES.iter().map(|s| (*s).to_owned()))
                 .chain(
@@ -137,7 +144,6 @@ pub fn execute_local_search(
             query
                 .exclude_dir
                 .clone()
-                .unwrap_or_default()
                 .into_iter()
                 .chain(
                     DISCOVERY_IGNORED_FOLDER_NAMES
@@ -148,12 +154,14 @@ pub fn execute_local_search(
         ),
         no_ignore: query.no_ignore,
         hidden: query.hidden,
-        max_depth: query.max_depth,
+        max_depth: query.max_depth(),
         sort: if requested_sort == SortMode::Traversal {
             Some("traversal".into())
         } else {
             Some(if path_sort {
                 format!("{requested_sort:?}").to_lowercase()
+            } else if density_sort {
+                "matchCount".into()
             } else {
                 "path".into()
             })
@@ -162,46 +170,80 @@ pub fn execute_local_search(
         max_snippet_chars: Some(effective_match_content_length(query)),
         classify_matches: Some(false),
         only_matching: Some(view == ResultView::MatchOnly),
-        match_window: query.match_window,
+        match_window: query.match_window(),
         unique: Some(matches!(
             query.unique,
-            Some(UniqueMode::List | UniqueMode::Count)
+            UniqueMode::List | UniqueMode::Count
         )),
-        count_unique: Some(query.unique == Some(UniqueMode::Count)),
-        // The engine collects every matching file, deterministically sorts, then
-        // truncates to this cap (a stable path-sorted prefix — see
-        // ripgrep_search::sort_and_cap). `rank_relevance` re-orders that retained
-        // set afterwards, so "relevance" is relevance *within the first 10k
-        // matched files*; a highly-relevant file beyond the path-prefix cap is
-        // dropped before ranking sees it. Documented on the `sort` field so
-        // callers narrow the search rather than expecting global ranking.
+        count_unique: Some(query.unique == UniqueMode::Count),
+        // The engine keeps the first 10k matched files in the engine sort order
+        // above (by match count for relevance/matchCount), chosen across every
+        // searched file; stats totals still count all matched files and the
+        // cap surfaces as capReason "maxCollectedFiles".
         max_collected_files: Some(10_000),
         // Use the engine default per-file byte ceiling (skips pathological
         // multi-GB files, surfaced as a maxFileSize diagnostic).
         max_file_bytes: None,
     };
+    // Classify an invalid pattern from the engine's typed validation result
+    // (not from search error text) before walking the tree.
+    if regex != RegexMode::Literal {
+        let checked = octocode_engine::portable::validate_ripgrep_pattern(
+            &query.search_text,
+            false,
+            regex == RegexMode::Pcre2,
+        );
+        if !checked.valid {
+            return Err(invalid_regex(
+                query,
+                checked
+                    .error
+                    .unwrap_or_else(|| "invalid regex pattern".to_owned()),
+            ));
+        }
+    }
     let frozen = query.no_ignore == Some(true);
     let (mut parsed, from_manifest) = if frozen
-        && let Some(snapshot) = query.snapshot.as_deref()
+        && let Some(snapshot) = query.snapshot()
         && let Some(stored) = super::manifest::get(snapshot)
     {
         (stored, true)
     } else {
         (
-            search_ripgrep_filtered(options, Arc::new(PolicyFilter(paths.clone()))).map_err(|error| {
-        let message=error.to_string(); let invalid=message.contains("regex parse error") || message.contains("PCRE2"); let bad_filter=message.contains("glob") || message.contains("unrecognized file type");
-        let next=invalid.then(||{let mut repaired=normalized_query(query);repaired["regex"]=json!("literal");Box::new(json!({"repair":{"tool":"localSearch","query":repaired,"why":"Start a new search treating searchText as literal text, if that was intended."}}))});
-        LocalSearchError{code:if invalid{"invalidRegex"}else if bad_filter{"invalidQuery"}else{"toolExecutionFailed"},message,hints:if invalid{vec!["Use regex:\"literal\" for exact text, or escape metacharacters/fix searchText to keep regex matching.".into()]}else{vec![]},next}
-    })?,
+            search_ripgrep_cancellable(options, Arc::new(PolicyFilter(paths.clone())), &|| {
+                cancel.check().is_err()
+            })
+            .map_err(|error| {
+                let message = error.to_string();
+                // Glob and file-type failures carry no typed kind from the engine yet.
+                let bad_filter =
+                    message.contains("glob") || message.contains("unrecognized file type");
+                LocalSearchError {
+                    code: if bad_filter {
+                        "invalidQuery"
+                    } else {
+                        "toolExecutionFailed"
+                    },
+                    message,
+                    hints: vec![],
+                    next: None,
+                }
+            })?,
             false,
         )
     };
     cancel.check().map_err(cancelled)?;
+    if parsed.files.is_empty()
+        && parsed.stats.files_searched.unwrap_or(0) == 0
+        && parsed.stats.error_count.unwrap_or(0) > 0
+    {
+        return Err(unreadable_scope(&parsed.stats));
+    }
     for file in &parsed.files {
         paths
             .validate_read(&file.path)
-            .map_err(|_| LocalSearchError {
-                code: "fileAccessFailed",
+            .map_err(|error| LocalSearchError {
+                code: error.local_error_code("fileAccessFailed"),
                 message: "Search encountered a path denied by the active path policy".into(),
                 hints: vec![],
                 next: None,
@@ -213,8 +255,7 @@ pub fn execute_local_search(
     }
     if !from_manifest
         && query
-            .snapshot
-            .as_deref()
+            .snapshot()
             .is_some_and(|expected| expected != result_identity)
     {
         let mut restart = normalized_query(query);
@@ -249,7 +290,7 @@ pub fn execute_local_search(
             file.path = relative.to_string_lossy().into_owned();
         }
         let source_path = output_root.join(&file.path);
-        // SEC-1: a match on an interior base64 body line of a private key would
+        // A match on an interior base64 body line of a private key would
         // leak the key even though the match view holds no BEGIN/END marker (the
         // anchored built-in patterns need a complete block). Only when a snippet
         // actually looks like key material do we scan the full file for private-
@@ -311,10 +352,10 @@ pub fn execute_local_search(
         parsed.files.reverse();
     }
     let page_size = query
-        .page_size
+        .page_size()
         .unwrap_or_else(|| default_page_size(view))
         .max(1);
-    let page = query.page.unwrap_or(1).max(1);
+    let page = query.page().max(1);
     let total_files = parsed.files.len() as u32;
     let total_pages = total_files.div_ceil(page_size).max(1);
     let start = (page - 1).saturating_mul(page_size) as usize;
@@ -327,25 +368,28 @@ pub fn execute_local_search(
             | ResultView::CountMatches
     );
     let matches_per = query
-        .max_matches_per_file
+        .max_matches_per_file()
         .unwrap_or(DEFAULT_MAX_MATCHES_PER_FILE)
         .max(1);
-    let match_page = query.match_page.unwrap_or(1).max(1);
+    let match_page = query.match_page().max(1);
     let page_end = start
         .saturating_add(page_size as usize)
         .min(parsed.files.len());
     let page_range = start.min(page_end)..page_end;
+    let mut unverified_redactions = false;
     if !list {
         let match_skip = (match_page - 1).saturating_mul(matches_per) as usize;
         for file in &mut parsed.files[page_range.clone()] {
             cancel.check().map_err(cancelled)?;
-            guard_clipped_secrets(
+            if !guard_clipped_secrets(
                 file,
                 &output_root.join(&file.path),
                 match_skip..match_skip.saturating_add(matches_per as usize),
                 security,
                 view == ResultView::MatchOnly,
-            );
+            ) {
+                unverified_redactions = true;
+            }
         }
     }
     let total_matches = if list {
@@ -385,7 +429,7 @@ pub fn execute_local_search(
     // match-only path emits exact spans, so apply the public display bound here.
     let match_only_limit =
         (view == ResultView::MatchOnly).then_some(effective_match_content_length(query) as usize);
-    // OUT-1: distribute the response value-char budget across the matches shown
+    // Distribute the response value-char budget across the matches shown
     // on this page. `display_cap` is the tighter of the matchOnly display bound
     // and the budget-derived per-match cap; a giant match is clipped (flagged
     // `truncated`) rather than dropped, so the existing page/match cursors and
@@ -465,6 +509,15 @@ pub fn execute_local_search(
             }
         })
         .collect::<Vec<_>>();
+    // A later match page must not re-send files whose rows ended on an
+    // earlier page as empty `outOfRange` rows. Keep them only when every file on
+    // this page is exhausted, so a forged/stale matchPage still gets its
+    // out-of-range diagnostic instead of a silent empty page.
+    let exhausted = |file: &SearchFile| file.pagination.as_ref().is_some_and(|p| p.out_of_range);
+    let mut files = files;
+    if !list && files.iter().any(|file| !exhausted(file)) {
+        files.retain(|file| !exhausted(file));
+    }
     let stats = SearchStats {
         total_occurrences: parsed.stats.match_count.unwrap_or(0),
         matched_lines: parsed.stats.matched_lines.unwrap_or(0),
@@ -472,8 +525,8 @@ pub fn execute_local_search(
         files_searched: parsed.stats.files_searched.unwrap_or(0),
         bytes_searched: parsed.stats.bytes_searched,
         search_time: None,
-        // Skipping binary files (rg's default) is normal coverage, not a cap a
-        // continuation could lift; it stays visible as capReason only.
+        // A binary file cut short at its first NUL is not a cap a continuation
+        // could lift; it stays visible as capReason plus a warning.
         capped: parsed.stats.capped.map(|capped| {
             capped
                 && parsed
@@ -486,10 +539,6 @@ pub fn execute_local_search(
         error_count: parsed.stats.error_count.filter(|n| *n > 0),
         first_error: parsed.stats.first_error,
     };
-    // A PCRE2 search that blew past its wall-clock deadline is reported by the
-    // engine as capped with cap_reason "pcre2Deadline" (see ripgrep_search.rs).
-    // Surface it explicitly so callers know the results are a timeout-truncated
-    // partial, not an exhaustive search.
     let mut warnings = vec![];
     let any_truncated = files.iter().any(|file| {
         file.matches
@@ -505,15 +554,36 @@ pub fn execute_local_search(
             "Some match values were truncated to matchContentLength; originalChars and returnedChars describe each shortened value. Counts and row pagination are unchanged. Use localFetch at the returned path/line anchors for full source.".into(),
         );
     }
-    if stats
-        .cap_reason
-        .as_deref()
-        .is_some_and(|reason| reason.contains("pcre2Deadline"))
-    {
+    if unverified_redactions {
         warnings.push(
-            "The PCRE2 (regex:\"pcre2\") search hit its wall-clock deadline and was stopped; results are partial. Narrow the pattern/scope, or use regex:\"literal\" or the default engine.".into(),
+            "Some match values were redacted because their source file could not be re-read to check clipped text for secrets. Use localFetch at the returned anchors.".into(),
         );
     }
+    let cap_has = |name: &str| {
+        stats
+            .cap_reason
+            .as_deref()
+            .is_some_and(|reason| reason.split(", ").any(|r| r == name))
+    };
+    if cap_has("pcre2Deadline") {
+        warnings.push(
+            "The PCRE2 (regex:\"pcre2\") search hit its wall-clock deadline and was stopped; results cover only the files finished before it. Narrow the pattern/scope, or use regex:\"literal\" or the default engine.".into(),
+        );
+    }
+    let binary_cut = cap_has("binaryQuit");
+    if binary_cut {
+        warnings.push(
+            "binaryFileSkipped: at least one file holds a NUL byte and was searched only up to it; matches after that byte are not reported. Use localFetch to inspect such files.".into(),
+        );
+    }
+    let error_count = stats.error_count.unwrap_or(0);
+    if error_count > 0 && empty {
+        // Hints are shown only on empty/error rows; a partial row keeps the
+        // unreadable-path explanation as a warning.
+        warnings.push(unreadable_hint(error_count));
+    }
+    // Unreadable paths or a binary cut leave "no matches" unproven.
+    let coverage_gap = error_count > 0 || (empty && binary_cut);
     let has_more = page < total_pages;
     let capped = stats.capped.unwrap_or(false);
     let (status, terminal_limit) = classify_search(
@@ -521,8 +591,7 @@ pub fn execute_local_search(
         capped,
         has_more,
         leftover_matches,
-        stats.error_count.unwrap_or(0),
-        files.len(),
+        coverage_gap,
         next.is_none(),
     );
     let skip_hint = skipped_target_hint(
@@ -558,14 +627,23 @@ pub fn execute_local_search(
             },
         ),
         hints: if empty {
-            match skip_hint {
-                Some(hint) => vec![hint],
-                None => vec![empty_hint(query)],
+            if error_count > 0 {
+                vec![unreadable_hint(error_count)]
+            } else if let Some(hint) = skip_hint {
+                vec![hint]
+            } else if binary_cut {
+                vec![
+                    "No matches in the searched text, but binary file(s) were searched only up to their first NUL byte; absence is not proven for them.".into(),
+                    empty_hint(query),
+                ]
+            } else {
+                vec![empty_hint(query)]
             }
         } else {
             vec![]
         },
         next,
+        is_partial: coverage_gap,
         terminal_limit,
         warnings,
         source_snapshot: Some(result_identity),
@@ -596,13 +674,34 @@ fn skipped_target_hint(
     })
 }
 
-fn empty_hint(query: &LocalSearchRequest) -> String {
+/// Every candidate failed before it could be searched: there is no evidence,
+/// so this is an execution failure, not an empty result.
+fn unreadable_scope(stats: &octocode_engine::types::RipgrepStats) -> LocalSearchError {
+    let count = stats.error_count.unwrap_or(0);
+    let first = stats.first_error.as_deref().unwrap_or("unknown error");
+    LocalSearchError {
+        code: "fileAccessFailed",
+        message: format!(
+            "No file under the search path could be read ({count} failure(s); first: {first})."
+        ),
+        hints: vec![unreadable_hint(count)],
+        next: None,
+    }
+}
+
+fn unreadable_hint(count: u32) -> String {
+    format!(
+        "{count} path(s) could not be read (see stats.firstError), so absence is not proven. Check permissions, or narrow path to readable directories."
+    )
+}
+
+fn empty_hint(query: &LocalSearchQuery) -> String {
     let mut tips = Vec::new();
-    if query.case_mode != Some(CaseMode::Insensitive) {
+    if query.case_mode != CaseMode::Insensitive {
         tips.push("caseMode:\"insensitive\"");
     }
     tips.push("a shorter term");
-    if query.regex == Some(RegexMode::Literal) {
+    if query.regex == RegexMode::Literal {
         tips.push("regex:\"rust\"");
     } else {
         tips.push("regex:\"literal\" if searchText has metacharacters");
@@ -624,14 +723,16 @@ fn strip_clip_markers(line: &str) -> &str {
 /// line not literally present in that sanitized text overlapped a redaction and
 /// is replaced (placeholder for spans, the sanitized match line otherwise).
 /// Private-key blocks are detected from the file prefix, not a snippet heuristic.
-fn guard_clipped_secrets(
+///
+/// Fails closed: when the source cannot be re-read, every shown value is
+/// replaced by [`UNVERIFIED_PLACEHOLDER`] and the function returns `false`.
+pub(super) fn guard_clipped_secrets(
     file: &mut octocode_engine::types::RipgrepFile,
     source: &std::path::Path,
     shown: std::ops::Range<usize>,
     security: &ContentSecurity,
     match_only: bool,
-) {
-    use std::io::BufRead;
+) -> bool {
     let end = shown.end.min(file.matches.len());
     let start = shown.start.min(end);
     let shown = &mut file.matches[start..end];
@@ -640,24 +741,14 @@ fn guard_clipped_secrets(
         .map(|m| m.line as usize + m.value.lines().count().max(1))
         .max()
     else {
-        return;
+        return true;
     };
-    let Ok(handle) = std::fs::File::open(source) else {
-        return;
-    };
-    let mut reader = std::io::BufReader::new(handle);
-    let mut lines: Vec<String> = Vec::new();
-    let mut buf = Vec::new();
-    while lines.len() < last_line {
-        buf.clear();
-        match reader.read_until(b'\n', &mut buf) {
-            Ok(0) | Err(_) => break,
-            Ok(_) => {
-                let text = String::from_utf8_lossy(&buf);
-                lines.push(text.trim_end_matches(['\n', '\r']).to_owned());
-            }
+    let Ok(lines) = read_leading_lines(source, last_line) else {
+        for matched in shown.iter_mut() {
+            matched.value = UNVERIFIED_PLACEHOLDER.to_owned();
         }
-    }
+        return false;
+    };
     let key_ranges = crate::security::private_key_block_line_ranges(&lines.join("\n"));
     for matched in shown {
         if !key_ranges.is_empty()
@@ -696,6 +787,29 @@ fn guard_clipped_secrets(
             };
         }
     }
+    true
+}
+
+/// Value shown in place of a match whose source could not be re-read for the
+/// clipped-secret check.
+const UNVERIFIED_PLACEHOLDER: &str = "[REDACTED: source unreadable for secret check]";
+
+/// Up to `limit` leading lines of `source`, without line terminators. Any open
+/// or read failure is an error (a short file just yields fewer lines).
+fn read_leading_lines(source: &std::path::Path, limit: usize) -> std::io::Result<Vec<String>> {
+    use std::io::BufRead;
+    let mut reader = std::io::BufReader::new(std::fs::File::open(source)?);
+    let mut lines: Vec<String> = Vec::new();
+    let mut buf = Vec::new();
+    while lines.len() < limit {
+        buf.clear();
+        if reader.read_until(b'\n', &mut buf)? == 0 {
+            break;
+        }
+        let text = String::from_utf8_lossy(&buf);
+        lines.push(text.trim_end_matches(['\n', '\r']).to_owned());
+    }
+    Ok(lines)
 }
 
 fn project_match(
@@ -723,9 +837,8 @@ fn project_match(
         };
     }
     // Content-view path: the engine already clipped the assembled snippet to
-    // maxSnippetChars and reported the pre-truncation length via `original_chars`.
-    // Surface that as a truncation indicator too, not just for only-matching
-    // spans (fix 7).
+    // maxSnippetChars and reported the pre-truncation length via
+    // `original_chars`; surface it as the same truncation indicator.
     let truncated = matched.original_chars.is_some();
     SearchMatch {
         line: matched.line,
@@ -845,6 +958,24 @@ impl RipgrepPathFilter for PolicyFilter {
     }
 }
 
+/// `invalidRegex` with a literal-search repair continuation.
+fn invalid_regex(query: &LocalSearchQuery, message: String) -> LocalSearchError {
+    let mut repaired = normalized_query(query);
+    repaired["regex"] = json!("literal");
+    LocalSearchError {
+        code: "invalidRegex",
+        message,
+        hints: vec![
+            "Use regex:\"literal\" for exact text, or escape metacharacters/fix searchText to keep regex matching.".into(),
+        ],
+        next: Some(Box::new(json!({"repair":{
+            "tool":"localSearch",
+            "query":repaired,
+            "why":"Start a new search treating searchText as literal text, if that was intended."
+        }}))),
+    }
+}
+
 fn cancelled(message: String) -> LocalSearchError {
     LocalSearchError {
         code: "cancelled",
@@ -856,15 +987,10 @@ fn cancelled(message: String) -> LocalSearchError {
 
 /// Relevance ordering for the match-bearing views.
 ///
-/// Deliberately heuristic-free and fully deterministic: files with more matches
-/// rank higher, ties broken by ascending path (a total order, so page 1 never
-/// varies run-to-run). The previous `score()` function layered path-string
-/// boosts (`/src/`, `/test`, `/docs/`, `main.`, dotfiles), per-language
-/// affinity, and per-view flips — including a `.contains("unicode")` tweak and a
-/// `/test` bonus that only applied in `matchOnly`. Those constants were overfit
-/// to specific benchmark fixtures and actively mis-ranked real repositories
-/// (any repo with "unicode" in a path, or one whose signal lives in test files),
-/// so they were removed. Match density is the one honest, repo-agnostic signal.
+/// Heuristic-free and fully deterministic: files with more matches rank
+/// higher, ties broken by ascending path (a total order, so page 1 never varies
+/// run-to-run). No path, language, or view boosts apply; match density is the
+/// only signal.
 fn rank_relevance(files: &mut [octocode_engine::types::RipgrepFile], view: ResultView) {
     // Path-list views carry no per-file match-density signal — order by path.
     if matches!(
@@ -886,11 +1012,11 @@ fn rank_relevance(files: &mut [octocode_engine::types::RipgrepFile], view: Resul
 /// Per-hit character budget. An omitted matchContentLength scales with the
 /// effective context window so requested context is not silently clipped;
 /// continuations and snapshot identity must use this same value.
-fn effective_match_content_length(q: &LocalSearchRequest) -> u32 {
-    q.match_content_length.unwrap_or_else(|| {
-        let view = q.result_view.unwrap_or_default();
+fn effective_match_content_length(q: &LocalSearchQuery) -> u32 {
+    q.match_content_length().unwrap_or_else(|| {
+        let view = q.result_view;
         let context = if uses_context(view) {
-            q.context_lines
+            q.context_lines()
                 .unwrap_or_else(|| default_context_lines(view))
         } else {
             0
@@ -925,15 +1051,15 @@ fn uses_context(view: ResultView) -> bool {
     )
 }
 
-fn normalized_query(q: &LocalSearchRequest) -> Value {
+fn normalized_query(q: &LocalSearchQuery) -> Value {
     let mut value = serde_json::to_value(q).unwrap_or_else(|_| json!({}));
-    // `LocalSearchRequest` serializes to a JSON object.
+    // `LocalSearchQuery` serializes to a JSON object.
     #[allow(clippy::expect_used)]
     let o = value.as_object_mut().expect("request object");
     o.retain(|_, v| !v.is_null());
     o.entry("regex").or_insert(json!("rust"));
     o.entry("caseMode").or_insert(json!("smart"));
-    let view = q.result_view.unwrap_or_default();
+    let view = q.result_view;
     if uses_context(view) {
         o.entry("contextLines")
             .or_insert(json!(default_context_lines(view)));
@@ -950,19 +1076,21 @@ fn normalized_query(q: &LocalSearchRequest) -> Value {
         .or_insert(json!(default_page_size(view)));
     value
 }
+/// Status and `terminalLimit` for a search result. `coverage_gap` means some
+/// candidate content was not searched (unreadable paths, a binary cut on an
+/// otherwise empty result): such a result is partial, never `empty`.
 pub(crate) fn classify_search(
     empty: bool,
     capped: bool,
     has_more: bool,
     leftover_matches: bool,
-    error_count: u32,
-    files_returned: usize,
+    coverage_gap: bool,
     next_missing: bool,
 ) -> (SearchStatus, bool) {
-    if empty {
+    if empty && !coverage_gap {
         return (SearchStatus::Empty, false);
     }
-    let partial = capped || has_more || leftover_matches || (error_count > 0 && files_returned > 0);
+    let partial = capped || has_more || leftover_matches || coverage_gap;
     let status = if partial {
         SearchStatus::Partial
     } else {
@@ -973,7 +1101,7 @@ pub(crate) fn classify_search(
 }
 
 fn build_next(
-    q: &LocalSearchRequest,
+    q: &LocalSearchQuery,
     page: u32,
     total_pages: u32,
     leftover_matches: bool,
@@ -1012,7 +1140,7 @@ fn build_next(
     (!map.is_empty()).then_some(Value::Object(map))
 }
 fn fingerprint(
-    q: &LocalSearchRequest,
+    q: &LocalSearchQuery,
     files: &[octocode_engine::types::RipgrepFile],
     stats: &octocode_engine::types::RipgrepStats,
 ) -> String {
@@ -1020,7 +1148,7 @@ fn fingerprint(
     identity.insert("searchText".into(), json!(q.search_text));
     identity.insert(
         "mode".into(),
-        json!(match q.result_view.unwrap_or_default() {
+        json!(match q.result_view {
             ResultView::Discovery => "discovery",
             ResultView::Detailed => "detailed",
             _ => "paginated",
@@ -1028,7 +1156,7 @@ fn fingerprint(
     );
     identity.insert(
         "regex".into(),
-        json!(match q.regex.unwrap_or_default() {
+        json!(match q.regex {
             RegexMode::Literal => "fixed",
             RegexMode::Pcre2 => "perl",
             RegexMode::Rust => "smart",
@@ -1036,7 +1164,7 @@ fn fingerprint(
     );
     identity.insert(
         "caseMode".into(),
-        json!(match q.case_mode.unwrap_or_default() {
+        json!(match q.case_mode {
             CaseMode::Sensitive => "sensitive",
             CaseMode::Insensitive => "insensitive",
             CaseMode::Smart => "smart",
@@ -1045,8 +1173,8 @@ fn fingerprint(
     identity.insert(
         "contextLines".into(),
         json!(
-            q.context_lines
-                .unwrap_or_else(|| default_context_lines(q.result_view.unwrap_or_default()))
+            q.context_lines()
+                .unwrap_or_else(|| default_context_lines(q.result_view))
         ),
     );
     identity.insert(
@@ -1055,7 +1183,7 @@ fn fingerprint(
     );
     identity.insert(
         "multiline".into(),
-        json!(match q.multiline.unwrap_or_default() {
+        json!(match q.multiline {
             MultilineMode::Off => "off",
             MultilineMode::On => "on",
             MultilineMode::Dotall => "dotall",
@@ -1063,7 +1191,7 @@ fn fingerprint(
     );
     identity.insert(
         "sort".into(),
-        json!(match q.sort.unwrap_or_default() {
+        json!(match q.sort {
             SortMode::Relevance => "relevance",
             SortMode::Traversal => "traversal",
             SortMode::MatchCount => "matchCount",
@@ -1075,7 +1203,7 @@ fn fingerprint(
     );
     identity.insert(
         "output".into(),
-        json!(match q.result_view.unwrap_or_default() {
+        json!(match q.result_view {
             ResultView::MatchOnly => "matchOnly",
             ResultView::Files => "files",
             ResultView::FilesWithout => "filesWithout",
@@ -1086,7 +1214,7 @@ fn fingerprint(
     );
     identity.insert(
         "unique".into(),
-        json!(match q.unique.unwrap_or_default() {
+        json!(match q.unique {
             UniqueMode::Off => "off",
             UniqueMode::List => "list",
             UniqueMode::Count => "count",
@@ -1101,9 +1229,9 @@ fn fingerprint(
     }
     opt!("wholeWord", q.whole_word);
     opt!("invertMatch", q.invert_match);
-    opt!("include", q.include.as_ref());
-    opt!("exclude", q.exclude.as_ref());
-    opt!("excludeDir", q.exclude_dir.as_ref());
+    opt!("include", (!q.include.is_empty()).then_some(&q.include));
+    opt!("exclude", (!q.exclude.is_empty()).then_some(&q.exclude));
+    opt!("excludeDir", (!q.exclude_dir.is_empty()).then_some(&q.exclude_dir));
     opt!("noIgnore", q.no_ignore);
     opt!("hidden", q.hidden);
     opt!("maxDepth", q.max_depth);

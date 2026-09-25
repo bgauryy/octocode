@@ -31,6 +31,7 @@ From the repository root:
 
 ```bash
 yarn workspace @octocodeai/config generate:config-contract
+yarn workspace @octocodeai/config generate:tool-types   # needs cargo-typify 0.8.0
 yarn workspace @octocodeai/config build
 yarn workspace @octocodeai/config test
 yarn workspace @octocodeai/config lint
@@ -42,6 +43,13 @@ TypeScript generator and native Rust build script independently validate that
 file against `config-contract.schema.json`, then generate language-native types
 and generic-interpreter metadata. The TypeScript generator also emits the user
 settings reference.
+
+Tool input/output types are generated, never hand-written: TypeScript
+consumers import `ToolQuery<'localFetch'>`, `LocalSearchQuery`,
+`GhSearchOutput`, and the rest from `@octocodeai/config/schema`, and
+`@octocodeai/octocode-native` compiles the matching Rust types from
+`rust/tool_types.rs`. Change the Zod schema in `@octocodeai/octocode-core`,
+then regenerate. See [ARCHITECTURE.md](./ARCHITECTURE.md#tool-types).
 
 See the repository [configuration reference](../../docs/CONFIGURATION.md),
 [generated settings reference](../../docs/generated/CONFIG_SETTINGS.md),

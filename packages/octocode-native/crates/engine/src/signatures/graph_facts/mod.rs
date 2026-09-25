@@ -12,18 +12,16 @@ use crate::text::file_extension::get_extension_internal;
 
 use super::languages;
 use super::nodes::{
-    call_callee_name, clean_specifier, declaration_kind, declaration_name, import_specifier,
-    is_call_node, is_exported_declaration, is_import_node, name_node, node_text,
+    call_callee, clean_specifier, declaration_kind, declaration_name, import_specifier,
+    is_call_node, is_exported_declaration, is_import_node, is_name_leaf, last_name_leaf, name_node,
+    node_text,
 };
 
 mod python;
 mod rust;
 
 use python::collect_python_imports;
-use rust::{
-    collect_rust_imports, rust_block_local, rust_inner_unsupported, rust_module_attributes,
-    rust_module_scope, rust_unsupported_context,
-};
+use rust::{RustContext, collect_rust_imports, rust_child_contexts, rust_inner_unsupported};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -109,6 +107,8 @@ struct GraphExport {
 struct GraphCall {
     id: String,
     caller: String,
+    /// Declaration id of the enclosing caller.
+    caller_id: String,
     callee: String,
     line: u32,
     range: Range,
@@ -183,6 +183,9 @@ struct GraphAccumulator {
     edges: Vec<GraphEdge>,
     diagnostics: Vec<String>,
     modules: Vec<GraphRustModule>,
+    /// Start bytes of name tokens that are not value references: declaration
+    /// names and the callee tokens of recorded calls (call edges).
+    non_reference_tokens: std::collections::HashSet<usize>,
 }
 
 impl GraphAccumulator {
@@ -196,6 +199,7 @@ impl GraphAccumulator {
             calls: Vec::new(),
             edges: Vec::new(),
             modules: Vec::new(),
+            non_reference_tokens: std::collections::HashSet::new(),
             diagnostics: vec![
                 "tree-sitter graph facts are syntax-only; use LSP references/callHierarchy for semantic proof".to_owned(),
             ],
@@ -268,6 +272,7 @@ fn extract_graph_facts_with_metadata_before(
     let entry = languages::find_entry(&ext)?;
     let mut acc = GraphAccumulator::new(file_path, &ext);
     let mut rust_root_unsupported = (ext == "rs").then_some(true);
+    let mut reference_counts = Vec::new();
     if let Some(tree) = super::extractor::parse_before(content, &entry.language, deadline) {
         let root = tree.root_node();
         let line_index = LineIndex::new(content);
@@ -282,10 +287,22 @@ fn extract_graph_facts_with_metadata_before(
             );
         }
         if !visit_node(root, content, &line_index, &mut acc, deadline) {
-            // Partial module forests cannot safely establish negative import facts.
-            acc = GraphAccumulator::new(file_path, &ext);
+            // Facts gathered before the deadline are positive syntax facts and
+            // stay. The diagnostic marks the file incomplete, so consumers must
+            // not read a missing import, call or module as absent.
             acc.diagnostics.push("graph.traversal.deadlineExceeded: graph extraction exceeded its execution deadline; facts are incomplete".to_owned());
             rust_root_unsupported = (ext == "rs").then_some(true);
+        } else if let Some(counts) = count_name_references(root, content, &acc, deadline) {
+            // A count cut short by the deadline would undercount; leaving it
+            // out makes consumers treat every declaration as escaping.
+            reference_counts = acc
+                .declarations
+                .iter()
+                .map(|declaration| crate::types::GraphReferenceCount {
+                    declaration_id: declaration.id.clone(),
+                    count: counts.get(&declaration.name).copied().unwrap_or(0),
+                })
+                .collect();
         }
     } else {
         acc.diagnostics.push(
@@ -309,18 +326,93 @@ fn extract_graph_facts_with_metadata_before(
         modules: acc.modules,
         rust_root_unsupported,
     };
-    let exported_declaration_names = facts
-        .declarations
-        .iter()
-        .filter(|declaration| declaration.exported)
-        .map(|declaration| declaration.name.clone())
-        .collect();
     let facts_json = serde_json::to_string(&facts).ok()?;
     let facts = crate::graph::GraphFactsDocument::from_json(&facts_json).ok()?;
     Some(super::GraphFactsExtraction {
         facts,
-        exported_declaration_names,
+        reference_counts,
     })
+}
+
+/// Per-name counts of identifier-kind tokens that reference a declared name,
+/// skipping declaration names and call-edge callee tokens. Comments and string
+/// contents are never identifier tokens, so they cannot count; Rust inline
+/// format captures (`"{name}"` inside a macro) are the one string form that
+/// names a binding and are counted. No scope resolution: equal names share a
+/// count. `None` when the deadline cut the walk short.
+fn count_name_references(
+    root: Node<'_>,
+    content: &str,
+    acc: &GraphAccumulator,
+    deadline: std::time::Instant,
+) -> Option<std::collections::HashMap<String, u32>> {
+    let mut counts: std::collections::HashMap<String, u32> = acc
+        .declarations
+        .iter()
+        .map(|declaration| (declaration.name.clone(), 0))
+        .collect();
+    if counts.is_empty() {
+        return Some(counts);
+    }
+    let rust = acc.ext == "rs";
+    let mut pending = vec![root];
+    let mut cursor = root.walk();
+    while let Some(node) = pending.pop() {
+        if std::time::Instant::now() >= deadline {
+            return None;
+        }
+        if is_name_leaf(node) {
+            if !acc.non_reference_tokens.contains(&node.start_byte())
+                && let Some(count) = node_text(node, content).and_then(|text| counts.get_mut(text))
+            {
+                *count += 1;
+            }
+            continue;
+        }
+        if rust
+            && node.kind() == "string_literal"
+            && node
+                .parent()
+                .is_some_and(|parent| parent.kind() == "token_tree")
+        {
+            for name in node_text(node, content)
+                .map(inline_format_captures)
+                .unwrap_or_default()
+            {
+                if let Some(count) = counts.get_mut(name) {
+                    *count += 1;
+                }
+            }
+            continue;
+        }
+        pending.extend(node.named_children(&mut cursor));
+    }
+    Some(counts)
+}
+
+/// Identifiers captured by a Rust format string: `name` in `{name}` or
+/// `{name:?}`; `{{` escapes and positional `{0}`/`{}` are skipped.
+fn inline_format_captures(literal: &str) -> Vec<&str> {
+    let mut names = Vec::new();
+    let mut rest = literal;
+    while let Some(open) = rest.find('{') {
+        rest = &rest[open + 1..];
+        if let Some(escaped) = rest.strip_prefix('{') {
+            rest = escaped;
+            continue;
+        }
+        let Some(end) = rest.find(['}', ':']) else {
+            break;
+        };
+        let name = &rest[..end];
+        if name.starts_with(|c: char| c.is_alphabetic() || c == '_')
+            && name.chars().all(|c| c.is_alphanumeric() || c == '_')
+        {
+            names.push(name);
+        }
+        rest = &rest[end..];
+    }
+    names
 }
 
 pub fn graph_fact_extensions() -> Vec<String> {
@@ -361,24 +453,41 @@ fn visit_node(
     deadline: std::time::Instant,
 ) -> bool {
     enum Frame<'tree> {
-        Enter(Node<'tree>),
+        Enter(Node<'tree>, RustContext),
         ExitDeclaration,
+        ExitModule,
     }
 
-    let mut frames = vec![Frame::Enter(root)];
+    let rust = acc.ext == "rs";
+    let mut frames = vec![Frame::Enter(root, RustContext::default())];
     let mut declarations: Vec<(String, String)> = Vec::new();
+    // Names of the enclosing `mod` items, outermost first.
+    let mut module_scope: Vec<String> = Vec::new();
+    let mut children = Vec::new();
+    let mut cursor = root.walk();
     while let Some(frame) = frames.pop() {
         if std::time::Instant::now() >= deadline {
             return false;
         }
-        let node = match frame {
-            Frame::Enter(node) => node,
+        let (node, mut context) = match frame {
+            Frame::Enter(node, context) => (node, context),
             Frame::ExitDeclaration => {
                 declarations.pop();
                 continue;
             }
+            Frame::ExitModule => {
+                module_scope.pop();
+                continue;
+            }
         };
+        if rust {
+            context.unsupported |= rust_inner_unsupported(node, content);
+        }
         let active = declarations.last();
+        let rust_node = rust.then_some(RustNodeContext {
+            context: &context,
+            module_scope: &module_scope,
+        });
         if let Some(identity) = collect_node_facts(
             node,
             content,
@@ -386,20 +495,53 @@ fn visit_node(
             acc,
             active.map(|(id, _)| id.as_str()),
             active.map(|(_, name)| name.as_str()),
+            rust_node,
             deadline,
         ) {
             declarations.push(identity);
             frames.push(Frame::ExitDeclaration);
         }
+        if rust
+            && node.kind() == "mod_item"
+            && let Some(name) = declaration_name(node, content)
+        {
+            module_scope.push(name);
+            frames.push(Frame::ExitModule);
+        }
 
         // Preserve preorder and declaration lifetimes without using the call stack.
         // A cursor enumerates wide sibling lists without repeated child indexing.
+        children.clear();
+        cursor.reset(node);
+        children.extend(node.named_children(&mut cursor));
         let children_start = frames.len();
-        let mut cursor = node.walk();
-        frames.extend(node.named_children(&mut cursor).map(Frame::Enter));
+        if rust {
+            let inherited = context.for_children(node);
+            let contexts = rust_child_contexts(&children, content, &inherited);
+            frames.extend(
+                children
+                    .iter()
+                    .zip(contexts)
+                    .map(|(child, context)| Frame::Enter(*child, context)),
+            );
+        } else {
+            frames.extend(
+                children
+                    .iter()
+                    .map(|child| Frame::Enter(*child, RustContext::default())),
+            );
+        }
         frames[children_start..].reverse();
     }
     std::time::Instant::now() < deadline
+}
+
+/// Rust traversal state for one node: its carried context and the names of
+/// the `mod` items that enclose it (outermost first, the node itself excluded).
+#[derive(Clone, Copy)]
+struct RustNodeContext<'a> {
+    context: &'a RustContext,
+    module_scope: &'a [String],
 }
 
 /// Emits declaration/edge facts for `node`.
@@ -415,6 +557,7 @@ fn collect_node_facts(
     acc: &mut GraphAccumulator,
     active_decl: Option<&str>,
     active_name: Option<&str>,
+    rust: Option<RustNodeContext<'_>>,
     deadline: std::time::Instant,
 ) -> Option<(String, String)> {
     if acc.ext == "rs" && node.kind() == "macro_invocation" {
@@ -442,6 +585,9 @@ fn collect_node_facts(
             );
             let exported = is_exported_declaration(&acc.ext, node, content, &name, active_decl);
             let parent = active_decl.map(str::to_owned);
+            if let Some(name_token) = name_node(node) {
+                acc.non_reference_tokens.insert(name_token.start_byte());
+            }
             GraphDeclaration {
                 id,
                 name,
@@ -498,27 +644,32 @@ fn collect_node_facts(
         .map(|(_, name)| name.as_str())
         .or(active_name);
 
-    if acc.ext == "rs" && node.kind() == "use_declaration" {
+    if let Some(rust) = rust
+        && node.kind() == "use_declaration"
+    {
         if let Some(argument) = node.child_by_field_name("argument") {
             collect_rust_imports(
                 argument,
-                &rust_module_scope(node, content),
+                rust.module_scope,
                 content,
                 line_index,
                 acc,
-                rust_unsupported_context(node, content),
+                rust.context.unsupported,
                 deadline,
             );
         }
-    } else if acc.ext == "rs" && node.kind() == "mod_item" {
+    } else if let Some(rust) = rust
+        && node.kind() == "mod_item"
+    {
         if let Some(name) = declaration_name(node, content) {
             let line = line_index.range(node).start.line + 1;
-            let (path, mut unsupported) = rust_module_attributes(node, content);
-            unsupported |= rust_block_local(node);
+            let path = rust.context.attributes.path.clone();
+            let mut unsupported = rust.context.attributes.unsupported;
+            unsupported |= rust.context.block_local;
             unsupported |= node
                 .child_by_field_name("body")
                 .is_some_and(|body| rust_inner_unsupported(body, content));
-            let scope = rust_module_scope(node, content);
+            let scope = rust.module_scope.to_vec();
             let inline = node.child_by_field_name("body").is_some();
             if unsupported {
                 acc.diagnostics.push(format!(
@@ -592,8 +743,14 @@ fn collect_node_facts(
     }
 
     if is_call_node(node.kind())
-        && let (Some(caller), Some(callee)) = (next_decl, call_callee_name(node, content))
+        && let (Some(caller), Some((callee, callee_node))) = (next_decl, call_callee(node, content))
     {
+        let target = callee
+            .rsplit(['.', ':'])
+            .find(|segment| !segment.is_empty());
+        if let Some(token) = target.and_then(|name| last_name_leaf(callee_node, content, name)) {
+            acc.non_reference_tokens.insert(token.start_byte());
+        }
         let range = line_index.range(node);
         let line = range.start.line + 1;
         let caller_name = next_name.unwrap_or(caller).to_owned();
@@ -601,6 +758,7 @@ fn collect_node_facts(
         acc.calls.push(GraphCall {
             id: id.clone(),
             caller: caller_name,
+            caller_id: caller.to_owned(),
             callee: callee.to_owned(),
             line,
             range,
@@ -683,6 +841,52 @@ fn fact_families_for_extension(ext: &str) -> Vec<&'static str> {
 mod tests {
     use super::*;
     use serde_json::Value;
+
+    /// Reference count of the first declaration named `name`.
+    fn reference_count(source: &str, path: &str, name: &str) -> u32 {
+        let extraction = extract_graph_facts_with_metadata(source, path).expect("graph facts");
+        let id = &extraction
+            .facts
+            .declarations
+            .iter()
+            .find(|declaration| declaration.name == name)
+            .unwrap_or_else(|| panic!("declaration {name}"))
+            .id;
+        extraction
+            .reference_counts
+            .iter()
+            .find(|count| &count.declaration_id == id)
+            .expect("counted")
+            .count
+    }
+
+    #[test]
+    fn rust_comments_and_strings_are_not_references() {
+        let source = "/// `helper` is documented; see helper.\npub fn helper() {}\n// helper\n/* helper */\npub fn caller() -> &'static str { \"helper\" }\n";
+        assert_eq!(reference_count(source, "lib.rs", "helper"), 0);
+    }
+
+    #[test]
+    fn rust_value_uses_and_format_captures_count_but_calls_do_not() {
+        let source = "pub fn callback() {}\npub fn called() {}\npub const LIMIT: u32 = 1;\npub struct Svc;\nimpl Svc { pub fn run(&self) {} pub fn go(&self) { self.run(); called(); register(callback); println!(\"{LIMIT} {{LIMIT}}\"); } }\n";
+        assert_eq!(reference_count(source, "lib.rs", "callback"), 1);
+        assert_eq!(reference_count(source, "lib.rs", "called"), 0);
+        assert_eq!(reference_count(source, "lib.rs", "run"), 0);
+        assert_eq!(reference_count(source, "lib.rs", "LIMIT"), 1);
+        assert_eq!(
+            reference_count(source, "lib.rs", "Svc"),
+            0,
+            "the impl names the struct as a declaration, not a use"
+        );
+    }
+
+    #[test]
+    fn inline_format_captures_skip_escapes_and_positional_arguments() {
+        assert_eq!(
+            inline_format_captures("\"{a} {b:?} {{c}} {0} {} {_d:>4}\""),
+            ["a", "b", "_d"]
+        );
+    }
 
     #[test]
     fn rust_import_ranges_do_not_invent_synthetic_name_tokens() {
@@ -890,6 +1094,35 @@ mod tests {
             imports
                 .iter()
                 .any(|i| i["localName"] == "Alias" && i["importedName"] == "Thing")
+        );
+    }
+
+    #[test]
+    fn use_heavy_rust_file_keeps_its_imports_inside_the_deadline() {
+        // Per-`use` `parent()`/sibling walks made this O(n²) and the
+        // walk hit the deadline, discarding every import.
+        let mut source = String::from("mod item0 { pub struct Name; }\n");
+        for index in 0..6_000 {
+            source.push_str(&format!("use crate::item{index}::Name;\n"));
+        }
+        let started = std::time::Instant::now();
+        let value = facts(&source, "src/lib.rs");
+        let elapsed = started.elapsed();
+        let diagnostics = value["diagnostics"].as_array().unwrap();
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|d| d.as_str().unwrap().contains("deadlineExceeded")),
+            "{diagnostics:?}"
+        );
+        let imports = value["imports"].as_array().unwrap();
+        assert_eq!(imports.len(), 6_000);
+        assert_eq!(imports[5_999]["specifier"], "crate::item5999::Name");
+        assert_eq!(imports[0]["moduleScope"], serde_json::json!([]));
+        assert!(imports.iter().all(|i| i.get("resolutionHint").is_none()));
+        assert!(
+            elapsed < super::super::extractor::AST_EXECUTION_TIMEOUT / 2,
+            "took {elapsed:?}"
         );
     }
 

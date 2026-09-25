@@ -6,9 +6,9 @@ use crate::tools::ast_graph::{AstGraphQuery, execute_topology};
 use crate::tools::ast_rewrite::{AstRewriteRuntimeOptions, execute_ast_rewrite_with_options};
 use crate::tools::ast_search::execute_ast;
 use crate::tools::local_fetch::{
-    LocalFetchRegex, LocalFetchRequest, execute_local_fetch_with_regex,
+    LocalFetchRegex, LocalFetchQuery, execute_local_fetch_with_regex,
 };
-use crate::tools::local_search::{LocalSearchRequest, SearchStatus, execute_local_search};
+use crate::tools::local_search::{LocalSearchQuery, SearchStatus, execute_local_search};
 use serde_json::{Value, json};
 
 pub(super) struct DomainResult {
@@ -29,6 +29,9 @@ pub(super) fn execute_local(
     regex: &LocalFetchRegex,
     allow_ast_rewrite_apply: bool,
 ) -> Result<DomainResult, ExecutionError> {
+    // Generated query types carry the meta fields and parse the validated row
+    // as-is; hand-typed tools still receive the row without them.
+    let row = query;
     let mut query = query.clone();
     if let Some(object) = query.as_object_mut() {
         object.remove("goal");
@@ -37,8 +40,10 @@ pub(super) fn execute_local(
     }
     match tool {
         "localFetch" => {
-            let request: LocalFetchRequest =
-                serde_json::from_value(query).map_err(|_| ExecutionError::WorkerFailed)?;
+            let request: LocalFetchQuery = match parse_query(row.clone()) {
+                Ok(request) => request,
+                Err(row) => return Ok(*row),
+            };
             let result = execute_local_fetch_with_regex(&request, paths, security, context, regex);
             let status = match result.status.as_str() {
                 "error" => Some("error"),
@@ -73,8 +78,10 @@ pub(super) fn execute_local(
             })
         }
         "localSearch" => {
-            let request: LocalSearchRequest =
-                serde_json::from_value(query).map_err(|_| ExecutionError::WorkerFailed)?;
+            let request: LocalSearchQuery = match parse_query(row.clone()) {
+                Ok(request) => request,
+                Err(row) => return Ok(*row),
+            };
             match execute_local_search(&request, paths, security, context) {
                 Ok(mut result) => {
                     for file in &mut result.files {
@@ -121,8 +128,10 @@ pub(super) fn execute_local(
             )),
         },
         "astTopology" => {
-            let request: AstGraphQuery =
-                serde_json::from_value(query).map_err(|_| ExecutionError::WorkerFailed)?;
+            let request: AstGraphQuery = match parse_query(query) {
+                Ok(request) => request,
+                Err(row) => return Ok(*row),
+            };
             match execute_topology(&request, paths, security, context) {
                 Ok(data) => Ok(value_result(data)),
                 Err(error) => {
@@ -152,6 +161,25 @@ pub(super) fn execute_local(
         }
         _ => Err(ExecutionError::WorkerFailed),
     }
+}
+
+/// Contract validation already passed, so a typed-parse failure means core and
+/// native disagree on a field's shape (e.g. a fractional offset). Report it on
+/// this row instead of failing every row in the batch.
+pub(super) fn parse_query<T: serde::de::DeserializeOwned>(
+    value: Value,
+) -> Result<T, Box<DomainResult>> {
+    serde_json::from_value(value).map_err(|error| {
+        Box::new(domain_error(
+            json!({
+                "error": "Check the query fields.",
+                "errorCode": "invalidInput",
+                "hints": [format!("Query does not match the runtime type: {error}.")],
+                "retryable": false
+            }),
+            None,
+        ))
+    })
 }
 
 pub(super) fn value_result(data: Value) -> DomainResult {
@@ -189,8 +217,8 @@ pub(super) fn provider_failure(
     }
     let mut data = json!({"error":message,"errorCode":code,"hints":hints,"retryable":retryable});
     // Structured callers need the upstream HTTP status to distinguish e.g. a
-    // registry 404 from a 429 without parsing prose (R8; optional — absence
-    // is valid).
+    // registry 404 from a 429 without parsing prose (optional — absence is
+    // valid).
     if let Some(status) = http_status {
         data["httpStatus"] = json!(status);
     }
@@ -225,6 +253,18 @@ fn domain_error(mut data: Value, next: Option<Box<Value>>) -> DomainResult {
 #[cfg(test)]
 mod provider_failure_tests {
     use super::*;
+
+    #[test]
+    fn typed_parse_failure_is_a_row_error_not_a_worker_failure() {
+        #[derive(serde::Deserialize, Debug)]
+        struct Offset {
+            #[allow(dead_code)]
+            offset: usize,
+        }
+        let row = parse_query::<Offset>(json!({"offset": 1.5})).expect_err("fraction");
+        assert_eq!(row.status, Some("error"));
+        assert_eq!(row.data["errorCode"], "invalidInput");
+    }
 
     #[test]
     fn http_status_is_carried_when_present_and_absent_when_not() {

@@ -5,8 +5,10 @@ Load before writing new eval cases or when the suite feels generic. Why: evals m
 1. **Dataset** — gather representative traces (prod, dogfood, or synthetic starter).
 2. **Open coding** — domain expert notes the *first* clear failure per trace (journaling).
 3. **Axial coding** — cluster notes into a **failure taxonomy**; count frequency.
-4. **Saturation** — stop when ~20 new traces add no new category (still review a meaningful batch).
+4. **Saturation** — stop when representative additional traces no longer change the taxonomy; inspect rare high-impact failures separately.
 5. **Write evals** — one grader/case family per top failure mode; attach `failureSignature`.
+
+Use `failure-repair.md` before assigning fixes: task/reference, grader, infrastructure, leakage, and solver failures can overlap. Record the first divergence and contributing factors.
 
 ## Outputs
 | Artifact | Use |
@@ -18,7 +20,7 @@ Load before writing new eval cases or when the suite feels generic. Why: evals m
 
 ## Rules
 - Do not start from generic platform metrics (“toxicity”, “helpfulness”) unless they appear in your taxonomy.
-- Frequency beats rarity — evals aren’t free; cover what happens.
+- Prioritize frequency × impact; include rare critical failures as explicit guardrails. Keep representative sampling separate from deliberately enriched stress tests.
 - Revisit after product/model shifts; taxonomies rot.
 - Upstream errors cause downstream noise — fix/tag the first break.
 

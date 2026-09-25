@@ -23,12 +23,14 @@ pub(super) fn flatten_document_symbol(
         // `line`/`character` point at the symbol NAME (`selectionRange`), not the
         // start of the full range (which includes doc comments/attributes), so
         // they can be fed back as `lineHint`. `endLine` keeps the full extent.
+        // All three are one-based (`character` is a one-based UTF-16 column,
+        // like `displayRange.startCharacter`).
         let anchor = symbol.get("selectionRange").unwrap_or(range);
         let mut compact = json!({
             "name": name,
             "kind": kind,
             "line": anchor.pointer("/start/line").and_then(Value::as_u64).unwrap_or(0) + 1,
-            "character": anchor.pointer("/start/character").and_then(Value::as_u64).unwrap_or(0),
+            "character": anchor.pointer("/start/character").and_then(Value::as_u64).unwrap_or(0) + 1,
             "endLine": range.pointer("/end/line").and_then(Value::as_u64).unwrap_or(0) + 1,
             "childCount": symbol.get("children").and_then(Value::as_array).map_or(0, Vec::len)
         });
@@ -60,7 +62,7 @@ pub(super) fn flatten_document_symbol(
     }
 }
 
-fn symbol_kind_name(kind: Option<&Value>) -> String {
+pub(super) fn symbol_kind_name(kind: Option<&Value>) -> String {
     if let Some(kind) = kind.and_then(Value::as_str) {
         return kind.to_owned();
     }

@@ -75,9 +75,12 @@ async function readMachineCatalog(bin: string): Promise<MachineCatalog> {
   return catalog as unknown as MachineCatalog;
 }
 
+/** Same `--json-errors` envelope as the native CLI and contract input errors. */
 function emitError(message: string, jsonErrors: boolean): void {
   if (jsonErrors) {
-    console.log(JSON.stringify({ success: false, error: message }));
+    console.log(
+      JSON.stringify({ kind: 'octocode.toolError', version: 1, error: message })
+    );
   } else {
     console.error(message);
   }
@@ -104,6 +107,93 @@ export function useCompactJson(
   if (options.compact === true) return true;
   if (options.pretty === true) return false;
   return !isTty;
+}
+
+type ToolPresentation = {
+  machine: MachineCatalog;
+  catalog: ReturnType<
+    typeof import('@octocodeai/config/schema').getPublicToolCatalogWithAddons
+  >;
+  enabled: string[];
+  semanticRerank: boolean;
+};
+
+async function loadPresentation(
+  jsonErrors: boolean
+): Promise<
+  ({ ok: true } & ToolPresentation) | { ok: false; exitCode: number }
+> {
+  const bin = resolveNativeBin();
+  if (!bin) {
+    emitError(
+      'The native Octocode runtime is unavailable for this platform or installation.',
+      jsonErrors
+    );
+    return { ok: false, exitCode: EXIT.TOOL };
+  }
+
+  let machine: MachineCatalog;
+  try {
+    machine = await readMachineCatalog(bin);
+  } catch (error) {
+    emitError(
+      `Failed to read the native tool catalog: ${error instanceof Error ? error.message : String(error)}`,
+      jsonErrors
+    );
+    return { ok: false, exitCode: EXIT.TOOL };
+  }
+
+  const { getPublicToolCatalogWithAddons } =
+    await import('@octocodeai/config/schema');
+  const enabled = machine.tools
+    .filter(tool => isEnabled(tool.availability))
+    .map(tool => tool.name);
+  const semanticRerank = machine.tools.some(
+    tool => tool.name === 'clasify' && isEnabled(tool.availability)
+  );
+  const catalog = getPublicToolCatalogWithAddons({
+    semanticRerank,
+    availableTools: enabled,
+  });
+
+  // Discovery content is composed by config while validation runs against the
+  // native enforcement embed; refuse to describe tools a drifted runtime
+  // would reject. Same gate and escape hatch as the MCP server.
+  if (catalog.fingerprint !== machine.fingerprint) {
+    const drift =
+      `Contract drift: @octocodeai/octocode-core fingerprint ${catalog.fingerprint.slice(0, 12)}… ` +
+      `does not match the native runtime fingerprint ${machine.fingerprint.slice(0, 12)}…. ` +
+      'Reinstall matching octocode packages, or set OCTOCODE_ALLOW_CONTRACT_DRIFT=1 to bypass (ignored when NODE_ENV=production).';
+    // Same gate as the MCP server: the override is a local-iteration aid and
+    // never applies in production.
+    if (
+      process.env.OCTOCODE_ALLOW_CONTRACT_DRIFT === '1' &&
+      process.env.NODE_ENV !== 'production'
+    ) {
+      console.error(`WARNING: ${drift}`);
+    } else {
+      emitError(drift, jsonErrors);
+      return { ok: false, exitCode: EXIT.TOOL };
+    }
+  }
+
+  return { ok: true, machine, catalog, enabled, semanticRerank };
+}
+
+function instructionsFor(presentation: ToolPresentation): Promise<string> {
+  return import('@octocodeai/config/mcp').then(({ buildMcpInstructions }) =>
+    buildMcpInstructions(presentation.enabled, {
+      grammarCapabilities: presentation.machine.grammarCapabilities ?? [],
+    })
+  );
+}
+
+/** Root help shares the catalog's runtime availability and drift checks. */
+export async function printAgentInstructions(): Promise<number> {
+  const presentation = await loadPresentation(false);
+  if (!presentation.ok) return presentation.exitCode;
+  console.log(`\nAgent instructions:\n${await instructionsFor(presentation)}`);
+  return EXIT.OK;
 }
 
 export async function runScheme(args: ParsedArgs): Promise<number> {
@@ -136,52 +226,11 @@ export async function runScheme(args: ParsedArgs): Promise<number> {
     typeof args.options.select === 'string' ? args.options.select : undefined;
   const toolName = args.args[0];
 
-  const bin = resolveNativeBin();
-  if (!bin) {
-    emitError(
-      'The native Octocode runtime is unavailable for this platform or installation.',
-      jsonErrors
-    );
-    return EXIT.TOOL;
-  }
-
-  let machine: MachineCatalog;
-  try {
-    machine = await readMachineCatalog(bin);
-  } catch (error) {
-    emitError(
-      `Failed to read the native tool catalog: ${error instanceof Error ? error.message : String(error)}`,
-      jsonErrors
-    );
-    return EXIT.TOOL;
-  }
-
-  const { getPublicToolCatalogWithAddons, getDirectToolDefinitionsWithAddons } =
+  const presentation = await loadPresentation(jsonErrors);
+  if (!presentation.ok) return presentation.exitCode;
+  const { machine, catalog, enabled, semanticRerank } = presentation;
+  const { getDirectToolDefinitionsWithAddons } =
     await import('@octocodeai/config/schema');
-  const { buildMcpInstructions } = await import('@octocodeai/config/mcp');
-  const enabled = machine.tools
-    .filter(tool => isEnabled(tool.availability))
-    .map(tool => tool.name);
-  const semanticRerank = machine.tools.some(
-    tool => tool.name === 'clasify' && isEnabled(tool.availability)
-  );
-  const catalog = getPublicToolCatalogWithAddons({ semanticRerank });
-
-  // Discovery content is composed by config while validation runs against the
-  // native enforcement embed; refuse to describe tools a drifted runtime
-  // would reject. Same gate and escape hatch as the MCP server.
-  if (catalog.fingerprint !== machine.fingerprint) {
-    const drift =
-      `Contract drift: @octocodeai/octocode-core fingerprint ${catalog.fingerprint.slice(0, 12)}… ` +
-      `does not match the native runtime fingerprint ${machine.fingerprint.slice(0, 12)}…. ` +
-      'Reinstall matching octocode packages, or set OCTOCODE_ALLOW_CONTRACT_DRIFT=1 to bypass.';
-    if (process.env.OCTOCODE_ALLOW_CONTRACT_DRIFT === '1') {
-      console.error(`WARNING: ${drift}`);
-    } else {
-      emitError(drift, jsonErrors);
-      return EXIT.TOOL;
-    }
-  }
 
   const machineByName = new Map(machine.tools.map(tool => [tool.name, tool]));
 
@@ -204,14 +253,13 @@ export async function runScheme(args: ParsedArgs): Promise<number> {
         output:
           'Compact discovery catalog with availability-scoped agent instructions. Inspect one tool before execution.',
         commands: {
-          schema: 'scheme <name>',
+          schema: 'scheme <name> --view query',
+          fullContract: 'scheme <name> --view full',
           variants: 'scheme <name> --view variants',
           querySchema: 'scheme <name> --view query [--select variant=<name>]',
           run: "<name> '<json>'",
         },
-        instructions: buildMcpInstructions(enabled, {
-          grammarCapabilities: machine.grammarCapabilities ?? [],
-        }),
+        instructions: await instructionsFor(presentation),
         tools,
       },
       compact
@@ -248,7 +296,7 @@ export async function runScheme(args: ParsedArgs): Promise<number> {
   }
   // Carry runtime availability into the per-tool view so an agent inspecting a
   // contract right before calling sees the gate (e.g. astRewrite's disabled
-  // state and ENABLE_AST_REWRITE env var). The core contract catalog has no
+  // state and OCTOCODE_BETA env var). The core contract catalog has no
   // availability field; only the native machine catalog knows it, so join it
   // here exactly as the discovery list does above.
   const runtimeEntry = machineByName.get(String(toolName));

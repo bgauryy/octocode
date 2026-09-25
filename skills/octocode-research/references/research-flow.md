@@ -14,9 +14,9 @@ Start with a Surface Plan: local, GitHub, packages, PR/history, web, and reasons
 
 ## Semantic checkpoint
 
-Place the optional `clasify` checkpoint after cheap visible discovery has produced known candidates and before reading a substantial body that may be skipped. Invoke it only when a different answer can eliminate meaningful work; name that read or branch first. Keep exact metadata, known deciding spans, counts, symbol identity, required proof, and completeness-sensitive absence checks on the direct path.
+Place the optional `clasify` checkpoint after paths, metadata, snippets, and direct reasoning have produced ambiguous unread candidates, and before a substantial read that screening could change. Ask one concrete relevance question for the research direction; a partial fact, constraint, counterexample, doc, test, or caller can be useful even when it is not a complete answer or implementer. Keep exact metadata, known deciding spans, counts, symbol identity, required proof, and completeness-sensitive absence checks on the direct path. Candidate count or size alone does not trigger a call.
 
-Retain candidates whose result is relevant, insufficient, partial, or otherwise uncertain, then inspect the deciding source or run the deciding test. A confident exclusion applies only to the returned scope. Put several questions over the same resources in one semantic query; use root `queries[]` only for independent matrices. Shared capture and inference may reduce provider input, but verification remains separate.
+Retain candidates whose result is relevant, insufficient, partial, or otherwise uncertain, then inspect the smallest complete meaning-preserving source section or run the deciding test. A confident exclusion applies only to the returned scope; no universal score cutoff proves irrelevance. Put several questions over the same resources only when each changes an action; use root `queries[]` only for independent matrices. Shared capture and inference may reduce provider input, but verification remains separate.
 
 For package comparisons, gather decision-relevant version, maintenance, license, and integration evidence when available. Popularity and activity alone do not establish suitability. Apply the authorization rule in `SKILL.md`.
 
@@ -27,8 +27,8 @@ Local: tree/find -> search -> symbols/matchString -> graph when topology matters
 Remote/package: package/repo search -> tree -> code search -> exact read -> history
 Remote as local: directory fetch/clone -> local AST/LSP/search (bridge: references/workflow-combination.md)
 PR intent: PR metadata/comments/selected patches -> exact changed paths -> history
-Graph: `astSearch` topology analyses (dependencies/dependents/path/cycles/reachability) → exact edge reads → LSP when symbol identity matters
-Dead code: `astSearch(operation:"topology", analysis:"deadCode")` candidates → exact read + text/AST + LSP excluding declaration + tests/build
+Graph: `astTopology` (beta) analyses (dependencies/dependents/path/cycles/reachability) → exact edge reads → LSP when symbol identity matters
+Dead code: `astTopology(analysis:"deadCode")` (beta) candidates → exact read + text/AST + LSP excluding declaration + tests/build
 ```
 
 ## Cross-Pollination

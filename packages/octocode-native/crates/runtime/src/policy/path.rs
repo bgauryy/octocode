@@ -1,7 +1,5 @@
 use std::path::{Component, Path, PathBuf};
 
-use regex::Regex;
-
 use super::discovery::is_sensitive_path;
 use super::{PolicyError, PolicyErrorCode};
 
@@ -24,40 +22,16 @@ pub struct PathPolicy {
     roots: Vec<PathBuf>,
     workspace_root: Option<PathBuf>,
     home_dir: Option<PathBuf>,
-    ignored_path_patterns: Vec<Regex>,
-    ignored_file_patterns: Vec<Regex>,
 }
 
 impl PathPolicy {
     pub fn new(config: PathPolicyConfig) -> Result<Self, PolicyError> {
-        Self::build(config, &[], &[], &[])
-    }
-
-    pub fn with_registry(
-        config: PathPolicyConfig,
-        registry: &crate::security::SecurityRegistry,
-    ) -> Result<Self, PolicyError> {
-        Self::build(
-            config,
-            registry.allowed_roots(),
-            registry.ignored_path_patterns(),
-            registry.ignored_file_patterns(),
-        )
-    }
-
-    fn build(
-        config: PathPolicyConfig,
-        registry_roots: &[PathBuf],
-        ignored_path_patterns: &[Regex],
-        ignored_file_patterns: &[Regex],
-    ) -> Result<Self, PolicyError> {
         let home = config.home_dir.or_else(default_home);
         let mut roots = Vec::new();
         for root in config
             .workspace_root
             .iter()
             .chain(config.additional_roots.iter())
-            .chain(registry_roots.iter())
             .chain(config.include_home.then_some(home.as_ref()).flatten())
         {
             add_root(&mut roots, root);
@@ -66,8 +40,6 @@ impl PathPolicy {
             roots,
             workspace_root: config.workspace_root.map(absolutize),
             home_dir: home,
-            ignored_path_patterns: ignored_path_patterns.to_vec(),
-            ignored_file_patterns: ignored_file_patterns.to_vec(),
         })
     }
 
@@ -302,18 +274,7 @@ impl PathPolicy {
     }
 
     fn ignored(&self, path: &Path) -> bool {
-        if is_sensitive_path(path) {
-            return true;
-        }
-        let text = path.to_string_lossy();
-        let name = path.file_name().unwrap_or_default().to_string_lossy();
-        self.ignored_path_patterns
-            .iter()
-            .any(|pattern| pattern.is_match(&text))
-            || self
-                .ignored_file_patterns
-                .iter()
-                .any(|pattern| pattern.is_match(&name))
+        is_sensitive_path(path)
     }
 
     fn expand_and_resolve(&self, input: &Path) -> PathBuf {
@@ -773,26 +734,29 @@ mod tests {
     }
 
     #[test]
-    fn registry_roots_and_ignore_patterns_change_enforcement() {
-        let root = fixture();
-        let file = root.join("generated.locked");
-        std::fs::write(&file, "value").expect("write fixture");
-        let mut registry = crate::security::SecurityRegistry::default();
-        registry
-            .add_allowed_roots([root.clone()])
-            .expect("add root");
-        registry
-            .add_ignored_file_patterns([Regex::new(r"\.locked$").expect("regex")])
-            .expect("add ignore");
-        let policy = PathPolicy::with_registry(PathPolicyConfig::default(), &registry)
-            .expect("registry policy");
+    fn additional_roots_are_allowed_and_builtin_ignores_still_apply() {
+        // `local.allowedPaths` reaches the policy as `additional_roots`.
+        let workspace = fixture();
+        let extra = fixture();
+        let visible = extra.join("notes.txt");
+        let sensitive = extra.join("terraform.tfstate");
+        std::fs::write(&visible, "value").expect("write fixture");
+        std::fs::write(&sensitive, "value").expect("write fixture");
+        let policy = PathPolicy::new(PathPolicyConfig {
+            workspace_root: Some(workspace.clone()),
+            additional_roots: vec![extra.clone()],
+            ..Default::default()
+        })
+        .expect("policy");
+        assert!(policy.validate_read(&visible).is_ok());
         assert_eq!(
             policy
-                .validate_read(file)
-                .expect_err("custom ignore must apply")
+                .validate_read(&sensitive)
+                .expect_err("built-in ignore must apply under additional roots")
                 .code,
             PolicyErrorCode::IgnoredPath
         );
-        std::fs::remove_dir_all(root).expect("remove fixture");
+        std::fs::remove_dir_all(workspace).expect("remove fixture");
+        std::fs::remove_dir_all(extra).expect("remove fixture");
     }
 }

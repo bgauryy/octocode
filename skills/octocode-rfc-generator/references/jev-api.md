@@ -15,7 +15,7 @@ There is no public `jev` command or schema alias. MCP registers `clasify` only w
 
 ## Public request contract
 
-Submit one SemanticQuery directly or batch independent complete SemanticQueries as `{ "queries": [...] }`. Its shape is `{id?, reasoning?, resources:[{id, context:{value}|{tool,query}, maxChars?}], questions:[{id, question:{type,instructions,criteria?}}]}`. Do not use a batch when one answer changes a later question.
+Submit one SemanticQuery directly or batch independent complete SemanticQueries as `{ "queries": [...] }`. Its shape is `{id, reasoning, resources:[{id, context:{value}|{tool,query}, maxChars?}], questions:[{id, question:{type,instructions,criteria?}}]}`. Do not use a batch when one answer changes a later question.
 
 Every question is assessed against every resource: `resources[] × questions[]`. IDs correlate query, resource, question, and page; they do not carry instructions. Keep the matrix at or below 25 cells. A `{tool, query}` context is one unexecuted ordinary read request; `{value}` is non-empty state already held by the host. The RFC debate preflight deliberately permits exactly one `{value}` resource so unreviewed retrieval cannot enter the frozen worker snapshot.
 
@@ -31,7 +31,7 @@ Every question is assessed against every resource: `resources[] × questions[]`.
 
 Non-empty instructions and criteria may be strings, objects, or arrays. Include an `insufficient` choice when missing evidence must remain distinguishable from rejection, and `conflicting` when supplied evidence can support incompatible conclusions. Run exact lookups or executable checks directly instead of asking the provider.
 
-For a two-worker review, freeze typed question entries in `review.questions` and copy them unchanged to the SemanticQuery `questions`. Put the frozen `review`, host `admission`, exact evidence entries, both argument rounds, and missing evidence in one `context.value` resource. Read deciding sources before freezing the worker packet.
+For a two-worker review, freeze typed question entries in `review.questions` and copy them unchanged to the SemanticQuery `questions`. Put the frozen `review`, host `admission`, smallest sufficient exact evidence entries, both argument rounds, and missing evidence in one `context.value` resource. Preserve the meaning of each cited source section; avoid clipped prefixes and unrelated full files. Read deciding sources before freezing the worker packet. Skip the judge if the held claim is settled, facts are missing, or the result cannot change the next action.
 
 Illustrative request with synthetic evidence:
 

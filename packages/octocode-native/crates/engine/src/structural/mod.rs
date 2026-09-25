@@ -7,6 +7,7 @@
 //! [`crate::signatures::languages`] — no second grammar set, no link collision.
 
 mod files;
+mod kinds;
 mod language;
 mod metavars;
 mod octo;
@@ -19,14 +20,13 @@ mod types;
 #[cfg(feature = "embedded-ast-grep-rewrite")]
 pub use files::{StructuralRewriteFileResult, StructuralRewriteFilesResult, rewrite_files};
 pub use files::{
-    search_files, search_files_detailed, search_files_detailed_filtered,
-    search_files_detailed_filtered_with_extension,
+    search_files, search_files_detailed, search_files_detailed_filtered_with_extension,
 };
 #[cfg(feature = "embedded-ast-grep-rewrite")]
 pub use rewrite::{
-    MAX_REWRITE_CONTENT_BYTES, StructuralRewriteCapture, StructuralRewriteMatch,
-    StructuralRewritePosition, StructuralRewriteRange, count_syntax_errors,
-    rewrite as structural_rewrite,
+    CompiledRewrite, MAX_REWRITE_CONTENT_BYTES, RewriteScan, StructuralRewriteCapture,
+    StructuralRewriteMatch, StructuralRewritePosition, StructuralRewriteRange, compile_rewrite,
+    count_syntax_errors, rewrite as structural_rewrite, rewrite_parser_for_path,
 };
 pub use syntax_tree::{
     SyntaxTreeInspectOptions, SyntaxTreeInspectResult, inspect as inspect_syntax_tree,

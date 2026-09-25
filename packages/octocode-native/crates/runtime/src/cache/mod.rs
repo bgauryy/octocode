@@ -1,8 +1,29 @@
 pub mod evictions;
 
 use std::collections::{HashMap, VecDeque};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+/// Create or truncate `path` with owner-only (0600) permissions on Unix, for
+/// state files that hold keys or lock metadata.
+#[cfg(unix)]
+pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .mode(0o600)
+        .open(path)?;
+    file.write_all(bytes)
+}
+
+#[cfg(not(unix))]
+pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    std::fs::write(path, bytes)
+}
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CachePartition {

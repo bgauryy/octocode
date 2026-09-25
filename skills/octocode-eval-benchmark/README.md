@@ -1,39 +1,27 @@
 # Octocode Eval Benchmark
 
-Design trustworthy evaluations and benchmarks that decide whether a code, prompt, skill, agent, or multi-agent workflow improved.
+Design evals, calibrate judges, and compare agent or workflow changes without confusing leakage or noise with improvement. Use ordinary tests directly when they already establish the required outcome.
 
-## Use when
+The skill follows: frame → validate harness → baseline → develop → sealed verify → decide → learn. `SKILL.md` routes the detailed guidance.
 
-- A change needs a measurable keep-or-revert decision, not just passing tests.
-- You need goals, KPIs, baselines, guardrails, graders, or held-out cases.
-- Tests pass but don’t establish the behavior or quality outcome you care about.
+## Benchmarks and results
 
-## Not for
+[benchmarks/README.md](benchmarks/README.md) owns the shared structure:
+- [document-answering](benchmarks/document-answering/README.md): public questions, source fixtures, worker/judge/optimizer instructions and grading examples.
+- [skill-smoke](benchmarks/skill-smoke/README.md): existing maintenance fixtures and commands.
 
-- Ordinary ship checks where tests passing is enough → just run the tests
-- Investigating a code claim without a measurement goal → `octocode-research`
-- Writing or repairing documentation → `octocode-documentation`
+Save each execution under `<workspace>/.octocode/benchmarks/<name>/results/<run-id>/` (home fallback for projectless work). Preserve effective settings, outcomes and evidence; use native runner logs where available. Runtime results stay outside the installed skill and outside worker access.
 
-## Workflow
+The examples are development data, not a private benchmark or implemented runner. Keep evaluator questions, answer keys and prior-trial results out of scored workers' context and tools. Task requirements remain visible.
 
-```text
-ERROR-ANALYZE → FRAME → BASELINE → LOOP → JUDGE → CAPTURE → VERIFY → SUITE-EVOLVE
-```
+Use `references/failure-repair.md` to diagnose task, grader, environment, leakage or solver defects before choosing a fix. `references/references.md` links the research behind the guidance.
 
-Do not edit a grader or case to make a candidate pass. Freeze sensors before measuring.
-
-## Install
+## Install and maintain
 
 ```bash
 npx -y octocode skill install octocode-eval-benchmark
-```
-
-## Maintainer verification
-
-```bash
-node scripts/loop-report.mjs --self-test
-node scripts/eval-skill.mjs --self-test
 node scripts/check-description.mjs
+node scripts/eval-skill.mjs --self-test
 ```
 
-Then run the `octocode-skills` review against this folder.
+Run the local checks from the skill root and use `octocode-skills` to review folder structure. Lexical fixture checks do not prove semantic quality or agent performance.

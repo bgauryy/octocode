@@ -197,7 +197,7 @@ fn walk_children(
     // `fs::read_dir` yields entries in raw OS order (hash order on APFS, etc.),
     // so without sorting the result set — and its silent truncation at the limit
     // — would vary run-to-run. Collect and sort by file name for deterministic,
-    // stable output (fix 4). Read errors are still surfaced as skips.
+    // stable output. Read errors are still surfaced as skips.
     let mut children: Vec<fs::DirEntry> = Vec::new();
     for dir_entry in read_dir {
         match dir_entry {
@@ -450,7 +450,7 @@ fn to_entry(
     let relative_path = path
         .strip_prefix(&query.root)
         .ok()
-        .map(path_to_string)
+        .map(normalize_path)
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| file_name(path));
     let name = file_name(path);
@@ -668,10 +668,6 @@ fn normalize_path(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
 }
 
-fn path_to_string(path: &Path) -> String {
-    path.to_string_lossy().replace('\\', "/")
-}
-
 fn file_name(path: &Path) -> String {
     path.file_name()
         .map(|name| name.to_string_lossy().to_string())
@@ -718,7 +714,7 @@ mod tests {
 
     #[test]
     fn walk_children_yields_deterministic_sorted_order() {
-        // Fix 4: `fs::read_dir` yields entries in raw OS order; the walk must sort
+        // `fs::read_dir` yields entries in raw OS order; the walk must sort
         // them so output is deterministic across runs and sorted within a dir.
         let root = temp_root("sorted_order");
         for name in ["z.txt", "a.txt", "m.txt", "b.txt"] {
@@ -994,9 +990,7 @@ mod tests {
 
     #[test]
     fn path_pattern_supports_brace_expansion() {
-        // Shell-style `{a,b}` alternation — previously translated to a
-        // literal (regex-escaped) substring match, so it silently matched
-        // nothing instead of alternating between "react" and "react-dom".
+        // Shell-style `{a,b}` alternation, not a literal substring match.
         let root = temp_root("path_pattern_brace");
         fs::create_dir_all(root.join("packages/react/src")).expect("react dir");
         fs::create_dir_all(root.join("packages/react-dom/src")).expect("react-dom dir");
@@ -1046,8 +1040,7 @@ mod tests {
     fn compile_glob_unclosed_brace_falls_back_to_literal() {
         // A malformed pattern (no closing `}`) must not panic or silently
         // eat the rest of the pattern — treat the stray `{` as a literal
-        // character, matching this implementation's pre-brace-expansion
-        // behavior for any pattern it didn't previously understand either.
+        // character.
         let re = compile_glob("packages/{react/src", "pathPattern").expect("compiles");
         assert!(re.is_match("packages/{react/src"));
         assert!(!re.is_match("packages/react/src"));

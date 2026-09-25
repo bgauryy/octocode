@@ -12,4 +12,4 @@ Audit trail for the local evidence used to consolidate this skill. Paths are rep
 | `skills/octocode-skills/` | progressive disclosure, trigger tuning, cleanup, and review gates |
 | Repository `AGENTS.md` and package architecture guides | authoritative local ownership, dependency direction, and verification contracts |
 
-General architecture and algorithm practices remain hypotheses until the checked-out system supplies intent, mechanism, and impact. Existing defect-prevalence citations remain in `agent-defect-evidence.md`.
+General architecture and algorithm practices remain hypotheses until the checked-out system supplies intent, mechanism, and impact. Existing defect-prevalence citations remain in `references/agent-defect-evidence.md`.

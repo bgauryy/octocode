@@ -17,7 +17,6 @@ This reference is generated from [`packages/octocode-config/config-contract.json
   },
   "local": {
     "enabled": true,
-    "enableClone": false,
     "beta": false,
     "allowedPaths": [],
     "workspaceRoot": null
@@ -44,6 +43,11 @@ This reference is generated from [`packages/octocode-config/config-contract.json
   "storage": {
     "mode": "persistent"
   },
+  "cloneCache": {
+    "ttl": 86400000,
+    "maxSize": 2147483648,
+    "maxClones": 50
+  },
   "extension": {
     "storage": {
       "mode": "persistent"
@@ -68,8 +72,7 @@ Environment values take precedence over `.octocoderc`. Aliases are listed in pri
 | `github.apiUrl` | `GITHUB_API_URL` | `"https://api.github.com"` | url | GitHub REST API root. GitHub Enterprise commonly uses /api/v3. GITHUB_API_URL: shell/MCP only |
 | `github.graphqlEnabled` | `OCTOCODE_GITHUB_GRAPHQL` | `true` | boolean | Use GitHub GraphQL where supported; false forces REST-only access. |
 | `local.enabled` | `ENABLE_LOCAL`<br>`OCTOCODE_ENABLE_LOCAL` | `true` | boolean | Enable local filesystem tools on every runtime surface. ENABLE_LOCAL is canonical; OCTOCODE_ENABLE_LOCAL is an alias. |
-| `local.enableClone` | `ENABLE_CLONE`<br>`OCTOCODE_ENABLE_CLONE` | `false` | boolean | Legacy clone setting retained for config compatibility; CLI cloning requires persistent storage and MCP cloning is unavailable. This setting no longer gates ghCloneRepo. ENABLE_CLONE is canonical over OCTOCODE_ENABLE_CLONE. |
-| `local.beta` | `OCTOCODE_BETA` | `false` | boolean | Enable beta features. Currently the sole gate for the astRewrite tool (both preview and apply); off by default on every surface. |
+| `local.beta` | `OCTOCODE_BETA` | `false` | boolean | Enable beta features. Gates the astRewrite (preview and apply) and astTopology tools; off by default on every surface. |
 | `local.allowedPaths` | `ALLOWED_PATHS` | `[]` | string array | Extra absolute or home-relative roots added to the allowed home directory. The environment value is a comma-separated list. |
 | `local.workspaceRoot` | `WORKSPACE_ROOT` | process.cwd() | path | Optional absolute or home-relative workspace root. |
 | `tools.enabled` | `TOOLS_TO_RUN` | unset | string array | Strict tool allowlist replacing the default tool set. |
@@ -78,10 +81,13 @@ Environment values take precedence over `.octocoderc`. Aliases are listed in pri
 | `network.maxRetries` | `MAX_RETRIES` | `3` | integer (0–10) | Maximum retries after a failed request. |
 | `network.allowPrivateRegistry` | `OCTOCODE_ALLOW_PRIVATE_REGISTRY` | `false` | boolean | Allow private, loopback, or link-local artifact registries. Security-sensitive SSRF escape hatch; opt in only for trusted enterprise registries. OCTOCODE_ALLOW_PRIVATE_REGISTRY: shell/MCP only |
 | `lsp.configPath` | `OCTOCODE_LSP_CONFIG` | unset | string | Optional path to a custom lsp-servers.json. |
-| `output.format` | `OCTOCODE_OUTPUT_FORMAT` | `"yaml"` | `yaml` or `json` | Rendered response format. |
+| `output.format` | `OCTOCODE_OUTPUT_FORMAT` | `"yaml"` | `yaml` or `json` | Encoding of rendered text content (the MCP text channel): yaml or json. Structured content and CLI stdout are always JSON. |
 | `output.redactEmails` | `OCTOCODE_REDACT_EMAILS` | `false` | boolean | Mask email addresses such as GitHub commit authors. |
 | `output.pagination.defaultCharLength` | `OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH` | `50000` | integer (1000–50000) | Automatic pagination character budget. |
 | `storage.mode` | `OCTOCODE_STORAGE_MODE` | `"persistent"` | `persistent` or `memory` | Whether caches and runtime state may persist on disk. |
+| `cloneCache.ttl` | `OCTOCODE_CACHE_TTL_MS` | `86400000` | integer (60000–2592000000) | Milliseconds a ghCloneRepo checkout stays fresh before it is re-fetched. |
+| `cloneCache.maxSize` | `OCTOCODE_MAX_CACHE_SIZE` | `2147483648` | integer (1048576–1099511627776) | Byte cap for the on-disk ghCloneRepo cache; least-recently-used checkouts are evicted above it. |
+| `cloneCache.maxClones` | `OCTOCODE_MAX_CLONES` | `50` | integer (1–1000) | Maximum repositories the ghCloneRepo cache keeps. |
 | `extension.storage.mode` | `OCTOCODE_EXTENSION_STORAGE_MODE` | inherits storage.mode | `persistent` or `memory` | Pi extension storage mode override. |
 | `classification.type` | `OCTOCODE_CLASSIFICATION_TYPE` | jev | `jev` | Classification vendor. Per-vendor defaults (host, model, endpoint) are built in. OCTOCODE_CLASSIFICATION_TYPE: shell or trusted home .env |
 | `classification.api` | `OCTOCODE_CLASSIFICATION_API`<br>`OCTOCODE_JEV_KEY` | unset | string | Classification provider API key (bearer credential). Never appears in ResolvedConfig; shell environment wins over the trusted home config file. OCTOCODE_JEV_KEY is the vendor-native alias for the jev provider. OCTOCODE_CLASSIFICATION_API: shell or trusted home .env; OCTOCODE_JEV_KEY: shell or trusted home .env Credential-only; excluded from ResolvedConfig. |

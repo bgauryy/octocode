@@ -9,7 +9,10 @@ use std::{
     future::Future,
     path::PathBuf,
     pin::Pin,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -22,7 +25,17 @@ pub(super) struct GitHubContentCache {
     ttl: Duration,
     /// Upper bound on persisted disk entries (LRU-by-mtime pruned on write).
     max_disk_entries: usize,
+    /// Disk writes by this process; pruning runs on the first and then every
+    /// [`PRUNE_EVERY_WRITES`] writes instead of scanning the directory per write.
+    disk_writes: Arc<AtomicUsize>,
 }
+
+/// Directory scans are O(entries); amortize them across writes.
+const PRUNE_EVERY_WRITES: usize = 64;
+/// Cross-process throttle: one-shot CLI processes each write a few entries, so
+/// a marker file bounds pruning to once per interval across processes.
+const PRUNE_INTERVAL: Duration = Duration::from_secs(60);
+const PRUNE_MARKER: &str = ".last-prune";
 
 /// On-disk envelope written for serialization (borrows the value to avoid a clone).
 #[derive(serde::Serialize)]
@@ -76,6 +89,7 @@ impl GitHubContentCache {
             disk,
             ttl,
             max_disk_entries,
+            disk_writes: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -97,7 +111,9 @@ impl GitHubContentCache {
         })
     }
 
-    fn read_disk(&self, key: &CacheKey) -> Option<CachedContent> {
+    /// Returns the entry and its age so a promoted memory copy expires when the
+    /// disk copy would.
+    fn read_disk(&self, key: &CacheKey) -> Option<(CachedContent, Duration)> {
         let path = self.disk_file(key)?;
         let bytes = fs::read(&path).ok()?;
         let entry: DiskEntry = serde_json::from_slice(&bytes).ok()?;
@@ -105,13 +121,13 @@ impl GitHubContentCache {
         // tier; a stale or wrong-revision entry is dropped (and its file removed)
         // rather than served. Without this a disk-persisted git-tree could be
         // returned indefinitely for a moving branch head.
-        let fresh = entry.revision == self.revision
-            && now_unix().saturating_sub(entry.stored_at_unix) <= self.ttl.as_secs();
+        let age = now_unix().saturating_sub(entry.stored_at_unix);
+        let fresh = entry.revision == self.revision && age <= self.ttl.as_secs();
         if !fresh {
             let _ = fs::remove_file(&path);
             return None;
         }
-        Some(entry.value)
+        Some((entry.value, Duration::from_secs(age)))
     }
 
     fn write_disk(&self, key: &CacheKey, value: &CachedContent) {
@@ -126,7 +142,33 @@ impl GitHubContentCache {
         if let Ok(bytes) = serde_json::to_vec(&entry) {
             let _ = fs::write(path, bytes);
         }
-        self.prune_disk();
+        if self
+            .disk_writes
+            .fetch_add(1, Ordering::Relaxed)
+            .is_multiple_of(PRUNE_EVERY_WRITES)
+            && self.prune_due()
+        {
+            self.prune_disk();
+        }
+    }
+
+    /// True when no process pruned within [`PRUNE_INTERVAL`]; claims the slot
+    /// by touching the marker.
+    fn prune_due(&self) -> bool {
+        let Some(dir) = &self.disk else {
+            return false;
+        };
+        let marker = dir.join(PRUNE_MARKER);
+        let recent = fs::metadata(&marker)
+            .and_then(|meta| meta.modified())
+            .ok()
+            .and_then(|modified| SystemTime::now().duration_since(modified).ok())
+            .is_some_and(|elapsed| elapsed < PRUNE_INTERVAL);
+        if recent {
+            return false;
+        }
+        let _ = fs::write(&marker, b"");
+        true
     }
 
     /// Bound the disk tier: keep at most `max_disk_entries` files, evicting the
@@ -143,6 +185,9 @@ impl GitHubContentCache {
             .flatten()
             .filter_map(|entry| {
                 let path = entry.path();
+                if path.extension().is_none_or(|ext| ext != "json") {
+                    return None;
+                }
                 let mtime = entry.metadata().ok()?.modified().ok()?;
                 Some((mtime, path))
             })
@@ -177,6 +222,17 @@ fn is_commit_pinned_content(key: &str) -> bool {
     key.starts_with("github-content:")
 }
 
+fn entry_bytes(key: &CacheKey, value: &CachedContent) -> usize {
+    value
+        .bytes
+        .capacity()
+        .saturating_add(value.resolved_ref.capacity())
+        .saturating_add(value.etag.as_ref().map_or(0, String::capacity))
+        .saturating_add(key.resource.capacity())
+        .saturating_add(key.partition.credential_fingerprint.capacity())
+        .saturating_add(std::mem::size_of::<CachedContent>())
+}
+
 impl ConditionalCache for GitHubContentCache {
     fn get<'a>(
         &'a self,
@@ -186,14 +242,29 @@ impl ConditionalCache for GitHubContentCache {
         Box::pin(async move {
             let immutable = is_commit_pinned_content(key);
             let key = Self::key(partition, key);
-            let value = match self.cache.lock().unwrap_or_else(|p| p.into_inner()).get(
+            let hit = self.cache.lock().unwrap_or_else(|p| p.into_inner()).get(
                 &key,
                 self.revision,
                 None,
                 Instant::now(),
-            ) {
+            );
+            let value = match hit {
                 CacheLookup::Hit { value, .. } => Some((*value).clone()),
-                CacheLookup::Miss(_) => self.read_disk(&key),
+                CacheLookup::Miss(_) => self.read_disk(&key).map(|(value, age)| {
+                    // Promote so later reads in this process skip disk + JSON
+                    // decode; backdate insertion so it expires with the disk copy.
+                    let now = Instant::now();
+                    let inserted = now.checked_sub(age).unwrap_or(now);
+                    let bytes = entry_bytes(&key, &value);
+                    self.cache.lock().unwrap_or_else(|p| p.into_inner()).insert(
+                        key.clone(),
+                        value.clone(),
+                        bytes,
+                        self.revision,
+                        inserted,
+                    );
+                    value
+                }),
             };
             // File bodies are keyed by the resolved commit SHA, so a hit can
             // never go stale. Dropping the ETag makes the provider serve it as
@@ -216,14 +287,7 @@ impl ConditionalCache for GitHubContentCache {
     ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
         Box::pin(async move {
             let key = Self::key(partition, &key);
-            let bytes = value
-                .bytes
-                .capacity()
-                .saturating_add(value.resolved_ref.capacity())
-                .saturating_add(value.etag.as_ref().map_or(0, String::capacity))
-                .saturating_add(key.resource.capacity())
-                .saturating_add(key.partition.credential_fingerprint.capacity())
-                .saturating_add(std::mem::size_of::<CachedContent>());
+            let bytes = entry_bytes(&key, &value);
             self.write_disk(&key, &value);
             self.cache.lock().unwrap_or_else(|p| p.into_inner()).insert(
                 key,
@@ -377,6 +441,81 @@ mod tests {
             )
             .await;
         assert_eq!(cache.get(&one, "large").await, None);
+    }
+
+    #[tokio::test]
+    async fn disk_bodies_are_base64_legacy_arrays_decode_and_hits_promote() {
+        let dir = tempfile::tempdir().unwrap();
+        let part = ProviderPartition("endpoint/credential".into());
+        let body = vec![b'a'; 3000];
+        let content = CachedContent {
+            bytes: body.clone(),
+            etag: None,
+            resolved_ref: "sha".into(),
+        };
+        GitHubContentCache::new(CacheConfig::default(), 7, Some(dir.path().into()))
+            .put(&part, "github-content:k".into(), content.clone())
+            .await;
+        let file = fs::read_dir(dir.path())
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.path())
+            .find(|path| path.extension().is_some_and(|ext| ext == "json"))
+            .unwrap();
+        let size = fs::metadata(&file).unwrap().len() as usize;
+        // base64 is 4/3 of the body; a number array was ~3.5-4x.
+        assert!(size < body.len() * 3 / 2, "disk entry is {size} bytes");
+
+        // A legacy number-array entry still decodes.
+        let mut entry: serde_json::Value =
+            serde_json::from_slice(&fs::read(&file).unwrap()).unwrap();
+        entry["value"]["bytes"] = serde_json::json!(b"legacy".to_vec());
+        fs::write(&file, serde_json::to_vec(&entry).unwrap()).unwrap();
+        let reader = GitHubContentCache::new(CacheConfig::default(), 7, Some(dir.path().into()));
+        let legacy = reader.get(&part, "github-content:k").await.unwrap();
+        assert_eq!(legacy.bytes, b"legacy");
+
+        // The disk hit was promoted: it survives the file disappearing.
+        fs::remove_file(&file).unwrap();
+        assert_eq!(
+            reader.get(&part, "github-content:k").await.unwrap().bytes,
+            b"legacy"
+        );
+    }
+
+    #[tokio::test]
+    async fn pruning_is_amortized_across_writes() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = GitHubContentCache::new(
+            CacheConfig {
+                max_entries: 2,
+                ..Default::default()
+            },
+            7,
+            Some(dir.path().into()),
+        );
+        let part = ProviderPartition("endpoint/credential".into());
+        let content = CachedContent {
+            bytes: b"x".to_vec(),
+            etag: None,
+            resolved_ref: "sha".into(),
+        };
+        for index in 0..5 {
+            cache
+                .put(&part, format!("key-{index}"), content.clone())
+                .await;
+        }
+        let json_files = || {
+            fs::read_dir(dir.path())
+                .unwrap()
+                .flatten()
+                .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "json"))
+                .count()
+        };
+        // Only the first write pruned (nothing to prune yet); later writes
+        // did not rescan the directory.
+        assert_eq!(json_files(), 5);
+        assert!(dir.path().join(PRUNE_MARKER).exists());
     }
 
     #[tokio::test]

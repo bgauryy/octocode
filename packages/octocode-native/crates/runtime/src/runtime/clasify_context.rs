@@ -6,6 +6,7 @@ use crate::{
 };
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
+use std::path::Path;
 
 const MAX_RECEIPT_BYTES: usize = 16 * 1024;
 /// Receipt limitation for a page whose continuation was not followed.
@@ -235,7 +236,10 @@ pub(super) fn resolve(
         });
     }
     checked(context).map_err(ContextFailure::from)?;
-    let receipt = receipt(tool, &state);
+    let mut receipt = receipt(tool, &state);
+    if let Some(reference) = source.pointer("/query/ref").and_then(Value::as_str) {
+        receipt["source"]["ref"] = json!(reference);
+    }
     Ok((state, Some(receipt)))
 }
 
@@ -258,6 +262,17 @@ fn page_scope(state: &Value) -> Option<Value> {
             .and_then(|files| files.first())
             .and_then(Value::as_object)?
     };
+    if data
+        .get("contentView")
+        .and_then(Value::as_str)
+        .is_some_and(|view| view != "none")
+        && data
+            .get("sourceLineRanges")
+            .and_then(Value::as_array)
+            .is_none_or(Vec::is_empty)
+    {
+        return None;
+    }
     if let Some(ranges) = data.get("sourceLineRanges").and_then(Value::as_array)
         && ranges.len() > 1
     {
@@ -334,6 +349,86 @@ fn page_scope(state: &Value) -> Option<Value> {
     }
 }
 
+/// The returned content may be a transformed view. Its line offsets are
+/// useful for continuing that view, but are not original source coordinates.
+fn page_view(state: &Value) -> Option<Value> {
+    let data = state.pointer("/results/0/data")?;
+    let data = data
+        .get("files")
+        .and_then(Value::as_array)
+        .and_then(|files| files.first())
+        .unwrap_or(data);
+    let kind = data.get("contentView")?.as_str()?;
+    if kind == "none" {
+        return None;
+    }
+    let mut view = json!({"kind":kind});
+    if let Some(pagination) = data.get("pagination") {
+        if pagination["chunkType"] == "lines" {
+            if let (Some(offset), Some(length)) = (
+                pagination["offset"].as_u64(),
+                pagination["length"]
+                    .as_u64()
+                    .or_else(|| pagination["chunkSize"].as_u64()),
+            ) && length > 0
+            {
+                view["startLine"] = json!(offset + 1);
+                view["endLine"] = json!(offset + length);
+            }
+            if let Some(total) = pagination["totalLines"].as_u64().filter(|total| *total > 0) {
+                view["totalLines"] = json!(total);
+            }
+        }
+    } else if let Some(returned) = data["returnedLines"]
+        .as_u64()
+        .filter(|returned| *returned > 0)
+    {
+        view["startLine"] = json!(1);
+        view["endLine"] = json!(returned);
+        view["totalLines"] = json!(returned);
+    }
+    Some(view)
+}
+
+fn page_source(tool: &str, state: &Value, evidence_hash: &str) -> Value {
+    let data = state.pointer("/results/0/data").unwrap_or(&Value::Null);
+    let file = data
+        .get("files")
+        .and_then(Value::as_array)
+        .and_then(|files| files.first())
+        .unwrap_or(data);
+    let mut source = json!({"evidenceHash":evidence_hash});
+    if let Some(path) = file.get("path").and_then(Value::as_str) {
+        let identity = match tool {
+            "localFetch" => state
+                .get("base")
+                .and_then(Value::as_str)
+                .filter(|_| !Path::new(path).is_absolute())
+                .map_or_else(
+                    || path.to_owned(),
+                    |base| Path::new(base).join(path).to_string_lossy().into_owned(),
+                ),
+            "ghGetFileContent" => match (data["owner"].as_str(), data["repo"].as_str()) {
+                (Some(owner), Some(repo)) => format!("{owner}/{repo}/{path}"),
+                _ => path.to_owned(),
+            },
+            _ => path.to_owned(),
+        };
+        source["path"] = json!(identity);
+    }
+    if let Some(modified) = file.get("modified").and_then(Value::as_str) {
+        source["modified"] = json!(modified);
+    }
+    if let Some(reference) = file
+        .get("ref")
+        .or_else(|| data.get("ref"))
+        .and_then(Value::as_str)
+    {
+        source["ref"] = json!(reference);
+    }
+    source
+}
+
 fn append_limitation(receipt: &mut Value, limitation: &str) {
     match receipt.get_mut("limitations").and_then(Value::as_array_mut) {
         Some(limitations) => limitations.push(json!(limitation)),
@@ -354,9 +449,13 @@ fn receipt_with_evaluation(tool: &str, state: &Value, evaluation_completed: bool
     let mut terminal = false;
     let mut partial = response::is_partial(state);
     inspect(state, tool, &mut next, &mut partial, &mut terminal);
-    let mut receipt = json!({"source":"tool","tool":tool,"resultHash":hex::encode(Sha256::digest(state.to_string().as_bytes())),"coverage":if partial {"partial"}else{"bounded"}});
+    let evidence_hash = hex::encode(Sha256::digest(state.to_string().as_bytes()));
+    let mut receipt = json!({"source":page_source(tool, state, &evidence_hash),"tool":tool,"resultHash":evidence_hash,"coverage":if partial {"partial"}else{"bounded"}});
     if let Some(scope) = page_scope(state) {
         receipt["scope"] = scope;
+    }
+    if let Some(view) = page_view(state) {
+        receipt["view"] = view;
     }
     if !next.is_empty() {
         receipt["next"] = Value::Object(next);
@@ -400,9 +499,10 @@ fn receipt_with_evaluation(tool: &str, state: &Value, evaluation_completed: bool
 }
 
 fn value_receipt(state: &Value) -> Value {
+    let evidence_hash = hex::encode(Sha256::digest(state.to_string().as_bytes()));
     json!({
-        "source":"value",
-        "resultHash":hex::encode(Sha256::digest(state.to_string().as_bytes())),
+        "source":{"evidenceHash":evidence_hash},
+        "resultHash":evidence_hash,
         "coverage":"bounded"
     })
 }
@@ -552,6 +652,60 @@ mod tests {
                 "totalLines":80
             }))
         );
+    }
+
+    #[test]
+    fn transformed_view_offsets_are_not_source_scope() {
+        let state = json!({"base":"/repo/docs","results":[{"data":{
+            "path":"Hooks.md", "content":"3| ## Hooks\n467| ### onClose\n",
+            "contentView":"symbols", "totalLines":954, "returnedLines":2,
+            "modified":"2026-09-25T01:00:00Z"
+        }}]});
+        assert!(page_scope(&state).is_none());
+        assert_eq!(
+            page_view(&state),
+            Some(json!({
+                "kind":"symbols","startLine":1,"endLine":2,"totalLines":2
+            }))
+        );
+        let receipt = receipt("localFetch", &state);
+        assert!(receipt.get("scope").is_none());
+        assert_eq!(receipt["source"]["path"], "/repo/docs/Hooks.md");
+        assert_eq!(receipt["source"]["modified"], "2026-09-25T01:00:00Z");
+        assert_eq!(receipt["source"]["evidenceHash"], receipt["resultHash"]);
+    }
+
+    #[test]
+    fn github_source_identity_includes_repository_and_ref() {
+        let state = json!({"results":[{"data":{
+            "owner":"fastify", "repo":"fastify", "files":[{
+                "path":"docs/Reference/Hooks.md", "content":"# Hooks\n",
+                "totalLines":1, "returnedLines":1
+            }]
+        }}]});
+        let mut receipt = receipt("ghGetFileContent", &state);
+        receipt["source"]["ref"] = json!("main");
+        assert_eq!(
+            receipt["source"]["path"],
+            "fastify/fastify/docs/Reference/Hooks.md"
+        );
+        assert_eq!(receipt["source"]["ref"], "main");
+    }
+
+    #[test]
+    fn transformed_view_keeps_explicit_verified_source_ranges() {
+        let state = json!({"results":[{"data":{
+            "path":"Server.md", "content":"x\n", "contentView":"standard",
+            "totalLines":2458, "returnedLines":1,
+            "sourceLineRanges":[{"start":641,"end":680}]
+        }}]});
+        assert_eq!(
+            page_scope(&state),
+            Some(json!({
+                "startLine":641,"endLine":680,"totalLines":2458
+            }))
+        );
+        assert_eq!(page_view(&state).unwrap()["kind"], "standard");
     }
 
     #[test]

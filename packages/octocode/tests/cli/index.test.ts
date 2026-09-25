@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   resolve: vi.fn((): string | null => '/native/octocode'),
   skillHandler: vi.fn(),
   schemeHandler: vi.fn(),
+  printInstructions: vi.fn(() => 0),
 }));
 
 vi.mock('../../src/cli/native-delegate.js', () => ({
@@ -18,6 +19,7 @@ vi.mock('../../src/cli/commands/skill.js', () => ({
 }));
 vi.mock('../../src/cli/commands/scheme.js', () => ({
   schemeCommand: { name: 'scheme', handler: mocks.schemeHandler },
+  printAgentInstructions: mocks.printInstructions,
 }));
 vi.mock('../../src/cli/stale-build.js', () => ({
   maybeWarnAboutStaleBuild: vi.fn(),
@@ -95,6 +97,27 @@ describe('runCLI native boundary', () => {
       'unknown',
       '--flag',
     ]);
+  });
+
+  it.each([['--help'], ['-h'], ['help']])(
+    'appends canonical instructions to root help %j',
+    async (...argv) => {
+      const { runCLI } = await import('../../src/cli/index.js');
+      await runCLI(argv);
+      expect(mocks.delegate).toHaveBeenCalledWith('/native/octocode', argv);
+      expect(mocks.printInstructions).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it('does not append instructions to subcommand help or failed parsing', async () => {
+    const { runCLI } = await import('../../src/cli/index.js');
+    await runCLI(['help', 'localSearch']);
+    await runCLI(['localSearch', '--help']);
+    expect(mocks.printInstructions).not.toHaveBeenCalled();
+    mocks.delegate.mockReturnValue(2);
+    await runCLI(['--help']);
+    expect(mocks.printInstructions).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(2);
   });
 
   it('prints launcher and native versions without delegating', async () => {

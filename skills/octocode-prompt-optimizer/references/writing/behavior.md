@@ -22,7 +22,7 @@ Weak: “Delete a symbol when `lspSearch` references returns empty.”
 
 Repair: “Before deleting a symbol, read its exact source, check applicable `lspSearch` references and entrypoint/configuration paths, then run the relevant checks. An empty result only describes that query's completed scope; it does not rule out dynamic imports, shell execution, or external consumers.”
 
-`localSearch` finds lexical candidates; `astSearch` inspects syntax and file topology; `localFetch` establishes the source anchor. LSP resolves symbols within the configured project. Select the evidence needed for the decision; invoking every tool is not a proof requirement. Errors, partial results, and unavailable servers cannot support absence claims.
+`localSearch` finds lexical candidates; `astSearch` inspects syntax, `astTopology` (beta) file topology; `localFetch` establishes the source anchor. LSP resolves symbols within the configured project. Select the evidence needed for the decision; invoking every tool is not a proof requirement. Errors, partial results, and unavailable servers cannot support absence claims.
 
 ## Remove redundant instructions
 

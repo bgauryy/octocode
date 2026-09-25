@@ -3,20 +3,20 @@ use std::time::Instant;
 
 use tree_sitter::{Language, Node, Tree};
 
+use crate::structural::kinds::named_kind_id;
 use crate::structural::language::{AgLanguage, Expando};
 use crate::structural::metavars::{
-    MetaVar, ambiguous_function_body_capture, html_tag_name_capture, key_value_pair_capture,
-    meta_from_node, minimum_candidate_nodes,
+    MetaVar, ambiguous_function_body_capture, key_value_pair_capture, meta_from_node,
+    minimum_candidate_nodes, tag_name_capture,
 };
 use crate::structural::types::StructuralMatch;
 
-use super::line_index_support::{
-    LineIndex, structural_match_from_byte_range_with_index, to_structural_match_with_index,
-};
+use super::line_index_support::to_structural_match_with_index;
 use super::matching::{
     CandidatePlan, CaptureEnv, ExecutionError, MatchWithKind, children, named_children, node_text,
     parse_tree, parse_tree_with_deadline, raw_range, visit_named,
 };
+use crate::text::utf8_offsets::LineIndex;
 
 /// Native recursion guard for pattern matching; AST traversal is iterative.
 const MAX_STRUCTURAL_DEPTH: usize = 500;
@@ -43,9 +43,8 @@ pub(super) struct CompiledPattern {
 }
 
 enum SpecialPattern {
-    HtmlTagName {
-        capture: String,
-    },
+    /// `<$T>` over a JSX-capable grammar: opening and self-closing elements.
+    JsxTagName { capture: String },
     KeyValuePair {
         key_capture: String,
         value_capture: String,
@@ -54,34 +53,37 @@ enum SpecialPattern {
 
 impl CompiledPattern {
     pub(super) fn new(lang: &AgLanguage, pattern: &str) -> Result<Self, String> {
-        if let Some(capture) = html_tag_name_capture(pattern) {
+        // Special shapes are gated on the grammar actually having the target
+        // node kinds; elsewhere the text compiles as an ordinary pattern.
+        let language = lang.tree_sitter_language();
+        if let Some(capture) = tag_name_capture(pattern)
+            && named_kind_id(&language, "jsx_opening_element").is_some()
+        {
             return Ok(Self {
-                language: lang.tree_sitter_language(),
+                language,
                 expando: lang.expando(),
                 source: pattern.to_owned(),
                 tree: None,
-                special: Some(SpecialPattern::HtmlTagName { capture }),
-                candidate_plan: CandidatePlan::from_kinds([
-                    "start_tag".to_owned(),
-                    "self_closing_tag".to_owned(),
-                ]),
+                special: Some(SpecialPattern::JsxTagName {
+                    capture: capture.to_owned(),
+                }),
+                candidate_plan: CandidatePlan::from_kinds(JSX_TAG_KINDS.map(str::to_owned)),
             });
         }
 
-        if let Some((key_capture, value_capture)) = key_value_pair_capture(pattern) {
+        if let Some((key_capture, value_capture)) = key_value_pair_capture(pattern)
+            && named_kind_id(&language, "pair").is_some()
+        {
             return Ok(Self {
-                language: lang.tree_sitter_language(),
+                language,
                 expando: lang.expando(),
                 source: pattern.to_owned(),
                 tree: None,
                 special: Some(SpecialPattern::KeyValuePair {
-                    key_capture,
-                    value_capture,
+                    key_capture: key_capture.to_owned(),
+                    value_capture: value_capture.to_owned(),
                 }),
-                candidate_plan: CandidatePlan::from_kinds([
-                    "block_mapping_pair".to_owned(),
-                    "pair".to_owned(),
-                ]),
+                candidate_plan: CandidatePlan::from_kind("pair"),
             });
         }
 
@@ -89,7 +91,6 @@ impl CompiledPattern {
             return Err("structural pattern exceeds 64000 byte limit".to_owned());
         }
         let mut source = lang.preprocess_pattern(pattern).into_owned();
-        let language = lang.tree_sitter_language();
         let mut tree = parse_tree(&language, &source).map_err(|err| err.to_string())?;
         // Parse fragments once, at compilation, for both direct patterns and
         // every nested YAML pattern. A grammar-checked terminator supplies
@@ -240,26 +241,15 @@ impl CompiledPattern {
         }
         let (metavars, metavar_ranges_raw) = captures.into_maps();
         match special {
-            SpecialPattern::HtmlTagName { .. } => {
-                // Opening tags are shared by ordinary, script and style elements.
-                // Matching this node also keeps raw_text contents out of the results.
-                let opening_tag = candidate;
-                Some(structural_match_from_byte_range_with_index(
+            SpecialPattern::JsxTagName { .. } | SpecialPattern::KeyValuePair { .. } => {
+                Some(to_structural_match_with_index(
+                    candidate,
                     content,
                     line_index,
-                    opening_tag.start_byte(),
-                    opening_tag.end_byte(),
                     metavars,
                     metavar_ranges_raw,
                 ))
             }
-            SpecialPattern::KeyValuePair { .. } => Some(to_structural_match_with_index(
-                candidate,
-                content,
-                line_index,
-                metavars,
-                metavar_ranges_raw,
-            )),
         }
     }
 
@@ -271,15 +261,11 @@ impl CompiledPattern {
         captures: &mut CaptureEnv,
     ) -> bool {
         match special {
-            SpecialPattern::HtmlTagName { capture } => {
-                let Some(tag_name) = html_tag_name_node(candidate) else {
+            SpecialPattern::JsxTagName { capture } => {
+                let Some(tag_name) = jsx_tag_name_node(candidate) else {
                     return false;
                 };
-                captures.capture_one(
-                    capture,
-                    node_text(tag_name, content).to_owned(),
-                    raw_range(tag_name),
-                )
+                captures.capture_one(capture, node_text(tag_name, content), raw_range(tag_name))
             }
             SpecialPattern::KeyValuePair {
                 key_capture,
@@ -288,15 +274,18 @@ impl CompiledPattern {
                 let Some((key, value)) = key_value_nodes(candidate) else {
                     return false;
                 };
-                captures.capture_one(
-                    key_capture,
-                    node_text(key, content).to_owned(),
-                    raw_range(key),
-                ) && captures.capture_one(
-                    value_capture,
-                    node_text(value, content).to_owned(),
-                    raw_range(value),
-                )
+                let checkpoint = captures.checkpoint();
+                let matched =
+                    captures.capture_one(key_capture, node_text(key, content), raw_range(key))
+                        && captures.capture_one(
+                            value_capture,
+                            node_text(value, content),
+                            raw_range(value),
+                        );
+                if !matched {
+                    captures.rollback(checkpoint);
+                }
+                matched
             }
         }
     }
@@ -336,8 +325,8 @@ impl CompiledPattern {
             }
             return Ok(match meta {
                 MetaVar::Single(name) => captures.capture_one(
-                    &name,
-                    node_text(candidate, candidate_source).to_owned(),
+                    name,
+                    node_text(candidate, candidate_source),
                     raw_range(candidate),
                 ),
                 MetaVar::IgnoredSingle => true,
@@ -404,14 +393,12 @@ impl CompiledPattern {
                 "Structural pattern matching exceeded its recursion limit",
             ));
         }
-        let mut branch = captures.clone();
-        loop {
+        // Bind straight into `captures`; any failure rolls back to here so a
+        // `false` result leaves the caller's environment unchanged.
+        let checkpoint = captures.checkpoint();
+        let matched = loop {
             let Some(first) = pattern_children.first().copied() else {
-                if candidate_children.is_empty() {
-                    *captures = branch;
-                    return Ok(true);
-                }
-                return Ok(false);
+                break candidate_children.is_empty();
             };
             let multi = match meta_from_node(first, pattern_source, self.expando) {
                 Some(MetaVar::Multi(name)) => Some(name),
@@ -419,38 +406,38 @@ impl CompiledPattern {
                 _ => None,
             };
             if let Some(name) = multi {
-                if self.match_multi_capture(
-                    name.as_deref(),
+                break self.match_multi_capture(
+                    name,
                     &pattern_children[1..],
                     pattern_source,
                     candidate_children,
                     candidate_source,
-                    &mut branch,
+                    captures,
                     depth + 1,
                     budget,
-                )? {
-                    *captures = branch;
-                    return Ok(true);
-                }
-                return Ok(false);
+                )?;
             }
             let Some(candidate_first) = candidate_children.first().copied() else {
-                return Ok(false);
+                break false;
             };
             if !self.match_node(
                 first,
                 pattern_source,
                 candidate_first,
                 candidate_source,
-                &mut branch,
+                captures,
                 depth + 1,
                 budget,
             )? {
-                return Ok(false);
+                break false;
             }
             pattern_children = &pattern_children[1..];
             candidate_children = &candidate_children[1..];
+        };
+        if !matched {
+            captures.rollback(checkpoint);
         }
+        Ok(matched)
     }
 
     fn match_multi_capture(
@@ -483,17 +470,13 @@ impl CompiledPattern {
                 ));
             }
             budget.attempts -= 1;
-            let mut branch = captures.clone();
+            let checkpoint = captures.checkpoint();
             if let Some(name) = name {
-                let texts = candidate_children[..take]
-                    .iter()
-                    .map(|node| node_text(*node, candidate_source).to_owned())
-                    .collect();
-                let ranges = candidate_children[..take]
-                    .iter()
-                    .map(|node| raw_range(*node))
-                    .collect();
-                if !branch.capture_many(name, texts, ranges) {
+                let taken = &candidate_children[..take];
+                let texts = taken.iter().map(|node| node_text(*node, candidate_source));
+                if !captures.capture_many(name, texts, || {
+                    taken.iter().map(|node| raw_range(*node)).collect()
+                }) {
                     continue;
                 }
             }
@@ -502,29 +485,30 @@ impl CompiledPattern {
                 pattern_source,
                 &candidate_children[take..],
                 candidate_source,
-                &mut branch,
+                captures,
                 depth,
                 budget,
             )? {
-                *captures = branch;
                 return Ok(true);
             }
+            captures.rollback(checkpoint);
         }
         Ok(false)
     }
 }
 
-fn html_tag_name_node(candidate: Node<'_>) -> Option<Node<'_>> {
-    if !matches!(candidate.kind(), "start_tag" | "self_closing_tag") {
+/// Opening/self-closing JSX elements: the nodes `<$T>` matches.
+const JSX_TAG_KINDS: [&str; 2] = ["jsx_opening_element", "jsx_self_closing_element"];
+
+fn jsx_tag_name_node(candidate: Node<'_>) -> Option<Node<'_>> {
+    if !JSX_TAG_KINDS.contains(&candidate.kind()) {
         return None;
     }
-    named_children(candidate)
-        .into_iter()
-        .find(|node| node.kind() == "tag_name")
+    candidate.child_by_field_name("name")
 }
 
 fn key_value_nodes(candidate: Node<'_>) -> Option<(Node<'_>, Node<'_>)> {
-    if !matches!(candidate.kind(), "pair" | "block_mapping_pair") {
+    if candidate.kind() != "pair" {
         return None;
     }
     let named = named_children(candidate);

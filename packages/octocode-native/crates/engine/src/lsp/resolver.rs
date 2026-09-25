@@ -2,6 +2,7 @@ use crate::error::{Error, Result, Status};
 use crate::lsp::grammar::grammar_for_file;
 use crate::lsp::types::{JsExactPosition, JsFuzzyPosition, JsResolvedSymbol};
 use crate::signatures::extractor::AST_EXECUTION_TIMEOUT;
+use crate::text::utf8_offsets::{byte_to_char_offset_inner, hide_bom_in_line};
 use std::fs;
 use std::io::Read;
 use std::time::Instant;
@@ -120,6 +121,18 @@ pub fn resolve_position_from_content(
     resolve_position_from_lines(&lines, &fuzzy, deadline)
 }
 
+/// [`resolve_position`] over `content` already read for `file_path` (the path
+/// only selects the grammar; the file is not read). Lets a caller resolve the
+/// anchor on exactly the text it synchronized with `didOpen`.
+pub fn resolve_position_in_file_content(
+    file_path: &str,
+    content: &str,
+    fuzzy: &JsFuzzyPosition,
+) -> Result<JsResolvedSymbol> {
+    check_source_size(content.len())?;
+    resolve_position_with_path(file_path, content, fuzzy)
+}
+
 fn resolve_position_with_path(
     file_path: &str,
     content: &str,
@@ -176,11 +189,103 @@ fn resolve_position_from_lines(
 }
 
 fn normalized_lines(content: &str) -> Vec<&str> {
-    let lines: Vec<&str> = content
-        .split('\n')
-        .map(|line| line.strip_suffix('\r').unwrap_or(line))
-        .collect();
-    lines
+    LineIndex::new(content).lines(content)
+}
+
+/// Line spans of a text under the LSP definition of a line break: `\r\n`,
+/// `\n`, and a lone `\r` each end a line. Built once per text so every lookup
+/// (resolver candidates, snippet slices) agrees with the line numbers the
+/// server computes, and repeated slices never re-split the text.
+///
+/// A text ending in a line break has a final empty line, as in LSP.
+///
+/// Public so the runtime's line counting and position bounds use the same
+/// line-break rule as the resolver and snippet reads.
+#[derive(Debug)]
+pub struct LineIndex {
+    /// Byte range of each line, excluding its terminator.
+    spans: Vec<(usize, usize)>,
+    /// `true` when the text ends with a line break (the last span is empty
+    /// and holds no content).
+    ends_with_break: bool,
+}
+
+impl LineIndex {
+    pub fn new(content: &str) -> Self {
+        let bytes = content.as_bytes();
+        let mut spans = Vec::new();
+        let mut start = 0;
+        let mut index = 0;
+        while index < bytes.len() {
+            match bytes[index] {
+                b'\n' => {
+                    spans.push((start, index));
+                    index += 1;
+                    start = index;
+                }
+                b'\r' => {
+                    spans.push((start, index));
+                    index += if bytes.get(index + 1) == Some(&b'\n') {
+                        2
+                    } else {
+                        1
+                    };
+                    start = index;
+                }
+                _ => index += 1,
+            }
+        }
+        spans.push((start, bytes.len()));
+        Self {
+            spans,
+            ends_with_break: !bytes.is_empty() && start == bytes.len(),
+        }
+    }
+
+    /// Number of lines, including the empty last line after a final break.
+    pub fn len(&self) -> usize {
+        self.spans.len()
+    }
+
+    /// Never true: even an empty text has one (empty) line.
+    pub fn is_empty(&self) -> bool {
+        self.spans.is_empty()
+    }
+
+    /// Byte offset where `line` starts, or `None` past the last line.
+    pub fn line_start(&self, line: usize) -> Option<usize> {
+        self.spans.get(line).map(|&(start, _)| start)
+    }
+
+    /// Number of lines that hold content: the final empty line after a
+    /// trailing break is not counted (matches `str::lines`).
+    pub fn content_len(&self) -> usize {
+        self.spans.len() - usize::from(self.ends_with_break)
+    }
+
+    /// Text of `line`, without its terminator.
+    pub fn line<'a>(&self, content: &'a str, line: usize) -> Option<&'a str> {
+        self.spans
+            .get(line)
+            .and_then(|&(start, end)| content.get(start..end))
+    }
+
+    pub fn lines<'a>(&self, content: &'a str) -> Vec<&'a str> {
+        (0..self.len())
+            .map(|line| self.line(content, line).unwrap_or_default())
+            .collect()
+    }
+
+    /// `(line, byte column)` of a byte offset. An offset inside a `\r\n`
+    /// terminator maps to the end of its line.
+    pub fn position_of(&self, byte: usize) -> (usize, usize) {
+        let line = self
+            .spans
+            .partition_point(|&(start, _)| start <= byte)
+            .saturating_sub(1);
+        let (start, end) = self.spans[line];
+        (line, byte.min(end) - start)
+    }
 }
 
 fn resolve_position_with_grammar(
@@ -202,38 +307,72 @@ fn resolve_position_with_grammar(
     }
 
     let mut candidates = Vec::new();
-    collect_symbol_candidates(root, content, &fuzzy.symbol_name, &mut candidates, deadline)?;
+    let index = LineIndex::new(content);
+    collect_symbol_candidates(
+        root,
+        content,
+        &index,
+        &fuzzy.symbol_name,
+        &mut candidates,
+        deadline,
+    )?;
     let result = pick_candidate(candidates, fuzzy, lines);
     check_budget(deadline)?;
     Ok(result)
 }
 
+/// One step of the walk's root-to-current path: a node's kind and the field
+/// it fills in its parent. Kept alongside the cursor so declaration checks
+/// never call `Node::parent()` (which re-descends from the root each time).
+#[derive(Clone, Copy)]
+struct PathStep<'tree> {
+    kind: &'tree str,
+    field: Option<&'tree str>,
+}
+
 fn collect_symbol_candidates(
     node: Node<'_>,
     content: &str,
+    index: &LineIndex,
     symbol_name: &str,
     candidates: &mut Vec<SymbolCandidate>,
     deadline: Instant,
 ) -> Result<()> {
     let mut cursor = node.walk();
+    let mut path = vec![PathStep {
+        kind: node.kind(),
+        field: None,
+    }];
     loop {
         check_budget(deadline)?;
         let current = cursor.node();
         if current.is_named() && !is_ignored_node(current.kind()) {
-            if let Some(candidate) = candidate_from_node(current, content, symbol_name) {
+            if let Some(mut candidate) = candidate_from_node(current, content, index, symbol_name) {
+                candidate.is_declaration = candidate.is_exact && is_declaration_name(&path);
                 candidates.push(candidate);
             }
             if cursor.goto_first_child() {
+                path.push(PathStep {
+                    kind: cursor.node().kind(),
+                    field: cursor.field_name(),
+                });
                 continue;
             }
         }
         loop {
             if cursor.goto_next_sibling() {
+                if let Some(step) = path.last_mut() {
+                    *step = PathStep {
+                        kind: cursor.node().kind(),
+                        field: cursor.field_name(),
+                    };
+                }
                 break;
             }
             if !cursor.goto_parent() {
                 return Ok(());
             }
+            path.pop();
         }
     }
 }
@@ -241,6 +380,7 @@ fn collect_symbol_candidates(
 fn candidate_from_node(
     node: Node<'_>,
     content: &str,
+    index: &LineIndex,
     symbol_name: &str,
 ) -> Option<SymbolCandidate> {
     let text = node.utf8_text(content.as_bytes()).ok()?;
@@ -254,12 +394,15 @@ fn candidate_from_node(
     } else {
         find_symbol_in_line(text, symbol_name, 0)?
     };
-    let position = node.start_position();
+    // Tree-sitter rows count only `\n`; derive the line from the byte offset
+    // so a lone `\r` breaks lines here exactly as it does for the server.
+    let (line_index, column) = index.position_of(node.start_byte() + match_offset);
     Some(SymbolCandidate {
-        line_index: position.row,
-        character: position.column + match_offset,
+        line_index,
+        character: column,
         is_exact,
-        is_declaration: looks_like_declaration_node(node),
+        // Set by the walk, which holds the ancestor path.
+        is_declaration: false,
         is_literal: is_literal_node(node.kind()),
     })
 }
@@ -359,37 +502,74 @@ fn is_symbolish_node(kind: &str) -> bool {
         || kind == "attribute"
 }
 
-fn looks_like_declaration_node(node: Node<'_>) -> bool {
-    let kind = node.kind();
-    if is_declaration_kind(kind) {
-        return true;
-    }
+/// Most unfielded wrapper nodes between a name token and the declaration it
+/// names (e.g. Go `a, b :=` puts the names in an `expression_list`).
+const MAX_NAME_WRAPPER_HOPS: usize = 3;
 
-    let mut parent = node.parent();
-    while let Some(current) = parent {
-        if is_declaration_kind(current.kind()) {
-            return true;
+/// `true` when the last node of `path` is the *name* of a declaration: it (or
+/// a bounded chain of unfielded wrappers around it) fills a naming field
+/// (`name`, C's `declarator`, `key`, …) of a declaring node. An identifier
+/// merely used inside a class body, function body or object value is not.
+fn is_declaration_name(path: &[PathStep<'_>]) -> bool {
+    let mut child = path.len().saturating_sub(1);
+    for _ in 0..=MAX_NAME_WRAPPER_HOPS {
+        if child == 0 {
+            return false;
         }
-        parent = current.parent();
+        let parent = path[child - 1].kind;
+        match path[child].field {
+            Some(field) => return is_naming_field(field) && is_declaring_kind(parent),
+            None => child -= 1,
+        }
     }
     false
 }
 
-fn is_declaration_kind(kind: &str) -> bool {
-    kind.contains("declaration")
-        || kind.contains("definition")
-        || kind.contains("function_item")
-        || kind.contains("function_declarator")
-        || kind.contains("method")
-        || kind.contains("class")
-        || kind.contains("struct")
-        || kind.contains("interface")
-        || kind.contains("type_alias")
-        || kind.contains("lexical_declaration")
-        || kind.contains("variable_declaration")
-        || kind.contains("pair")
-        || kind.contains("selector")
-        || kind == "assignment"
+fn is_naming_field(field: &str) -> bool {
+    matches!(
+        field,
+        "name" | "declarator" | "key" | "left" | "pattern" | "label"
+    )
+}
+
+/// Node kinds that introduce a name. Uses (`call`, `invocation`, member
+/// `expression`s, `scoped`/`qualified` paths, imports) also carry `name`
+/// fields in some grammars and are excluded.
+fn is_declaring_kind(kind: &str) -> bool {
+    const USE_MARKERS: [&str; 8] = [
+        "call",
+        "invocation",
+        "expression",
+        "reference",
+        "scoped",
+        "qualified",
+        "import",
+        "argument",
+    ];
+    const DECLARING_MARKERS: [&str; 20] = [
+        "declaration",
+        "definition",
+        "declarator",
+        "signature",
+        "_item",
+        "_spec",
+        "class",
+        "struct",
+        "interface",
+        "enum",
+        "trait",
+        "type_alias",
+        "method",
+        "function",
+        "variant",
+        "module",
+        "namespace",
+        "parameter",
+        "pair",
+        "assignment",
+    ];
+    !USE_MARKERS.iter().any(|marker| kind.contains(marker))
+        && DECLARING_MARKERS.iter().any(|marker| kind.contains(marker))
 }
 
 fn exact_symbol_text(text: &str, symbol_name: &str) -> bool {
@@ -471,6 +651,9 @@ fn scan_whole_file(
 }
 
 fn hit_for(line: &str, line_index: usize, character: usize, line_offset: i32) -> JsResolvedSymbol {
+    // A leading BOM is invisible to editors and LSP servers: row-0 columns and
+    // line text exclude it, exactly as the AST surfaces report them.
+    let (line, character) = hide_bom_in_line(line_index, line, character);
     JsResolvedSymbol {
         position: JsExactPosition {
             line: line_index as u32,
@@ -478,27 +661,12 @@ fn hit_for(line: &str, line_index: usize, character: usize, line_offset: i32) ->
             // columns and `str::find`/`match_indices` are byte-based). LSP
             // `character` is UTF-16 code units, so convert — otherwise any line
             // with non-ASCII before the symbol mis-positions the cursor.
-            character: byte_offset_to_utf16(line, character),
+            character: byte_to_char_offset_inner(line, character) as u32,
         },
         found_at_line: line_index as u32 + 1,
         line_offset,
         line_content: line.to_owned(),
     }
-}
-
-/// Convert a byte offset within `line` to a UTF-16 code-unit offset (the LSP
-/// `character` unit). Counts every char whose start byte precedes `byte_offset`.
-fn byte_offset_to_utf16(line: &str, byte_offset: usize) -> u32 {
-    let mut bytes = 0usize;
-    let mut utf16 = 0u32;
-    for ch in line.chars() {
-        if bytes >= byte_offset {
-            break;
-        }
-        bytes += ch.len_utf8();
-        utf16 += ch.len_utf16() as u32;
-    }
-    utf16
 }
 
 fn looks_like_declaration(line: &str, symbol_name: &str) -> bool {
@@ -623,8 +791,87 @@ fn strip_line_comment(line: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use super::{byte_offset_to_utf16, resolve_position_with_path};
+    use super::{LineIndex, resolve_position_with_path};
     use crate::lsp::types::JsFuzzyPosition;
+
+    fn fuzzy(name: &str, line_hint: Option<u32>) -> JsFuzzyPosition {
+        JsFuzzyPosition {
+            symbol_name: name.to_owned(),
+            line_hint,
+            order_hint: None,
+        }
+    }
+
+    #[test]
+    fn line_index_breaks_on_crlf_lf_and_lone_cr() {
+        let text = "a\r\nb\rc\nd";
+        let index = LineIndex::new(text);
+        assert_eq!(index.lines(text), ["a", "b", "c", "d"]);
+        assert_eq!(index.content_len(), 4);
+        assert_eq!(index.position_of(text.find('c').unwrap()), (2, 0));
+        assert_eq!(index.position_of(text.find('d').unwrap()), (3, 0));
+
+        // A trailing break yields an empty last line that holds no content.
+        let text = "x\r\ny\r";
+        let index = LineIndex::new(text);
+        assert_eq!(index.lines(text), ["x", "y", ""]);
+        assert_eq!(index.len(), 3);
+        assert_eq!(index.content_len(), 2);
+        assert_eq!(LineIndex::new("").lines(""), [""]);
+        assert_eq!(LineIndex::new("").content_len(), 1);
+    }
+
+    #[test]
+    fn lexical_resolution_counts_crlf_and_lone_cr_as_line_breaks() {
+        for source in [
+            "let a = 1;\r\nlet b = 2;\r\nfn target() {}\r\n",
+            "let a = 1;\rlet b = 2;\rfn target() {}\r",
+            "let a = 1;\nlet b = 2;\r\nfn target() {}\r",
+        ] {
+            let hit =
+                super::resolve_position_from_content(source.to_owned(), fuzzy("target", None))
+                    .expect("target resolves");
+            assert_eq!(hit.position.line, 2, "{source:?}");
+            assert_eq!(hit.position.character, 3, "{source:?}");
+            assert_eq!(hit.line_content, "fn target() {}");
+        }
+    }
+
+    #[test]
+    fn grammar_resolution_counts_lone_cr_as_a_line_break() {
+        // Tree-sitter rows count only `\n`; with lone `\r` breaks the whole
+        // file is one tree-sitter row, but the server sees three lines.
+        let source = "const a = 1;\rconst b = 2;\rfunction target() {}\r";
+        let hit = resolve_position_with_path("demo.ts", source, &fuzzy("target", None))
+            .expect("target resolves");
+        assert_eq!(hit.position.line, 2);
+        assert_eq!(hit.position.character, 9);
+        assert_eq!(hit.found_at_line, 3);
+        assert_eq!(hit.line_content, "function target() {}");
+
+        let crlf = "const a = 1;\r\nfunction target() {}\r\n";
+        let hit = resolve_position_with_path("demo.ts", crlf, &fuzzy("target", Some(2)))
+            .expect("target resolves");
+        assert_eq!((hit.position.line, hit.position.character), (1, 9));
+    }
+
+    #[test]
+    fn grammar_resolution_reports_utf16_columns_after_non_ascii_and_emoji() {
+        // "é" is 2 UTF-8 bytes / 1 UTF-16 unit; "😀" is 4 bytes / 2 units.
+        let source = "const a = 1;\r\nconst s = 'é😀'; const target = 2;\r\n";
+        let hit = resolve_position_with_path("demo.ts", source, &fuzzy("target", Some(2)))
+            .expect("target resolves");
+        assert_eq!(hit.position.line, 1);
+        let expected = "const s = 'é😀'; const ".encode_utf16().count() as u32;
+        assert_eq!(hit.position.character, expected);
+
+        let lexical = super::resolve_position_from_content(
+            "x\ré😀 target\n".to_owned(),
+            fuzzy("target", Some(2)),
+        )
+        .expect("lexical target");
+        assert_eq!((lexical.position.line, lexical.position.character), (1, 4));
+    }
 
     #[test]
     fn oversized_position_source_returns_limit_instead_of_a_symbol() {
@@ -684,6 +931,7 @@ mod tests {
         let result = super::collect_symbol_candidates(
             tree.root_node(),
             source,
+            &super::LineIndex::new(source),
             "target",
             &mut candidates,
             std::time::Instant::now(),
@@ -721,16 +969,6 @@ mod tests {
                 error.reason
             ),
         }
-    }
-
-    #[test]
-    fn byte_offset_converts_to_utf16_character() {
-        // 'é' = 2 UTF-8 bytes / 1 UTF-16 unit: "target" starts at byte 8, char 7.
-        assert_eq!(byte_offset_to_utf16("const étarget = 1;", 8), 7);
-        // '🌍' = 4 UTF-8 bytes / 2 UTF-16 units (surrogate pair): byte 10, char 8.
-        assert_eq!(byte_offset_to_utf16("const 🌍target = 1;", 10), 8);
-        assert_eq!(byte_offset_to_utf16("ascii only", 6), 6);
-        assert_eq!(byte_offset_to_utf16("", 0), 0);
     }
 
     fn resolve_char(file_name: &str, source: &str, symbol_name: &str, line_hint: u32) -> u32 {
@@ -897,5 +1135,185 @@ mod tests {
                 "{file_name}"
             );
         }
+    }
+
+    fn resolve_line(
+        file_name: &str,
+        source: &str,
+        symbol_name: &str,
+        line_hint: Option<u32>,
+    ) -> u32 {
+        resolve_position_with_path(file_name, source, &fuzzy(symbol_name, line_hint))
+            .unwrap_or_else(|err| panic!("{file_name}: {err}"))
+            .found_at_line
+    }
+
+    #[test]
+    fn uses_inside_class_and_function_bodies_are_not_declarations() {
+        // Without a lineHint the declaration wins over earlier uses; a use in a
+        // class body, method body or object value must not count as one.
+        let cases = [
+            (
+                "demo.ts",
+                "class Service {\n  run() { return helper(); }\n}\nfunction helper() { return 1; }\n",
+                4,
+            ),
+            (
+                "demo.js",
+                "const routes = { run: () => helper() };\nfunction helper() {}\n",
+                2,
+            ),
+            (
+                "demo.tsx",
+                "class View {\n  render() { return <div>{helper()}</div>; }\n}\nconst helper = () => 1;\n",
+                4,
+            ),
+            (
+                "demo.rs",
+                "impl S {\n    fn run(&self) { helper(); }\n}\nfn helper() {}\n",
+                4,
+            ),
+            (
+                "demo.py",
+                "class A:\n    def run(self):\n        return helper()\n\ndef helper():\n    pass\n",
+                5,
+            ),
+            (
+                "demo.go",
+                "package main\ntype S struct{}\nfunc (s S) Run() { helper() }\nfunc helper() {}\n",
+                4,
+            ),
+            (
+                "demo.java",
+                "class A {\n  void run() { helper(); }\n  void helper() {}\n}\n",
+                3,
+            ),
+        ];
+        for (file_name, source, expected) in cases {
+            assert_eq!(
+                resolve_line(file_name, source, "helper", None),
+                expected,
+                "{file_name}"
+            );
+        }
+    }
+
+    #[test]
+    fn class_method_field_and_variable_names_are_declarations() {
+        let cases = [
+            // method name
+            (
+                "demo.ts",
+                "service.helper();\nclass Service { helper() {} }\n",
+                "helper",
+                2,
+            ),
+            // class field
+            (
+                "demo.ts",
+                "use(obj.count);\nclass C { count = 0; }\n",
+                "count",
+                2,
+            ),
+            // class name
+            (
+                "demo.ts",
+                "new Service();\nclass Service {}\n",
+                "Service",
+                2,
+            ),
+            // interface member
+            (
+                "demo.ts",
+                "x.size();\ninterface Box { size(): number }\n",
+                "size",
+                2,
+            ),
+            // object literal key
+            (
+                "demo.js",
+                "use(cfg.port);\nconst cfg = { port: 1 };\n",
+                "port",
+                2,
+            ),
+            // Rust struct field + struct name
+            (
+                "demo.rs",
+                "fn f(s: S) -> u8 { s.count }\nstruct S { count: u8 }\n",
+                "count",
+                2,
+            ),
+            ("demo.rs", "fn f(s: Store) {}\nstruct Store;\n", "Store", 2),
+            // Python method + assignment
+            (
+                "demo.py",
+                "obj.run()\nclass A:\n    def run(self):\n        pass\n",
+                "run",
+                3,
+            ),
+            ("demo.py", "print(limit)\nlimit = 3\n", "limit", 2),
+            // Go short var declaration through an expression_list
+            (
+                "demo.go",
+                "package main\nfunc f() {\n  use(total)\n  total, n := 1, 2\n}\n",
+                "total",
+                4,
+            ),
+            // C function declarator
+            (
+                "demo.c",
+                "int main() { return target(); }\nint target() { return 1; }\n",
+                "target",
+                2,
+            ),
+        ];
+        for (file_name, source, symbol, expected) in cases {
+            assert_eq!(
+                resolve_line(file_name, source, symbol, None),
+                expected,
+                "{file_name}: {symbol}"
+            );
+        }
+    }
+
+    #[test]
+    fn line_hint_prefers_the_declaration_over_an_equally_near_use() {
+        // Line 3 is the hint; the use (line 2, inside a method body) and the
+        // declaration (line 4) are equally near, so the declaration must win.
+        let source = "class A {\n  run() { return helper(); }\n}\nfunction helper() {}\n";
+        let hit = resolve_position_with_path("demo.ts", source, &fuzzy("helper", Some(3)))
+            .expect("resolves");
+        assert_eq!(hit.found_at_line, 4);
+        assert_eq!(hit.position.character, 9);
+        // An exact hit on the hinted line still wins over a nearby declaration.
+        assert_eq!(resolve_line("demo.ts", source, "helper", Some(2)), 2);
+    }
+
+    #[test]
+    fn leading_bom_is_hidden_from_row_zero_columns_and_text() {
+        for file_name in ["demo.ts", "demo.unknown"] {
+            let source = "\u{feff}const target = 1;\nconst other = target;\n";
+            let hit = resolve_position_with_path(file_name, source, &fuzzy("target", Some(1)))
+                .expect("resolves");
+            assert_eq!(
+                (hit.position.line, hit.position.character),
+                (0, 6),
+                "{file_name}"
+            );
+            assert_eq!(hit.line_content, "const target = 1;", "{file_name}");
+            // Later rows are unaffected by the BOM.
+            let hit = resolve_position_with_path(file_name, source, &fuzzy("target", Some(2)))
+                .expect("resolves");
+            assert_eq!(
+                (hit.position.line, hit.position.character),
+                (1, 14),
+                "{file_name}"
+            );
+        }
+        // A symbol at column 0 right after the BOM.
+        let hit =
+            resolve_position_with_path("demo.py", "\u{feff}target = 1\n", &fuzzy("target", None))
+                .expect("resolves");
+        assert_eq!((hit.position.line, hit.position.character), (0, 0));
     }
 }

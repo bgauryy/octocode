@@ -1,9 +1,12 @@
 use super::extraction::{extract, line_count};
-use super::pagination::{continuation, page, result_counts};
+use super::pagination::{
+    continuation, page, result_counts, sanitize_byte_page, sanitize_line_page,
+};
 use super::types::*;
 use super::validation::{is_binary, validate_request};
 use sha2::{Digest, Sha256};
 use std::fs;
+use std::path::Path;
 use std::io::Read;
 
 /// Hard ceiling on source bytes read into memory for ANY localFetch path.
@@ -36,7 +39,7 @@ fn source_too_large(path: &str, len: u64) -> LocalFetchResult {
     result
 }
 pub fn execute_local_fetch(
-    q: &LocalFetchRequest,
+    q: &LocalFetchQuery,
     paths: &impl PathAccess,
     security: &impl ContentScan,
     cancel: &impl CancellationCheck,
@@ -44,19 +47,19 @@ pub fn execute_local_fetch(
     execute_local_fetch_with_regex(q, paths, security, cancel, &LocalFetchRegex::default())
 }
 pub fn execute_local_fetch_with_regex(
-    q: &LocalFetchRequest,
+    q: &LocalFetchQuery,
     paths: &impl PathAccess,
     security: &impl ContentScan,
     cancel: &impl CancellationCheck,
     regex: &impl RegexMatch,
 ) -> LocalFetchResult {
     if let Err(e) = validate_request(q) {
-        return LocalFetchResult::error(q.path.clone(), "invalidQuery", e);
+        return LocalFetchResult::error(q.path.to_string(), "invalidQuery", e);
     }
     if let Err(e) = cancel.check() {
-        return LocalFetchResult::error(q.path.clone(), "cancelled", e);
+        return LocalFetchResult::error(q.path.to_string(), "cancelled", e);
     }
-    let validated = match paths.validate_read(q.path.as_ref()) {
+    let validated = match paths.validate_read(Path::new(q.path.as_str())) {
         Ok(path) => path,
         Err(failure) => {
             let display = failure.safe_path.as_deref().unwrap_or(&q.path);
@@ -67,9 +70,14 @@ pub fn execute_local_fetch_with_regex(
             } else {
                 failure.message
             };
-            let mut result = LocalFetchResult::error(q.path.clone(), "fileAccessFailed", message);
+            let code = if failure.code == crate::policy::PATH_OUTSIDE_ALLOWED_ROOTS {
+                crate::policy::PATH_OUTSIDE_ALLOWED_ROOTS
+            } else {
+                "fileAccessFailed"
+            };
+            let mut result = LocalFetchResult::error(q.path.to_string(), code, message);
             result.resource_missing = failure.resource_missing;
-            result.resolved_path = Some(q.path.clone());
+            result.resolved_path = Some(q.path.to_string());
             return result;
         }
     };
@@ -79,13 +87,13 @@ pub fn execute_local_fetch_with_regex(
         Ok(m) if m.is_file() => m,
         Ok(_) => {
             return LocalFetchResult::error(
-                q.path.clone(),
+                q.path.to_string(),
                 "fileAccessFailed",
                 "Path is not a regular file".into(),
             );
         }
         Err(e) => {
-            return LocalFetchResult::error(q.path.clone(), "fileAccessFailed", e.to_string());
+            return LocalFetchResult::error(q.path.to_string(), "fileAccessFailed", e.to_string());
         }
     };
     // Enforce the hard source-size ceiling on every read path (default,
@@ -98,35 +106,35 @@ pub fn execute_local_fetch_with_regex(
     let sample_len = match fs::File::open(&path).and_then(|mut file| file.read(&mut sample)) {
         Ok(length) => length,
         Err(error) => {
-            return LocalFetchResult::error(q.path.clone(), "fileReadFailed", error.to_string());
+            return LocalFetchResult::error(q.path.to_string(), "fileReadFailed", error.to_string());
         }
     };
     if is_binary(&sample[..sample_len]) {
         let mut result = LocalFetchResult::error(
-            q.path.clone(),
+            q.path.to_string(),
             "binaryFileUnsupported",
             format!(
                 "Binary file unsupported: {display_path}. Read a text source file, or use astSearch operation:\"files\" for file metadata."
             ),
         );
-        result.resolved_path = Some(q.path.clone());
+        result.resolved_path = Some(q.path.to_string());
         return result;
     }
     if q.full_content == Some(true)
-        && q.minify.unwrap_or_default() == MinifyMode::None
+        && q.minify_mode() == Minify::None
         && q.match_string.is_none()
-        && q.start_line.is_none()
+        && q.start_line().is_none()
         && meta.len() > 100 * 1024
     {
         let mut result = LocalFetchResult::error(
-            q.path.clone(),
+            q.path.to_string(),
             "fileTooLarge",
             format!(
                 "File too large: {}KB (limit: 100KB). Follow next.continue to retrieve the complete file in bounded chunks, or select startLine/endLine or matchString.",
                 meta.len() / 1024
             ),
         );
-        result.resolved_path = Some(q.path.clone());
+        result.resolved_path = Some(q.path.to_string());
         result.source_bytes = Some(meta.len() as usize);
         result.is_partial = Some(true);
         result.partial_reasons = vec![PartialReason::FullContentSourceSizeLimit];
@@ -146,7 +154,7 @@ pub fn execute_local_fetch_with_regex(
             return source_too_large(&q.path, b.len() as u64);
         }
         Ok(b) => b,
-        Err(e) => return LocalFetchResult::error(q.path.clone(), "fileReadFailed", e.to_string()),
+        Err(e) => return LocalFetchResult::error(q.path.to_string(), "fileReadFailed", e.to_string()),
     };
     process_fetched_content(
         q,
@@ -162,7 +170,7 @@ pub fn execute_local_fetch_with_regex(
 /// Shared post-acquisition content processing. Performs no filesystem access;
 /// callers own source authorization, binary/transport limits and provenance.
 pub fn process_fetched_content(
-    q: &LocalFetchRequest,
+    q: &LocalFetchQuery,
     bytes: &[u8],
     source_path: &std::path::Path,
     modified: Option<String>,
@@ -171,11 +179,11 @@ pub fn process_fetched_content(
     regex: &impl RegexMatch,
 ) -> LocalFetchResult {
     if let Err(error) = validate_request(q) {
-        return LocalFetchResult::error(q.path.clone(), "invalidQuery", error);
+        return LocalFetchResult::error(q.path.to_string(), "invalidQuery", error);
     }
     let source_sha256 = hex::encode(Sha256::digest(bytes));
     if let Err(e) = cancel.check() {
-        return LocalFetchResult::error(q.path.clone(), "cancelled", e);
+        return LocalFetchResult::error(q.path.to_string(), "cancelled", e);
     }
     // Node's UTF-8 decoder replaces malformed sequences; binary detection is a
     // separate heuristic and must not turn an otherwise textual file into an error.
@@ -184,7 +192,7 @@ pub fn process_fetched_content(
     let source_bytes = raw.len();
     let total_lines = line_count(&raw);
     let mut warnings = vec![];
-    // SEC-1: redact whole private-key blocks across the full file BEFORE any
+    // Redact whole private-key blocks across the full file BEFORE any
     // window/extraction, so a bounded read of an interior body line cannot leak a
     // key whose BEGIN/END markers fall outside the selected window (the anchored
     // built-in patterns only match a complete block in a single view).
@@ -200,19 +208,19 @@ pub fn process_fetched_content(
     let (raw, match_redacted) = if q.match_string.is_some() {
         match redact_source_lines(&raw, source_path, security) {
             Ok(value) => value,
-            Err((code, message)) => return LocalFetchResult::error(q.path.clone(), &code, message),
+            Err((code, message)) => return LocalFetchResult::error(q.path.to_string(), &code, message),
         }
     } else {
         (raw, false)
     };
-    let mode = q.minify.unwrap_or_default();
-    let match_blocks = q.match_string.is_some() && mode != MinifyMode::None;
-    let applied = if match_blocks { MinifyMode::None } else { mode };
+    let mode = q.minify_mode();
+    let match_blocks = q.match_string.is_some() && mode != Minify::None;
+    let applied = if match_blocks { Minify::None } else { mode };
     let ext = match extract(q, &raw, regex) {
         Ok(x) => x,
         Err(e) => {
             return LocalFetchResult::error(
-                q.path.clone(),
+                q.path.to_string(),
                 if e.starts_with("Invalid regex") || e.starts_with("Regex execution unavailable") {
                     "toolExecutionFailed"
                 } else {
@@ -224,12 +232,12 @@ pub fn process_fetched_content(
     };
     if ext.count == Some(0) {
         return LocalFetchResult {
-            path: q.path.clone(),
+            path: q.path.to_string(),
             status: "empty".into(),
             resource_missing: false,
             source_sha256: Some(source_sha256.clone()),
             content: Some(String::new()),
-            content_view: Some(MinifyMode::None),
+            content_view: Some(Minify::None),
             minify_fallback: None,
             error_code: Some("noMatches".into()),
             error: None,
@@ -258,6 +266,7 @@ pub fn process_fetched_content(
             partial_reasons: vec![],
             terminal_limit: None,
             metadata_unavailable: vec![],
+            out_of_range: false,
             next: None,
         };
     }
@@ -265,12 +274,12 @@ pub fn process_fetched_content(
     let mut content_view = applied;
     let mut minify_fallback = match_blocks.then(|| MinifyFallback {
         requested: mode,
-        applied: MinifyMode::None,
+        applied: Minify::None,
         reason: "match-evidence".into(),
     });
-    if applied == MinifyMode::Standard {
+    if applied == Minify::Standard {
         selected = octocode_engine::portable::apply_content_view_minification(&selected, &q.path)
-    } else if applied == MinifyMode::Symbols {
+    } else if applied == Minify::Symbols {
         if let Some(s) = octocode_engine::portable::extract_signatures(&selected, &q.path) {
             selected = octocode_engine::portable::apply_content_view_minification(&s, &q.path)
         } else if let Some(outline) = crate::content::markdown_heading_outline(&selected, &q.path) {
@@ -279,43 +288,58 @@ pub fn process_fetched_content(
             warnings.push(format!("No smaller outline is available for {}; using the standard content view. The outline may be unsupported, oversized, or the source may be minified/bundled (single giant lines) — read specific line ranges instead.",q.path));
             selected =
                 octocode_engine::portable::apply_content_view_minification(&selected, &q.path);
-            content_view = MinifyMode::Standard;
+            content_view = Minify::Standard;
             minify_fallback = Some(MinifyFallback {
-                requested: MinifyMode::Symbols,
-                applied: MinifyMode::Standard,
+                requested: Minify::Symbols,
+                applied: Minify::Standard,
                 reason: "outline-unavailable".into(),
             })
         }
     }
     if let Err(e) = cancel.check() {
-        return LocalFetchResult::error(q.path.clone(), "cancelled", e);
+        return LocalFetchResult::error(q.path.to_string(), "cancelled", e);
     }
-    let (safe, security_warnings) = match security.sanitize(&selected, source_path) {
-        Ok(x) => x,
-        Err((c, _)) if c == "contentSecurityLimit" => {
-            let mut result = LocalFetchResult::error(
-                q.path.clone(),
+    // A line or byte page is scanned on its own window (see
+    // `sanitize_line_page` / `sanitize_byte_page`); complete views keep the
+    // whole-view scan because they return the whole view.
+    let line_page = if q.full_content != Some(true) {
+        match page(&selected, q) {
+            // A window scan error falls back to the whole-view scan, which
+            // owns the typed security-limit recovery.
+            Ok(raw) if raw.pagination.chunk_type == ChunkType::Lines => {
+                sanitize_line_page(&selected, raw, source_path, security).unwrap_or(None)
+            }
+            Ok(raw) => sanitize_byte_page(&selected, raw, source_path, security).unwrap_or(None),
+            Err(e) => return LocalFetchResult::error(q.path.to_string(), "invalidPagination", e),
+        }
+    } else {
+        None
+    };
+    let (pg, view_redacted, view_empty) = if let Some((pg, redacted)) = line_page {
+        warnings.extend(ext.warnings);
+        (pg, redacted, selected.is_empty())
+    } else {
+        let (safe, security_warnings) = match security.sanitize(&selected, source_path) {
+            Ok(x) => x,
+            Err((c, _)) if c == "contentSecurityLimit" => {
+                let mut result = LocalFetchResult::error(
+                q.path.to_string(),
                 &c,
                 "The selected content view exceeds the secret scanner size limit. Byte windows cannot safely split unscanned content. Select a smaller source-line range.".into(),
             );
-            result.path = q.path.clone();
-            result.total_lines = Some(total_lines);
-            result.source_chars = Some(source_chars);
-            result.source_bytes = Some(source_bytes);
-            result.is_partial = Some(true);
-            result.terminal_limit = Some(true);
-            result.partial_reasons = vec![PartialReason::SecuritySelectedViewSizeLimit];
-            if total_lines > 1 && (q.start_line.is_none() || q.start_line != q.end_line) {
-                let line = ext.start.or(q.start_line).unwrap_or(1);
-                let query = LocalFetchRequest {
-                    path: q.path.clone(),
-                    start_line: Some(line),
-                    end_line: Some(line),
-                    minify: Some(MinifyMode::None),
-                    ..Default::default()
-                };
-                result.next = Some(NextCalls {
+                result.path = q.path.to_string();
+                result.total_lines = Some(total_lines);
+                result.source_chars = Some(source_chars);
+                result.source_bytes = Some(source_bytes);
+                result.is_partial = Some(true);
+                result.terminal_limit = Some(true);
+                result.partial_reasons = vec![PartialReason::SecuritySelectedViewSizeLimit];
+                if total_lines > 1 && (q.start_line().is_none() || q.start_line() != q.end_line()) {
+                    let line = ext.start.or(q.start_line()).unwrap_or(1);
+                    let query = single_line_query(q, line);
+                    result.next = Some(NextCalls {
                     r#continue: None,
+                    restart: None,
                     read_bounded_lines: Some(Continuation {
                         tool: "localFetch".into(),
                         query,
@@ -323,41 +347,74 @@ pub fn process_fetched_content(
                         reason: Some("The selected view is too large to scan safely. Read one source line; this starts a different source-line view, not a…".into()),
                     }),
                 });
+                }
+                return result;
             }
-            return result;
+            Err((c, m)) => return LocalFetchResult::error(q.path.to_string(), &c, m),
+        };
+        warnings.extend(ext.warnings);
+        warnings.extend(security_warnings);
+        if let Err(e) = cancel.check() {
+            return LocalFetchResult::error(q.path.to_string(), "cancelled", e);
         }
-        Err((c, m)) => return LocalFetchResult::error(q.path.clone(), &c, m),
-    };
-    warnings.extend(ext.warnings);
-    warnings.extend(security_warnings);
-    if let Err(e) = cancel.check() {
-        return LocalFetchResult::error(q.path.clone(), "cancelled", e);
-    }
-    if q.full_content == Some(true) && safe.len() > 50000 {
-        let mut result = LocalFetchResult::error(
-            q.path.clone(),
+        if q.full_content == Some(true) && safe.len() > 50000 {
+            let mut result = LocalFetchResult::error(
+            q.path.to_string(),
             "fullContentLimit",
             "The complete view exceeds 50000 bytes. Follow next.continue to read the same view in bounded chunks.".into(),
         );
-        result.path = q.path.clone();
-        result.total_lines = Some(total_lines);
-        result.source_chars = Some(source_chars);
-        result.source_bytes = Some(source_bytes);
-        result.is_partial = Some(true);
-        result.partial_reasons = vec![PartialReason::FullContentLimit];
-        result.next = Some(bounded_continuation(q));
-        return result;
-    }
-    let pg = match page(&safe, q) {
-        Ok(p) => p,
-        Err(e) => return LocalFetchResult::error(q.path.clone(), "invalidPagination", e),
+            result.path = q.path.to_string();
+            result.total_lines = Some(total_lines);
+            result.source_chars = Some(source_chars);
+            result.source_bytes = Some(source_bytes);
+            result.is_partial = Some(true);
+            result.partial_reasons = vec![PartialReason::FullContentLimit];
+            result.next = Some(bounded_continuation(q));
+            return result;
+        }
+        let pg = match page(&safe, q) {
+            Ok(p) => p,
+            Err(e) => return LocalFetchResult::error(q.path.to_string(), "invalidPagination", e),
+        };
+        (pg, safe != selected, safe.is_empty())
     };
     let (chars, ret_bytes, ret_lines) = result_counts(&pg.text);
-    let next = continuation(q, &pg.pagination);
-    let source_ranges = if !safe.is_empty()
+    let out_of_range = pg.out_of_range;
+    let next = if out_of_range {
+        warnings.push(format!(
+            "offset {} is past the end of the selected view ({} {}); nothing was returned. Follow next.restart to read from the start.",
+            q.offset().unwrap_or(0),
+            match pg.pagination.chunk_type {
+                ChunkType::Lines => pg.pagination.total_lines,
+                ChunkType::Bytes => pg.pagination.total_bytes,
+            },
+            match pg.pagination.chunk_type {
+                ChunkType::Lines => "lines",
+                ChunkType::Bytes => "bytes",
+            }
+        ));
+        let mut query = q.clone();
+        query.offset = Some(0);
+        Some(NextCalls {
+            r#continue: None,
+            read_bounded_lines: None,
+            restart: Some(Continuation {
+                tool: "localFetch".into(),
+                query,
+                confidence: "exact".into(),
+                reason: Some(
+                    "Offset is past the end of the selected view; restart from offset 0.".into(),
+                ),
+            }),
+        })
+    } else {
+        continuation(q, &pg.pagination)
+    };
+    let source_ranges = if !out_of_range
+        && !view_empty
         && !match_redacted
-        && content_view == MinifyMode::None
-        && safe == selected
+        && content_view == Minify::None
+        && !view_redacted
     {
         if let Some(lines) = ext.source_lines.as_ref() {
             let page_lines: Vec<usize> = lines
@@ -382,7 +439,7 @@ pub fn process_fetched_content(
         .filter(|n| source_ranges.iter().any(|r| *n >= r.start && *n <= r.end))
         .collect();
     LocalFetchResult {
-        path: q.path.clone(),
+        path: q.path.to_string(),
         status: "success".into(),
         resource_missing: false,
         source_sha256: Some(source_sha256),
@@ -401,7 +458,7 @@ pub fn process_fetched_content(
         match_ranges: ext.match_ranges,
         matched_lines,
         selected_match_count: ext.count,
-        modified: (content_view != MinifyMode::Symbols)
+        modified: (content_view != Minify::Symbols)
             .then_some(modified)
             .flatten(),
         source_chars: Some(source_chars),
@@ -410,10 +467,11 @@ pub fn process_fetched_content(
         returned_bytes: Some(ret_bytes),
         returned_lines: Some(ret_lines),
         pagination: Some(pg.pagination.clone()),
-        is_partial: (next.is_some()).then_some(true),
+        is_partial: (next.is_some() && !out_of_range).then_some(true),
         partial_reasons: vec![],
         terminal_limit: None,
         metadata_unavailable: vec![],
+        out_of_range,
         next,
     }
 }
@@ -446,12 +504,31 @@ fn redact_source_lines(
     let changed = out != raw;
     Ok((out, changed))
 }
-fn bounded_continuation(q: &LocalFetchRequest) -> NextCalls {
+/// Same file and caller metadata, every extraction selector reset to one raw line.
+fn single_line_query(q: &LocalFetchQuery, line: usize) -> LocalFetchQuery {
+    LocalFetchQuery {
+        start_line: wire_positive(line),
+        end_line: wire_positive(line),
+        minify: Some(Minify::None),
+        full_content: None,
+        match_string: None,
+        match_string_is_regex: None,
+        match_string_case_sensitive: None,
+        context_lines: None,
+        context_bytes: None,
+        chunk_type: None,
+        offset: None,
+        chunk_size: None,
+        ..q.clone()
+    }
+}
+
+fn bounded_continuation(q: &LocalFetchQuery) -> NextCalls {
     let mut query = q.clone();
     query.full_content = None;
     query.chunk_type = Some(ChunkType::Lines);
     query.offset = Some(0);
-    query.chunk_size = Some(100);
+    query.chunk_size = wire_positive(100);
     NextCalls {
         r#continue: Some(Continuation {
             tool: "localFetch".into(),
@@ -460,6 +537,7 @@ fn bounded_continuation(q: &LocalFetchRequest) -> NextCalls {
             reason: Some("Continue to the next page of results.".into()),
         }),
         read_bounded_lines: None,
+        restart: None,
     }
 }
 pub(crate) fn compress_ranges(lines: &[usize]) -> Vec<LineRange> {
@@ -479,16 +557,7 @@ fn system_time_iso(t: std::time::SystemTime) -> Option<String> {
     let millis = elapsed.subsec_millis();
     let days = secs.div_euclid(86400);
     let sod = secs.rem_euclid(86400);
-    let z = days + 719468;
-    let era = (if z >= 0 { z } else { z - 146096 }) / 146097;
-    let doe = z - era * 146097;
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    let mut y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = mp + if mp < 10 { 3 } else { -9 };
-    y += if m <= 2 { 1 } else { 0 };
+    let (y, m, d) = crate::civil_date::civil_from_days(days);
     Some(format!(
         "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}.{millis:03}Z",
         sod / 3600,
@@ -578,9 +647,9 @@ mod source_size_tests {
         file.set_len(MAX_SOURCE_BYTES + 1).expect("grow file");
         drop(file);
 
-        let req = LocalFetchRequest {
-            path: path.to_string_lossy().into_owned(),
-            ..Default::default()
+        let req = LocalFetchQuery {
+            path: path.to_string_lossy().parse().expect("path"),
+            ..LocalFetchQuery::test_default()
         };
         let result = execute_local_fetch(&req, &Paths(dir.clone()), &Safe, &NeverCancel);
 
@@ -598,9 +667,9 @@ mod source_size_tests {
         let path = dir.join("ok.txt");
         fs::write(&path, "hello\nworld\n").expect("write file");
 
-        let req = LocalFetchRequest {
-            path: path.to_string_lossy().into_owned(),
-            ..Default::default()
+        let req = LocalFetchQuery {
+            path: path.to_string_lossy().parse().expect("path"),
+            ..LocalFetchQuery::test_default()
         };
         let result = execute_local_fetch(&req, &Paths(dir.clone()), &Safe, &NeverCancel);
 
@@ -610,7 +679,7 @@ mod source_size_tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    // SEC-1: a bounded read of an interior body line of a private key must not
+    // A bounded read of an interior body line of a private key must not
     // leak the key, even when the file is NOT key-named and the selected window
     // contains no BEGIN/END marker (so the anchored full-block patterns cannot
     // fire). The `Safe` scan is a passthrough, proving the full-file block guard
@@ -627,11 +696,11 @@ mod source_size_tests {
         fs::write(&path, &file).expect("write file");
 
         // Select only the interior body lines (4..=5) — no BEGIN/END in view.
-        let req = LocalFetchRequest {
-            path: path.to_string_lossy().into_owned(),
-            start_line: Some(4),
-            end_line: Some(5),
-            ..Default::default()
+        let req = LocalFetchQuery {
+            path: path.to_string_lossy().parse().expect("path"),
+            start_line: wire_positive(4),
+            end_line: wire_positive(5),
+            ..LocalFetchQuery::test_default()
         };
         let result = execute_local_fetch(&req, &Paths(dir.clone()), &Safe, &NeverCancel);
 
@@ -650,8 +719,7 @@ mod source_size_tests {
     // be indistinguishable, and line numbers must stay source-accurate.
     #[test]
     fn match_string_cannot_probe_line_level_secrets() {
-        use crate::security::{ContentSecurity, SecurityRegistry};
-        use std::sync::Arc;
+        use crate::security::ContentSecurity;
         let dir = temp_dir();
         let path = dir.join("config.txt");
         let secret = "AKIAIOSFODNN7EXAMPLE";
@@ -660,13 +728,13 @@ mod source_size_tests {
             format!("header\naws_access_key_id = {secret}\nneedle after\n"),
         )
         .expect("write file");
-        let security = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+        let security = ContentSecurity::new();
         let probe = |needle: &str| {
-            let req = LocalFetchRequest {
-                path: path.to_string_lossy().into_owned(),
-                match_string: Some(needle.into()),
+            let req = LocalFetchQuery {
+                path: path.to_string_lossy().parse().expect("path"),
+                match_string: Some(needle.parse().expect("match string")),
                 context_lines: Some(0),
-                ..Default::default()
+                ..LocalFetchQuery::test_default()
             };
             execute_local_fetch(&req, &Paths(dir.clone()), &security, &NeverCancel)
         };
@@ -681,7 +749,7 @@ mod source_size_tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    // SEC-1 over-redaction guard: an ordinary long base64 line (config blob,
+    // Over-redaction guard: an ordinary long base64 line (config blob,
     // hash, minified asset) with NO private-key markers anywhere in the file
     // must pass through byte-identical — the guard keys off BEGIN/END markers,
     // never bare base64.
@@ -693,11 +761,11 @@ mod source_size_tests {
         let file = format!("header\n{blob}\nfooter\n");
         fs::write(&path, &file).expect("write file");
 
-        let req = LocalFetchRequest {
-            path: path.to_string_lossy().into_owned(),
-            start_line: Some(2),
-            end_line: Some(2),
-            ..Default::default()
+        let req = LocalFetchQuery {
+            path: path.to_string_lossy().parse().expect("path"),
+            start_line: wire_positive(2),
+            end_line: wire_positive(2),
+            ..LocalFetchQuery::test_default()
         };
         let result = execute_local_fetch(&req, &Paths(dir.clone()), &Safe, &NeverCancel);
 
@@ -728,5 +796,252 @@ pub(crate) fn no_match_hint(regex: bool, case_sensitive: bool, finder: &str) -> 
         (true, true) => format!(
             "No line matches this case-sensitive regex; drop matchStringCaseSensitive or use {finder}."
         ),
+    }
+}
+
+#[cfg(test)]
+mod line_page_scan_tests {
+    use super::*;
+    use crate::security::ContentSecurity;
+    use std::path::Path;
+
+    fn security() -> ContentSecurity {
+        ContentSecurity::new()
+    }
+    fn fetch(source: &str, q: &LocalFetchQuery) -> LocalFetchResult {
+        process_fetched_content(
+            q,
+            source.as_bytes(),
+            Path::new("/fixture/app.ts"),
+            None,
+            &security(),
+            &NeverCancel,
+            &LocalFetchRegex::default(),
+        )
+    }
+    fn lines_query(offset: usize, chunk: usize) -> LocalFetchQuery {
+        LocalFetchQuery {
+            path: "/fixture/app.ts".parse().expect("path"),
+            chunk_type: Some(ChunkType::Lines),
+            offset: Some(wire_count(offset)),
+            chunk_size: wire_positive(chunk),
+            ..LocalFetchQuery::test_default()
+        }
+    }
+    fn filler(n: usize) -> String {
+        (1..=n)
+            .map(|i| format!("const filler_{i} = {i};\n"))
+            .collect()
+    }
+
+    #[test]
+    fn pem_block_split_across_a_line_page_is_redacted_on_both_pages() {
+        let body = "MIIEpAIBAAKCAQEAsplitKeyBodyLineABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        let source = format!(
+            "{}-----BEGIN RSA PRIVATE KEY-----\n{body}\n{body}\n-----END RSA PRIVATE KEY-----\n{}",
+            filler(98),
+            filler(20)
+        );
+        // Page 1 ends on line 100 (first body line); page 2 starts on line 101.
+        for offset in [0, 100] {
+            let result = fetch(&source, &lines_query(offset, 100));
+            let content = result.content.expect("content");
+            assert!(
+                !content.contains("splitKeyBody"),
+                "offset {offset}: {content}"
+            );
+        }
+    }
+
+    #[test]
+    fn multi_line_secret_straddling_a_page_boundary_is_redacted() {
+        let value = "\"s3cr3tValueThatIsLongEnough42\"";
+        let source = format!("{}jwt_secret =\n{value}\n{}", filler(9), filler(5));
+        let full = security()
+            .sanitize(&source, Path::new("/fixture/app.ts"))
+            .expect("scan")
+            .0;
+        assert!(
+            !full.contains("s3cr3t"),
+            "fixture must be a real multi-line secret"
+        );
+        // Line 10 holds the key, line 11 the value; page 2 starts on the value.
+        let result = fetch(&source, &lines_query(10, 5));
+        let content = result.content.expect("content");
+        assert!(!content.contains("s3cr3t"), "{content}");
+        assert!(
+            result.source_line_ranges.is_empty(),
+            "redacted page drops source mapping"
+        );
+    }
+
+    #[test]
+    fn paged_union_equals_the_whole_view_scan() {
+        let source = format!(
+            "{}token: ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n{}password =\n\"another-long-secret-value-0001\"\n{}",
+            filler(40),
+            filler(37),
+            filler(60)
+        );
+        let expected = security()
+            .sanitize(&source, Path::new("/fixture/app.ts"))
+            .expect("scan")
+            .0;
+        let mut q = lines_query(0, 13);
+        let mut union = String::new();
+        loop {
+            let result = fetch(&source, &q);
+            union.push_str(result.content.as_deref().expect("content"));
+            let Some(next) = result.next.and_then(|next| next.r#continue) else {
+                break;
+            };
+            q = next.query;
+        }
+        assert_eq!(union, expected);
+    }
+
+    fn bytes_query(offset: usize, chunk: usize) -> LocalFetchQuery {
+        LocalFetchQuery {
+            chunk_type: Some(ChunkType::Bytes),
+            ..lines_query(offset, chunk)
+        }
+    }
+
+    /// Byte pages walked by `next.continue` reproduce the whole-view scan:
+    /// every secret is redacted, including ones a raw byte boundary would cut.
+    #[test]
+    fn byte_pages_redact_secrets_straddling_the_boundary() {
+        let token = "ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let source = format!(
+            "{}token: {token}\n{}password =\n\"another-long-secret-value-0001\"\n{}",
+            filler(40),
+            filler(37),
+            filler(60)
+        );
+        let expected = security()
+            .sanitize(&source, Path::new("/fixture/app.ts"))
+            .expect("scan")
+            .0;
+        assert!(
+            !expected.contains("ghp_aaaa"),
+            "fixture holds a real secret"
+        );
+        let cut = source.find(token).expect("token") + 10;
+        for chunk in [cut, 97, 500] {
+            let mut q = bytes_query(0, chunk);
+            let mut union = String::new();
+            let mut pages = 0;
+            loop {
+                let result = fetch(&source, &q);
+                let content = result.content.as_deref().expect("content");
+                assert!(!content.contains("ghp_aaaa"), "chunk {chunk}: {content}");
+                assert!(
+                    !content.contains("another-long"),
+                    "chunk {chunk}: {content}"
+                );
+                union.push_str(content);
+                pages += 1;
+                let Some(next) = result.next.and_then(|next| next.r#continue) else {
+                    break;
+                };
+                q = next.query;
+            }
+            assert!(pages > 1, "chunk {chunk}");
+            assert_eq!(union, expected, "chunk {chunk}");
+        }
+    }
+
+    #[test]
+    fn byte_page_split_inside_a_pem_block_leaks_nothing() {
+        let body = "MIIEpAIBAAKCAQEAsplitKeyBodyLineABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        let source = format!(
+            "{}-----BEGIN RSA PRIVATE KEY-----\n{body}\n{body}\n-----END RSA PRIVATE KEY-----\n{}",
+            filler(98),
+            filler(20)
+        );
+        let cut = source.find(body).expect("body") + 20;
+        for offset in [0, cut] {
+            let result = fetch(&source, &bytes_query(offset, 64));
+            let content = result.content.expect("content");
+            assert!(
+                !content.contains("splitKeyBody"),
+                "offset {offset}: {content}"
+            );
+        }
+    }
+
+    /// The byte page scans a bounded window, not the whole view: the secret
+    /// scanner sees the page plus its line-aligned margins only.
+    #[test]
+    fn byte_page_scans_a_window_not_the_whole_view() {
+        struct Counting(ContentSecurity, std::cell::Cell<usize>);
+        impl ContentScan for Counting {
+            fn sanitize(
+                &self,
+                text: &str,
+                path: &Path,
+            ) -> Result<(String, Vec<String>), (String, String)> {
+                self.1.set(self.1.get() + text.len());
+                self.0.sanitize(text, path)
+            }
+        }
+        let source = (0..120_000)
+            .map(|i| format!("const value_{i} = compute('abcdefghij', {i}); // key line {i}\n"))
+            .collect::<String>();
+        let scanner = Counting(security(), std::cell::Cell::new(0));
+        let started = std::time::Instant::now();
+        let paged = process_fetched_content(
+            &bytes_query(source.len() / 2, 8_000),
+            source.as_bytes(),
+            Path::new("/fixture/app.ts"),
+            None,
+            &scanner,
+            &NeverCancel,
+            &LocalFetchRegex::default(),
+        );
+        let page_time = started.elapsed();
+        assert!(paged.content.is_some_and(|content| content.len() >= 8_000));
+        let scanned = scanner.1.get();
+        assert!(
+            scanned < 8_000 + 4 * super::super::pagination::PAGE_SCAN_MARGIN_BYTES,
+            "scanned {scanned} of {} bytes",
+            source.len()
+        );
+        let started = std::time::Instant::now();
+        let _ = security().sanitize(&source, Path::new("/fixture/app.ts"));
+        eprintln!(
+            "byte page {page_time:?} (scanned {scanned} B) vs whole-view scan {:?} ({} B)",
+            started.elapsed(),
+            source.len()
+        );
+    }
+
+    #[test]
+    fn offset_past_the_end_is_empty_out_of_range_with_restart() {
+        let source = filler(487);
+        let result = fetch(&source, &lines_query(487, 100));
+        assert_eq!(result.content.as_deref(), Some(""));
+        assert!(
+            result.source_line_ranges.is_empty(),
+            "{:?}",
+            result.source_line_ranges
+        );
+        assert!(result.out_of_range);
+        assert_eq!(result.is_partial, None);
+        let next = result.next.clone().expect("next");
+        assert!(next.r#continue.is_none());
+        assert_eq!(next.restart.expect("restart").query.offset, Some(0));
+        let wire = serde_json::to_value(&result).expect("wire");
+        assert_eq!(wire["pagination"]["outOfRange"], true, "{wire}");
+        assert!(wire.get("sourceLineRanges").is_none(), "{wire}");
+
+        let bytes = LocalFetchQuery {
+            chunk_type: Some(ChunkType::Bytes),
+            ..lines_query(source.len(), 100)
+        };
+        let result = fetch(&source, &bytes);
+        assert!(result.out_of_range && result.source_line_ranges.is_empty());
+        // The last real page is not out of range.
+        assert!(!fetch(&source, &lines_query(400, 100)).out_of_range);
     }
 }

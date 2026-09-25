@@ -159,18 +159,12 @@ impl IsolatedRegexEngine {
         let mut command = Command::new(&self.worker_path);
         // Start from an empty environment so the worker (which processes
         // untrusted regex input) never inherits octocode's secrets
-        // (GITHUB_TOKEN, OCTOCODE_CLASSIFICATION_API, AWS_*, …). Only the two explicit
-        // limit variables below are passed; the worker needs nothing else.
+        // (GITHUB_TOKEN, OCTOCODE_CLASSIFICATION_API, AWS_*, …). The resource
+        // limits are parent-owned arguments, not user configuration.
         command
             .env_clear()
-            .env(
-                "OCTOCODE_REGEX_MAX_MEMORY_BYTES",
-                self.limits.max_memory_bytes.to_string(),
-            )
-            .env(
-                "OCTOCODE_REGEX_MAX_CPU_SECONDS",
-                self.limits.max_cpu_seconds.to_string(),
-            )
+            .arg(self.limits.max_memory_bytes.to_string())
+            .arg(self.limits.max_cpu_seconds.to_string())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
@@ -208,7 +202,11 @@ impl IsolatedRegexEngine {
                 .read_to_end(&mut bytes)
                 .map(|_| bytes)
         });
+        // Sampled only where the worker's RSS is readable (macOS).
+        #[cfg(target_os = "macos")]
         let mut peak_rss_bytes = None;
+        #[cfg(not(target_os = "macos"))]
+        let peak_rss_bytes: Option<u64> = None;
         loop {
             if self.shutdown.load(Ordering::Acquire) {
                 let _ = child.kill();

@@ -43,6 +43,13 @@ available tool, it:
 A catalog entry without a matching registration schema is a startup error. This
 prevents the advertised native catalog and the MCP surface from drifting.
 
+Shared agent guidance is returned once in MCP `initialize.instructions`, built
+by core through `@octocodeai/config/mcp` for the available tools. `tools/list`
+descriptions contain only tool-specific guidance; never prefix them with the
+server instructions. A client may project server instructions into its model
+context differently, so inspect the raw MCP response before attributing repeated
+host metadata to server registration.
+
 ## Lifecycle
 
 `startNativeMcp()` connects `StdioServerTransport`. Its returned `close()` method

@@ -2,50 +2,56 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ChunkType {
-    #[default]
-    Lines,
-    Bytes,
-}
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum MinifyMode {
-    #[default]
-    None,
-    Standard,
-    Symbols,
+pub use crate::contracts::tool_types::{ChunkType, LocalFetchQuery, Minify};
+
+/// The engine works in `usize`; the wire contract (generated from the core
+/// Zod schema) owns the field set and its JSON integer types.
+impl LocalFetchQuery {
+    pub fn start_line(&self) -> Option<usize> {
+        self.start_line.map(|n| usize_of(n.get()))
+    }
+    pub fn end_line(&self) -> Option<usize> {
+        self.end_line.map(|n| usize_of(n.get()))
+    }
+    pub fn context_lines(&self) -> Option<usize> {
+        self.context_lines.map(usize_of_signed)
+    }
+    pub fn context_bytes(&self) -> Option<usize> {
+        self.context_bytes.map(usize_of_signed)
+    }
+    pub fn offset(&self) -> Option<usize> {
+        self.offset.map(usize_of_signed)
+    }
+    pub fn chunk_size(&self) -> Option<usize> {
+        self.chunk_size.map(|n| usize_of(n.get()))
+    }
+    pub fn match_string(&self) -> Option<&str> {
+        self.match_string.as_deref().map(String::as_str)
+    }
+    pub fn path(&self) -> &str {
+        self.path.as_str()
+    }
+    pub fn minify_mode(&self) -> Minify {
+        self.minify.unwrap_or(Minify::None)
+    }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct LocalFetchRequest {
-    pub path: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub full_content: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub match_string: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub match_string_is_regex: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub match_string_case_sensitive: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub start_line: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub end_line: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub context_lines: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub context_bytes: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub chunk_type: Option<ChunkType>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub offset: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub chunk_size: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub minify: Option<MinifyMode>,
+fn usize_of(value: u64) -> usize {
+    usize::try_from(value).unwrap_or(usize::MAX)
+}
+
+fn usize_of_signed(value: i64) -> usize {
+    usize::try_from(value).unwrap_or(0)
+}
+
+/// Encodes an engine `usize` as a positive wire integer.
+pub(crate) fn wire_positive(value: usize) -> Option<std::num::NonZeroU64> {
+    std::num::NonZeroU64::new(u64::try_from(value).unwrap_or(u64::MAX))
+}
+
+/// Encodes an engine `usize` as a non-negative wire integer.
+pub(crate) fn wire_count(value: usize) -> i64 {
+    i64::try_from(value).unwrap_or(i64::MAX)
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -70,7 +76,7 @@ pub struct Pagination {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Continuation {
     pub tool: String,
-    pub query: LocalFetchRequest,
+    pub query: LocalFetchQuery,
     pub confidence: String,
     #[serde(rename = "why", skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
@@ -81,12 +87,15 @@ pub struct NextCalls {
     pub r#continue: Option<Continuation>,
     #[serde(rename = "readBoundedLines", skip_serializing_if = "Option::is_none")]
     pub read_bounded_lines: Option<Continuation>,
+    /// Offset-zero recovery for a page requested past the end of the view.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub restart: Option<Continuation>,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MinifyFallback {
-    pub requested: MinifyMode,
-    pub applied: MinifyMode,
+    pub requested: Minify,
+    pub applied: Minify,
     pub reason: String,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -117,7 +126,7 @@ pub struct LocalFetchResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub content_view: Option<MinifyMode>,
+    pub content_view: Option<Minify>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub minify_fallback: Option<MinifyFallback>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -166,6 +175,10 @@ pub struct LocalFetchResult {
     pub terminal_limit: Option<bool>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub metadata_unavailable: Vec<String>,
+    /// The requested offset is past the end of the selected view; emitted as
+    /// `pagination.outOfRange`.
+    #[serde(default)]
+    pub out_of_range: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next: Option<NextCalls>,
 }
@@ -202,6 +215,7 @@ impl LocalFetchResult {
             partial_reasons: vec![],
             terminal_limit: None,
             metadata_unavailable: vec![],
+            out_of_range: false,
             next: None,
         }
     }
@@ -230,9 +244,11 @@ impl LocalFetchResult {
     /// A single complete page (offset 0, nothing more) carries no information
     /// beyond the top-level totals and the absence of `next`.
     fn pagination_is_redundant(&self) -> bool {
-        self.pagination
-            .as_ref()
-            .is_none_or(|page| page.offset == 0 && !page.has_more)
+        !self.out_of_range
+            && self
+                .pagination
+                .as_ref()
+                .is_none_or(|page| page.offset == 0 && !page.has_more)
     }
     fn returned_lines_are_derivable(&self) -> bool {
         !self.source_line_ranges.is_empty()
@@ -253,6 +269,7 @@ struct PaginationWire<'a> {
     page: &'a Pagination,
     source_lines: Option<usize>,
     source_bytes: Option<usize>,
+    out_of_range: bool,
 }
 impl Serialize for PaginationWire<'_> {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
@@ -277,6 +294,9 @@ impl Serialize for PaginationWire<'_> {
         map.serialize_entry("hasMore", &page.has_more)?;
         if let Some(next_offset) = page.next_offset {
             map.serialize_entry("nextOffset", &next_offset)?;
+        }
+        if self.out_of_range {
+            map.serialize_entry("outOfRange", &true)?;
         }
         map.end()
     }
@@ -305,7 +325,7 @@ impl Serialize for LocalFetchResult {
         }
         opt!("content", self.content);
         // `none` is the default view; only a transformed view is news.
-        if let Some(view) = self.content_view.filter(|view| *view != MinifyMode::None) {
+        if let Some(view) = self.content_view.filter(|view| *view != Minify::None) {
             map.serialize_entry("contentView", &view)?;
         }
         opt!("minifyFallback", self.minify_fallback);
@@ -350,6 +370,7 @@ impl Serialize for LocalFetchResult {
                     page,
                     source_lines: self.total_lines,
                     source_bytes: self.source_bytes,
+                    out_of_range: self.out_of_range,
                 },
             )?;
         }
@@ -460,7 +481,7 @@ impl PathAccess for crate::policy::path::PathPolicy {
             .map_err(|error| {
                 let missing = error.code == crate::policy::PolicyErrorCode::NotFound;
                 PathFailure {
-                    code: "pathValidationFailed".into(),
+                    code: error.local_error_code("pathValidationFailed").into(),
                     message: error.message,
                     safe_path: error.safe_path,
                     resource_missing: missing,
@@ -483,5 +504,14 @@ impl ContentScan for crate::security::ContentSecurity {
             ));
         }
         Ok((result.content, Vec::new()))
+    }
+}
+
+#[cfg(test)]
+impl LocalFetchQuery {
+    /// Minimal valid wire query; tests override the fields they exercise.
+    pub(crate) fn test_default() -> Self {
+        serde_json::from_value(serde_json::json!({"path": "_", "reasoning": "test"}))
+            .expect("minimal localFetch query")
     }
 }

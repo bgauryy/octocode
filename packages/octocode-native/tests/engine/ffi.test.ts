@@ -227,7 +227,7 @@ describe('scanGraphFacts', () => {
           entries: Array<{
             relativePath: string;
             factsJson: string;
-            referenceCounts: Array<{ name: string; count: number }>;
+            referenceCounts: Array<{ declarationId: string; count: number }>;
           }>;
           candidatePaths: string[];
           filesSkipped: number;

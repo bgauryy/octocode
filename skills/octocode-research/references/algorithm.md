@@ -10,7 +10,7 @@ Load when any research run starts and you need routing, proof grades, triangulat
 | concept/behavior | synonym regex → symbols view for anchors |
 | identifier | text or workspaceSymbol for a real location, then LSP if identity matters |
 | code shape | `astSearch` with `operation:"match"` and structural rules |
-| file/repository topology | `astSearch` with `operation:"topology"`: dependencies/dependents/path/cycles/reachability |
+| file/repository topology | `astTopology` (beta, `OCTOCODE_BETA=1`): dependencies/dependents/path/cycles/reachability |
 | installed package | inspect resolved version/source when access permits; compare the matching upstream release |
 | why/history | PR/commit history on the path |
 

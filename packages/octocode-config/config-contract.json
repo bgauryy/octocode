@@ -88,20 +88,10 @@
           },
           "notes": "ENABLE_LOCAL is canonical; OCTOCODE_ENABLE_LOCAL is an alias."
         },
-        "enableClone": {
-          "type": "boolean",
-          "default": false,
-          "description": "Legacy clone setting retained for config compatibility; CLI cloning requires persistent storage and MCP cloning is unavailable.",
-          "env": {
-            "ENABLE_CLONE": { "priority": 0 },
-            "OCTOCODE_ENABLE_CLONE": { "priority": 1 }
-          },
-          "notes": "This setting no longer gates ghCloneRepo. ENABLE_CLONE is canonical over OCTOCODE_ENABLE_CLONE."
-        },
         "beta": {
           "type": "boolean",
           "default": false,
-          "description": "Enable beta features. Currently the sole gate for the astRewrite tool (both preview and apply); off by default on every surface.",
+          "description": "Enable beta features. Gates the astRewrite (preview and apply) and astTopology tools; off by default on every surface.",
           "env": {
             "OCTOCODE_BETA": { "priority": 0 }
           }
@@ -216,7 +206,7 @@
           "constantName": "OUTPUT_FORMAT",
           "valuesConstant": "OUTPUT_FORMATS",
           "values": ["yaml", "json"],
-          "description": "Rendered response format.",
+          "description": "Encoding of rendered text content (the MCP text channel): yaml or json. Structured content and CLI stdout are always JSON.",
           "env": {
             "OCTOCODE_OUTPUT_FORMAT": { "priority": 0, "normalize": "lower", "invalid": "default" }
           }
@@ -266,6 +256,46 @@
           "description": "Whether caches and runtime state may persist on disk.",
           "env": {
             "OCTOCODE_STORAGE_MODE": { "priority": 0, "normalize": "lower", "invalid": "skip" }
+          }
+        }
+      }
+    },
+    "cloneCache": {
+      "title": "Clone cache",
+      "file": true,
+      "resolved": true,
+      "fields": {
+        "ttl": {
+          "type": "number",
+          "constantName": "CLONE_CACHE_TTL",
+          "minimum": 60000,
+          "span": 2591940000,
+          "defaultOffset": 86340000,
+          "description": "Milliseconds a ghCloneRepo checkout stays fresh before it is re-fetched.",
+          "env": {
+            "OCTOCODE_CACHE_TTL_MS": { "priority": 0 }
+          }
+        },
+        "maxSize": {
+          "type": "number",
+          "constantName": "CLONE_CACHE_MAX_SIZE",
+          "minimum": 1048576,
+          "span": 1099510579200,
+          "defaultOffset": 2146435072,
+          "description": "Byte cap for the on-disk ghCloneRepo cache; least-recently-used checkouts are evicted above it.",
+          "env": {
+            "OCTOCODE_MAX_CACHE_SIZE": { "priority": 0 }
+          }
+        },
+        "maxClones": {
+          "type": "number",
+          "constantName": "CLONE_CACHE_MAX_CLONES",
+          "minimum": 1,
+          "span": 999,
+          "defaultOffset": 49,
+          "description": "Maximum repositories the ghCloneRepo cache keeps.",
+          "env": {
+            "OCTOCODE_MAX_CLONES": { "priority": 0 }
           }
         }
       }

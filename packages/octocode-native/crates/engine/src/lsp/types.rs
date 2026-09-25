@@ -61,5 +61,3 @@ pub struct JsFuzzyPosition {
     pub line_hint: Option<u32>,
     pub order_hint: Option<u32>,
 }
-
-pub type Range = JsRange;

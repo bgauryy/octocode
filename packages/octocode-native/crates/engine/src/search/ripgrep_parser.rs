@@ -1,9 +1,6 @@
 /// Ripgrep `--json` NDJSON output parser.
 ///
-/// Replaces the TypeScript `parseRipgrepJson` (utils/parsers/ripgrep.ts) which
-/// ran `JSON.parse` + Zod `safeParse` per line and a `[...value]` UTF-16 spread
-/// per match snippet. This module does a single streaming pass with `serde_json`,
-/// grouping match/context lines by file and assembling context windows in one go.
+/// A single streaming pass with `serde_json`, grouping match/context lines by file and assembling context windows in one go.
 use std::collections::{HashMap, hash_map::Entry};
 
 use serde::Deserialize;
@@ -136,7 +133,7 @@ fn utf16_to_char_index(line: &str, column: u32) -> usize {
 }
 
 /// Clip `line` to `max_chars`, keeping the match at UTF-16 `column` visible.
-/// Lines whose match already fits the head are truncated as before; otherwise
+/// Lines whose match already fits the head are truncated from the start; otherwise
 /// the window starts a quarter-snippet before the match and is marked with `…`.
 fn clip_around_match(line: &str, column: u32, max_chars: usize) -> String {
     let match_char = utf16_to_char_index(line, column);
@@ -456,8 +453,7 @@ mod tests {
 
     #[test]
     fn parses_begin_and_end_events_without_dropping_matches() {
-        // Regression: begin/end `data` is an object; with the old `Begin(())`
-        // these lines failed to deserialize. They must now parse and be ignored.
+        // begin/end `data` is an object; those lines must parse and be ignored.
         let begin = serde_json::json!({
             "type": "begin", "data": { "path": { "text": "f.ts" } }
         })
@@ -553,7 +549,7 @@ mod tests {
 
     #[test]
     fn truncated_content_snippet_records_original_char_length() {
-        // Fix 7: a clipped content-view snippet carries the pre-truncation
+        // A clipped content-view snippet carries the pre-truncation
         // Unicode length so callers can surface a truncation indicator.
         let long = "a".repeat(600);
         let stdout = make_match_line("f.ts", &format!("{long}\n"), 1, 0);

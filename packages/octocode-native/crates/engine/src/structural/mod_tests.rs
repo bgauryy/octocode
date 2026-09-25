@@ -330,9 +330,8 @@ fn search_files_errors_on_nonexistent_root_for_every_prefilter_branch() {
 
     // Literal-anchored pattern (`target(` anchor → ripgrep prefilter branch),
     // no-anchor pattern (`$FN($$$ARGS)` → walker branch), and a rule. A
-    // nonexistent root must be a LOUD error on all of them — the anchored
-    // branch used to return Ok(0 matches) because ripgrep yields zero
-    // candidates from a missing root without complaining.
+    // nonexistent root must be a LOUD error on all of them — ripgrep yields
+    // zero candidates from a missing root without complaining.
     for (pattern, rule) in [
         (Some("target($X)".to_owned()), None),
         (Some("$FN($$$ARGS)".to_owned()), None),
@@ -859,10 +858,8 @@ fn operator_spacing_does_not_split_directory_and_file_results() {
 // anti-pattern the evidence-grade contract forbids.
 
 // ── scope parity: exclude / hidden / no_ignore / max_depth ───────────────
-// Local search defines `exclude`/`hidden`/`noIgnore`/`maxDepth`
-// and the text/regex lane forwards them. The structural lane previously
-// dropped them silently — a typed-contract violation. These tests pin the
-// parity.
+// Local search defines `exclude`/`hidden`/`noIgnore`/`maxDepth`; the
+// structural lane must honor them like the text/regex lane.
 
 fn write_scope_fixture(root: &std::path::Path) {
     fs::write(root.join("match.ts"), "target(value);\n").expect("match");

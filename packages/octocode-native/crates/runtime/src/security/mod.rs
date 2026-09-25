@@ -1,5 +1,4 @@
 mod content;
-mod registry;
 mod walk;
 
 pub use content::{ContentSecurity, ValidationResult};
@@ -8,5 +7,4 @@ pub(crate) use content::{
     redact_private_key_blocks, snippet_may_hold_key_material,
 };
 pub use octocode_engine::security::types::SanitizationResult;
-pub use registry::{SecurityRegistry, SensitiveDataPattern};
 pub use walk::sanitize_json;

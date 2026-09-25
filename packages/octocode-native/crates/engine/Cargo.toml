@@ -54,6 +54,7 @@ napi = { workspace = true, optional = true }
 napi-derive = { workspace = true, optional = true }
 oxc_allocator = "=0.150.0"
 oxc_ast = "=0.150.0"
+oxc_ast_visit = "=0.150.0"
 oxc_parser = "=0.150.0"
 oxc_semantic = "=0.150.0"
 oxc_span = "=0.150.0"

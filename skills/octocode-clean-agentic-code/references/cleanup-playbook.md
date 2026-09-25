@@ -10,7 +10,7 @@ State the target paths, which smell classes are in scope, and what is explicitly
 
 | Class | Tool | Query |
 |-------|------|-------|
-| Shims / re-exports / aliases | `localSearch`, exact read, applicable `lspSearch` references, `astSearch` topology | discover candidates; trace symbol uses and configuration/entrypoint paths |
+| Shims / re-exports / aliases | `localSearch`, exact read, applicable `lspSearch` references, `astTopology` (beta) | discover candidates; trace symbol uses and configuration/entrypoint paths |
 | Duplicate logic | `astSearch` match (AST) | diff candidates; confirm consumers |
 | Config length / redundancy | `localFetch` minify:none | line count; key audit |
 | Hierarchy / misplacement | `astSearch` tree | file count per folder; layer mismatch |
@@ -18,7 +18,7 @@ State the target paths, which smell classes are in scope, and what is explicitly
 | Schema / type redundancy | `astSearch` match + `lspSearch` references | compare shapes, semantic roles, consumers, and protocol compatibility |
 | Dependency junk | `localFetch` minify:none on each package.json | unused, duplicate, misaligned, phantom deps |
 | Test debt | `astSearch` with `operation:"files"` and a name/path filter on the candidate package + `localFetch` with `minify:"symbols"` on each hit | numbered/dated files, skip blocks, rigid mocks, redundant stubs, env-coupled setup |
-| Agent residue | `astSearch` topology dependents/deadCode, then `localSearch` | zero-dependent new files, reinvented helpers, narration comments, masked failures |
+| Agent residue | `astTopology` dependents/deadCode (beta; else `lspSearch` references), then `localSearch` | zero-dependent new files, reinvented helpers, narration comments, masked failures |
 
 ## INVENTORY
 

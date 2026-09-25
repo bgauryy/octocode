@@ -442,7 +442,7 @@ fn install_writes_npx_latest_and_never_octo_mcp() {
 
 #[test]
 fn skill_lifecycle_runs_natively_without_the_node_cli() {
-    // R6: list/install/remove/check/info work with the npm CLI absent. The
+    // list/install/remove/check/info work with the npm CLI absent. The
     // workspace PATH has no `octocode`, and the delegation guard is armed so
     // any accidental delegation fails loudly.
     let workspace = Workspace::new();
@@ -1020,8 +1020,26 @@ fn json_errors_do_not_leak_duplicate_stderr() {
     assert_eq!(exit_code(&malformed), Some(2));
     let error: serde_json::Value =
         serde_json::from_str(stdout(&malformed)).expect("machine-readable parse error");
-    assert_eq!(error["success"], false);
+    assert_eq!(error["kind"], "octocode.toolError");
+    assert_eq!(error["tool"], "localSearch");
     assert!(stderr(&malformed).is_empty(), "{}", stderr(&malformed));
+
+    let unknown = workspace
+        .cli()
+        .args(["--json-errors", "notACommand"])
+        .output()
+        .expect("unknown subcommand");
+    assert_eq!(exit_code(&unknown), Some(2));
+    let error: serde_json::Value =
+        serde_json::from_str(stdout(&unknown)).expect("machine-readable clap error");
+    assert_eq!(error["kind"], "octocode.toolError");
+    assert!(
+        error["error"]
+            .as_str()
+            .is_some_and(|message| message.contains("notACommand")),
+        "{error}"
+    );
+    assert!(stderr(&unknown).is_empty(), "{}", stderr(&unknown));
 }
 
 #[test]

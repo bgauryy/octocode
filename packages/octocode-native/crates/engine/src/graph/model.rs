@@ -25,6 +25,10 @@ pub struct GraphFactDeclaration {
     pub range: GraphRange,
     pub selection_range: GraphRange,
     pub exported: bool,
+    /// Public names when an exported local binding is exported under another
+    /// name (`export { foo as bar }`, named default exports).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub exported_as: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent: Option<String>,
 }
@@ -68,6 +72,9 @@ pub struct GraphFactExport {
 pub struct GraphFactCall {
     pub id: String,
     pub caller: String,
+    /// Declaration id of the enclosing caller; absent for module-level code.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub caller_id: Option<String>,
     pub callee: String,
     pub line: u32,
     pub range: GraphRange,

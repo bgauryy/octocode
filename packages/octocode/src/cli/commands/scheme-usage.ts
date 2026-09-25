@@ -20,37 +20,66 @@ function propConst(prop: JsonValue, defs: JsonObject): JsonValue | undefined {
   return undefined;
 }
 
-/** Return the first required scalar discriminator as `[property, value]`. */
+function scalarConst(
+  props: JsonObject,
+  key: string,
+  defs: JsonObject
+): string | undefined {
+  const value = propConst(props[key], defs);
+  return typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean'
+    ? String(value)
+    : undefined;
+}
+
+function branchProps(branch: JsonObject): JsonObject {
+  return branch.properties &&
+    typeof branch.properties === 'object' &&
+    !Array.isArray(branch.properties)
+    ? (branch.properties as JsonObject)
+    : {};
+}
+
+/**
+ * Return the branch's scalar discriminator as `[property, value]`: the first
+ * const whose value differs across sibling branches (astTopology fixes
+ * `operation=topology` in every branch; `analysis` is what varies), else the
+ * first const.
+ */
 function discriminator(
   props: JsonObject,
   required: readonly string[],
-  defs: JsonObject
+  defs: JsonObject,
+  siblings: readonly JsonObject[]
 ): [string, string] {
   const keys = required.length > 0 ? required : Object.keys(props);
+  let first: [string, string] | undefined;
   for (const key of keys) {
-    const value = propConst(props[key], defs);
+    const value = scalarConst(props, key, defs);
+    if (value === undefined) continue;
+    first ??= [key, value];
     if (
-      typeof value === 'string' ||
-      typeof value === 'number' ||
-      typeof value === 'boolean'
+      siblings.some(
+        other => scalarConst(branchProps(other), key, defs) !== value
+      )
     ) {
-      return [key, String(value)];
+      return [key, value];
     }
   }
-  return ['', ''];
+  return first ?? ['', ''];
 }
 
-function branchUsage(branch: JsonObject, defs: JsonObject): string {
-  const props =
-    branch.properties &&
-    typeof branch.properties === 'object' &&
-    !Array.isArray(branch.properties)
-      ? (branch.properties as JsonObject)
-      : {};
+function branchUsage(
+  branch: JsonObject,
+  defs: JsonObject,
+  siblings: readonly JsonObject[]
+): string {
+  const props = branchProps(branch);
   const required = Array.isArray(branch.required)
     ? branch.required.map(String)
     : [];
-  const [labelKey, labelValue] = discriminator(props, required, defs);
+  const [labelKey, labelValue] = discriminator(props, required, defs, siblings);
   const mandatory = required
     .filter(name => name !== labelKey)
     .map(name => `<${name}>`)
@@ -91,7 +120,7 @@ export function usageLines(tool: JsonObject): string[] {
       ? (projected.$defs as JsonObject)
       : {};
   const lines = branches
-    .map(branch => branchUsage(branch, defs))
+    .map(branch => branchUsage(branch, defs, branches))
     .filter(line => line.length > 0);
   const unique = [...new Set(lines)];
   return unique.length > 0

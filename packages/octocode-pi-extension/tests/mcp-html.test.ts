@@ -225,7 +225,7 @@ test('settings.html shows live commands plus the complete skill/MCP surface and 
   assert.match(html, /Review and link import/);
   assert.match(html, /discovered · read-only · disabled by default/);
   assert.doesNotMatch(html, /FOREIGN SECRET/);
-  assert.doesNotMatch(html, /ARG SECRET|QUERY_SECRET|user:pass|fragment/);
+  assert.doesNotMatch(html, /ARG SECRET|QUERY_SECRET|user:pass|#fragment/);
   assert.match(html, /Everything lives here/);
   assert.match(html, /run <code>\/config<\/code>/i);
   assert.match(html, new RegExp(configPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));

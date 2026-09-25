@@ -1905,11 +1905,63 @@ static PATTERN_REGEX_CELLS: LazyLock<Vec<OnceLock<Regex>>> = LazyLock::new(|| {
         .collect()
 });
 
+/// Rewrite Unicode `\b` to ASCII `(?-u:\b)`. A Unicode word boundary makes the
+/// regex crate abandon its fast DFA on any non-ASCII haystack (12–20× slower on
+/// multi-MB files). The ASCII boundary also fires next to non-ASCII letters, so
+/// it only widens redaction around the ASCII token shapes these patterns match.
+fn ascii_word_boundaries(pattern: &str) -> String {
+    let mut out = String::with_capacity(pattern.len() + 16);
+    let mut chars = pattern.chars();
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            out.push(ch);
+            continue;
+        }
+        match chars.next() {
+            Some('b') => out.push_str("(?-u:\\b)"),
+            Some(escaped) => {
+                out.push('\\');
+                out.push(escaped);
+            }
+            None => out.push('\\'),
+        }
+    }
+    out
+}
+
 /// Get (compiling at most once) the Regex for pattern `idx`.
 pub fn pattern_regex(idx: usize) -> &'static Regex {
     // Built-in pattern strings are constants validated by the pattern tests; a
     // compile failure is a build-time bug, not a runtime condition.
     #[allow(clippy::expect_used)]
-    PATTERN_REGEX_CELLS[idx]
-        .get_or_init(|| Regex::new(PATTERN_STRINGS[idx]).expect(PATTERNS[idx].name))
+    PATTERN_REGEX_CELLS[idx].get_or_init(|| {
+        Regex::new(&ascii_word_boundaries(PATTERN_STRINGS[idx])).expect(PATTERNS[idx].name)
+    })
+}
+
+#[cfg(test)]
+mod ascii_boundary_tests {
+    use super::*;
+
+    #[test]
+    fn rewrites_only_word_boundary_escapes() {
+        assert_eq!(
+            ascii_word_boundaries(r"\bsk-\d+\b"),
+            r"(?-u:\b)sk-\d+(?-u:\b)"
+        );
+        assert_eq!(ascii_word_boundaries(r"a\\b"), r"a\\b");
+    }
+
+    #[test]
+    fn every_pattern_compiles_and_still_matches_next_to_non_ascii_text() {
+        for idx in 0..PATTERN_STRINGS.len() {
+            let _ = pattern_regex(idx);
+        }
+        let idx = PATTERN_STRINGS
+            .iter()
+            .position(|p| p.starts_with(r"\bsk-proj-"))
+            .expect("openai project key pattern");
+        let text = "é sk-proj-abcdefghijklmnopqrstuvwx ü";
+        assert!(pattern_regex(idx).is_match(text));
+    }
 }

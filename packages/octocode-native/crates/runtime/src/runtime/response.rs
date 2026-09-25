@@ -1,4 +1,5 @@
 //! Transport-neutral structured result metadata and lossless path compaction.
+use crate::tools::id::ToolId;
 use serde_json::{Map, Value, json};
 use std::path::Path;
 
@@ -48,7 +49,6 @@ const ADVISORY_CALLS: &[&str] = &[
     "cloneForSemantics",
     "lspDefinition",
     "lspReferences",
-    "readIssue",
     "prDetail",
 ];
 
@@ -139,105 +139,93 @@ fn has_recovery(value: &Value) -> bool {
     false
 }
 
-fn fallback_hint(tool: &str, query: &Value) -> Option<&'static str> {
+/// Recovery for an empty or unhinted error row, by tool. Exhaustive over
+/// `ToolId` so a new tool must choose its fallback at compile time.
+fn fallback_hint(tool: ToolId, query: &Value) -> &'static str {
     match tool {
-        "ghSearch" if query["operation"] == "tree" => {
-            Some("Verify owner/repo/branch, or broaden path/depth.")
+        ToolId::GhSearch if query["operation"] == "tree" => {
+            "Verify owner/repo/branch, or broaden path/depth."
         }
-        "ghSearch" => Some("Broaden keywords or remove filters."),
-        "ghGetFileContent" => Some("Verify owner/repo/branch/path, or remove matchString."),
-        "ghSearchHistory" => Some("Broaden keywords or remove history filters."),
-        "ghGetHistoryItem" => Some("Verify owner/repo and the number, ref, or compare refs."),
-        "artifactSearch" => Some("Check packageName, or broaden keywords."),
-        "clasify" => Some("Inspect resources, typed questions, and OCTOCODE_CLASSIFICATION_API."),
-        "ghCloneRepo" => Some("Verify owner/repo/branch and sparsePath."),
-        "localSearch" => Some("Broaden searchText, path, or filters."),
-        "astSearch"
-            if matches!(query["operation"].as_str(), Some("files"))
-                || query["treeKind"] == "filesystem" =>
-        {
-            Some("Broaden path or file filters.")
-        }
-        "astTopology" => Some("Inspect diagnostics, then broaden the graph scope if needed."),
+        ToolId::GhSearch => "Broaden keywords or remove filters.",
+        ToolId::GhGetFileContent => "Verify owner/repo/branch/path, or remove matchString.",
+        ToolId::GhSearchHistory => "Broaden keywords or remove history filters.",
+        ToolId::GhGetHistoryItem => "Verify owner/repo and the number, ref, or compare refs.",
+        ToolId::ArtifactSearch => "Check packageName, or broaden keywords.",
+        ToolId::Clasify => "Inspect resources, typed questions, and OCTOCODE_CLASSIFICATION_API.",
+        ToolId::GhCloneRepo => "Verify owner/repo/branch and sparsePath.",
+        ToolId::LocalSearch => "Broaden searchText, path, or filters.",
+        ToolId::AstSearch if query["operation"] == "files" => "Broaden path or file filters.",
         // A pattern must parse as a complete node: `const $A = $B` misses
         // statements that `const $A = $B;` matches.
-        "astSearch" if query["operation"] == "match" && query["pattern"].is_string() => Some(
-            "Write the pattern as a complete node (keep terminators like `;`), check a tree view, then broaden path or filters.",
-        ),
-        "astSearch" => Some("Broaden the syntax/name query, path, or filters."),
-        "astRewrite" if query["apply"] == true => {
-            Some("Preview again and copy every current beforeHash before applying.")
+        ToolId::AstSearch if query["operation"] == "match" && query["pattern"].is_string() => {
+            "Write the pattern as a complete node (keep terminators like `;`), check a tree view, then broaden path or filters."
         }
-        "astRewrite" => Some("Broaden the structural pattern, path, or file filters."),
-        "localFetch" => Some("Verify path/range, or remove matchString."),
-        "lspSearch" => Some("Refresh uri/symbolName/lineHint, or broaden workspaceRoot."),
-        _ => None,
+        ToolId::AstSearch => "Broaden the syntax/name query, path, or filters.",
+        ToolId::AstTopology => "Inspect diagnostics, then broaden the graph scope if needed.",
+        ToolId::AstRewrite => "Broaden the structural pattern, path, or file filters.",
+        ToolId::LocalFetch => "Verify path/range, or remove matchString.",
+        ToolId::LspSearch => "Refresh uri/symbolName/lineHint, or broaden workspaceRoot.",
     }
 }
 
-fn error_fallback_hint(tool: &str, query: &Value, row: &Value) -> Option<&'static str> {
+const SANDBOX_HINT: &str = "The path is outside the allowed roots: run from inside the workspace, or add it to ALLOWED_PATHS / WORKSPACE_ROOT.";
+
+/// Recovery keyed by the exact `errorCode` values the runtime emits
+/// (provider kinds, policy/AST/LSP/clone/classification codes). Codes not
+/// listed fall back to the tool hint.
+fn error_code_hint(tool: ToolId, code: &str) -> Option<&'static str> {
+    Some(match (tool, code) {
+        (
+            _,
+            crate::policy::PATH_OUTSIDE_ALLOWED_ROOTS
+            | "ast.policy.outsideAllowedRoots"
+            | "ast.policy.symlinkEscape",
+        ) => SANDBOX_HINT,
+        (_, "authentication") => "Authenticate or correct credentials; do not broaden the query.",
+        (_, "permission" | "ast.policy.permissionDenied") => {
+            "Verify access and token scopes; do not treat denial as absence."
+        }
+        (_, "rateLimited" | "rate_limit" | "clone.rateLimited" | "classificationRateLimited") => {
+            "Wait for Retry-After or the provider reset before retrying."
+        }
+        (
+            _,
+            "timeout"
+            | "transport"
+            | "network.timeout"
+            | "lsp.timeout"
+            | "clone.execution.timeout"
+            | "clone.cache.lockTimeout"
+            | "ast.rewrite.lock_timeout",
+        ) => "Retry once; if it persists, narrow scope and verify provider availability.",
+        (_, "staleSnapshot" | "ast.snapshot.changed" | "lsp.snapshot.changed") => {
+            "Discard prior pages and restart without the stale snapshot."
+        }
+        (ToolId::LocalFetch, "fileAccessFailed") => {
+            "Verify the path with astSearch operation:\"files\", then retry the exact path."
+        }
+        (ToolId::AstSearch, "structural.query.compileFailed" | "ast.query.invalidPattern") => {
+            "Make the pattern a complete node (add `;` or the body), or inspect its shape with treeKind:\"syntax\"."
+        }
+        (ToolId::AstSearch, "ast.policy.inputTooLarge" | "ast.source.limit") => {
+            "Target a smaller file or narrower directory scope."
+        }
+        (
+            ToolId::AstSearch,
+            "ast.language.required" | "ast.language.unsupported" | "ast.language.mismatch",
+        ) => "Set langType to the grammar of the source files (e.g. \"typescript\", \"rust\").",
+        _ => return None,
+    })
+}
+
+fn error_fallback_hint(tool: ToolId, query: &Value, row: &Value) -> &'static str {
     let code = row
         .pointer("/data/errorCode")
         .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    let message = row
-        .pointer("/data/error")
-        .and_then(Value::as_str)
         .unwrap_or_default();
-    // A sandbox refusal is about where the process runs, not the query.
-    if message.contains("outside allowed directories") {
-        return Some(
-            "The path is outside the allowed roots: run from inside the workspace, or add it to ALLOWED_PATHS / WORKSPACE_ROOT.",
-        );
-    }
-    if code.contains("auth") {
-        return Some("Authenticate or correct credentials; do not broaden the query.");
-    }
-    if code.contains("permission") || code.contains("forbidden") {
-        return Some("Verify access and token scopes; do not treat denial as absence.");
-    }
-    if code.contains("rate") {
-        return Some("Wait for Retry-After or the provider reset before retrying.");
-    }
-    if code.contains("timeout") || code.contains("transport") {
-        return Some("Retry once; if it persists, narrow scope and verify provider availability.");
-    }
-    if code.contains("snapshot") {
-        return Some("Discard prior pages and restart without the stale snapshot.");
-    }
-    if tool == "localFetch" && code.contains("fileaccess") {
-        return Some(
-            "Verify the path with astSearch operation:\"files\", then retry the exact path.",
-        );
-    }
-    if tool == "astSearch"
-        && let Some(hint) = ast_search_error_hint(&code)
-    {
-        return Some(hint);
-    }
-    fallback_hint(tool, query)
-}
-
-/// astSearch failures whose recovery is not "broaden the query".
-fn ast_search_error_hint(code: &str) -> Option<&'static str> {
-    if code.contains("outsideallowedroots") || code.contains("symlinkescape") {
-        return Some("Use a path inside an allowed root; broadening will not help.");
-    }
-    if code.contains("compilefailed") {
-        return Some(
-            "Make the pattern a complete node (add `;` or the body), or inspect its shape with treeKind:\"syntax\".",
-        );
-    }
-    if code.contains("inputtoolarge") || code.contains("source.limit") {
-        return Some("Target a smaller file or narrower directory scope.");
-    }
-    if code.starts_with("ast.language.") {
-        return Some(
-            "Set langType to the grammar of the source files (e.g. \"typescript\", \"rust\").",
-        );
-    }
-    None
+    // Local tools report a sandbox refusal under its own code
+    // (`pathOutsideAllowedRoots`), so the hint is keyed by code alone.
+    error_code_hint(tool, code).unwrap_or_else(|| fallback_hint(tool, query))
 }
 
 fn add_fallback_hint(row: &mut Value, position: usize, tool: &str, queries: &[Value]) {
@@ -249,14 +237,14 @@ fn add_fallback_hint(row: &mut Value, position: usize, tool: &str, queries: &[Va
         .get("index")
         .and_then(Value::as_u64)
         .unwrap_or(position as u64) as usize;
+    let Some(tool) = ToolId::from_name(tool) else {
+        return;
+    };
     let query = queries.get(index).cloned().unwrap_or(Value::Null);
     let hint = if status == Some("error") {
         error_fallback_hint(tool, &query, row)
     } else {
         fallback_hint(tool, &query)
-    };
-    let Some(hint) = hint else {
-        return;
     };
     let Some(data) = row.get_mut("data").and_then(record_mut) else {
         return;
@@ -648,14 +636,19 @@ fn pagination_codes(data: &Value) -> Vec<String> {
     }
 }
 
-/// AST tools format row paths relative to the queried root before the shared
-/// envelope compactor runs. Restore the same absolute base emitted by the
-/// TypeScript finalizer so consumers can resolve those paths losslessly.
+/// Anchor the envelope `base` on the query's scan root so `join(base, path)`
+/// is the real file for every row and `base` is identical across pages:
+/// - astSearch rows lead with the root's own name, so `base` is its parent.
+/// - astTopology row fields (`file`, entrypoints, diagnostics) are relative to
+///   the scanned directory, so `base` is that directory and the row `path` is
+///   `.` (a file root keeps its parent and file name).
+/// - localSearch rows were compacted against the common directory of the rows
+///   on this page; re-anchor them on the queried directory.
 pub fn attach_query_base(value: &mut Value, tool: &str, query: &Value) {
     let has_error = value["results"]
         .as_array()
         .is_some_and(|rows| rows.iter().any(|row| row["status"] == "error"));
-    if !matches!(tool, "astSearch" | "astTopology") || has_error {
+    if !matches!(tool, "astSearch" | "astTopology" | "localSearch") || has_error {
         return;
     }
     let Some(path) = query.get("path").and_then(Value::as_str) else {
@@ -664,22 +657,103 @@ pub fn attach_query_base(value: &mut Value, tool: &str, query: &Value) {
     let Ok(canonical) = std::fs::canonicalize(path) else {
         return;
     };
-    if tool == "astTopology" {
-        let display_name = canonical
-            .file_name()
-            .map(|name| name.to_string_lossy().into_owned());
-        if let (Some(name), Some(rows)) = (display_name, value["results"].as_array_mut()) {
-            for row in rows {
-                if row["data"]["path"] == "." {
-                    row["data"]["path"] = json!(name);
+    let is_dir = canonical.is_dir();
+    let Some(parent) = canonical.parent() else {
+        return;
+    };
+    let root = if is_dir { canonical.as_path() } else { parent };
+    match tool {
+        "astTopology" => {
+            let display = if is_dir {
+                Some(".".to_owned())
+            } else {
+                canonical
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+            };
+            if let (Some(display), Some(rows)) = (display, value["results"].as_array_mut()) {
+                for row in rows {
+                    if row["data"].get("path").is_some_and(Value::is_string) {
+                        row["data"]["path"] = json!(display);
+                    }
+                }
+            }
+            value["base"] = json!(root.to_string_lossy());
+        }
+        "localSearch" => {
+            let absolute = Path::new(path).is_absolute().then_some(path);
+            for candidate in [
+                Some(root.to_string_lossy().into_owned()),
+                absolute.map(str::to_owned),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                if rebase_row_paths(value, &candidate) {
+                    break;
                 }
             }
         }
+        _ => {
+            if value.get("base").is_none() {
+                value["base"] = json!(parent.to_string_lossy());
+            }
+        }
     }
-    if value.get("base").is_none()
-        && let Some(parent) = canonical.parent()
-    {
-        value["base"] = json!(parent.to_string_lossy());
+}
+
+/// Re-express the envelope's compacted row paths relative to `root` when the
+/// envelope chose a deeper common directory. Returns whether `base` is now
+/// `root` (or there was no base to move).
+fn rebase_row_paths(value: &mut Value, root: &str) -> bool {
+    let Some(base) = value["base"].as_str().map(str::to_owned) else {
+        return true;
+    };
+    if base == root {
+        return true;
+    }
+    let root_prefix = if root.ends_with('/') {
+        root.to_owned()
+    } else {
+        format!("{root}/")
+    };
+    let Some(prefix) = base.strip_prefix(&root_prefix).map(str::to_owned) else {
+        return false;
+    };
+    if let Some(rows) = value["results"].as_array_mut() {
+        for row in rows {
+            prefix_relative_paths(&mut row["data"], 0, &prefix);
+        }
+    }
+    value["base"] = json!(root);
+    true
+}
+
+/// Inverse of [`rewrite_paths`] for one directory prefix: same traversal and
+/// exclusions, applied to the relative `path` fields it produced.
+fn prefix_relative_paths(value: &mut Value, depth: usize, prefix: &str) {
+    if depth > 8 {
+        return;
+    }
+    match value {
+        Value::Object(map) => {
+            if let Some(Value::String(path)) = map.get_mut("path")
+                && !Path::new(path.as_str()).is_absolute()
+            {
+                *path = format!("{prefix}/{path}");
+            }
+            for (key, child) in map {
+                if !matches!(key.as_str(), "next" | "location") {
+                    prefix_relative_paths(child, depth + 1, prefix);
+                }
+            }
+        }
+        Value::Array(array) => {
+            for child in array {
+                prefix_relative_paths(child, depth + 1, prefix);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -888,14 +962,71 @@ mod tests {
     #[test]
     fn empty_pattern_match_hints_at_complete_nodes() {
         let pattern = json!({"operation": "match", "pattern": "const $A = $B"});
-        assert!(
-            fallback_hint("astSearch", &pattern).is_some_and(|hint| hint.contains("complete node"))
-        );
+        assert!(fallback_hint(ToolId::AstSearch, &pattern).contains("complete node"));
         let rule = json!({"operation": "match", "rule": "id: x"});
         assert_eq!(
-            fallback_hint("astSearch", &rule),
-            Some("Broaden the syntax/name query, path, or filters.")
+            fallback_hint(ToolId::AstSearch, &rule),
+            "Broaden the syntax/name query, path, or filters."
         );
+    }
+
+    fn error_hint(tool: &str, query: &Value, code: &str, message: &str) -> String {
+        let mut row = json!({
+            "index": 0,
+            "status": "error",
+            "data": {"error": message, "errorCode": code}
+        });
+        apply_hint_policy(&mut row, tool, query);
+        row["data"]["hints"][0]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned()
+    }
+
+    #[test]
+    fn ast_rewrite_apply_errors_get_no_generic_before_hash_hint() {
+        // astRewrite attaches its own code-specific hints; the fallback only
+        // covers rows without recovery and never invents a hash instruction.
+        let apply = json!({"apply": true, "path": "/repo"});
+        for code in ["ast.rewrite.hash_mismatch", "ast.rewrite.io"] {
+            let hint = error_hint("astRewrite", &apply, code, "failed");
+            assert!(!hint.contains("beforeHash"), "{code}: {hint}");
+        }
+    }
+
+    #[test]
+    fn error_hints_match_exact_codes_not_substrings() {
+        let query = json!({"operation":"repositories","keywords":["octocode"]});
+        assert!(error_hint("ghSearch", &query, "rateLimited", "slow down").contains("Retry-After"));
+        // A code merely containing "auth" is not an authentication failure.
+        assert_eq!(
+            error_hint("ghSearch", &query, "authorizationPending", "x"),
+            "Broaden keywords or remove filters."
+        );
+        // The sandbox hint keys on the dedicated code, never on message text.
+        for tool in ["localSearch", "localFetch", "lspSearch", "astRewrite"] {
+            assert!(
+                error_hint(
+                    tool,
+                    &json!({"path":"/etc"}),
+                    "pathOutsideAllowedRoots",
+                    "denied"
+                )
+                .contains("ALLOWED_PATHS"),
+                "{tool}"
+            );
+        }
+        assert!(
+            !error_hint(
+                "localSearch",
+                &json!({"path":"/etc"}),
+                "fileAccessFailed",
+                "Path '/etc' is outside allowed directories"
+            )
+            .contains("ALLOWED_PATHS")
+        );
+        // Unknown tool names get no invented hint.
+        assert_eq!(error_hint("notATool", &query, "timeout", "x"), "");
     }
 
     #[test]
@@ -916,6 +1047,44 @@ mod tests {
             ),
             "syntactic"
         );
+    }
+
+    #[test]
+    fn local_search_and_topology_bases_are_the_query_scan_root() {
+        let dir = tempfile::tempdir().expect("fixture");
+        let root = std::fs::canonicalize(dir.path()).expect("root");
+        std::fs::create_dir_all(root.join("sub/a")).expect("dirs");
+        std::fs::write(root.join("sub/a/x.rs"), "x").expect("file");
+        let root_str = root.to_string_lossy().into_owned();
+        // The envelope compacted this page against its deepest common dir.
+        let mut output = json!({
+            "results": [{"data": {"files": [{"path": "x.rs"}],
+                "next": {"nextPage": {"tool": "localSearch", "query": {"path": root_str}}}}}],
+            "base": root.join("sub/a").to_string_lossy(),
+        });
+        attach_query_base(&mut output, "localSearch", &json!({"path": root_str}));
+        assert_eq!(output["base"], root_str.as_str());
+        let row_path = output["results"][0]["data"]["files"][0]["path"]
+            .as_str()
+            .expect("row path");
+        assert_eq!(row_path, "sub/a/x.rs");
+        assert!(root.join(row_path).is_file());
+        assert_eq!(
+            output["results"][0]["data"]["next"]["nextPage"]["query"]["path"],
+            root_str.as_str()
+        );
+
+        let mut topology = json!({
+            "results": [{"data": {"path": "workspace/relative", "results": [{"file": "sub/a/x.rs"}]}}],
+            "base": "/elsewhere",
+        });
+        attach_query_base(&mut topology, "astTopology", &json!({"path": root_str}));
+        assert_eq!(topology["base"], root_str.as_str());
+        assert_eq!(topology["results"][0]["data"]["path"], ".");
+        let file = topology["results"][0]["data"]["results"][0]["file"]
+            .as_str()
+            .expect("file");
+        assert!(root.join(file).is_file());
     }
 
     #[test]
@@ -1277,9 +1446,7 @@ mod tests {
             "location": {"localPath": "/tmp/ghp_secretvalue12/repo"}
         });
         let context = sanitize_context();
-        let security = crate::security::ContentSecurity::new(std::sync::Arc::new(
-            crate::security::SecurityRegistry::default(),
-        ));
+        let security = crate::security::ContentSecurity::new();
         sanitize_fields(&mut value, &security, &context).expect("sanitize");
         assert_eq!(
             value.pointer("/next/continue/query/path"),
@@ -1308,9 +1475,7 @@ mod tests {
             })
         };
         let context = sanitize_context();
-        let security = crate::security::ContentSecurity::new(std::sync::Arc::new(
-            crate::security::SecurityRegistry::default(),
-        ));
+        let security = crate::security::ContentSecurity::new();
         // Default path (no opt-in): emails pass through unchanged.
         let mut untouched = commit_row();
         sanitize_fields(&mut untouched, &security, &context).expect("sanitize");
@@ -1347,9 +1512,7 @@ mod tests {
             "location": {"localPath": format!("/tmp/{token}/repo")}
         });
         let context = sanitize_context();
-        let security = crate::security::ContentSecurity::new(std::sync::Arc::new(
-            crate::security::SecurityRegistry::default(),
-        ));
+        let security = crate::security::ContentSecurity::new();
         sanitize_fields(&mut value, &security, &context).expect("sanitize");
         // Tool preserved so the call is still routable.
         assert_eq!(

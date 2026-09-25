@@ -19,7 +19,7 @@ Schemas live in `schemas/graph.schema.json` and `schemas/provider.schema.json`. 
 
 `node scripts/corpus-find.mjs --session-dir <dir> --query <text> --limit 20` returns a ranked page. `--limit` is a positive safe integer (default 20); `--offset` is a non-negative safe integer (default 0). Partial output includes exact counts and `next.page` with an absolute executable `command` and raw `args`. Run that command with those arguments unchanged until `completeness` is `complete` and `next` is `null`. Evidence-file suggestions are separate in `suggestedFiles`. See `../references/session-corpus.md` for the output contract and corpus stability requirement.
 
-Semantic pre-read triage is not a script: call `octocode clasify` directly as in the SKILL.md SCREEN step (each non-empty part an unread `localFetch` resource, ≤ 25 cells per matrix). `corpus-find` ranks whole pages; to locate lines use `corpus-run --regex` (JavaScript regex; `--flags i` for case-insensitive). When clasify is unavailable, fall back to `corpus-find.mjs` lexical triage.
+Semantic pre-read triage is not a script: call `octocode clasify` directly per [../references/clasify-screen.md](../references/clasify-screen.md). `corpus-find` ranks whole pages; to locate lines use `corpus-run --regex` (JavaScript regex; `--flags i` for case-insensitive).
 
 ## Focused regressions
 

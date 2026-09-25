@@ -4,7 +4,7 @@ Load when evaluating a multi-agent graph for structural failure risks. Why: topo
 ## 1. Shared context
 A verifier receiving the executor's conversation is not independent and might repeat the same failure.
 
-**Sensor:** does each verifier node start with fresh context, grading only the artifact? Require this before calling a result verified.
+**Sensor:** does the judge start fresh with task + rubric + sealed artifact/evidence? A recorded trajectory may be evidence, but inherited executor instructions are not judge authority. Check filesystem/tool isolation with `clean-lab.md` and accuracy with `llm-judge.md`.
 
 ## 2. Race conditions
 Agents writing to shared state (file, git workspace, API resource) overwrite each other. This is an operational failure — prompting cannot fix it. Before fanning out, answer:
@@ -20,13 +20,13 @@ A loop with one metric can hit that metric while the real goal degrades (support
 **Protection:** for every primary KPI, name a counter-metric guardrail the agent cannot tune. Primary improving + guardrail degrading → stop and reframe the goal, not the loop.
 
 ## 4. Missing anchors
-Anchors prevent graph drift. Every graph needs at least one indisputable node output: a test result, a build exit code, or a type error.
+Anchors prevent graph drift. Use direct outcome evidence where available, such as executed tests or inspected state; use calibrated judgment for properties that cannot be checked deterministically.
 
-**Anchors to require:**
+**Useful evidence:**
 - Tests that ran with exit codes
 - A verifier on deterministic evidence (not LLM opinion of LLM output)
-- At least one rule agents are never allowed to tune
+- Frozen evaluation criteria that the subject cannot change
 
 Other modes: opaque state (no typed snapshot) · no checkpoint/resume · unbounded tool permissions · missing human gates. Add suite cases on first trace appearance.
 
-Next: KPI placement and attribution → `graph-of-loops.md`; inner loop sensors → `feedback-loops.md`.
+Next: KPI placement and attribution → `graph-of-loops.md`; inner loop sensors → `agent-loop.md`.

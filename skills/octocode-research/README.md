@@ -35,7 +35,7 @@ npx -y octocode skill install octocode-research
 
 ```bash
 node scripts/check-description.mjs
-node scripts/check-guidance.mjs --self-test
+node scripts/check-guidance.mjs --self-test --examples   # --examples: tool-call examples vs the live schema
 ```
 
 Then run the `octocode-skills` review against this folder.

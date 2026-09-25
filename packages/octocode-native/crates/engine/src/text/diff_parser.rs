@@ -1,9 +1,5 @@
-/// Unified diff parser and filter.
-///
-/// Replaces `utils/parsers/diff.ts` in octocode-native which called
-/// `patch.split('\n')` independently in both `filterPatch` and `trimDiffContext`,
-/// allocating the line array twice per invocation. This module processes a diff
-/// in a single pass combining both operations.
+/// Unified diff parser and filter: filtering and context trimming run in a
+/// single pass.
 use crate::types::{FilterPatchOptions, PatchLineType};
 
 // ── internal patch line type ──────────────────────────────────────────────────
@@ -230,7 +226,7 @@ fn is_changed_raw_patch_line(line: &str) -> bool {
 }
 
 /// Apply context trimming: keep at most `context_lines` pure-context lines
-/// around each changed line. Matches `trimDiffContext` from TypeScript.
+/// around each changed line.
 fn apply_context_trim(lines: &[&PatchLine], context_lines: usize) -> Vec<String> {
     // Identify changed line indices
     let changed: std::collections::HashSet<usize> = lines

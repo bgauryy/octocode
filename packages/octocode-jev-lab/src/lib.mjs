@@ -175,7 +175,7 @@ export async function prepareExperiment(spec, inputPath, env = process.env) {
   };
 }
 
-export function resolveEndpoint(baseUrl = DEFAULT_BASE_URL) {
+function resolveApiEndpoint(baseUrl, path) {
   const url = new URL(baseUrl);
   const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
   if (
@@ -188,29 +188,34 @@ export function resolveEndpoint(baseUrl = DEFAULT_BASE_URL) {
   ) {
     fail('Jev base URL must be an HTTPS root; HTTP is allowed only on loopback.');
   }
-  return new URL('/v1/systemone', url).toString();
+  return new URL(path, url).toString();
 }
 
-export async function sendJev(body, options = {}) {
+export function resolveEndpoint(baseUrl = DEFAULT_BASE_URL) {
+  return resolveApiEndpoint(baseUrl, '/v1/systemone');
+}
+
+async function requestJev(method, path, body, options) {
   const key = options.key ?? process.env.OCTOCODE_CLASSIFICATION_API;
   if (typeof key !== 'string' || !key.trim()) {
     fail('OCTOCODE_CLASSIFICATION_API is required.');
   }
   const timeoutMs = positiveInteger(options.timeoutMs, 'timeoutMs', 60_000);
-  const endpoint = resolveEndpoint(
+  const endpoint = resolveApiEndpoint(
     options.baseUrl ?? process.env.OCTOCODE_CLASSIFICATION_API_HOST ?? DEFAULT_BASE_URL,
+    path,
   );
   const started = performance.now();
   const response = await fetch(endpoint, {
-    method: 'POST',
+    method,
     redirect: 'manual',
     signal: AbortSignal.timeout(timeoutMs),
     headers: {
       accept: 'application/json',
       authorization: `Bearer ${key.trim()}`,
-      'content-type': 'application/json',
+      ...(body === undefined ? {} : { 'content-type': 'application/json' }),
     },
-    body: JSON.stringify(body),
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const text = await response.text();
   const elapsedMs = Math.round((performance.now() - started) * 100) / 100;
@@ -229,6 +234,14 @@ export async function sendJev(body, options = {}) {
     elapsedMs,
     response: providerResponse,
   };
+}
+
+export function sendJev(body, options = {}) {
+  return requestJev('POST', '/v1/systemone', body, options);
+}
+
+export function listModels(options = {}) {
+  return requestJev('GET', '/v1/models', undefined, options);
 }
 
 export function summarize(samples) {

@@ -7,7 +7,7 @@ import {
   DIRECT_TOOL_DEFINITIONS,
   TOOL_NAMES,
   prepareDirectToolInput,
-} from '@octocodeai/octocode-core/schema';
+} from '@octocodeai/config/schema';
 import { DEFAULT_CONFIG } from '@octocodeai/config';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -24,7 +24,8 @@ const BETA_TOOL_NAMES = new Set([TOOL_NAMES.AST_TOPOLOGY, TOOL_NAMES.AST_REWRITE
 const DEFAULT_TOOL_NAMES = PUBLIC_TOOL_NAMES.filter(name => {
   if (name === TOOL_NAMES.CLASIFY) return false;
   if (BETA_TOOL_NAMES.has(name)) return DEFAULT_CONFIG.local.beta;
-  return name === 'ghCloneRepo' ? DEFAULT_CONFIG.local.enableClone : true;
+  // Mirrors native `is_available`: ghCloneRepo is CLI-only, never in the MCP catalog.
+  return name !== TOOL_NAMES.GITHUB_CLONE_REPO;
 });
 const DEFAULT_TOOL_COUNT = DEFAULT_TOOL_NAMES.length;
 const DOC_ROOTS = [
@@ -432,10 +433,6 @@ function validateToolExamples() {
         failures.push(`docs/OCTOCODE_TOOLS.md ${name} example: ${error.message}; ${(error.details ?? []).join('; ')}`);
       }
     }
-  }
-  const cloneRow = content.split('\n').find(line => line.startsWith('| `ENABLE_CLONE` |'));
-  if (!cloneRow?.includes(`Defaults to \`${DEFAULT_CONFIG.local.enableClone}\``)) {
-    failures.push('docs/OCTOCODE_TOOLS.md clone default disagrees with configuration.');
   }
   return failures;
 }

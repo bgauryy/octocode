@@ -4,30 +4,38 @@ use crate::lsp::symbol_kind;
 use crate::lsp::types::{JsFuzzyPosition, JsLanguageServerConfig, JsResolvedSymbol};
 use napi::{Error, Result, Status};
 use napi_derive::napi;
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{Arc, OnceLock, PoisonError, RwLock};
 
 fn pooled_clients() -> &'static RwLock<Arc<LspClientPool>> {
     static POOL: OnceLock<RwLock<Arc<LspClientPool>>> = OnceLock::new();
     POOL.get_or_init(|| RwLock::new(Arc::new(LspClientPool::default())))
 }
 
+/// The live pool. A poisoned lock still holds a valid `Arc` (writers only swap
+/// it), so recover it instead of handing out a detached fresh pool whose
+/// clients nobody could ever clear.
 fn current_pool() -> Arc<LspClientPool> {
-    pooled_clients()
+    let slot = pooled_clients()
         .read()
-        .map(|pool| Arc::clone(&pool))
-        .unwrap_or_else(|_| Arc::new(LspClientPool::default()))
+        .unwrap_or_else(PoisonError::into_inner);
+    Arc::clone(&slot)
 }
 
 #[napi(js_name = "configureLspClientPool")]
 pub async fn configure_lsp_client_pool(idle_timeout_ms: u32, max_entries: u32) {
-    let previous = current_pool();
+    let next = Arc::new(LspClientPool::new(LspPoolOptions {
+        idle_timeout_ms: u64::from(idle_timeout_ms),
+        max_entries: max_entries as usize,
+    }));
+    // Swap first so no acquire can land in the pool being torn down, then
+    // clear the old one.
+    let previous = {
+        let mut slot = pooled_clients()
+            .write()
+            .unwrap_or_else(PoisonError::into_inner);
+        std::mem::replace(&mut *slot, next)
+    };
     previous.clear_all().await;
-    if let Ok(mut slot) = pooled_clients().write() {
-        *slot = Arc::new(LspClientPool::new(LspPoolOptions {
-            idle_timeout_ms: u64::from(idle_timeout_ms),
-            max_entries: max_entries as usize,
-        }));
-    }
 }
 
 #[napi(js_name = "acquirePooledLspClient")]
@@ -117,9 +125,30 @@ pub fn get_language_server_for_file(
 }
 
 /// Check whether `command` is available on `PATH`.
+///
+/// Deprecated: runs on the calling (Node main) thread and may block for up to
+/// `COMMAND_PROBE_TIMEOUT` when the check must execute the command (e.g.
+/// `rust-analyzer --version` through a rustup proxy). Prefer
+/// `isCommandAvailableAsync`.
 #[napi(js_name = "isCommandAvailable")]
 pub fn is_command_available(command: String) -> Result<bool> {
     crate::lsp::config::is_command_available(command)
+        .map_err(|e| Error::new(Status::GenericFailure, e))
+}
+
+/// Check whether `command` is available on `PATH` without blocking the Node
+/// main thread. Bounded by `COMMAND_PROBE_TIMEOUT` (the probe is killed on
+/// timeout and reports `false`).
+#[napi(js_name = "isCommandAvailableAsync")]
+pub async fn is_command_available_async(command: String) -> Result<bool> {
+    tokio::task::spawn_blocking(move || crate::lsp::config::is_command_available(command))
+        .await
+        .map_err(|e| {
+            Error::new(
+                Status::GenericFailure,
+                format!("command availability probe failed: {e}"),
+            )
+        })?
         .map_err(|e| Error::new(Status::GenericFailure, e))
 }
 

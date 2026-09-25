@@ -1,5 +1,7 @@
 # Awareness flow matrix
 
+Load when choosing which Awareness operation fits the next need.
+
 Use the live schema for exact fields: `schema commands --compact` and `schema command <concept> <operation> --compact`.
 
 | Need | Operation | Boundary |
@@ -13,3 +15,5 @@ Use the live schema for exact fields: `schema commands --compact` and `schema co
 | Recover bytes | `history.status/timeline/read/restore` | Capture is host-owned; apply only an authorized preview. |
 
 Reads are observational. Mutations require the caller's existing authorization and scope.
+
+Next: load the reference for the chosen concept, or inspect its live schema; the routing step ends here.

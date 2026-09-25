@@ -32,7 +32,7 @@ Flow: `FRAME → MODEL → PROVE → CHANGE → VERIFY`.
 2. **MODEL** — map boundaries, contracts, and representative data/control flows from exact source using `octocode-research`. Separate declared architecture from observed structure; a graph edge or folder name is a hypothesis, not a flaw. Load `references/architecture-lenses.md` when layers, ownership, or blast radius need a structured lens. Load `references/contract-data-flow-checks.md` when a path crosses trust or process boundaries.
 3. **PROVE** — confirm hypotheses with exact code, AST/LSP identity, and tests before reporting a finding. Load `references/algorithm-review.md` for correctness/complexity/concurrency questions. Load `references/architecture-analysis.md` for dependency topology, cycles, dead code, or hot paths.
 4. **CHANGE** — only when the request authorizes edits and evidence names a specific seam. Implement one vertical slice; keep cleanup within the changed area. Load `references/refactoring.md` and `references/delivery-discipline.md` before any source edit.
-5. **VERIFY** — rerun the pre-change checks and confirm the diff is within authorized scope. Review-only requests stop here and return findings + a plan, not edits. Load `references/agent-defect-classes.md` for agent-authored work quality checks.
+5. **VERIFY** — rerun the pre-change checks and confirm the diff is within authorized scope. Review-only requests stop here and return findings + a plan, not edits. Load `references/agent-defect-classes.md` for agent-authored work quality checks, and `references/agent-defect-evidence.md` when a class's prevalence or rigor is disputed. Load `references/output-contracts.md` when a consequential result needs an explicit decision record.
 
 ## Gates
 

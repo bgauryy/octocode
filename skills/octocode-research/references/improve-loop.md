@@ -16,7 +16,7 @@ SET GOAL + KPI → SMALLEST CHANGE → MEASURE ACTUAL RESULTS → ACCEPT | REVER
 4. **Measure.** Re-run the same check:
    ```bash
    node scripts/check-description.mjs                 # activation contract
-   node scripts/check-guidance.mjs --self-test         # guidance regressions
+   node scripts/check-guidance.mjs --self-test --examples   # guidance + live-schema examples
    ```
 5. **Accept or revert.** Keep a measured improvement only when guardrails hold. A prose edit can preserve activation checks while improving a separate correctness metric; a flat trigger score alone is not a regression verdict.
 

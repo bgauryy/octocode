@@ -1,4 +1,3 @@
-use futures_util::FutureExt;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -202,57 +201,6 @@ impl RequestRuntime {
                 output_bytes: self.inner.limits.output_bytes,
             },
         })
-    }
-
-    /// Async work owns its resources in the future; cancellation drops that future
-    /// before releasing admission. Spawned child tasks must be joined by their owner.
-    pub async fn execute_async<T, F, Fut>(
-        &self,
-        request_id: String,
-        work: F,
-    ) -> Result<T, ExecutionError>
-    where
-        F: FnOnce(ExecutionContext) -> Fut,
-        Fut: std::future::Future<Output = Result<T, ExecutionError>>,
-    {
-        let RequestAdmission {
-            guard: _guard,
-            context,
-        } = self.admit(request_id)?;
-        let token = context.cancellation.clone();
-        let _cancel_on_drop = token.clone().drop_guard();
-        let deadline = tokio::time::Instant::from_std(context.deadline);
-        let _permit = tokio::select! {
-            biased;
-            _ = token.cancelled() => return Err(ExecutionError::Cancelled),
-            _ = tokio::time::sleep_until(deadline) => return Err(ExecutionError::Timeout),
-            permit = self.inner.slots.clone().acquire_owned() => permit.map_err(|_| ExecutionError::Closed)?,
-        };
-        context.check()?;
-        let future =
-            std::panic::AssertUnwindSafe(async { work(context.clone()).await }).catch_unwind();
-        tokio::pin!(future);
-        let result = tokio::select! {
-            biased;
-            _ = token.cancelled() => Err(ExecutionError::Cancelled),
-            _ = tokio::time::sleep_until(deadline) => Err(ExecutionError::Timeout),
-            result = &mut future => result.map_err(|_| ExecutionError::WorkerFailed)?,
-        };
-        context.check()?;
-        result
-    }
-
-    pub async fn execute_blocking<T, F>(
-        &self,
-        request_id: String,
-        work: F,
-    ) -> Result<T, ExecutionError>
-    where
-        T: Send + 'static,
-        F: FnOnce(ExecutionContext) -> Result<T, ExecutionError> + Send + 'static,
-    {
-        self.execute_blocking_admitted(self.admit(request_id)?, work)
-            .await
     }
 
     pub async fn execute_blocking_admitted<T, F>(

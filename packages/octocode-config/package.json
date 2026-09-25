@@ -1,6 +1,6 @@
 {
   "name": "@octocodeai/config",
-  "description": "Octocode unified env + config loader (zero-dep '.' entry) plus the shared tool-contract hub ('./schema', './mcp', re-exporting @octocodeai/octocode-core). Shared by MCP, CLI, extension, agent, and standalone skills.",
+  "description": "Octocode unified env + config loader (zero-dep '.' entry) plus the shared tool-contract hub ('./schema', './mcp') and the generated TypeScript/Rust tool input and output types, built from @octocodeai/octocode-core.",
   "version": "20.0.0",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
   "bin": {
@@ -15,6 +15,7 @@
     "@vitest/coverage-v8": "^5.0.0",
     "ajv": "^8.20.0",
     "esbuild": "^0.28.2",
+    "json-schema-to-typescript": "16.0.0",
     "typescript": "^6.0.3",
     "vite": "^8.3.0",
     "vitest": "^5.0.0"
@@ -40,7 +41,8 @@
   "files": [
     "dist/**",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "contract/**"
   ],
   "homepage": "https://octocode.ai",
   "keywords": [
@@ -60,11 +62,13 @@
     "directory": "packages/octocode-config"
   },
   "scripts": {
-    "build": "node scripts/generate-config-contract.ts && node build.mjs",
+    "build": "node scripts/generate-config-contract.ts && node scripts/generate-tool-contract.ts --check && node build.mjs",
     "check:config-contract": "node scripts/generate-config-contract.ts --check",
+    "check:tool-contract": "node scripts/generate-tool-contract.ts --check",
     "clean": "rm -rf dist/",
     "generate:config-contract": "node scripts/generate-config-contract.ts",
-    "lint": "node scripts/generate-config-contract.ts --check && node ../../node_modules/typescript/bin/tsc --noEmit -p tsconfig.json",
+    "generate:tool-contract": "node scripts/generate-tool-contract.ts",
+    "lint": "node scripts/generate-config-contract.ts --check && node scripts/generate-tool-contract.ts --check && node ../../node_modules/typescript/bin/tsc --noEmit -p tsconfig.json",
     "prepublishOnly": "node ../octocode/scripts/check-no-workspace-protocol.mjs",
     "test": "node ../../node_modules/vitest/vitest.mjs run --coverage",
     "test:quiet": "node ../../node_modules/vitest/vitest.mjs run --reporter=dot --silent",

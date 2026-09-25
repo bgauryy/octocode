@@ -79,6 +79,8 @@ Generic text search, reads, minification, file recognition, GitHub/history opera
 
 `@octocodeai/octocode-core` is the external tool-contract authoring owner. Its generator emits `crates/runtime/src/contracts/generated/` with the tool contract JSON, Rust constant, validation fixtures, provenance revision, and fingerprint. Tests reject stale, dirty, or fingerprint-mismatched provenance.
 
+Tool wire types are owned by `@octocodeai/config`, not declared here. Its `generate:tool-types` step bundles the same core contract into `tool-types.schema.json` and generates `rust/tool_types.rs` (typify) alongside the TypeScript types. `contracts::tool_types` `include!`s that file; every tool parses its validated row directly into the generated `<Tool>Query` (meta fields included) and builds continuations from it. Tool modules may add accessor `impl` blocks for engine integer types, but never a second serde wire type. A test pins the generated fingerprint to the embedded contract; `yarn contracts:regen` regenerates both together.
+
 Configuration policy is independently owned by `@octocodeai/config` in `config-contract.json`. Native `build.rs` validates that declaration against its meta-schema and emits Rust config structs, defaults, environment policy, and generic resolver/validator metadata into `OUT_DIR`. Native-only builds therefore validate the full config contract without a prior Node generation step. Generated files are not hand edited.
 
 ## Build modes

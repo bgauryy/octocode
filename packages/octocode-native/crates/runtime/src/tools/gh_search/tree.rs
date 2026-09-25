@@ -1,5 +1,6 @@
 //! GitHub repository tree and independently paged metadata execution.
 use super::GhSearchQuery;
+use crate::tools::result::remove_nulls;
 use crate::{
     providers::github::{
         ContentsEntry, CredentialResolver, GitHubProvider, GitHubTransport, ProviderError,
@@ -11,26 +12,35 @@ use serde_json::{Map, Value, json};
 use std::collections::HashSet;
 use std::path::Path;
 
-const DEFAULT_PAGE_SIZE: usize = 100;
 const MAX_PAGE: usize = 1000;
 const CONTENTS_LIMIT: usize = 1000;
+/// Upper bound on Contents API directory reads for one fallback walk (git
+/// trees API truncated or unavailable). Past it the listing is a typed
+/// terminal limit instead of an unbounded request fan-out.
+pub(super) const MAX_DIRECTORY_FETCHES: usize = 200;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 struct TreeEntry {
     path: String,
     kind: EntryKind,
     size: Option<u64>,
 }
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 enum EntryKind {
     File,
     Dir,
 }
-#[derive(Default)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 struct Traversal {
     entries: Vec<TreeEntry>,
     failed_subtrees: usize,
     contents_limit: bool,
+    /// Fallback walk stopped at [`MAX_DIRECTORY_FETCHES`].
+    #[serde(default)]
+    fetch_limit: bool,
+    /// Entries skipped by [`ignored_entry`], by name.
+    #[serde(default)]
+    omitted: std::collections::BTreeMap<String, usize>,
 }
 
 pub(super) async fn execute<
@@ -55,6 +65,7 @@ pub(super) async fn execute<
         include,
         materialize,
         materialize_offset,
+        ..
     } = query
     else {
         return Err(ProviderError::new(
@@ -78,7 +89,7 @@ pub(super) async fn execute<
     } else {
         requested_path.to_owned()
     };
-    let depth = max_depth.unwrap_or(1).max(1);
+    let depth = max_depth.map_or(1, super::usize_of);
     let mut fallback = None;
     let mut traversal = match traverse(
         provider,
@@ -133,8 +144,8 @@ pub(super) async fn execute<
             .then_with(|| left.path.cmp(&right.path))
     });
 
-    let current_page = page.unwrap_or(1);
-    let per_page = page_size.unwrap_or(DEFAULT_PAGE_SIZE).clamp(1, 200);
+    let current_page = super::usize_of(*page);
+    let per_page = super::usize_of(*page_size).clamp(1, 200);
     let total_entries = traversal.entries.len();
     let total_pages = total_entries.div_ceil(per_page).max(1);
     let start = current_page.saturating_sub(1).saturating_mul(per_page);
@@ -183,10 +194,7 @@ pub(super) async fn execute<
         });
         remove_nulls(&mut value["pagination"]);
     }
-    if include
-        .as_ref()
-        .is_some_and(|values| values.iter().any(|value| value == "sizes"))
-    {
+    if include.contains(&super::GhSearchQueryIncludeItem::Sizes) {
         let file_sizes = page_entries
             .iter()
             .filter_map(|entry| {
@@ -214,7 +222,7 @@ pub(super) async fn execute<
             repo,
             &resolved_branch,
             &page_entries,
-            (*materialize_offset).unwrap_or(0),
+            materialize_offset.map_or(0, |offset| usize::try_from(offset).unwrap_or(0)),
             home,
             context,
         )
@@ -239,7 +247,8 @@ pub(super) async fn execute<
         }
     }
 
-    let metadata_page = metadata_page.unwrap_or(1);
+    let metadata_page = super::usize_of(*metadata_page);
+    let include: Vec<String> = include.iter().map(ToString::to_string).collect();
     let mut partial_reasons = Vec::<String>::new();
     let mut output = ToolData::from(Value::Null);
     if traversal.contents_limit {
@@ -256,6 +265,30 @@ pub(super) async fn execute<
             true,
         );
     }
+    if traversal.fetch_limit {
+        partial_reasons.push("treeFetchLimit".into());
+        value["terminalLimit"] = json!(true);
+        value["providerLimit"] = json!({
+            "reason": "treeFetchLimit",
+            "maxDirectoryFetches": MAX_DIRECTORY_FETCHES,
+            "completeness": "partial"
+        });
+        output.diagnostics.add(
+            "terminalLimitReached",
+            &format!(
+                "The tree walk stopped after {MAX_DIRECTORY_FETCHES} directory reads; narrow path or lower maxDepth."
+            ),
+            true,
+        );
+    }
+    if !traversal.omitted.is_empty() {
+        // Dependency/VCS/build directories are skipped by design; say so
+        // instead of silently dropping them.
+        value["omitted"] = json!({
+            "reason": "ignoredEntries",
+            "entries": traversal.omitted,
+        });
+    }
     if traversal.failed_subtrees > 0 {
         partial_reasons.push("partialTreeFailures".into());
         output.diagnostics.add(
@@ -268,7 +301,7 @@ pub(super) async fn execute<
         transport,
         owner,
         repo,
-        include.as_deref().unwrap_or(&[]),
+        &include,
         metadata_page,
         context,
         &mut value,
@@ -372,13 +405,28 @@ async fn traverse<R: CredentialResolver, C: crate::providers::github::Conditiona
             Err(_) => {}
         }
     }
+    // Every tree page re-runs the walk; reuse a complete one for the cache TTL.
+    let walk_key = format!("git-tree-walk:{owner}/{repo}:{branch}:{root}:{max_depth}");
+    let partition = provider.transport.cache_partition(context, None).await.ok();
+    if let Some(partition) = &partition
+        && let Some(cached) = provider.cache.get(partition, &walk_key).await
+        && let Ok(walk) = serde_json::from_slice::<Traversal>(&cached.bytes)
+    {
+        return Ok(walk);
+    }
     let mut traversal = Traversal::default();
     let mut pending = vec![(root.to_owned(), 1usize, true)];
     let mut visited = HashSet::new();
+    let mut fetches = 0usize;
     while let Some((path, depth, required)) = pending.pop() {
         if !visited.insert(path.clone()) {
             continue;
         }
+        if fetches >= MAX_DIRECTORY_FETCHES {
+            traversal.fetch_limit = true;
+            break;
+        }
+        fetches += 1;
         let listing = match provider
             .repository_contents(owner, repo, &path, branch, context)
             .await
@@ -414,6 +462,7 @@ async fn traverse<R: CredentialResolver, C: crate::providers::github::Conditiona
                 continue;
             };
             if ignored_entry(&entry.name, kind) {
+                *traversal.omitted.entry(entry.name.clone()).or_default() += 1;
                 continue;
             }
             let child_path = entry.path.clone();
@@ -426,6 +475,23 @@ async fn traverse<R: CredentialResolver, C: crate::providers::github::Conditiona
                 pending.push((child_path, depth + 1, false));
             }
         }
+    }
+    if traversal.failed_subtrees == 0
+        && let Some(partition) = &partition
+        && let Ok(bytes) = serde_json::to_vec(&traversal)
+    {
+        provider
+            .cache
+            .put(
+                partition,
+                walk_key,
+                crate::providers::github::CachedContent {
+                    etag: None,
+                    bytes,
+                    resolved_ref: branch.to_owned(),
+                },
+            )
+            .await;
     }
     Ok(traversal)
 }
@@ -491,6 +557,7 @@ fn traversal_from_git_tree(
         };
         let name = relative.rsplit('/').next().unwrap_or(&relative);
         if ignored_entry(name, kind) {
+            *traversal.omitted.entry(name.to_owned()).or_default() += 1;
             continue;
         }
         traversal.entries.push(TreeEntry {
@@ -829,7 +896,20 @@ fn attach_continuations(
         let mut next_query = public_query(query)?;
         next_query["page"] = json!(page + 1);
         next_query["pageSize"] = json!(page_size);
-        next_query["metadataPage"] = json!(1);
+        // Metadata collections page independently (next.<kind>); only the
+        // per-page `sizes` include belongs to the listing continuation.
+        if let Some(object) = next_query.as_object_mut() {
+            object.remove("metadataPage");
+            let sizes = object
+                .get("include")
+                .and_then(Value::as_array)
+                .is_some_and(|values| values.iter().any(|value| value == "sizes"));
+            if sizes {
+                object.insert("include".into(), json!(["sizes"]));
+            } else {
+                object.remove("include");
+            }
+        }
         value["next"]["nextPage"] = continuation(
             next_query,
             format!("Continue tree results on page {}.", page + 1),
@@ -904,22 +984,6 @@ fn continuation(query: Value, why: impl Into<String>, confidence: &str) -> Value
 fn push_reason(reasons: &mut Vec<String>, value: &str) {
     if !reasons.iter().any(|reason| reason == value) {
         reasons.push(value.into());
-    }
-}
-fn remove_nulls(value: &mut Value) {
-    match value {
-        Value::Object(map) => {
-            map.retain(|_, value| !value.is_null());
-            for value in map.values_mut() {
-                remove_nulls(value);
-            }
-        }
-        Value::Array(values) => {
-            for value in values {
-                remove_nulls(value);
-            }
-        }
-        _ => {}
     }
 }
 fn structure_is_empty(value: &Value) -> bool {

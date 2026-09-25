@@ -10,7 +10,7 @@ use std::str::FromStr;
 
 /// Family used to partition cursor scope digests and remote/local policy.
 ///
-/// Toggling local-only config (e.g. `enable_clone`) must not invalidate
+/// Toggling local-only config (e.g. `allowed_paths`) must not invalidate
 /// GitHub/remote cursors, so each family scopes its digest differently.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ToolFamily {

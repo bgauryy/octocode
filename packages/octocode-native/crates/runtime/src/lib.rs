@@ -10,6 +10,7 @@
 mod adapter_napi;
 
 pub mod cache;
+mod civil_date;
 pub mod config;
 pub mod content;
 pub mod contracts;

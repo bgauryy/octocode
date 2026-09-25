@@ -1,5 +1,7 @@
 use super::{CloneContext, CloneError, check_control, hash};
 use crate::cache::evictions::log_eviction;
+use crate::cache::write_private;
+use crate::civil_date::{civil_from_days, days_from_civil};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io;
@@ -121,10 +123,12 @@ pub(super) fn clone_dir(
     let sparse = sparse_path
         .map(|path| format!("__sp_{}", hash(path, 6)))
         .unwrap_or_default();
+    // GitHub owner/repo names are case-insensitive: Foo/Bar and foo/bar are
+    // one repository and must share one checkout.
     home.join("tmp")
         .join("clone")
-        .join(owner)
-        .join(repo)
+        .join(owner.to_ascii_lowercase())
+        .join(repo.to_ascii_lowercase())
         .join(format!(
             "{safe_branch}{sparse}__host_{}",
             hash(endpoint, 16)
@@ -458,24 +462,6 @@ fn cache_io(error: io::Error) -> CloneError {
     )
 }
 
-#[cfg(unix)]
-fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    use std::io::Write;
-    use std::os::unix::fs::OpenOptionsExt;
-    let mut file = fs::OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .write(true)
-        .mode(0o600)
-        .open(path)?;
-    file.write_all(bytes)
-}
-
-#[cfg(not(unix))]
-fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    fs::write(path, bytes)
-}
-
 fn now_millis() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -530,31 +516,6 @@ fn parse_iso_millis(value: &str) -> Option<i64> {
     )
 }
 
-fn civil_from_days(days: i64) -> (i64, i64, i64) {
-    let z = days + 719_468;
-    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let day_of_era = z - era * 146_097;
-    let year_of_era =
-        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
-    let mut year = year_of_era + era * 400;
-    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
-    let month_prime = (5 * day_of_year + 2) / 153;
-    let day = day_of_year - (153 * month_prime + 2) / 5 + 1;
-    let month = month_prime + if month_prime < 10 { 3 } else { -9 };
-    year += i64::from(month <= 2);
-    (year, month, day)
-}
-
-fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
-    let year = year - i64::from(month <= 2);
-    let era = if year >= 0 { year } else { year - 399 } / 400;
-    let year_of_era = year - era * 400;
-    let month_prime = month + if month > 2 { -3 } else { 9 };
-    let day_of_year = (153 * month_prime + 2) / 5 + day - 1;
-    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
-    era * 146_097 + day_of_era - 719_468
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -599,6 +560,11 @@ mod tests {
         assert_ne!(
             clone_dir(home, "o", "r", "Main", None, "https://example.test"),
             clone_dir(home, "o", "r", "main", None, "https://example.test")
+        );
+        // Owner/repo are case-insensitive on GitHub: one checkout.
+        assert_eq!(
+            clone_dir(home, "Octo", "Repo", "main", None, "https://example.test"),
+            clone_dir(home, "octo", "repo", "main", None, "https://example.test")
         );
     }
 

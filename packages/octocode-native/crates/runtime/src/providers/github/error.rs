@@ -17,6 +17,10 @@ pub enum ProviderErrorKind {
     Configuration,
     CredentialStoreUnavailable,
     Server,
+    /// HTTP 451: the resource is blocked for legal reasons; retrying cannot help.
+    Unavailable,
+    /// Any other unmapped non-2xx status; the status code is in the message.
+    HttpStatus,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -29,6 +33,19 @@ pub struct RateLimit {
     pub resource: Option<Box<str>>,
 }
 
+/// Typed discriminator for validation failures whose recovery differs; the
+/// runtime keys its hints and continuations on this, never on message text.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ProviderErrorReason {
+    /// An issue number resolved to a pull request.
+    IssueIsPullRequest,
+    /// A file read named a directory.
+    PathIsDirectory,
+    /// The requested search page is past GitHub's 1,000-result window.
+    SearchWindowExceeded,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ProviderError {
     pub kind: ProviderErrorKind,
@@ -38,6 +55,8 @@ pub struct ProviderError {
     pub documentation_url: Option<Box<str>>,
     pub rate_limit: Option<RateLimit>,
     pub retryable: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<ProviderErrorReason>,
 }
 
 impl ProviderError {
@@ -57,7 +76,13 @@ impl ProviderError {
                     | ProviderErrorKind::Transport
                     | ProviderErrorKind::Server
             ),
+            reason: None,
         }
+    }
+
+    pub fn with_reason(mut self, reason: ProviderErrorReason) -> Self {
+        self.reason = Some(reason);
+        self
     }
 }
 impl std::fmt::Display for ProviderError {

@@ -8,63 +8,176 @@
 //! the GitHub API's own rate-limit budget is the right throttle here.
 use crate::providers::github::{
     CommitListRequest, CredentialResolver, GitHubTransport, HistoryRequest, IssueListRequest,
-    ProviderError, ProviderErrorKind, PullListRequest, RequestContext, quote_search_keyword,
-    resolve_date_window,
+    ProviderError, ProviderErrorKind, PullListRequest, RequestContext, SearchName,
+    quote_search_keyword, resolve_date_window, validate_qualifier_value, validate_search_name,
 };
 use crate::tools::local_fetch::ContentScan;
-use serde::{Deserialize, Serialize};
+use crate::tools::result::remove_null_fields;
 use serde_json::{Value, json};
 use std::path::Path;
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GhSearchHistoryQuery {
-    pub operation: HistoryOperation,
-    pub keywords: Option<Vec<String>>,
-    pub owner: Option<String>,
-    pub repo: Option<String>,
-    pub author: Option<String>,
-    pub assignee: Option<String>,
-    pub commenter: Option<String>,
-    pub mentions: Option<String>,
-    pub label: Option<Vec<String>>,
-    pub created: Option<String>,
-    pub updated: Option<String>,
-    pub closed: Option<String>,
-    pub comments: Option<String>,
-    pub reactions: Option<String>,
-    #[serde(rename = "match")]
-    pub match_kind: Option<Vec<String>>,
-    pub sort: Option<String>,
-    pub order: Option<String>,
-    pub archived: Option<bool>,
-    pub state: Option<String>,
-    #[serde(rename = "review-requested")]
-    pub review_requested: Option<String>,
-    #[serde(rename = "reviewed-by")]
-    pub reviewed_by: Option<String>,
-    pub checks: Option<String>,
-    pub review: Option<String>,
-    pub head: Option<String>,
-    pub base: Option<String>,
-    #[serde(rename = "merged-at")]
-    pub merged_at: Option<String>,
-    pub draft: Option<bool>,
-    pub path: Option<String>,
-    pub since: Option<String>,
-    pub until: Option<String>,
-    pub branch: Option<String>,
-    pub committer: Option<String>,
-    pub concise: Option<bool>,
-    pub include_diff: Option<bool>,
-    pub page_size: Option<usize>,
-    pub page: Option<usize>,
-}
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
+pub use crate::contracts::tool_types::{
+    GhSearchHistoryQuery, GhSearchHistoryQueryMatchItem, GhSearchHistoryQueryOwner,
+    GhSearchHistoryQueryRepo,
+};
+
+/// The operation discriminant of a [`GhSearchHistoryQuery`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum HistoryOperation {
     PullRequest,
     Issue,
     Commit,
+}
+
+/// Reads a string field shared by some operations; others lack it.
+macro_rules! history_str_fields {
+    ($($field:ident: $($variant:ident)|+;)+) => {
+        $(pub fn $field(&self) -> Option<&str> {
+            match self {
+                $(Self::$variant { $field, .. } => $field.as_deref(),)+
+                #[allow(unreachable_patterns)]
+                _ => None,
+            }
+        })+
+    };
+}
+
+/// Reads an enum field as its wire string; operations without it yield `None`.
+macro_rules! history_enum_fields {
+    ($($field:ident: $($variant:ident)|+;)+) => {
+        $(pub fn $field(&self) -> Option<String> {
+            match self {
+                $(Self::$variant { $field, .. } => $field.as_ref().map(ToString::to_string),)+
+                #[allow(unreachable_patterns)]
+                _ => None,
+            }
+        })+
+    };
+}
+
+/// Operation-independent views over the generated wire query.
+impl GhSearchHistoryQuery {
+    pub fn operation(&self) -> HistoryOperation {
+        match self {
+            Self::PullRequest { .. } => HistoryOperation::PullRequest,
+            Self::Issue { .. } => HistoryOperation::Issue,
+            Self::Commit { .. } => HistoryOperation::Commit,
+        }
+    }
+    pub fn owner(&self) -> Option<&str> {
+        match self {
+            Self::PullRequest { owner, .. } => owner.as_deref().map(String::as_str),
+            Self::Issue { owner, .. } | Self::Commit { owner, .. } => Some(owner.as_str()),
+        }
+    }
+    pub fn repo(&self) -> Option<&str> {
+        match self {
+            Self::PullRequest { repo, .. } => repo.as_deref().map(String::as_str),
+            Self::Issue { repo, .. } | Self::Commit { repo, .. } => Some(repo.as_str()),
+        }
+    }
+    /// Points the query at a repository's canonical (post-rename) name.
+    /// Names the contract would reject leave the query unchanged.
+    pub fn set_scope(&mut self, new_owner: &str, new_repo: &str) {
+        let (Ok(new_owner), Ok(new_repo)) = (
+            new_owner.parse::<GhSearchHistoryQueryOwner>(),
+            new_repo.parse::<GhSearchHistoryQueryRepo>(),
+        ) else {
+            return;
+        };
+        match self {
+            Self::PullRequest { owner, repo, .. } => {
+                *owner = Some(new_owner);
+                *repo = Some(new_repo);
+            }
+            Self::Issue { owner, repo, .. } | Self::Commit { owner, repo, .. } => {
+                *owner = new_owner;
+                *repo = new_repo;
+            }
+        }
+    }
+    pub fn keywords(&self) -> Vec<&str> {
+        match self {
+            Self::PullRequest { keywords, .. } | Self::Issue { keywords, .. } => {
+                keywords.iter().map(String::as_str).collect()
+            }
+            Self::Commit { keywords, .. } => keywords.iter().map(|k| k.as_str()).collect(),
+        }
+    }
+    pub fn label(&self) -> &[String] {
+        match self {
+            Self::PullRequest { label, .. } | Self::Issue { label, .. } => label,
+            Self::Commit { .. } => &[],
+        }
+    }
+    pub fn match_kinds(&self) -> &[GhSearchHistoryQueryMatchItem] {
+        match self {
+            Self::PullRequest { match_, .. } | Self::Issue { match_, .. } => match_,
+            Self::Commit { .. } => &[],
+        }
+    }
+    pub fn archived(&self) -> Option<bool> {
+        match self {
+            Self::PullRequest { archived, .. } | Self::Issue { archived, .. } => *archived,
+            Self::Commit { .. } => None,
+        }
+    }
+    pub fn draft(&self) -> Option<bool> {
+        match self {
+            Self::PullRequest { draft, .. } => *draft,
+            _ => None,
+        }
+    }
+    pub fn concise(&self) -> Option<bool> {
+        match self {
+            Self::PullRequest { concise, .. } | Self::Issue { concise, .. } => *concise,
+            Self::Commit { .. } => None,
+        }
+    }
+    pub fn page(&self) -> Option<usize> {
+        match self {
+            Self::PullRequest { page, .. } | Self::Issue { page, .. } => page.map(usize_of),
+            Self::Commit { page, .. } => Some(usize_of(*page)),
+        }
+    }
+    pub fn page_size(&self) -> Option<usize> {
+        match self {
+            Self::PullRequest { page_size, .. }
+            | Self::Issue { page_size, .. }
+            | Self::Commit { page_size, .. } => page_size.as_ref().map(|size| usize_of(size.0)),
+        }
+    }
+    history_str_fields! {
+        author: PullRequest | Issue | Commit;
+        assignee: PullRequest | Issue;
+        commenter: PullRequest | Issue;
+        mentions: PullRequest | Issue;
+        created: PullRequest | Issue;
+        updated: PullRequest | Issue;
+        closed: PullRequest | Issue;
+        comments: PullRequest | Issue;
+        reactions: PullRequest | Issue;
+        review_requested: PullRequest;
+        reviewed_by: PullRequest;
+        head: PullRequest;
+        base: PullRequest;
+        merged_at: PullRequest;
+        path: Commit;
+        since: Commit;
+        until: Commit;
+        branch: Commit;
+        committer: Commit;
+    }
+    history_enum_fields! {
+        sort: PullRequest | Issue;
+        order: PullRequest | Issue;
+        state: PullRequest | Issue;
+        checks: PullRequest;
+        review: PullRequest;
+    }
+}
+
+fn usize_of(value: std::num::NonZeroU64) -> usize {
+    usize::try_from(value.get()).unwrap_or(usize::MAX)
 }
 pub async fn execute<R: CredentialResolver>(
     transport: &GitHubTransport<R>,
@@ -72,51 +185,50 @@ pub async fn execute<R: CredentialResolver>(
     context: &RequestContext,
     security: &impl ContentScan,
 ) -> Result<Value, ProviderError> {
-    let page = query.page.unwrap_or(1);
-    let per = query.page_size.unwrap_or(30).min(100);
+    let page = query.page().unwrap_or(1);
+    let per = query.page_size().unwrap_or(30).min(100);
     let mut query = query.clone();
-    let mut rename_warnings = Vec::new();
-    if let (Some(owner), Some(repo)) = (query.owner.as_deref(), query.repo.as_deref()) {
-        let (canonical_owner, canonical_repo, renamed, warnings) =
-            transport.canonical_owner_repo(owner, repo, context).await?;
-        if renamed {
-            query.owner = Some(canonical_owner);
-            query.repo = Some(canonical_repo);
-            rename_warnings = warnings;
-        }
-    }
-    let searching = match query.operation {
-        HistoryOperation::Commit => query.keywords.as_ref().is_some_and(|v| !v.is_empty()),
+    let searching = match query.operation() {
+        HistoryOperation::Commit => !query.keywords().is_empty(),
         HistoryOperation::Issue => should_use_search_for_issues(&query),
         HistoryOperation::PullRequest => should_use_search_for_prs(&query),
     };
+    let mut rename_warnings = Vec::new();
+    // Only the search API ignores renames; REST list endpoints follow the
+    // repository redirect, so list paths skip the extra /repos lookup.
+    if searching && let (Some(owner), Some(repo)) = (query.owner(), query.repo())
+    {
+        let (canonical_owner, canonical_repo, renamed, warnings) =
+            transport.canonical_owner_repo(owner, repo, context).await?;
+        if renamed {
+            query.set_scope(&canonical_owner, &canonical_repo);
+            rename_warnings = warnings;
+        }
+    }
     if searching && (page - 1).saturating_mul(per) >= 1000 {
         return Err(ProviderError::new(
             ProviderErrorKind::Validation,
             "GitHub search page exceeds the 1,000-result search window",
-        ));
+        )
+        .with_reason(crate::providers::github::ProviderErrorReason::SearchWindowExceeded));
     }
     let (terms, query_warnings) = build_query_with_warnings(&query)?;
     let request = HistoryRequest {
         query: terms,
         page,
         per_page: per,
-        sort: if searching && matches!(query.operation, HistoryOperation::Commit) {
+        sort: if searching && matches!(query.operation(), HistoryOperation::Commit) {
             Some("committer-date".into())
         } else {
-            query
-                .sort
-                .as_ref()
-                .filter(|v| v.as_str() != "best-match")
-                .cloned()
+            query.sort().filter(|v| v != "best-match")
         },
-        order: if searching && matches!(query.operation, HistoryOperation::Commit) {
+        order: if searching && matches!(query.operation(), HistoryOperation::Commit) {
             Some("desc".into())
         } else {
-            query.order.clone()
+            query.order()
         },
     };
-    let mut result = match query.operation {
+    let mut result = match query.operation() {
         HistoryOperation::Commit if searching => {
             transport.search_commits(&request, context).await?
         }
@@ -129,19 +241,19 @@ pub async fn execute<R: CredentialResolver>(
                     &CommitListRequest {
                         owner: o.into(),
                         repo: r.into(),
-                        branch: query.branch.clone(),
-                        path: query.path.clone(),
-                        author: query.author.clone(),
+                        branch: query.branch().map(str::to_owned),
+                        path: query.path().map(str::to_owned),
+                        author: query.author().map(str::to_owned),
                         since,
                         until,
                         page,
                         per_page: per,
                     },
-                    query.committer.as_deref(),
+                    query.committer(),
                     context,
                 )
                 .await?;
-            if listed.items.is_empty() && (query.since.is_some() || query.until.is_some()) {
+            if listed.items.is_empty() && (query.since().is_some() || query.until().is_some()) {
                 listed.warnings.push(
                     "since/until matched no commits (GitHub commit listing uses committer date and does not follow renames).".into(),
                 );
@@ -155,13 +267,13 @@ pub async fn execute<R: CredentialResolver>(
                     &IssueListRequest {
                         owner: o.into(),
                         repo: r.into(),
-                        state: query.state.clone(),
-                        assignee: query.assignee.clone(),
-                        author: query.author.clone(),
-                        mentions: query.mentions.clone(),
-                        labels: query.label.clone(),
-                        sort: query.sort.clone(),
-                        order: query.order.clone(),
+                        state: query.state(),
+                        assignee: query.assignee().map(str::to_owned),
+                        author: query.author().map(str::to_owned),
+                        mentions: query.mentions().map(str::to_owned),
+                        labels: (!query.label().is_empty()).then(|| query.label().to_vec()),
+                        sort: query.sort(),
+                        order: query.order(),
                         page,
                         per_page: per,
                     },
@@ -176,11 +288,11 @@ pub async fn execute<R: CredentialResolver>(
                     &PullListRequest {
                         owner: o.into(),
                         repo: r.into(),
-                        state: query.state.clone(),
-                        head: query.head.clone(),
-                        base: query.base.clone(),
-                        sort: query.sort.clone(),
-                        order: query.order.clone(),
+                        state: query.state(),
+                        head: query.head().map(str::to_owned),
+                        base: query.base().map(str::to_owned),
+                        sort: query.sort(),
+                        order: query.order(),
                         page,
                         per_page: per,
                     },
@@ -231,14 +343,14 @@ pub async fn execute<R: CredentialResolver>(
     let exact_list_total =
         (result.listed && current_page == 1 && !more).then_some(result.items.len());
     let effective = request.query.clone();
-    let mut value = match query.operation {
+    let mut value = match query.operation() {
         HistoryOperation::PullRequest => {
             let rows = result
                 .items
                 .iter()
                 .cloned()
                 .map(|item| {
-                    if query.concise == Some(true) {
+                    if query.concise() == Some(true) {
                         concise_row(&item)
                     } else {
                         map_pr(item)
@@ -258,7 +370,7 @@ pub async fn execute<R: CredentialResolver>(
                 .get(0)
                 .and_then(|x| x.get("number"))
                 .and_then(Value::as_u64)
-                && let (Some(owner), Some(repo)) = (&query.owner, &query.repo)
+                && let (Some(owner), Some(repo)) = (query.owner(), query.repo())
             {
                 v["next"]["readPr"] = json!({"tool":"ghGetHistoryItem","query":{"operation":"pullRequest","owner":owner,"repo":repo,"number":number,"content":{"body":true,"changedFiles":true,"comments":{"discussion":true}},"pageSize":30,"minify":"standard"},"confidence":"low"});
             }
@@ -270,14 +382,14 @@ pub async fn execute<R: CredentialResolver>(
                 .iter()
                 .cloned()
                 .map(|item| {
-                    if query.concise == Some(true) {
+                    if query.concise() == Some(true) {
                         concise_row(&item)
                     } else {
                         map_issue(item)
                     }
                 })
                 .collect::<Vec<_>>();
-            let mut v = json!({"type":"issues","owner":query.owner,"repo":query.repo,"issues":issues,"effectiveQuery":effective,"pagination":{"currentPage":current_page,"perPage":per,"hasMore":more,"nextPage":more.then_some(current_page+1)}});
+            let mut v = json!({"type":"issues","owner":query.owner(),"repo":query.repo(),"issues":issues,"effectiveQuery":effective,"pagination":{"currentPage":current_page,"perPage":per,"hasMore":more,"nextPage":more.then_some(current_page+1)}});
             if let Some(total) = if result.listed {
                 exact_list_total
             } else {
@@ -285,10 +397,19 @@ pub async fn execute<R: CredentialResolver>(
             } {
                 v["totalCount"] = json!(total);
             }
+            if let Some(number) = result
+                .items
+                .first()
+                .and_then(|x| x.get("number"))
+                .and_then(Value::as_u64)
+                && let (Some(owner), Some(repo)) = (query.owner(), query.repo())
+            {
+                v["next"]["readIssue"] = json!({"tool":"ghGetHistoryItem","query":{"operation":"issue","owner":owner,"repo":repo,"number":number,"content":{"body":true,"comments":{"discussion":true}}},"confidence":"low"});
+            }
             v
         }
         HistoryOperation::Commit => {
-            let mut v = json!({"type":"commits","owner":query.owner,"repo":query.repo,"scope":"defaultBranch","commits":result.items.into_iter().map(if query.keywords.as_ref().is_none_or(Vec::is_empty){map_commit_list}else{map_commit}).collect::<Vec<_>>(),"incompleteResults":result.incomplete_results,"pagination":{"page":page,"perPage":per,"hasMore":more}});
+            let mut v = json!({"type":"commits","owner":query.owner(),"repo":query.repo(),"scope":"defaultBranch","commits":result.items.into_iter().map(if query.keywords().is_empty(){map_commit_list}else{map_commit}).collect::<Vec<_>>(),"incompleteResults":result.incomplete_results,"pagination":{"page":page,"perPage":per,"hasMore":more}});
             if let Some(total) = if result.listed {
                 exact_list_total
             } else {
@@ -302,34 +423,31 @@ pub async fn execute<R: CredentialResolver>(
             v
         }
     };
-    if matches!(query.operation, HistoryOperation::Commit)
-        && query.keywords.as_ref().is_none_or(Vec::is_empty)
+    if matches!(query.operation(), HistoryOperation::Commit)
+        && query.keywords().is_empty()
     {
         let commits = value["commits"].as_array().cloned().unwrap_or_default();
-        value = json!({"type":if query.path.as_ref().is_some_and(|p|!p.ends_with('/')){"file"}else{"repo"},"owner":query.owner,"repo":query.repo,"path":query.path,"commits":commits});
-        remove_nulls(&mut value);
+        value = json!({"type":if query.path().as_ref().is_some_and(|p|!p.ends_with('/')){"file"}else{"repo"},"owner":query.owner(),"repo":query.repo(),"path":query.path(),"commits":commits});
+        remove_null_fields(&mut value);
         if more {
             value["pagination"] =
                 json!({"currentPage":page,"perPage":per,"hasMore":true,"nextPage":page+1});
         }
     }
-    if query.include_diff == Some(true)
-        && matches!(query.operation, HistoryOperation::Commit)
-        && let (Some(owner), Some(repo)) = (query.owner.as_deref(), query.repo.as_deref())
-        && let Some(commits) = value.get_mut("commits").and_then(Value::as_array_mut)
+    if matches!(query.operation(), HistoryOperation::Commit)
+        && let Some(sha) = value
+            .pointer("/commits/0/sha")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+        && let (Some(owner), Some(repo)) = (query.owner(), query.repo())
     {
-        for commit in commits.iter_mut().take(per) {
-            let Some(sha) = commit.get("sha").and_then(Value::as_str).map(str::to_owned) else {
-                continue;
-            };
-            if let Ok(item) = transport
-                .history_item(&["repos", owner, repo, "commits", &sha], &[], context)
-                .await
-                && let Some(files) = item.value.get("files").cloned()
-            {
-                commit["files"] = files;
-            }
+        let mut read =
+            json!({"operation":"commit","owner":owner,"repo":repo,"ref":sha,"includeDiff":true});
+        if let Some(path) = query.path() {
+            read["path"] = json!(path);
         }
+        value["next"]["readCommit"] =
+            json!({"tool":"ghGetHistoryItem","query":read,"confidence":"low"});
     }
     if !result.warnings.is_empty() {
         value["warnings"] = json!(result.warnings);
@@ -338,7 +456,7 @@ pub async fn execute<R: CredentialResolver>(
         value["skippedPullRequestPages"] = json!(result.skipped_pull_request_pages);
         value["providerPage"] = json!(result.provider_page);
     }
-    if matches!(query.operation, HistoryOperation::Issue)
+    if matches!(query.operation(), HistoryOperation::Issue)
         && let Some(map) = value.as_object_mut()
         && !more
     {
@@ -348,19 +466,19 @@ pub async fn execute<R: CredentialResolver>(
     // as the effective query would misdescribe what executed.
     if result.listed
         && matches!(
-            query.operation,
+            query.operation(),
             HistoryOperation::Issue | HistoryOperation::PullRequest
         )
         && let Some(map) = value.as_object_mut()
     {
         map.remove("effectiveQuery");
     }
-    if matches!(query.operation, HistoryOperation::Commit) && more {
+    if matches!(query.operation(), HistoryOperation::Commit) && more {
         value["pagination"]["nextPage"] = json!(current_page + 1);
     }
     if more {
         let mut next = serde_json::to_value(&query).unwrap_or_default();
-        remove_nulls(&mut next);
+        remove_null_fields(&mut next);
         next["page"] = json!(current_page + 1);
         // The nextPage continuation validates against the input schema, whose
         // serialization makes the paginated defaulted fields required. Stamp the
@@ -370,7 +488,7 @@ pub async fn execute<R: CredentialResolver>(
         value["next"]["nextPage"] =
             json!({"tool":"ghSearchHistory","query":next,"confidence":"exact"});
     }
-    remove_nulls(&mut value);
+    remove_null_fields(&mut value);
     mark_empty(&mut value, more);
     if result.incomplete_results || (!result.listed && result.total_count > 1000) {
         value["isPartial"] = json!(true);
@@ -404,17 +522,9 @@ fn mark_empty(value: &mut Value, more: bool) {
 }
 
 fn required_repo(q: &GhSearchHistoryQuery) -> Result<(&str, &str), ProviderError> {
-    q.owner.as_deref().zip(q.repo.as_deref()).ok_or_else(|| {
+    q.owner().zip(q.repo()).ok_or_else(|| {
         ProviderError::new(ProviderErrorKind::Validation, "owner and repo are required")
     })
-}
-fn remove_nulls(v: &mut Value) {
-    if let Value::Object(m) = v {
-        m.retain(|_, v| !v.is_null());
-        for v in m.values_mut() {
-            remove_nulls(v)
-        }
-    }
 }
 
 fn labels(v: &Value) -> Vec<String> {
@@ -449,7 +559,7 @@ fn map_pr(v: Value) -> Value {
         "createdAt":v.get("created_at").and_then(Value::as_str).unwrap_or(""),
         "commentsCount":v.get("comments").and_then(Value::as_u64).unwrap_or(0)
     });
-    remove_nulls(&mut row);
+    remove_null_fields(&mut row);
     row
 }
 fn concise_row(v: &Value) -> Value {
@@ -460,34 +570,34 @@ fn concise_row(v: &Value) -> Value {
     ))
 }
 fn should_use_search_for_issues(q: &GhSearchHistoryQuery) -> bool {
-    q.keywords.as_ref().is_some_and(|v| !v.is_empty())
-        || q.author.is_some()
-        || q.assignee.is_some()
-        || q.label.as_ref().is_some_and(|v| !v.is_empty())
-        || q.mentions.is_some()
-        || q.commenter.is_some()
-        || q.reactions.is_some()
-        || q.comments.is_some()
-        || q.created.is_some()
-        || q.updated.is_some()
-        || q.closed.is_some()
-        || q.match_kind.as_ref().is_some_and(|v| !v.is_empty())
-        || matches!(q.sort.as_deref(), Some("comments" | "reactions"))
+    !q.keywords().is_empty()
+        || q.author().is_some()
+        || q.assignee().is_some()
+        || !q.label().is_empty()
+        || q.mentions().is_some()
+        || q.commenter().is_some()
+        || q.reactions().is_some()
+        || q.comments().is_some()
+        || q.created().is_some()
+        || q.updated().is_some()
+        || q.closed().is_some()
+        || !q.match_kinds().is_empty()
+        || matches!(q.sort().as_deref(), Some("comments" | "reactions"))
 }
 fn should_use_search_for_prs(q: &GhSearchHistoryQuery) -> bool {
     // The REST list endpoint needs owner+repo; anything broader is search.
-    q.owner.is_none()
-        || q.repo.is_none()
+    q.owner().is_none()
+        || q.repo().is_none()
         || should_use_search_for_issues(q)
-        || q.draft.is_some()
-        || q.reviewed_by.is_some()
-        || q.review_requested.is_some()
-        || q.checks.is_some()
-        || q.review.is_some()
-        || q.head.is_some()
-        || q.base.is_some()
-        || q.merged_at.is_some()
-        || q.state.as_deref() == Some("merged")
+        || q.draft().is_some()
+        || q.reviewed_by().is_some()
+        || q.review_requested().is_some()
+        || q.checks().is_some()
+        || q.review().is_some()
+        || q.head().is_some()
+        || q.base().is_some()
+        || q.merged_at().is_some()
+        || q.state().as_deref() == Some("merged")
 }
 fn map_issue(v: Value) -> Value {
     json!({"number":v["number"],"title":v["title"],"state":v["state"],"author":v.pointer("/user/login"),"labels":labels(&v),"createdAt":v["created_at"],"updatedAt":v["updated_at"]})
@@ -510,14 +620,40 @@ fn build_query(q: &GhSearchHistoryQuery) -> Result<String, ProviderError> {
     build_query_with_warnings(q).map(|(terms, _)| terms)
 }
 
+/// Owner/repo become `repo:`/`user:` scopes and person fields become
+/// `author:`-style qualifiers: reject anything that is not a GitHub name
+/// before it can rewrite the search scope.
+fn validate_history_scope(q: &GhSearchHistoryQuery) -> Result<(), ProviderError> {
+    if let Some(owner) = q.owner() {
+        validate_search_name("owner", owner, SearchName::Owner)?;
+    }
+    if let Some(repo) = q.repo() {
+        validate_search_name("repo", repo, SearchName::Repository)?;
+    }
+    for (field, value) in [
+        ("author", q.author()),
+        ("committer", q.committer()),
+        ("assignee", q.assignee()),
+        ("mentions", q.mentions()),
+        ("commenter", q.commenter()),
+        ("reviewed-by", q.reviewed_by()),
+        ("review-requested", q.review_requested()),
+    ] {
+        if let Some(value) = value {
+            validate_search_name(field, value, SearchName::Person)?;
+        }
+    }
+    Ok(())
+}
+
 /// Resolves `since`/`until`, collecting invalid-value warnings and rejecting
 /// an inverted window (since after until) as a validation error.
 fn resolve_commit_window(
     q: &GhSearchHistoryQuery,
     warnings: &mut Vec<String>,
 ) -> Result<(Option<String>, Option<String>), ProviderError> {
-    let since = q.since.as_deref().map(resolve_date_window);
-    let until = q.until.as_deref().map(resolve_date_window);
+    let since = q.since().map(resolve_date_window);
+    let until = q.until().map(resolve_date_window);
     if let (Some(since), Some(until)) = (&since, &until)
         && since.is_after(until)
     {
@@ -525,8 +661,8 @@ fn resolve_commit_window(
             ProviderErrorKind::Validation,
             format!(
                 "since ({}) is after until ({}); swap them or widen the window",
-                q.since.as_deref().unwrap_or_default().trim(),
-                q.until.as_deref().unwrap_or_default().trim()
+                q.since().unwrap_or_default().trim(),
+                q.until().unwrap_or_default().trim()
             ),
         ));
     }
@@ -545,25 +681,35 @@ fn build_query_with_warnings(
     q: &GhSearchHistoryQuery,
 ) -> Result<(String, Vec<String>), ProviderError> {
     let mut warnings = Vec::new();
+    validate_history_scope(q)?;
     let mut out = q
-        .keywords
-        .clone()
-        .unwrap_or_default()
+        .keywords()
         .into_iter()
-        .map(|keyword| quote_search_keyword(&keyword))
+        .map(quote_search_keyword)
+        .filter(|term| !term.is_empty())
         .collect::<Vec<_>>();
-    let push = |out: &mut Vec<String>, k: &str, v: Option<&str>| {
+    // Range and enum qualifiers are single terms: whitespace inside a range
+    // (`> 5`, `a .. b`) is dropped, anything that could open a new term is rejected.
+    let push = |out: &mut Vec<String>, k: &str, v: Option<&str>| -> Result<(), ProviderError> {
         if let Some(v) = v {
-            out.push(format!("{k}:{v}"));
+            let range = v.trim_start().starts_with(['<', '>', '=']) || v.contains("..");
+            let compact = if range {
+                v.chars().filter(|c| !c.is_whitespace()).collect::<String>()
+            } else {
+                v.trim().to_owned()
+            };
+            validate_qualifier_value(k, &compact)?;
+            out.push(format!("{k}:{compact}"));
         }
+        Ok(())
     };
-    match q.operation {
+    match q.operation() {
         HistoryOperation::Commit => {
             let (o, r) = required_repo(q)?;
             out.push(format!("repo:{o}/{r}"));
             for (field, value) in [
-                ("author", q.author.as_deref()),
-                ("committer", q.committer.as_deref()),
+                ("author", q.author()),
+                ("committer", q.committer()),
             ] {
                 if let Some(value) = value {
                     let key = if value.contains('@') {
@@ -585,18 +731,19 @@ fn build_query_with_warnings(
             }
         }
         HistoryOperation::PullRequest | HistoryOperation::Issue => {
-            if let Some(v) = &q.match_kind {
-                out.push(format!("in:{}", v.join(",")));
+            if !q.match_kinds().is_empty() {
+                let fields: Vec<String> = q.match_kinds().iter().map(ToString::to_string).collect();
+                push(&mut out, "in", Some(&fields.join(",")))?;
             }
             out.push(
-                if matches!(q.operation, HistoryOperation::PullRequest) {
+                if matches!(q.operation(), HistoryOperation::PullRequest) {
                     "is:pr"
                 } else {
                     "is:issue"
                 }
                 .into(),
             );
-            match (q.owner.as_deref(), q.repo.as_deref(), q.operation) {
+            match (q.owner(), q.repo(), q.operation()) {
                 (Some(o), Some(r), _) => out.push(format!("repo:{o}/{r}")),
                 // Pull-request search is cross-repo capable (contract: owner and
                 // repo optional); issue search stays repository-scoped.
@@ -606,40 +753,44 @@ fn build_query_with_warnings(
                     required_repo(q)?;
                 }
             }
-            if let Some(state) = &q.state {
-                out.push(format!("is:{state}"));
-            }
-            if let Some(draft) = q.draft {
+            push(&mut out, "is", q.state().as_deref())?;
+            if let Some(draft) = q.draft() {
                 out.push(if draft { "is:draft" } else { "-is:draft" }.into());
             }
             for (k, v) in [
-                ("author", q.author.as_deref()),
-                ("assignee", q.assignee.as_deref()),
-                ("mentions", q.mentions.as_deref()),
-                ("commenter", q.commenter.as_deref()),
-                ("reviewed-by", q.reviewed_by.as_deref()),
-                ("review-requested", q.review_requested.as_deref()),
-                ("head", q.head.as_deref()),
-                ("base", q.base.as_deref()),
-                ("created", q.created.as_deref()),
-                ("updated", q.updated.as_deref()),
-                ("merged", q.merged_at.as_deref()),
-                ("closed", q.closed.as_deref()),
-                ("comments", q.comments.as_deref()),
-                ("reactions", q.reactions.as_deref()),
-                ("review", q.review.as_deref()),
+                ("author", q.author()),
+                ("assignee", q.assignee()),
+                ("mentions", q.mentions()),
+                ("commenter", q.commenter()),
+                ("reviewed-by", q.reviewed_by()),
+                ("review-requested", q.review_requested()),
+                ("head", q.head()),
+                ("base", q.base()),
+                ("created", q.created()),
+                ("updated", q.updated()),
+                ("merged", q.merged_at()),
+                ("closed", q.closed()),
+                ("comments", q.comments()),
+                ("reactions", q.reactions()),
+                ("review", q.review().as_deref()),
             ] {
-                push(&mut out, k, v);
+                push(&mut out, k, v)?;
             }
-            if let Some(labels) = &q.label {
-                for label in labels {
-                    out.push(format!("label:\"{label}\""));
+            for label in q.label() {
+                // A label is one quoted name; an interior quote or backslash
+                // would close it early and splice the rest into the query.
+                if label.contains(['"', '\\']) || label.trim().is_empty() {
+                    return Err(ProviderError::new(
+                        ProviderErrorKind::Validation,
+                        format!("label: \"{label}\" cannot contain quotes or backslashes"),
+                    ));
                 }
+                out.push(format!("label:\"{}\"", label.trim()));
             }
-            if let Some(archived) = q.archived {
+            if let Some(archived) = q.archived() {
                 out.push(format!("archived:{archived}"));
             }
-            push(&mut out, "status", q.checks.as_deref());
+            push(&mut out, "status", q.checks().as_deref())?;
         }
     }
     Ok((out.join(" "), warnings))
@@ -704,6 +855,42 @@ mod tests {
                 .ends_with("archived:true")
         );
     }
+    #[test]
+    fn report_probes_cannot_rewrite_the_history_scope() {
+        // A leading-quote keyword, an owner carrying operators,
+        // and a label with an interior quote.
+        let q = parse(
+            r#"{"operation":"issue","owner":"octocat","repo":"Hello-World","keywords":["\"hello\" NOT"]}"#,
+        );
+        assert_eq!(
+            build_query(&q).expect("valid"),
+            "\"hello NOT\" is:issue repo:octocat/Hello-World"
+        );
+        let q = parse(r#"{"operation":"pullRequest","owner":"a","keywords":["repo:evil/x","-y"]}"#);
+        assert_eq!(
+            build_query(&q).expect("valid"),
+            "\"repo:evil/x\" \"-y\" is:pr user:a"
+        );
+        for raw in [
+            r#"{"operation":"issue","owner":"octocat OR is:public","repo":"b","keywords":["hello"]}"#,
+            r#"{"operation":"issue","owner":"a","repo":"b:c","keywords":["hello"]}"#,
+            r#"{"operation":"pullRequest","owner":"a","author":"x OR is:public"}"#,
+            r#"{"operation":"issue","owner":"a","repo":"b","label":["x\" OR is:public"]}"#,
+            r#"{"operation":"issue","owner":"a","repo":"b","created":"x OR is:public"}"#,
+            r#"{"operation":"commit","owner":"a","repo":"b","keywords":["x"],"committer":"a b"}"#,
+        ] {
+            let error = build_query(&parse(raw)).expect_err(raw);
+            assert_eq!(error.kind, ProviderErrorKind::Validation, "{raw}");
+        }
+        let q = parse(
+            r#"{"operation":"issue","owner":"a","repo":"b","label":["good first issue"],"comments":"> 5","author":"dependabot[bot]"}"#,
+        );
+        let built = build_query(&q).expect("valid");
+        assert!(built.contains("label:\"good first issue\""), "{built}");
+        assert!(built.contains("comments:>5"), "{built}");
+        assert!(built.contains("author:dependabot[bot]"), "{built}");
+    }
+
     #[test]
     fn quotes_multiword_history_keywords() {
         let q: GhSearchHistoryQuery = serde_json::from_str(

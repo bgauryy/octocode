@@ -1,43 +1,58 @@
 //! Native `lspSearch` using the portable engine language-server client.
+//!
+//! `execute` admits the query (path policy, server discovery), reads the
+//! anchor document once, resolves the anchor on that exact text, acquires
+//! and leases a pooled client for the whole operation, synchronizes the
+//! document, and hands off to the per-operation code:
+//!
+//! - [`anchor`]: anchor resolution and the `resolvedSymbol` receipt
+//! - [`source`]: per-request policy-gated, bounded, cached source reads
+//! - [`ops`]: per-operation requests and row shaping
+//! - [`recovery`]: definition chains and alias-aware references
+//! - [`walk`]: breadth-first call/type-hierarchy walks
+//! - [`locations`]: public coordinates, pagination, snapshots
+//! - [`failure`]: typed failures, empty/partial rows, `next.*`
+//! - [`receipt`]: provider capabilities, Rust context, server receipt
+//!
+//! Public output coordinates are one-based lines and one-based UTF-16
+//! columns (see [`locations`]); only the `position` input is zero-based.
 use crate::policy::path::PathPolicy;
 use crate::tools::local_fetch::CancellationCheck;
-use octocode_engine::lsp::client::NativeLspClient;
 use octocode_engine::lsp::config::{
     LspDiscoveryOptions, default_server_for_file_with_options,
     default_server_for_workspace_root_with_options, workspace_root_representative_source,
 };
 use octocode_engine::lsp::pool::LspClientPool;
-use octocode_engine::lsp::resolver::resolve_position;
-use octocode_engine::lsp::types::{JsFuzzyPosition, JsLanguageServerConfig};
 use octocode_engine::lsp::uri::path_to_uri as engine_path_to_uri;
 use octocode_engine::lsp::workspace::resolve_workspace_root_for_file;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
-use std::fs;
+use serde_json::Value;
+use std::future::Future;
 use std::path::Path;
 use std::time::Duration;
 
+mod anchor;
+mod failure;
+mod locations;
+mod ops;
+mod receipt;
+mod recovery;
 mod render;
-use render::{as_array, decode_uri_path, flatten_document_symbol, paginate, uri_to_path};
+mod source;
+mod walk;
 
-/// Upper bound on a source file synced to the language server via `didOpen`.
-/// Mirrors the engine's `MAX_SAFE_READ_FILE_BYTES`/snippet/position caps (1 MiB
-/// decimal): a document above this is oversize-diagnosed rather than read
-/// uncapped and streamed to the server.
-const MAX_LSP_DIDOPEN_BYTES: u64 = 1_000_000;
-const DEFINITION_ALIAS_SETTLE_MS: u64 = 50;
+pub use failure::LspFailure;
+use failure::{failure, mark_partial, with_next};
+use render::decode_uri_path;
+use source::{SourceCache, SourceReadError, read_bounded_source_async, snippet_policy};
+
 /// After the first `didOpen` of a document, how long to wait for a project
 /// load the open triggers to START (tsserver begins ~100 ms after didOpen),
 /// and the bound on the whole post-open wait.
 const DIDOPEN_SETTLE_MS: u32 = 400;
 const DIDOPEN_READY_TIMEOUT_MS: u32 = 15_000;
-const PUSH_DIAGNOSTICS_WAIT_MS: u32 = 1_500;
-
-/// Whether a source of `len` bytes exceeds the didOpen sync cap. Extracted as a
-/// pure seam so the cap decision is unit-testable without touching the fs.
-fn didopen_exceeds_cap(len: u64) -> bool {
-    len > MAX_LSP_DIDOPEN_BYTES
-}
+/// How often a long language-server await re-checks cancellation.
+const CANCEL_POLL_MS: u64 = 50;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -56,15 +71,13 @@ pub struct LspSearchQuery {
     pub workspace_root: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub symbol_name: Option<String>,
-    /// Explicit source anchor, consumed as **zero-based** LSP coordinates and
-    /// passed straight through to the language server (`resolve_anchor`). Note
-    /// the deliberate asymmetry with the rest of the contract: every human-facing
-    /// coordinate this tool emits — `foundAtLine` (`position.line + 1`),
-    /// symbolName resolution, and `displayRange` — is **one-based**. This input
-    /// stays zero-based because migrating it to one-based would silently shift
-    /// every existing caller's anchor by a line and break the published
-    /// pagination contract; the `symbolName`+`lineHint` path is the one-based
-    /// entry point for callers that prefer editor-style coordinates.
+    /// Explicit source anchor, consumed as **zero-based** LSP coordinates
+    /// (UTF-16 columns) and passed straight through to the language server.
+    /// This is the one zero-based coordinate in the contract: every emitted
+    /// coordinate is one-based (lines and UTF-16 columns), so an emitted
+    /// `displayRange`/`resolvedSymbol` point becomes a `position` by
+    /// subtracting 1 from both. `symbolName`+`lineHint` is the one-based
+    /// entry point.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub position: Option<LspPosition>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -95,21 +108,24 @@ pub struct LspExecutionConfig {
     pub trust_project_config: bool,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, Default)]
-#[serde(rename_all = "camelCase")]
-struct RustBuildContext {
-    #[serde(default)]
-    features: Option<Value>,
-    #[serde(default)]
-    no_default_features: Option<bool>,
-    #[serde(default)]
-    target: Option<String>,
-    #[serde(default)]
-    cfgs: Option<Vec<String>>,
-    #[serde(default)]
-    build_scripts: Option<bool>,
-    #[serde(default)]
-    proc_macros: Option<bool>,
+/// Await `future`, re-checking `cancel` every [`CANCEL_POLL_MS`]; a
+/// cancelled request drops the future (the engine then abandons the
+/// language-server request) and returns [`LspFailure::cancelled`].
+pub(super) async fn cancellable<F: Future>(
+    cancel: &dyn CancellationCheck,
+    future: F,
+) -> Result<F::Output, LspFailure> {
+    cancel.check().map_err(LspFailure::cancelled)?;
+    let mut future = std::pin::pin!(future);
+    let mut poll = tokio::time::interval(Duration::from_millis(CANCEL_POLL_MS));
+    poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        tokio::select! {
+            biased;
+            output = &mut future => return Ok(output),
+            _ = poll.tick() => cancel.check().map_err(LspFailure::cancelled)?,
+        }
+    }
 }
 
 pub async fn execute(
@@ -118,8 +134,8 @@ pub async fn execute(
     pool: &LspClientPool,
     paths: &PathPolicy,
     execution_config: &LspExecutionConfig,
-) -> Result<Value, String> {
-    cancel.check()?;
+) -> Result<Value, LspFailure> {
+    cancel.check().map_err(LspFailure::cancelled)?;
     let mut query = query;
     // `debug` asks for the provider receipt (server identity, fingerprints,
     // capabilities); ordinary rows carry only the answer.
@@ -129,29 +145,37 @@ pub async fn execute(
         object.remove("reasoning");
         object.remove("debug");
     }
-    let query: LspSearchQuery = serde_json::from_value(query).map_err(|error| error.to_string())?;
+    let query: LspSearchQuery = serde_json::from_value(query)
+        .map_err(|error| LspFailure::invalid_query(error.to_string()))?;
     let path = if let Some(uri) = query.uri.as_deref() {
-        let decoded = decode_uri_path(uri)?;
+        let decoded = decode_uri_path(uri).map_err(LspFailure::invalid_query)?;
         paths
             .validate_read(&decoded)
-            .map_err(|error| error.message)?
+            .map_err(LspFailure::path_denied)?
             .canonical
             .to_string_lossy()
             .into_owned()
     } else {
         paths
-            .validate(
-                query
-                    .workspace_root
-                    .as_deref()
-                    .ok_or_else(|| "lspSearch requires uri or workspaceRoot".to_owned())?,
-            )
-            .map_err(|error| error.message)?
+            .validate(query.workspace_root.as_deref().ok_or_else(|| {
+                LspFailure::invalid_query("lspSearch requires uri or workspaceRoot")
+            })?)
+            .map_err(LspFailure::path_denied)?
             .canonical
             .to_string_lossy()
             .into_owned()
     };
-    let canonical_uri = engine_path_to_uri(&path).map_err(|error| error.to_string())?;
+    let canonical_uri =
+        engine_path_to_uri(&path).map_err(|error| LspFailure::invalid_query(error.to_string()))?;
+    let fail = |code: &str, message: &str, server_available: bool| {
+        Ok(failure(
+            &query,
+            &canonical_uri,
+            code,
+            message,
+            server_available,
+        ))
+    };
     let workspace_candidate = query
         .workspace_root
         .clone()
@@ -167,13 +191,11 @@ pub async fn execute(
             validated.canonical.to_string_lossy().into_owned()
         }
         _ => {
-            return Ok(failure(
-                &query,
-                &canonical_uri,
+            return fail(
                 "lsp.workspaceRootInvalid",
                 "workspaceRoot is not an authorized directory.",
                 false,
-            ));
+            );
         }
     };
     let config_path = execution_config
@@ -185,7 +207,7 @@ pub async fn execute(
                 .map(|validated| validated.canonical)
         })
         .transpose()
-        .map_err(|error| error.message)?;
+        .map_err(LspFailure::path_denied)?;
     let discovery = LspDiscoveryOptions {
         config_path,
         trust_project_config: execution_config.trust_project_config,
@@ -199,9 +221,7 @@ pub async fn execute(
         default_server_for_file_with_options(path.clone(), workspace, &discovery)
     };
     let Some(mut config) = discovered else {
-        return Ok(failure(
-            &query,
-            &canonical_uri,
+        return fail(
             "lsp.serverUnavailable",
             if root_only {
                 "No language server could be inferred for this workspace root (no tsconfig.json, Cargo.toml, go.mod, pyproject.toml, setup.py, jsconfig.json, or package.json)."
@@ -209,271 +229,147 @@ pub async fn execute(
                 "No language server is configured for this file."
             },
             false,
-        ));
+        );
     };
-    apply_rust_context(&mut config, &query)?;
+    receipt::apply_rust_context(&mut config, &query).map_err(LspFailure::invalid_query)?;
+
+    // Read the anchor document once (bounded, regular files only). The same
+    // text is sent in didOpen, resolves the anchor, and serves same-file
+    // context windows; a bad document or anchor costs no server start.
+    let mut sources = SourceCache::new(paths);
+    let document = if root_only {
+        None
+    } else {
+        match read_bounded_source_async(std::path::PathBuf::from(&path)).await {
+            Ok(content) => Some(sources.insert(&path, content)),
+            Err(SourceReadError::TooLarge(len)) => {
+                return fail(
+                    "lsp.documentTooLarge",
+                    &format!(
+                        "The source document is too large to synchronize with the language server ({len} bytes > {} bytes).",
+                        source::MAX_LSP_DIDOPEN_BYTES
+                    ),
+                    true,
+                );
+            }
+            Err(SourceReadError::Unreadable(error)) => {
+                return fail(
+                    "lsp.documentReadFailed",
+                    &format!("The source document could not be read: {error}"),
+                    false,
+                );
+            }
+        }
+    };
+    let anchor = match anchor::resolve_anchor(
+        &query,
+        &path,
+        &canonical_uri,
+        document.as_deref().map(|source| source.content.as_str()),
+    ) {
+        Ok(anchor) => anchor,
+        Err(error) => return fail("lsp.anchorUnresolved", &error, true),
+    };
+
     let receipt_config = config.clone();
-    let client = match pool.acquire(config).await {
-        Ok(Some(client)) => client,
+    // One lease for the whole operation, taken by the pool under its lock at
+    // acquire: syncs, readiness waits, and the gaps between this request's
+    // many LSP calls all count as busy, so idle eviction never stops the
+    // server mid-operation (nor between acquire and the first request).
+    let (client, _lease) = match cancellable(cancel, pool.acquire_leased(config)).await? {
+        Ok(Some(leased)) => leased,
         Ok(None) => {
-            return Ok(failure(
-                &query,
-                &canonical_uri,
+            return fail(
                 "lsp.serverUnavailable",
                 "Language server failed to start.",
                 false,
-            ));
+            );
         }
         Err(error) => {
-            return Ok(failure(
-                &query,
-                &canonical_uri,
-                "lsp.serverUnavailable",
-                &error.to_string(),
-                false,
-            ));
+            let code = match LspFailure::from_engine(&error).code {
+                "lsp.timeout" => "lsp.timeout",
+                _ => "lsp.serverUnavailable",
+            };
+            return fail(code, &error.to_string(), false);
         }
     };
     if client.readiness().as_deref() == Some("timeout") {
-        return Ok(failure(
-            &query,
-            &canonical_uri,
+        return fail(
             "lsp.timeout",
             "Timed out waiting for the language server to become ready.",
             false,
-        ));
+        );
     }
-    if let Some(capability) = required_capability(&query.operation)
+    if let Some(capability) = receipt::required_capability(&query.operation)
         && !client.has_capability(capability.to_owned())
     {
-        return Ok(failure(
-            &query,
-            &canonical_uri,
+        return fail(
             "lsp.capabilityUnavailable",
             &format!("The language server does not advertise {capability}."),
             true,
-        ));
+        );
     }
+    // The first didOpen of a document can trigger a project load (tsserver
+    // starts one only then); wait for it so queries do not race it.
     let mut open_readiness = None;
-    if Path::new(&path).is_file() {
-        // Size-gate BEFORE reading: an uncapped `read_to_string` of a huge file
-        // then a `didOpen` under a payload-scaled write deadline can still stall
-        // or OOM. Above the cap we emit an oversize diagnostic instead of syncing.
-        match fs::metadata(&path) {
-            Ok(metadata) if didopen_exceeds_cap(metadata.len()) => {
-                return Ok(failure(
-                    &query,
-                    &canonical_uri,
-                    "lsp.documentTooLarge",
-                    &format!(
-                        "The source document is too large to synchronize with the language server ({} bytes > {MAX_LSP_DIDOPEN_BYTES} bytes).",
-                        metadata.len()
-                    ),
-                    false,
-                ));
-            }
-            Ok(_) => {}
-            Err(error) => {
-                return Ok(failure(
-                    &query,
-                    &canonical_uri,
-                    "lsp.documentReadFailed",
-                    &format!("The source document could not be read: {error}"),
-                    false,
-                ));
-            }
-        }
-        let content = match fs::read_to_string(&path) {
-            Ok(content) => content,
-            Err(error) => {
-                return Ok(failure(
-                    &query,
-                    &canonical_uri,
-                    "lsp.documentReadFailed",
-                    &format!("The source document could not be read: {error}"),
-                    false,
-                ));
-            }
-        };
-        // The first didOpen of a document can trigger a project load (tsserver
-        // starts one only then); wait for it so queries do not race it.
-        match client
-            .open_document_and_wait(
+    if let Some(document) = &document {
+        match cancellable(
+            cancel,
+            client.open_document_and_wait(
                 path.clone(),
-                content,
+                document.content.clone(),
                 Some(DIDOPEN_SETTLE_MS),
                 Some(DIDOPEN_READY_TIMEOUT_MS),
-            )
-            .await
+            ),
+        )
+        .await?
         {
             Ok(readiness) => open_readiness = readiness,
             Err(error) => {
-                return Ok(failure(
-                    &query,
-                    &canonical_uri,
+                return fail(
                     "lsp.documentSyncFailed",
                     &format!("The source document could not be synchronized: {error}"),
                     true,
-                ));
+                );
             }
         }
     } else if root_only
         && let Some(representative) = workspace_root_representative_source(&path)
-        && let Some(source) = read_hop_source(paths, &representative)
+        && let Some(source) = sources.get(&representative).await
     {
         // Some servers (tsserver: "No Project") cannot answer workspace-wide
         // queries until a document of the project is open. Best-effort: a
         // failed sync just leaves the server to answer (or error) as before.
-        if let Ok(readiness) = client
-            .open_document_and_wait(
+        if let Ok(readiness) = cancellable(
+            cancel,
+            client.open_document_and_wait(
                 representative,
-                source,
+                source.content.clone(),
                 Some(DIDOPEN_SETTLE_MS),
                 Some(DIDOPEN_READY_TIMEOUT_MS),
-            )
-            .await
+            ),
+        )
+        .await?
         {
             open_readiness = readiness;
         }
     }
-    let (line, character) = match resolve_anchor(&query, &path) {
-        Ok(anchor) => anchor,
-        Err(error) => {
-            return Ok(failure(
-                &query,
-                &canonical_uri,
-                "lsp.anchorUnresolved",
-                &error,
-                true,
-            ));
-        }
-    };
-    let resolved_symbol = present_resolved_symbol(&query, &path, &canonical_uri);
-    let workspace_root = receipt_config.workspace_root.as_str();
-    let mut result = match query.operation.as_str() {
-        "definition" => locations(
-            &query,
-            paths,
-            workspace_root,
-            "definition",
-            "definitionProvider",
-            resolve_definition_chain(&client, paths, &path, line, character).await?,
-        ),
-        "references" => {
-            let snippets = client
-                .get_references(
-                    path.clone(),
-                    line,
-                    character,
-                    Some(query.include_declaration.unwrap_or(true)),
-                )
-                .await
-                .map_err(|error| error.to_string())?;
-            let recovered =
-                recover_aliases(&client, paths, &query, &path, line, character, &snippets).await;
-            let mut all = snippets;
-            all.extend(recovered);
-            locations(
-                &query,
-                paths,
-                workspace_root,
-                "references",
-                "referencesProvider",
-                all,
-            )
-        }
-        "hover" => json!({
-            "type": query.operation,
-            "uri": query.uri,
-            "lsp": { "serverAvailable": true, "provider": "hoverProvider" },
-            "payload": { "kind": "hover", "hover": client.get_hover(path.clone(), line, character).await.map_err(|error| error.to_string())? }
-        }),
-        "typeDefinition" => locations(
-            &query,
-            paths,
-            workspace_root,
-            "typeDefinition",
-            "typeDefinitionProvider",
-            client
-                .get_type_definition(path.clone(), line, character)
-                .await
-                .map_err(|error| error.to_string())?,
-        ),
-        "implementation" => locations(
-            &query,
-            paths,
-            workspace_root,
-            "implementation",
-            "implementationProvider",
-            client
-                .get_implementation(path.clone(), line, character)
-                .await
-                .map_err(|error| error.to_string())?,
-        ),
-        "documentSymbols" => items_payload(
-            &query,
-            "documentSymbols",
-            client
-                .get_document_symbols(path.clone())
-                .await
-                .map_err(|error| error.to_string())?,
-        ),
-        "workspaceSymbol" => {
-            let name = query
-                .symbol_name
-                .clone()
-                .ok_or_else(|| "workspaceSymbol requires symbolName".to_owned())?;
-            let symbols = client
-                .workspace_symbol(name)
-                .await
-                .map_err(|error| error.to_string())?;
-            // workspace/symbol URIs are server-controlled and span the whole
-            // project; drop any that fall outside the read policy before emitting.
-            items_payload(&query, "symbols", filter_authorized_items(symbols, paths))
-        }
-        "diagnostic" => {
-            let report = if client.has_capability("diagnosticProvider".to_owned()) {
-                Some(
-                    client
-                        .get_diagnostics(path.clone())
-                        .await
-                        .map_err(|error| error.to_string())?,
-                )
-            } else {
-                client
-                    .get_push_diagnostics(path.clone(), Some(PUSH_DIAGNOSTICS_WAIT_MS))
-                    .await
-                    .map_err(|error| error.to_string())?
-            };
-            let published = report.is_some();
-            let (items, truncated) = diagnostic_items(report);
-            let mut row = items_payload(&query, "diagnostics", items);
-            if !published && row.pointer("/payload/kind").and_then(Value::as_str) == Some("empty") {
-                row["payload"]["category"] = json!("diagnosticsNotPublished");
-                row["payload"]["reason"] = json!(format!(
-                    "The language server published no diagnostics for this document within {PUSH_DIAGNOSTICS_WAIT_MS} ms."
-                ));
-                row["hints"] = json!([empty_hint("diagnosticsNotPublished")]);
-            }
-            if truncated {
-                row["isPartial"] = json!(true);
-                row["terminalLimit"] = json!(true);
-                row["partialReasons"] = json!(["diagnosticsTruncated"]);
-            }
-            row
-        }
-        "callers" | "callees" | "callHierarchy" => {
-            hierarchy(&client, &query, paths, &path, line, character).await?
-        }
-        "supertypes" | "subtypes" => types(&client, &query, paths, &path, line, character).await?,
-        other => empty(
-            &query,
-            "unsupportedOperation",
-            &format!("Unsupported lspSearch operation: {other}"),
-            true,
-        ),
-    };
-    if open_readiness.as_deref() == Some("timeout") && result.get("status") != Some(&json!("error"))
+    let snippet_policy = snippet_policy(paths);
+    let mut result = ops::Operation {
+        client: &client,
+        query: &query,
+        sources: &mut sources,
+        snippet_policy: &snippet_policy,
+        cancel,
+        path: &path,
+        workspace_root: receipt_config.workspace_root.as_str(),
+        root_only,
+        line: anchor.line,
+        character: anchor.character,
+    }
+    .run()
+    .await?;
+    if open_readiness.as_deref() == Some("timeout") && result.get("status") != Some(&"error".into())
     {
         mark_partial(
             &mut result,
@@ -484,11 +380,11 @@ pub async fn execute(
             )],
         );
     }
-    attach_provider_context(
+    receipt::attach_provider_context(
         &mut result,
         &query,
         &canonical_uri,
-        resolved_symbol,
+        anchor.resolved_symbol,
         &receipt_config,
         &client,
         debug,
@@ -496,2146 +392,7 @@ pub async fn execute(
     Ok(with_next(&query, result))
 }
 
-fn required_capability(operation: &str) -> Option<&'static str> {
-    // Diagnostics may arrive as server pushes even when diagnosticProvider is
-    // not advertised. Every other operation uses the same provider metadata
-    // for capability admission and for the returned receipt.
-    (operation != "diagnostic")
-        .then(|| provider_for_operation(operation))
-        .flatten()
-}
-
-fn apply_rust_context(
-    config: &mut octocode_engine::lsp::types::JsLanguageServerConfig,
-    query: &LspSearchQuery,
-) -> Result<(), String> {
-    let Some(value) = &query.rust_context else {
-        return Ok(());
-    };
-    if config.language_id.as_deref() != Some("rust") {
-        return Err("rustContext requires a Rust language server.".into());
-    }
-    let context: RustBuildContext =
-        serde_json::from_value(value.clone()).map_err(|error| error.to_string())?;
-    if context.proc_macros == Some(true) && context.build_scripts != Some(true) {
-        return Err(
-            "Rust procMacros requires buildScripts:true; rust-analyzer builds procedural macros through Cargo."
-                .into(),
-        );
-    }
-    let mut options = config
-        .initialization_options
-        .clone()
-        .unwrap_or_else(|| json!({}));
-    let mut cargo = options.get("cargo").cloned().unwrap_or_else(|| json!({}));
-    let features = match &context.features {
-        Some(Value::String(value)) if value == "all" => json!("all"),
-        Some(Value::Array(items)) => json!(items),
-        _ => json!([]),
-    };
-    cargo["features"] = features;
-    cargo["noDefaultFeatures"] = json!(context.no_default_features.unwrap_or(false));
-    cargo["target"] = json!(context.target);
-    cargo["cfgs"] = json!(context.cfgs.clone().unwrap_or_default());
-    cargo["buildScripts"] = json!({ "enable": context.build_scripts.unwrap_or(false) });
-    cargo["targetDir"] = json!(true);
-    options["cargo"] = cargo;
-    options["procMacro"] = json!({ "enable": context.proc_macros.unwrap_or(false) });
-    options["cfg"] = json!({ "setTest": false });
-    options["checkOnSave"] = json!(false);
-    config.initialization_options = Some(options);
-    Ok(())
-}
-
-fn resolve_anchor(query: &LspSearchQuery, path: &str) -> Result<(u32, u32), String> {
-    if matches!(
-        query.operation.as_str(),
-        "documentSymbols" | "workspaceSymbol" | "diagnostic"
-    ) {
-        return Ok((0, 0));
-    }
-    if let Some(name) = query.symbol_name.as_deref() {
-        let resolved = resolve_position(
-            path.to_owned(),
-            JsFuzzyPosition {
-                symbol_name: name.to_owned(),
-                line_hint: query.line_hint,
-                order_hint: query.order_hint,
-            },
-        )
-        .map_err(|error| error.to_string())?;
-        return Ok((resolved.position.line, resolved.position.character));
-    }
-    query
-        .position
-        .as_ref()
-        .map(|position| (position.line, position.character))
-        .ok_or_else(|| "lspSearch requires position or symbolName+lineHint".to_owned())
-}
-
-fn present_resolved_symbol(
-    query: &LspSearchQuery,
-    path: &str,
-    canonical_uri: &str,
-) -> Option<Value> {
-    if matches!(
-        query.operation.as_str(),
-        "documentSymbols" | "workspaceSymbol" | "diagnostic"
-    ) {
-        return None;
-    }
-    if let Some(name) = query.symbol_name.as_deref() {
-        let resolved = resolve_position(
-            path.to_owned(),
-            JsFuzzyPosition {
-                symbol_name: name.to_owned(),
-                line_hint: query.line_hint,
-                order_hint: query.order_hint,
-            },
-        )
-        .ok()?;
-        let mut symbol = json!({
-            "name": name,
-            "position": resolved.position,
-            "uri": canonical_uri,
-            "foundAtLine": resolved.found_at_line
-        });
-        if let Some(order_hint) = query.order_hint {
-            symbol["orderHint"] = json!(order_hint);
-        }
-        if resolved.line_offset != 0 {
-            symbol["lineDeviation"] = json!(resolved.line_offset.unsigned_abs());
-        }
-        return Some(symbol);
-    }
-    query.position.as_ref().map(|position| {
-        json!({
-            "position": position,
-            "uri": canonical_uri,
-            "foundAtLine": position.line + 1
-        })
-    })
-}
-
-fn provider_for_operation(operation: &str) -> Option<&'static str> {
-    match operation {
-        "definition" => Some("definitionProvider"),
-        "references" => Some("referencesProvider"),
-        "hover" => Some("hoverProvider"),
-        "typeDefinition" => Some("typeDefinitionProvider"),
-        "implementation" => Some("implementationProvider"),
-        "documentSymbols" => Some("documentSymbolProvider"),
-        "workspaceSymbol" => Some("workspaceSymbolProvider"),
-        "diagnostic" => Some("diagnosticProvider"),
-        "callers" | "callees" | "callHierarchy" => Some("callHierarchyProvider"),
-        "supertypes" | "subtypes" => Some("typeHierarchyProvider"),
-        _ => None,
-    }
-}
-
-fn attach_provider_context(
-    value: &mut Value,
-    query: &LspSearchQuery,
-    canonical_uri: &str,
-    resolved_symbol: Option<Value>,
-    config: &JsLanguageServerConfig,
-    client: &NativeLspClient,
-    debug: bool,
-) {
-    let Some(envelope) = value.as_object_mut() else {
-        return;
-    };
-    // `type` echoes the operation; drop it when `payload.kind` already says so.
-    if envelope.get("type").is_some()
-        && envelope.get("type")
-            == envelope
-                .get("payload")
-                .and_then(|payload| payload.get("kind"))
-    {
-        envelope.shift_remove("type");
-    }
-    envelope.insert("uri".into(), json!(canonical_uri));
-    let anchored = !matches!(
-        query.operation.as_str(),
-        "documentSymbols" | "workspaceSymbol" | "diagnostic"
-    );
-    if let Some(resolved_symbol) = resolved_symbol {
-        envelope.insert("resolvedSymbol".into(), resolved_symbol);
-    }
-    let lsp = envelope
-        .entry("lsp")
-        .or_insert_with(|| json!({}))
-        .as_object_mut();
-    if let Some(lsp) = lsp {
-        lsp.insert("serverAvailable".into(), json!(true));
-        if let Some(provider) = provider_for_operation(&query.operation) {
-            lsp.insert("provider".into(), json!(provider));
-        }
-        if anchored {
-            lsp.remove("source");
-        } else {
-            lsp.insert("source".into(), json!("lsp"));
-        }
-        if debug {
-            let mut receipt = resolved_server_receipt(config, client);
-            // Anchored rows already carry `workspaceRoot` at the top level.
-            if anchored && let Some(receipt) = receipt.as_object_mut() {
-                receipt.remove("workspaceRoot");
-            }
-            lsp.insert("receipt".into(), receipt);
-        }
-    }
-    if anchored {
-        let mut ordered = serde_json::Map::new();
-        for key in ["type", "uri", "resolvedSymbol", "lsp"] {
-            if let Some(value) = envelope.shift_remove(key) {
-                ordered.insert(key.into(), value);
-            }
-        }
-        ordered.append(envelope);
-        ordered.insert("workspaceRoot".into(), json!(config.workspace_root));
-        *envelope = ordered;
-    }
-}
-
-fn resolved_server_receipt(config: &JsLanguageServerConfig, client: &NativeLspClient) -> Value {
-    use sha2::{Digest, Sha256};
-
-    const CAPABILITIES: [&str; 10] = [
-        "definitionProvider",
-        "typeDefinitionProvider",
-        "implementationProvider",
-        "referencesProvider",
-        "hoverProvider",
-        "callHierarchyProvider",
-        "typeHierarchyProvider",
-        "documentSymbolProvider",
-        "workspaceSymbolProvider",
-        "diagnosticProvider",
-    ];
-    let capabilities = CAPABILITIES
-        .into_iter()
-        .map(|name| {
-            (
-                name.to_owned(),
-                json!(client.has_capability(name.to_owned())),
-            )
-        })
-        .collect::<serde_json::Map<_, _>>();
-    let workspace = Path::new(&config.workspace_root)
-        .canonicalize()
-        .unwrap_or_else(|_| Path::new(&config.workspace_root).to_path_buf())
-        .to_string_lossy()
-        .into_owned();
-    let configuration = canonical_json(json!([
-        config
-            .initialization_options
-            .clone()
-            .unwrap_or_else(|| json!({})),
-        config.env.clone().unwrap_or_default()
-    ]));
-    let source = if config
-        .args
-        .as_deref()
-        .unwrap_or(&[])
-        .iter()
-        .any(|argument| argument.contains("node_modules"))
-    {
-        "bundled"
-    } else {
-        "path"
-    };
-    let mut receipt = json!({
-        "command": config.command,
-        "source": source,
-        "workspaceRoot": config.workspace_root,
-        "workspaceFingerprint": hex::encode(Sha256::digest(workspace.as_bytes())),
-        "configurationFingerprint": hex::encode(Sha256::digest(
-            serde_json::to_vec(&configuration).unwrap_or_default()
-        )),
-        "capabilities": capabilities
-    });
-    if let Some(argv) = config.args.as_ref().filter(|argv| !argv.is_empty()) {
-        receipt["argv"] = json!(argv);
-    }
-    if let Some(readiness) = client.readiness() {
-        receipt["readiness"] = json!(readiness);
-    }
-    receipt
-}
-
-fn canonical_json(value: Value) -> Value {
-    match value {
-        Value::Array(values) => Value::Array(values.into_iter().map(canonical_json).collect()),
-        Value::Object(values) => {
-            let sorted = values
-                .into_iter()
-                .map(|(key, value)| (key, canonical_json(value)))
-                .collect::<std::collections::BTreeMap<_, _>>();
-            Value::Object(sorted.into_iter().collect())
-        }
-        other => other,
-    }
-}
-
-fn with_next(query: &LspSearchQuery, mut value: Value) -> Value {
-    if value
-        .pointer("/pagination/hasMore")
-        .and_then(Value::as_bool)
-        == Some(true)
-    {
-        let mut next_query = serde_json::to_value(query).unwrap_or(json!({}));
-        if let Some(object) = next_query.as_object_mut() {
-            object.insert(
-                "page".into(),
-                json!(
-                    value
-                        .pointer("/pagination/nextPage")
-                        .and_then(Value::as_u64)
-                        .unwrap_or(2)
-                ),
-            );
-            if let Some(snapshot) = value.get("snapshot").and_then(Value::as_str).or_else(|| {
-                value
-                    .pointer("/pagination/snapshot")
-                    .and_then(Value::as_str)
-            }) {
-                object.insert("snapshot".into(), json!(snapshot));
-            }
-        }
-        value["next"]["nextPage"] = json!({
-            "tool": "lspSearch",
-            "query": next_query,
-            "confidence": "exact"
-        });
-    } else if value.pointer("/payload/kind").and_then(Value::as_str) == Some("empty") {
-        value["status"] = json!("empty");
-        // A workspaceRoot-only query has no file to fall back to reading.
-        if query.uri.is_some() {
-            attach_recovery_next(&mut value, query);
-        }
-    }
-    if let Some(context) = &query.rust_context {
-        value["rustContext"] = json!({
-            "context": context,
-            "fingerprint": rust_fingerprint(context)
-        });
-    }
-    value
-}
-
-fn rust_fingerprint(context: &Value) -> String {
-    use sha2::{Digest, Sha256};
-    let canonical = serde_json::to_vec(context).unwrap_or_default();
-    format!("rust-v1:{}", hex::encode(Sha256::digest(canonical)))
-}
-
-async fn hierarchy(
-    client: &NativeLspClient,
-    query: &LspSearchQuery,
-    paths: &PathPolicy,
-    path: &str,
-    line: u32,
-    character: u32,
-) -> Result<Value, String> {
-    let prepared = client
-        .prepare_call_hierarchy(path.to_owned(), line, character)
-        .await
-        .map_err(|error| error.to_string())?;
-    let roots = as_array(&prepared);
-    let depth = query.depth.unwrap_or(1).max(1);
-    let mut incoming = Vec::new();
-    let mut outgoing = Vec::new();
-    let mut failures = Vec::new();
-    for item in &roots {
-        if matches!(query.operation.as_str(), "callers" | "callHierarchy") {
-            let (calls, failed) = walk_calls(client, item.clone(), true, depth).await;
-            incoming.extend(calls);
-            failures.extend(failed);
-        }
-        if matches!(query.operation.as_str(), "callees" | "callHierarchy") {
-            let (calls, failed) = walk_calls(client, item.clone(), false, depth).await;
-            outgoing.extend(calls);
-            failures.extend(failed);
-        }
-    }
-    let items = match query.operation.as_str() {
-        "callers" => incoming,
-        "callees" => outgoing,
-        _ => {
-            let mut both = incoming;
-            both.extend(outgoing);
-            both
-        }
-    };
-    let (mut items, failures) = expansion_outcome(items, failures)?;
-    // Call targets carry server-controlled `from`/`to` URIs; drop any that fall
-    // outside the read policy before emitting them.
-    items.retain(|item| item_uri_is_authorized(item, paths));
-    let mut row = items_payload(query, query.operation.as_str(), json!(items));
-    mark_partial_expansion(&mut row, query, &failures);
-    Ok(row)
-}
-
-/// Combine what a hierarchy expansion found with the provider failures it hit.
-/// A failure with nothing found is an error (never a silent empty answer); a
-/// failure after some results is a partial answer the caller must mark.
-fn expansion_outcome(
-    items: Vec<Value>,
-    failures: Vec<String>,
-) -> Result<(Vec<Value>, Vec<String>), String> {
-    if items.is_empty()
-        && let Some(first) = failures.first()
-    {
-        return Err(first.clone());
-    }
-    Ok((items, failures))
-}
-
-fn mark_partial_expansion(row: &mut Value, query: &LspSearchQuery, failures: &[String]) {
-    if failures.is_empty() {
-        return;
-    }
-    let reason = if matches!(query.operation.as_str(), "supertypes" | "subtypes") {
-        "typeHierarchyExpansionFailed"
-    } else {
-        "callHierarchyExpansionFailed"
-    };
-    let warnings = failures
-        .iter()
-        .take(5)
-        .map(|failure| format!("Hierarchy expansion failed for some items: {failure}"))
-        .collect::<Vec<_>>();
-    mark_partial(row, query, reason, &warnings);
-}
-
-/// Flag a row as incomplete with a machine-readable reason, human warnings,
-/// and an executable `next.retry` of the same query.
-fn mark_partial(row: &mut Value, query: &LspSearchQuery, reason: &str, warnings: &[String]) {
-    let Some(object) = row.as_object_mut() else {
-        return;
-    };
-    object.insert("isPartial".into(), json!(true));
-    let reasons = object.entry("partialReasons").or_insert_with(|| json!([]));
-    if let Some(reasons) = reasons.as_array_mut() {
-        reasons.push(json!(reason));
-    }
-    let existing = object.entry("warnings").or_insert_with(|| json!([]));
-    if let Some(existing) = existing.as_array_mut() {
-        existing.extend(warnings.iter().map(|warning| json!(warning)));
-    }
-    row["next"]["retry"] = json!({
-        "tool": "lspSearch",
-        "query": serde_json::to_value(query).unwrap_or_else(|_| json!({})),
-        "confidence": "exact"
-    });
-}
-
-/// Breadth-limited call walk. Returns the calls found plus the provider
-/// failures hit on the way (never silently dropped).
-async fn walk_calls(
-    client: &NativeLspClient,
-    root: Value,
-    incoming: bool,
-    depth: u32,
-) -> (Vec<Value>, Vec<String>) {
-    let mut items = Vec::new();
-    let mut failures = Vec::new();
-    let mut frontier = vec![(root, 1u32)];
-    let mut seen = std::collections::HashSet::new();
-    while let Some((item, level)) = frontier.pop() {
-        let key = item.to_string();
-        if !seen.insert(key) {
-            continue;
-        }
-        let next = match if incoming {
-            client.incoming_calls(item.clone()).await
-        } else {
-            client.outgoing_calls(item.clone()).await
-        } {
-            Ok(next) => next,
-            Err(error) => {
-                failures.push(error.to_string());
-                continue;
-            }
-        };
-        for call in as_array(&next) {
-            items.push(call.clone());
-            if level < depth
-                && let Some(from) = call
-                    .get("from")
-                    .cloned()
-                    .or_else(|| call.get("to").cloned())
-            {
-                frontier.push((from, level + 1));
-            }
-        }
-    }
-    (items, failures)
-}
-
-async fn types(
-    client: &NativeLspClient,
-    query: &LspSearchQuery,
-    paths: &PathPolicy,
-    path: &str,
-    line: u32,
-    character: u32,
-) -> Result<Value, String> {
-    let prepared = client
-        .prepare_type_hierarchy(path.to_owned(), line, character)
-        .await
-        .map_err(|error| error.to_string())?;
-    let roots = as_array(&prepared);
-    let mut items = Vec::new();
-    let mut failures = Vec::new();
-    for item in roots {
-        let next = if query.operation == "supertypes" {
-            client.type_hierarchy_supertypes(item).await
-        } else {
-            client.type_hierarchy_subtypes(item).await
-        };
-        match next {
-            Ok(next) => items.extend(as_array(&next)),
-            Err(error) => failures.push(error.to_string()),
-        }
-    }
-    let (mut items, failures) = expansion_outcome(items, failures)?;
-    // Type-hierarchy items carry a server-controlled `uri`; drop any that fall
-    // outside the read policy before emitting them.
-    items.retain(|item| item_uri_is_authorized(item, paths));
-    let mut row = items_payload(query, query.operation.as_str(), json!(items));
-    mark_partial_expansion(&mut row, query, &failures);
-    Ok(row)
-}
-
-fn locations(
-    query: &LspSearchQuery,
-    paths: &PathPolicy,
-    workspace_root: &str,
-    kind: &str,
-    provider: &str,
-    snippets: Vec<impl serde::Serialize>,
-) -> Value {
-    let mut locations = snippets
-        .into_iter()
-        .map(|snippet| serde_json::to_value(snippet).unwrap_or(Value::Null))
-        .filter(|location| location_path_is_authorized(location, paths))
-        .collect::<Vec<_>>();
-    if let Some(context_lines) = query.context_lines {
-        for location in &mut locations {
-            apply_context_lines(location, context_lines, paths);
-        }
-    }
-    // Internal shape (exact provider ranges, without engine-only fields) drives
-    // ordering, snapshots and grouping; `public_location` shapes emitted rows.
-    locations = locations.into_iter().map(compact_location).collect();
-    locations.sort_by_key(location_sort_key);
-    if locations.is_empty() {
-        return empty(
-            query,
-            "noLocations",
-            &format!("{provider} returned no locations"),
-            true,
-        );
-    }
-    let snapshot = semantic_snapshot(query, kind, &locations);
-    if snapshot_mismatch(query, &snapshot) {
-        return snapshot_changed(query, snapshot);
-    }
-    // groupByFile summarizes per file INSTEAD of returning every location, so
-    // the page unit becomes a file summary.
-    let grouped = query.group_by_file == Some(true);
-    let entries = if grouped {
-        group_by_file(&locations, workspace_root)
-    } else {
-        locations.clone()
-    };
-    let (page, mut pagination) = paginate(
-        &entries,
-        query.page.unwrap_or(1),
-        query.page_size.unwrap_or(40),
-    );
-    pagination["snapshot"] = json!(snapshot);
-    let mut payload = if grouped {
-        json!({ "kind": kind, "byFile": page })
-    } else {
-        let mut page = page.into_iter().map(public_location).collect::<Vec<_>>();
-        let shared_uri = shared_location_uri(&page);
-        if shared_uri.is_some() {
-            for location in &mut page {
-                if let Some(location) = location.as_object_mut() {
-                    location.shift_remove("uri");
-                }
-            }
-        }
-        let mut payload = json!({ "kind": kind });
-        // Every location on this page is in one file: state it once.
-        if let Some(uri) = shared_uri {
-            payload["uri"] = json!(uri);
-        }
-        payload["locations"] = json!(page);
-        payload
-    };
-    if kind == "references" {
-        let total_references = locations.len();
-        let total_files = locations
-            .iter()
-            .filter_map(|location| location.get("uri").and_then(Value::as_str))
-            .collect::<std::collections::BTreeSet<_>>()
-            .len();
-        payload["totalReferences"] = json!(total_references);
-        payload["totalFiles"] = json!(total_files);
-        payload["coverage"] = json!({ "scope": "languageServer", "exhaustive": false });
-    }
-    json!({
-        "type": query.operation,
-        "uri": query.uri,
-        "lsp": { "serverAvailable": true, "provider": provider },
-        "payload": payload,
-        "pagination": pagination
-    })
-}
-
-fn semantic_snapshot(query: &LspSearchQuery, kind: &str, items: &[Value]) -> String {
-    use sha2::{Digest, Sha256};
-    let mut scope = query.clone();
-    scope.page = None;
-    scope.snapshot = None;
-    let bytes = serde_json::to_vec(&json!({
-        "query": scope,
-        "kind": kind,
-        "items": items,
-    }))
-    .unwrap_or_default();
-    format!("lsp-v1:{}", hex::encode(Sha256::digest(bytes)))
-}
-
-fn snapshot_mismatch(query: &LspSearchQuery, actual: &str) -> bool {
-    query.page.unwrap_or(1) > 1 && query.snapshot.as_deref() != Some(actual)
-}
-
-fn snapshot_changed(query: &LspSearchQuery, snapshot: String) -> Value {
-    let mut restart = serde_json::to_value(query).unwrap_or_else(|_| json!({}));
-    if let Some(object) = restart.as_object_mut() {
-        object.remove("snapshot");
-        object.insert("page".into(), json!(1));
-    }
-    json!({
-        "status": "error",
-        "errorCode": "lsp.snapshot.changed",
-        "error": "The LSP result or query changed, or this continuation omitted its snapshot. Discard earlier pages and restart.",
-        "type": query.operation,
-        "uri": query.uri,
-        "snapshot": snapshot,
-        "complete": false,
-        "next": {
-            "restart": {
-                "tool": "lspSearch",
-                "query": restart,
-                "confidence": "exact"
-            }
-        }
-    })
-}
-
-fn location_path_is_authorized(location: &Value, paths: &PathPolicy) -> bool {
-    location
-        .get("uri")
-        .and_then(Value::as_str)
-        .and_then(|uri| decode_uri_path(uri).ok())
-        .is_some_and(|path| paths.validate_read(path).is_ok())
-}
-
-/// Authorization gate for server-controlled items that embed a file URI in a
-/// nested field — `WorkspaceSymbol`/`SymbolInformation` (`location.uri`),
-/// call-hierarchy calls (`from.uri`/`to.uri`), and type-hierarchy items (`uri`).
-/// A malicious/compromised server could point these at files the caller never
-/// authorized; drop any item whose embedded URI fails the read policy so these
-/// payloads carry the same guarantee `locations()` already gives.
-fn item_uri_is_authorized(item: &Value, paths: &PathPolicy) -> bool {
-    const URI_POINTERS: [&str; 5] = [
-        "/uri",
-        "/location/uri",
-        "/from/uri",
-        "/to/uri",
-        "/targetUri",
-    ];
-    for pointer in URI_POINTERS {
-        if let Some(uri) = item.pointer(pointer).and_then(Value::as_str) {
-            let authorized = decode_uri_path(uri)
-                .ok()
-                .is_some_and(|path| paths.validate_read(path).is_ok());
-            if !authorized {
-                return false;
-            }
-        }
-    }
-    // An item with no embedded location carries no file path to leak; keep it.
-    true
-}
-
-/// Drop array entries whose embedded URI is not authorized. Non-array values
-/// (e.g. `null`) pass through unchanged for the downstream `as_array` handling.
-fn filter_authorized_items(value: Value, paths: &PathPolicy) -> Value {
-    match value {
-        Value::Array(items) => Value::Array(
-            items
-                .into_iter()
-                .filter(|item| item_uri_is_authorized(item, paths))
-                .collect(),
-        ),
-        other => other,
-    }
-}
-
-fn apply_context_lines(location: &mut Value, context_lines: u32, paths: &PathPolicy) {
-    const MAX_CONTEXT_SOURCE_BYTES: u64 = 1_000_000;
-    let Some(uri) = location.get("uri").and_then(Value::as_str) else {
-        return;
-    };
-    let Ok(path) = decode_uri_path(uri) else {
-        return;
-    };
-    let Ok(validated) = paths.validate_read(path) else {
-        return;
-    };
-    if std::fs::metadata(&validated.canonical)
-        .ok()
-        .is_none_or(|metadata| metadata.len() > MAX_CONTEXT_SOURCE_BYTES)
-    {
-        return;
-    }
-    let Ok(source) = fs::read_to_string(&validated.canonical) else {
-        return;
-    };
-    let start_line = location
-        .pointer("/range/start/line")
-        .and_then(Value::as_u64)
-        .unwrap_or(0) as usize;
-    let range_end = location
-        .pointer("/range/end/line")
-        .and_then(Value::as_u64)
-        .unwrap_or(start_line as u64) as usize;
-    let end_character = location
-        .pointer("/range/end/character")
-        .and_then(Value::as_u64)
-        .unwrap_or(0);
-    let selected_end = if end_character == 0 && range_end > start_line {
-        range_end - 1
-    } else {
-        range_end
-    };
-    let lines = source.split_inclusive('\n').collect::<Vec<_>>();
-    if start_line >= lines.len() {
-        return;
-    }
-    let start = start_line.saturating_sub(context_lines as usize);
-    let end = selected_end
-        .saturating_add(context_lines as usize)
-        .saturating_add(1)
-        .min(lines.len());
-    location["content"] = json!(lines[start..end].concat());
-    location["displayRange"] = json!({
-        "startLine": start + 1,
-        "endLine": end,
-    });
-}
-
-fn compact_location(value: Value) -> Value {
-    let mut compact = serde_json::Map::new();
-    if let Some(uri) = value.get("uri").and_then(Value::as_str) {
-        compact.insert("uri".into(), json!(uri));
-    }
-    if let Some(range) = value.get("range") {
-        compact.insert("range".into(), range.clone());
-    }
-    if let Some(content) = value.get("content") {
-        compact.insert("content".into(), content.clone());
-    }
-    let display_range = value
-        .get("displayRange")
-        .or_else(|| value.get("display_range"))
-        .and_then(normalize_display_range)
-        .or_else(|| {
-            let start = value.pointer("/range/start/line")?.as_u64()?;
-            let end = value.pointer("/range/end/line")?.as_u64()?;
-            Some(json!({ "startLine": start + 1, "endLine": end + 1 }))
-        });
-    if let Some(display_range) = display_range {
-        compact.insert("displayRange".into(), display_range);
-    }
-    let is_definition = value
-        .get("isDefinition")
-        .or_else(|| value.get("is_definition"))
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    if is_definition {
-        compact.insert("isDefinition".into(), json!(true));
-    }
-    Value::Object(compact)
-}
-
-/// Public location: one one-based `displayRange` (`startLine`,
-/// `startCharacter`, `endLine`) for the symbol itself instead of the raw
-/// zero-based LSP `range` plus a line-only copy. When `contextLines` widened
-/// `content`, `contentStartLine` says where that content begins.
-fn public_location(internal: Value) -> Value {
-    let Value::Object(mut internal) = internal else {
-        return internal;
-    };
-    let range = internal.shift_remove("range");
-    let window = internal.shift_remove("displayRange");
-    let mut public = serde_json::Map::new();
-    if let Some(uri) = internal.shift_remove("uri") {
-        public.insert("uri".into(), uri);
-    }
-    let point = |key: &str, field: &str| {
-        range
-            .as_ref()
-            .and_then(|range| range.get(key)?.get(field)?.as_u64())
-    };
-    let display = match (point("start", "line"), point("start", "character")) {
-        (Some(line), Some(character)) => Some(json!({
-            "startLine": line + 1,
-            "startCharacter": character + 1,
-            "endLine": point("end", "line").unwrap_or(line) + 1,
-        })),
-        _ => window.clone(),
-    };
-    let symbol_start = display
-        .as_ref()
-        .and_then(|display| display.get("startLine"))
-        .and_then(Value::as_u64);
-    if let Some(display) = display {
-        public.insert("displayRange".into(), display);
-    }
-    if let Some(content) = internal.shift_remove("content") {
-        public.insert("content".into(), content);
-        if let Some(content_start) = window
-            .as_ref()
-            .and_then(|window| window.get("startLine"))
-            .and_then(Value::as_u64)
-            .filter(|start| Some(*start) != symbol_start)
-        {
-            public.insert("contentStartLine".into(), json!(content_start));
-        }
-    }
-    public.append(&mut internal);
-    Value::Object(public)
-}
-
-fn shared_location_uri(locations: &[Value]) -> Option<String> {
-    let first = locations.first()?.get("uri")?.as_str()?;
-    (locations.len() > 1
-        && locations
-            .iter()
-            .all(|location| location.get("uri").and_then(Value::as_str) == Some(first)))
-    .then(|| first.to_owned())
-}
-
-fn normalize_display_range(value: &Value) -> Option<Value> {
-    let start = value
-        .get("startLine")
-        .or_else(|| value.get("start_line"))
-        .and_then(Value::as_u64)?;
-    let end = value
-        .get("endLine")
-        .or_else(|| value.get("end_line"))
-        .and_then(Value::as_u64)?;
-    Some(json!({ "startLine": start, "endLine": end }))
-}
-
-fn location_sort_key(location: &Value) -> (String, u64, u64, u64, u64) {
-    (
-        location
-            .get("uri")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_owned(),
-        location
-            .pointer("/range/start/line")
-            .and_then(Value::as_u64)
-            .unwrap_or(0),
-        location
-            .pointer("/range/start/character")
-            .and_then(Value::as_u64)
-            .unwrap_or(0),
-        location
-            .pointer("/range/end/line")
-            .and_then(Value::as_u64)
-            .unwrap_or(0),
-        location
-            .pointer("/range/end/character")
-            .and_then(Value::as_u64)
-            .unwrap_or(0),
-    )
-}
-
-/// Per-file summaries `{path, references, lines}` in path order, with `path`
-/// relative to the workspace root (absolute when outside it) and one-based
-/// start `lines`.
-fn group_by_file(locations: &[Value], workspace_root: &str) -> Vec<Value> {
-    let mut files: std::collections::BTreeMap<String, Vec<u64>> = std::collections::BTreeMap::new();
-    for location in locations {
-        let path = location
-            .get("uri")
-            .and_then(Value::as_str)
-            .map(uri_to_path)
-            .unwrap_or_else(|| "unknown".to_owned());
-        let relative = Path::new(&path)
-            .strip_prefix(workspace_root)
-            .ok()
-            .filter(|relative| !relative.as_os_str().is_empty())
-            .map(|relative| relative.to_string_lossy().replace('\\', "/"))
-            .unwrap_or(path);
-        let line = location
-            .pointer("/range/start/line")
-            .and_then(Value::as_u64)
-            .unwrap_or(0)
-            + 1;
-        files.entry(relative).or_default().push(line);
-    }
-    files
-        .into_iter()
-        .map(|(path, mut lines)| {
-            lines.sort_unstable();
-            json!({ "path": path, "references": lines.len(), "lines": lines })
-        })
-        .collect()
-}
-
-async fn resolve_definition_chain(
-    client: &NativeLspClient,
-    paths: &PathPolicy,
-    path: &str,
-    line: u32,
-    character: u32,
-) -> Result<Vec<octocode_engine::lsp::types::JsCodeSnippet>, String> {
-    let mut current = client
-        .get_definition(path.to_owned(), line, character)
-        .await
-        .map_err(|error| error.to_string())?;
-    let mut visited = std::collections::HashSet::new();
-    for depth in 0..4 {
-        let mut next = Vec::new();
-        let mut advanced = false;
-        for snippet in current.iter().cloned() {
-            let identity = snippet_identity(&snippet);
-            if !visited.insert(identity.clone()) {
-                next.push(snippet);
-                continue;
-            }
-            let target = uri_to_path(&snippet.uri);
-            // The hop target is server-supplied: only an authorized, bounded
-            // source is read and synced. An unauthorized target is not followed
-            // (its location is dropped later by `locations`).
-            let Some(source) = read_hop_source(paths, &target) else {
-                next.push(snippet);
-                continue;
-            };
-            let _ = client.open_document(target.clone(), source).await;
-            let mut nested = client
-                .get_definition(
-                    target.clone(),
-                    snippet.range.start.line,
-                    snippet.range.start.character,
-                )
-                .await
-                .unwrap_or_default();
-            let has_distinct_target = nested
-                .iter()
-                .any(|candidate| snippet_identity(candidate) != identity);
-            if should_retry_definition_hop(depth, path, &target, has_distinct_target) {
-                tokio::time::sleep(Duration::from_millis(DEFINITION_ALIAS_SETTLE_MS)).await;
-                nested = client
-                    .get_definition(
-                        target,
-                        snippet.range.start.line,
-                        snippet.range.start.character,
-                    )
-                    .await
-                    .unwrap_or_default();
-            }
-            let nested = nested
-                .into_iter()
-                .filter(|candidate| snippet_identity(candidate) != identity)
-                .collect::<Vec<_>>();
-            if nested.is_empty() {
-                next.push(snippet);
-            } else {
-                advanced = true;
-                next.extend(nested);
-            }
-        }
-        let mut identities = std::collections::HashSet::new();
-        next.retain(|snippet| identities.insert(snippet_identity(snippet)));
-        current = next;
-        if !advanced {
-            break;
-        }
-    }
-    Ok(current)
-}
-
-/// Read a server-supplied definition-hop target only when it passes the read
-/// policy and fits the didOpen size cap.
-fn read_hop_source(paths: &PathPolicy, target: &str) -> Option<String> {
-    let validated = paths.validate_read(target).ok()?;
-    let metadata = fs::metadata(&validated.canonical).ok()?;
-    if didopen_exceeds_cap(metadata.len()) {
-        return None;
-    }
-    fs::read_to_string(&validated.canonical).ok()
-}
-
-fn should_retry_definition_hop(
-    depth: usize,
-    source_path: &str,
-    target_path: &str,
-    has_distinct_target: bool,
-) -> bool {
-    depth == 0 && source_path == target_path && !has_distinct_target
-}
-
-async fn recover_aliases(
-    client: &NativeLspClient,
-    paths: &PathPolicy,
-    query: &LspSearchQuery,
-    path: &str,
-    line: u32,
-    character: u32,
-    provider: &[octocode_engine::lsp::types::JsCodeSnippet],
-) -> Vec<octocode_engine::lsp::types::JsCodeSnippet> {
-    let Some(symbol) = query.symbol_name.as_deref() else {
-        return Vec::new();
-    };
-    let Ok(definitions) = client
-        .get_definition(path.to_owned(), line, character)
-        .await
-    else {
-        return Vec::new();
-    };
-    let definition_ids: std::collections::HashSet<_> =
-        definitions.iter().map(snippet_identity).collect();
-    if definition_ids.is_empty() {
-        return Vec::new();
-    }
-    let provider_ids: std::collections::HashSet<_> =
-        provider.iter().map(snippet_identity).collect();
-    let mut files: Vec<String> = provider
-        .iter()
-        .map(|snippet| uri_to_path(&snippet.uri))
-        .collect::<std::collections::BTreeSet<_>>()
-        .into_iter()
-        .take(100)
-        .collect();
-    files.sort();
-    let mut recovered = Vec::new();
-    let mut inspected = 0usize;
-    for file in files {
-        if inspected >= 32 {
-            break;
-        }
-        let Some(source) = read_hop_source(paths, &file) else {
-            continue;
-        };
-        let Some(facts) = octocode_engine::portable::extract_graph_facts(&source, &file) else {
-            continue;
-        };
-        let Ok(parsed) = serde_json::from_str::<Value>(&facts) else {
-            continue;
-        };
-        for import in parsed
-            .get("imports")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-        {
-            let imported = import.get("importedName").and_then(Value::as_str);
-            let local = import.get("localName").and_then(Value::as_str);
-            if imported != Some(symbol) || local.is_none() || local == imported {
-                continue;
-            }
-            let Some(imported_range) = import.get("importedRange") else {
-                continue;
-            };
-            let Some(local_range) = import.get("localRange") else {
-                continue;
-            };
-            let imported_id = format!(
-                "{}:{}:{}",
-                file,
-                imported_range
-                    .pointer("/start/line")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(0),
-                imported_range
-                    .pointer("/start/character")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(0)
-            );
-            if !provider.iter().any(|snippet| {
-                uri_to_path(&snippet.uri) == file
-                    && snippet_identity(snippet).ends_with(&imported_id[file.len()..])
-            }) && !provider_ids.iter().any(|id| id.contains(&imported_id))
-            {
-                // Keep going; identity formats differ by uri vs path.
-            }
-            let local_line = local_range
-                .pointer("/start/line")
-                .and_then(Value::as_u64)
-                .unwrap_or(0) as u32;
-            let local_character = local_range
-                .pointer("/start/character")
-                .and_then(Value::as_u64)
-                .unwrap_or(0) as u32;
-            inspected += 1;
-            let Ok(targets) = client
-                .get_definition(file.clone(), local_line, local_character)
-                .await
-            else {
-                continue;
-            };
-            let target_ids: std::collections::HashSet<_> =
-                targets.iter().map(snippet_identity).collect();
-            if target_ids != definition_ids {
-                continue;
-            }
-            if let Ok(extra) = client
-                .get_references(
-                    file.clone(),
-                    local_line,
-                    local_character,
-                    Some(query.include_declaration.unwrap_or(true)),
-                )
-                .await
-            {
-                for snippet in extra {
-                    if provider_ids.contains(&snippet_identity(&snippet)) {
-                        continue;
-                    }
-                    recovered.push(snippet);
-                }
-            }
-        }
-    }
-    recovered
-}
-
-fn snippet_identity(snippet: &octocode_engine::lsp::types::JsCodeSnippet) -> String {
-    format!(
-        "{}:{}:{}:{}:{}",
-        uri_to_path(&snippet.uri),
-        snippet.range.start.line,
-        snippet.range.start.character,
-        snippet.range.end.line,
-        snippet.range.end.character
-    )
-}
-
-/// Flatten a pull (`DocumentDiagnosticReport`) or cached push report into the
-/// list of diagnostics it carries, plus whether the push cache truncated it.
-/// `unchanged` pull reports and absent reports carry no items.
-fn diagnostic_items(report: Option<Value>) -> (Value, bool) {
-    let Some(report) = report else {
-        return (json!([]), false);
-    };
-    let truncated = report.get("truncated").and_then(Value::as_bool) == Some(true);
-    let items = match report {
-        Value::Array(items) => Value::Array(items),
-        Value::Object(mut object) => object.remove("items").unwrap_or_else(|| json!([])),
-        _ => json!([]),
-    };
-    (items, truncated)
-}
-
-fn items_payload(query: &LspSearchQuery, kind: &str, value: Value) -> Value {
-    let raw_items = as_array(&value);
-    if kind == "documentSymbols" {
-        let top_level_symbols = raw_items
-            .iter()
-            .filter(|item| {
-                item.as_object()
-                    .is_some_and(|object| object.contains_key("name"))
-            })
-            .count();
-        let mut symbols = Vec::new();
-        for item in &raw_items {
-            flatten_document_symbol(item, &mut symbols, None);
-        }
-        symbols.sort_by_key(|symbol| {
-            (
-                symbol.get("line").and_then(Value::as_u64).unwrap_or(0),
-                symbol.get("character").and_then(Value::as_u64).unwrap_or(0),
-            )
-        });
-        let snapshot = semantic_snapshot(query, kind, &symbols);
-        if snapshot_mismatch(query, &snapshot) {
-            return snapshot_changed(query, snapshot);
-        }
-        let (page, mut pagination) = paginate(
-            &symbols,
-            query.page.unwrap_or(1),
-            query.page_size.unwrap_or(40),
-        );
-        pagination["snapshot"] = json!(snapshot);
-        let mut kinds = serde_json::Map::new();
-        for symbol in &symbols {
-            let key = symbol
-                .get("kind")
-                .and_then(Value::as_str)
-                .unwrap_or("unknown")
-                .to_owned();
-            let count = kinds.get(&key).and_then(Value::as_u64).unwrap_or(0) + 1;
-            kinds.insert(key, json!(count));
-        }
-        return json!({
-            "type": "documentSymbols",
-            "uri": query.uri,
-            "lsp": {
-                "serverAvailable": true,
-                "provider": "documentSymbolProvider",
-                "source": "lsp"
-            },
-            "summary": {
-                "totalSymbols": symbols.len(),
-                "returnedSymbols": page.len(),
-                "topLevelSymbols": top_level_symbols,
-                "kinds": kinds
-            },
-            "payload": { "kind": "documentSymbols", "symbols": page },
-            "pagination": pagination
-        });
-    }
-
-    if raw_items.is_empty() {
-        if kind == "diagnostics" {
-            return empty(
-                query,
-                "noDiagnostics",
-                "The language server reported no diagnostics for this document.",
-                true,
-            );
-        }
-        return empty(
-            query,
-            "noLocations",
-            &format!("{kind} returned no results"),
-            true,
-        );
-    }
-    let snapshot = semantic_snapshot(query, kind, &raw_items);
-    if snapshot_mismatch(query, &snapshot) {
-        return snapshot_changed(query, snapshot);
-    }
-    let (page, mut pagination) = paginate(
-        &raw_items,
-        query.page.unwrap_or(1),
-        query.page_size.unwrap_or(40),
-    );
-    pagination["snapshot"] = json!(snapshot);
-    json!({
-        "type": query.operation,
-        "uri": query.uri,
-        "lsp": { "serverAvailable": true },
-        "payload": { "kind": kind, "items": page },
-        "pagination": pagination
-    })
-}
-
-fn recovery_next(query: &LspSearchQuery) -> Value {
-    let path = query.uri.as_deref().map(uri_to_path).unwrap_or_default();
-    json!({
-        "readFile": {
-            "tool": "localFetch",
-            "query": {
-                "path": path,
-                "reasoning": "Read the source directly because semantic navigation is unavailable."
-            },
-            "confidence": "exact"
-        }
-    })
-}
-
-fn attach_recovery_next(value: &mut Value, query: &LspSearchQuery) {
-    value["next"]["readFile"] = recovery_next(query)["readFile"].clone();
-}
-
-fn failure_hint(query: &LspSearchQuery, code: &str) -> &'static str {
-    match code {
-        "lsp.serverUnavailable" if query.operation == "workspaceSymbol" && query.uri.is_none() => {
-            "Provide uri for a representative workspace source file so Octocode can select its language server."
-        }
-        "lsp.serverUnavailable" => {
-            "Use astSearch symbols/match or localSearch for candidates, then localFetch exact source."
-        }
-        "lsp.capabilityUnavailable"
-            if matches!(query.operation.as_str(), "supertypes" | "subtypes") =>
-        {
-            "This server cannot prove type hierarchy; inspect declarations with astSearch and confirm exact source."
-        }
-        "lsp.capabilityUnavailable" => {
-            "Use the advertised LSP operations, or fall back to astSearch/localSearch and exact source reads."
-        }
-        "lsp.anchorUnresolved" => {
-            "Read the source, then provide an exact position or a unique symbolName with lineHint."
-        }
-        "lsp.timeout" => {
-            "Retry once after indexing settles; narrow workspaceRoot if the timeout persists."
-        }
-        "lsp.documentTooLarge" => {
-            "Use localSearch or astSearch to locate a bounded region, then read that exact source range."
-        }
-        _ => "Use astSearch or localSearch to locate candidates, then localFetch exact source.",
-    }
-}
-
-fn empty_hint(category: &str) -> &'static str {
-    match category {
-        "noLocations" => {
-            "Verify the symbol and anchor; then try references/definition alternatives or exact syntax/text search."
-        }
-        "unsupportedOperation" => "Choose an operation advertised by the lspSearch schema.",
-        "noDiagnostics" => {
-            "No errors or warnings were reported; confirm with the project's own type-check or build if it matters."
-        }
-        "diagnosticsNotPublished" => {
-            "Retry once the server has analyzed the file, or run the project's type-check/build for authoritative errors."
-        }
-        _ => "Use astSearch or localSearch to locate candidates, then localFetch exact source.",
-    }
-}
-
-fn failure(
-    query: &LspSearchQuery,
-    canonical_uri: &str,
-    code: &str,
-    message: &str,
-    server_available: bool,
-) -> Value {
-    let mut value = json!({
-        "status": "error",
-        "errorCode": code,
-        "error": message,
-        "type": query.operation,
-        "lsp": { "serverAvailable": server_available },
-        "hints": [failure_hint(query, code)]
-    });
-    value["uri"] = json!(canonical_uri);
-    if code == "lsp.timeout" {
-        value["next"]["retry"] = json!({
-            "tool": "lspSearch",
-            "query": serde_json::to_value(query).unwrap_or_else(|_| json!({})),
-            "confidence": "exact"
-        });
-    }
-    if query.uri.is_some() {
-        attach_recovery_next(&mut value, query);
-    }
-    value
-}
-
-fn empty(query: &LspSearchQuery, category: &str, reason: &str, server_available: bool) -> Value {
-    json!({
-        "status": "empty",
-        "type": query.operation,
-        "uri": query.uri,
-        "lsp": { "serverAvailable": server_available },
-        "payload": { "kind": "empty", "category": category, "reason": reason },
-        "hints": [empty_hint(category)]
-    })
-}
-
+#[cfg(all(test, unix))]
+mod process_tests;
 #[cfg(test)]
-mod tests {
-    #[test]
-    fn definition_alias_retry_is_limited_to_an_unresolved_first_same_file_hop() {
-        assert!(super::should_retry_definition_hop(
-            0,
-            "/repo/entry.ts",
-            "/repo/entry.ts",
-            false,
-        ));
-        assert!(!super::should_retry_definition_hop(
-            1,
-            "/repo/entry.ts",
-            "/repo/entry.ts",
-            false,
-        ));
-        assert!(!super::should_retry_definition_hop(
-            0,
-            "/repo/entry.ts",
-            "/repo/math.ts",
-            false,
-        ));
-        assert!(!super::should_retry_definition_hop(
-            0,
-            "/repo/entry.ts",
-            "/repo/entry.ts",
-            true,
-        ));
-    }
-
-    #[test]
-    fn canonical_nested_position_survives_deserialization_and_resolves_exactly() {
-        let query: super::LspSearchQuery = serde_json::from_value(serde_json::json!({
-            "operation": "definition",
-            "uri": "/repo/src/lib.rs",
-            "position": { "line": 7, "character": 11 },
-            "page": 1,
-            "pageSize": 40,
-            "includeDeclaration": true
-        }))
-        .expect("canonical lsp query");
-        assert_eq!(super::resolve_anchor(&query, "/unused"), Ok((7, 11)));
-        assert_eq!(
-            serde_json::to_value(query).expect("serialize")["position"],
-            serde_json::json!({ "line": 7, "character": 11 })
-        );
-    }
-
-    #[test]
-    fn explicit_position_is_zero_based_lsp_while_presentation_is_one_based() {
-        // Pinned contract (see the `position` field doc): an explicit `position`
-        // input is consumed as ZERO-based LSP coordinates (fed straight through
-        // `resolve_anchor`), while every human-facing coordinate — `foundAtLine`,
-        // symbolName resolution, displayRange — is ONE-based. Changing the input
-        // to one-based would silently shift every existing caller's anchor and
-        // break the published pagination contract, so the semantics are pinned
-        // here rather than migrated.
-        let query: super::LspSearchQuery = serde_json::from_value(serde_json::json!({
-            "operation": "definition",
-            "uri": "file:///repo/src/lib.rs",
-            "position": { "line": 7, "character": 11 }
-        }))
-        .expect("position query");
-
-        // Input consumed as-is (zero-based) for the LSP request.
-        assert_eq!(super::resolve_anchor(&query, "/unused"), Ok((7, 11)));
-
-        // Presentation reports the same anchor one-based (line + 1).
-        let resolved = super::present_resolved_symbol(&query, "/unused", "file:///repo/src/lib.rs")
-            .expect("explicit position presents a resolved anchor");
-        assert_eq!(resolved["foundAtLine"], 8);
-        assert_eq!(resolved["position"]["line"], 7);
-        assert_eq!(resolved["position"]["character"], 11);
-    }
-
-    #[test]
-    fn pagination_omits_nullable_next_page_at_the_terminal_page() {
-        let items = vec![serde_json::json!({"name": "one"})];
-        let (_, terminal) = super::paginate(&items, 1, 20);
-        assert_eq!(terminal["hasMore"], false);
-        assert!(terminal.get("nextPage").is_none());
-
-        let items = vec![
-            serde_json::json!({"name": "one"}),
-            serde_json::json!({"name": "two"}),
-        ];
-        let (_, partial) = super::paginate(&items, 1, 1);
-        assert_eq!(partial["nextPage"], 2);
-    }
-
-    #[test]
-    fn semantic_pagination_continuations_cover_the_full_result_fixture() {
-        let expected = (0..7)
-            .map(|index| serde_json::json!({"name": format!("symbol-{index}")}))
-            .collect::<Vec<_>>();
-        let mut query: super::LspSearchQuery = serde_json::from_value(serde_json::json!({
-            "operation": "documentSymbols",
-            "uri": "/repo/src/lib.rs",
-            "page": 1,
-            "pageSize": 3,
-            "includeDeclaration": true
-        }))
-        .expect("canonical lsp query");
-        let snapshot = super::semantic_snapshot(&query, "symbols", &expected);
-        query.snapshot = Some(snapshot.clone());
-        let mut actual = Vec::new();
-
-        loop {
-            let (page, pagination) = super::paginate(
-                &expected,
-                query.page.unwrap_or(1),
-                query.page_size.unwrap_or(40),
-            );
-            actual.extend(page);
-            let response = super::with_next(
-                &query,
-                serde_json::json!({
-                    "snapshot": snapshot,
-                    "pagination": pagination
-                }),
-            );
-            if response["pagination"]["hasMore"] != true {
-                assert!(response.get("next").is_none());
-                break;
-            }
-            let continuation = &response["next"]["nextPage"];
-            assert_eq!(continuation["tool"], "lspSearch");
-            query = serde_json::from_value(continuation["query"].clone())
-                .expect("executable continuation query");
-            assert_eq!(query.snapshot.as_deref(), Some(snapshot.as_str()));
-        }
-
-        assert_eq!(actual, expected);
-    }
-
-    #[test]
-    fn didopen_read_is_capped_to_avoid_oversized_document_sync() {
-        // A source at/under the cap is opened; one above it is skipped rather
-        // than read uncapped and streamed to the server under a flat deadline.
-        assert!(!super::didopen_exceeds_cap(0));
-        assert!(!super::didopen_exceeds_cap(super::MAX_LSP_DIDOPEN_BYTES));
-        assert!(super::didopen_exceeds_cap(super::MAX_LSP_DIDOPEN_BYTES + 1));
-    }
-
-    #[test]
-    fn document_wide_operations_do_not_require_a_position_anchor() {
-        for operation in ["documentSymbols", "workspaceSymbol", "diagnostic"] {
-            let query: super::LspSearchQuery = serde_json::from_value(serde_json::json!({
-                "operation": operation,
-                "uri": "/repo/src/lib.rs",
-                "page": 1,
-                "pageSize": 40,
-                "includeDeclaration": true
-            }))
-            .expect("document-wide lsp query");
-            assert_eq!(super::resolve_anchor(&query, "/unused"), Ok((0, 0)));
-        }
-    }
-
-    #[test]
-    fn later_pages_require_the_semantic_snapshot_and_carry_it_forward() {
-        let query: super::LspSearchQuery = serde_json::from_value(serde_json::json!({
-            "operation": "documentSymbols",
-            "uri": "/repo/src/lib.rs",
-            "page": 2,
-            "pageSize": 1,
-            "includeDeclaration": true
-        }))
-        .expect("canonical lsp query");
-        let items = vec![
-            serde_json::json!({"name":"a"}),
-            serde_json::json!({"name":"b"}),
-        ];
-        let snapshot = super::semantic_snapshot(&query, "symbols", &items);
-        assert!(super::snapshot_mismatch(&query, &snapshot));
-        let changed = super::snapshot_changed(&query, snapshot.clone());
-        assert_eq!(changed["errorCode"], "lsp.snapshot.changed");
-        assert_eq!(changed["next"]["restart"]["query"]["page"], 1);
-        assert!(
-            changed["next"]["restart"]["query"]
-                .get("snapshot")
-                .is_none()
-        );
-
-        let mut continued_query = query;
-        continued_query.snapshot = Some(snapshot.clone());
-        let continued = super::with_next(
-            &continued_query,
-            serde_json::json!({
-                "snapshot": snapshot,
-                "pagination": {"hasMore": true, "nextPage": 3}
-            }),
-        );
-        assert_eq!(continued["next"]["nextPage"]["query"]["page"], 3);
-        assert!(continued["next"]["nextPage"]["query"]["snapshot"].is_string());
-    }
-
-    #[test]
-    fn semantic_operations_require_their_advertised_lsp_capability() {
-        for operation in [
-            "definition",
-            "references",
-            "hover",
-            "typeDefinition",
-            "implementation",
-            "documentSymbols",
-            "workspaceSymbol",
-            "callers",
-            "callees",
-            "callHierarchy",
-            "supertypes",
-            "subtypes",
-        ] {
-            assert_eq!(
-                super::required_capability(operation),
-                super::provider_for_operation(operation),
-                "{operation}"
-            );
-        }
-        assert_eq!(super::required_capability("diagnostic"), None);
-        assert_eq!(
-            super::provider_for_operation("diagnostic"),
-            Some("diagnosticProvider")
-        );
-        assert_eq!(
-            super::required_capability("references"),
-            Some("referencesProvider")
-        );
-        assert_eq!(
-            super::required_capability("callers"),
-            Some("callHierarchyProvider")
-        );
-        assert_eq!(
-            super::required_capability("subtypes"),
-            Some("typeHierarchyProvider")
-        );
-        assert_eq!(super::required_capability("unknown"), None);
-    }
-
-    #[test]
-    fn document_symbols_use_the_canonical_flat_one_based_public_shape() {
-        let query: super::LspSearchQuery = serde_json::from_value(serde_json::json!({
-            "operation": "documentSymbols",
-            "uri": "file:///repo/src/lib.rs"
-        }))
-        .expect("document symbols query");
-        let raw = serde_json::json!([{
-            "name": "Greeter",
-            "kind": 5,
-            "range": {
-                "start": {"line": 2, "character": 0},
-                "end": {"line": 8, "character": 1}
-            },
-            "selectionRange": {
-                "start": {"line": 2, "character": 7},
-                "end": {"line": 2, "character": 14}
-            },
-            "children": [{
-                "name": "greet",
-                "kind": 6,
-                "range": {
-                    "start": {"line": 3, "character": 2},
-                    "end": {"line": 5, "character": 3}
-                },
-                "selectionRange": {
-                    "start": {"line": 3, "character": 5},
-                    "end": {"line": 3, "character": 10}
-                }
-            }]
-        }, {
-            // Doc comment / attribute lines are part of `range` but the name
-            // (and a usable lineHint) is on `selectionRange`.
-            "name": "documented",
-            "kind": 12,
-            "range": {
-                "start": {"line": 10, "character": 0},
-                "end": {"line": 14, "character": 1}
-            },
-            "selectionRange": {
-                "start": {"line": 12, "character": 7},
-                "end": {"line": 12, "character": 17}
-            }
-        }]);
-
-        let envelope = super::items_payload(&query, "documentSymbols", raw);
-        assert_eq!(envelope["lsp"]["source"], "lsp");
-        assert_eq!(envelope["payload"]["kind"], "documentSymbols");
-        assert_eq!(
-            envelope["payload"]["symbols"]
-                .as_array()
-                .expect("symbols should be an array")
-                .len(),
-            3
-        );
-        assert_eq!(envelope["payload"]["symbols"][0]["kind"], "class");
-        assert_eq!(envelope["payload"]["symbols"][0]["line"], 3);
-        assert_eq!(envelope["payload"]["symbols"][0]["character"], 7);
-        assert_eq!(envelope["payload"]["symbols"][1]["kind"], "method");
-        assert_eq!(envelope["payload"]["symbols"][1]["character"], 5);
-        let documented = &envelope["payload"]["symbols"][2];
-        assert_eq!(documented["name"], "documented");
-        assert_eq!(documented["line"], 13, "line must come from selectionRange");
-        assert_eq!(documented["character"], 7);
-        assert_eq!(documented["endLine"], 15, "endLine keeps the full range");
-        assert_eq!(
-            envelope["summary"],
-            serde_json::json!({
-                "totalSymbols": 3,
-                "returnedSymbols": 3,
-                "topLevelSymbols": 2,
-                "kinds": {"class": 1, "method": 1, "function": 1}
-            })
-        );
-    }
-
-    #[test]
-    fn locations_are_compact_camel_case_and_one_based() {
-        let location = super::compact_location(serde_json::json!({
-            "uri": "file:///repo/src/lib.rs",
-            "range": {
-                "start": {"line": 5, "character": 3},
-                "end": {"line": 5, "character": 8}
-            },
-            "content": "pub fn greet() {}\n",
-            "symbol_kind": "function"
-        }));
-        assert_eq!(location["uri"], "file:///repo/src/lib.rs");
-        assert_eq!(location["range"]["start"]["line"], 5);
-        assert_eq!(
-            location["displayRange"],
-            serde_json::json!({
-                "startLine": 6,
-                "endLine": 6
-            })
-        );
-        assert!(location.get("symbolKind").is_none());
-        assert!(location.get("path").is_none());
-        assert!(location.get("line").is_none());
-
-        let public = super::public_location(location);
-        assert!(public.get("range").is_none(), "one coordinate form only");
-        assert_eq!(
-            public["displayRange"],
-            serde_json::json!({"startLine": 6, "startCharacter": 4, "endLine": 6})
-        );
-        assert!(public.get("contentStartLine").is_none());
-    }
-
-    #[test]
-    fn widened_content_reports_its_first_line_and_single_file_pages_hoist_the_uri() {
-        let widened = super::public_location(serde_json::json!({
-            "uri": "file:///repo/src/lib.rs",
-            "range": {
-                "start": {"line": 5, "character": 3},
-                "end": {"line": 5, "character": 8}
-            },
-            "content": "a\nb\nc\n",
-            "displayRange": {"startLine": 5, "endLine": 7}
-        }));
-        assert_eq!(widened["displayRange"]["startLine"], 6);
-        assert_eq!(widened["contentStartLine"], 5);
-
-        let same = [widened.clone(), widened.clone()];
-        assert_eq!(
-            super::shared_location_uri(&same).as_deref(),
-            Some("file:///repo/src/lib.rs")
-        );
-        let mut other = widened.clone();
-        other["uri"] = serde_json::json!("file:///repo/src/main.rs");
-        assert!(super::shared_location_uri(&[widened.clone(), other]).is_none());
-        assert!(
-            super::shared_location_uri(&[widened]).is_none(),
-            "a single location keeps its own uri"
-        );
-    }
-
-    #[test]
-    fn provider_receipt_exposes_effective_invocation_and_omits_empty_optional_fields() {
-        let config = octocode_engine::lsp::types::JsLanguageServerConfig {
-            command: "rust-analyzer".into(),
-            args: Some(vec!["--stdio".into()]),
-            workspace_root: "/repo".into(),
-            language_id: Some("rust".into()),
-            initialization_options: None,
-            env: None,
-            max_memory_mb: None,
-        };
-        let client = octocode_engine::lsp::client::NativeLspClient::new(config.clone());
-        let receipt = super::resolved_server_receipt(&config, &client);
-
-        assert_eq!(receipt["command"], "rust-analyzer");
-        assert_eq!(receipt["argv"], serde_json::json!(["--stdio"]));
-        assert_eq!(receipt["source"], "path");
-        assert_eq!(receipt["workspaceRoot"], "/repo");
-        assert_eq!(
-            receipt["capabilities"]
-                .as_object()
-                .expect("capabilities should be an object")
-                .len(),
-            10
-        );
-        assert_eq!(receipt["capabilities"]["definitionProvider"], false);
-        assert!(receipt.get("identity").is_none());
-        assert!(
-            receipt["workspaceFingerprint"]
-                .as_str()
-                .is_some_and(|value| value.len() == 64)
-        );
-        assert!(
-            receipt["configurationFingerprint"]
-                .as_str()
-                .is_some_and(|value| value.len() == 64)
-        );
-        assert!(receipt.get("readiness").is_none());
-
-        let config_without_args = octocode_engine::lsp::types::JsLanguageServerConfig {
-            args: Some(Vec::new()),
-            ..config
-        };
-        let client =
-            octocode_engine::lsp::client::NativeLspClient::new(config_without_args.clone());
-        let receipt = super::resolved_server_receipt(&config_without_args, &client);
-        assert!(receipt.get("argv").is_none());
-    }
-
-    #[test]
-    fn empty_and_unavailable_rows_expose_status_and_recovery_next() {
-        let query = super::LspSearchQuery {
-            operation: "definition".into(),
-            uri: Some("/repo/src/lib.rs".into()),
-            workspace_root: None,
-            symbol_name: Some("execute".into()),
-            position: None,
-            line_hint: Some(10),
-            order_hint: None,
-            include_declaration: None,
-            group_by_file: None,
-            depth: None,
-            page: None,
-            page_size: None,
-            snapshot: None,
-            context_lines: None,
-            rust_context: None,
-        };
-        let empty = super::with_next(&query, super::empty(&query, "noLocations", "none", true));
-        assert_eq!(empty["status"], "empty");
-        assert_eq!(empty["next"]["readFile"]["confidence"], "exact");
-        assert!(
-            empty["hints"][0]
-                .as_str()
-                .is_some_and(|hint| hint.contains("Verify the symbol and anchor")),
-            "{empty}"
-        );
-        let down = super::failure(
-            &query,
-            "file:///repo/src/lib.rs",
-            "lsp.serverUnavailable",
-            "missing",
-            false,
-        );
-        assert_eq!(down["status"], "error");
-        assert_eq!(down["errorCode"], "lsp.serverUnavailable");
-        assert_eq!(down["next"]["readFile"]["tool"], "localFetch");
-        assert!(
-            down["hints"][0]
-                .as_str()
-                .is_some_and(|hint| hint.contains("astSearch symbols/match")),
-            "{down}"
-        );
-
-        let timeout = super::failure(
-            &query,
-            "file:///repo/src/lib.rs",
-            "lsp.timeout",
-            "timed out",
-            false,
-        );
-        assert_eq!(timeout["next"]["retry"]["tool"], "lspSearch");
-        assert_eq!(timeout["next"]["readFile"]["tool"], "localFetch");
-
-        let mut explicitly_scoped = query.clone();
-        explicitly_scoped.workspace_root = Some("/repo".into());
-        let scoped = super::failure(
-            &explicitly_scoped,
-            "file:///repo/src/lib.rs",
-            "lsp.capabilityUnavailable",
-            "unsupported",
-            true,
-        );
-        assert_eq!(scoped["next"]["readFile"]["tool"], "localFetch");
-    }
-
-    #[test]
-    fn workspace_root_failures_emit_a_string_uri_without_directory_read_recovery() {
-        let query: super::LspSearchQuery = serde_json::from_value(serde_json::json!({
-            "operation": "workspaceSymbol",
-            "workspaceRoot": "/repo",
-            "symbolName": "execute"
-        }))
-        .expect("workspace-symbol query");
-
-        let down = super::failure(
-            &query,
-            "file:///repo",
-            "lsp.serverUnavailable",
-            "missing",
-            false,
-        );
-
-        assert!(down["uri"].is_string(), "{down}");
-        assert_ne!(down["uri"], serde_json::Value::Null, "{down}");
-        assert!(down.get("next").is_none(), "{down}");
-        assert!(
-            down["hints"][0]
-                .as_str()
-                .is_some_and(|hint| hint.contains("Provide uri")),
-            "{down}"
-        );
-        crate::contracts::validate_output(
-            "lspSearch",
-            &serde_json::json!({"results":[{"index":0,"data":down}]}),
-        )
-        .expect("workspace-root failure must satisfy the internal output contract");
-    }
-
-    #[test]
-    fn workspace_root_empty_results_do_not_emit_a_pathless_read_recovery() {
-        let q = query(serde_json::json!({
-            "operation": "workspaceSymbol",
-            "workspaceRoot": "/repo",
-            "symbolName": "nothing"
-        }));
-        let mut row = super::with_next(
-            &q,
-            super::items_payload(&q, "symbols", serde_json::json!([])),
-        );
-        assert_eq!(row["status"], "empty");
-        assert!(row.get("next").is_none(), "{row}");
-        // execute() stamps the canonical root URI on every row.
-        row["uri"] = serde_json::json!("file:///repo");
-        crate::contracts::validate_output(
-            "lspSearch",
-            &serde_json::json!({"results":[{"index":0,"data":row}]}),
-        )
-        .expect("empty workspace-root row satisfies the output contract");
-    }
-
-    #[test]
-    fn server_controlled_item_uris_are_authorized_before_emission() {
-        use crate::policy::path::{PathPolicy, PathPolicyConfig};
-        // A policy with no configured roots authorizes no real path, so any
-        // server-supplied file URI must be rejected.
-        let paths = PathPolicy::new(PathPolicyConfig::default()).expect("path policy");
-
-        let workspace_symbol =
-            serde_json::json!({ "name": "Foo", "location": { "uri": "file:///etc/passwd" } });
-        assert!(!super::item_uri_is_authorized(&workspace_symbol, &paths));
-
-        let call = serde_json::json!({ "from": { "uri": "file:///etc/hosts" } });
-        assert!(!super::item_uri_is_authorized(&call, &paths));
-
-        let type_item = serde_json::json!({ "name": "Base", "uri": "file:///etc/group" });
-        assert!(!super::item_uri_is_authorized(&type_item, &paths));
-
-        // An item that embeds no file URI carries no path to leak and is kept.
-        let no_uri = serde_json::json!({ "name": "Local" });
-        assert!(super::item_uri_is_authorized(&no_uri, &paths));
-
-        // filter_authorized_items removes only the unauthorized entries and leaves
-        // non-array values untouched for downstream `as_array` handling.
-        let filtered =
-            super::filter_authorized_items(serde_json::json!([workspace_symbol, no_uri]), &paths);
-        assert_eq!(filtered.as_array().map(Vec::len), Some(1));
-        assert_eq!(filtered[0]["name"], "Local");
-        assert_eq!(
-            super::filter_authorized_items(serde_json::Value::Null, &paths),
-            serde_json::Value::Null
-        );
-    }
-
-    fn query(value: serde_json::Value) -> super::LspSearchQuery {
-        serde_json::from_value(value).expect("lsp query")
-    }
-
-    #[test]
-    fn diagnostic_reports_are_listed_as_individual_diagnostics() {
-        let q = query(serde_json::json!({"operation": "diagnostic", "uri": "file:///repo/a.ts"}));
-        let report = serde_json::json!({
-            "kind": "full",
-            "items": [
-                {"message": "first", "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}}},
-                {"message": "second", "range": {"start": {"line": 1, "character": 0}, "end": {"line": 1, "character": 1}}}
-            ],
-            "version": 3,
-            "source": "push",
-            "truncated": false
-        });
-        let (items, truncated) = super::diagnostic_items(Some(report));
-        assert!(!truncated);
-        let envelope = super::items_payload(&q, "diagnostics", items);
-        let listed = envelope["payload"]["items"].as_array().expect("items");
-        assert_eq!(listed.len(), 2, "{envelope}");
-        assert_eq!(listed[0]["message"], "first");
-        assert_eq!(envelope["pagination"]["totalResults"], 2);
-
-        // A clean file (or a pull `unchanged` report) is an empty result, not
-        // a one-element list wrapping the report object.
-        for report in [
-            Some(serde_json::json!({"kind": "full", "items": []})),
-            Some(serde_json::json!({"kind": "unchanged", "resultId": "1"})),
-        ] {
-            let (items, _) = super::diagnostic_items(report);
-            let envelope = super::with_next(&q, super::items_payload(&q, "diagnostics", items));
-            assert_eq!(envelope["status"], "empty", "{envelope}");
-            assert_eq!(envelope["payload"]["category"], "noDiagnostics");
-        }
-        let (_, truncated) = super::diagnostic_items(Some(serde_json::json!({
-            "kind": "full", "items": [{"message": "x"}], "truncated": true
-        })));
-        assert!(truncated);
-    }
-
-    #[test]
-    fn pages_past_the_end_are_empty_and_flagged_out_of_range() {
-        let items = vec![
-            serde_json::json!({"name": "one"}),
-            serde_json::json!({"name": "two"}),
-        ];
-        let (page, pagination) = super::paginate(&items, 5, 1);
-        assert!(page.is_empty(), "must not clamp to the last page");
-        assert_eq!(pagination["currentPage"], 5);
-        assert_eq!(pagination["totalPages"], 2);
-        assert_eq!(pagination["hasMore"], false);
-        assert_eq!(pagination["outOfRange"], true);
-        assert!(pagination.get("nextPage").is_none());
-
-        let (page, pagination) = super::paginate(&items, 2, 1);
-        assert_eq!(page.len(), 1);
-        assert!(pagination.get("outOfRange").is_none());
-    }
-
-    #[test]
-    fn group_by_file_summarizes_per_file_with_workspace_relative_paths() {
-        let root = std::env::temp_dir().join(format!("octocode-lsp-group-{}", std::process::id()));
-        let root_str = root.to_string_lossy().into_owned();
-        let uri = |name: &str| {
-            octocode_engine::lsp::uri::path_to_uri(&root.join(name).to_string_lossy()).expect("uri")
-        };
-        let location = |name: &str, line: u64| {
-            serde_json::json!({
-                "uri": uri(name),
-                "range": {"start": {"line": line, "character": 0}, "end": {"line": line, "character": 3}}
-            })
-        };
-        let summaries = super::group_by_file(
-            &[
-                location("src/a.ts", 4),
-                location("src/a.ts", 9),
-                location("src/b.ts", 0),
-            ],
-            &root_str,
-        );
-        assert_eq!(
-            summaries,
-            vec![
-                serde_json::json!({"path": "src/a.ts", "references": 2, "lines": [5, 10]}),
-                serde_json::json!({"path": "src/b.ts", "references": 1, "lines": [1]}),
-            ]
-        );
-    }
-
-    #[test]
-    fn grouped_references_replace_locations_with_file_summaries() {
-        use crate::policy::path::{PathPolicy, PathPolicyConfig};
-        let root =
-            std::env::temp_dir().join(format!("octocode-lsp-grouped-{}", std::process::id()));
-        std::fs::create_dir_all(&root).expect("root");
-        let root = root.canonicalize().expect("canonical root");
-        std::fs::write(root.join("a.ts"), "foo\nfoo\n").expect("a.ts");
-        let paths = PathPolicy::new(PathPolicyConfig {
-            workspace_root: Some(root.clone()),
-            ..Default::default()
-        })
-        .expect("path policy");
-        let uri = octocode_engine::lsp::uri::path_to_uri(&root.join("a.ts").to_string_lossy())
-            .expect("uri");
-        let q = query(serde_json::json!({
-            "operation": "references",
-            "uri": uri,
-            "position": {"line": 0, "character": 0},
-            "groupByFile": true
-        }));
-        let snippets = (0..2)
-            .map(|line| {
-                serde_json::json!({
-                    "uri": uri,
-                    "range": {"start": {"line": line, "character": 0}, "end": {"line": line, "character": 3}}
-                })
-            })
-            .collect::<Vec<_>>();
-        let result = super::locations(
-            &q,
-            &paths,
-            &root.to_string_lossy(),
-            "references",
-            "referencesProvider",
-            snippets,
-        );
-        assert!(result["payload"].get("locations").is_none(), "{result}");
-        assert_eq!(
-            result["payload"]["byFile"],
-            serde_json::json!([{"path": "a.ts", "references": 2, "lines": [1, 2]}])
-        );
-        assert_eq!(result["payload"]["totalReferences"], 2);
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn definition_hops_only_read_authorized_bounded_sources() {
-        use crate::policy::path::{PathPolicy, PathPolicyConfig};
-        let root = std::env::temp_dir().join(format!("octocode-lsp-hop-{}", std::process::id()));
-        std::fs::create_dir_all(&root).expect("root");
-        let root = root.canonicalize().expect("canonical root");
-        let inside = root.join("inside.ts");
-        std::fs::write(&inside, "export const x = 1;\n").expect("inside");
-        let large = root.join("large.ts");
-        std::fs::write(
-            &large,
-            vec![b'a'; (super::MAX_LSP_DIDOPEN_BYTES + 1) as usize],
-        )
-        .expect("large");
-        let paths = PathPolicy::new(PathPolicyConfig {
-            workspace_root: Some(root.clone()),
-            ..Default::default()
-        })
-        .expect("path policy");
-
-        assert!(super::read_hop_source(&paths, &inside.to_string_lossy()).is_some());
-        assert!(
-            super::read_hop_source(&paths, &large.to_string_lossy()).is_none(),
-            "oversized hop targets must not be read or synced"
-        );
-        assert!(
-            super::read_hop_source(&paths, "/etc/hosts").is_none(),
-            "server-supplied targets outside the read policy must not be read"
-        );
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn failed_hierarchy_expansion_is_an_error_or_a_marked_partial_row() {
-        // Nothing expanded and the provider failed: surface the error.
-        assert!(super::expansion_outcome(Vec::new(), vec!["boom".into()]).is_err());
-        // Nothing expanded and nothing failed: a genuine empty result.
-        assert_eq!(
-            super::expansion_outcome(Vec::new(), Vec::new()),
-            Ok((Vec::new(), Vec::new()))
-        );
-
-        let q = query(serde_json::json!({
-            "operation": "callers",
-            "uri": "file:///repo/a.ts",
-            "position": {"line": 0, "character": 0},
-            "depth": 3
-        }));
-        let (items, failures) = super::expansion_outcome(
-            vec![serde_json::json!({"from": {"name": "caller"}})],
-            vec!["LSP error: deeper level".into()],
-        )
-        .expect("partial expansion keeps what was found");
-        let mut row = super::items_payload(&q, "callers", serde_json::json!(items));
-        super::mark_partial_expansion(&mut row, &q, &failures);
-        assert_eq!(row["isPartial"], true);
-        assert_eq!(
-            row["partialReasons"],
-            serde_json::json!(["callHierarchyExpansionFailed"])
-        );
-        assert!(
-            row["warnings"][0]
-                .as_str()
-                .is_some_and(|w| w.contains("deeper level"))
-        );
-        assert_eq!(row["next"]["retry"]["tool"], "lspSearch");
-        // The runtime envelope copies the caller's reasoning into continuations.
-        row["next"]["retry"]["query"]["reasoning"] = serde_json::json!("retry");
-        crate::contracts::validate_output(
-            "lspSearch",
-            &serde_json::json!({"results":[{"index":0,"data":row}]}),
-        )
-        .expect("partial hierarchy row satisfies the output contract");
-    }
-}
+mod tests;

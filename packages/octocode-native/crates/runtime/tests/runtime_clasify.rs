@@ -34,6 +34,33 @@ impl Respond for DelayedJevResponse {
     }
 }
 
+#[derive(Clone)]
+struct QuestionKeyedFocusResponse;
+
+impl Respond for QuestionKeyedFocusResponse {
+    fn respond(&self, request: &Request) -> ResponseTemplate {
+        let body: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
+        let focus = body.to_string().contains("insufficient");
+        let answers = if focus {
+            json!({
+                "answer_0":{"type":"choice","choice":"w1","confidence":0.91,
+                    "probabilities":{"w1":0.91,"w2":0.0,"w3":0.0,"w4":0.09,"w5":0.0,"insufficient":0.0}},
+                "answer_1":{"type":"choice","choice":"w4","confidence":0.93,
+                    "probabilities":{"w1":0.07,"w2":0.0,"w3":0.0,"w4":0.93,"w5":0.0,"insufficient":0.0}}
+            })
+        } else {
+            json!({
+                "answer_0":{"type":"noul","noul":0.94},
+                "answer_1":{"type":"noul","noul":0.95}
+            })
+        };
+        ResponseTemplate::new(200).set_body_json(json!({
+            "model":"resolved","answers":answers,
+            "usage":{"input_tokens":5,"output_tokens":2}
+        }))
+    }
+}
+
 fn query() -> serde_json::Value {
     json!({
         "id":"decision",
@@ -815,10 +842,67 @@ async fn high_scoring_file_pages_are_narrowed_to_a_focus_window() {
     let page = &outcome.structured_content["queries"][0]["resources"][0]["pages"][0];
     assert_eq!(
         page["focus"],
-        json!({"startLine":81,"endLine":120,"confidence":0.9}),
+        json!({"q":{"startLine":81,"endLine":120,"confidence":0.9}}),
         "{page}"
     );
     octocode_native::contracts::validate_output("clasify", &outcome.structured_content)
         .expect("focus output contract");
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn multi_question_focus_is_keyed_and_shares_one_windowed_request() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(QuestionKeyedFocusResponse)
+        .expect(2)
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let body = (1..=200).map(|n| format!("line {n}\n")).collect::<String>();
+    let file = workspace.write("long.rs", body);
+    let expected_source_path = file.clone();
+    let runtime = workspace.runtime(&[
+        ("OCTOCODE_CLASSIFICATION_API", "secret".into()),
+        ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
+        ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
+    ]);
+    let input = json!({
+        "id":"keyed-focus","reasoning":"Locate each concern.",
+        "resources":[{"id":"f","context":{"tool":"localFetch","query":{
+            "path":file,"reasoning":"Read the source."
+        }}}],
+        "questions":[
+            {"id":"startup","question":{"type":"noul","instructions":"Find startup."}},
+            {"id":"shutdown","question":{"type":"noul","instructions":"Find shutdown."}}
+        ]
+    });
+    let outcome = runtime
+        .execute("keyed-focus".into(), "clasify".into(), input)
+        .await
+        .unwrap();
+    let page = &outcome.structured_content["queries"][0]["resources"][0]["pages"][0];
+    assert_eq!(page["answers"]["startup"]["noul"], 0.94);
+    assert_eq!(page["answers"]["shutdown"]["noul"], 0.95);
+    assert_eq!(
+        page["focus"]["startup"],
+        json!({
+            "startLine":1,"endLine":40,"confidence":0.91
+        }),
+        "{page}"
+    );
+    assert_eq!(
+        page["focus"]["shutdown"],
+        json!({
+            "startLine":121,"endLine":160,"confidence":0.93
+        })
+    );
+    assert_eq!(
+        page["source"]["path"],
+        expected_source_path.to_string_lossy().as_ref()
+    );
+    assert!(page["source"]["evidenceHash"].as_str().is_some());
+    octocode_native::contracts::validate_output("clasify", &outcome.structured_content)
+        .expect("keyed focus output contract");
     runtime.close().await;
 }

@@ -111,32 +111,8 @@ fn iso8601(epoch: i64) -> String {
     let hour = rem / 3600;
     let minute = (rem % 3600) / 60;
     let second = rem % 60;
-    let (year, month, day) = civil_from_days(days as i64);
+    let (year, month, day) = crate::civil_date::civil_from_days(days as i64);
     format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z")
-}
-
-fn civil_from_days(mut z: i64) -> (i64, u32, u32) {
-    z += 719_468;
-    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let doe = (z - era * 146_097) as u64;
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
-    let y = yoe as i64 + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = if m <= 2 { y + 1 } else { y };
-    (y, m as u32, d as u32)
-}
-
-pub fn quote_search_keyword(keyword: &str) -> String {
-    if keyword.starts_with('"') {
-        return keyword.to_owned();
-    }
-    if keyword.chars().any(char::is_whitespace) {
-        return format!("\"{}\"", keyword.replace('"', "\\\""));
-    }
-    keyword.to_owned()
 }
 
 #[cfg(test)]
@@ -157,12 +133,6 @@ mod tests {
             Some("2026-01-01T00:00:00Z")
         );
         assert!(resolve_date_window("not-a-date").warning.is_some());
-    }
-
-    #[test]
-    fn quotes_multiword_keywords() {
-        assert_eq!(quote_search_keyword("fix login"), "\"fix login\"");
-        assert_eq!(quote_search_keyword("already"), "already");
     }
 
     #[test]

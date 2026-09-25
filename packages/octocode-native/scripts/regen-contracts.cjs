@@ -1,6 +1,7 @@
 'use strict';
 // One-command contract regeneration:
-//   core clean-check → core build → generator → pin-literal update → contract tests.
+//   core clean-check → core build → generator → config tool types → pin-literal update
+//   → contract tests.
 // Replaces the manual ritual (commit core, build, generate, harvest the new
 // digest from a failing pin test, hand-edit contracts/mod.rs) that concurrent
 // sessions repeatedly raced on.
@@ -69,6 +70,15 @@ console.log('generating contracts…');
 const generatorArgs = [join(coreDir, 'scripts', 'generate-native-contracts.ts'), '--out', generatedDir];
 if (allowDirty) generatorArgs.push('--allow-dirty');
 run('node', generatorArgs, { cwd: coreRepo });
+
+// Tool wire types (TS + Rust) are owned by @octocodeai/config and must come
+// from the same core build as the embed. The repo consumes core as a copied
+// file: dependency, so refresh the copy before regenerating them.
+console.log('regenerating @octocodeai/config tool types…');
+const repoRoot = resolve(nativeRoot, '..', '..');
+const configDir = join(repoRoot, 'packages', 'octocode-config');
+run('yarn', ['install'], { cwd: repoRoot });
+run('node', [join(configDir, 'scripts', 'generate-tool-types.ts')], { cwd: configDir });
 
 // The body-hash pin must move together with every legitimate regeneration.
 // Harvest the new digest from the pin test itself so the computation can

@@ -17,8 +17,11 @@ pub(super) use rule::{RawRule, parse_rule};
 #[cfg(test)]
 pub(super) use matching::INTERRUPT_NEXT_COMPILE_PARSE;
 
-use line_index_support::{LineIndex, to_structural_match, to_structural_match_with_index};
-use matching::{CaptureEnv, MatchWithKind, collect_kind_matches, visit_named};
+use crate::text::utf8_offsets::LineIndex;
+use line_index_support::{to_structural_match, to_structural_match_with_index};
+use matching::{
+    CaptureEnv, MatchWithKind, collect_kind_matches, visit_named, visit_named_with_ancestors,
+};
 use pattern::CompiledPattern;
 use rule::{CompiledRule, Document};
 
@@ -109,29 +112,37 @@ fn compile_matcher_inner(
             Ok(Box::new(move |content| {
                 let deadline = Instant::now() + AST_EXECUTION_TIMEOUT;
                 let tree = parse_tree_with_deadline(&language, content, deadline)?;
-                let document = Document { content, deadline };
+                let document = Document {
+                    content,
+                    deadline,
+                    root: tree.root_node(),
+                };
                 let line_index = LineIndex::new(content);
                 let mut matches = Vec::new();
-                visit_named(tree.root_node(), deadline, &mut |candidate| {
-                    if !compiled.matches_candidate(candidate) {
-                        return Ok(());
-                    }
-                    let mut captures = CaptureEnv::default();
-                    if compiled.matches(candidate, &document, &mut captures)? {
-                        let (values, ranges) = captures.into_maps();
-                        matches.push(MatchWithKind::new(
-                            candidate,
-                            to_structural_match_with_index(
+                visit_named_with_ancestors(
+                    tree.root_node(),
+                    deadline,
+                    &mut |candidate, ancestors| {
+                        if !compiled.matches_candidate(candidate) {
+                            return Ok(());
+                        }
+                        let mut captures = CaptureEnv::default();
+                        if compiled.matches(candidate, Some(ancestors), &document, &mut captures)? {
+                            let (values, ranges) = captures.into_maps();
+                            matches.push(MatchWithKind::new(
                                 candidate,
-                                content,
-                                &line_index,
-                                values,
-                                ranges,
-                            ),
-                        ));
-                    }
-                    Ok(())
-                })?;
+                                to_structural_match_with_index(
+                                    candidate,
+                                    content,
+                                    &line_index,
+                                    values,
+                                    ranges,
+                                ),
+                            ));
+                        }
+                        Ok(())
+                    },
+                )?;
                 Ok(matches)
             }))
         }

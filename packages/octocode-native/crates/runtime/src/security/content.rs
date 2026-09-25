@@ -1,10 +1,8 @@
 use std::path::Path;
-use std::sync::Arc;
 
 use octocode_engine::security::types::SanitizationResult;
 use serde_json::{Map, Value};
 
-use super::SecurityRegistry;
 use crate::policy::{PolicyError, PolicyErrorCode};
 
 const MAX_STRING_LENGTH: usize = 10_000;
@@ -232,10 +230,8 @@ pub struct ValidationResult {
     pub warnings: Vec<String>,
 }
 
-#[derive(Clone, Debug)]
-pub struct ContentSecurity {
-    registry: Arc<SecurityRegistry>,
-}
+#[derive(Clone, Debug, Default)]
+pub struct ContentSecurity;
 
 /// Conservative email shape for opt-in masking of gh outputs. Local-part
 /// and domain are both masked; the match is intentionally simple (no
@@ -250,13 +246,12 @@ fn email_pattern() -> &'static regex::Regex {
 }
 
 impl ContentSecurity {
-    pub fn new(registry: Arc<SecurityRegistry>) -> Self {
-        Self { registry }
+    pub fn new() -> Self {
+        Self
     }
 
-    /// Opt-in (R11): mask every email address in `text`. Callers gate this
-    /// on `output.redactEmails` / `OCTOCODE_REDACT_EMAILS`; default output
-    /// is unchanged.
+    /// Opt-in: mask every email address in `text`. Callers gate this on
+    /// `output.redactEmails` / `OCTOCODE_REDACT_EMAILS`.
     pub fn redact_emails(&self, text: &str) -> String {
         email_pattern()
             .replace_all(text, "[REDACTED-EMAIL]")
@@ -272,77 +267,21 @@ impl ContentSecurity {
                 secrets_detected: vec!["sanitizer-failure".to_owned()],
                 warnings: vec![error.to_string()],
             });
-        if self.registry.secret_patterns().is_empty() {
-            // Even with no registry patterns, guard against a multi-line private
-            // key that a bounded read/search window split across its BEGIN/END
-            // boundary (the anchored built-in patterns only match a complete
-            // block, so a single-boundary window would otherwise leak the body).
-            if let Some(guarded) = redact_split_private_key(&native.content, file_path) {
-                let mut secrets = native.secrets_detected;
-                secrets.push(SPLIT_KEY_SECRET.to_owned());
-                return SanitizationResult {
-                    content: guarded,
-                    has_secrets: true,
-                    warnings: vec![format!("{} secret(s) redacted", secrets.len())],
-                    secrets_detected: secrets,
-                };
-            }
-            return native;
+        // Guard against a multi-line private key that a bounded read/search
+        // window split across its BEGIN/END boundary (the anchored built-in
+        // patterns only match a complete block, so a single-boundary window
+        // would otherwise leak the body).
+        if let Some(guarded) = redact_split_private_key(&native.content, file_path) {
+            let mut secrets = native.secrets_detected;
+            secrets.push(SPLIT_KEY_SECRET.to_owned());
+            return SanitizationResult {
+                content: guarded,
+                has_secrets: true,
+                warnings: vec![format!("{} secret(s) redacted", secrets.len())],
+                secrets_detected: secrets,
+            };
         }
-        let mut sanitized = native.content;
-        let mut secrets = native.secrets_detected;
-        for pattern in self.registry.secret_patterns() {
-            if let Some(context) = &pattern.file_context {
-                let Some(path) = path.as_deref() else {
-                    continue;
-                };
-                if !context.is_match(path) {
-                    continue;
-                }
-            }
-            if pattern.regex.is_match(&sanitized) {
-                secrets.push(pattern.name.clone());
-                let replacement = format!("[REDACTED-{}]", pattern.name.to_uppercase());
-                let preserve_lines = |captures: &regex::Captures<'_>| {
-                    let line_breaks = captures.get(0).map_or(0, |matched| {
-                        matched
-                            .as_str()
-                            .bytes()
-                            .filter(|byte| *byte == b'\n')
-                            .count()
-                    });
-                    format!("{replacement}{}", "\n".repeat(line_breaks))
-                };
-                sanitized = if pattern.global {
-                    pattern
-                        .regex
-                        .replace_all(&sanitized, preserve_lines)
-                        .into_owned()
-                } else {
-                    pattern
-                        .regex
-                        .replace(&sanitized, preserve_lines)
-                        .into_owned()
-                };
-            }
-        }
-        if let Some(guarded) = redact_split_private_key(&sanitized, file_path) {
-            if !secrets.iter().any(|name| name == SPLIT_KEY_SECRET) {
-                secrets.push(SPLIT_KEY_SECRET.to_owned());
-            }
-            sanitized = guarded;
-        }
-        let has_secrets = !secrets.is_empty();
-        SanitizationResult {
-            content: sanitized,
-            has_secrets,
-            warnings: if has_secrets {
-                vec![format!("{} secret(s) redacted", secrets.len())]
-            } else {
-                Vec::new()
-            },
-            secrets_detected: secrets,
-        }
+        native
     }
 
     pub fn validate_text_bytes(
@@ -541,7 +480,6 @@ impl ContentSecurity {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::security::SensitiveDataPattern;
     #[test]
     fn split_private_key_guard_targets_only_key_markers() {
         // Body-only base64 with no key marker → guard is a no-op (must not
@@ -623,7 +561,7 @@ mod tests {
 
     #[test]
     fn clasify_evidence_values_may_exceed_the_parameter_length_cap() {
-        let policy = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+        let policy = ContentSecurity::new();
         let long = "x".repeat(20_000);
         let evidence = serde_json::json!({"resources":[{"context":{"value":{"draft":long}}}]});
         assert!(policy.validate_input_parameters(&evidence).is_valid);
@@ -633,7 +571,7 @@ mod tests {
 
     #[test]
     fn split_key_window_does_not_leak_through_sanitize_text() {
-        let policy = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+        let policy = ContentSecurity::new();
         let window = "config header line\n-----BEGIN RSA PRIVATE KEY-----\nMIIEpQIBAAKCAQEA7Yn8xK2vJ9qLmN3pQrStUvWxYz0123456789AbCdEfGhIjKlMn";
         let result = policy.sanitize_text(window, Some(Path::new("secrets/key.pem")));
         assert!(result.has_secrets, "split key window must be flagged");
@@ -646,7 +584,7 @@ mod tests {
 
     #[test]
     fn body_only_pem_window_does_not_leak_through_sanitize_text() {
-        let policy = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+        let policy = ContentSecurity::new();
         let key_body = "MIIEpQIBAAKCAQEA7Yn8xK2vJ9qLmN3pQrStUvWxYz0123456789AbCdEfGhIjKlMn";
         let result = policy.sanitize_text(key_body, Some(Path::new("secrets/deploy-key.pem")));
         assert!(result.has_secrets, "body-only PEM window must be flagged");
@@ -663,27 +601,8 @@ mod tests {
     }
 
     #[test]
-    fn custom_patterns_follow_builtin_then_custom_order() {
-        let mut registry = SecurityRegistry::default();
-        registry
-            .add_secret_patterns([SensitiveDataPattern::compile(
-                "custom",
-                "",
-                "secret-[0-9]+",
-                false,
-                false,
-                None,
-            )
-            .expect("security test setup should succeed")])
-            .expect("security test setup should succeed");
-        let policy = ContentSecurity::new(Arc::new(registry));
-        let result = policy.sanitize_text("secret-123", None);
-        assert_eq!(result.content, "[REDACTED-CUSTOM]");
-        assert_eq!(result.secrets_detected, ["custom"]);
-    }
-    #[test]
     fn malformed_utf8_is_lossily_decoded_like_node_reads() {
-        let policy = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+        let policy = ContentSecurity::new();
         let result = policy
             .validate_text_bytes(&[b'a', 0xff, b'b'], None, 3)
             .expect("security test setup should succeed");
@@ -691,24 +610,8 @@ mod tests {
     }
 
     #[test]
-    fn custom_regex_preserves_javascript_global_replacement_flag() {
-        let mut registry = SecurityRegistry::default();
-        registry
-            .add_secret_patterns([
-                SensitiveDataPattern::compile_js("one", "", "token", "i", None)
-                    .expect("compatible non-global regex"),
-            ])
-            .expect("mutable registry");
-        let policy = ContentSecurity::new(Arc::new(registry));
-        assert_eq!(
-            policy.sanitize_text("TOKEN token", None).content,
-            "[REDACTED-ONE] token"
-        );
-    }
-
-    #[test]
     fn builtin_sanitization_result_is_lossless_through_policy_wrapper() {
-        let policy = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+        let policy = ContentSecurity::new();
         let corpus = [
             (format!("const token = \"ghp_{}\";", "a".repeat(37)), None),
             (
@@ -735,7 +638,7 @@ mod tests {
     }
     #[test]
     fn nested_array_string_leaves_are_sanitized() {
-        let policy = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+        let policy = ContentSecurity::new();
         let token = format!("ghp_{}", "a".repeat(37));
         let result = policy.validate_input_parameters(&serde_json::json!({
             "x": [[token]]
@@ -751,7 +654,7 @@ mod tests {
 
     #[test]
     fn parameters_reject_dangerous_keys_and_keep_safe_partial_data() {
-        let policy = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+        let policy = ContentSecurity::new();
         let result =
             policy.validate_input_parameters(&serde_json::json!({"ok":"x", "prototype": {}}));
         assert!(!result.is_valid);
@@ -761,7 +664,7 @@ mod tests {
 
     #[test]
     fn frozen_input_bounds_and_nested_secret_projection_match_reference() {
-        let policy = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+        let policy = ContentSecurity::new();
         let oversized = serde_json::json!({"text": "x".repeat(10_001)});
         let result = policy.validate_input_parameters(&oversized);
         assert!(!result.is_valid);

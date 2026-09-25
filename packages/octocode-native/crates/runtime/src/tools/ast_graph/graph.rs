@@ -185,7 +185,7 @@ pub(crate) fn build_graph(
             entry
                 .reference_counts
                 .into_iter()
-                .map(|x| (x.name, x.count))
+                .map(|x| (x.declaration_id, x.count))
                 .collect(),
             security,
             rust_cargo_unavailable,
@@ -305,6 +305,9 @@ fn edge_kind(ext: &str, kind: &str) -> &'static str {
     }
 }
 
+/// Diagnostic prefix the tree-sitter fact producer stamps on every file.
+const TREE_SITTER_SYNTAX_ONLY: &str = "tree-sitter graph facts are syntax-only;";
+
 #[allow(clippy::too_many_arguments)]
 fn link_file(
     b: &mut BuiltGraph,
@@ -335,7 +338,7 @@ fn link_file(
         b.languages.push((language.clone(), 1, link.clone()));
     }
     for message in &p.diagnostics {
-        if message.starts_with("tree-sitter graph facts are syntax-only;") {
+        if message.starts_with(TREE_SITTER_SYNTAX_ONLY) {
             // Every response already declares coverage.basis = syntactic.
             // Repeating this notice for each file hides actionable gaps.
             continue;
@@ -362,18 +365,29 @@ fn link_file(
             ),
         });
     }
+    let syntax_only = p
+        .diagnostics
+        .iter()
+        .any(|message| message.starts_with(TREE_SITTER_SYNTAX_ONLY));
     let mut facts = FileFacts {
         reference_counts: counts,
+        reference_basis: if syntax_only {
+            "syntax-references"
+        } else {
+            "semantic-references"
+        },
         ..Default::default()
     };
     let mut node = Node::default();
     for d in p.declarations {
-        let _ = &d.id;
         facts.declarations.push(Declaration {
+            id: d.id,
             name: d.name,
             kind: d.kind,
             line: d.line,
             exported: d.exported,
+            exported_as: d.exported_as,
+            parent: d.parent,
         });
     }
     for i in p.imports {
@@ -515,7 +529,7 @@ fn link_file(
             }
         } else {
             facts.calls.push(Call {
-                caller: c.caller,
+                caller_id: c.caller_id,
                 callee: c.callee,
             });
         }
@@ -624,6 +638,24 @@ fn rust_internal_specifier(spec: &str) -> bool {
     matches!(first, "crate" | "self" | "super")
 }
 
+/// A path specifier naming data, style, or asset content (`./package.json`,
+/// `./app.css`, `./logo.svg?url`). Such imports are bundler/loader concerns,
+/// never code-graph edges, so failing to link them is not a coverage gap.
+/// Python is excluded: its dotted relative modules (`.utils.json`) are code.
+fn is_non_code_specifier(spec: &str) -> bool {
+    const NON_CODE: &[&str] = &[
+        "json", "jsonc", "json5", "css", "scss", "sass", "less", "styl", "pcss", "svg", "png",
+        "jpg", "jpeg", "gif", "webp", "avif", "ico", "bmp", "tif", "tiff", "woff", "woff2", "ttf",
+        "otf", "eot", "mp3", "mp4", "webm", "wav", "ogg", "txt", "md", "html", "htm", "wasm",
+        "node", "yaml", "yml", "toml", "graphql", "gql", "csv", "xml", "pdf",
+    ];
+    let path = spec.split(['?', '#']).next().unwrap_or(spec);
+    let name = path.rsplit('/').next().unwrap_or(path);
+    name.rsplit_once('.').is_some_and(|(stem, ext)| {
+        !stem.is_empty() && NON_CODE.contains(&ext.to_ascii_lowercase().as_str())
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 fn record_resolution(
     b: &mut BuiltGraph,
@@ -648,6 +680,11 @@ fn record_resolution(
                 &format!("Cannot link import {spec:?} (unsupported)."),
             ),
         })
+    } else if !matches!(ext, "py" | "pyi")
+        && (spec.starts_with('.') || spec.starts_with('/'))
+        && is_non_code_specifier(spec)
+    {
+        b.imports[4] += 1
     } else if spec.starts_with('.')
         || spec.starts_with('/')
         || (ext == "rs" && rust_internal_specifier(spec))

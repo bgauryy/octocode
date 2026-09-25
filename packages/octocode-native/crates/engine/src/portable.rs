@@ -110,6 +110,19 @@ pub fn search_ripgrep_filtered(
     })
 }
 
+/// [`search_ripgrep_filtered`] that stops walking at the next entry once
+/// `cancelled` returns true; the partial result carries `capReason`
+/// `cancelled`.
+pub fn search_ripgrep_cancellable(
+    options: RipgrepSearchOptions,
+    path_filter: std::sync::Arc<dyn RipgrepPathFilter>,
+    cancelled: &(dyn Fn() -> bool + Sync),
+) -> Result<RipgrepParseResult> {
+    guard_panic("ripgrep search", || {
+        crate::search::ripgrep_search::search_cancellable(options, path_filter, cancelled)
+    })
+}
+
 pub use crate::search::ripgrep_pattern::RipgrepPatternValidationResult;
 
 #[must_use]
@@ -280,20 +293,6 @@ pub fn structural_search_files_detailed(
             Err("structural detailed file search failed on pathological input".to_owned())
         })
         .map_err(|message| Error::new(Status::InvalidArg, message))
-}
-
-/// Run detailed structural search while consulting caller policy before
-/// candidate accounting, prefilter reads, metadata reads, and source reads.
-pub fn structural_search_files_detailed_filtered(
-    options: crate::structural::StructuralSearchFilesOptions,
-    allow_path: &(dyn Fn(&std::path::Path) -> std::result::Result<bool, String> + Sync),
-) -> Result<crate::structural::StructuralSearchFilesDetailedResult> {
-    structural_search_files_detailed_filtered_with_extension(options, allow_path, &|path| {
-        path.extension()
-            .and_then(|extension| extension.to_str())
-            .unwrap_or_default()
-            .to_ascii_lowercase()
-    })
 }
 
 pub fn structural_search_files_detailed_filtered_with_extension(

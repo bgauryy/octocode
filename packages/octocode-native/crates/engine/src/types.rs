@@ -442,8 +442,11 @@ pub struct GraphLanguageGlob {
 
 #[cfg_attr(feature = "napi-addon", napi(object))]
 #[derive(Debug, Clone)]
+/// Syntax-aware value references to one declaration, excluding its own name,
+/// export clauses and call-callee positions (those are call edges). Comments
+/// and string literals never count.
 pub struct GraphReferenceCount {
-    pub name: String,
+    pub declaration_id: String,
     pub count: u32,
 }
 

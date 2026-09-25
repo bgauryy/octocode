@@ -24,18 +24,39 @@ use tree_sitter::{
 pub(crate) const AST_EXECUTION_TIMEOUT: Duration = Duration::from_secs(2);
 
 thread_local! {
-    /// Parser scratch space is worker-local: repository scans reuse allocations
-    /// without retaining syntax trees or sharing mutable parser state.
+    /// The one worker-local tree-sitter parser. Repository scans reuse its
+    /// allocations without retaining syntax trees or sharing mutable parser
+    /// state; every tree-sitter parse in the engine goes through
+    /// [`parse_with_deadline`].
     static PARSER: RefCell<Parser> = RefCell::new(Parser::new());
 }
 
-pub(crate) fn parse_before(content: &str, language: &Language, deadline: Instant) -> Option<Tree> {
+/// Why [`parse_with_deadline`] produced no tree.
+#[derive(Debug)]
+pub(crate) enum ParseFailure {
+    /// The grammar was rejected by the parser (ABI mismatch).
+    Language(String),
+    /// The deadline passed before or during the parse.
+    Interrupted,
+}
+
+/// Parse `content` with `language` on the worker-local parser, cancelling at
+/// `deadline`. The parser is reset before and after every call (success,
+/// interruption, or error), so the next independent file never inherits
+/// cancellation or incremental parse state.
+pub(crate) fn parse_with_deadline(
+    content: &str,
+    language: &Language,
+    deadline: Instant,
+) -> Result<Tree, ParseFailure> {
     if Instant::now() >= deadline {
-        return None;
+        return Err(ParseFailure::Interrupted);
     }
     PARSER.with_borrow_mut(|parser| {
         parser.reset();
-        parser.set_language(language).ok()?;
+        parser
+            .set_language(language)
+            .map_err(|err| ParseFailure::Language(err.to_string()))?;
         let bytes = content.as_bytes();
         let mut read = |offset: usize, _| bytes.get(offset..).unwrap_or(b"");
         let mut progress = |_: &tree_sitter::ParseState| {
@@ -50,11 +71,15 @@ pub(crate) fn parse_before(content: &str, language: &Language, deadline: Instant
             None,
             Some(ParseOptions::new().progress_callback(&mut progress)),
         );
-        // Reset after success and interruption so the next independent file
-        // never inherits cancellation or incremental parse state.
         parser.reset();
         tree.filter(|_| Instant::now() < deadline)
+            .ok_or(ParseFailure::Interrupted)
     })
+}
+
+/// [`parse_with_deadline`] for callers that treat every failure alike.
+pub(crate) fn parse_before(content: &str, language: &Language, deadline: Instant) -> Option<Tree> {
+    parse_with_deadline(content, language, deadline).ok()
 }
 
 pub struct LangExtractConfig {
@@ -66,7 +91,7 @@ pub struct LangExtractConfig {
 /// Compiled `Query` objects are static per language (`body_query` is a
 /// `&'static str` fixed in `languages.rs`) and safe to share across threads
 /// once built. Queries can be shared concurrently; parsing requires mutable
-/// parser access, so `structural/octo.rs` keeps a parser per worker thread.
+/// parser access, so [`parse_with_deadline`] keeps a parser per worker thread.
 /// Caches one compiled `Query` per `(language, body_query)` pair instead of
 /// recompiling on every `extract()` call.
 type QueryCacheKey = (Language, &'static str);

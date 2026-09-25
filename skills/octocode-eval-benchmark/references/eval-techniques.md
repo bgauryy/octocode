@@ -1,47 +1,25 @@
-# Eval Techniques
-Load when choosing how to grade a trial. Why: wrong grader → false confidence or false failure.
+# Eval techniques
+Load when selecting graders and metrics. Why: match the measurement to the claim.
 
-## Vocabulary (Anthropic)
-**Task** · **trial** · **grader** · **transcript/trace** · **outcome** (env final state) · **eval harness** · **agent harness** · **suite**.
-Outcome ≠ what the agent *said* — check real state.
+A **task** is a problem; a **trial** is one attempt; a **trace** records actions; an **outcome** is the resulting artifact/environment state. A grader measures that evidence. The agent harness runs the subject; the eval harness runs and grades trials.
 
-## Grader mix
-| Kind | Use when | Examples |
+| Grader | Use | Limitation |
 |---|---|---|
-| **Code / deterministic** | Objective checks | regex, unit tests, lint/type, state checks, tool presence |
-| **Binary (BinEval-style)** | Interpretable failures | atomic yes/no; `failureSignature` |
-| **Model / LLM judge** | Open-ended quality | rubric, pairwise, multi-judge; allow "Unknown"; calibrate |
-| **G-Eval (multi-step LLM)** | Criteria known, sub-steps uncertain | judge generates its own rubric steps from criteria; score 0–1 |
-| **DAG-structured** | Multi-criteria, early failure obvious | compose graders as a directed graph; early nodes short-circuit later ones |
-| **Human** | Gold / calibration | SME spot-checks |
-| **Council** | Contested synthesis | multi-model peer rank |
+| Executable outcome check | Tests, state, schema, exact facts with sensible tolerance | A passing test can miss requirements or reward a shortcut |
+| Binary criteria | Atomic, interpretable failures | A regex matching the words is not a semantic judgment |
+| LLM rubric / pairwise | Open-ended quality or preference | Requires calibration, blinding, bias checks, and abstention |
+| Human review | Domain labels, ambiguous cases, critical disputes | Reviewers can disagree; record and adjudicate |
+| Grader DAG | Cheap checks can short-circuit later expense | Preserve failed/unknown/skipped states and frozen aggregation |
 
-Prefer deterministic first. LLM for nuance. Humans to calibrate.
+Use deterministic checks for what they actually establish, and `llm-judge.md` for model judgments. If a judge generates grading steps (G-Eval-style), develop and freeze those steps before the comparison; do not invent a new rubric for every candidate.
 
-## TDD for agent evals
-Treat cases like unit tests: **failing check first**, then change the subject, then remeasure.
-Write the failing check first. Keep held-out sealed until VERIFY. Leave graders unchanged while turning red into green.
+For coding, require both fail-to-pass fixes and pass-to-pass regression checks. For tools, grade semantic arguments, scope, transport validity, and final state; a tool name alone proves little. Use `trajectory-grading.md` when a process constraint is part of the task.
 
-| Classic TDD | This skill |
-|---|---|
-| Red | Baseline / new case fails (or below target) |
-| Green | Subject change; same harness command passes |
-| Refactor | Keep if guardrails hold; else discard; suite grow between runs |
+## Metrics that answer different questions
+- **pass@1:** one-attempt success under the actual deployment budget.
+- **pass@k:** chance at least one of k attempts succeeds; include the k-attempt cost and selection/oracle assumption.
+- **pass^k:** chance all k attempts succeed; reliability across repeated trials.
 
-## Code checks
-- **fail-to-pass** — previously failing tests now pass (bug fixed)
-- **pass-to-pass** — previously passing tests still pass (no regression)
-Both needed; tests passing ≠ merge-ready taste/security.
+Estimate these from a declared repeated-trial design, not by raising a heterogeneous aggregate success rate to a power. Track quality, cost, latency, and critical failure slices separately. Capability tasks reveal headroom; stable known successes form regression checks. Include both positive and negative activation cases.
 
-## Capability vs regression
-Capability: hard, low pass rate. Regression: near-100%. Balance positive-trigger and negative-trigger cases.
-
-## Non-determinism
-- **pass@k** — ≥1 success in k trials (often pass@1 for coding)
-- **pass^k** — all k succeed (reliability)
-Don’t trust a single green.
-
-## Anti-patterns
-Opaque holistic scores · path-only grading · ambiguous tasks · harness cheats · saturated benches without transcript reads
-
-Next: benches → `benchmarking.md`; cases → `eval-harness.md`; trajectory modes → `trajectory-grading.md`.
+Next: uncertainty and stopping → `held-out-and-guards.md`; cases and runner → `eval-harness.md`.

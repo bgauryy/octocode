@@ -247,14 +247,7 @@ Settings tables, defaults, ranges, enum values, aliases, protected-environment p
 
 ### Advanced runtime — env var only
 
-`octocode-native` reads these lower-level knobs directly; they have **no** `.octocoderc` equivalent. `storage.mode="memory"` overrides settings that otherwise enable disk caching or stats.
-
-| Env var | Default | Notes |
-|---------|---------|-------|
-| `OCTOCODE_ENABLE_STATS` | `false` | Set `1`/`true` to write `stats.json` on each 60 s flush; stats are tracked in memory either way. |
-| `OCTOCODE_CACHE_TTL_MS` | `86400000` (24 h) | How long a cloned repo stays fresh before re-fetch. |
-| `OCTOCODE_MAX_CACHE_SIZE` | `2147483648` (2 GB) | Byte cap for the on-disk clone cache. |
-| `OCTOCODE_MAX_CLONES` | `50` | Max repositories the clone cache keeps. |
+Stats persistence (`OCTOCODE_ENABLE_STATS`) and the ghCloneRepo cache (`cloneCache.ttl` / `OCTOCODE_CACHE_TTL_MS`, `cloneCache.maxSize` / `OCTOCODE_MAX_CACHE_SIZE`, `cloneCache.maxClones` / `OCTOCODE_MAX_CLONES`) are contract settings: defaults, ranges, and `.octocoderc` support are in [generated settings](generated/CONFIG_SETTINGS.md). `storage.mode="memory"` overrides settings that otherwise enable disk caching or stats.
 
 Response-cache entry counts/sizes and per-surface tool-call timeouts are bounded internally and not configurable via env vars (CLI uses a longer window for LSP cold starts). Network timeout/retries use `REQUEST_TIMEOUT` / `MAX_RETRIES`. Classification provider requests (`clasify` and semantic rerank) share one process-wide gate per provider endpoint: at most `OCTOCODE_CLASSIFICATION_CONCURRENCY` (`classification.maxConcurrency`, default `10`, range 1–64) in flight, one tool call may use up to three quarters of it, and the gate halves itself on provider throttling (429/503/529, `Retry-After` pauses every caller) and recovers gradually. Use `octocode cache clear` / `octocode cache status` for the GitHub content cache.
 

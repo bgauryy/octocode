@@ -1,7 +1,7 @@
 /**
  * Myers diff correctness + performance regression tests.
- * Baseline (LCS DP): ~230ms at 3k lines. Target: well under 20ms for a
- * single-line change in a 3k-line file.
+ * Baseline (LCS DP): ~230ms at 3k lines, quadratic. Guard: linear scaling for a
+ * single-line change (3k vs 300 lines) plus a 50ms backstop at 3k lines.
  */
 import assert from 'node:assert/strict';
 import { performance } from 'node:perf_hooks';
@@ -87,23 +87,35 @@ test('generateDiffArtifacts: single Myers pass yields both diff and patch', () =
   assert.doesNotMatch(patch, /omitted/);
 });
 
-test('PERF: 3000-line single-change Myers diff stays under 5ms', () => {
-  const oldContent = makeFile(3000);
-  const newContent = oldContent.replace('L001500', 'CHANGED');
-  // Warmup
-  generateDiffArtifacts('big.ts', oldContent, newContent);
-  const times: number[] = [];
-  for (let i = 0; i < 7; i++) {
-    const t0 = performance.now();
-    generateDiffArtifacts('big.ts', oldContent, newContent);
-    times.push(performance.now() - t0);
+// Wall-clock budgets flake when the suite shares the CPU. The regression this
+// guards is algorithmic (LCS DP is quadratic: ~230ms at 3k lines), so measure a
+// 10x input growth against a 1x baseline, interleaved so both sizes see the same
+// load, and use each size's fastest run (load only ever adds time). Linear Myers
+// scales ~10x; quadratic LCS scales ~100x.
+test('PERF: single-change Myers diff scales linearly (3000 vs 300 lines)', () => {
+  const sizes = [300, 3000] as const;
+  const inputs = sizes.map(lines => {
+    const oldContent = makeFile(lines);
+    const pivot = `L${String(lines / 2).padStart(6, '0')}`;
+    return { oldContent, newContent: oldContent.replace(pivot, 'CHANGED') };
+  });
+  for (const { oldContent, newContent } of inputs) generateDiffArtifacts('big.ts', oldContent, newContent);
+  const best = [Infinity, Infinity];
+  for (let round = 0; round < 15; round++) {
+    inputs.forEach(({ oldContent, newContent }, index) => {
+      const t0 = performance.now();
+      generateDiffArtifacts('big.ts', oldContent, newContent);
+      best[index] = Math.min(best[index]!, performance.now() - t0);
+    });
   }
-  times.sort((a, b) => a - b);
-  const med = times[Math.floor(times.length / 2)]!;
+  const [small, large] = best as [number, number];
+  const ratio = large / Math.max(small, 0.05);
   assert.ok(
-    med < 5,
-    `expected median Myers+artifacts < 5ms at 3k lines, got ${med.toFixed(2)}ms (was ~230ms+ LCS)`,
+    ratio < 30,
+    `expected ~linear scaling for 10x lines, got ${ratio.toFixed(1)}x (${small.toFixed(2)}ms -> ${large.toFixed(2)}ms); quadratic LCS is ~100x`,
   );
+  // Absolute backstop an order of magnitude under the LCS baseline (~230ms).
+  assert.ok(large < 50, `expected fastest 3k-line Myers+artifacts < 50ms, got ${large.toFixed(2)}ms`);
 });
 
 test('native diff reconstructs both inputs including final empty lines and Unicode', () => {

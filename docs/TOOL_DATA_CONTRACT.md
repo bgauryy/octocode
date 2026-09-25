@@ -7,7 +7,7 @@ node packages/octocode/out/octocode.js scheme --compact
 node packages/octocode/out/octocode.js scheme astSearch --view query
 ```
 
-The CLI discovery catalog includes disabled tools: 13 tools are discoverable and 9 are enabled by default when clone is disabled, beta tools are disabled, and no Jev provider key is resolved. MCP registers the enabled subset. Check `availability` and effective configuration. Enabling a tool does not install a language server or supply provider credentials.
+The CLI discovery catalog includes disabled tools: 13 tools are discoverable; with beta tools disabled and no Jev provider key resolved, MCP registers 9 and the CLI enables 10 (it adds `ghCloneRepo` when persistent storage is available). Check `availability` and effective configuration. Enabling a tool does not install a language server or supply provider credentials.
 
 ## Ownership and runtime boundaries
 

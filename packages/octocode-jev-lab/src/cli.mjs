@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 import { propagateOctocodeEnv } from '@octocodeai/config';
-import { prepareExperiment, readExperiment, runExperiment } from './lib.mjs';
+import { listModels, prepareExperiment, readExperiment, runExperiment } from './lib.mjs';
 
 function usage() {
-  return `Usage: yarn jev:probe --input FILE [options]
+  return `Usage: yarn jev:probe (--input FILE | --models) [options]
 
 Options:
   --input, -i FILE       JSON experiment manifest, or - for stdin
+  --models               List models available to the configured account
   --repeat N             Number of measured requests (default: 1)
   --concurrency N        Parallel requests (default: 1)
   --timeout-ms N         Per-request timeout (default: 60000)
@@ -29,6 +30,10 @@ function parseArgs(argv) {
       options.compact = true;
       continue;
     }
+    if (arg === '--models') {
+      options.models = true;
+      continue;
+    }
     const field = {
       '--input': 'input',
       '-i': 'input',
@@ -42,7 +47,12 @@ function parseArgs(argv) {
     options[field] = value;
     index += 1;
   }
-  if (!options.input) throw new Error('--input is required.');
+  if (Boolean(options.input) === Boolean(options.models)) {
+    throw new Error('provide exactly one of --input or --models.');
+  }
+  if (options.models && (options.repeat !== undefined || options.concurrency !== undefined)) {
+    throw new Error('--repeat and --concurrency require --input.');
+  }
   return options;
 }
 
@@ -53,11 +63,17 @@ try {
     process.stdout.write(usage());
     process.exit(0);
   }
-  const spec = await readExperiment(options.input);
-  const prepared = await prepareExperiment(spec, options.input === '-' ? 'stdin.json' : options.input);
-  const result = await runExperiment(prepared, options);
-  process.stdout.write(`${JSON.stringify(result, null, options.compact ? 0 : 2)}\n`);
-  if (result.summary.failures > 0) process.exitCode = 1;
+  if (options.models) {
+    const result = await listModels(options);
+    process.stdout.write(`${JSON.stringify(result.response, null, options.compact ? 0 : 2)}\n`);
+    if (!result.ok) process.exitCode = 1;
+  } else {
+    const spec = await readExperiment(options.input);
+    const prepared = await prepareExperiment(spec, options.input === '-' ? 'stdin.json' : options.input);
+    const result = await runExperiment(prepared, options);
+    process.stdout.write(`${JSON.stringify(result, null, options.compact ? 0 : 2)}\n`);
+    if (result.summary.failures > 0) process.exitCode = 1;
+  }
 } catch (error) {
   process.stderr.write(`jev-lab: ${error instanceof Error ? error.message : String(error)}\n`);
   process.exitCode = 1;

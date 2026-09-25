@@ -307,7 +307,7 @@ export interface GraphFactsScanOptions {
 }
 
 export interface GraphReferenceCount {
-  name: string;
+  declarationId: string;
   count: number;
 }
 
@@ -537,8 +537,16 @@ export declare function getSupportedSignatureExtensions(): Array<string>;
 
 export declare function getSupportedStructuralExtensions(): Array<string>;
 
-/** Check whether `command` is available on `PATH`. */
+/**
+ * Check whether `command` is available on `PATH`.
+ *
+ * @deprecated Blocks the calling thread for up to 3s when the check must run
+ * the command (e.g. `rust-analyzer --version`). Use `isCommandAvailableAsync`.
+ */
 export declare function isCommandAvailable(command: string): boolean;
+
+/** Check whether `command` is available on `PATH` off the main thread (bounded to 3s). */
+export declare function isCommandAvailableAsync(command: string): Promise<boolean>;
 
 export interface JsCodeSnippet {
   uri: string;

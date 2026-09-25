@@ -24,9 +24,12 @@ fn main() {
     let _ = std::io::stdout().write_all(&encoded);
 }
 
-fn configured_limit(name: &str) -> Result<u64, String> {
-    std::env::var(name)
-        .map_err(|_| format!("Missing required worker resource limit: {name}"))?
+/// Resource limits are positional arguments set by the parent
+/// (`IsolatedRegexEngine`): `<max-memory-bytes> <max-cpu-seconds>`.
+fn configured_limit(position: usize, name: &str) -> Result<u64, String> {
+    std::env::args()
+        .nth(position)
+        .ok_or_else(|| format!("Missing required worker resource limit: {name}"))?
         .parse::<u64>()
         .map_err(|_| format!("Invalid worker resource limit: {name}"))
         .and_then(|value| {
@@ -38,8 +41,8 @@ fn configured_limit(name: &str) -> Result<u64, String> {
 
 #[cfg(unix)]
 fn constrain_self() -> Result<(), String> {
-    let memory = configured_limit("OCTOCODE_REGEX_MAX_MEMORY_BYTES")? as libc::rlim_t;
-    let cpu = configured_limit("OCTOCODE_REGEX_MAX_CPU_SECONDS")? as libc::rlim_t;
+    let memory = configured_limit(1, "max-memory-bytes")? as libc::rlim_t;
+    let cpu = configured_limit(2, "max-cpu-seconds")? as libc::rlim_t;
     #[cfg(target_os = "macos")]
     let limits_to_apply = vec![(libc::RLIMIT_CPU, cpu, "cpu")];
     #[cfg(not(target_os = "macos"))]
@@ -91,8 +94,8 @@ fn constrain_self() -> Result<(), String> {
     };
     use windows_sys::Win32::System::Threading::GetCurrentProcess;
 
-    let memory = configured_limit("OCTOCODE_REGEX_MAX_MEMORY_BYTES")? as usize;
-    let cpu = configured_limit("OCTOCODE_REGEX_MAX_CPU_SECONDS")?;
+    let memory = configured_limit(1, "max-memory-bytes")? as usize;
+    let cpu = configured_limit(2, "max-cpu-seconds")?;
     let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
     limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_PROCESS_MEMORY
         | JOB_OBJECT_LIMIT_PROCESS_TIME

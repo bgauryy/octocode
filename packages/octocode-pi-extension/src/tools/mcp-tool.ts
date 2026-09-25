@@ -489,6 +489,20 @@ async function persistMcpArtifacts(
   };
 }
 /**
+ * Stop connections whose server the current config removed or changed. A
+ * discovery retry can (re)start a connection after `refreshMcpCapabilities`
+ * already reconciled; left running, a later re-enable with the old signature
+ * would reuse the superseded process instead of discovering live tools.
+ */
+async function stopSupersededConnections(loaded: McpLoadedConfig): Promise<void> {
+  const { changed, removed } = computeReload(connectionManager.configSignatures(), loaded.servers);
+  for (const name of [...changed, ...removed]) {
+    await stopConnection(name);
+    invalidateServerCache(name);
+  }
+}
+
+/**
  * Warm MCP discovery once per workspace. A matching exact snapshot is prompt-ready
  * immediately through its deterministic routing index; live discovery publishes
  * updated execution contracts and the next turn's index.
@@ -534,6 +548,7 @@ export function warmMcpCatalog(
         const currentLoaded = await loadMcpConfig(ctx);
         if (!isCurrentWarm()) return false;
         if (snapshotFromListed(ctx, [], { loaded: currentLoaded }).configDigest === identity.configDigest) return true;
+        await stopSupersededConnections(currentLoaded);
         cacheListedCatalog(ctx, [], { loaded: currentLoaded });
         if (currentLoaded.servers.size > 0) queueMcpCatalogRefresh(ctx);
         return false;
@@ -641,7 +656,12 @@ export function warmMcpCatalog(
           }
         }),
       );
-      if (!isCurrentWarm()) return;
+      if (!isCurrentWarm()) {
+        // A superseded warm may still own connections its retries (re)started
+        // under the old config; never leave them for a later re-enable to reuse.
+        await stopSupersededConnections(await loadMcpConfig(ctx));
+        return;
+      }
       for (const discovery of discoveries) {
         // Best-effort per server: a slow/broken MCP must not prevent the rest of
         // the catalog from being cached or block session start.

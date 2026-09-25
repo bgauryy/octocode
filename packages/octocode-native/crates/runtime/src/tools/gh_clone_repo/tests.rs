@@ -211,13 +211,14 @@ fn setup<'a>(
 }
 
 fn query() -> GhCloneRepoQuery {
-    GhCloneRepoQuery {
-        owner: "fixture-owner".into(),
-        repo: "fixture-repo".into(),
-        branch: Some("main".into()),
-        sparse_path: None,
-        force_refresh: false,
-    }
+    parse_query(serde_json::json!({
+        "owner": "fixture-owner", "repo": "fixture-repo", "branch": "main",
+        "reasoning": "clone fixture"
+    }))
+}
+
+fn parse_query(value: serde_json::Value) -> GhCloneRepoQuery {
+    serde_json::from_value(value).expect("valid ghCloneRepo query")
 }
 
 #[test]
@@ -352,7 +353,7 @@ fn clones_caches_refreshes_sparse_tag_and_commit_without_token_argv() {
     let second = fixture.push_second();
     let refreshed = execute_clone(
         &GhCloneRepoQuery {
-            force_refresh: true,
+            force_refresh: Some(true),
             ..query()
         },
         &context,
@@ -849,7 +850,7 @@ fn concurrent_requests_publish_once_and_validation_fails_closed() {
 
     for invalid in [
         GhCloneRepoQuery {
-            owner: "../escape".into(),
+            owner: "../escape".parse().expect("owner"),
             ..query()
         },
         GhCloneRepoQuery {

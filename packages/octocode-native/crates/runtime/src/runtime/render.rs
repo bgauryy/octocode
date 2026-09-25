@@ -1,8 +1,42 @@
 use serde_json::{Value, json};
 
-pub fn render_tool(tool: &str, response: &Value, query: &Value) -> String {
+/// Encoding of the rendered text channel, selected by `output.format`.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum TextFormat {
+    #[default]
+    Yaml,
+    Json,
+}
+
+impl TextFormat {
+    /// Map the resolved `output.format` value; the contract admits only
+    /// `yaml` and `json`, so anything else keeps the YAML default.
+    #[must_use]
+    pub fn from_config(value: &str) -> Self {
+        if value == "json" {
+            Self::Json
+        } else {
+            Self::Yaml
+        }
+    }
+
+    fn encode(self, mut value: Value, keys: &[&str]) -> String {
+        match self {
+            Self::Yaml => yaml(value, keys),
+            Self::Json => {
+                order_fields(&mut value, keys);
+                serde_json::to_string(&value).unwrap_or_default()
+            }
+        }
+    }
+}
+
+pub fn render_tool(tool: &str, response: &Value, query: &Value, format: TextFormat) -> String {
     if tool == "localFetch" {
-        return render_local_fetch(response);
+        return match format {
+            TextFormat::Yaml => render_local_fetch(response),
+            TextFormat::Json => format.encode(response.clone(), &["base", "results", "shared"]),
+        };
     }
     let mut response = response.clone();
     if tool == "localSearch" {
@@ -213,7 +247,7 @@ pub fn render_tool(tool: &str, response: &Value, query: &Value) -> String {
                 }
             }
         }
-        return yaml(
+        return format.encode(
             response,
             &[
                 "base",
@@ -238,7 +272,7 @@ pub fn render_tool(tool: &str, response: &Value, query: &Value) -> String {
             ],
         );
     }
-    yaml(
+    format.encode(
         response,
         &[
             "base",
@@ -429,6 +463,25 @@ mod tests {
         );
         assert_eq!(source_lines("a\nb\n", &json!([{"start":4,"end":4}])), None);
         assert_eq!(source_lines("a\n", &json!([{"start":0,"end":1}])), None);
+    }
+
+    #[test]
+    fn output_format_json_renders_parseable_json_text() {
+        let response =
+            json!({"results":[{"index":0,"status":"empty","data":{"path":"a"}}],"base":"/r"});
+        for tool in ["localSearch", "localFetch", "ghGetFileContent"] {
+            let text = render_tool(tool, &response, &json!({}), TextFormat::Json);
+            let parsed: Value = serde_json::from_str(&text).expect("json text");
+            assert_eq!(parsed, response, "{tool}");
+            assert!(text.starts_with("{\"base\""), "{tool}: {text}");
+            let yaml = render_tool(tool, &response, &json!({}), TextFormat::Yaml);
+            assert!(
+                serde_json::from_str::<Value>(&yaml).is_err(),
+                "{tool}: {yaml}"
+            );
+        }
+        assert_eq!(TextFormat::from_config("json"), TextFormat::Json);
+        assert_eq!(TextFormat::from_config("yaml"), TextFormat::Yaml);
     }
 
     #[test]

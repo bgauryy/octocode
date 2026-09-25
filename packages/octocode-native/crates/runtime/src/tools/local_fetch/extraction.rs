@@ -1,4 +1,4 @@
-use super::types::{LineRange, LocalFetchRequest, RegexMatch};
+use super::types::{LineRange, LocalFetchQuery, RegexMatch};
 
 pub struct Extraction {
     pub text: String,
@@ -43,7 +43,7 @@ pub fn line_count(s: &str) -> usize {
     records(s).len()
 }
 pub fn extract(
-    q: &LocalFetchRequest,
+    q: &LocalFetchQuery,
     content: &str,
     regex: &impl RegexMatch,
 ) -> Result<Extraction, String> {
@@ -52,7 +52,7 @@ pub fn extract(
     if let Some(pattern) = q.match_string.as_ref() {
         return match_extract(q, content, &lines, pattern, regex);
     }
-    if let (Some(start), Some(end)) = (q.start_line, q.end_line) {
+    if let (Some(start), Some(end)) = (q.start_line(), q.end_line()) {
         if end < start {
             return Err(format!(
                 "startLine {start} is greater than endLine {end} — startLine must be ≤ endLine"
@@ -94,7 +94,7 @@ pub fn extract(
     })
 }
 fn match_extract(
-    q: &LocalFetchRequest,
+    q: &LocalFetchQuery,
     content: &str,
     lines: &[&str],
     pattern: &str,
@@ -149,8 +149,8 @@ fn match_extract(
         });
     }
     let context = q
-        .context_lines
-        .unwrap_or(if q.context_bytes.is_none() { 5 } else { 0 });
+        .context_lines()
+        .unwrap_or(if q.context_bytes().is_none() { 5 } else { 0 });
     let mut ranges: Vec<LineRange> = vec![];
     for &line in &hits {
         let r = LineRange {
@@ -182,7 +182,7 @@ fn match_extract(
         }
         prev_end = Some(r.end)
     }
-    if let Some(bytes) = q.context_bytes {
+    if let Some(bytes) = q.context_bytes() {
         let mut spans = vec![];
         if let Some(found) = regex_ranges.as_ref() {
             spans.extend(found.iter().copied());

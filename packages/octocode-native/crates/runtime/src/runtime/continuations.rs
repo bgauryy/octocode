@@ -25,6 +25,62 @@ pub fn compact_input(tool: &str, input: &mut Value) {
 
 type Memo = HashMap<(String, String), Value>;
 
+/// Drop optional cross-tool next actions the current surface cannot execute.
+pub fn filter_unavailable_cross_tool_next(
+    value: &mut Value,
+    current_tool: &str,
+    is_available: impl Fn(&str) -> bool,
+) {
+    filter_walk(value, current_tool, &is_available);
+}
+
+fn continuation_target(value: &Value) -> Option<&str> {
+    value
+        .as_object()
+        .filter(|map| map.get("query").is_some_and(Value::is_object))?
+        .get("tool")?
+        .as_str()
+}
+
+fn filter_walk(value: &mut Value, current_tool: &str, is_available: &impl Fn(&str) -> bool) {
+    // A continuation query is caller content, not another output tree.
+    if continuation_target(value).is_some() {
+        return;
+    }
+    match value {
+        Value::Array(items) => items
+            .iter_mut()
+            .for_each(|item| filter_walk(item, current_tool, is_available)),
+        Value::Object(map) => map.retain(|key, child| {
+            if key == "next" {
+                filter_next(child, current_tool, is_available)
+            } else {
+                filter_walk(child, current_tool, is_available);
+                true
+            }
+        }),
+        _ => {}
+    }
+}
+
+fn filter_next(next: &mut Value, current_tool: &str, is_available: &impl Fn(&str) -> bool) -> bool {
+    if let Some(target) = continuation_target(next) {
+        return target == current_tool || is_available(target);
+    }
+    if let Some(map) = next.as_object_mut() {
+        map.retain(|_, action| {
+            if let Some(target) = continuation_target(action) {
+                target == current_tool || is_available(target)
+            } else {
+                filter_walk(action, current_tool, is_available);
+                true
+            }
+        });
+        return !map.is_empty();
+    }
+    true
+}
+
 /// Continuations live only under `next` keys (`data.next.*`,
 /// `responsePagination.next`, `semanticRerank.next`); a `{tool, query}` shape
 /// anywhere else is tool data and stays untouched.
@@ -89,10 +145,12 @@ fn compact_query(tool: &str, query: &mut Value, memo: &mut Memo) {
         *query = compact.clone();
         return;
     }
-    let Ok(full) = validate_query(tool, query.clone()) else {
+    // `goal` describes the caller's original intent, not the replay.
+    let mut compact: Map<String, Value> = object.clone();
+    compact.remove("goal");
+    let Ok(full) = validate_query(tool, Value::Object(compact.clone())) else {
         return;
     };
-    let mut compact: Map<String, Value> = object.clone();
     for field in object.keys() {
         let Some(removed) = compact.remove(field) else {
             continue;
@@ -125,9 +183,11 @@ mod tests {
         }}}}}]});
         compact_continuations(&mut out);
         let query = &out["results"][0]["data"]["next"]["nextPage"]["query"];
+        // matchContentLength has no schema default (it scales with
+        // contextLines), so validation cannot restore it and it is kept.
         assert_eq!(
             query,
-            &json!({"searchText":"foo","path":"/tmp","reasoning":"r","page":2,"contextLines":0})
+            &json!({"searchText":"foo","path":"/tmp","reasoning":"r","matchContentLength":200,"page":2,"contextLines":0})
         );
         let full = validate_query("localSearch", query.clone()).expect("valid");
         assert_eq!(full["matchContentLength"], 200);
@@ -160,5 +220,41 @@ mod tests {
         let mut invalid = json!({"tool":"localSearch","query":{"debug":false}});
         compact_continuations(&mut invalid);
         assert_eq!(invalid["query"], json!({"debug":false}));
+    }
+
+    #[test]
+    fn filters_unavailable_cross_tool_actions_without_touching_pagination_or_query_data() {
+        let query = json!({"reasoning":"continue", "next":{"readFile":{"tool":"localFetch","query":{"path":"/tmp/a"}}}});
+        let mut out = json!({"results":[{"data":{
+            "next":{
+                "nextPage":{"tool":"ghSearch","query":query.clone()},
+                "readTopMatch":{"tool":"ghGetFileContent","query":{"path":"a.rs"}},
+                "readSite":{"tool":"localFetch","query":{"path":"/tmp/a"}}
+            },
+            "content":{"tool":"ghGetFileContent","query":{"next":{"readFile":{"tool":"localFetch","query":{}}}}},
+            "semanticRerank":{"next":{"nextPage":{"tool":"ghSearch","query":{"page":2}}}}
+        }}]});
+        let original_content = out["results"][0]["data"]["content"].clone();
+        filter_unavailable_cross_tool_next(&mut out, "ghSearch", |target| target == "localFetch");
+        let next = &out["results"][0]["data"]["next"];
+        assert_eq!(next["nextPage"]["query"], query);
+        assert!(next.get("readTopMatch").is_none());
+        assert_eq!(next["readSite"]["tool"], "localFetch");
+        assert_eq!(out["results"][0]["data"]["content"], original_content);
+        assert_eq!(
+            out["results"][0]["data"]["semanticRerank"]["next"]["nextPage"]["tool"],
+            "ghSearch"
+        );
+    }
+
+    #[test]
+    fn removes_empty_next_map_but_keeps_opaque_query_payload() {
+        let mut out = json!({"results":[{"data":{
+            "next":{"viewRepo":{"tool":"ghSearch","query":{"next":{"nested":{"tool":"localFetch","query":{}}}}}},
+            "context":{"next":{"nested":{"tool":"ghSearch","query":{"reasoning":"r"}}}}
+        }}]});
+        filter_unavailable_cross_tool_next(&mut out, "artifactSearch", |_| false);
+        assert!(out["results"][0]["data"].get("next").is_none());
+        assert!(out["results"][0]["data"]["context"].get("next").is_none());
     }
 }

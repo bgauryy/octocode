@@ -1,5 +1,5 @@
 //! Native `octocode skill` — list/install/remove/check/info run without the
-//! npm CLI (RFC post-audit-hardening-2026-09, R6). The canonical store
+//! npm CLI. The canonical store
 //! (`<octocode home>/skills/`) is the durable source of truth: the npm
 //! launcher materializes bundled skills into it (and keeps the interactive
 //! TTY picker); this command manages the store and the per-platform links

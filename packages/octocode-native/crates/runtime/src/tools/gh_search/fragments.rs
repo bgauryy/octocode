@@ -1,4 +1,6 @@
-//! Preserve text-match anchors through the shared native sanitizer/minifier.
+//! Preserve text-match anchors through the shared native sanitizer. Snippets
+//! are already small, so they stay raw (no minify): lines, spacing, and
+//! comments are the evidence, and each match keeps its own line offset.
 use crate::{
     providers::github::{ProviderError, ProviderErrorKind, TextMatch},
     tools::local_fetch::ContentScan,
@@ -15,15 +17,8 @@ pub(super) fn project(
         .sanitize(&fragment.fragment, Path::new(path))
         .map_err(|(message, _)| ProviderError::new(ProviderErrorKind::Validation, message))?
         .0;
-    let original_positions = positions(fragment, &sanitized);
-    let compact = octocode_engine::portable::minify_content(&sanitized, path);
-    let compact_positions = positions(fragment, &compact.content);
-    let (text, anchors) = if !compact.failed && compact_positions.len() == original_positions.len()
-    {
-        (compact.content, compact_positions)
-    } else {
-        (sanitized, original_positions)
-    };
+    let anchors = positions(fragment, &sanitized);
+    let text = sanitized;
     if text.is_empty() {
         return Ok(None);
     }
@@ -57,6 +52,13 @@ fn positions(fragment: &TextMatch, transformed: &str) -> Vec<Value> {
             continue;
         }
         let needle = &raw[start..end];
+        // Unchanged text keeps GitHub's exact indices (repeated needles stay
+        // on the right occurrence); redacted text is re-anchored by search.
+        if output.get(start..end) == Some(needle) && output.len() == raw.len() {
+            result.push(json!({"start":start,"end":end,"lineOffset":output[..start].iter().filter(|&&c| c == 10).count()}));
+            from = end;
+            continue;
+        }
         let find = |offset: usize| {
             output[offset..]
                 .windows(needle.len())
@@ -70,4 +72,40 @@ fn positions(fragment: &TextMatch, transformed: &str) -> Vec<Value> {
         from = index + needle.len();
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Passthrough;
+    impl ContentScan for Passthrough {
+        fn sanitize(
+            &self,
+            text: &str,
+            _: &Path,
+        ) -> Result<(String, Vec<String>), (String, String)> {
+            Ok((text.to_owned(), vec![]))
+        }
+    }
+
+    #[test]
+    fn snippets_stay_raw_and_each_match_keeps_its_line() {
+        let fragment = "# Title\n\n// keep  spacing\nuse   needle;\nlet needle = 1;";
+        let at = |needle_line: &str| {
+            let start = fragment.find(needle_line).unwrap();
+            json!({"indices": [start, start + 6]})
+        };
+        let text_match: TextMatch = serde_json::from_value(json!({
+            "fragment": fragment,
+            "matches": [at("needle;"), at("needle =")],
+        }))
+        .unwrap();
+        let value = project(&text_match, "README.md", &Passthrough)
+            .unwrap()
+            .unwrap();
+        assert_eq!(value["value"], fragment, "snippet must not be minified");
+        assert_eq!(value["matchIndices"][0]["lineOffset"], 3);
+        assert_eq!(value["matchIndices"][1]["lineOffset"], 4);
+    }
 }

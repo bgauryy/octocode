@@ -19,6 +19,9 @@ pub(super) struct Range {
 pub(super) struct GraphCall {
     pub(super) id: String,
     pub(super) caller: String,
+    /// Declaration id of the enclosing caller; `None` for module-level code.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) caller_id: Option<String>,
     pub(super) callee: String,
     pub(super) line: u32,
     pub(super) range: Range,

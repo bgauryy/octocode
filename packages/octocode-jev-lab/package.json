@@ -10,12 +10,16 @@
   "dependencies": {
     "@octocodeai/config": "workspace:*"
   },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0"
+  },
   "scripts": {
-    "build": "node --check src/cli.mjs && node --check src/lib.mjs",
+    "build": "node --check src/cli.mjs && node --check src/lib.mjs && node --check src/local-semantic.mjs && node --check src/local-semantic-cli.mjs && node --check src/sections.mjs",
     "lint": "node ../../node_modules/eslint/bin/eslint.js --config eslint.config.mjs src/*.mjs test/*.mjs",
     "probe": "node src/cli.mjs",
+    "semantic:poc": "node src/local-semantic-cli.mjs",
     "test": "node --test test/*.test.mjs",
-    "typecheck": "node --check src/cli.mjs && node --check src/lib.mjs",
+    "typecheck": "yarn build",
     "verify": "yarn lint && yarn typecheck && yarn test"
   }
 }

@@ -1,68 +1,52 @@
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::path::PathBuf;
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum CaseMode {
-    Sensitive,
-    Insensitive,
-    #[default]
-    Smart,
+/// localSearch speaks the generated wire vocabulary; these names are aliases
+/// of the generated types, not separate definitions.
+pub use crate::contracts::tool_types::{
+    CaseMode, LocalSearchQuery, LocalSearchQueryResultView as ResultView,
+    LocalSearchQuerySort as SortMode, Multiline as MultilineMode, Regex as RegexMode,
+    Unique as UniqueMode,
+};
+
+/// The engine counts in `u32`; the wire contract owns the field set and its
+/// JSON integer types.
+impl LocalSearchQuery {
+    pub fn context_lines(&self) -> Option<u32> {
+        self.context_lines.map(u32_of_signed)
+    }
+    pub fn match_content_length(&self) -> Option<u32> {
+        self.match_content_length.map(|n| u32_of(n.get()))
+    }
+    pub fn max_matches_per_file(&self) -> Option<u32> {
+        self.max_matches_per_file.map(|n| u32_of(n.get()))
+    }
+    pub fn max_depth(&self) -> Option<u32> {
+        self.max_depth.map(u32_of_signed)
+    }
+    pub fn match_window(&self) -> Option<u32> {
+        self.match_window.map(u32_of_signed)
+    }
+    pub fn page(&self) -> u32 {
+        u32_of(self.page.get())
+    }
+    pub fn match_page(&self) -> u32 {
+        u32_of(self.match_page.get())
+    }
+    pub fn page_size(&self) -> Option<u32> {
+        self.page_size.map(|n| u32_of(n.get()))
+    }
+    pub fn snapshot(&self) -> Option<&str> {
+        self.snapshot.as_deref().map(String::as_str)
+    }
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum RegexMode {
-    Literal,
-    #[default]
-    Rust,
-    Pcre2,
+fn u32_of(value: u64) -> u32 {
+    u32::try_from(value).unwrap_or(u32::MAX)
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum ResultView {
-    MatchOnly,
-    Discovery,
-    Detailed,
-    #[default]
-    Paginated,
-    Content,
-    Files,
-    FilesWithout,
-    CountLines,
-    CountMatches,
-}
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum MultilineMode {
-    #[default]
-    Off,
-    On,
-    Dotall,
-}
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum SortMode {
-    #[default]
-    Relevance,
-    Traversal,
-    MatchCount,
-    Path,
-    Modified,
-    Accessed,
-    Created,
-}
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum UniqueMode {
-    #[default]
-    Off,
-    List,
-    Count,
+fn u32_of_signed(value: i64) -> u32 {
+    u32::try_from(value.max(0)).unwrap_or(u32::MAX)
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -81,36 +65,6 @@ pub struct LocalSearchError {
     pub next: Option<Box<serde_json::Value>>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct LocalSearchRequest {
-    pub search_text: String,
-    pub path: String,
-    pub case_mode: Option<CaseMode>,
-    pub whole_word: Option<bool>,
-    pub invert_match: Option<bool>,
-    pub include: Option<Vec<String>>,
-    pub exclude: Option<Vec<String>>,
-    pub exclude_dir: Option<Vec<String>>,
-    pub no_ignore: Option<bool>,
-    pub hidden: Option<bool>,
-    pub context_lines: Option<u32>,
-    pub match_content_length: Option<u32>,
-    pub max_matches_per_file: Option<u32>,
-    pub max_depth: Option<u32>,
-    pub multiline: Option<MultilineMode>,
-    pub sort: Option<SortMode>,
-    pub lang_type: Option<String>,
-    pub unique: Option<UniqueMode>,
-    pub match_window: Option<u32>,
-    pub match_page: Option<u32>,
-    pub page: Option<u32>,
-    pub snapshot: Option<String>,
-    pub regex: Option<RegexMode>,
-    pub result_view: Option<ResultView>,
-    pub page_size: Option<u32>,
-    pub reverse: Option<bool>,
-}
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -212,6 +166,10 @@ pub struct LocalSearchResult {
     pub hints: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next: Option<serde_json::Value>,
+    /// Some candidate content was not searched (unreadable paths, or a binary
+    /// cut on an otherwise empty result), so zero matches do not prove absence.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub is_partial: bool,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub terminal_limit: bool,
     #[serde(skip_serializing_if = "Vec::is_empty")]

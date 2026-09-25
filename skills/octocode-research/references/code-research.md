@@ -11,13 +11,13 @@ Load for code investigation, review, refactor, architecture, dead-code, or blast
 | unknown behavior | actual/authority evidence → classify → matching route |
 | refactor (preserve behavior) | skeleton → contracts → blast → big→small tasks → bulk move/rewire → verify (`workflow-refactor.md`) |
 | PR/local review | changed region → symbols → consumers/tests → ranked findings |
-| dead code/delete | `astSearch(operation:"topology", analysis:"deadCode")` candidate → exact read → LSP/AST/broad text/tests |
+| dead code/delete | `astTopology(analysis:"deadCode")` (beta) candidate → exact read → LSP/AST/broad text/tests |
 | architecture | entry points → graph dependencies/dependents/reachability/cycles → exact boundaries → tradeoffs |
 
 ## Workflow
 1. State goal, scope, and expected output: research, review, plan, or patch.
 2. Use known anchors directly; map unfamiliar structure or changed scope when needed. Keep an alternate hypothesis for causal claims.
-3. Read exact slices; use `astSearch` topology for file relationships, `astSearch` match for shape, and `lspSearch` for symbol identity.
+3. Read exact slices; use `astTopology` (beta) for file relationships, `astSearch` match for shape, and `lspSearch` for symbol identity.
 4. For edits, find a local pattern, and patch only the evidence-supported boundary.
 5. Run the declared test/build/typecheck/lint/smoke or deterministic read/search check.
 6. On failure, keep the receipt, reread the failing path, patch only the cause, or report the exact block.
@@ -33,8 +33,8 @@ Review findings lead and include `file:line`, impact, evidence, confidence, and 
 
 | Finding | Minimum corroboration |
 |---|---|
-| dead export / safe delete | `astSearch(operation:"topology", analysis:"deadCode")` or search candidate + LSP excluding declaration + AST/imports + tests/build |
-| dependency cycle | `astSearch(operation:"topology", analysis:"cycles")`; inspect exact imports before a change claim |
+| dead export / safe delete | `astTopology(analysis:"deadCode")` (beta) or search candidate + LSP excluding declaration + AST/imports + tests/build |
+| dependency cycle | `astTopology(analysis:"cycles")` (beta); inspect exact imports before a change claim |
 | affected scope / reachability | graph `dependents`/`path`/`reachability` + exact reads + LSP references/callers for changed symbols |
 | security sink | sink shape + exact read + source/callers + guard/sanitizer check |
 | test gap | important/changed symbol + no test refs + nearby test-tree read |

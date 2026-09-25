@@ -252,12 +252,10 @@ pub fn execute_symbols(
         if let Some(map) = nq.as_object_mut() {
             map.retain(|_, value| !value.is_null());
         }
-        nq["goal"] = json!("Execute astSearch via octocode");
-        nq["reasoning"] = json!("Executed via octocode tool command");
         nq["maxFiles"] = json!(q.max_files.unwrap_or(2000));
         nq["snapshot"] = json!(snapshot);
         nq["page"] = json!(page + 1);
-        out["next"] = json!({"nextPage":{"tool":"astSearch","query":nq}})
+        out["next"] = json!({"nextPage":{"tool":"astSearch","query":nq,"confidence":"exact"}})
     }
     if declarations.is_empty() && !incomplete {
         out["status"] = json!("empty")
@@ -288,7 +286,7 @@ const SYNTAX_ONLY_NOTE: &str =
 /// `startLine` appears only when the declaration starts before its name line
 /// (decorators, attributes). `id` is `name@line:character`, unique within its
 /// file (`path`); `parent` uses the same scheme. `exported` appears only when
-/// true. Rows are returned in input order, one per engine declaration.
+/// true, with `exportedAs` listing public names that differ from `name`. Rows are returned in input order, one per engine declaration.
 fn compact_declarations(raw: &[Value]) -> Vec<Value> {
     let pos = |d: &Value, range: &str, edge: &str, field: &str| {
         d.pointer(&format!("/{range}/{edge}/{field}"))
@@ -336,6 +334,11 @@ fn compact_declarations(raw: &[Value]) -> Vec<Value> {
         }
         if d["exported"].as_bool() == Some(true) {
             row["exported"] = json!(true);
+            // Public names when exported under another name (`export { foo
+            // as bar }`, `export default function foo`).
+            if let Some(public) = d.get("exportedAs").filter(|v| v.is_array()) {
+                row["exportedAs"] = public.clone();
+            }
         }
         rows.push(row);
     }

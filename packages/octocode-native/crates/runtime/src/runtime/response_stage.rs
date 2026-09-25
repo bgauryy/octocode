@@ -20,6 +20,8 @@ pub(super) struct StageInput<'a> {
     pub mcp: bool,
     pub failure: Option<FailureKind>,
     pub auto_page_chars: usize,
+    /// Encoding of the rendered text channel (`output.format`).
+    pub text_format: super::render::TextFormat,
     /// False when a replay would not reproduce the page (reranked output).
     pub allow_auto_paging: bool,
     pub cursor_scope: &'a str,
@@ -42,6 +44,7 @@ pub(super) fn finish(
         mcp,
         mut failure,
         auto_page_chars,
+        text_format,
         allow_auto_paging,
         cursor_scope,
         source_digests,
@@ -72,8 +75,8 @@ pub(super) fn finish(
         || options.response_char_length.is_some()
         || options.response_char_offset.is_some()
         || options.response_snapshot.is_some();
-    let rendered_text =
-        render.then(|| super::render::render_tool(&tool, &structured, &response_query));
+    let rendered_text = render
+        .then(|| super::render::render_tool(&tool, &structured, &response_query, text_format));
     context.check()?;
     if !is_clasify && allow_auto_paging {
         options.auto_paginate(rendered_text.as_deref(), &structured, auto_page_chars);
@@ -234,6 +237,7 @@ mod tests {
                 mcp,
                 failure: None,
                 auto_page_chars: 20_000,
+                text_format: super::super::render::TextFormat::Yaml,
                 allow_auto_paging: true,
                 cursor_scope: "scope",
                 source_digests: &[None, None],
@@ -297,6 +301,7 @@ mod tests {
                 mcp: true,
                 failure: None,
                 auto_page_chars: 20_000,
+                text_format: super::super::render::TextFormat::Yaml,
                 allow_auto_paging: true,
                 cursor_scope: "scope",
                 source_digests: &[],

@@ -18,8 +18,6 @@ pub enum PolicyErrorCode {
     InvalidInput,
     InputTooLarge,
     BinaryContent,
-    RegistryFrozen,
-    UnsupportedRegex,
     Io,
 }
 
@@ -43,7 +41,31 @@ impl PolicyError {
         self.safe_path = Some(safe_path.into());
         self
     }
+
+    /// The path resolves outside the allowed roots (directly or through a
+    /// symlink): a sandbox refusal about where the process runs, not the query.
+    pub fn is_sandbox_refusal(&self) -> bool {
+        matches!(
+            self.code,
+            PolicyErrorCode::OutsideAllowedRoots | PolicyErrorCode::SymlinkEscape
+        )
+    }
+
+    /// Public `errorCode` for a local tool's path-policy failure: the dedicated
+    /// sandbox code for a refusal, otherwise the tool's own access code.
+    pub fn local_error_code(&self, access_code: &'static str) -> &'static str {
+        if self.is_sandbox_refusal() {
+            PATH_OUTSIDE_ALLOWED_ROOTS
+        } else {
+            access_code
+        }
+    }
 }
+
+/// `errorCode` every local tool (localSearch, localFetch, lspSearch,
+/// astRewrite) emits when the path policy refuses a path outside the allowed
+/// roots. Recovery hints key on this code, never on message text.
+pub const PATH_OUTSIDE_ALLOWED_ROOTS: &str = "pathOutsideAllowedRoots";
 
 impl Display for PolicyError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {

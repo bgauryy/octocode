@@ -23,7 +23,7 @@ Inspect the available tools and the exact schema before an unfamiliar call:
 
 ```bash
 npx octocode scheme --compact
-npx octocode scheme localSearch --compact
+npx octocode scheme localSearch --view query --compact
 ```
 
 Common management commands:

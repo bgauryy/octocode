@@ -12,7 +12,6 @@
 //! oxc is less error-tolerant than tree-sitter, so on a hard parse failure we
 //! return `None` and the caller falls back to the tree-sitter signature path.
 
-use oxc_allocator::Allocator;
 use oxc_ast::ast::{
     BindingPattern, Class, ClassElement, Declaration, ExportAllDeclaration, ExportDeclaration,
     ExportDefaultDeclarationKind, ExportSpecifier, Expression, Function, ImportDeclaration,
@@ -29,10 +28,11 @@ use serde::Serialize;
 use crate::text::file_extension::is_js_ts_extension;
 
 use super::{
-    deep_stack::run_on_deep_stack_with_timeout,
+    deep_stack::{job_cancelled, run_on_deep_stack_with_timeout, with_thread_allocator},
     extractor::AST_EXECUTION_TIMEOUT,
     js_oxc_calls::collect_program_calls,
     js_oxc_commonjs as commonjs,
+    js_oxc_references::{CountTarget, value_reference_counts},
     js_oxc_shared::{
         GraphCall, GraphCommonJsLoad, LineIndex, Position, Range, module_export_name,
         property_key_name,
@@ -93,8 +93,41 @@ struct GraphDeclaration {
     range: Range,
     selection_range: Range,
     exported: bool,
+    /// Public names of an exported local binding when they differ from
+    /// `name` (`export { foo as bar }` → `["bar"]`, a named default export →
+    /// `["default"]`). Empty when it is exported only under its own name.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    exported_as: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     parent: Option<String>,
+}
+
+/// Module exports keyed by local binding: `(local name, public name)`.
+/// Re-exports (`export … from`) bind no local and are not listed.
+#[derive(Default)]
+struct LocalExports {
+    bindings: Vec<(String, String)>,
+}
+
+impl LocalExports {
+    fn push(&mut self, local: String, public: String) {
+        self.bindings.push((local, public));
+    }
+
+    fn public_names(&self, local: &str) -> Option<Vec<String>> {
+        let mut names: Vec<String> = self
+            .bindings
+            .iter()
+            .filter(|(name, _)| name == local)
+            .map(|(_, public)| public.clone())
+            .collect();
+        if names.is_empty() {
+            return None;
+        }
+        names.sort();
+        names.dedup();
+        Some(names)
+    }
 }
 
 #[derive(Serialize)]
@@ -144,20 +177,29 @@ fn span_contains(span: Span, offset: u32) -> bool {
 }
 
 fn source_type_for(ext: &str, file_path: &str) -> SourceType {
-    let source_type = match ext {
-        "ts" | "mts" | "cts" => SourceType::ts(),
-        "tsx" => SourceType::tsx(),
-        "jsx" => SourceType::jsx(),
-        "mjs" => SourceType::mjs(),
-        "cjs" => SourceType::cjs(),
-        _ => SourceType::default(), // js
-    };
-    // The final extension alone loses ambient declaration-file mode (.d.ts,
-    // .d.mts, .d.cts). Preserve the existing module/JSX policy and let OXC
-    // identify declaration files from their complete path.
-    let declaration_file =
-        SourceType::from_path(file_path).is_ok_and(SourceType::is_typescript_definition);
-    source_type.with_typescript_definition(declaration_file)
+    // `from_path` owns the extension policy: `.cjs`/`.cts` are CommonJS (top-level
+    // `return` allowed), `.mjs`/`.mts` are ES modules, `.js`/`.ts` are
+    // unambiguous (module only with import/export), and `.d.ts`/`.d.mts`/`.d.cts`
+    // are ambient declarations. Paths without a JS/TS extension fall back to the
+    // caller's defaulted extension (`get_extension_internal(.., "ts")`).
+    let source_type = SourceType::from_path(file_path)
+        .or_else(|_| SourceType::from_extension(ext))
+        .unwrap_or_else(|_| SourceType::ts());
+    // React components commonly live in plain `.js`/`.mjs`/`.cjs`; JSX there must
+    // not be a parse error. TypeScript stays JSX-free so `<T>x` assertions parse.
+    if source_type.is_javascript() {
+        source_type.with_jsx(true)
+    } else {
+        source_type
+    }
+}
+
+/// Cheap pre-check so non-JS/TS files never pay for the content copy and the
+/// big-stack worker thread; graph scans call this for every file in a repo.
+fn is_oxc_path(file_path: &str) -> bool {
+    is_js_ts_extension(&crate::text::file_extension::get_extension_internal(
+        file_path, true, "ts",
+    ))
 }
 
 /// Native JS/TS document symbols as a JSON `DocumentSymbol[]`.
@@ -165,7 +207,7 @@ fn source_type_for(ext: &str, file_path: &str) -> SourceType {
 /// Returns `None` for: oversized input, a hard parse failure (caller falls back
 /// to tree-sitter), or a file with no extractable top-level symbols.
 pub fn extract_js_symbols(content: &str, file_path: &str) -> Option<String> {
-    if content.len() > crate::minify::minifier::MAX_SIZE {
+    if content.len() > crate::minify::minifier::MAX_SIZE || !is_oxc_path(file_path) {
         return None;
     }
     let content = content.to_owned();
@@ -186,23 +228,26 @@ fn extract_js_symbols_inner(content: &str, file_path: &str) -> Option<String> {
     if !is_js_ts_extension(&ext) {
         return None;
     }
-    let allocator = Allocator::default();
-    let parser_ret = Parser::new(&allocator, content, source_type_for(&ext, file_path)).parse();
+    with_thread_allocator(|allocator| {
+        let parser_ret = Parser::new(allocator, content, source_type_for(&ext, file_path)).parse();
 
-    // Hard parse failure with nothing recovered → let the caller fall back to
-    // the more error-tolerant tree-sitter path rather than emit a stub outline.
-    if parser_ret.program.body.is_empty() && !parser_ret.diagnostics.is_empty() {
-        return None;
-    }
+        // Hard parse failure with nothing recovered → let the caller fall back to
+        // the more error-tolerant tree-sitter path rather than emit a stub outline.
+        if job_cancelled()
+            || (parser_ret.program.body.is_empty() && !parser_ret.diagnostics.is_empty())
+        {
+            return None;
+        }
 
-    let line_index = LineIndex::new(content);
-    let mut symbols = Vec::new();
-    collect_program(&parser_ret.program, &line_index, &mut symbols);
+        let line_index = LineIndex::new(content);
+        let mut symbols = Vec::new();
+        collect_program(&parser_ret.program, &line_index, &mut symbols);
 
-    if symbols.is_empty() {
-        return None;
-    }
-    serde_json::to_string(&symbols).ok()
+        if symbols.is_empty() || job_cancelled() {
+            return None;
+        }
+        serde_json::to_string(&symbols).ok()
+    })
 }
 
 /// Native in-file references to the symbol under `(line, character)` (0-based,
@@ -219,7 +264,7 @@ pub fn find_in_file_references(
     line: u32,
     character: u32,
 ) -> Option<String> {
-    if content.len() > crate::minify::minifier::MAX_SIZE {
+    if content.len() > crate::minify::minifier::MAX_SIZE || !is_oxc_path(file_path) {
         return None;
     }
     let content = content.to_owned();
@@ -248,7 +293,7 @@ pub(crate) fn extract_graph_facts_with_metadata(
     content: &str,
     file_path: &str,
 ) -> Option<super::GraphFactsExtraction> {
-    if content.len() > crate::minify::minifier::MAX_SIZE {
+    if content.len() > crate::minify::minifier::MAX_SIZE || !is_oxc_path(file_path) {
         return None;
     }
     let content = content.to_owned();
@@ -279,138 +324,156 @@ fn extract_graph_facts_with_metadata_inner<const COMMON_JS: bool>(
         return None;
     }
 
-    let allocator = Allocator::default();
-    let parser = Parser::new(&allocator, content, source_type_for(&ext, file_path));
-    let parser_ret = if COMMON_JS {
-        parser
-            .with_config(oxc_parser::config::TokensParserConfig)
-            .parse()
-    } else {
-        parser.parse()
-    };
-    if parser_ret.program.body.is_empty() && !parser_ret.diagnostics.is_empty() {
-        return None;
-    }
+    with_thread_allocator(|allocator| {
+        let parser = Parser::new(allocator, content, source_type_for(&ext, file_path));
+        let parser_ret = if COMMON_JS {
+            parser
+                .with_config(oxc_parser::config::TokensParserConfig)
+                .parse()
+        } else {
+            parser.parse()
+        };
+        if job_cancelled()
+            || (parser_ret.program.body.is_empty() && !parser_ret.diagnostics.is_empty())
+        {
+            return None;
+        }
 
-    let line_index = LineIndex::new(content);
-    let mut symbols = Vec::new();
-    collect_program(&parser_ret.program, &line_index, &mut symbols);
+        let line_index = LineIndex::new(content);
+        let mut symbols = Vec::new();
+        collect_program(&parser_ret.program, &line_index, &mut symbols);
 
-    let mut export_names = Vec::new();
-    let mut imports = Vec::new();
-    let mut exports = Vec::new();
-    collect_module_facts(
-        &parser_ret.program,
-        &line_index,
-        &mut imports,
-        &mut exports,
-        &mut export_names,
-    );
-    export_names.sort();
-    export_names.dedup();
-
-    let mut declarations = Vec::new();
-    let mut edges = Vec::new();
-    flatten_symbols(
-        file_path,
-        &symbols,
-        None,
-        &export_names,
-        &mut declarations,
-        &mut edges,
-    );
-
-    let mut calls = Vec::new();
-    collect_program_calls(&parser_ret.program, &line_index, &mut calls);
-    // OXC tokens make this an absence check, not a binding claim. Candidate
-    // loaders still require the full native scope inventory, including escapes.
-    let common_js = if COMMON_JS && commonjs::may_contain_loader(&parser_ret.tokens, content) {
-        commonjs::collect_common_js_loads(&parser_ret.program, &line_index)
-    } else {
-        Vec::new()
-    };
-    let mut declarations_by_name: std::collections::HashMap<&str, Vec<&GraphDeclaration>> =
-        std::collections::HashMap::new();
-    for declaration in &declarations {
-        declarations_by_name
-            .entry(&declaration.name)
-            .or_default()
-            .push(declaration);
-    }
-    for (index, call) in calls.iter_mut().enumerate() {
-        // Names are display labels. Source ranges identify the enclosing occurrence;
-        // callee binding resolution requires semantics and remains explicitly unknown.
-        call.id = format!(
-            "call:{}@{}:{}:{index}",
-            file_path, call.range.start.line, call.range.start.character
+        let mut local_exports = LocalExports::default();
+        let mut imports = Vec::new();
+        let mut exports = Vec::new();
+        collect_module_facts(
+            &parser_ret.program,
+            &line_index,
+            &mut imports,
+            &mut exports,
+            &mut local_exports,
         );
-        let caller = declarations_by_name
-            .get(call.caller.as_str())
-            .into_iter()
-            .flat_map(|items| items.iter().copied())
-            .filter(|declaration| {
-                (
-                    declaration.range.start.line,
-                    declaration.range.start.character,
-                ) <= (call.range.start.line, call.range.start.character)
-                    && (declaration.range.end.line, declaration.range.end.character)
-                        >= (call.range.end.line, call.range.end.character)
-            })
-            .min_by_key(|declaration| {
-                (
-                    declaration.range.end.line - declaration.range.start.line,
-                    declaration
-                        .range
-                        .end
-                        .character
-                        .saturating_sub(declaration.range.start.character),
-                )
-            });
-        edges.push(GraphEdge {
-            id: format!("edge:{}", call.id),
-            from: caller
-                .map(|declaration| declaration.id.clone())
-                .unwrap_or_else(|| format!("file:{file_path}")),
-            to: format!(
-                "reference:{}@{}:{}:{index}",
-                file_path, call.range.start.line, call.range.start.character
-            ),
-            relation: call.kind,
-            source: "ast",
-            line: call.line,
-            resolution: "unresolved",
-        });
-    }
 
-    let facts = GraphFacts {
-        kind: "graphFacts",
-        schema_version: super::GRAPH_FACTS_SCHEMA_VERSION,
-        source: "native-ast",
-        language: ext,
-        file: file_path.to_string(),
-        declarations,
-        imports,
-        exports,
-        calls,
-        common_js,
-        edges,
-        diagnostics: parser_ret
-            .diagnostics
-            .into_iter()
-            .map(|diagnostic| diagnostic.message.to_string())
-            .collect(),
-    };
-    let exported_declaration_names = facts
-        .declarations
-        .iter()
-        .filter(|declaration| declaration.exported)
-        .map(|declaration| declaration.name.clone())
-        .collect();
-    let facts_json = serde_json::to_string(&facts).ok()?;
-    let facts = crate::graph::GraphFactsDocument::from_json(&facts_json).ok()?;
-    Some(super::GraphFactsExtraction {
-        facts,
-        exported_declaration_names,
+        let mut declarations = Vec::new();
+        let mut edges = Vec::new();
+        flatten_symbols(
+            file_path,
+            &symbols,
+            None,
+            &local_exports,
+            &mut declarations,
+            &mut edges,
+        );
+
+        let mut calls = Vec::new();
+        collect_program_calls(&parser_ret.program, &line_index, &mut calls);
+        if job_cancelled() {
+            return None;
+        }
+        // OXC tokens make this an absence check, not a binding claim. Candidate
+        // loaders still require the full native scope inventory, including escapes.
+        let common_js = if COMMON_JS && commonjs::may_contain_loader(&parser_ret.tokens, content) {
+            commonjs::collect_common_js_loads(&parser_ret.program, &line_index)
+        } else {
+            Vec::new()
+        };
+        let mut declarations_by_name: std::collections::HashMap<&str, Vec<&GraphDeclaration>> =
+            std::collections::HashMap::new();
+        for declaration in &declarations {
+            declarations_by_name
+                .entry(&declaration.name)
+                .or_default()
+                .push(declaration);
+        }
+        for (index, call) in calls.iter_mut().enumerate() {
+            // Names are display labels. Source ranges identify the enclosing occurrence;
+            // callee binding resolution requires semantics and remains explicitly unknown.
+            call.id = format!(
+                "call:{}@{}:{}:{index}",
+                file_path, call.range.start.line, call.range.start.character
+            );
+            let caller = declarations_by_name
+                .get(call.caller.as_str())
+                .into_iter()
+                .flat_map(|items| items.iter().copied())
+                .filter(|declaration| {
+                    (
+                        declaration.range.start.line,
+                        declaration.range.start.character,
+                    ) <= (call.range.start.line, call.range.start.character)
+                        && (declaration.range.end.line, declaration.range.end.character)
+                            >= (call.range.end.line, call.range.end.character)
+                })
+                .min_by_key(|declaration| {
+                    (
+                        declaration.range.end.line - declaration.range.start.line,
+                        declaration
+                            .range
+                            .end
+                            .character
+                            .saturating_sub(declaration.range.start.character),
+                    )
+                });
+            call.caller_id = caller.map(|declaration| declaration.id.clone());
+            edges.push(GraphEdge {
+                id: format!("edge:{}", call.id),
+                from: call
+                    .caller_id
+                    .clone()
+                    .unwrap_or_else(|| format!("file:{file_path}")),
+                to: format!(
+                    "reference:{}@{}:{}:{index}",
+                    file_path, call.range.start.line, call.range.start.character
+                ),
+                relation: call.kind,
+                source: "ast",
+                line: call.line,
+                resolution: "unresolved",
+            });
+        }
+
+        let facts = GraphFacts {
+            kind: "graphFacts",
+            schema_version: super::GRAPH_FACTS_SCHEMA_VERSION,
+            source: "native-ast",
+            language: ext,
+            file: file_path.to_string(),
+            declarations,
+            imports,
+            exports,
+            calls,
+            common_js,
+            edges,
+            diagnostics: parser_ret
+                .diagnostics
+                .into_iter()
+                .map(|diagnostic| diagnostic.message.to_string())
+                .collect(),
+        };
+        let semantic = SemanticBuilder::new()
+            .with_build_nodes(true)
+            .build(&parser_ret.program)
+            .semantic;
+        if job_cancelled() {
+            return None;
+        }
+        let targets: Vec<_> = facts
+            .declarations
+            .iter()
+            .map(|declaration| CountTarget {
+                id: &declaration.id,
+                name: &declaration.name,
+                line: declaration.selection_range.start.line,
+                character: declaration.selection_range.start.character,
+            })
+            .collect();
+        let reference_counts = value_reference_counts(&semantic, &line_index, &targets);
+        let facts_json = serde_json::to_string(&facts).ok()?;
+        let facts = crate::graph::GraphFactsDocument::from_json(&facts_json).ok()?;
+        Some(super::GraphFactsExtraction {
+            facts,
+            reference_counts,
+        })
     })
 }
 
@@ -425,57 +488,63 @@ fn find_in_file_references_inner(
         return None;
     }
 
-    let allocator = Allocator::default();
-    let parser_ret = Parser::new(&allocator, content, source_type_for(&ext, file_path)).parse();
-    if parser_ret.program.body.is_empty() && !parser_ret.diagnostics.is_empty() {
-        return None;
-    }
-
-    // `with_build_nodes` records the AST-node table so we can resolve a
-    // reference's span via `nodes.kind(node_id).span()`; it is off by default.
-    let semantic_ret = SemanticBuilder::new()
-        .with_build_nodes(true)
-        .build(&parser_ret.program);
-    let semantic = semantic_ret.semantic;
-    let scoping = semantic.scoping();
-    let nodes = semantic.nodes();
-    let line_index = LineIndex::new(content);
-    let offset = line_index.byte_offset(line, character);
-
-    // Resolve the symbol under the cursor: first try declarations, then any
-    // resolved reference (so the cursor can sit on a use site too).
-    let mut target = None;
-    for symbol_id in scoping.symbol_ids() {
-        if span_contains(scoping.symbol_span(symbol_id), offset) {
-            target = Some(symbol_id);
-            break;
+    with_thread_allocator(|allocator| {
+        let parser_ret = Parser::new(allocator, content, source_type_for(&ext, file_path)).parse();
+        if job_cancelled()
+            || (parser_ret.program.body.is_empty() && !parser_ret.diagnostics.is_empty())
+        {
+            return None;
         }
-    }
-    if target.is_none() {
-        'outer: for symbol_id in scoping.symbol_ids() {
-            for reference in scoping.get_resolved_references(symbol_id) {
-                if span_contains(nodes.kind(reference.node_id()).span(), offset) {
-                    target = Some(symbol_id);
-                    break 'outer;
+
+        // `with_build_nodes` records the AST-node table so we can resolve a
+        // reference's span via `nodes.kind(node_id).span()`; it is off by default.
+        let semantic_ret = SemanticBuilder::new()
+            .with_build_nodes(true)
+            .build(&parser_ret.program);
+        if job_cancelled() {
+            return None;
+        }
+        let semantic = semantic_ret.semantic;
+        let scoping = semantic.scoping();
+        let nodes = semantic.nodes();
+        let line_index = LineIndex::new(content);
+        let offset = line_index.byte_offset(line, character);
+
+        // Resolve the symbol under the cursor: first try declarations, then any
+        // resolved reference (so the cursor can sit on a use site too).
+        let mut target = None;
+        for symbol_id in scoping.symbol_ids() {
+            if span_contains(scoping.symbol_span(symbol_id), offset) {
+                target = Some(symbol_id);
+                break;
+            }
+        }
+        if target.is_none() {
+            'outer: for symbol_id in scoping.symbol_ids() {
+                for reference in scoping.get_resolved_references(symbol_id) {
+                    if span_contains(nodes.kind(reference.node_id()).span(), offset) {
+                        target = Some(symbol_id);
+                        break 'outer;
+                    }
                 }
             }
         }
-    }
-    let target = target?;
+        let target = target?;
 
-    // Declaration first, then every resolved in-file reference.
-    let mut spans: Vec<Span> = vec![scoping.symbol_span(target)];
-    for reference in scoping.get_resolved_references(target) {
-        spans.push(nodes.kind(reference.node_id()).span());
-    }
-    spans.sort_by_key(|span| (span.start, span.end));
-    spans.dedup_by_key(|span| (span.start, span.end));
+        // Declaration first, then every resolved in-file reference.
+        let mut spans: Vec<Span> = vec![scoping.symbol_span(target)];
+        for reference in scoping.get_resolved_references(target) {
+            spans.push(nodes.kind(reference.node_id()).span());
+        }
+        spans.sort_by_key(|span| (span.start, span.end));
+        spans.dedup_by_key(|span| (span.start, span.end));
 
-    let ranges: Vec<Range> = spans
-        .into_iter()
-        .map(|span| line_index.range(span))
-        .collect();
-    serde_json::to_string(&ranges).ok()
+        let ranges: Vec<Range> = spans
+            .into_iter()
+            .map(|span| line_index.range(span))
+            .collect();
+        serde_json::to_string(&ranges).ok()
+    })
 }
 
 fn collect_module_facts(
@@ -483,13 +552,13 @@ fn collect_module_facts(
     li: &LineIndex,
     imports: &mut Vec<GraphImport>,
     exports: &mut Vec<GraphExport>,
-    export_names: &mut Vec<String>,
+    local_exports: &mut LocalExports,
 ) {
     for stmt in &program.body {
         match stmt {
             Statement::ImportDeclaration(decl) => collect_import_declaration(decl, li, imports),
             Statement::ExportDeclaration(decl) => {
-                collect_export_declaration(decl, li, exports, export_names);
+                collect_export_declaration(decl, li, exports, local_exports);
             }
             Statement::ExportNamedDeclaration(decl) => {
                 collect_export_specifiers(
@@ -498,7 +567,7 @@ fn collect_module_facts(
                     None,
                     li,
                     exports,
-                    export_names,
+                    Some(local_exports),
                 );
             }
             Statement::ExportFromDeclaration(decl) => {
@@ -508,36 +577,39 @@ fn collect_module_facts(
                     Some(decl.source.value.as_str()),
                     li,
                     exports,
-                    export_names,
+                    None,
                 );
             }
             Statement::ExportDefaultDeclaration(decl) => {
                 let range = li.range(decl.span);
-                let name = match &decl.declaration {
-                    ExportDefaultDeclarationKind::FunctionDeclaration(function) => function
-                        .id
-                        .as_ref()
-                        .map(|id| id.name.as_str().to_string())
-                        .unwrap_or_else(|| "default".to_string()),
-                    ExportDefaultDeclarationKind::ClassDeclaration(class) => class
-                        .id
-                        .as_ref()
-                        .map(|id| id.name.as_str().to_string())
-                        .unwrap_or_else(|| "default".to_string()),
-                    _ => "default".to_string(),
+                // The public name is always `default`; `local_name` is the
+                // binding it exports, which `import x from` resolves to.
+                let local_name = match &decl.declaration {
+                    ExportDefaultDeclarationKind::FunctionDeclaration(function) => {
+                        function.id.as_ref().map(|id| id.name.as_str().to_string())
+                    }
+                    ExportDefaultDeclarationKind::ClassDeclaration(class) => {
+                        class.id.as_ref().map(|id| id.name.as_str().to_string())
+                    }
+                    ExportDefaultDeclarationKind::Identifier(ident) => {
+                        Some(ident.name.as_str().to_string())
+                    }
+                    _ => None,
                 };
-                export_names.push(name.clone());
+                if let Some(local) = &local_name {
+                    local_exports.push(local.clone(), "default".to_string());
+                }
                 exports.push(GraphExport {
-                    id: format!("export:{}:{}", name, range.start.line + 1),
-                    name,
+                    id: format!("export:default:{}", range.start.line + 1),
+                    name: "default".to_string(),
                     line: range.start.line + 1,
                     export_kind: "value",
-                    local_name: None,
+                    local_name,
                     source: None,
                 });
             }
             Statement::ExportAllDeclaration(decl) => {
-                collect_export_all(decl, li, exports, export_names);
+                collect_export_all(decl, li, exports);
             }
             // `export = expr;` (TS/CommonJS interop). Previously dropped, so a
             // module's single export vanished from the facts.
@@ -547,7 +619,9 @@ fn collect_module_facts(
                     Expression::Identifier(ident) => ident.name.as_str().to_string(),
                     _ => "export=".to_string(),
                 };
-                export_names.push(name.clone());
+                if matches!(&decl.expression, Expression::Identifier(_)) {
+                    local_exports.push(name.clone(), name.clone());
+                }
                 exports.push(GraphExport {
                     id: format!("export:{}:{}", name, range.start.line + 1),
                     name,
@@ -653,7 +727,7 @@ fn collect_export_declaration(
     decl: &ExportDeclaration,
     li: &LineIndex,
     out: &mut Vec<GraphExport>,
-    export_names: &mut Vec<String>,
+    local_exports: &mut LocalExports,
 ) {
     let export_kind = match &decl.declaration {
         Declaration::TSInterfaceDeclaration(_) | Declaration::TSTypeAliasDeclaration(_) => "type",
@@ -661,7 +735,7 @@ fn collect_export_declaration(
     };
     for name in declaration_names(&decl.declaration) {
         let range = li.range(decl.span);
-        export_names.push(name.clone());
+        local_exports.push(name.clone(), name.clone());
         out.push(GraphExport {
             id: format!("export:{}:{}", name, range.start.line + 1),
             name,
@@ -679,13 +753,20 @@ fn collect_export_specifiers(
     source: Option<&str>,
     li: &LineIndex,
     out: &mut Vec<GraphExport>,
-    export_names: &mut Vec<String>,
+    mut local_exports: Option<&mut LocalExports>,
 ) {
     for (index, specifier) in specifiers.iter().enumerate() {
         let name = module_export_name(&specifier.exported)
             .or_else(|| module_export_name(&specifier.local))
             .unwrap_or_else(|| "unknown".to_string());
-        export_names.push(name.clone());
+        // `export { local as public }` exports the local binding; the flag
+        // belongs to `local`, the public name is metadata (`exportedAs`).
+        if let (Some(exports), Some(local)) = (
+            local_exports.as_deref_mut(),
+            module_export_name(&specifier.local),
+        ) {
+            exports.push(local, name.clone());
+        }
         let range = li.range(specifier.span);
         out.push(GraphExport {
             id: format!("export:{}:{}:{}", name, range.start.line + 1, index),
@@ -702,19 +783,13 @@ fn collect_export_specifiers(
     }
 }
 
-fn collect_export_all(
-    decl: &ExportAllDeclaration,
-    li: &LineIndex,
-    out: &mut Vec<GraphExport>,
-    export_names: &mut Vec<String>,
-) {
+fn collect_export_all(decl: &ExportAllDeclaration, li: &LineIndex, out: &mut Vec<GraphExport>) {
     let range = li.range(decl.span);
     let name = decl
         .exported
         .as_ref()
         .and_then(module_export_name)
         .unwrap_or_else(|| "*".to_string());
-    export_names.push(name.clone());
     out.push(GraphExport {
         id: format!("export:{}:{}", name, range.start.line + 1),
         name,
@@ -791,7 +866,7 @@ fn flatten_symbols(
     file_path: &str,
     symbols: &[DocumentSymbol],
     parent: Option<&str>,
-    export_names: &[String],
+    local_exports: &LocalExports,
     declarations: &mut Vec<GraphDeclaration>,
     edges: &mut Vec<GraphEdge>,
 ) {
@@ -805,6 +880,14 @@ fn flatten_symbols(
             symbol_kind_name(symbol.kind)
         );
         let line = symbol.selection_range.start.line + 1;
+        let public_names = parent
+            .is_none()
+            .then(|| local_exports.public_names(&symbol.name))
+            .flatten();
+        let exported_as = match &public_names {
+            Some(names) if names.iter().any(|public| public != &symbol.name) => names.clone(),
+            _ => Vec::new(),
+        };
         declarations.push(GraphDeclaration {
             id: id.clone(),
             name: symbol.name.clone(),
@@ -812,7 +895,8 @@ fn flatten_symbols(
             line,
             range: symbol_range(symbol),
             selection_range: symbol_selection_range(symbol),
-            exported: parent.is_none() && export_names.iter().any(|name| name == &symbol.name),
+            exported: public_names.is_some(),
+            exported_as,
             parent: parent.map(str::to_string),
         });
         if let Some(parent_id) = parent {
@@ -830,7 +914,7 @@ fn flatten_symbols(
             file_path,
             &symbol.children,
             Some(&id),
-            export_names,
+            local_exports,
             declarations,
             edges,
         );

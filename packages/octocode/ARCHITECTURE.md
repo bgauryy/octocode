@@ -4,7 +4,7 @@
 
 ## Runtime boundary
 
-`src/cli/index.ts` has three explicit Node-owned paths: `scheme` composes core presentation with native availability, `skill` materializes bundled skills, and a bare TTY `install` opens the client picker. Every other argv is forwarded verbatim—parsing, help, version, and validation included—to the native binary. `src/cli/native-delegate.ts` resolves `@octocodeai/octocode-native/bin/octocode.cjs` and delegates with inherited stdio and environment. There is no TypeScript execution registry or fallback for native-owned commands.
+`src/cli/index.ts` owns catalog presentation, skill materialization, and the bare TTY install picker. Bare invocation and `scheme` compose core presentation with native availability. Root `--help`, `-h`, and `help` append canonical agent instructions after native help. Every other argv is forwarded verbatim—parsing, subcommand help, version, and validation included—to the native binary. `src/cli/native-delegate.ts` resolves `@octocodeai/octocode-native/bin/octocode.cjs` and delegates with inherited stdio and environment. There is no TypeScript execution registry or fallback for native-owned commands.
 
 ```text
 npx octocode → Node launcher → native CLI → Rust ToolRuntime
@@ -19,6 +19,8 @@ TypeScript remains only for:
 - `scheme`, which joins the core public catalog with native availability after
   a fail-closed contract-fingerprint check; it presents contracts but does not
   validate or execute tool requests;
+- bare output and root help, which expose the same core-owned agent instructions
+  once per output, scoped to CLI availability (including CLI-only `ghCloneRepo`);
 - `skill`, backed by the shared skill installer;
 - the TTY picker for `install` without `--ide`, which discovers client ids from `native install --list --json` and delegates the selected id back to native.
 

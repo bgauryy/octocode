@@ -6,7 +6,7 @@ use super::{
 use crate::tools::local_fetch::CancellationCheck;
 use serde_json::{Value, json};
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeSet,
     fs::{self, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
@@ -145,28 +145,8 @@ pub(super) fn commit_transaction(
     match result {
         Ok(()) => {
             let warnings = finalize_committed(&journal_path, &journal);
-            let before = files
-                .iter()
-                .map(|file| {
-                    (
-                        file.absolute.to_string_lossy().into_owned(),
-                        file.before_hash.clone(),
-                    )
-                })
-                .collect::<BTreeMap<_, _>>();
-            let after = files
-                .iter()
-                .map(|file| {
-                    (
-                        file.absolute.to_string_lossy().into_owned(),
-                        file.after_hash.clone(),
-                    )
-                })
-                .collect::<BTreeMap<_, _>>();
-            let mut receipt = json!({
-                "id":id,"committed":true,"files":files.len(),
-                "beforeHashes":before,"afterHashes":after
-            });
+            // Per-file before/after hashes live on the result's `files[]`.
+            let mut receipt = json!({"id":id,"committed":true,"files":files.len()});
             if !warnings.is_empty() {
                 receipt["cleanupWarnings"] = json!(warnings);
             }

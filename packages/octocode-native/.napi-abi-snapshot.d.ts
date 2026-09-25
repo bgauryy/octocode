@@ -43,7 +43,7 @@ export declare class NativeLspClient {
    * document lifecycle: the FIRST sync of a URI sends `textDocument/didOpen`
    * (version 1); every subsequent sync sends `textDocument/didChange` with an
    * incremented version and a full-document content change. Re-sending
-   * `didOpen` (as before) is ignored or rejected by many servers and can make
+   * `didOpen` is ignored or rejected by many servers and can make
    * changed content resolve against the stale original.
    */
   openDocument(filePath: string, content: string): Promise<void>
@@ -181,9 +181,6 @@ export declare function extractJsSymbols(content: string, filePath: string): str
 /**
  * Search `content` line-by-line for `pattern` (literal or regex), returning
  * matched lines with context windows and omission markers.
- *
- * Replaces `extractMatchingLines` (contentExtractor.ts) which performed 2–3
- * full `forEach` scans with per-line `toLowerCase` + `RegExp.test`.
  */
 export declare function extractMatchingLines(content: string, pattern: string, options?: ExtractMatchingLinesOptions | undefined | null): ExtractMatchingLinesResult
 
@@ -307,14 +304,7 @@ export interface FileSystemQueryResult {
   warnings: Array<string>
 }
 
-/**
- * Filter and optionally trim a unified diff patch.
- *
- * Replaces `filterPatch` + `trimDiffContext` from `utils/parsers/diff.ts` which
- * called `patch.split('
-')` independently in both functions. This combines
- * both operations in a single pass.
- */
+/** Filter and optionally trim a unified diff patch in a single pass. */
 export declare function filterPatch(patch: string, options?: FilterPatchOptions | undefined | null): string
 
 export interface FilterPatchOptions {
@@ -451,8 +441,13 @@ export interface GraphLanguageGlob {
   glob: string
 }
 
+/**
+ * Syntax-aware value references to one declaration, excluding its own name,
+ * export clauses and call-callee positions (those are call edges). Comments
+ * and string literals never count.
+ */
 export interface GraphReferenceCount {
-  name: string
+  declarationId: string
   count: number
 }
 
@@ -579,8 +574,22 @@ export interface IndexStoreOptions {
  */
 export declare function inspectSyntaxTree(content: string, filePath: string, options?: SyntaxTreeInspectOptions | undefined | null): Promise<unknown>
 
-/** Check whether `command` is available on `PATH`. */
+/**
+ * Check whether `command` is available on `PATH`.
+ *
+ * Deprecated: runs on the calling (Node main) thread and may block for up to
+ * `COMMAND_PROBE_TIMEOUT` when the check must execute the command (e.g.
+ * `rust-analyzer --version` through a rustup proxy). Prefer
+ * `isCommandAvailableAsync`.
+ */
 export declare function isCommandAvailable(command: string): boolean
+
+/**
+ * Check whether `command` is available on `PATH` without blocking the Node
+ * main thread. Bounded by `COMMAND_PROBE_TIMEOUT` (the probe is killed on
+ * timeout and reports `false`).
+ */
+export declare function isCommandAvailableAsync(command: string): Promise<boolean>
 
 export interface JsCodeSnippet {
   uri: string
@@ -678,12 +687,8 @@ export interface MinifyResult {
 }
 
 /**
- * Parse ripgrep `--json` NDJSON stdout into structured files + stats.
- *
- * Replaces the TypeScript `parseRipgrepJson` (utils/parsers/ripgrep.ts) which
- * used `JSON.parse` + Zod `safeParse` per NDJSON line and a `[...value]`
- * UTF-16 spread per match snippet. A single `serde_json` streaming pass with
- * no per-line schema validation.
+ * Parse ripgrep `--json` NDJSON stdout into structured files + stats in a
+ * single `serde_json` streaming pass with no per-line schema validation.
  */
 export declare function parseRipgrepJson(stdout: string, options?: RipgrepParseOptions | undefined | null): RipgrepParseResult
 
@@ -697,12 +702,7 @@ export declare function pooledLspClientConfigs(): Promise<Array<JsLanguageServer
 
 export declare function pooledLspClientCount(): number
 
-/**
- * Cross-platform filesystem traversal and metadata filtering for local tools.
- *
- * Replaces the POSIX `find`/`ls` execution paths in octocode-native while
- * keeping MCP response shaping in TypeScript.
- */
+/** Cross-platform filesystem traversal and metadata filtering for local tools. */
 export declare function queryFileSystem(options: FileSystemQueryOptions): Promise<unknown>
 
 export declare function queryIndex(options: IndexQueryRequest): Promise<unknown>
@@ -933,12 +933,10 @@ export declare function scanGraphFacts(options: GraphFactsScanOptions): Promise<
 
 /**
  * Run ripgrep in-process: walk `path`, search every file with ripgrep's own
- * engine, and return the same `{ files, stats }` shape the `--json` parser
- * produced. Replaces shelling out to an `rg` binary (and the `@vscode/ripgrep`
- * bundle) — octocode is now its own source of ripgrep.
+ * engine, and return the same `{ files, stats }` shape as the `--json` parser.
  *
  * Runs on the libuv thread pool so the filesystem walk never blocks the event
- * loop, mirroring the old async `spawn` of `rg`.
+ * loop.
  */
 export declare function searchRipgrep(options: RipgrepSearchOptions): Promise<unknown>
 
@@ -947,8 +945,7 @@ export declare const SIGNATURES_ONLY_HINT: string
 
 /**
  * Paginate `content` by char offset + length, with optional line-boundary
- * snapping. Replaces both the char-mode conversion block in `applyPagination`
- * and the `sliceByCharRespectLines` helper.
+ * snapping.
  */
 export declare function sliceContent(content: string, charOffset: number, charLength: number, options?: SliceContentOptions | undefined | null): SliceContentResult
 
@@ -969,9 +966,8 @@ export interface SliceContentResult {
 }
 
 /**
- * A structural match with stable evidence metadata. Existing
- * `StructuralMatch` remains unchanged for the legacy APIs; detailed APIs add
- * IDs and confidence without forcing old callers to carry metadata.
+ * A structural match with stable evidence metadata: [`StructuralMatch`] plus
+ * an ID, node kind, and confidence, for the detailed APIs.
  */
 export interface StructuralDetailedMatch {
   id: string
@@ -1139,8 +1135,7 @@ export interface StructuralSearchFilesOptions {
   include?: Array<string>
   /**
    * File-path globs to skip (gitignore-style, e.g. `"*.min.js"`, `"src/gen/**"`).
-   * Mirrors local-search `exclude` so it is honored on the structural
-   * lane too — previously silently dropped (typed-contract violation).
+   * Mirrors local-search `exclude`.
    */
   exclude?: Array<string>
   excludeDir?: Array<string>

@@ -1,19 +1,23 @@
 use crate::error::{Error, Result, Status};
-use crate::lsp::json_rpc::{ClientRequestContext, JsonRpcConnection, ProgressTracker};
+use crate::lsp::resolver::LineIndex;
 use crate::lsp::spawn_limits;
+use crate::lsp::transport::{
+    ClientRequestContext, JsonRpcConnection, ProgressTracker, configuration_section_for_command,
+};
 use crate::lsp::types::{JsCodeSnippet, JsExactPosition, JsLanguageServerConfig, JsRange};
 use crate::lsp::uri::{path_to_uri, uri_to_path};
 #[cfg(feature = "napi-addon")]
 use napi_derive::napi;
 use serde_json::{Value, json};
 use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{
     Arc, Mutex as StdMutex,
     atomic::{AtomicUsize, Ordering},
 };
-use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::{Child, ChildStderr, ChildStdin};
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncRead, BufReader};
+use tokio::process::{Child, ChildStderr};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio::time::{Duration, timeout};
@@ -23,7 +27,32 @@ pub(super) const CONTENT_MODIFIED_RETRIES: u8 = 3;
 pub(super) const CONTENT_MODIFIED_RETRY_DELAY_MS: u64 = 500;
 const STDERR_RING_CAPACITY: usize = 100;
 const STDERR_LINE_MAX_CHARS: usize = 2_000;
+/// Bytes of one stderr line kept in memory (4 × the char cap, the UTF-8
+/// worst case). The rest of an overlong line is read and discarded.
+const STDERR_LINE_MAX_BYTES: usize = STDERR_LINE_MAX_CHARS * 4;
 const MAX_SNIPPET_SOURCE_BYTES: u64 = 1_000_000;
+/// Snippet `content` for a location whose file the [`SnippetReadPolicy`]
+/// refused. The location itself is kept so the caller can apply its own
+/// policy to it; no byte of the file was read.
+pub const SNIPPET_CONTENT_WITHHELD: &str = "[content withheld — path not authorized for reading]";
+/// Methods sent through the ContentModified/ServerCancelled retry loop,
+/// advertised as `general.staleRequestSupport.retryOnContentModified`.
+const RETRIED_METHODS: &[&str] = &[
+    "textDocument/definition",
+    "textDocument/references",
+    "textDocument/hover",
+    "textDocument/typeDefinition",
+    "textDocument/implementation",
+    "textDocument/documentSymbol",
+    "textDocument/prepareCallHierarchy",
+    "callHierarchy/incomingCalls",
+    "callHierarchy/outgoingCalls",
+    "workspace/symbol",
+    "textDocument/prepareTypeHierarchy",
+    "typeHierarchy/supertypes",
+    "typeHierarchy/subtypes",
+    "textDocument/diagnostic",
+];
 /// Upper bound on documents kept in the `didOpen` lifecycle at once. Without a
 /// cap, `open_docs` (and the server-side document set it mirrors) grows
 /// monotonically over a long session until the server's RLIMIT_AS / Job memory
@@ -280,6 +309,12 @@ pub struct NativeLspClient {
     inner: Arc<NativeLspClientInner>,
 }
 
+/// Lock order: `child` → `connection` → `stderr_task`. `start` and `stop`
+/// both take `child` first and hold it for their whole run, so a `stop` that
+/// overlaps a `start` waits for it and then tears down exactly what it
+/// published (never a half-started server, and never a deadlock). Other
+/// methods take `connection` alone and never while holding it acquire
+/// `child`. The `StdMutex` fields are leaf locks held only for a copy.
 struct NativeLspClientInner {
     config: JsLanguageServerConfig,
     child: Mutex<Option<Child>>,
@@ -289,7 +324,7 @@ struct NativeLspClientInner {
     // mutex. `JsonRpcConnection` is internally `Send + Sync` and supports
     // concurrent `request`/`notify` (its writer + pending map are each
     // `Arc<Mutex<..>>`), so cloned handles are safe to use in parallel.
-    connection: Mutex<Option<Arc<JsonRpcConnection<ChildStdin>>>>,
+    connection: Mutex<Option<Arc<JsonRpcConnection>>>,
     stderr_task: Mutex<Option<JoinHandle<()>>>,
     stderr_lines: Arc<StdMutex<VecDeque<String>>>,
     capabilities: StdMutex<Option<Value>>,
@@ -301,7 +336,14 @@ struct NativeLspClientInner {
     position_encoding: StdMutex<Option<String>>,
     readiness: StdMutex<Option<String>>,
     progress: Arc<ProgressTracker>,
-    active_requests: AtomicUsize,
+    /// In-flight requests, document syncs, diagnostic waits, and caller
+    /// [`LspLease`]s. Non-zero means busy: the pool never idles out or evicts
+    /// a busy client.
+    activity: Arc<AtomicUsize>,
+    /// Serializes document syncs (and closes) from version reservation
+    /// through the notification write, so `didOpen v1` always reaches the
+    /// server before `didChange v2` of the same document.
+    sync_lock: Mutex<()>,
     /// Open-document lifecycle state: `uri -> last sent version`, bounded by an
     /// LRU cap. Drives the LSP `didOpen` (once) → `didChange` (incrementing
     /// version) → `didClose` protocol so servers never see a second `didOpen`
@@ -314,12 +356,19 @@ struct NativeLspClientInner {
     /// (closing a kill-on-close job hard-kills the tree). Unit on Unix, where
     /// the cap is applied via `pre_exec` before spawn.
     memory_cap_guard: StdMutex<Option<spawn_limits::MemoryCapGuard>>,
+    /// macOS: the RSS watchdog enforcing `max_memory_mb` (no `RLIMIT_AS`
+    /// there). Dropped (aborted) by `stop` before the child is reaped.
+    memory_watchdog: StdMutex<Option<spawn_limits::AbortOnDrop>>,
 }
 
 #[cfg_attr(feature = "napi-addon", napi)]
 impl NativeLspClient {
     #[cfg_attr(feature = "napi-addon", napi(constructor))]
     pub fn new(config: JsLanguageServerConfig) -> Self {
+        // Every launch path (discovery, runtime, napi) gets the per-server
+        // safe defaults; user-supplied options still win key by key.
+        let mut config = config;
+        crate::lsp::config::apply_server_default_options(&mut config);
         Self {
             inner: Arc::new(NativeLspClientInner {
                 config,
@@ -332,9 +381,11 @@ impl NativeLspClient {
                 position_encoding: StdMutex::new(None),
                 readiness: StdMutex::new(None),
                 progress: ProgressTracker::new(),
-                active_requests: AtomicUsize::new(0),
+                activity: Arc::new(AtomicUsize::new(0)),
+                sync_lock: Mutex::new(()),
                 open_docs: StdMutex::new(OpenDocuments::new(MAX_OPEN_DOCUMENTS)),
                 memory_cap_guard: StdMutex::new(None),
+                memory_watchdog: StdMutex::new(None),
             }),
         }
     }
@@ -383,8 +434,9 @@ impl NativeLspClient {
         // OS-level memory cap: internal buffer bounds do not stop a runaway
         // server from OOMing the host. Supported Unix targets cap the address
         // space before exec; Windows attaches a Job Object right after spawn.
-        // Darwin deliberately skips RLIMIT_AS because inherited virtual
-        // mappings make lowering it in pre_exec fail every spawn with EINVAL.
+        // Darwin skips RLIMIT_AS (inherited virtual mappings make lowering it
+        // in pre_exec fail every spawn with EINVAL) and runs an RSS watchdog
+        // on the server tree instead (`memory_watchdog_for`).
         let memory_cap = spawn_limits::memory_cap_bytes(self.inner.config.max_memory_mb);
         if let Some(cap_bytes) = memory_cap {
             spawn_limits::apply_pre_spawn_cap(&mut command, cap_bytes);
@@ -455,10 +507,15 @@ impl NativeLspClient {
                     .initialization_options
                     .clone()
                     .unwrap_or_else(|| json!({})),
+                section_root: configuration_section_for_command(&self.inner.config.command),
                 workspace_folders: json!([{ "uri": root_uri, "name": "workspace" }]),
             },
             Arc::clone(&self.inner.progress),
         ));
+        // macOS has no enforceable address-space cap: watch the tree's RSS
+        // instead. Armed before `initialize` (indexing can start there);
+        // dropping the guard on any failed-start path aborts it.
+        let memory_watchdog = memory_watchdog_for(&child, memory_cap, &connection);
         let initialize_result = match initialize(&connection, &self.inner.config).await {
             Ok(value) => value,
             Err(error) => {
@@ -500,21 +557,34 @@ impl NativeLspClient {
         if let Ok(mut guard) = self.inner.memory_cap_guard.lock() {
             *guard = Some(memory_cap_guard);
         }
+        if let Ok(mut guard) = self.inner.memory_watchdog.lock() {
+            *guard = memory_watchdog;
+        }
         *child_guard = Some(child);
         Ok(())
     }
 
     #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn stop(&self) -> Result<()> {
+        // Same lock order as `start` (child → connection): holding `child`
+        // for the whole teardown makes a stop that overlaps a start wait for
+        // it, then shut down the connection and child it published.
+        let mut child_guard = self.inner.child.lock().await;
         let connection = self.inner.connection.lock().await.take();
         if let Some(connection) = connection {
             let _ = connection.request("shutdown", Value::Null, 1_000).await;
-            let _ = connection.notify("exit", Value::Null).await;
+            // A slow `shutdown` retires the connection; `exit` must still go out.
+            let _ = connection.notify_best_effort("exit", Value::Null).await;
         }
-        if let Some(mut child) = self.inner.child.lock().await.take() {
+        // The watchdog samples the child's pid: stop it before the reap.
+        if let Ok(mut guard) = self.inner.memory_watchdog.lock() {
+            *guard = None;
+        }
+        if let Some(mut child) = child_guard.take() {
             wait_for_graceful_exit(&mut child, Duration::from_millis(GRACEFUL_EXIT_TIMEOUT_MS))
                 .await;
         }
+        drop(child_guard);
         // Release the memory-cap Job Object only after the child is reaped;
         // closing it earlier would hard-kill a gracefully-exiting server.
         if let Ok(mut guard) = self.inner.memory_cap_guard.lock() {
@@ -680,7 +750,7 @@ impl NativeLspClient {
     /// document lifecycle: the FIRST sync of a URI sends `textDocument/didOpen`
     /// (version 1); every subsequent sync sends `textDocument/didChange` with an
     /// incremented version and a full-document content change. Re-sending
-    /// `didOpen` (as before) is ignored or rejected by many servers and can make
+    /// `didOpen` is ignored or rejected by many servers and can make
     /// changed content resolve against the stale original.
     #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn open_document(&self, file_path: String, content: String) -> Result<()> {
@@ -707,6 +777,7 @@ impl NativeLspClient {
         settle_ms: Option<u32>,
         timeout_ms: Option<u32>,
     ) -> Result<Option<String>> {
+        let _activity = self.lease();
         let observed = self.inner.progress.subscribe();
         let version = self.sync_document(&file_path, content).await?;
         if version != 1 {
@@ -727,6 +798,8 @@ impl NativeLspClient {
     #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn close_document(&self, file_path: String) -> Result<()> {
         let uri = path_to_uri(&file_path)?;
+        let _activity = self.lease();
+        let _ordered = self.inner.sync_lock.lock().await;
         let was_open = {
             let mut open_docs = self
                 .inner
@@ -755,8 +828,14 @@ impl NativeLspClient {
         line: u32,
         character: u32,
     ) -> Result<Vec<JsCodeSnippet>> {
-        self.location_request("textDocument/definition", file_path, line, character)
-            .await
+        self.get_locations(
+            LocationRequest::Definition,
+            file_path,
+            line,
+            character,
+            &SnippetReadPolicy::allow_all(),
+        )
+        .await
     }
 
     #[cfg_attr(feature = "napi-addon", napi)]
@@ -767,14 +846,16 @@ impl NativeLspClient {
         character: u32,
         include_declaration: Option<bool>,
     ) -> Result<Vec<JsCodeSnippet>> {
-        let uri = path_to_uri(&file_path)?;
-        let params = json!({
-            "textDocument": { "uri": uri },
-            "position": { "line": line, "character": character },
-            "context": { "includeDeclaration": include_declaration.unwrap_or(true) }
-        });
-        let result = self.request("textDocument/references", params).await?;
-        snippets_from_locations(result).await
+        self.get_locations(
+            LocationRequest::References {
+                include_declaration: include_declaration.unwrap_or(true),
+            },
+            file_path,
+            line,
+            character,
+            &SnippetReadPolicy::allow_all(),
+        )
+        .await
     }
 
     #[cfg_attr(feature = "napi-addon", napi)]
@@ -797,8 +878,14 @@ impl NativeLspClient {
         line: u32,
         character: u32,
     ) -> Result<Vec<JsCodeSnippet>> {
-        self.location_request("textDocument/typeDefinition", file_path, line, character)
-            .await
+        self.get_locations(
+            LocationRequest::TypeDefinition,
+            file_path,
+            line,
+            character,
+            &SnippetReadPolicy::allow_all(),
+        )
+        .await
     }
 
     #[cfg_attr(feature = "napi-addon", napi)]
@@ -808,8 +895,14 @@ impl NativeLspClient {
         line: u32,
         character: u32,
     ) -> Result<Vec<JsCodeSnippet>> {
-        self.location_request("textDocument/implementation", file_path, line, character)
-            .await
+        self.get_locations(
+            LocationRequest::Implementation,
+            file_path,
+            line,
+            character,
+            &SnippetReadPolicy::allow_all(),
+        )
+        .await
     }
 
     #[cfg_attr(feature = "napi-addon", napi)]
@@ -920,6 +1013,7 @@ impl NativeLspClient {
         timeout_ms: Option<u32>,
     ) -> Result<Option<Value>> {
         let uri = path_to_uri(&file_path)?;
+        let _activity = self.lease();
         let connection = self.connection_handle().await?;
         let min_version = self
             .inner
@@ -965,6 +1059,11 @@ impl NativeLspClient {
     async fn sync_document(&self, file_path: &str, content: String) -> Result<i32> {
         let file_path = file_path.to_owned();
         let uri = path_to_uri(&file_path)?;
+        let _activity = self.lease();
+        // Held from version reservation until the notification is written:
+        // two concurrent syncs of one document must reach the server in
+        // version order (never `didChange v2` before `didOpen v1`).
+        let _ordered = self.inner.sync_lock.lock().await;
 
         // Acquire the connection FIRST: if the client isn't started this fails
         // without mutating `open_docs`, so a doc is never marked open when its
@@ -1034,7 +1133,7 @@ impl NativeLspClient {
     /// `connection` mutex uncontended (held only for the clone) so concurrent
     /// LSP requests are NOT serialized and cannot head-of-line block one
     /// another. Returns an error if the client has not been started.
-    async fn connection_handle(&self) -> Result<Arc<JsonRpcConnection<ChildStdin>>> {
+    async fn connection_handle(&self) -> Result<Arc<JsonRpcConnection>> {
         self.inner
             .connection
             .lock()
@@ -1044,12 +1143,57 @@ impl NativeLspClient {
             .ok_or_else(|| Error::new(Status::GenericFailure, "LSP client not initialized"))
     }
 
-    pub(crate) fn has_active_requests(&self) -> bool {
-        self.inner.active_requests.load(Ordering::Acquire) > 0
+    /// Mark this client busy for as long as the returned guard lives. Hold
+    /// one across a whole multi-request operation (document syncs, readiness
+    /// waits, and the gaps between requests) so the pool's idle timer and LRU
+    /// eviction never stop the server mid-operation. Requests, syncs, and
+    /// diagnostic waits take their own lease internally.
+    pub fn lease(&self) -> LspLease {
+        LspLease::new(&self.inner.activity)
+    }
+
+    /// `true` when `other` is a clone of this client (same server process
+    /// state), not merely one with an equal config.
+    pub fn same_client(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
+    }
+
+    /// `true` while any request, sync, diagnostic wait, or [`LspLease`] is
+    /// outstanding on this client (or a clone of it).
+    pub fn is_busy(&self) -> bool {
+        self.inner.activity.load(Ordering::Acquire) > 0
+    }
+
+    /// Definition, references, type-definition, or implementation locations
+    /// with snippet content. Every server-supplied target path passes
+    /// `policy` before any of its bytes are read; a refused path keeps its
+    /// location with [`SNIPPET_CONTENT_WITHHELD`] as content. Reads are
+    /// bounded to regular files of at most 1 MB.
+    pub async fn get_locations(
+        &self,
+        request: LocationRequest,
+        file_path: String,
+        line: u32,
+        character: u32,
+        policy: &SnippetReadPolicy,
+    ) -> Result<Vec<JsCodeSnippet>> {
+        let uri = path_to_uri(&file_path)?;
+        let mut params = json!({
+            "textDocument": { "uri": uri },
+            "position": { "line": line, "character": character }
+        });
+        if let LocationRequest::References {
+            include_declaration,
+        } = request
+        {
+            params["context"] = json!({ "includeDeclaration": include_declaration });
+        }
+        let result = self.request(request.method(), params).await?;
+        snippets_from_locations(result, policy).await
     }
 
     async fn request(&self, method: &str, params: Value) -> Result<Value> {
-        let _activity = RequestActivity::begin(&self.inner.active_requests);
+        let _activity = self.lease();
         // Acquire a cloned handle and DROP the guard before awaiting, so the
         // request + content-modified retry loop never holds the connection
         // mutex across `.await`.
@@ -1067,9 +1211,7 @@ impl NativeLspClient {
             };
             match response {
                 Ok(value) => return Ok(value),
-                Err(error)
-                    if is_content_modified_error(&error) && attempts < CONTENT_MODIFIED_RETRIES =>
-                {
+                Err(error) if is_retryable_error(&error) && attempts < CONTENT_MODIFIED_RETRIES => {
                     attempts += 1;
                     tokio::time::sleep(std::time::Duration::from_millis(
                         CONTENT_MODIFIED_RETRY_DELAY_MS,
@@ -1080,50 +1222,88 @@ impl NativeLspClient {
             }
         }
     }
+}
 
-    async fn location_request(
-        &self,
-        method: &str,
-        file_path: String,
-        line: u32,
-        character: u32,
-    ) -> Result<Vec<JsCodeSnippet>> {
-        let uri = path_to_uri(&file_path)?;
-        let result = self
-            .request(
-                method,
-                json!({
-                    "textDocument": { "uri": uri },
-                    "position": { "line": line, "character": character }
-                }),
-            )
-            .await?;
-        snippets_from_locations(result).await
+/// RAII "this client is in use" guard from [`NativeLspClient::lease`].
+/// Owned and `'static`, so it can be held across awaits and moved between
+/// tasks; dropping it (including on cancellation) releases it. Deliberately
+/// not `Clone`: each lease is one count.
+#[must_use = "a lease marks the client busy only while it is held"]
+pub struct LspLease {
+    activity: Arc<AtomicUsize>,
+}
+
+impl LspLease {
+    fn new(activity: &Arc<AtomicUsize>) -> Self {
+        activity.fetch_add(1, Ordering::AcqRel);
+        Self {
+            activity: Arc::clone(activity),
+        }
     }
 }
 
-struct RequestActivity<'a>(&'a AtomicUsize);
-
-impl<'a> RequestActivity<'a> {
-    fn begin(active: &'a AtomicUsize) -> Self {
-        active.fetch_add(1, Ordering::AcqRel);
-        Self(active)
-    }
-}
-
-impl Drop for RequestActivity<'_> {
+impl Drop for LspLease {
     fn drop(&mut self) {
-        self.0.fetch_sub(1, Ordering::AcqRel);
+        self.activity.fetch_sub(1, Ordering::AcqRel);
     }
 }
 
-/// Detects the LSP `ContentModified` (-32801) error so the request can be retried.
-///
-/// The reason string is the JSON error object rendered by [`read_loop`], e.g.
-/// `LSP error: {"code":-32801,"message":"content modified"}`. We match on the
-/// numeric error CODE rather than a free-text `"content modified"` substring,
-/// which would false-positive on hover/diagnostic payloads that merely mention
-/// the phrase (e.g. a doc-comment) and trigger spurious retries.
+/// Which location request [`NativeLspClient::get_locations`] sends.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LocationRequest {
+    Definition,
+    References { include_declaration: bool },
+    TypeDefinition,
+    Implementation,
+}
+
+impl LocationRequest {
+    fn method(self) -> &'static str {
+        match self {
+            Self::Definition => "textDocument/definition",
+            Self::References { .. } => "textDocument/references",
+            Self::TypeDefinition => "textDocument/typeDefinition",
+            Self::Implementation => "textDocument/implementation",
+        }
+    }
+}
+
+/// Decides which server-supplied location paths may be read for snippet
+/// content. The authorizer receives the path decoded from the server's URI
+/// and returns the path to read (for example its canonical, policy-validated
+/// form), or `None` to refuse. It runs before any filesystem access to that
+/// file. The default allows every path as given (the napi methods use it).
+#[derive(Clone, Default)]
+pub struct SnippetReadPolicy {
+    authorizer: Option<Arc<SnippetPathAuthorizer>>,
+}
+
+/// See [`SnippetReadPolicy`].
+pub type SnippetPathAuthorizer = dyn Fn(&Path) -> Option<PathBuf> + Send + Sync;
+
+impl SnippetReadPolicy {
+    /// Read any regular file a location names (still bounded and
+    /// regular-file-only).
+    pub fn allow_all() -> Self {
+        Self::default()
+    }
+
+    pub fn with_authorizer(
+        authorizer: impl Fn(&Path) -> Option<PathBuf> + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            authorizer: Some(Arc::new(authorizer)),
+        }
+    }
+
+    fn authorize(&self, path: &Path) -> Option<PathBuf> {
+        match &self.authorizer {
+            Some(authorizer) => authorizer(path),
+            None => Some(path.to_path_buf()),
+        }
+    }
+}
+
 fn supports_partial_results(method: &str) -> bool {
     matches!(
         method,
@@ -1141,30 +1321,13 @@ fn supports_partial_results(method: &str) -> bool {
     )
 }
 
-fn is_content_modified_error(error: &Error) -> bool {
-    reason_has_error_code(&error.reason, -32801)
-}
-
-/// Returns true if the rendered JSON error object carries `"code": <code>`,
-/// tolerating arbitrary whitespace between the key, colon, and value.
-fn reason_has_error_code(reason: &str, code: i64) -> bool {
-    let mut search = reason;
-    while let Some(idx) = search.find("\"code\"") {
-        let after = &search[idx + "\"code\"".len()..];
-        let after = after.trim_start();
-        if let Some(rest) = after.strip_prefix(':') {
-            let rest = rest.trim_start();
-            // Parse the leading signed integer literal.
-            let end = rest
-                .find(|c: char| c != '-' && !c.is_ascii_digit())
-                .unwrap_or(rest.len());
-            if rest[..end].parse::<i64>() == Ok(code) {
-                return true;
-            }
-        }
-        search = &search[idx + "\"code\"".len()..];
-    }
-    false
+/// A request failure worth re-sending: `ContentModified`, or
+/// `ServerCancelled` when the server asked for a retrigger. Matches the typed
+/// RPC error, never the rendered message text.
+fn is_retryable_error(error: &Error) -> bool {
+    error
+        .rpc_error()
+        .is_some_and(crate::error::RpcError::is_retryable)
 }
 
 /// Extracts the server-selected `positionEncoding` from an `InitializeResult`.
@@ -1196,7 +1359,7 @@ fn capability_value_supported(value: &Value) -> bool {
 }
 
 async fn initialize(
-    connection: &JsonRpcConnection<ChildStdin>,
+    connection: &JsonRpcConnection,
     config: &JsLanguageServerConfig,
 ) -> Result<Value> {
     let params = initialize_params(config)?;
@@ -1207,7 +1370,7 @@ async fn initialize(
 
 fn initialize_params(config: &JsLanguageServerConfig) -> Result<Value> {
     let root_uri = path_to_uri(&config.workspace_root)?;
-    Ok(json!({
+    let mut params = json!({
         "processId": std::process::id(),
         "clientInfo": { "name": "octocode-engine", "version": env!("CARGO_PKG_VERSION") },
         "locale": "en",
@@ -1216,13 +1379,19 @@ fn initialize_params(config: &JsLanguageServerConfig) -> Result<Value> {
         "capabilities": {
             "general": {
                 // Advertise UTF-16 ONLY. Every position octocode sends is computed
-                // in UTF-16 code units (resolver::byte_offset_to_utf16) and the
+                // in UTF-16 code units (`text::utf8_offsets`) and the
                 // column/snippet layers are UTF-16 too, so a server that selected
                 // utf-8 would misread our offsets on any line with non-ASCII text.
                 // UTF-16 is the mandatory baseline encoding, so it is always
                 // supported. The server's choice is read back and asserted in
                 // `start()` via `extract_position_encoding`.
-                "positionEncodings": ["utf-16"]
+                "positionEncodings": ["utf-16"],
+                // We cancel dropped requests and re-send these methods on
+                // ContentModified (see `NativeLspClient::request`).
+                "staleRequestSupport": {
+                    "cancel": true,
+                    "retryOnContentModified": RETRIED_METHODS
+                }
             },
             "textDocument": {
                 "definition": { "dynamicRegistration": false, "linkSupport": true },
@@ -1243,7 +1412,8 @@ fn initialize_params(config: &JsLanguageServerConfig) -> Result<Value> {
                 // advertises this. versionSupport lets them tag the document
                 // version each report belongs to.
                 "publishDiagnostics": { "versionSupport": true, "relatedInformation": false },
-                "synchronization": { "didSave": true, "willSave": false, "willSaveWaitUntil": false }
+                // No didSave: octocode never saves, so it must not claim to.
+                "synchronization": { "dynamicRegistration": false, "willSave": false, "willSaveWaitUntil": false }
             },
             "workspace": {
                 "configuration": true,
@@ -1255,12 +1425,21 @@ fn initialize_params(config: &JsLanguageServerConfig) -> Result<Value> {
             }
         },
         "initializationOptions": config.initialization_options.clone().unwrap_or(Value::Null)
-    }))
+    });
+    // rust-analyzer only: `experimental/serverStatus {quiescent}` feeds
+    // readiness (see `ProgressTracker::on_server_status`).
+    if crate::lsp::config::is_rust_analyzer_command(&config.command) {
+        params["capabilities"]["experimental"] = json!({ "serverStatusNotification": true });
+    }
+    Ok(params)
 }
 
-async fn snippets_from_locations(value: Value) -> Result<Vec<JsCodeSnippet>> {
+async fn snippets_from_locations(
+    value: Value,
+    policy: &SnippetReadPolicy,
+) -> Result<Vec<JsCodeSnippet>> {
     let mut snippets = Vec::new();
-    let mut content_cache = SnippetContentCache::default();
+    let mut content_cache = SnippetContentCache::new(policy.clone());
     match value {
         Value::Null => Ok(snippets),
         Value::Array(items) => {
@@ -1282,40 +1461,126 @@ async fn snippets_from_locations(value: Value) -> Result<Vec<JsCodeSnippet>> {
     }
 }
 
-#[derive(Default)]
+/// One file's snippet source, split into lines once.
+struct CachedSource {
+    content: String,
+    lines: LineIndex,
+}
+
+enum CachedRead {
+    Source(CachedSource),
+    Withheld,
+    Failed(Error),
+}
+
+/// Per-response cache of snippet sources keyed by the server-supplied path,
+/// so a file named by many locations is authorized, read, and line-indexed
+/// once (failures and refusals are cached too).
 struct SnippetContentCache {
-    files: HashMap<String, String>,
+    policy: SnippetReadPolicy,
+    files: HashMap<String, CachedRead>,
 }
 
 impl SnippetContentCache {
+    fn new(policy: SnippetReadPolicy) -> Self {
+        Self {
+            policy,
+            files: HashMap::new(),
+        }
+    }
+
+    /// Whole-line snippet for `range`, [`SNIPPET_CONTENT_WITHHELD`] when the
+    /// policy refuses the path, or the read error.
     async fn read_range_content(&mut self, file_path: &str, range: &JsRange) -> Result<String> {
         if !self.files.contains_key(file_path) {
-            let metadata = tokio::fs::metadata(file_path)
-                .await
-                .map_err(|err| Error::new(Status::GenericFailure, err.to_string()))?;
-            if metadata.len() > MAX_SNIPPET_SOURCE_BYTES {
-                return Err(Error::new(
-                    Status::InvalidArg,
-                    format!(
-                        "file too large for LSP snippet content ({} bytes > {} bytes)",
-                        metadata.len(),
-                        MAX_SNIPPET_SOURCE_BYTES
-                    ),
-                ));
-            }
-            let content = tokio::fs::read_to_string(file_path)
-                .await
-                .map_err(|err| Error::new(Status::GenericFailure, err.to_string()))?;
-            self.files.insert(file_path.to_owned(), content);
+            let entry = match self.policy.authorize(Path::new(file_path)) {
+                None => CachedRead::Withheld,
+                Some(authorized) => match read_snippet_source(authorized).await {
+                    Ok(content) => CachedRead::Source(CachedSource {
+                        lines: LineIndex::new(&content),
+                        content,
+                    }),
+                    Err(error) => CachedRead::Failed(error),
+                },
+            };
+            self.files.insert(file_path.to_owned(), entry);
         }
-        Ok(slice_range_content(
-            self.files
-                .get(file_path)
-                .map(String::as_str)
-                .unwrap_or_default(),
-            range,
-        ))
+        match self.files.get(file_path) {
+            Some(CachedRead::Source(source)) => Ok(slice_range_content(source, range)),
+            Some(CachedRead::Withheld) => Ok(SNIPPET_CONTENT_WITHHELD.to_owned()),
+            Some(CachedRead::Failed(error)) => Err(error.clone()),
+            None => Ok(String::new()),
+        }
     }
+}
+
+async fn read_snippet_source(path: PathBuf) -> Result<String> {
+    tokio::task::spawn_blocking(move || read_bounded_regular_file(&path, MAX_SNIPPET_SOURCE_BYTES))
+        .await
+        .map_err(|err| {
+            Error::new(
+                Status::GenericFailure,
+                format!("snippet read task failed: {err}"),
+            )
+        })?
+}
+
+/// Read a UTF-8 regular file of at most `max_bytes`, never touching the bytes
+/// of anything else. A path that is not a regular file (a FIFO, a device such
+/// as `/dev/zero`, a directory) is rejected from `stat` alone, before it is
+/// opened, so a FIFO cannot block the open. The opened handle is re-checked
+/// (the path may have been swapped) and read through `take(max_bytes + 1)`,
+/// so a file that grew past the limit is rejected without reading it whole.
+pub(crate) fn read_bounded_regular_file(path: &Path, max_bytes: u64) -> Result<String> {
+    use std::io::Read;
+    let io_error = |err: std::io::Error| Error::new(Status::GenericFailure, err.to_string());
+    let not_regular = || {
+        Error::new(
+            Status::InvalidArg,
+            "not a regular file; LSP snippet content is read only from regular files",
+        )
+    };
+    let too_large = |len: u64| {
+        Error::new(
+            Status::InvalidArg,
+            format!("file too large for LSP snippet content ({len} bytes > {max_bytes} bytes)"),
+        )
+    };
+    let metadata = std::fs::metadata(path).map_err(io_error)?;
+    if !metadata.is_file() {
+        return Err(not_regular());
+    }
+    if metadata.len() > max_bytes {
+        return Err(too_large(metadata.len()));
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    // A FIFO swapped in after the `stat` must not block the open.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NONBLOCK);
+    }
+    let file = options.open(path).map_err(io_error)?;
+    let metadata = file.metadata().map_err(io_error)?;
+    if !metadata.is_file() {
+        return Err(not_regular());
+    }
+    let capacity = usize::try_from(metadata.len().min(max_bytes)).unwrap_or(0);
+    let mut bytes = Vec::with_capacity(capacity);
+    file.take(max_bytes.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .map_err(io_error)?;
+    let read = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+    if read > max_bytes {
+        return Err(too_large(read));
+    }
+    String::from_utf8(bytes).map_err(|err| {
+        Error::new(
+            Status::GenericFailure,
+            format!("file is not valid UTF-8: {err}"),
+        )
+    })
 }
 
 async fn snippet_from_location_like(
@@ -1384,12 +1649,66 @@ fn spawn_stderr_reader(
     stderr: ChildStderr,
     stderr_lines: Arc<StdMutex<VecDeque<String>>>,
 ) -> JoinHandle<()> {
-    tokio::spawn(async move {
-        let mut lines = BufReader::new(stderr).lines();
-        while let Ok(Some(line)) = lines.next_line().await {
-            push_stderr_line(&stderr_lines, line);
+    tokio::spawn(drain_stderr(stderr, stderr_lines))
+}
+
+/// Drain the server's stderr into the bounded ring until EOF or an I/O
+/// error. It must keep reading whatever the bytes are: a stopped drain lets
+/// the pipe fill and blocks the server. Each line is capped in memory at
+/// [`STDERR_LINE_MAX_BYTES`] and decoded lossily.
+async fn drain_stderr<R: AsyncRead + Unpin>(
+    stderr: R,
+    stderr_lines: Arc<StdMutex<VecDeque<String>>>,
+) {
+    let mut reader = BufReader::new(stderr);
+    let mut line = Vec::with_capacity(256);
+    loop {
+        line.clear();
+        match read_capped_line(&mut reader, &mut line, STDERR_LINE_MAX_BYTES).await {
+            Ok((0, _)) | Err(_) => return,
+            Ok((_, truncated)) => {
+                let mut text = String::from_utf8_lossy(&line).into_owned();
+                if truncated {
+                    text.push_str("...");
+                }
+                push_stderr_line(&stderr_lines, text);
+            }
         }
-    })
+    }
+}
+
+/// Read one `\n`-terminated line, keeping at most `cap` bytes of it in
+/// `line` and consuming (discarding) the rest. The terminator and a
+/// preceding `\r` are not kept. Returns the bytes consumed (0 = EOF) and
+/// whether the line was cut.
+async fn read_capped_line<R: AsyncBufRead + Unpin>(
+    reader: &mut R,
+    line: &mut Vec<u8>,
+    cap: usize,
+) -> std::io::Result<(usize, bool)> {
+    let mut consumed = 0;
+    let mut truncated = false;
+    loop {
+        let available = reader.fill_buf().await?;
+        if available.is_empty() {
+            break;
+        }
+        let newline = available.iter().position(|&byte| byte == b'\n');
+        let content = &available[..newline.unwrap_or(available.len())];
+        let keep = content.len().min(cap.saturating_sub(line.len()));
+        line.extend_from_slice(&content[..keep]);
+        truncated |= keep < content.len();
+        let used = newline.map_or(available.len(), |index| index + 1);
+        reader.consume(used);
+        consumed += used;
+        if newline.is_some() {
+            break;
+        }
+    }
+    if line.last() == Some(&b'\r') {
+        line.pop();
+    }
+    Ok((consumed, truncated))
 }
 
 fn push_stderr_line(stderr_lines: &Arc<StdMutex<VecDeque<String>>>, line: String) {
@@ -1409,6 +1728,49 @@ fn truncate_stderr_line(line: String) -> String {
     let mut truncated = line.chars().take(STDERR_LINE_MAX_CHARS).collect::<String>();
     truncated.push_str("...");
     truncated
+}
+
+/// Arm the RSS watchdog for a freshly spawned server on macOS, where
+/// `RLIMIT_AS` cannot cap it (see [`spawn_limits`]). Over the cap, the
+/// connection fails with a "language server exceeded memory cap" error and
+/// the server tree is killed. `None` when no cap is configured, off macOS
+/// (the pre-spawn `RLIMIT_AS` / Job Object caps apply there), or when the
+/// child already exited.
+#[cfg(target_os = "macos")]
+fn memory_watchdog_for(
+    child: &Child,
+    memory_cap: Option<u64>,
+    connection: &Arc<JsonRpcConnection>,
+) -> Option<spawn_limits::AbortOnDrop> {
+    let (cap_bytes, pid) = memory_cap.zip(child.id())?;
+    let alive = Arc::downgrade(connection);
+    let failed = Arc::downgrade(connection);
+    Some(spawn_limits::AbortOnDrop(tokio::spawn(
+        spawn_limits::watch_memory(
+            pid,
+            cap_bytes,
+            spawn_limits::MEMORY_WATCHDOG_INTERVAL,
+            move || {
+                alive
+                    .upgrade()
+                    .is_some_and(|connection| connection.is_alive())
+            },
+            move |rss| {
+                if let Some(connection) = failed.upgrade() {
+                    connection.fail(&spawn_limits::memory_cap_exceeded_message(rss, cap_bytes));
+                }
+            },
+        ),
+    )))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn memory_watchdog_for(
+    _child: &Child,
+    _memory_cap: Option<u64>,
+    _connection: &Arc<JsonRpcConnection>,
+) -> Option<spawn_limits::AbortOnDrop> {
+    None
 }
 
 async fn cleanup_failed_start(child: &mut Child, stderr_task: Option<JoinHandle<()>>) {
@@ -1436,9 +1798,15 @@ fn parse_position(value: &Value) -> Result<JsExactPosition> {
                 "LSP position missing numeric 'character'",
             )
         })?;
+    let out_of_range = |field: &str| {
+        Error::new(
+            Status::InvalidArg,
+            format!("LSP position '{field}' exceeds u32"),
+        )
+    };
     Ok(JsExactPosition {
-        line: line as u32,
-        character: character as u32,
+        line: u32::try_from(line).map_err(|_| out_of_range("line"))?,
+        character: u32::try_from(character).map_err(|_| out_of_range("character"))?,
     })
 }
 
@@ -1448,10 +1816,13 @@ fn parse_position(value: &Value) -> Result<JsExactPosition> {
 /// `end.character > 0` the end line is partially covered, so it is included
 /// (whole-line — column truncation would shrink a single-line definition
 /// snippet down to the bare identifier).
-fn slice_range_content(content: &str, range: &JsRange) -> String {
-    let lines: Vec<&str> = content.lines().collect();
+///
+/// Lines break on `\r\n`, `\n`, and lone `\r` (as the server counts them),
+/// using the source's precomputed line index.
+fn slice_range_content(source: &CachedSource, range: &JsRange) -> String {
+    let line_count = source.lines.content_len();
     let start = range.start.line as usize;
-    if start >= lines.len() {
+    if start >= line_count {
         return String::new();
     }
     let end = range.end.line as usize;
@@ -1463,11 +1834,14 @@ fn slice_range_content(content: &str, range: &JsRange) -> String {
     } else {
         end
     };
-    let last_inclusive = last_inclusive.min(lines.len().saturating_sub(1));
+    let last_inclusive = last_inclusive.min(line_count.saturating_sub(1));
     if last_inclusive < start {
         return String::new();
     }
-    lines[start..=last_inclusive].join("\n")
+    (start..=last_inclusive)
+        .map(|line| source.lines.line(&source.content, line).unwrap_or_default())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 #[cfg(test)]

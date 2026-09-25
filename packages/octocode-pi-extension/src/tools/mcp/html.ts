@@ -43,13 +43,26 @@ import { inspectWorkerCapabilityGrants } from '../worker-capabilities.js';
 
 export const SETTINGS_HTML_FILE = 'settings.html';
 
-function skillSourcePreview(file: string, expectedRevision?: string): string {
-  try {
-    if (fs.statSync(file).size > 512 * 1024) return '<p>Source exceeds the skill size limit.</p>';
-    const raw = fs.readFileSync(file, 'utf8');
-    if (capabilityDefinitionRevision({ raw, realPath: fs.realpathSync(file) }) !== expectedRevision) return '<p>Source changed. Reopen /config before reviewing.</p>';
-    return `<details><summary>Review complete skill instructions</summary><pre>${escapeHtml(raw)}</pre></details>`;
-  } catch { return '<p>Source unavailable. Reopen /config before reviewing.</p>'; }
+const SKILL_PREVIEW_MAX_BYTES = 512 * 1024;
+
+/**
+ * Collapsed review slot for one skill source. Bodies are fetched on expand via
+ * the `preview-skill` action so the page stays small (inlining every discovered
+ * SKILL.md made settings.html ~1 MB).
+ */
+function skillSourcePreview(sourceId: string, revision: string): string {
+  return `<details data-skill-preview data-source="${escapeHtml(sourceId)}" data-hash="${escapeHtml(revision)}"><summary>Review complete skill instructions</summary><pre>Expand to load the exact source for review.</pre></details>`;
+}
+
+/** Read one discovered skill source for review; refuses changed, oversized, or untrusted sources. */
+export function previewSkillSource(cwd: string, sourceId: string, revision: string, piSkills?: SkillInfo[], options: { trusted?: boolean } = {}): string {
+  const candidate = discoverSkillCandidates(cwd, piSkills, undefined, { trusted: options.trusted === true }).find(skill => skill.sourceId === sourceId);
+  if (!candidate?.path || candidate.parseStatus !== 'valid' || candidate.status === 'untrusted' || candidate.status === 'unavailable') throw new Error('Skill source is unavailable. Reopen /config before reviewing.');
+  if (candidate.revision !== revision) throw new Error('Source changed. Reopen /config before reviewing.');
+  if (fs.statSync(candidate.path).size > SKILL_PREVIEW_MAX_BYTES) throw new Error('Source exceeds the skill size limit.');
+  const raw = fs.readFileSync(candidate.path, 'utf8');
+  if (capabilityDefinitionRevision({ raw, realPath: fs.realpathSync(candidate.path) }) !== revision) throw new Error('Source changed. Reopen /config before reviewing.');
+  return raw;
 }
 
 function managerDir(cwd: string): string {
@@ -84,6 +97,8 @@ function settingsAdapter(ctx?: PiContext): PiSettingsAdapter {
 
 
 export async function applyMcpManagerAction(action: McpManagerAction, ctx?: PiContext, pi?: PiInstance, piSkills?: SkillInfo[]): Promise<void> {
+  // Read-only; served directly by the settings page bridge (previewSkillSource).
+  if (action.action === 'preview-skill') return;
   if (action.capabilityRevision && action.capabilityRevision !== await configurationRevision(ctx, piSkills)) throw new Error('Capabilities changed since this page was generated. Reopen /config and review the current definitions.');
   if (action.action === 'review-skill' || action.action === 'review-mcp') {
     if (action.action === 'review-skill') reviewSkillSource(ctx?.cwd ?? process.cwd(), action.source, action.hash, action.scope, piSkills, { trusted: ctx?.isProjectTrusted?.() === true });
@@ -265,7 +280,7 @@ export async function renderMcpManagerPage(ctx?: PiContext, actionToken = '', pi
     const globalOverride = skillOverrides.find((override) => override.scopeKey === '*' && override.skillKey === key);
     const effectiveSource = workspaceOverride ? 'workspace override' : globalOverride ? 'global override' : 'default';
     const globalSelected = !workspaceOverride && Boolean(globalOverride);
-    const alternatives = candidates.filter(candidate => normalizeSkillKey(candidate.name) === key).map(candidate => `<div class="row"><span><code>${escapeHtml(candidate.path)}</code><small>${escapeHtml(candidate.status)}${candidate.selected ? ' · selected' : ''}${candidate.bundled ? ' · bundled default' : ''}</small><p>${escapeHtml(candidate.description)}</p>${candidate.parseStatus === 'valid' && candidate.status !== 'untrusted' ? skillSourcePreview(candidate.path, candidate.revision) : ''}<small>${escapeHtml(candidate.revision ?? '')}</small></span>${candidate.sourceId && candidate.revision && candidate.parseStatus === 'valid' && candidate.status !== 'untrusted' && candidate.status !== 'unavailable' ? `<button data-action="review-skill" data-skill="${escapeHtml(skill.name)}" data-source="${escapeHtml(candidate.sourceId)}" data-hash="${escapeHtml(candidate.revision)}">Review and select source</button>` : ''}</div>`).join('');
+    const alternatives = candidates.filter(candidate => normalizeSkillKey(candidate.name) === key).map(candidate => `<div class="row"><span><code>${escapeHtml(candidate.path)}</code><small>${escapeHtml(candidate.status)}${candidate.selected ? ' · selected' : ''}${candidate.bundled ? ' · bundled default' : ''}</small><p>${escapeHtml(candidate.description)}</p>${candidate.parseStatus === 'valid' && candidate.status !== 'untrusted' && candidate.sourceId && candidate.revision ? skillSourcePreview(candidate.sourceId, candidate.revision) : ''}<small>${escapeHtml(candidate.revision ?? '')}</small></span>${candidate.sourceId && candidate.revision && candidate.parseStatus === 'valid' && candidate.status !== 'untrusted' && candidate.status !== 'unavailable' ? `<button data-action="review-skill" data-skill="${escapeHtml(skill.name)}" data-source="${escapeHtml(candidate.sourceId)}" data-hash="${escapeHtml(candidate.revision)}">Review and select source</button>` : ''}</div>`).join('');
     return `<article class="skill-card" data-skill-search="${escapeHtml(`${skill.name} ${skill.description} ${skill.source}`.toLowerCase())}" data-skill-state="${skill.enabled ? 'enabled' : 'disabled'}"><div class="skill-card-head"><div><span class="badge">${escapeHtml(skill.source)}</span><h3>${escapeHtml(skill.name)}</h3></div><span class="badge ${skill.enabled ? 'on' : ''}">${skill.enabled ? 'enabled' : 'disabled'}</span></div><p>${escapeHtml(skill.description || '(no description)')}</p><details><summary>Source and effective state</summary><code>${escapeHtml(skill.path)}</code><small>${escapeHtml(effectiveSource)}</small></details><details><summary>Import or choose a source</summary>${alternatives}</details><div class="skill-actions"><select aria-label="Scope for ${escapeHtml(skill.name)}" data-skill-scope><option value="project"${globalSelected ? '' : ' selected'}>This workspace</option><option value="global"${globalSelected ? ' selected' : ''}>All workspaces</option></select><button class="${skill.enabled ? '' : 'primary'}" data-action="${skill.enabled ? 'disable-skill' : 'enable-skill'}" data-skill="${escapeHtml(skill.name)}"${enablementAttributes}>${skill.enabled ? 'Disable skill' : 'Enable skill'}</button></div></article>`;
   }).join('');
   const commandRows = commands.map((command) => {
@@ -385,6 +400,14 @@ export async function renderMcpManagerPage(ctx?: PiContext, actionToken = '', pi
           location.reload();
         } catch (error) { notice(error.message); button.disabled = false; button.removeAttribute('aria-busy'); button.textContent = originalLabel; }
       });
+      document.querySelectorAll('details[data-skill-preview]').forEach(details => details.addEventListener('toggle', async () => {
+        if (!details.open || details.dataset.loaded) return;
+        const pre = details.querySelector('pre');
+        details.dataset.loaded = 'loading';
+        pre.textContent = 'Loading…';
+        try { pre.textContent = (await post({ action:'preview-skill', source:details.dataset.source, hash:details.dataset.hash })).preview; details.dataset.loaded = 'done'; }
+        catch (error) { pre.textContent = error.message; delete details.dataset.loaded; }
+      }));
       let activeFilter = 'all';
       const applyFilter = () => { const query = document.querySelector('#server-filter').value.trim().toLowerCase(); document.querySelectorAll('.server-card').forEach(card => card.classList.toggle('hidden', !card.dataset.search.includes(query) || (activeFilter !== 'all' && card.dataset.origin !== activeFilter))); };
       document.querySelector('#server-filter').addEventListener('input', applyFilter);
@@ -449,9 +472,12 @@ export async function openMcpManager(ctx?: PiContext, piSkills?: SkillInfo[], se
   let actionQueue = Promise.resolve();
   const served = await serveDirectory(configurationMountName(cwd), dir, {
     indexFile: SETTINGS_HTML_FILE,
-    onAction: (raw) => {
+    onAction: async (raw) => {
+      const parsed = parseMcpManagerAction(raw);
+      // Read-only: serve a skill body on demand without queueing or rewriting the page.
+      if (parsed.action === 'preview-skill') return { preview: previewSkillSource(cwd, parsed.source, parsed.hash, piSkills, { trusted: ctx?.isProjectTrusted?.() === true }) };
       const pending = actionQueue.then(async () => {
-        const action = parseMcpManagerAction(raw);
+        const action = parsed;
         await applyMcpManagerAction(action, ctx, pi, piSkills);
         await write();
         return { updated: true };

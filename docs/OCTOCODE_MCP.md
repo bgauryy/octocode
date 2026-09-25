@@ -97,7 +97,6 @@ Use environment variables for per-client or per-project settings. Use `<octocode
 | `GITHUB_TOKEN` / `GH_TOKEN` / `OCTOCODE_TOKEN` | — | GitHub API auth. |
 | `GITHUB_API_URL` | `https://api.github.com` | GitHub Enterprise endpoint. |
 | `ENABLE_LOCAL` | `true` | Turns local filesystem and LSP tools on or off. |
-| `ENABLE_CLONE` | `false` | Legacy setting retained for config compatibility; it does not expose cloning through MCP. |
 | `TOOLS_TO_RUN` | unset | Strict allowlist — replaces the default set. Every tool you need must be named explicitly. |
 | `DISABLE_TOOLS` | unset | Remove specific tools from the default set. |
 | `WORKSPACE_ROOT`, `ALLOWED_PATHS` | — | Bound local path resolution and validation. |

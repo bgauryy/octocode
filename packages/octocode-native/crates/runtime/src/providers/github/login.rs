@@ -102,12 +102,6 @@ pub struct TokenWithRefreshResult {
     pub refresh_error: Option<String>,
 }
 
-pub async fn login_device_flow(
-    endpoints: &LoginEndpoints,
-) -> Result<StoredCredentials, ProviderError> {
-    login_device_flow_with_client_id(endpoints, GITHUB_APP_CLIENT_ID).await
-}
-
 pub async fn login_device_flow_with_client_id(
     endpoints: &LoginEndpoints,
     client_id: &str,
@@ -123,8 +117,11 @@ fn login_client() -> Result<&'static reqwest::Client, ProviderError> {
     static CLIENT: OnceLock<Option<reqwest::Client>> = OnceLock::new();
     CLIENT
         .get_or_init(|| {
+            // Never follow redirects: a 307/308 would replay the device-code,
+            // poll, or refresh-token body to wherever `Location` points.
             reqwest::Client::builder()
                 .timeout(LOGIN_HTTP_TIMEOUT)
+                .redirect(reqwest::redirect::Policy::none())
                 .build()
                 .ok()
         })
@@ -135,6 +132,26 @@ fn login_client() -> Result<&'static reqwest::Client, ProviderError> {
                 "failed to initialize login HTTP client",
             )
         })
+}
+
+/// OAuth endpoints answer directly; any 3xx is refused instead of followed.
+fn reject_redirect(
+    response: reqwest::Response,
+    what: &str,
+) -> Result<reqwest::Response, ProviderError> {
+    let status = response.status();
+    if status.is_redirection() {
+        let mut error = ProviderError::new(
+            ProviderErrorKind::RedirectDenied,
+            format!(
+                "{what} was redirected (HTTP {}); OAuth requests do not follow redirects",
+                status.as_u16()
+            ),
+        );
+        error.status = Some(status.as_u16());
+        return Err(error);
+    }
+    Ok(response)
 }
 
 fn login_cancelled() -> ProviderError {
@@ -214,7 +231,8 @@ pub async fn login_device_flow_cancellable(
             .await
             .map_err(|_| {
                 ProviderError::new(ProviderErrorKind::Transport, "device code request failed")
-            })?
+            })
+            .and_then(|response| reject_redirect(response, "device code request"))?
             .json()
             .await
             .map_err(|_| {
@@ -246,7 +264,8 @@ pub async fn login_device_flow_cancellable(
                 .body(token_poll_form(client_id, &device.device_code))
                 .send()
                 .await
-                .map_err(|_| ProviderError::new(ProviderErrorKind::Transport, "token poll failed"))?
+                .map_err(|_| ProviderError::new(ProviderErrorKind::Transport, "token poll failed"))
+                .and_then(|response| reject_redirect(response, "token poll"))?
                 .json()
                 .await
                 .map_err(|_| {
@@ -381,58 +400,11 @@ fn rfc3339_now() -> String {
 }
 
 fn unix_to_rfc3339(secs: u64) -> String {
-    const DAYS_PER_400Y: i64 = 146_097;
-    const DAYS_PER_100Y: i64 = 36_524;
-    const DAYS_PER_4Y: i64 = 1_461;
-    let z = (secs / 86_400) as i64;
     let rem = secs % 86_400;
     let hour = rem / 3600;
     let minute = (rem % 3600) / 60;
     let second = rem % 60;
-    let mut days = z;
-    let mut year = 1970i64;
-    let cycles = days.div_euclid(DAYS_PER_400Y);
-    year += cycles * 400;
-    days = days.rem_euclid(DAYS_PER_400Y);
-    let mut hundreds = days / DAYS_PER_100Y;
-    if hundreds == 4 {
-        hundreds = 3;
-    }
-    year += hundreds * 100;
-    days -= hundreds * DAYS_PER_100Y;
-    let fours = days / DAYS_PER_4Y;
-    year += fours * 4;
-    days -= fours * DAYS_PER_4Y;
-    let mut ones = days / 365;
-    if ones == 4 {
-        ones = 3;
-    }
-    year += ones;
-    days -= ones * 365;
-    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
-    let md = [
-        31,
-        28 + i64::from(leap),
-        31,
-        30,
-        31,
-        30,
-        31,
-        31,
-        30,
-        31,
-        30,
-        31,
-    ];
-    let mut month = 1u32;
-    for length in md {
-        if days < length {
-            break;
-        }
-        days -= length;
-        month += 1;
-    }
-    let day = days + 1;
+    let (year, month, day) = crate::civil_date::civil_from_days((secs / 86_400) as i64);
     format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z")
 }
 
@@ -488,13 +460,11 @@ fn days_from_civil(year: i32, month: u32, day: u32) -> Option<i64> {
     if !(1..=12).contains(&month) || day == 0 || day > 31 {
         return None;
     }
-    let y = if month <= 2 { year - 1 } else { year };
-    let era = y.div_euclid(400);
-    let yoe = y.rem_euclid(400) as u32;
-    let mp = if month > 2 { month - 3 } else { month + 9 };
-    let doy = (153 * mp + 2) / 5 + day - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    Some(i64::from(era) * 146_097 + i64::from(doe) - 719_468)
+    Some(crate::civil_date::days_from_civil(
+        i64::from(year),
+        i64::from(month),
+        i64::from(day),
+    ))
 }
 
 fn mask_token_text(message: &str) -> String {
@@ -516,24 +486,159 @@ fn mask_token_text(message: &str) -> String {
     out
 }
 
+/// How long a refresher waits for another process to finish its refresh:
+/// the OAuth call's own admission wait plus its HTTP timeout.
+const REFRESH_LOCK_WAIT: Duration = Duration::from_secs(45);
+
+/// Where stored credentials are read and written during a refresh, and the
+/// lock file that serializes refreshes across processes. The platform
+/// credential store is per user, so the lock lives under the user's home,
+/// not under a per-process `OCTOCODE_HOME`.
+struct RefreshStore<'a> {
+    load: &'a (dyn Fn(&str) -> Result<Option<StoredCredentials>, ProviderError> + Sync),
+    store: &'a (dyn Fn(&StoredCredentials) -> Result<(), ProviderError> + Sync),
+    lock_path: std::path::PathBuf,
+}
+
+fn platform_refresh_store(host: &str) -> RefreshStore<'static> {
+    RefreshStore {
+        load: &load_stored_credentials,
+        store: &store_platform_credential,
+        lock_path: refresh_lock_path(host),
+    }
+}
+
+fn refresh_lock_path(host: &str) -> std::path::PathBuf {
+    let name = host
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '.' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    std::env::home_dir()
+        .filter(|home| home.is_absolute())
+        .map(|home| home.join(".octocode").join("tmp").join("locks"))
+        .unwrap_or_else(|| std::env::temp_dir().join("octocode-locks"))
+        .join(format!("oauth-refresh-{name}.lock"))
+}
+
+/// An advisory file lock (`flock` / `LockFileEx`) held for one
+/// load-refresh-store sequence. The OS drops it if the process dies, so a
+/// crashed refresher never leaves a stale lock behind.
+struct RefreshFileLock(std::fs::File);
+
+impl Drop for RefreshFileLock {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
+}
+
+async fn acquire_refresh_lock(
+    path: &std::path::Path,
+    wait: Duration,
+) -> Result<RefreshFileLock, ProviderError> {
+    let unavailable = || {
+        ProviderError::new(
+            ProviderErrorKind::CredentialStoreUnavailable,
+            "cannot open the GitHub token refresh lock",
+        )
+    };
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|_| unavailable())?;
+    }
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(path)
+        .map_err(|_| unavailable())?;
+    let deadline = Instant::now() + wait;
+    loop {
+        match file.try_lock() {
+            Ok(()) => return Ok(RefreshFileLock(file)),
+            Err(std::fs::TryLockError::WouldBlock) => {}
+            Err(std::fs::TryLockError::Error(_)) => return Err(unavailable()),
+        }
+        if Instant::now() >= deadline {
+            return Err(ProviderError::new(
+                ProviderErrorKind::Timeout,
+                "timed out waiting for another process to refresh the GitHub token",
+            ));
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+/// When a refresh under the lock is still needed.
+enum RefreshMode {
+    /// Refresh only if the stored access token is (still) expired.
+    IfExpired,
+    /// Explicit refresh; skipped when the stored refresh token no longer
+    /// matches the one observed before waiting (another process rotated it).
+    Force { observed: Option<String> },
+}
+
+/// Load, refresh, and store under one cross-process lock. GitHub refresh
+/// tokens are single-use: two processes posting the same one revoke the
+/// token family, so the stored credential is re-read after the lock is held
+/// and a refresh another process already made is reused.
+async fn refresh_locked(
+    endpoints: &LoginEndpoints,
+    client_id: &str,
+    mode: RefreshMode,
+    store: &RefreshStore<'_>,
+) -> Result<Option<StoredCredentials>, ProviderError> {
+    let _lock = acquire_refresh_lock(&store.lock_path, REFRESH_LOCK_WAIT).await?;
+    let Some(current) = (store.load)(&endpoints.host)? else {
+        return Ok(None);
+    };
+    let refreshed_elsewhere = match &mode {
+        RefreshMode::IfExpired => !is_token_expired(&current),
+        RefreshMode::Force { observed } => current.token.refresh_token != *observed,
+    };
+    if refreshed_elsewhere {
+        return Ok(Some(current));
+    }
+    refresh_stored_credentials(current, endpoints, client_id, store.store)
+        .await
+        .map(Some)
+}
+
 pub async fn refresh_auth_token(
     host: &str,
     client_id: &str,
 ) -> Result<StoredCredentials, ProviderError> {
     let endpoints = LoginEndpoints::from_host(host);
-    let stored = load_stored_credentials(&endpoints.host)?.ok_or_else(|| {
+    let not_logged_in = || {
         ProviderError::new(
             ProviderErrorKind::Authentication,
             format!("Not logged in to {}", endpoints.host),
         )
-    })?;
-    refresh_stored_credentials(stored, &endpoints, client_id).await
+    };
+    let stored = load_stored_credentials(&endpoints.host)?.ok_or_else(not_logged_in)?;
+    let mode = RefreshMode::Force {
+        observed: stored.token.refresh_token,
+    };
+    refresh_locked(
+        &endpoints,
+        client_id,
+        mode,
+        &platform_refresh_store(&endpoints.host),
+    )
+    .await?
+    .ok_or_else(not_logged_in)
 }
 
-pub async fn refresh_stored_credentials(
+async fn refresh_stored_credentials(
     stored: StoredCredentials,
     endpoints: &LoginEndpoints,
     client_id: &str,
+    store: &(dyn Fn(&StoredCredentials) -> Result<(), ProviderError> + Sync),
 ) -> Result<StoredCredentials, ProviderError> {
     let Some(refresh_token) = stored
         .token
@@ -577,7 +682,7 @@ pub async fn refresh_stored_credentials(
         created_at: stored.created_at.clone(),
         updated_at: rfc3339_now(),
     };
-    store_platform_credential(&updated)?;
+    store(&updated)?;
     Ok(updated)
 }
 
@@ -609,7 +714,8 @@ async fn exchange_refresh_token(
             .await
             .map_err(|_| {
                 ProviderError::new(ProviderErrorKind::Transport, "token refresh request failed")
-            })?
+            })
+            .and_then(|response| reject_redirect(response, "token refresh request"))?
             .error_for_status()
             .map_err(|error| {
                 let status = error.status().map(|value| value.as_u16());
@@ -695,14 +801,21 @@ pub async fn get_token_with_refresh(
             refresh_error: None,
         };
     }
-    match refresh_stored_credentials(
-        stored.clone(),
+    match refresh_locked(
         &endpoints,
         client_id.unwrap_or(GITHUB_APP_CLIENT_ID),
+        RefreshMode::IfExpired,
+        &platform_refresh_store(&endpoints.host),
     )
     .await
     {
-        Ok(updated) => TokenWithRefreshResult {
+        Ok(None) => TokenWithRefreshResult {
+            token: None,
+            source: "none",
+            username: None,
+            refresh_error: None,
+        },
+        Ok(Some(updated)) => TokenWithRefreshResult {
             token: Some(updated.token.token),
             source: "refreshed",
             username: Some(updated.username),
@@ -737,22 +850,32 @@ pub async fn resolve_stored_with_refresh(
             "OCTOCODE_GITHUB_CLIENT_ID is required to refresh GitHub Enterprise credentials",
         ));
     }
-    let updated = refresh_stored_credentials(stored, &endpoints, client_id).await?;
-    Ok(Some(ResolvedCredential::new(
-        updated.token.token,
-        super::CredentialSource::Storage,
-    )))
+    let updated = refresh_locked(
+        &endpoints,
+        client_id,
+        RefreshMode::IfExpired,
+        &platform_refresh_store(&endpoints.host),
+    )
+    .await?;
+    Ok(updated.map(|updated| {
+        ResolvedCredential::new(updated.token.token, super::CredentialSource::Storage)
+    }))
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        LoginEndpoints, StoredCredentials, device_code_form, exchange_refresh_token,
-        is_refresh_token_expired, is_token_expired, parse_granted_scopes, refresh_token_form,
+        LoginEndpoints, RefreshMode, RefreshStore, StoredCredentials, device_code_form,
+        exchange_refresh_token, is_refresh_token_expired, is_token_expired,
+        login_device_flow_cancellable, parse_granted_scopes, refresh_locked, refresh_token_form,
         token_poll_form, unix_to_rfc3339,
     };
     use crate::providers::github::OAuthToken;
+    use crate::providers::github::{ProviderError, ProviderErrorKind};
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
     use std::time::{SystemTime, UNIX_EPOCH};
+    use tokio_util::sync::CancellationToken;
     use wiremock::matchers::{body_string_contains, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -873,5 +996,179 @@ mod tests {
         assert_eq!(token.access, "gho_new");
         assert_eq!(token.refresh_token.as_deref(), Some("r2"));
         assert_eq!(token.expires_in, Some(28800));
+    }
+
+    fn expired_stored(refresh: &str) -> StoredCredentials {
+        let past = unix_to_rfc3339(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs()
+                - 60,
+        );
+        let mut value = stored(Some(&past), Some(refresh));
+        value.hostname = "example.test".into();
+        value
+    }
+
+    fn endpoints(server: &MockServer) -> LoginEndpoints {
+        LoginEndpoints {
+            web_origin: server.uri(),
+            api_origin: server.uri(),
+            host: "example.test".into(),
+        }
+    }
+
+    #[test]
+    fn concurrent_refreshers_post_the_single_use_refresh_token_once() {
+        // Each refresher has its own runtime and lock handle, like two
+        // processes; the file lock plus the re-read after acquiring it must
+        // leave exactly one refresh POST.
+        let runtime = tokio::runtime::Runtime::new().expect("runtime");
+        let server = runtime.block_on(async {
+            let server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .and(path("/login/oauth/access_token"))
+                .and(body_string_contains("refresh_token=r1"))
+                .respond_with(
+                    ResponseTemplate::new(200)
+                        .set_delay(Duration::from_millis(300))
+                        .set_body_json(serde_json::json!({
+                            "access_token": "gho_new",
+                            "token_type": "bearer",
+                            "refresh_token": "r2",
+                            "expires_in": 28800
+                        })),
+                )
+                .expect(1)
+                .mount(&server)
+                .await;
+            server
+        });
+        let dir = tempfile::tempdir().expect("tempdir");
+        let lock_path = dir
+            .path()
+            .join("locks")
+            .join("oauth-refresh-example.test.lock");
+        let shared = Arc::new(Mutex::new(expired_stored("r1")));
+        let endpoints = endpoints(&server);
+        let workers = (0..2)
+            .map(|_| {
+                let shared = shared.clone();
+                let lock_path = lock_path.clone();
+                let endpoints = endpoints.clone();
+                std::thread::spawn(move || {
+                    let load = |_: &str| -> Result<Option<StoredCredentials>, ProviderError> {
+                        Ok(Some(shared.lock().expect("store").clone()))
+                    };
+                    let save = |value: &StoredCredentials| -> Result<(), ProviderError> {
+                        *shared.lock().expect("store") = value.clone();
+                        Ok(())
+                    };
+                    let store = RefreshStore {
+                        load: &load,
+                        store: &save,
+                        lock_path,
+                    };
+                    tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .expect("runtime")
+                        .block_on(refresh_locked(
+                            &endpoints,
+                            "cid",
+                            RefreshMode::IfExpired,
+                            &store,
+                        ))
+                })
+            })
+            .collect::<Vec<_>>();
+        for worker in workers {
+            let refreshed = worker
+                .join()
+                .expect("worker")
+                .expect("refresh")
+                .expect("stored");
+            assert_eq!(refreshed.token.token, "gho_new");
+            assert_eq!(refreshed.token.refresh_token.as_deref(), Some("r2"));
+        }
+        runtime.block_on(server.verify());
+    }
+
+    #[tokio::test]
+    async fn forced_refresh_reuses_a_rotation_made_while_waiting() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(500))
+            .expect(0)
+            .mount(&server)
+            .await;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut rotated = expired_stored("r2");
+        rotated.token.token = "gho_rotated".into();
+        let load = move |_: &str| -> Result<Option<StoredCredentials>, ProviderError> {
+            Ok(Some(rotated.clone()))
+        };
+        let save = |_: &StoredCredentials| -> Result<(), ProviderError> { Ok(()) };
+        let store = RefreshStore {
+            load: &load,
+            store: &save,
+            lock_path: dir.path().join("refresh.lock"),
+        };
+        let result = refresh_locked(
+            &endpoints(&server),
+            "cid",
+            RefreshMode::Force {
+                observed: Some("r1".into()),
+            },
+            &store,
+        )
+        .await
+        .expect("refresh")
+        .expect("stored");
+        assert_eq!(result.token.token, "gho_rotated");
+        server.verify().await;
+    }
+
+    #[tokio::test]
+    async fn oauth_calls_do_not_replay_bodies_across_redirects() {
+        // A 307/308 from the token endpoint must not re-post the
+        // refresh token or device code to another origin.
+        let other = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "access_token": "gho_stolen", "device_code": "d", "user_code": "u",
+                "verification_uri": "https://x"
+            })))
+            .expect(0)
+            .mount(&other)
+            .await;
+        let server = MockServer::start().await;
+        for (route, status) in [
+            ("/login/oauth/access_token", 307_u16),
+            ("/login/device/code", 308),
+        ] {
+            Mock::given(method("POST"))
+                .and(path(route))
+                .respond_with(
+                    ResponseTemplate::new(status)
+                        .insert_header("location", format!("{}/capture", other.uri()).as_str()),
+                )
+                .mount(&server)
+                .await;
+        }
+        let refresh = exchange_refresh_token(&endpoints(&server), "cid", "refresh-1")
+            .await
+            .err()
+            .expect("redirect refused");
+        assert_eq!(refresh.kind, ProviderErrorKind::RedirectDenied);
+        assert_eq!(refresh.status, Some(307));
+        let device =
+            login_device_flow_cancellable(&endpoints(&server), "cid", &CancellationToken::new())
+                .await
+                .expect_err("redirect refused");
+        assert_eq!(device.kind, ProviderErrorKind::RedirectDenied);
+        assert_eq!(device.status, Some(308));
+        other.verify().await;
     }
 }

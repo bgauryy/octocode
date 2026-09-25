@@ -83,25 +83,30 @@ impl DomainDispatcher {
         }
         if tool == "lspSearch" {
             return self.handle.block_on(async {
-                Ok(
-                    match crate::tools::lsp_search::execute(
-                        query.clone(),
-                        context,
-                        &self.lsp_pool,
-                        &self.paths,
-                        &self.lsp_execution_config,
-                    )
-                    .await
-                    {
-                        Ok(data) => dispatch::value_result(data),
-                        Err(message) => dispatch::provider_failure(
-                            message,
-                            "lspUnavailable".into(),
-                            vec!["Use localSearch or astSearch, then localFetch.".into()],
-                            None,
-                        ),
-                    },
+                match crate::tools::lsp_search::execute(
+                    query.clone(),
+                    context,
+                    &self.lsp_pool,
+                    &self.paths,
+                    &self.lsp_execution_config,
                 )
+                .await
+                {
+                    Ok(data) => Ok(dispatch::value_result(data)),
+                    Err(failure) => {
+                        // A cancelled/expired request is a runtime outcome,
+                        // not a provider failure.
+                        context.check()?;
+                        let mut result = dispatch::provider_failure(
+                            failure.message,
+                            failure.code.into(),
+                            vec![failure.hint.into()],
+                            None,
+                        );
+                        result.data["retryable"] = serde_json::json!(failure.retryable);
+                        Ok(result)
+                    }
+                }
             });
         }
         let tool = tool.to_owned();

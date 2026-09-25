@@ -133,6 +133,9 @@ opt-level = 3
 # ── Heavy dep clusters: optimise for dev-loop runtime without slowing own-crate rebuilds ──
 # Own code stays at opt-level=0 for fast incremental recompile; only dependency
 # code is bumped. This mirrors the regex-automata pattern already applied above.
+# tree-sitter-cpp / -c-sharp / -scala (~74 MB of generated parser.c) are left at
+# opt-level 0 on purpose: `cc` follows the profile level, so -O3 on them costs
+# minutes of cold dev/test build while tests only parse tiny fixtures.
 
 [profile.dev.package."tree-sitter"]
 opt-level = 3

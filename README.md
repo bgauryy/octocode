@@ -371,7 +371,6 @@ Most-used settings (both CLI and MCP unless noted):
 |---------|-------------------|---------|--------------|
 | `OCTOCODE_TOKEN` / `GH_TOKEN` / `GITHUB_TOKEN` | env only | unset | GitHub token, in priority order. Never in `.octocoderc`. |
 | `ENABLE_LOCAL` | `local.enabled` | `true` | Local filesystem and LSP tools on or off. Set `false` to disable them. |
-| `ENABLE_CLONE` | `local.enableClone` | `false` | Legacy setting retained for config compatibility; CLI cloning requires persistent storage and MCP cloning is unavailable. |
 | `WORKSPACE_ROOT` | `local.workspaceRoot` | `cwd` | Root for resolving relative local paths. |
 | `ALLOWED_PATHS` | `local.allowedPaths` | `[]` | Extra path allowlist for local access. |
 | `OCTOCODE_OUTPUT_FORMAT` | `output.format` | `yaml` | Response format: `yaml` or `json`. |
@@ -475,7 +474,9 @@ Text search, ordinary reads, GitHub/history tools, and artifact lookup remain la
 > [Agent Skills](https://agentskills.io/what-are-skills) are a lightweight, open format for extending AI agent capabilities.
 > Browse and install on [**skills.sh/bgauryy/octocode-mcp**](https://www.skills.sh/bgauryy/octocode-mcp)
 
-**14 skills** under [`skills/`](https://github.com/bgauryy/octocode/tree/main/skills), bundled in the `octocode` package. Each is a lean `SKILL.md` that loads references only when needed, so they compose. Start with ⭐ [Research](https://www.skills.sh/bgauryy/octocode-mcp/octocode-research) for evidence-first code work.
+**15 public skills** in [`skills/`](https://github.com/bgauryy/octocode/tree/main/skills), bundled in the `octocode` package. Each is a lean `SKILL.md` that loads references only when needed. Start with ⭐ [Research](https://www.skills.sh/bgauryy/octocode-mcp/octocode-research) for evidence-first code work.
+
+Tested skills live in [`skills-beta/`](skills-beta/) and are not published. Skills for working on this repository live in [`skills-dev/`](skills-dev/).
 
 ```bash
 npx octocode skill list
@@ -497,6 +498,7 @@ npx octocode skill help
 | Skill | Use when |
 |-------|----------|
 | [**octocode-brainstorming**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-brainstorming) | Disciplined idea exploration before building: options, worth-building tests, prior-art maps. |
+| [**octocode-exploratory-thinking**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-exploratory-thinking) | Exploratory thinking and awareness shifts. Substance names are presences. 18+. |
 | [**octocode-rfc-generator**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-rfc-generator) | Evidence-backed RFCs, design docs, migration plans, option comparisons. |
 | [**octocode-documentation**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-documentation) | Writing or updating README, API docs, runbooks, AGENTS.md, ADRs. |
 
@@ -564,7 +566,9 @@ Each workspace package owns one layer of the toolkit. Package architecture pages
 | Configuration | [`packages/octocode-config`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-config) · `@octocodeai/config` | Zero-dependency loader for Octocode home resolution, environment propagation, `.env`, and `.octocoderc`; the single configuration source for the monorepo. |
 | Skill distribution | [`packages/octocode-skill-installer`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-skill-installer) · `@octocodeai/octocode-skill-installer` | Shared installer for durable skill materialization, platform-specific links or copies, upgrades, and conflict reporting. |
 | Coordination | [`packages/octocode-awareness`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-awareness) · `@octocodeai/octocode-awareness` | Local SQLite coordination and canonical shared entity, permission, embedding, physiology, and SQLite primitives exposed to hosts through its host API. |
+| Coordination | [`packages/octocode-agents-communication`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-agents-communication) · `@octocodeai/octocode-agents-communication` | Private, unpublished Rust CLI distributed inside its communication skill. Coordinates session identity, advisory path leases, and direct messages. |
 | Evaluation | [`packages/octocode-benchmark`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark) · `@octocodeai/octocode-benchmark` | Private benchmark and eval workspace for head-to-head research studies, routing regressions, graders, reports, and reproducible run artifacts. |
+| Evaluation | [`packages/octocode-jev-lab`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-jev-lab) · `@octocodeai/jev-lab` | Private probe that sends a semantic experiment to the classification API without the runtime adapter. |
 
 The separately versioned [`@octocodeai/octocode-core`](https://github.com/bgauryy/octocode-mcp-host/tree/main/packages/octocode-core) package owns the public tool schemas, descriptions, and shared MCP/CLI instructions. This monorepo consumes those contracts; `octocode-native` owns their execution.
 
@@ -578,7 +582,7 @@ Website: **[octocode.ai](https://octocode.ai)** · Documentation hub: **[`docs/R
 |---|---|
 | Start and configure | [CLI guide](https://github.com/bgauryy/octocode/blob/main/packages/octocode/docs/OCTOCODE_CLI.md) · [MCP server](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_MCP.md) · [Configuration and authentication](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) |
 | Research tools | [Tool reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md) · [Local research workflow](https://github.com/bgauryy/octocode/blob/main/docs/LOCAL_RESEARCH_WORKFLOW.md) · [Tool data and handoff contract](https://github.com/bgauryy/octocode/blob/main/docs/TOOL_DATA_CONTRACT.md) |
-| Agent method | [Research manifest](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_RESEARCH_MANIFEST.md) · [RDD manifest](https://github.com/bgauryy/octocode/blob/main/MANIFEST.md) · [Agent Skills](https://github.com/bgauryy/octocode/tree/main/skills) |
+| Agent method | [Research manifest](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_RESEARCH_MANIFEST.md) · [RDD manifest](https://github.com/bgauryy/octocode/blob/main/MANIFEST.md) · [Public skills](skills/) · [Tested skills](skills-beta/) · [Repository skills](skills-dev/) |
 | Design and quality | [Tool quality acceptance](https://github.com/bgauryy/octocode/blob/main/docs/MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md) |
 | Safety and support | [Security model](https://github.com/bgauryy/octocode/blob/main/docs/SECURITY.md) · [LSP lifecycle and language matrix](https://github.com/bgauryy/octocode/blob/main/packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md) |
 | Packages and evaluation | [Package architecture index](https://github.com/bgauryy/octocode/blob/main/docs/README.md#package-guides) · [Benchmark workspace](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark) |

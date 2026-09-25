@@ -78,6 +78,11 @@ function clip(value: unknown): string {
     : `${text.slice(0, MAX_ERROR_TEXT_CHARS - 1)}…`;
 }
 
+/** RFC 6901 JSON Pointer segment escaping, as TypeBox spells error paths. */
+function pointerSegment(key: string): string {
+  return key.replace(/~/g, '~0').replace(/\//g, '~1');
+}
+
 /** Keep validation strict, but hide errors belonging to a different discriminated branch. */
 function irrelevantUnionBranches(
   schema: unknown,
@@ -134,13 +139,13 @@ function irrelevantUnionBranches(
     }
     if (isRecord(node['properties']) && isRecord(input)) {
       for (const [key, property] of Object.entries(node['properties'])) {
-        // Match TypeBox's diagnostic path spelling, including literal property names.
+        // Match TypeBox's diagnostic path spelling: RFC 6901 escaped segments.
         if (Object.hasOwn(input, key))
           visit(
             property,
             input[key],
-            `${schemaPath}/properties/${key}`,
-            `${instancePath}/${key}`
+            `${schemaPath}/properties/${pointerSegment(key)}`,
+            `${instancePath}/${pointerSegment(key)}`
           );
       }
     }
@@ -225,7 +230,7 @@ export function compileMcpSchemaValidator(
             return error.params.additionalProperties.map(key => ({
               ...error,
               message,
-              instancePath: `${error.instancePath}/${key}`,
+              instancePath: `${error.instancePath}/${pointerSegment(key)}`,
               schemaPath: `${error.schemaPath}/additionalProperties`,
             }));
           }

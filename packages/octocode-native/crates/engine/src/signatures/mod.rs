@@ -7,13 +7,16 @@ mod nodes;
 pub(crate) use deep_stack::run_on_deep_stack;
 mod js_oxc_calls;
 mod js_oxc_commonjs;
+mod js_oxc_references;
 mod js_oxc_shared;
 
 pub(crate) const GRAPH_FACTS_SCHEMA_VERSION: u32 = 1;
 
 pub(crate) struct GraphFactsExtraction {
     pub facts: crate::graph::GraphFactsDocument,
-    pub exported_declaration_names: Vec<String>,
+    /// One syntax-aware value-reference count per declaration id, so the
+    /// dead-code analysis can tell value escapes from declarations and calls.
+    pub reference_counts: Vec<crate::types::GraphReferenceCount>,
 }
 
 pub(crate) fn extract_graph_facts_with_metadata_inner(
@@ -303,13 +306,24 @@ mod tests {
             (
                 "pub fn first() {} pub struct Second; fn private() {}",
                 "lib.rs",
-                vec!["first", "Second"],
+                vec!["first", "Second", "private"],
                 "modules",
             ),
         ] {
             let extraction = extract_graph_facts_with_metadata_inner(source, path)
                 .expect("graph facts with metadata");
-            assert_eq!(extraction.exported_declaration_names, expected_names);
+            let counted: Vec<&str> = extraction
+                .reference_counts
+                .iter()
+                .map(|count| {
+                    count
+                        .declaration_id
+                        .split(['#', '@'])
+                        .nth(1)
+                        .unwrap_or_default()
+                })
+                .collect();
+            assert_eq!(counted, expected_names);
             let facts_json = serde_json::to_string(&extraction.facts).expect("facts JSON");
             assert_eq!(
                 facts_json,

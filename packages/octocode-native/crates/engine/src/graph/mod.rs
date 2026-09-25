@@ -34,7 +34,7 @@ use rayon::prelude::*;
 
 use crate::types::{
     FileSystemQueryOptions, GraphFactsScanDiagnostic, GraphFactsScanEntry, GraphFactsScanOptions,
-    GraphFactsScanResult, GraphReferenceCount,
+    GraphFactsScanResult,
 };
 
 const DEFAULT_MAX_FILES: u32 = 20_000;
@@ -219,14 +219,12 @@ pub(crate) fn scan_graph_facts_typed_filtered(
             if !allow_path(path)? {
                 return Ok(None);
             }
-            let reference_counts =
-                exported_reference_counts(&content, &extraction.exported_declaration_names);
             Ok(Some(GraphFactsScanOutcome::Entry(Box::new(
                 GraphFactsTypedEntry {
                     relative_path,
                     content_digest: crate::index::content_digest(content.as_bytes()),
                     facts: extraction.facts,
-                    reference_counts,
+                    reference_counts: extraction.reference_counts,
                 },
             ))))
         })
@@ -253,47 +251,10 @@ pub(crate) fn scan_graph_facts_typed_filtered(
     })
 }
 
-fn exported_reference_counts(
-    content: &str,
-    exported_declaration_names: &[String],
-) -> Vec<GraphReferenceCount> {
-    exported_declaration_names
-        .iter()
-        .map(|name| GraphReferenceCount {
-            name: name.clone(),
-            count: count_ascii_word_occurrences(content, name),
-        })
-        .collect()
-}
-
-fn count_ascii_word_occurrences(content: &str, name: &str) -> u32 {
-    if name.is_empty() {
-        return 0;
-    }
-    content
-        .match_indices(name)
-        .filter(|(start, _)| {
-            let end = start + name.len();
-            let before_is_word = content[..*start]
-                .chars()
-                .next_back()
-                .is_some_and(is_ascii_word_char);
-            let after_is_word = content[end..]
-                .chars()
-                .next()
-                .is_some_and(is_ascii_word_char);
-            !before_is_word && !after_is_word
-        })
-        .count() as u32
-}
-
-fn is_ascii_word_char(character: char) -> bool {
-    character.is_ascii_alphanumeric() || character == '_'
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use std::path::Path;
 
     fn create_supported_files(root: &Path, count: usize) {
@@ -336,8 +297,12 @@ mod tests {
         assert_eq!(result.skipped[0].relative_path, "src/large.ts");
         assert_eq!(result.skipped[0].code, "graph.scan.fileTooLarge");
         assert_eq!(result.entries[0].relative_path, "src/entry.ts");
-        assert_eq!(result.entries[0].reference_counts[0].name, "answer");
-        assert_eq!(result.entries[0].reference_counts[0].count, 2);
+        assert!(
+            result.entries[0].reference_counts[0]
+                .declaration_id
+                .contains("#answer@")
+        );
+        assert_eq!(result.entries[0].reference_counts[0].count, 1);
         assert!(!result.truncated);
         fs::remove_dir_all(root).expect("cleanup fixture");
     }
@@ -474,11 +439,16 @@ mod tests {
                 .iter()
                 .map(|entry| (
                     entry.relative_path.as_str(),
-                    entry.reference_counts[0].name.as_str(),
+                    entry.reference_counts[0]
+                        .declaration_id
+                        .split(['#', '@'])
+                        .nth(1)
+                        .unwrap_or_default(),
                     entry.reference_counts[0].count,
                 ))
                 .collect::<Vec<_>>(),
-            [("lib.rs", "beta", 2), ("main.ts", "alpha", 2)]
+            // The declaration name token is not a reference; the value use is.
+            [("lib.rs", "beta", 1), ("main.ts", "alpha", 1)]
         );
         fs::remove_dir_all(root).expect("cleanup fixture");
     }

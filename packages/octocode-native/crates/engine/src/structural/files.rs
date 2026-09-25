@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -7,7 +7,7 @@ use ignore::overrides::{Override, OverrideBuilder};
 use rayon::prelude::*;
 
 use super::language::AgLanguage;
-use super::octo::{ExecutionError, compile_matcher};
+use super::octo::{ExecutionError, OctoCompiledMatcher, compile_matcher};
 use super::query::{Prefilter, StructuralQuery, invalid_query_explanation};
 use super::types::{
     STRUCTURAL_ANALYZER, STRUCTURAL_ANALYZER_VERSION, StructuralDetailedMatch,
@@ -156,8 +156,8 @@ pub fn search_files(
                             .iter()
                             .map(|path| error.diagnostic(&path.to_string_lossy())),
                     );
-                    // Preserve an execution limit even if another language had
-                    // previously rejected the pattern as invalid syntax.
+                    // An execution limit wins over an earlier language's
+                    // invalid-syntax rejection.
                     first_compile_error = Some(err);
                 } else {
                     compile_skipped.push((ext.clone(), paths.len() as u32));
@@ -313,23 +313,16 @@ pub fn search_files(
 pub fn search_files_detailed(
     options: StructuralSearchFilesOptions,
 ) -> Result<StructuralSearchFilesDetailedResult, String> {
-    search_files_detailed_filtered(options, &|_| Ok(true))
-}
-
-/// Detailed structural search with caller-owned descendant policy and
-/// cancellation. The callback runs before candidate accounting, literal
-/// prefilter reads, metadata reads, and source reads.
-pub fn search_files_detailed_filtered(
-    options: StructuralSearchFilesOptions,
-    allow_path: &(dyn Fn(&Path) -> Result<bool, String> + Sync),
-) -> Result<StructuralSearchFilesDetailedResult, String> {
-    search_files_detailed_filtered_with_extension(options, allow_path, &|path| {
+    search_files_detailed_filtered_with_extension(options, &|_| Ok(true), &|path| {
         extension_for_path(path).unwrap_or_default()
     })
 }
 
-/// Caller-selected parser for ambiguous paths; file paths remain unchanged in
-/// diagnostics and match IDs. The ordinary entry point still infers by suffix.
+/// Detailed structural search with caller-owned descendant policy and
+/// cancellation, plus a caller-selected parser for ambiguous paths. The
+/// `allow_path` callback runs before candidate accounting, literal prefilter
+/// reads, metadata reads, and source reads; file paths remain unchanged in
+/// diagnostics and match IDs.
 pub fn search_files_detailed_filtered_with_extension(
     options: StructuralSearchFilesOptions,
     allow_path: &(dyn Fn(&Path) -> Result<bool, String> + Sync),
@@ -410,8 +403,216 @@ pub fn search_files_detailed_filtered_with_extension(
     candidate_files.truncate(max_files);
     let matching_paths = matching_prefilter_paths(&candidate_files, &prefilter, allow_path)?;
 
-    let mut matchers = BTreeMap::new();
-    let mut files = Vec::new();
+    // Compile one matcher per extension up front (cheap, serial), then read,
+    // parse and match files in parallel. `collect` keeps candidate order, and
+    // the serial fold below rebuilds the same counters.
+    let mut matchers: BTreeMap<String, Result<OctoCompiledMatcher, String>> = BTreeMap::new();
+    for file_path in &candidate_files {
+        let ext = select_extension(file_path);
+        if matchers.contains_key(&ext) {
+            continue;
+        }
+        if let Some(entry) = languages::find_entry(&ext) {
+            let lang = AgLanguage::new(&ext, entry);
+            let compiled = compile_matcher(&lang, &query);
+            matchers.insert(ext, compiled);
+        }
+    }
+
+    enum Tally {
+        None,
+        PreFilter,
+        Unsupported,
+        Unreadable,
+        Large,
+        CompileFailure,
+        Parsed(u32),
+    }
+
+    let outcomes = candidate_files
+        .par_iter()
+        .map(|file_path| -> Result<Option<(Tally, StructuralSearchDetailedFileResult)>, String> {
+            let file_path = file_path.clone();
+                if !allow_path(&file_path)? {
+                    return Ok(None);
+                }
+                let path_string = file_path.to_string_lossy().to_string();
+                if matching_paths
+                    .as_ref()
+                    .is_some_and(|paths| !paths.contains(path_string.as_str()))
+                {
+                    return Ok(Some((Tally::PreFilter, skipped_file(
+                        path_string,
+                        "skippedByPreFilter",
+                        "preFilter",
+                        StructuralDiagnostic::new(
+                            "structural.prefilter.skipped",
+                            "info",
+                            "scan",
+                            "File excluded by the text pre-filter (it does not contain the pattern's anchor literal), so AST parsing was skipped.",
+                        )
+                        .with_recovery("Remove the literal prefilter by using a rule with no safe anchor if every file must be parsed."),
+                    ))));
+                }
+
+                let ext = select_extension(&file_path);
+                let Some(entry) = languages::find_entry(&ext) else {
+                    return Ok(Some((Tally::Unsupported, skipped_file(
+                        path_string.clone(),
+                        "unsupported",
+                        "unsupportedExtension",
+                        StructuralDiagnostic::new(
+                            "structural.language.unsupported",
+                            "warning",
+                            "parse",
+                            format!("Structural search does not support .{ext} files."),
+                        )
+                        .with_path(path_string)
+                        .with_recovery(
+                            "Use text search for this extension or add a tree-sitter grammar mapping.",
+                        ),
+                    ))));
+                };
+
+                let metadata = match fs::metadata(&file_path) {
+                    Ok(metadata) => metadata,
+                    Err(err) => {
+                        return Ok(Some((Tally::Unreadable, skipped_file(
+                            path_string.clone(),
+                            "unreadable",
+                            "metadata",
+                            StructuralDiagnostic::new(
+                                "structural.file.unreadable",
+                                "warning",
+                                "scan",
+                                format!("Could not read file metadata: {err}."),
+                            )
+                            .with_path(path_string)
+                            .with_recovery(
+                                "Retry if the file still exists and permissions allow reading it.",
+                            ),
+                        ))));
+                    }
+                };
+
+                if metadata.len() > max_file_bytes {
+                    return Ok(Some((Tally::Large, skipped_file(
+                        path_string.clone(),
+                        "truncated",
+                        "maxFileBytes",
+                        StructuralDiagnostic::new(
+                            "structural.file.tooLarge",
+                            "warning",
+                            "scan",
+                            format!(
+                                "File is {} bytes, above the structural search limit of {max_file_bytes} bytes.",
+                                metadata.len()
+                            ),
+                        )
+                        .with_path(path_string)
+                        .with_recovery("Raise maxFileBytes or inspect the file with a narrower text search first."),
+                    ))));
+                }
+
+                let content = match fs::read_to_string(&file_path) {
+                    Ok(content) => content,
+                    Err(err) => {
+                        return Ok(Some((Tally::Unreadable, skipped_file(
+                            path_string.clone(),
+                            "unreadable",
+                            "read",
+                            StructuralDiagnostic::new(
+                                "structural.file.unreadable",
+                                "warning",
+                                "scan",
+                                format!("Could not read file content as UTF-8: {err}."),
+                            )
+                            .with_path(path_string)
+                            .with_recovery("Use binary inspection or text search for non-UTF-8 content."),
+                        ))));
+                    }
+                };
+
+                let Some(compiled) = matchers.get(&ext) else {
+                    return Ok(Some((Tally::CompileFailure, skipped_file(
+                        path_string.clone(),
+                        "parserFailed",
+                        "queryCompile",
+                        StructuralDiagnostic::new(
+                            "structural.matcher.missing",
+                            "error",
+                            "match",
+                            "Structural matcher was unavailable after compilation.",
+                        )
+                        .with_path(path_string)
+                        .with_recovery(
+                            "Retry the search; this indicates an internal matcher lifecycle issue.",
+                        ),
+                    ))));
+                };
+                let run = match compiled {
+                    Ok(run) => run,
+                    Err(message) => {
+                        if let Some(error) = ExecutionError::from_compile_message(message) {
+                            return Ok(Some((Tally::None, skipped_file(
+                                path_string.clone(),
+                                "truncated",
+                                "queryCompile",
+                                error.diagnostic(&path_string),
+                            ))));
+                        }
+                        return Ok(Some((Tally::CompileFailure, skipped_file(
+                            path_string.clone(),
+                            "parserFailed",
+                            "queryCompile",
+                            StructuralDiagnostic::new(
+                                "structural.query.compileFailed",
+                                "error",
+                                "match",
+                                message.clone(),
+                            )
+                            .with_path(path_string)
+                            .with_recovery("Check the structural pattern or YAML rule against this file's language grammar."),
+                        ))));
+                    }
+                };
+
+                let matches: Vec<StructuralDetailedMatch> = match run(&content) {
+                    Ok(matches) => matches,
+                    Err(error) => {
+                        return Ok(Some((Tally::None, skipped_file(
+                            path_string.clone(),
+                            "truncated",
+                            "executionLimit",
+                            error.diagnostic(&path_string),
+                        ))));
+                    }
+                }
+                .into_iter()
+                .map(|m| {
+                    StructuralDetailedMatch::from_match(
+                        &path_string,
+                        &query_fingerprint,
+                        m.matched,
+                        m.node_kind,
+                    )
+                })
+                .collect();
+                Ok(Some((
+                    Tally::Parsed(matches.len() as u32),
+                    StructuralSearchDetailedFileResult {
+                        path: path_string,
+                        status: "ok".to_owned(),
+                        language_id: entry.language_id.map(str::to_owned),
+                        skipped_reason: None,
+                        matches,
+                        diagnostics: Vec::new(),
+                    },
+                )))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+
+    let mut files = Vec::with_capacity(outcomes.len());
     let mut total_matches = 0u32;
     let mut parsed_files = 0u32;
     let mut skipped_by_pre_filter = 0u32;
@@ -419,203 +620,20 @@ pub fn search_files_detailed_filtered_with_extension(
     let mut skipped_unreadable = 0u32;
     let mut skipped_large = 0u32;
     let mut compile_failures = 0u32;
-
-    for file_path in candidate_files {
-        if !allow_path(&file_path)? {
-            continue;
-        }
-        let path_string = file_path.to_string_lossy().to_string();
-        if matching_paths
-            .as_ref()
-            .is_some_and(|paths| !paths.contains(path_string.as_str()))
-        {
-            skipped_by_pre_filter += 1;
-            files.push(skipped_file(
-                path_string,
-                "skippedByPreFilter",
-                "preFilter",
-                StructuralDiagnostic::new(
-                    "structural.prefilter.skipped",
-                    "info",
-                    "scan",
-                    "File excluded by the text pre-filter (it does not contain the pattern's anchor literal), so AST parsing was skipped.",
-                )
-                .with_recovery("Remove the literal prefilter by using a rule with no safe anchor if every file must be parsed."),
-            ));
-            continue;
-        }
-
-        let ext = select_extension(&file_path);
-        let Some(entry) = languages::find_entry(&ext) else {
-            skipped_unsupported += 1;
-            files.push(skipped_file(
-                path_string.clone(),
-                "unsupported",
-                "unsupportedExtension",
-                StructuralDiagnostic::new(
-                    "structural.language.unsupported",
-                    "warning",
-                    "parse",
-                    format!("Structural search does not support .{ext} files."),
-                )
-                .with_path(path_string)
-                .with_recovery(
-                    "Use text search for this extension or add a tree-sitter grammar mapping.",
-                ),
-            ));
-            continue;
-        };
-
-        let metadata = match fs::metadata(&file_path) {
-            Ok(metadata) => metadata,
-            Err(err) => {
-                skipped_unreadable += 1;
-                files.push(skipped_file(
-                    path_string.clone(),
-                    "unreadable",
-                    "metadata",
-                    StructuralDiagnostic::new(
-                        "structural.file.unreadable",
-                        "warning",
-                        "scan",
-                        format!("Could not read file metadata: {err}."),
-                    )
-                    .with_path(path_string)
-                    .with_recovery(
-                        "Retry if the file still exists and permissions allow reading it.",
-                    ),
-                ));
-                continue;
-            }
-        };
-
-        if metadata.len() > max_file_bytes {
-            skipped_large += 1;
-            files.push(skipped_file(
-                path_string.clone(),
-                "truncated",
-                "maxFileBytes",
-                StructuralDiagnostic::new(
-                    "structural.file.tooLarge",
-                    "warning",
-                    "scan",
-                    format!(
-                        "File is {} bytes, above the structural search limit of {max_file_bytes} bytes.",
-                        metadata.len()
-                    ),
-                )
-                .with_path(path_string)
-                .with_recovery("Raise maxFileBytes or inspect the file with a narrower text search first."),
-            ));
-            continue;
-        }
-
-        let content = match fs::read_to_string(&file_path) {
-            Ok(content) => content,
-            Err(err) => {
-                skipped_unreadable += 1;
-                files.push(skipped_file(
-                    path_string.clone(),
-                    "unreadable",
-                    "read",
-                    StructuralDiagnostic::new(
-                        "structural.file.unreadable",
-                        "warning",
-                        "scan",
-                        format!("Could not read file content as UTF-8: {err}."),
-                    )
-                    .with_path(path_string)
-                    .with_recovery("Use binary inspection or text search for non-UTF-8 content."),
-                ));
-                continue;
-            }
-        };
-
-        if !matchers.contains_key(&ext) {
-            let lang = AgLanguage::new(&ext, entry);
-            matchers.insert(ext.clone(), compile_matcher(&lang, &query));
-        }
-        let Some(compiled) = matchers.get(&ext) else {
-            compile_failures += 1;
-            files.push(skipped_file(
-                path_string.clone(),
-                "parserFailed",
-                "queryCompile",
-                StructuralDiagnostic::new(
-                    "structural.matcher.missing",
-                    "error",
-                    "match",
-                    "Structural matcher was unavailable after compilation.",
-                )
-                .with_path(path_string)
-                .with_recovery(
-                    "Retry the search; this indicates an internal matcher lifecycle issue.",
-                ),
-            ));
-            continue;
-        };
-        let run = match compiled {
-            Ok(run) => run,
-            Err(message) => {
-                if let Some(error) = ExecutionError::from_compile_message(message) {
-                    files.push(skipped_file(
-                        path_string.clone(),
-                        "truncated",
-                        "queryCompile",
-                        error.diagnostic(&path_string),
-                    ));
-                    continue;
-                }
-                compile_failures += 1;
-                files.push(skipped_file(
-                    path_string.clone(),
-                    "parserFailed",
-                    "queryCompile",
-                    StructuralDiagnostic::new(
-                        "structural.query.compileFailed",
-                        "error",
-                        "match",
-                        message.clone(),
-                    )
-                    .with_path(path_string)
-                    .with_recovery("Check the structural pattern or YAML rule against this file's language grammar."),
-                ));
-                continue;
-            }
-        };
-
-        let matches: Vec<StructuralDetailedMatch> = match run(&content) {
-            Ok(matches) => matches,
-            Err(error) => {
-                files.push(skipped_file(
-                    path_string.clone(),
-                    "truncated",
-                    "executionLimit",
-                    error.diagnostic(&path_string),
-                ));
-                continue;
+    for (tally, file) in outcomes.into_iter().flatten() {
+        match tally {
+            Tally::None => {}
+            Tally::PreFilter => skipped_by_pre_filter += 1,
+            Tally::Unsupported => skipped_unsupported += 1,
+            Tally::Unreadable => skipped_unreadable += 1,
+            Tally::Large => skipped_large += 1,
+            Tally::CompileFailure => compile_failures += 1,
+            Tally::Parsed(count) => {
+                parsed_files += 1;
+                total_matches = total_matches.saturating_add(count);
             }
         }
-        .into_iter()
-        .map(|m| {
-            StructuralDetailedMatch::from_match(
-                &path_string,
-                &query_fingerprint,
-                m.matched,
-                m.node_kind,
-            )
-        })
-        .collect();
-        parsed_files += 1;
-        total_matches = total_matches.saturating_add(matches.len() as u32);
-        files.push(StructuralSearchDetailedFileResult {
-            path: path_string,
-            status: "ok".to_owned(),
-            language_id: entry.language_id.map(str::to_owned),
-            skipped_reason: None,
-            matches,
-            diagnostics: Vec::new(),
-        });
+        files.push(file);
     }
 
     let mut warnings = Vec::new();
@@ -707,11 +725,9 @@ fn matching_prefilter_paths(
         Prefilter::Union(anchors) => anchors.as_slice(),
     };
     let mut matching = HashSet::new();
-    // An empty anchor matches every file (the previous `contains_bytes`
-    // returned true for an empty needle); short-circuit those instead of
+    // An empty anchor matches every file; short-circuit those instead of
     // feeding an empty pattern to Aho-Corasick. Otherwise build one automaton
-    // for all anchors and scan each file in a single linear pass, replacing the
-    // former per-anchor O(n·m) `windows` scan.
+    // for all anchors and scan each file in a single linear pass.
     let automaton = if anchors.iter().any(String::is_empty) {
         None
     } else {
@@ -780,7 +796,7 @@ fn classify_ripgrep_prefilter(
     // `skipped_by_pre_filter` = supported files ripgrep searched but the anchor
     // was absent (proof of no match); `skipped_unsupported` = unsupported-ext
     // files that contained the anchor (not evaluated, not proof). Splitting
-    // them keeps the legacy result honest about evidence kind.
+    // them keeps the result honest about evidence kind.
     let skipped_by_pre_filter = files_searched
         .saturating_sub(matched_supported)
         .saturating_sub(matched_unsupported);
@@ -1130,12 +1146,14 @@ fn within_depth(root: &Path, file: &Path, max_depth: Option<u32>) -> bool {
 pub struct StructuralRewriteFileResult {
     pub path: String,
     pub matches: Vec<super::StructuralRewriteMatch>,
+    /// ERROR/MISSING nodes in the scanned source, from the same parse that
+    /// produced `matches` (the pre-rewrite side of the syntax-regression check).
+    pub syntax_errors: u32,
 }
 
 /// Aggregate result of a structural rewrite file-tree scan, including coverage
-/// accounting. Files that error, exceed the byte limit, are non-UTF8, or cannot
-/// be read used to vanish silently; the counters below let `astRewrite` report
-/// how much of the corpus the rewrite actually covered.
+/// accounting. The counters let `astRewrite` report how much of the corpus the
+/// rewrite actually covered.
 #[cfg(feature = "embedded-ast-grep-rewrite")]
 #[derive(Default)]
 pub struct StructuralRewriteFilesResult {
@@ -1160,8 +1178,7 @@ pub struct StructuralRewriteFilesResult {
 /// read are counted in the coverage fields instead of being dropped silently.
 ///
 /// The rule config must be a complete ast-grep inline-rule object (language,
-/// rule, fix, etc.) — the same JSON that `astRewrite` used to pass via
-/// `--inline-rules` to the external `ast-grep scan` subprocess.
+/// rule, fix, etc.), as accepted by ast-grep's `--inline-rules`.
 #[cfg(feature = "embedded-ast-grep-rewrite")]
 pub fn rewrite_files(
     options: super::types::StructuralRewriteFilesOptions,
@@ -1211,8 +1228,26 @@ pub fn rewrite_files(
     let scan_truncated = candidate_files.len() > max_files;
     let candidate_files: Vec<_> = candidate_files.into_iter().take(max_files).collect();
 
-    // Arc so the (immutable) rule config can be shared across rayon threads.
-    let rule_config = std::sync::Arc::new(rule_config);
+    // The parser language varies per file (e.g. `.tsx` under `typescript`, `.h`
+    // under `cpp`), so compile the rule once per distinct parser language before
+    // the parallel scan instead of once per file.
+    let parser_for = |path: &std::path::Path| -> String {
+        super::rewrite::rewrite_parser_for_path(&selector, &path.to_string_lossy())
+    };
+    let mut compiled: HashMap<String, Result<super::rewrite::CompiledRewrite, String>> =
+        HashMap::new();
+    for path in &candidate_files {
+        compiled
+            .entry(parser_for(path))
+            .or_insert_with_key(|parser| {
+                let mut file_rule = rule_config.clone();
+                if let Some(config) = file_rule.as_object_mut() {
+                    config.insert("language".to_owned(), serde_json::json!(parser));
+                }
+                super::rewrite::compile_rewrite(file_rule)
+            });
+    }
+
     // Per-thread skip accounting, mirroring the search path's coverage counters.
     use std::sync::atomic::{AtomicU32, Ordering};
     let skipped_unreadable = AtomicU32::new(0);
@@ -1235,28 +1270,19 @@ pub fn rewrite_files(
                 skipped_binary.fetch_add(1, Ordering::Relaxed);
                 return None;
             };
-            let mut file_rule = (*rule_config).clone();
-            if !is_single_file {
-                let parser = match extension_for_path(path) {
-                    Some(extension)
-                        if extension == "h"
-                            && (selector.eq_ignore_ascii_case("cpp")
-                                || selector.eq_ignore_ascii_case("c++")) =>
-                    {
-                        "cpp".to_owned()
-                    }
-                    Some(extension) => extension,
-                    None => selector.to_owned(),
-                };
-                if let Some(config) = file_rule.as_object_mut() {
-                    config.insert("language".to_owned(), serde_json::json!(parser));
+            let result = match compiled.get(&parser_for(path)) {
+                Some(Ok(rewrite)) => {
+                    rewrite.scan_with(&content, super::rewrite::CountErrors::WhenMatched)
                 }
-            }
-            match super::rewrite::rewrite(&content, file_rule) {
-                Ok(matches) if matches.is_empty() => None,
-                Ok(matches) => Some(StructuralRewriteFileResult {
+                Some(Err(error)) => Err(error.clone()),
+                None => Err("[structural.rewrite.invalid] no compiled rule".to_owned()),
+            };
+            match result {
+                Ok(scan) if scan.matches.is_empty() => None,
+                Ok(scan) => Some(StructuralRewriteFileResult {
                     path: path.to_string_lossy().into_owned(),
-                    matches,
+                    matches: scan.matches,
+                    syntax_errors: scan.syntax_errors,
                 }),
                 Err(_) => {
                     skipped_errored.fetch_add(1, Ordering::Relaxed);

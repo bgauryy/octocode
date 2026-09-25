@@ -191,12 +191,8 @@ fn validate_query(query: &AstGraphQuery) -> Result<(), AstGraphError> {
 #[allow(clippy::unwrap_used)]
 mod drift_tests {
     use super::*;
-    use crate::{
-        policy::path::{PathPolicy, PathPolicyConfig},
-        security::SecurityRegistry,
-    };
+    use crate::policy::path::{PathPolicy, PathPolicyConfig};
     use serde_json::{Value, json};
-    use std::sync::Arc;
 
     struct Active;
     impl CancellationCheck for Active {
@@ -211,7 +207,7 @@ mod drift_tests {
             ..Default::default()
         })
         .expect("path policy");
-        let security = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+        let security = ContentSecurity::new();
         let parsed: AstGraphQuery = serde_json::from_value(query).expect("query");
         execute_topology(&parsed, &paths, &security, &Active)
     }
@@ -272,7 +268,7 @@ mod drift_tests {
             ..Default::default()
         })
         .expect("paths");
-        let security = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+        let security = ContentSecurity::new();
         let query: AstGraphQuery = serde_json::from_value(json!({"operation":"topology","analysis":"dependencies","path":root,"file":"include/widget.h","languageGlobs":{"cpp":["include/**/*.h"]}})).expect("query");
         let built = graph::build_graph(&query, &paths, &security, &Active).expect("graph");
         assert!(
@@ -396,11 +392,105 @@ mod drift_tests {
             "zero resolved imports is a failed resolution: {out}"
         );
         assert_eq!(out["summary"]["importResolution"]["resolved"], json!(0));
-        let reasons = out["partialReasons"].as_array().expect("partialReasons");
+        let reasons = out["completeness"]["coverageGapReasons"]
+            .as_array()
+            .expect("coverageGapReasons");
         assert!(
             reasons.iter().any(|r| r == "unresolvedImports"),
             "unresolved crate:: imports must be flagged: {out}"
         );
+        // A coverage gap is not truncation: nothing more is reachable by paging.
+        assert!(out.get("truncated").is_none(), "{out}");
+        assert!(out.get("terminalLimit").is_none(), "{out}");
+    }
+
+    #[test]
+    fn non_code_imports_are_not_unresolved_coverage_gaps() {
+        let temp = tempfile::TempDir::new().expect("temp");
+        let root = temp.path();
+        std::fs::write(
+            root.join("a.ts"),
+            "import pkg from './package.json';\nimport './a.css';\nimport logo from './logo.svg?url';\nimport { b } from './b';\nexport const a = b;\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("b.ts"),
+            "import { a } from './a';\nexport const b = 1;\n",
+        )
+        .unwrap();
+
+        let out = run(
+            json!({"operation":"topology","analysis":"cycles","path":root.to_string_lossy()}),
+            root,
+        )
+        .expect("cycles result");
+
+        assert_eq!(out["coverage"]["imports"]["unresolvedInternal"], 0, "{out}");
+        assert_eq!(out["coverage"]["imports"]["nonCode"], 3, "{out}");
+        assert!(out.get("confidence").is_none(), "{out}");
+        assert!(out.get("truncated").is_none(), "{out}");
+        assert!(out.get("terminalLimit").is_none(), "{out}");
+        assert!(
+            out["completeness"].get("coverageGapReasons").is_none(),
+            "{out}"
+        );
+        // Empty diagnostics and a single diagnostic page carry no envelope.
+        assert!(out["coverage"].get("diagnostics").is_none(), "{out}");
+        assert!(out["coverage"].get("diagnosticCounts").is_none(), "{out}");
+        assert!(
+            out["coverage"].get("diagnosticsPagination").is_none(),
+            "{out}"
+        );
+        let row = &out["results"][0];
+        assert_eq!(row["files"], json!(["a.ts", "b.ts"]), "{out}");
+        assert!(row.get("size").is_none(), "size duplicates files: {out}");
+        assert!(row.get("outgoingComponentCount").is_none(), "{out}");
+    }
+
+    #[test]
+    fn path_edges_carry_import_lines() {
+        let temp = tempfile::TempDir::new().expect("temp");
+        let root = temp.path();
+        std::fs::write(
+            root.join("a.ts"),
+            "// head\nimport { b } from './b';\nexport const a = b;\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("b.ts"), "export const b = 1;\n").unwrap();
+
+        let out = run(
+            json!({"operation":"topology","analysis":"path","path":root.to_string_lossy(),"file":"a.ts","target":"b.ts"}),
+            root,
+        )
+        .expect("path result");
+
+        assert_eq!(out["results"][0]["edges"][0]["importLine"], 2, "{out}");
+    }
+
+    #[test]
+    fn resolved_entrypoints_are_emitted_on_the_first_page_only() {
+        let temp = tempfile::TempDir::new().expect("temp");
+        let root = temp.path();
+        std::fs::write(root.join("package.json"), r#"{"name":"x","main":"a.js"}"#).unwrap();
+        for i in 0..3 {
+            std::fs::write(root.join(format!("f{i}.js")), "export const x = 1;\n").unwrap();
+        }
+        std::fs::write(root.join("a.js"), "export const a = 1;\n").unwrap();
+        let query = |page: u32| json!({"operation":"topology","analysis":"reachability","path":root.to_string_lossy(),"pageSize":2,"page":page});
+
+        let first = run(query(1), root).expect("page 1");
+        let second = run(query(2), root).expect("page 2");
+
+        assert_eq!(
+            first["summary"]["entrypointsResolved"],
+            json!(["a.js"]),
+            "{first}"
+        );
+        assert!(
+            second["summary"].get("entrypointsResolved").is_none(),
+            "{second}"
+        );
+        assert_eq!(second["summary"]["entrypointsResolvedCount"], 1, "{second}");
     }
 
     #[test]
@@ -477,13 +567,7 @@ mod drift_tests {
             out["coverage"]["diagnosticCounts"]["syntax-only"].is_null(),
             "{out}"
         );
-        assert!(
-            out["coverage"]["diagnostics"]
-                .as_array()
-                .unwrap()
-                .is_empty(),
-            "{out}"
-        );
+        assert!(out["coverage"].get("diagnostics").is_none(), "{out}");
     }
 }
 
@@ -491,12 +575,8 @@ mod drift_tests {
 #[allow(clippy::unwrap_used)]
 mod dead_code_root_tests {
     use super::*;
-    use crate::{
-        policy::path::{PathPolicy, PathPolicyConfig},
-        security::SecurityRegistry,
-    };
+    use crate::policy::path::{PathPolicy, PathPolicyConfig};
     use serde_json::{Value, json};
-    use std::sync::Arc;
 
     struct Active;
     impl CancellationCheck for Active {
@@ -511,7 +591,7 @@ mod dead_code_root_tests {
             ..Default::default()
         })
         .expect("path policy");
-        let security = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+        let security = ContentSecurity::new();
         let parsed: AstGraphQuery = serde_json::from_value(query).expect("query");
         execute_topology(&parsed, &paths, &security, &Active)
     }
@@ -588,5 +668,151 @@ mod dead_code_root_tests {
             out["confidence"], "low",
             "an ungated dead-code verdict without roots must degrade to low confidence: {out}"
         );
+    }
+
+    /// Unreferenced-export rows for a TS fixture rooted at `main.ts`, as
+    /// `(name, exportedAs)` pairs.
+    fn dead_exports(files: &[(&str, &str)]) -> Vec<(String, Value)> {
+        let temp = tempfile::TempDir::new().expect("temp");
+        let root = temp.path();
+        for (name, content) in files {
+            std::fs::write(root.join(name), content).unwrap();
+        }
+        let out = run(
+            json!({"operation":"topology","analysis":"deadCode","path":root.to_string_lossy(),"entrypoints":["main.ts"]}),
+            root,
+        )
+        .expect("dead code result");
+        let rows = out["results"].as_array().cloned().unwrap_or_default();
+        assert_eq!(
+            out["summary"]["deadExportCount"].as_u64(),
+            Some(rows.len() as u64),
+            "{out}"
+        );
+        rows.iter()
+            .map(|r| {
+                assert_eq!(r["reason"], "unreferenced-export", "{out}");
+                (
+                    r["name"].as_str().unwrap().to_owned(),
+                    r.get("exportedAs").cloned().unwrap_or(Value::Null),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn renamed_export_is_reported_under_its_local_name_with_the_public_alias() {
+        // `bar` (a different local function) is not exported; the
+        // unused renamed export `foo` is dead and says it is public `bar`.
+        let dead = dead_exports(&[
+            (
+                "mod.ts",
+                "export function kept() { return 1 }\nfunction foo() { return 2 }\nfunction bar() { return 3 }\nexport { foo as bar }\n",
+            ),
+            ("main.ts", "import { kept } from './mod'\nkept()\n"),
+        ]);
+        assert_eq!(dead, vec![("foo".to_owned(), json!(["bar"]))]);
+    }
+
+    #[test]
+    fn default_import_keeps_the_default_export_declaration_live() {
+        // `import foo from` consumes the module's default export.
+        let def =
+            "export default function foo() { return 1 }\nexport function other() { return 2 }\n";
+        let dead = dead_exports(&[
+            ("def.ts", def),
+            (
+                "main.ts",
+                "import foo from './def'\nimport { other } from './def'\nfoo(); other()\n",
+            ),
+        ]);
+        assert!(dead.is_empty(), "{dead:?}");
+        let dead = dead_exports(&[
+            ("def.ts", def),
+            ("main.ts", "import { other } from './def'\nother()\n"),
+        ]);
+        assert_eq!(dead, vec![("foo".to_owned(), json!(["default"]))]);
+    }
+
+    #[test]
+    fn same_named_method_does_not_share_liveness_with_a_live_function() {
+        // The live exported `run` and the unreachable method
+        // `Calls.run` are different callers, so `secret` is dead.
+        let dead = dead_exports(&[
+            (
+                "calls.ts",
+                "export function publicA() { return 1 }\nexport function secret() { return 2 }\nexport function run() { return publicA() }\nclass Calls { run() { return secret() } }\n",
+            ),
+            ("main.ts", "import { run } from './calls'\nrun()\n"),
+        ]);
+        assert_eq!(dead, vec![("secret".to_owned(), Value::Null)]);
+    }
+
+    #[test]
+    fn unreachable_caller_does_not_keep_its_exported_callee_live() {
+        // `buried` is never called, so its callee `secret` is dead;
+        // `publicA` stays live through the imported `start`.
+        let dead = dead_exports(&[
+            (
+                "calls.ts",
+                "export function publicA() { return 1 }\nexport function secret() { return 2 }\nexport function start() { return publicA() }\nfunction buried() { return secret() }\n",
+            ),
+            ("main.ts", "import { start } from './calls'\nstart()\n"),
+        ]);
+        assert_eq!(dead, vec![("secret".to_owned(), Value::Null)]);
+    }
+
+    #[test]
+    fn names_only_in_comments_or_strings_do_not_keep_exports_live() {
+        let dead = dead_exports(&[
+            (
+                "lib.ts",
+                "export function inComment() { return 1 }\nexport function inString() { return 2 }\nexport function passed() { return 3 }\nexport function assigned() { return 4 }\nexport function shadowed() { return 5 }\n// inComment is only documented here\nexport const label = 'inString'\nregister(passed)\nconst slot = assigned\nexport function make() { const shadowed = () => 0; return [shadowed, slot] }\n",
+            ),
+            (
+                "main.ts",
+                "import { make, label } from './lib'\nmake(); label\n",
+            ),
+        ]);
+        assert_eq!(
+            dead,
+            vec![
+                ("inComment".to_owned(), Value::Null),
+                ("inString".to_owned(), Value::Null),
+                ("shadowed".to_owned(), Value::Null),
+            ]
+        );
+    }
+
+    #[test]
+    fn unreferenced_export_rows_name_their_reference_basis() {
+        let temp = tempfile::TempDir::new().expect("temp");
+        let root = temp.path();
+        std::fs::write(root.join("mod.ts"), "export function unused() {}\n").unwrap();
+        std::fs::write(root.join("main.ts"), "import './mod'\n").unwrap();
+        let out = run(
+            json!({"operation":"topology","analysis":"deadCode","path":root.to_string_lossy(),"entrypoints":["main.ts"]}),
+            root,
+        )
+        .expect("dead code result");
+        assert_eq!(out["results"][0]["name"], "unused", "{out}");
+        assert_eq!(
+            out["results"][0]["viaHeuristic"], "semantic-references",
+            "{out}"
+        );
+    }
+
+    #[test]
+    fn value_escapes_and_module_level_calls_keep_callees_live() {
+        // Reachability stays conservative: a function passed as a value, a
+        // module-level call and a method of a used class all keep callees live.
+        let dead = dead_exports(&[
+            (
+                "lib.ts",
+                "export function a() { return 1 }\nexport function b() { return 2 }\nexport function c() { return 3 }\nexport function d() { return 4 }\nfunction handler() { return a() }\nregister(handler)\nfunction boot() { return b() }\nboot()\nclass Svc { go() { return c() } }\nexport function make() { return new Svc() }\n",
+            ),
+            ("main.ts", "import { make } from './lib'\nmake()\n"),
+        ]);
+        assert_eq!(dead, vec![("d".to_owned(), Value::Null)]);
     }
 }

@@ -67,10 +67,27 @@ pub(crate) type RawFacts = octocode_engine::graph::GraphFactsDocument;
 
 #[derive(Clone, Debug)]
 pub(crate) struct Declaration {
+    /// Stable occurrence id from the facts (file + name + position + kind).
+    pub id: String,
     pub name: String,
     pub kind: String,
     pub line: u32,
     pub exported: bool,
+    /// Public names when they differ from `name`; empty means `[name]`.
+    pub exported_as: Vec<String>,
+    /// Id of the containing declaration (class for a method).
+    pub parent: Option<String>,
+}
+
+impl Declaration {
+    /// Names this declaration is importable under from its module.
+    pub fn public_names(&self) -> &[String] {
+        if self.exported_as.is_empty() {
+            std::slice::from_ref(&self.name)
+        } else {
+            &self.exported_as
+        }
+    }
 }
 #[derive(Clone, Debug)]
 pub(crate) struct Import {
@@ -86,7 +103,8 @@ pub(crate) struct Reexport {
 }
 #[derive(Clone, Debug)]
 pub(crate) struct Call {
-    pub caller: String,
+    /// Declaration id of the caller; `None` for module-level code.
+    pub caller_id: Option<String>,
     pub callee: String,
 }
 #[derive(Clone, Debug, Default)]
@@ -95,7 +113,12 @@ pub(crate) struct FileFacts {
     pub imports: Vec<Import>,
     pub reexports: Vec<Reexport>,
     pub calls: Vec<Call>,
+    /// Value-reference count per declaration id (declaration names, export
+    /// clauses and call targets excluded). A missing id was not counted.
     pub reference_counts: BTreeMap<String, u32>,
+    /// How the counts were produced: `semantic-references` (scope-resolved
+    /// JS/TS symbols) or `syntax-references` (identifier tokens by name).
+    pub reference_basis: &'static str,
 }
 pub(crate) type Node = octocode_engine::graph::FileGraphNode;
 
@@ -123,7 +146,10 @@ pub(crate) struct BuiltGraph {
     pub edge_count: u32,
     pub edges_capped: bool,
     pub languages: Vec<(String, u32, String)>,
-    pub imports: [u32; 4],
+    /// Import tallies: `[resolved, external, unresolvedInternal, unsupported,
+    /// nonCode]`; `nonCode` counts relative JSON/style/asset specifiers, which
+    /// are not graph edges and are not linking gaps.
+    pub imports: [u32; 5],
     pub diagnostics: Vec<Diagnostic>,
     pub namespace_targets: BTreeSet<String>,
     pub star_reexporters: BTreeMap<String, Vec<String>>,

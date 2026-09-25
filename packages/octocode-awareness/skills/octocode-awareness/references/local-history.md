@@ -15,3 +15,5 @@ Restore is two-phase:
 Apply must fail closed when the preview expires or workspace, identity, path, digest, mode, or protection state drifts. A successful restore still requires verification; it is not proof that the workspace is correct.
 
 For non-file evidence, inspect `schema command history experience --compact`. Record meaningful attempts, decisions, outcomes, and gotchas with stable trace/event identities. Seal at a meaningful investigation boundary. Sealing freezes the trace even if optional archival fails; inspect `recover` and retry `seal` when appropriate. SQLite retains the canonical trace. `compare` reports recorded differences, not inferred causes. Never store secrets or whole transcripts.
+
+Next: record verified reusable lessons through `memory-recall.md`; the recovery step ends here.

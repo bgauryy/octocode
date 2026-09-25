@@ -5,7 +5,7 @@ Load when choosing which improvement loop to run. Why: one flat loop conflates e
 ```text
 1) EXPERIMENT LOOP (inner, fast)
    baseline → mutate subject → measure → keep|discard
-   Owner: agent under a frozen harness
+   Owner: developer/optimizer; scored solvers receive only task inputs
    KPI: primary metric this run
 
 2) SUITE LOOP (middle)
@@ -15,7 +15,7 @@ Load when choosing which improvement loop to run. Why: one flat loop conflates e
 
 3) META / HARNESS LOOP (outer) — includes bilevel
    improve program.md / skill / graders / budgets
-   Owner: human gate; held-out review required
+   Owner: authorized maintainer; new baseline and independent confirmation required
    KPI: fewer repeated failure signatures; skill-review / thesis guards
 
    BILEVEL variant: when inner loop is flat with no new hypotheses, suspect the
@@ -30,14 +30,14 @@ Load when choosing which improvement loop to run. Why: one flat loop conflates e
 ## Dependency rules
 - Never “fix” a failing experiment by editing graders mid-run (cheating).
 - Suite growth is allowed **between** experiments, from real failures — not to greenwash. <!-- style-lint: ignore-line passive-voice -->
-- Meta changes require a new baseline and held-out VERIFY (`improve-loop.md`).
+- Meta changes require a new baseline and sealed VERIFY (`improve-loop.md`). Outer loops may inspect development traces only; repeated final-test feedback leaks through every loop level.
 - Stop inner loop when flat; escalate to suite (missing cases) or meta (bad program).
 
 ## Mapping to Octocode
 | Loop | Typical actuators |
 |---|---|
 | Experiment | one file/prompt/skill paragraph |
-| Suite | `evals/cases.json`, binaryQuestions, failureSignatures |
-| Meta | skill lobby/refs, Awareness harness proposals (human apply) |
+| Suite | benchmark cases, grading criteria, failure categories |
+| Meta | skill lobby/refs, authorized harness changes |
 
 Next: run inner loop → `agent-loop.md`; grow suite → `error-analysis.md` + `eval-harness.md`.

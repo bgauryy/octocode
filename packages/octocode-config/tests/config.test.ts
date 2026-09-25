@@ -593,7 +593,6 @@ describe('DEFAULT_CONFIG', () => {
   it('has sensible defaults', () => {
     expect(DEFAULT_CONFIG.github.apiUrl).toBe('https://api.github.com');
     expect(DEFAULT_CONFIG.local.enabled).toBe(true);
-    expect(DEFAULT_CONFIG.local.enableClone).toBe(false);
     expect(DEFAULT_CONFIG.local.beta).toBe(false);
     expect(DEFAULT_NETWORK_CONFIG.timeout).toBe(30000);
     expect(DEFAULT_NETWORK_CONFIG.allowPrivateRegistry).toBe(false);
@@ -627,12 +626,6 @@ describe('runtimeSurface', () => {
     setRuntimeSurface('cli');
     _resetRuntimeSurface();
     expect(getRuntimeSurface()).toBe('mcp');
-  });
-  it('clone defaults to disabled (opt-in) on every runtime surface', () => {
-    setRuntimeSurface('cli');
-    expect(resolveLocal().enableClone).toBe(false);
-    setRuntimeSurface('mcp');
-    expect(resolveLocal().enableClone).toBe(false);
   });
 });
 
@@ -767,7 +760,6 @@ describe('validateConfig', () => {
     const r = validateConfig({
       local: {
         enabled: 'true',
-        enableClone: 1,
         beta: 'yes',
         allowedPaths: ['/tmp', 42],
         workspaceRoot: 99,
@@ -776,7 +768,6 @@ describe('validateConfig', () => {
     expect(r.errors).toEqual(
       expect.arrayContaining([
         'local.enabled: Must be a boolean',
-        'local.enableClone: Must be a boolean',
         'local.beta: Must be a boolean',
         'local.allowedPaths[1]: Must be a string',
         'local.workspaceRoot: Must be a string',
@@ -1140,7 +1131,6 @@ describe('resolveLocal', () => {
   beforeEach(() => {
     for (const key of [
       'ENABLE_LOCAL',
-      'ENABLE_CLONE',
       'OCTOCODE_BETA',
       'ALLOWED_PATHS',
       'WORKSPACE_ROOT',
@@ -1166,22 +1156,23 @@ describe('resolveLocal', () => {
     expect(resolveLocal().enabled).toBe(true);
   });
 
-  it('clone defaults off (opt-in) on every runtime surface and honors explicit enable', () => {
-    setRuntimeSurface('cli');
-    expect(resolveLocal().enableClone).toBe(false);
-    setRuntimeSurface('mcp');
-    expect(resolveLocal().enableClone).toBe(false);
+  it('the removed local.enableClone key is an unknown-key warning, not an error', () => {
+    const r = validateConfig({ local: { enableClone: true } });
+    expect(r.errors).toEqual([]);
+    expect(r.warnings).toContain('Unknown configuration key: local.enableClone');
+    expect('enableClone' in resolveLocal()).toBe(false);
+  });
+
+  it('resolves explicit local file config', () => {
     expect(
       resolveLocal({
         enabled: false,
-        enableClone: false,
         beta: false,
         allowedPaths: ['/tmp'],
         workspaceRoot: '/tmp',
       })
     ).toEqual({
       enabled: false,
-      enableClone: false,
       beta: false,
       allowedPaths: ['/tmp'],
       workspaceRoot: '/tmp',
@@ -1190,21 +1181,18 @@ describe('resolveLocal', () => {
 
   it('env overrides local file config', () => {
     process.env['ENABLE_LOCAL'] = 'false';
-    process.env['ENABLE_CLONE'] = 'true';
     process.env['OCTOCODE_BETA'] = 'true';
     process.env['ALLOWED_PATHS'] = ' /a, /b ,, ';
     process.env['WORKSPACE_ROOT'] = ' /workspace ';
     expect(
       resolveLocal({
         enabled: true,
-        enableClone: false,
         beta: false,
         allowedPaths: ['/file'],
         workspaceRoot: '/file',
       })
     ).toEqual({
       enabled: false,
-      enableClone: true,
       beta: true,
       allowedPaths: ['/a', '/b'],
       workspaceRoot: '/workspace',

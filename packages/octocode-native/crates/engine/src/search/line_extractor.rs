@@ -1,10 +1,5 @@
 /// In-memory line extractor with literal and regex search.
 ///
-/// Replaces `extractMatchingLines` in octocode-native
-/// (tools/local_fetch_content/contentExtractor.ts) which performed 2–3 full
-/// O(n) passes over pre-split line arrays using `Array.prototype.forEach` +
-/// `String.prototype.toLowerCase` + `RegExp.test` per line.
-///
 /// This module takes the full file content (no pre-split needed), performs a
 /// single scan with the `regex` crate (DFA-backed, SIMD literal search via
 /// `memchr`), and falls back to a whitespace-stripped literal scan when the

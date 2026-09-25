@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::Value;
 
 use crate::providers::github::{
@@ -8,33 +8,11 @@ use crate::providers::github::{
     RequestContext,
 };
 use crate::tools::local_fetch::{
-    CancellationCheck, ChunkType, ContentScan, LocalFetchRegex, LocalFetchRequest, MinifyMode,
-    RegexMatch, process_fetched_content,
+    CancellationCheck, ChunkType, ContentScan, LocalFetchQuery, Minify, RegexMatch,
+    process_fetched_content,
 };
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct GhGetFileContentQuery {
-    pub owner: String,
-    pub repo: String,
-    pub path: String,
-    pub branch: Option<String>,
-    pub full_content: Option<bool>,
-    pub match_string: Option<String>,
-    pub match_string_is_regex: Option<bool>,
-    pub match_string_case_sensitive: Option<bool>,
-    pub start_line: Option<usize>,
-    pub end_line: Option<usize>,
-    pub context_lines: Option<usize>,
-    pub context_bytes: Option<usize>,
-    pub chunk_type: Option<ChunkType>,
-    pub offset: Option<usize>,
-    pub chunk_size: Option<usize>,
-    pub minify: Option<MinifyMode>,
-    pub force_refresh: Option<bool>,
-    pub goal: Option<String>,
-    pub reasoning: Option<String>,
-}
+pub use crate::contracts::tool_types::GhGetFileContentQuery;
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -82,20 +60,46 @@ where
     R: CredentialResolver,
     C: ConditionalCache,
 {
-    let acquired = match provider
-        .get_file_content(
-            &ContentRequest {
-                owner: query.owner.clone(),
-                repo: query.repo.clone(),
-                path: query.path.clone(),
-                reference: query.branch.clone(),
-                force_refresh: query.force_refresh.unwrap_or(false),
-                session_id: session_id.map(str::to_owned),
-            },
+    // Resolve the ref once (memoized across a batch), then read the body at
+    // the immutable SHA. The timestamp runs only after a successful read so a
+    // missing path or a rate limit costs no extra request.
+    let fetched = match provider
+        .resolve_reference(
+            &query.owner,
+            &query.repo,
+            query.branch.as_deref(),
+            query.force_refresh.unwrap_or(false),
             request_context,
         )
         .await
     {
+        Ok(sha) => {
+            let content_request = ContentRequest {
+                owner: query.owner.to_string(),
+                repo: query.repo.to_string(),
+                path: query.path.to_string(),
+                reference: Some(sha.clone()),
+                force_refresh: query.force_refresh.unwrap_or(false),
+                session_id: session_id.map(str::to_owned),
+            };
+            match provider
+                .get_file_content(&content_request, request_context)
+                .await
+            {
+                Ok(acquired) => {
+                    let timestamp = if query.offset.unwrap_or(0) == 0 {
+                        file_timestamp(provider, query, &sha, request_context).await
+                    } else {
+                        (None, None)
+                    };
+                    Ok((acquired, timestamp))
+                }
+                Err(error) => Err(error),
+            }
+        }
+        Err(error) => Err(error),
+    };
+    let (acquired, (last_modified, last_modified_by)) = match fetched {
         Ok(value) => value,
         Err(mut error)
             if error.kind == crate::providers::github::ProviderErrorKind::NotFound
@@ -110,39 +114,17 @@ where
         }
         Err(error) => return Err(error),
     };
-    let local = LocalFetchRequest {
-        path: query.path.clone(),
-        full_content: query.full_content,
-        match_string: query.match_string.clone(),
-        match_string_is_regex: query.match_string_is_regex,
-        match_string_case_sensitive: query.match_string_case_sensitive,
-        start_line: query.start_line,
-        end_line: query.end_line,
-        context_lines: query.context_lines,
-        context_bytes: query.context_bytes,
-        chunk_type: query.chunk_type,
-        offset: query.offset,
-        chunk_size: query.chunk_size.or_else(|| {
-            (query.full_content != Some(true)
-                && query.match_string.is_none()
-                && !(query.start_line.is_some() && query.end_line.is_some()))
-            .then_some(match query.chunk_type.unwrap_or_default() {
-                ChunkType::Lines => 100,
-                ChunkType::Bytes => 16384,
-            })
-        }),
-        minify: query.minify,
-    };
+    let local = local_fetch_query(query)?;
     let mut content = process_fetched_content(
         &local,
         &acquired.bytes,
-        Path::new(&query.path),
+        Path::new(query.path.as_str()),
         None,
         security,
         cancel,
         regex,
     );
-    if query.minify == Some(MinifyMode::Symbols) {
+    if query.minify == Some(Minify::Symbols) {
         content
             .warnings
             .retain(|warning| !warning.starts_with("No smaller outline is available for "));
@@ -155,10 +137,10 @@ where
     }
     if content.error_code.as_deref() == Some("noMatches") && content.error.is_some() {
         let raw = String::from_utf8_lossy(&acquired.bytes);
-        content.path = query.path.clone();
+        content.path = query.path.to_string();
         content.error = None;
         content.content = Some(String::new());
-        content.content_view = Some(MinifyMode::None);
+        content.content_view = Some(Minify::None);
         content.total_lines = Some(raw.lines().count());
         content.source_chars = Some(raw.encode_utf16().count());
         content.source_bytes = Some(raw.len());
@@ -166,12 +148,12 @@ where
         content.returned_bytes = Some(0);
         content.returned_lines = Some(0);
         content.pagination = Some(crate::tools::local_fetch::Pagination {
-            chunk_type: query.chunk_type.unwrap_or_default(),
+            chunk_type: local.chunk_type.unwrap_or(ChunkType::Lines),
             offset: 0,
             length: 0,
-            chunk_size: query
-                .chunk_size
-                .unwrap_or(match query.chunk_type.unwrap_or_default() {
+            chunk_size: local
+                .chunk_size()
+                .unwrap_or(match local.chunk_type.unwrap_or(ChunkType::Lines) {
                     ChunkType::Lines => 1,
                     ChunkType::Bytes => 16384,
                 }),
@@ -195,12 +177,12 @@ where
             "ghSearch code",
         )];
         content.pagination = Some(crate::tools::local_fetch::Pagination {
-            chunk_type: query.chunk_type.unwrap_or_default(),
+            chunk_type: local.chunk_type.unwrap_or(ChunkType::Lines),
             offset: 0,
             length: 0,
-            chunk_size: query
-                .chunk_size
-                .unwrap_or(match query.chunk_type.unwrap_or_default() {
+            chunk_size: local
+                .chunk_size()
+                .unwrap_or(match local.chunk_type.unwrap_or(ChunkType::Lines) {
                     ChunkType::Lines => 1,
                     ChunkType::Bytes => 16384,
                 }),
@@ -209,10 +191,10 @@ where
             has_more: false,
             next_offset: None,
         });
-        if let Some(requested) = query.minify.filter(|mode| *mode != MinifyMode::None) {
+        if let Some(requested) = query.minify.filter(|mode| *mode != Minify::None) {
             content.minify_fallback = Some(crate::tools::local_fetch::MinifyFallback {
                 requested,
-                applied: MinifyMode::None,
+                applied: Minify::None,
                 reason: "match-evidence".into(),
             });
         }
@@ -220,7 +202,7 @@ where
     if content.error_code.as_deref() == Some("fullContentLimit") {
         content.error = None;
         content.content = Some(String::new());
-        content.content_view = Some(query.minify.unwrap_or_default());
+        content.content_view = Some(local.minify_mode());
     }
     if content.error.is_none() {
         content.status = if match_not_found {
@@ -239,14 +221,9 @@ where
         .into();
     }
     let next = rewrite_continuations(&mut content, query, &acquired.resolved_ref);
-    let (last_modified, last_modified_by) = if query.offset.unwrap_or(0) == 0 {
-        file_timestamp(provider, query, &acquired.resolved_ref, request_context).await
-    } else {
-        (None, None)
-    };
     Ok(GhGetFileContentResult {
-        owner: query.owner.clone(),
-        repo: query.repo.clone(),
+        owner: query.owner.to_string(),
+        repo: query.repo.to_string(),
         files: vec![GhGetFileContentFile {
             content,
             resolved_branch: acquired.resolved_ref,
@@ -259,7 +236,7 @@ where
             },
             match_not_found: match_not_found.then_some(true),
             searched_for: match_not_found
-                .then(|| query.match_string.clone())
+                .then(|| query.match_string.as_deref().cloned())
                 .flatten(),
             etag: acquired.etag,
             raw_response_bytes: acquired.raw_response_bytes,
@@ -271,6 +248,9 @@ where
     })
 }
 
+/// Last commit touching `path` at `reference` (a resolved SHA). History below
+/// a commit is immutable, so the answer is cached per (owner, repo, SHA, path)
+/// and repeated offset-0 reads skip the `commits?path=` round trip.
 async fn file_timestamp<R, C>(
     provider: &GitHubProvider<R, C>,
     query: &GhGetFileContentQuery,
@@ -281,14 +261,36 @@ where
     R: CredentialResolver,
     C: ConditionalCache,
 {
+    let partition = provider.transport.cache_partition(context, None).await.ok();
+    let key = {
+        use sha2::{Digest, Sha256};
+        let mut digest = Sha256::new();
+        for value in [
+            query.owner.to_ascii_lowercase().as_str(),
+            query.repo.to_ascii_lowercase().as_str(),
+            reference,
+            query.path.as_str(),
+        ] {
+            digest.update(value.as_bytes());
+            digest.update([0]);
+        }
+        format!("github-file-timestamp:{}", hex::encode(digest.finalize()))
+    };
+    if let Some(partition) = &partition
+        && let Some(cached) = provider.cache.get(partition, &key).await
+        && let Ok((date, author)) =
+            serde_json::from_slice::<(Option<String>, Option<String>)>(&cached.bytes)
+    {
+        return (date, author);
+    }
     let Ok(page) = provider
         .transport
         .list_commits(
             &crate::providers::github::CommitListRequest {
-                owner: query.owner.clone(),
-                repo: query.repo.clone(),
+                owner: query.owner.to_string(),
+                repo: query.repo.to_string(),
                 branch: Some(reference.to_owned()),
-                path: Some(query.path.clone()),
+                path: Some(query.path.to_string()),
                 author: None,
                 since: None,
                 until: None,
@@ -301,21 +303,37 @@ where
     else {
         return (None, None);
     };
-    let Some(commit) = page.items.first() else {
-        return (None, None);
-    };
-    (
-        commit
-            .pointer("/commit/committer/date")
-            .or_else(|| commit.pointer("/commit/author/date"))
-            .and_then(Value::as_str)
-            .map(str::to_owned),
-        commit
-            .pointer("/commit/author/name")
-            .or_else(|| commit.pointer("/author/login"))
-            .and_then(Value::as_str)
-            .map(str::to_owned),
-    )
+    let stamp = page.items.first().map_or((None, None), |commit| {
+        (
+            commit
+                .pointer("/commit/committer/date")
+                .or_else(|| commit.pointer("/commit/author/date"))
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+            commit
+                .pointer("/commit/author/name")
+                .or_else(|| commit.pointer("/author/login"))
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+        )
+    });
+    if let Some(partition) = &partition
+        && let Ok(bytes) = serde_json::to_vec(&stamp)
+    {
+        provider
+            .cache
+            .put(
+                partition,
+                key,
+                crate::providers::github::CachedContent {
+                    etag: None,
+                    bytes,
+                    resolved_ref: reference.to_owned(),
+                },
+            )
+            .await;
+    }
+    stamp
 }
 
 async fn path_suggestions<R, C>(
@@ -358,30 +376,6 @@ where
         .collect())
 }
 
-pub async fn execute_default_regex<R, C>(
-    provider: &GitHubProvider<R, C>,
-    query: &GhGetFileContentQuery,
-    request_context: &RequestContext,
-    session_id: Option<&str>,
-    security: &impl ContentScan,
-    cancel: &impl CancellationCheck,
-) -> Result<GhGetFileContentResult, ProviderError>
-where
-    R: CredentialResolver,
-    C: ConditionalCache,
-{
-    execute(
-        provider,
-        query,
-        request_context,
-        session_id,
-        security,
-        cancel,
-        &LocalFetchRegex::default(),
-    )
-    .await
-}
-
 fn rewrite_continuations(
     result: &mut crate::tools::local_fetch::LocalFetchResult,
     source: &GhGetFileContentQuery,
@@ -397,8 +391,8 @@ fn rewrite_continuations(
         };
         fields.insert("tool".into(), Value::String("ghGetFileContent".into()));
         if let Some(Value::Object(query)) = fields.get_mut("query") {
-            query.insert("owner".into(), Value::String(source.owner.clone()));
-            query.insert("repo".into(), Value::String(source.repo.clone()));
+            query.insert("owner".into(), Value::String(source.owner.to_string()));
+            query.insert("repo".into(), Value::String(source.repo.to_string()));
             query.insert("branch".into(), Value::String(resolved_ref.to_owned()));
             if result.error_code.as_deref() != Some("fullContentLimit") {
                 query.insert("fullContent".into(), Value::Bool(false));
@@ -406,10 +400,10 @@ fn rewrite_continuations(
             query.insert(
                 "minify".into(),
                 Value::String(
-                    match source.minify.unwrap_or_default() {
-                        MinifyMode::None => "none",
-                        MinifyMode::Standard => "standard",
-                        MinifyMode::Symbols => "symbols",
+                    match source.minify.unwrap_or(Minify::None) {
+                        Minify::None => "none",
+                        Minify::Standard => "standard",
+                        Minify::Symbols => "symbols",
                     }
                     .to_owned(),
                 ),
@@ -537,15 +531,49 @@ impl<S: ContentScan> ContentScan for MemoizedScan<'_, S> {
     }
 }
 
+/// The GitHub file query is the localFetch extraction query plus repository
+/// coordinates; project it onto the generated localFetch wire type so both
+/// tools share one extraction request. Paged reads get the default page size.
+fn local_fetch_query(query: &GhGetFileContentQuery) -> Result<LocalFetchQuery, ProviderError> {
+    let mut value = serde_json::to_value(query).map_err(decode_error)?;
+    if let Value::Object(object) = &mut value {
+        for key in ["owner", "repo", "branch", "forceRefresh"] {
+            object.remove(key);
+        }
+    }
+    let mut local: LocalFetchQuery = serde_json::from_value(value).map_err(decode_error)?;
+    let paged = local.full_content != Some(true)
+        && local.match_string.is_none()
+        && !(local.start_line.is_some() && local.end_line.is_some());
+    if local.chunk_size.is_none() && paged {
+        local.chunk_size = crate::tools::local_fetch::wire_positive(default_chunk_size(&local));
+    }
+    Ok(local)
+}
+
+fn default_chunk_size(local: &LocalFetchQuery) -> usize {
+    match local.chunk_type.unwrap_or(ChunkType::Lines) {
+        ChunkType::Lines => 100,
+        ChunkType::Bytes => 16384,
+    }
+}
+
+fn decode_error(error: serde_json::Error) -> ProviderError {
+    ProviderError::new(
+        crate::providers::github::ProviderErrorKind::Decode,
+        format!("ghGetFileContent query does not map onto localFetch: {error}"),
+    )
+}
+
 pub fn continuation_query(
     source: &GhGetFileContentQuery,
-    local_query: &LocalFetchRequest,
+    local_query: &LocalFetchQuery,
     resolved_ref: &str,
 ) -> Value {
     let mut value = serde_json::to_value(local_query).unwrap_or(Value::Null);
     if let Value::Object(ref mut object) = value {
-        object.insert("owner".into(), Value::String(source.owner.clone()));
-        object.insert("repo".into(), Value::String(source.repo.clone()));
+        object.insert("owner".into(), Value::String(source.owner.to_string()));
+        object.insert("repo".into(), Value::String(source.repo.to_string()));
         object.insert("branch".into(), Value::String(resolved_ref.to_owned()));
         if let Some(force) = source.force_refresh {
             object.insert("forceRefresh".into(), Value::Bool(force));
@@ -557,6 +585,7 @@ pub fn continuation_query(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tools::local_fetch::wire_positive;
     use crate::providers::github::{
         CredentialSource, GitHubEndpoint, GitHubTransport, NoCache, RetryPolicy,
         StaticCredentialResolver,
@@ -568,6 +597,30 @@ mod tests {
         Mock, MockServer, ResponseTemplate,
         matchers::{method, path, query_param},
     };
+
+    async fn execute_default_regex<R, C>(
+        provider: &GitHubProvider<R, C>,
+        query: &GhGetFileContentQuery,
+        request_context: &RequestContext,
+        session_id: Option<&str>,
+        security: &impl ContentScan,
+        cancel: &impl CancellationCheck,
+    ) -> Result<GhGetFileContentResult, ProviderError>
+    where
+        R: CredentialResolver,
+        C: ConditionalCache,
+    {
+        execute(
+            provider,
+            query,
+            request_context,
+            session_id,
+            security,
+            cancel,
+            &crate::tools::local_fetch::LocalFetchRegex::default(),
+        )
+        .await
+    }
 
     struct Safe;
     impl ContentScan for Safe {
@@ -599,19 +652,19 @@ mod tests {
     }
 
     #[test]
-    fn paging_one_file_scans_the_full_view_once_and_keeps_redaction() {
+    fn line_pages_scan_only_their_window_and_keep_redaction() {
         let body = format!("TOKEN KEYBODY\n{}", "line of text\n".repeat(4000));
         let scanner = Counting::default();
         let memo = SanitizedViewMemo::new();
         let security = MemoizedScan::new(&scanner, &memo);
         let mut pages = Vec::new();
         for offset in [0, 100, 200] {
-            let request = LocalFetchRequest {
-                path: "big.txt".into(),
+            let request = LocalFetchQuery {
+                path: "big.txt".parse().expect("path"),
                 chunk_type: Some(ChunkType::Lines),
                 offset: Some(offset),
-                chunk_size: Some(100),
-                ..Default::default()
+                chunk_size: wire_positive(100),
+                ..LocalFetchQuery::test_default()
             };
             let page = process_fetched_content(
                 &request,
@@ -620,23 +673,26 @@ mod tests {
                 None,
                 &security,
                 &NeverCancel,
-                &LocalFetchRegex::default(),
+                &crate::tools::local_fetch::LocalFetchRegex::default(),
             );
             pages.push(page.content.unwrap_or_default());
         }
+        // Line pages sanitize only their window (plus a margin), one small
+        // scan per page, instead of the whole file.
         assert_eq!(
             scanner.scans.load(std::sync::atomic::Ordering::SeqCst),
-            1,
-            "later pages reuse the sanitized full view"
+            3,
+            "each line page scans its own window"
         );
         assert!(pages[0].starts_with("[REDACTED] [KEY]\n"), "{}", pages[0]);
         assert_eq!(pages[1], "line of text\n".repeat(100));
-        // A different view (another path or changed bytes) is scanned afresh.
+        // The memo still serves repeated full views (byte/fullContent pages):
+        // a new view is scanned once, then reused.
         memo.scan("x".repeat(20_000).as_str(), Path::new("other"), &scanner)
             .expect("scan");
         memo.scan("x".repeat(20_000).as_str(), Path::new("other"), &scanner)
             .expect("scan");
-        assert_eq!(scanner.scans.load(std::sync::atomic::Ordering::SeqCst), 2);
+        assert_eq!(scanner.scans.load(std::sync::atomic::Ordering::SeqCst), 4);
     }
 
     #[tokio::test]
@@ -665,27 +721,11 @@ mod tests {
             transport,
             cache: NoCache,
         };
-        let query = GhGetFileContentQuery {
-            owner: "a".into(),
-            repo: "b".into(),
-            path: "src/lib.rs".into(),
-            branch: Some("main".into()),
-            full_content: None,
-            match_string: None,
-            match_string_is_regex: None,
-            match_string_case_sensitive: None,
-            start_line: None,
-            end_line: None,
-            context_lines: None,
-            context_bytes: None,
-            chunk_type: Some(ChunkType::Lines),
-            offset: None,
-            chunk_size: Some(2),
-            minify: None,
-            force_refresh: None,
-            goal: None,
-            reasoning: None,
-        };
+        let query: GhGetFileContentQuery = serde_json::from_value(serde_json::json!({
+            "owner": "a", "repo": "b", "path": "src/lib.rs", "branch": "main",
+            "chunkType": "lines", "chunkSize": 2, "reasoning": "test"
+        }))
+        .expect("ghGetFileContent query");
         let result = execute_default_regex(
             &provider,
             &query,
@@ -739,7 +779,7 @@ mod tests {
         };
         let query: GhGetFileContentQuery = serde_json::from_value(serde_json::json!({
             "owner": "a", "repo": "b", "path": "src/lib.rs", "branch": "main",
-            "matchString": "TOKEN", "contextLines": 0
+            "matchString": "TOKEN", "contextLines": 0, "reasoning": "test"
         }))
         .expect("query");
         let result = execute_default_regex(
@@ -787,7 +827,7 @@ mod tests {
         };
         let query: GhGetFileContentQuery = serde_json::from_value(serde_json::json!({
             "owner": "a", "repo": "b", "path": "big.txt", "branch": sha,
-            "fullContent": true
+            "fullContent": true, "reasoning": "test"
         }))
         .expect("query");
         let result = execute_default_regex(

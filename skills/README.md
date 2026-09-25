@@ -1,6 +1,8 @@
 # Octocode skills
 
-Canonical Agent Skills for this monorepo. Each skill is a standalone folder whose `SKILL.md` defines agent behavior and whose `README.md` provides the human overview.
+Public Agent Skills. Each skill is a standalone folder whose `SKILL.md` defines agent behavior and whose `README.md` provides the human overview. These folders are what `octocode skill install` publishes.
+
+Tested skills that are not ready to publish live in [`../skills-beta/`](../skills-beta/). Skills for working on this repository live in [`../skills-dev/`](../skills-dev/).
 
 ## Choose a skill
 
@@ -9,12 +11,13 @@ Canonical Agent Skills for this monorepo. Each skill is a standalone folder whos
 | Investigate code, packages, history, or a failure | [octocode-research](octocode-research/) |
 | Review or refactor architecture, algorithms, dependencies, flows, interfaces, or maintainability | [octocode-architect](octocode-architect/) |
 | Explore whether an idea is worth building | [octocode-brainstorming](octocode-brainstorming/) |
-| Apply a named reasoning mode (viewpoint, pace, persistence) to any task — 🔞 research preview, not benchmarked | [octocode-exploratory-thinking](octocode-exploratory-thinking/) |
+| Think through a task with an exploratory awareness shift, or with a named substance as a presence | [octocode-exploratory-thinking](octocode-exploratory-thinking/) |
 | Make a consequential design or migration decision, with optional Jev review | [octocode-rfc-generator](octocode-rfc-generator/) |
 | Measure whether a change improved behavior | [octocode-eval-benchmark](octocode-eval-benchmark/) |
 | Orchestrate workers or offload sealed work to local Ollama | [octocode-subagent](octocode-subagent/) |
 | Write, restructure, or copyedit documentation | [octocode-documentation](octocode-documentation/) |
 | Deliver a blunt, evidence-backed code critique | [octocode-roast](octocode-roast/) |
+| Remove dead code, shims, and agent residue without changing behavior | [octocode-clean-agentic-code](octocode-clean-agentic-code/) |
 | Improve prompts, policies, handoffs, or tool schemas | [octocode-prompt-optimizer](octocode-prompt-optimizer/) |
 | Discover, create, review, install, or synchronize skills | [octocode-skills](octocode-skills/) |
 | Debug a live page with Chrome DevTools evidence | [octocode-chrome-devtools](octocode-chrome-devtools/) |

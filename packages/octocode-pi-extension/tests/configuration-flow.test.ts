@@ -117,11 +117,17 @@ test('browser links an exact skill revision and rejects a changed source before 
   const opened = await openMcpManager(ctx, []);
   const html = await (await fetch(opened.url!)).text();
   assert.match(html, /Review complete skill instructions/);
-  assert.match(html, /Use exact evidence\./);
+  assert.doesNotMatch(html, /Use exact evidence\./, 'skill bodies load on demand, not inline');
   const stamp = html.match(/capabilityRevision:"(sha256:[a-f0-9]{64})"/)?.[1];
   assert.ok(stamp, 'browser emits a concrete capability review stamp');
   const token = await tokenFrom(opened.url!);
+  const preview = await post(opened.url!, token, { action: 'preview-skill', source: candidate.sourceId, hash: candidate.revision });
+  assert.equal(preview.status, 200);
+  assert.equal(((await preview.json()) as { value: { preview: string } }).value.preview, body, 'review loads the exact source bytes');
   fs.writeFileSync(skillPath, body + 'Changed after opening the page.\n');
+  const stalePreview = await post(opened.url!, token, { action: 'preview-skill', source: candidate.sourceId, hash: candidate.revision });
+  assert.equal(stalePreview.status, 400);
+  assert.match(await stalePreview.text(), /Source changed/);
   const stale = await post(opened.url!, token, { action: 'review-skill', source: candidate.sourceId, hash: candidate.revision, scope: 'project', capabilityRevision: stamp });
   assert.equal(stale.status, 400);
   assert.equal(discoverSkills(ctx.cwd!).some(skill => skill.name === 'import-review'), false);

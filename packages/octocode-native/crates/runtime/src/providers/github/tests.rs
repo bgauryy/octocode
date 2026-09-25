@@ -111,22 +111,31 @@ impl Respond for AlwaysPrOnlyWithNext {
     }
 }
 impl ConditionalCache for MemoryCache {
+    // Single-slot body cache: ref memo entries (`github-ref:`) are not stored
+    // so each test controls ref resolution through its mocks.
     fn get<'a>(
         &'a self,
         _: &'a CachePartition,
-        _: &'a str,
+        key: &'a str,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<CachedContent>> + Send + 'a>>
     {
-        Box::pin(async move { self.0.lock().expect("cache lock").clone() })
+        Box::pin(async move {
+            if key.starts_with("github-ref:") {
+                return None;
+            }
+            self.0.lock().expect("cache lock").clone()
+        })
     }
     fn put<'a>(
         &'a self,
         _: &'a CachePartition,
-        _: String,
+        key: String,
         value: CachedContent,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
         Box::pin(async move {
-            *self.0.lock().expect("cache lock") = Some(value);
+            if !key.starts_with("github-ref:") {
+                *self.0.lock().expect("cache lock") = Some(value);
+            }
         })
     }
 }
@@ -888,6 +897,10 @@ async fn content_directory_symlink_and_submodule_get_clear_errors() {
     let dir = read("src").await;
     assert_eq!(dir.kind, ProviderErrorKind::Validation);
     assert!(dir.message.contains("is a directory"), "{}", dir.message);
+    assert_eq!(
+        dir.reason,
+        Some(super::ProviderErrorReason::PathIsDirectory)
+    );
     let link = read("link").await;
     assert!(link.message.contains("symlink"), "{}", link.message);
     assert!(link.message.contains("src/lib.rs"), "{}", link.message);
@@ -1087,7 +1100,7 @@ async fn secondary_limit_without_retry_after_waits_sixty_seconds_or_fails_fast()
     assert_eq!(error.kind, ProviderErrorKind::RateLimited);
     assert!(error.retryable);
     assert_eq!(error.status, Some(403));
-    // 403 secondary keeps rate-limit metadata (previously dropped).
+    // A 403 secondary limit keeps its rate-limit metadata.
     let rate = error.rate_limit.expect("secondary metadata");
     assert_eq!(rate.retry_after_seconds, Some(60));
     assert_eq!(rate.remaining, Some(21));
@@ -1373,4 +1386,187 @@ async fn limiter_keys_isolate_tokens() {
             .await
             .expect("other token unaffected");
     }
+}
+
+/// Key-aware cache so ref memo and body entries coexist.
+#[derive(Default)]
+struct KeyedCache(Mutex<std::collections::HashMap<String, CachedContent>>);
+impl ConditionalCache for KeyedCache {
+    fn get<'a>(
+        &'a self,
+        _: &'a CachePartition,
+        key: &'a str,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<CachedContent>> + Send + 'a>>
+    {
+        Box::pin(async move { self.0.lock().expect("cache lock").get(key).cloned() })
+    }
+    fn put<'a>(
+        &'a self,
+        _: &'a CachePartition,
+        key: String,
+        value: CachedContent,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
+        Box::pin(async move {
+            self.0.lock().expect("cache lock").insert(key, value);
+        })
+    }
+}
+
+#[tokio::test]
+async fn default_branch_resolves_with_one_sha_request_and_is_memoized_per_batch() {
+    let server = MockServer::start().await;
+    let sha = "0123456789abcdef0123456789abcdef01234567";
+    // No repository-metadata round trip: HEAD resolves the default branch.
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/acme/repo"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({})))
+        .expect(0)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/acme/repo/commits/HEAD"))
+        .and(header("accept", "application/vnd.github.sha"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(sha))
+        .expect(1)
+        .mount(&server)
+        .await;
+    for name in ["a.rs", "b.rs"] {
+        Mock::given(method("GET"))
+            .and(path(format!("/api/v3/repos/acme/repo/contents/{name}")))
+            .and(query_param("ref", sha))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "type":"file","encoding":"base64","content":STANDARD.encode("x\n")
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+    }
+    let base = provider(&server).await;
+    let provider = GitHubProvider {
+        transport: base.transport,
+        cache: KeyedCache::default(),
+    };
+    let context = RequestContext::with_timeout(Duration::from_secs(2), 1024);
+    for name in ["a.rs", "b.rs", "a.rs"] {
+        let result = provider
+            .get_file_content(
+                &ContentRequest {
+                    owner: "acme".into(),
+                    repo: "repo".into(),
+                    path: name.into(),
+                    reference: None,
+                    force_refresh: false,
+                    session_id: None,
+                },
+                &context,
+            )
+            .await
+            .expect("content");
+        assert_eq!(result.resolved_ref, sha);
+        assert_eq!(result.bytes, b"x\n");
+    }
+}
+
+#[tokio::test]
+async fn legal_block_and_unmapped_statuses_are_not_network_failures() {
+    for (status, kind, needle) in [
+        (
+            451_u16,
+            ProviderErrorKind::Unavailable,
+            "legal reasons (HTTP 451)",
+        ),
+        (418, ProviderErrorKind::HttpStatus, "HTTP 418"),
+    ] {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(
+                ResponseTemplate::new(status)
+                    .set_body_json(serde_json::json!({"message": "blocked"})),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+        let (transport, endpoint) =
+            executor_transport(&server, None, GitHubBudget::relaxed(), short_retry());
+        let error = transport
+            .execute(
+                RequestSpec::get(endpoint.rest(&["x"]).expect("route")),
+                &RequestContext::with_timeout(Duration::from_secs(2), 1024),
+            )
+            .await
+            .expect_err("status error");
+        assert_eq!(error.kind, kind, "{status}");
+        assert!(!error.retryable, "{status}");
+        assert_eq!(error.status, Some(status));
+        assert!(error.message.contains(needle), "{}", error.message);
+        server.verify().await;
+    }
+}
+
+#[tokio::test]
+async fn oversized_error_body_keeps_status_and_says_the_body_was_not_read() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(404).set_body_bytes(vec![b'x'; 4096]))
+        .mount(&server)
+        .await;
+    let (transport, endpoint) =
+        executor_transport(&server, None, GitHubBudget::relaxed(), short_retry());
+    let error = transport
+        .execute(
+            RequestSpec::get(endpoint.rest(&["x"]).expect("route")),
+            &RequestContext::with_timeout(Duration::from_secs(2), 64),
+        )
+        .await
+        .expect_err("not found");
+    assert_eq!(error.kind, ProviderErrorKind::NotFound);
+    assert!(
+        error.message.contains("error body exceeded limit"),
+        "{}",
+        error.message
+    );
+}
+
+#[tokio::test]
+async fn cancel_while_reading_an_error_body_is_cancelled() {
+    use std::io::{Read, Write};
+    // Headers and part of a 404 body arrive, then the server stalls.
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+    let address = listener.local_addr().expect("address");
+    std::thread::spawn(move || {
+        let Ok((mut socket, _)) = listener.accept() else {
+            return;
+        };
+        let mut request = [0_u8; 4096];
+        let _ = socket.read(&mut request);
+        let _ = socket.write_all(
+            b"HTTP/1.1 404 Not Found\r\ncontent-type: application/json\r\ncontent-length: 100000\r\n\r\n{\"message\":\"par",
+        );
+        let _ = socket.flush();
+        std::thread::sleep(Duration::from_secs(3));
+    });
+    let endpoint =
+        GitHubEndpoint::new(url::Url::parse(&format!("http://{address}/api/v3")).expect("URL"))
+            .expect("endpoint");
+    let transport = GitHubTransport::with_budget(
+        endpoint.clone(),
+        Arc::new(StaticCredentialResolver::anonymous()),
+        short_retry(),
+        GitHubBudget::relaxed(),
+    )
+    .expect("transport");
+    let context = RequestContext::with_timeout(Duration::from_secs(4), 1 << 20);
+    let cancellation = context.cancellation.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        cancellation.cancel();
+    });
+    let error = transport
+        .execute(
+            RequestSpec::get(endpoint.rest(&["x"]).expect("route")),
+            &context,
+        )
+        .await
+        .expect_err("cancelled");
+    assert_eq!(error.kind, ProviderErrorKind::Cancelled, "{error:?}");
 }

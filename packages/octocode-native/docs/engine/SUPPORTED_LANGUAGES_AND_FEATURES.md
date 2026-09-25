@@ -126,7 +126,7 @@ Built-in LSP routing covers 11 language families and 27 extensions. CUDA `.cu`/`
 `workspaceSymbol`, `supertypes`, `subtypes`, and `diagnostic` are public
 operations. A running server that lacks an operation returns a typed `empty`
 payload such as `unsupportedOperation`. A missing server returns the typed
-`lspServerUnavailable` error instead of a syntax-derived semantic answer.
+`lsp.serverUnavailable` error instead of a syntax-derived semantic answer.
 
 `documentSymbols` is the outline exception: JS/TS native outlines and Markdown
 headings run without starting or checking a server. Their `lsp.source` identifies

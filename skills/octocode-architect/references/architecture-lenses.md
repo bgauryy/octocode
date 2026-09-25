@@ -44,4 +44,4 @@ Map both direct and second-order effects:
 
 Evaluate only material dimensions; mark a surprising omission N/A with a reason. After editing, inspect the diff, and retrace the affected wiring for stale copies, asymmetric branches, changed defaults, and widened impact.
 
-Next: plan with `output-contracts.md` when the decision needs a written contract; otherwise return to the workflow in `SKILL.md`.
+Next: plan with `references/output-contracts.md` when the decision needs a written contract; otherwise return to the workflow in `SKILL.md`.

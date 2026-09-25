@@ -74,6 +74,7 @@ export const resolveWorkspaceRootForFile =
 export const detectLanguageId = nativeBinding.detectLanguageId;
 export const getLanguageServerForFile = nativeBinding.getLanguageServerForFile;
 export const isCommandAvailable = nativeBinding.isCommandAvailable;
+export const isCommandAvailableAsync = nativeBinding.isCommandAvailableAsync;
 export const safeReadFile = nativeBinding.safeReadFile;
 export const safeReadLineWindow = nativeBinding.safeReadLineWindow;
 export const validateLspServerPath = nativeBinding.validateLspServerPath;

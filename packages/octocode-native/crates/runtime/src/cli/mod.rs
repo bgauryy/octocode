@@ -38,7 +38,8 @@ EXIT CODES:\n\
   130  Interrupted (Ctrl-C)"
 )]
 pub struct Args {
-    /// Emit {"success":false,"error":"..."} to stdout on errors instead of stderr text.
+    /// Emit {"kind":"octocode.toolError","version":1,"error":"..."} to stdout on
+    /// errors (including argument parse errors) instead of stderr text.
     #[arg(long, global = true)]
     json_errors: bool,
     /// Mask email addresses in GitHub tool outputs (same as OCTOCODE_REDACT_EMAILS=true).
@@ -61,11 +62,64 @@ fn canonical_tool_help(command: clap::Command) -> clap::Command {
     }
 }
 
+/// The one `--json-errors` envelope, shared with contract input errors
+/// (`contracts::validate`) so callers parse a single shape.
+fn error_envelope(tool: Option<&str>, msg: &str) -> Value {
+    let mut value = json!({"kind": "octocode.toolError", "version": 1, "error": msg});
+    if let Some(tool) = tool {
+        value["tool"] = json!(tool);
+    }
+    value
+}
+
 fn emit_error(msg: &str, json_errors: bool) {
+    emit_tool_error(None, msg, json_errors);
+}
+
+fn emit_tool_error(tool: Option<&str>, msg: &str, json_errors: bool) {
     if json_errors {
-        println!("{}", json!({"success": false, "error": msg}));
+        println!("{}", error_envelope(tool, msg));
     } else {
         eprintln!("{msg}");
+    }
+}
+
+/// Parse argv; with `--json-errors`, argument errors use the JSON envelope
+/// (exit 2) instead of clap's text. Help and version output stay text.
+pub fn parse_args() -> Result<Args, u8> {
+    parse_args_from(std::env::args_os())
+}
+
+fn parse_args_from<I, T>(argv: I) -> Result<Args, u8>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<std::ffi::OsString> + Clone,
+{
+    let argv: Vec<std::ffi::OsString> = argv.into_iter().map(Into::into).collect();
+    match Args::try_parse_from(&argv) {
+        Ok(args) => Ok(args),
+        Err(error) => {
+            let json_errors = argv.iter().any(|arg| arg == "--json-errors");
+            let displays_text = matches!(
+                error.kind(),
+                clap::error::ErrorKind::DisplayHelp
+                    | clap::error::ErrorKind::DisplayVersion
+                    | clap::error::ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+            );
+            if !json_errors || displays_text {
+                let _ = error.print();
+                return Err(error.exit_code() as u8);
+            }
+            let rendered = error.render().to_string();
+            let message = rendered
+                .lines()
+                .next()
+                .unwrap_or_default()
+                .trim_start_matches("error: ")
+                .to_owned();
+            emit_error(&message, true);
+            Err(2)
+        }
     }
 }
 
@@ -544,7 +598,7 @@ async fn run_tool(runtime: &ToolRuntime, tool: &str, args: ToolArgs, json_errors
     let query_text = match args.query_text() {
         Ok(text) => text,
         Err(error) => {
-            emit_error(&error, json_errors);
+            emit_tool_error(Some(tool), &error, json_errors);
             return 2;
         }
     };
@@ -557,7 +611,11 @@ async fn run_tool(runtime: &ToolRuntime, tool: &str, args: ToolArgs, json_errors
     let input = match serde_json::from_str::<Value>(&query_text) {
         Ok(input) => input,
         Err(parse_error) => {
-            emit_error(&format!("Invalid JSON query: {parse_error}"), json_errors);
+            emit_tool_error(
+                Some(tool),
+                &format!("Invalid JSON query: {parse_error}"),
+                json_errors,
+            );
             return 2;
         }
     };
@@ -581,7 +639,11 @@ pub(super) async fn execute(runtime: &ToolRuntime, tool: &str, input: Value, com
     };
     match result {
         Ok(outcome) => {
-            let value = outcome.structured_content;
+            let mut value = outcome.structured_content;
+            preserve_cli_text_page(
+                &mut value,
+                outcome.content.first().map(|content| content.text.as_str()),
+            );
             let mut exit = match outcome.failure {
                 Some(octocode_native::runtime::FailureKind::NotFound) => 3,
                 // The raw-tool CLI classifies the legacy 401 message as a tool
@@ -683,6 +745,20 @@ pub(super) async fn execute(runtime: &ToolRuntime, tool: &str, input: Value, com
     }
 }
 
+/// The MCP text page is separate from structuredContent. CLI JSON has only
+/// one channel, so retain that page while structured result rows are withheld.
+fn preserve_cli_text_page(value: &mut Value, text: Option<&str>) {
+    if value
+        .pointer("/responsePagination/scope")
+        .and_then(Value::as_str)
+        == Some("content.text")
+        && value["results"].as_array().is_some_and(Vec::is_empty)
+        && let Some(text) = text
+    {
+        value["responseWindow"] = json!(text);
+    }
+}
+
 /// clasify returns `queries[].next.clasify` (a complete query, not a
 /// `{tool,query}` row continuation); remaining coverage is still exit 6.
 fn has_clasify_continuation(value: &Value) -> bool {
@@ -751,9 +827,43 @@ pub(super) fn write_json(value: &Value, compact: bool) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::{
-        INTERACTIVE_EXECUTION_TIMEOUT_SECS, has_clasify_continuation, has_cli_continuation,
+        INTERACTIVE_EXECUTION_TIMEOUT_SECS, error_envelope, has_clasify_continuation,
+        has_cli_continuation, parse_args_from, preserve_cli_text_page,
     };
     use serde_json::json;
+
+    #[test]
+    fn paged_cli_json_keeps_the_text_window() {
+        let mut page = json!({"results":[],"responsePagination":{
+            "scope":"content.text","hasMore":true,"next":{"tool":"localFetch","query":{}}
+        }});
+        preserve_cli_text_page(&mut page, Some("# Response page 1/2.\nsource"));
+        assert_eq!(page["responseWindow"], "# Response page 1/2.\nsource");
+
+        let mut complete = json!({"results":[{"data":{"content":"source"}}],
+            "responsePagination":{"scope":"content.text","hasMore":false}});
+        preserve_cli_text_page(&mut complete, Some("source"));
+        assert!(complete.get("responseWindow").is_none());
+    }
+
+    #[test]
+    fn json_error_envelope_matches_contract_tool_errors() {
+        assert_eq!(
+            error_envelope(Some("localSearch"), "bad"),
+            json!({"kind":"octocode.toolError","version":1,"tool":"localSearch","error":"bad"})
+        );
+        assert!(error_envelope(None, "bad").get("tool").is_none());
+    }
+
+    #[test]
+    fn argument_errors_keep_exit_two_with_or_without_json_errors() {
+        assert_eq!(
+            parse_args_from(["octocode", "--json-errors", "notACommand"]).err(),
+            Some(2)
+        );
+        assert_eq!(parse_args_from(["octocode", "notACommand"]).err(), Some(2));
+        assert!(parse_args_from(["octocode", "--json-errors", "scheme"]).is_ok());
+    }
 
     #[test]
     fn optional_drill_downs_are_not_remaining_pages() {

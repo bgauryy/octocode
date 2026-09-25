@@ -41,12 +41,16 @@ const MAX_CACHED_CLIENTS: usize = 8;
 fn shared_client() -> Result<reqwest::Client, ClassificationError> {
     static CLIENTS: OnceLock<Mutex<Vec<(tokio::runtime::Id, reqwest::Client)>>> = OnceLock::new();
     let build = || {
-        reqwest::Client::builder()
+        let builder = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(CONNECT_TIMEOUT)
-            .user_agent(concat!("octocode-native/", env!("CARGO_PKG_VERSION")))
-            .build()
-            .map_err(|_| transport_error())
+            .user_agent(concat!("octocode-native/", env!("CARGO_PKG_VERSION")));
+        #[cfg(test)]
+        // Unit transports use loopback fixtures, never the host's proxy/PAC.
+        // System-proxy discovery can otherwise consume the request deadline
+        // before any fixture request is sent.
+        let builder = builder.no_proxy();
+        builder.build().map_err(|_| transport_error())
     };
     let Ok(runtime) = tokio::runtime::Handle::try_current() else {
         return build();
@@ -182,17 +186,6 @@ fn header_seconds(headers: &reqwest::header::HeaderMap, name: &str) -> Option<f6
         .filter(|value| value.is_finite() && *value >= 0.0)
 }
 
-/// Days since 1970-01-01 for a proleptic Gregorian date.
-fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
-    let year = if month <= 2 { year - 1 } else { year };
-    let era = year.div_euclid(400);
-    let year_of_era = year - era * 400;
-    let month_index = (month + 9) % 12;
-    let day_of_year = (153 * month_index + 2) / 5 + day - 1;
-    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
-    era * 146_097 + day_of_era - 719_468
-}
-
 /// Parse an RFC 9110 IMF-fixdate (`Sun, 06 Nov 1994 08:49:37 GMT`).
 fn parse_http_date(value: &str) -> Option<SystemTime> {
     let (_, rest) = value.trim().split_once(", ")?;
@@ -229,7 +222,10 @@ fn parse_http_date(value: &str) -> Option<SystemTime> {
     {
         return None;
     }
-    let seconds = days_from_civil(year, month, day) * 86_400 + hour * 3600 + minute * 60 + second;
+    let seconds = crate::civil_date::days_from_civil(year, month, day) * 86_400
+        + hour * 3600
+        + minute * 60
+        + second;
     let seconds = u64::try_from(seconds).ok()?;
     SystemTime::UNIX_EPOCH.checked_add(Duration::from_secs(seconds))
 }

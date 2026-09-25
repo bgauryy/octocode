@@ -31,4 +31,4 @@ Regenerate derived artifacts from their source; never hand-edit generated output
 4. Task-scoped cleanup is complete and unrelated cleanup is excluded. <!-- style-lint: ignore-line passive-voice -->
 5. Required bookkeeping matches the code; no stale derived or descriptive state remains.
 
-Next: use `output-contracts.md` to report a consequential result; otherwise return a concise outcome and verification summary.
+Next: use `references/output-contracts.md` to report a consequential result; otherwise return a concise outcome and verification summary.

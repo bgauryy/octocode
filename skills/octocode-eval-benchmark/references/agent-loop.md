@@ -1,35 +1,23 @@
-# Agent Loop
-Load when running the **inner experiment** loop. Why: hill-climb with a frozen harness.
+# Agent loop
+Load for subject improvement with a validated frozen harness. Why: keep development search separate from final confirmation.
 
-For suite vs meta loops, load `nested-loops.md` first.
-
-## Contract
 ```text
-BASELINE → MUTATE (one subject) → MEASURE (fixed budget) → KEEP | DISCARD → REPEAT
+BASELINE → HYPOTHESIS → ONE SUBJECT CHANGE → DEVELOPMENT MEASURE → KEEP | DISCARD
+                                                               ↓ selected candidate
+                                                        SEALED VERIFY → DECIDE
 ```
 
-**TDD mapping (same loop, agent-shaped):**
-1. **Red** — pick/add a failing case or record baseline below target (held-out untouched).
-2. **Green** — smallest subject change; re-run the **same** command until primary improves.
-3. **Refactor / discard** — keep only if guardrails hold; else revert; grow suite **between** experiments only.
+1. Record the development baseline, harness hashes, comparable budget, and a failing case or below-target outcome before changing the subject.
+2. State the failure mechanism and predicted effect. Make the smallest change that tests that hypothesis; one coherent factor aids attribution.
+3. Run baseline/candidate comparisons under the frozen plan. Keep raw outcomes, cost, error categories, and all attempted hypotheses.
+4. KEEP a development candidate only when the selection rule and guardrails hold; otherwise DISCARD its targeted changes. Never revert unrelated workspace edits.
+5. Stop at the declared budget, target, or no-new-hypothesis condition. Inspect development failures for sensor defects or missing coverage before escalating to suite/meta work via `nested-loops.md`.
+6. Select the candidate before sealed verification. Apply `held-out-and-guards.md` once; capture lessons only after the verdict.
 
-1. Freeze the eval harness (cases, graders, prepare scripts) for this experiment.
-2. Record baseline under the same budget and command.
-3. Make the **smallest** change to the subject (not the harness).
-4. Re-measure with the same command and budget.
-5. **Keep** only if primary improves and guardrails hold; else **discard**.
-6. Log: id · metric · status · one-line hypothesis.
-7. Do not pause mid-loop for permission unless you interrupted.
+TDD means a failing development check before a fix, then the same check after it. Repeatedly repairing against final-test feedback is test-set training, not TDD. New cases or grader fixes start a new experiment version.
 
-## Stop gates
-- Primary flat across N trials with no new hypothesis → escalate to suite/meta
-- Guardrail breach · env flakiness · user interrupt
+Trial and role isolation belongs to `clean-lab.md`. Authorized parallel hypotheses use separate subject copies and development trials; comparing many candidates increases selection bias and consumes the declared budget. Never pick the luckiest attempt and report it as pass@1.
 
-## Isolation
-Each trial starts clean. Shared state or peeking at prior-trial artifacts corrupts independence.
-N independent hypotheses in one round → fan out through `octocode-subagent` (one sealed packet each); measurement and keep/discard return here under the frozen harness.
+Before iterating, verify the sensor measures the intended outcome at useful cost. If noise obscures the expected effect, improve measurement first. A cheaper leading proxy can guide development, but final verification still measures the user-visible outcome.
 
-## Creativity vs path grading
-Grade **outcomes** over exact tool-call sequences.
-
-Next: graders → `eval-techniques.md`; overfitting → `held-out-and-guards.md`.
+Next: change loop level → `nested-loops.md`; report → `output.md`.

@@ -2,7 +2,7 @@ use serde_yaml_ng::{Mapping, Value as YamlValue};
 
 /// Convert a `serde_json::Value` into a YAML string.
 ///
-/// Mirrors the TypeScript `jsonToYamlString`:
+/// Options:
 ///   - Keys can be sorted alphabetically (`sort_keys`)
 ///   - Priority keys appear first (`keys_priority`)
 ///   - Multiline strings → YAML block scalars (handled automatically by the serializer)

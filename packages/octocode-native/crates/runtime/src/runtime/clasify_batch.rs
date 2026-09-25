@@ -201,8 +201,22 @@ fn evidence_lines(data: &Value) -> Option<Value> {
     if let Some(range) = range {
         return Some(json!([range.get("start")?, range.get("end")?]));
     }
-    if let (Some(start), Some(end)) = (data.get("startLine"), data.get("endLine")) {
+    if let (Some(start), Some(end)) = (data.get("startLine"), data.get("endLine"))
+        && data
+            .get("contentView")
+            .and_then(Value::as_str)
+            .is_none_or(|view| view == "none")
+    {
         return Some(json!([start, end]));
+    }
+    // A compacted view has its own line positions. Without explicit source
+    // ranges, its offsets cannot be used to construct a source focus.
+    if data
+        .get("contentView")
+        .and_then(Value::as_str)
+        .is_some_and(|view| view != "none")
+    {
+        return None;
     }
     // Redacted or complete reads may omit ranges; derive them from the line
     // pagination window, or the whole file when unpaginated.
@@ -654,19 +668,17 @@ fn focus_request(state: &Value, instructions: &Value) -> Option<FocusRequest> {
 }
 
 fn focus_from_answer(
-    answers: &[Result<Value, ClassificationError>],
+    answer: &Result<Value, ClassificationError>,
     focus_answer: &Result<Value, ClassificationError>,
     spans: &[(usize, usize)],
 ) -> Option<Value> {
-    let positive = answers.iter().any(|answer| {
-        answer
-            .as_ref()
-            .ok()
-            .and_then(|data| data.pointer("/answer/noul"))
-            .and_then(Value::as_f64)
-            .is_some_and(|probability| probability >= 0.8)
-    });
-    if !positive {
+    if !answer
+        .as_ref()
+        .ok()
+        .and_then(|data| data.pointer("/answer/noul"))
+        .and_then(Value::as_f64)
+        .is_some_and(|probability| probability >= 0.8)
+    {
         return None;
     }
     let data = focus_answer.as_ref().ok()?;
@@ -701,32 +713,36 @@ async fn focus_page(
     budget: &crate::providers::RequestBudget,
     gate: &GateLease,
 ) -> Option<(Value, Value)> {
-    let instructions = questions
+    let eligible = questions
         .iter()
         .zip(answers)
-        .find_map(|(question, answer)| {
-            let answer = answer.as_ref().ok()?;
+        .enumerate()
+        .filter_map(|(index, (question, answer))| {
             (question["question"]["type"] == "noul"
-                && answer.pointer("/answer/noul").and_then(Value::as_f64)? >= 0.8)
-                .then(|| question["question"]["instructions"].clone())
-        })?;
-    let (focus_state, question, spans) = focus_request(state, &instructions)?;
-    let data = clasify::execute(
-        &focus_state,
-        &question,
-        config.key.clone(),
-        config.base_url,
-        config.endpoint_path,
-        config.model,
-        config.provider,
-        budget.clone(),
-        config.retries,
-        gate,
-    )
-    .await
-    .ok()?;
-    let focus = focus_from_answer(answers, &Ok(data.clone()), &spans)?;
-    Some((focus, data["usage"].clone()))
+                && answer.as_ref().ok()?.pointer("/answer/noul")?.as_f64()? >= 0.8)
+                .then_some(index)
+        })
+        .collect::<Vec<_>>();
+    let first = *eligible.first()?;
+    let (focus_state, _, spans) =
+        focus_request(state, &questions[first]["question"]["instructions"])?;
+    let focus_questions = eligible
+        .iter()
+        .map(|&index| {
+            let (_, choice, _) =
+                focus_request(state, &questions[index]["question"]["instructions"])?;
+            Some(json!({"id":questions[index]["id"],"question":choice}))
+        })
+        .collect::<Option<Vec<_>>>()?;
+    let (focus_answers, usage) =
+        assess_page(&focus_state, &focus_questions, config, budget, gate).await;
+    let mut by_question = serde_json::Map::new();
+    for (&index, focus_answer) in eligible.iter().zip(&focus_answers) {
+        if let Some(focus) = focus_from_answer(&answers[index], focus_answer, &spans) {
+            by_question.insert(questions[index]["id"].as_str()?.into(), focus);
+        }
+    }
+    Some((Value::Object(by_question), usage?))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -838,7 +854,13 @@ fn execute_query(
                                                 )
                                                 .await;
                                                 let focus = answers.pop().and_then(|answer| {
-                                                    focus_from_answer(&answers, &answer, &spans)
+                                                    focus_from_answer(&answers[0], &answer, &spans)
+                                                        .and_then(|focus| {
+                                                            let id = questions[0]["id"].as_str()?;
+                                                            let mut keyed = serde_json::Map::new();
+                                                            keyed.insert(id.into(), focus);
+                                                            Some(Value::Object(keyed))
+                                                        })
                                                 });
                                                 (answers, usage, focus)
                                             } else {
@@ -863,7 +885,11 @@ fn execute_query(
                                                     }
                                                     (usage, _) => usage,
                                                 };
-                                                (answers, usage, extra.map(|(scope, _)| scope))
+                                                let focus = extra.and_then(|(scope, _)| {
+                                                    scope.as_object().is_some_and(|map| !map.is_empty())
+                                                        .then_some(scope)
+                                                });
+                                                (answers, usage, focus)
                                             };
                                         (
                                             resource_index,
@@ -1062,6 +1088,20 @@ mod tests {
     }
 
     #[test]
+    fn transformed_symbols_are_not_treated_as_original_source_lines() {
+        let content = (1..=100)
+            .map(|line| format!("{line}| ## Heading\n"))
+            .collect::<String>();
+        let state = json!({"results":[{"data":{
+            "path":"Hooks.md", "content":content,
+            "contentView":"symbols", "totalLines":954, "returnedLines":100
+        }}]});
+        let evidence = file_evidence(&state).expect("file evidence");
+        assert!(evidence.get("lines").is_none());
+        assert!(focus_request(&evidence, &json!("Find shutdown")).is_none());
+    }
+
+    #[test]
     fn supplied_value_budget_counts_object_keys_and_fields_named_next() {
         let state = json!({"next":{"this-key-is-evidence":"retained"}});
         let source = json!({"value":state});
@@ -1238,8 +1278,8 @@ mod tests {
 
     #[test]
     fn speculative_focus_needs_a_positive_page_and_confident_valid_window() {
-        let yes = vec![Ok(json!({"answer":{"type":"noul","noul":0.99}}))];
-        let no = vec![Ok(json!({"answer":{"type":"noul","noul":0.01}}))];
+        let yes = Ok(json!({"answer":{"type":"noul","noul":0.99}}));
+        let no = Ok(json!({"answer":{"type":"noul","noul":0.01}}));
         let choice = Ok(json!({"answer":{"type":"choice","choice":"w2","confidence":0.8}}));
         let spans = [(1, 40), (41, 80)];
         let insufficient =

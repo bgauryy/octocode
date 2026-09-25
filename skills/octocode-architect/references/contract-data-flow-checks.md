@@ -25,4 +25,4 @@ For each representative scenario, trace `origin → ingress → validation/authe
 
 Exercise normal, invalid, denied, partial-failure, retry/replay, timeout/cancellation, and stale-version paths when material. Reconcile the external trace with internal ownership: every validation, persistence, disclosure, and deletion decision needs one accountable boundary.
 
-Return to `architecture-lenses.md` to compose this lane with static, control, ownership, and runtime views; use `output-contracts.md` when the result needs an auditable record.
+Return to `references/architecture-lenses.md` to compose this lane with static, control, ownership, and runtime views; use `references/output-contracts.md` when the result needs an auditable record.

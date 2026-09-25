@@ -327,7 +327,7 @@ async fn three_sequential_queries_each_hit_the_server() {
     runtime.close().await;
 }
 
-// ── S19: ghSearchHistory integration tests ──────────────────────────────────
+// ── ghSearchHistory integration tests ──────────────────────────────────
 
 #[tokio::test]
 async fn gh_search_history_commits_lists_via_rest() {
@@ -475,7 +475,7 @@ async fn gh_search_history_pull_requests_lists_via_rest() {
     runtime.close().await;
 }
 
-// ── S20: ghGetHistoryItem integration tests ───────────────────────────────────
+// ── ghGetHistoryItem integration tests ───────────────────────────────────
 
 #[tokio::test]
 async fn gh_get_history_item_commit_fetches_via_rest() {
@@ -1104,5 +1104,54 @@ async fn gh_primary_rate_limit_is_contract_valid_and_persisted_for_other_process
         serde_json::from_slice(&std::fs::read(files[0].path()).unwrap()).unwrap();
     assert_eq!(state["buckets"]["core"]["remaining"], 0, "{state}");
     assert_eq!(state["buckets"]["core"]["reset"], reset, "{state}");
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn gh_get_history_item_capped_file_scan_is_not_a_complete_count() {
+    // A path-scoped scan that stops at the file-batch cap must not
+    // report its file count as complete.
+    let server = MockServer::start().await;
+    let sha = "abc123def456abc123def456abc123def456abc1";
+    let commit_path = format!("/api/v3/repos/a/b/commits/{sha}");
+    Mock::given(method("GET"))
+        .and(path(commit_path.clone()))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header(
+                    "link",
+                    format!("<{}{commit_path}?page=999>; rel=\"next\"", server.uri()).as_str(),
+                )
+                .set_body_json(json!({
+                    "sha": sha,
+                    "commit": {
+                        "message": "big change",
+                        "author": {"name": "Alice", "date": "2024-01-01T00:00:00Z"}
+                    },
+                    "files": [{"filename": "other/file.rs", "status": "modified",
+                               "additions": 1, "deletions": 0}]
+                })),
+        )
+        .mount(&server)
+        .await;
+
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let outcome = call(
+        &runtime,
+        "ghGetHistoryItem",
+        json!({"operation": "commit", "owner": "a", "repo": "b", "ref": sha, "path": "wanted/"}),
+    )
+    .await
+    .expect("capped commit scan");
+    let data = row_data(&outcome);
+    assert_eq!(
+        data["changedFilesCountScope"], "partial",
+        "{}",
+        outcome.structured_content
+    );
+    let rendered = serde_json::to_string(data).expect("json");
+    assert!(rendered.contains("terminalLimit"), "{rendered}");
+    assert!(!rendered.contains("\"complete\""), "{rendered}");
     runtime.close().await;
 }

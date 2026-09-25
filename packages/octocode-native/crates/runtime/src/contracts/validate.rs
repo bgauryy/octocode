@@ -1,7 +1,6 @@
 mod content;
 mod schema;
 mod union;
-use regex::Regex;
 use schema::validate_schema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -344,6 +343,25 @@ fn apply_validation_rules(rules: &Value, input: &Value) -> Result<(), ContractVa
 
 fn validate_history_content_selection(input: &Value) -> Result<(), ContractValidationError> {
     for (index, query) in query_values(input) {
+        // An empty comments object would silently return no comments.
+        if let Some(comments) = query
+            .pointer("/content/comments")
+            .and_then(Value::as_object)
+            && !["discussion", "reviewInline"]
+                .iter()
+                .any(|field| comments.get(*field) == Some(&Value::Bool(true)))
+        {
+            return Err(issue(
+                "history.content-selection",
+                vec![
+                    "queries".into(),
+                    index.to_string(),
+                    "content".into(),
+                    "comments".into(),
+                ],
+                "content.comments needs discussion:true (or reviewInline:true on pull requests)",
+            ));
+        }
         let Some(patches) = query.pointer("/content/patches").and_then(Value::as_object) else {
             continue;
         };
@@ -625,156 +643,34 @@ fn validate_lsp_queries(input: &Value) -> Result<(), ContractValidationError> {
 }
 
 fn validate_local_search_queries(input: &Value) -> Result<(), ContractValidationError> {
-    let two_dollar_meta = Regex::new(r"(?:^|[^$])\$\$[A-Z_][A-Z0-9_]*")
-        .map_err(|error| internal(error.to_string()))?;
     for (index, query) in query_values(input) {
         let prefix = |field: &str| vec!["queries".into(), index.to_string(), field.into()];
-        if query.get("mode").and_then(Value::as_str) != Some("structural") {
-            if query.get("pattern").is_some() || query.get("rule").is_some() {
-                return Err(issue(
-                    "local-search.lexical-structural-field",
-                    prefix(if query.get("pattern").is_some() {
-                        "pattern"
-                    } else {
-                        "rule"
-                    }),
-                    "pattern and rule require structural mode",
-                ));
-            }
-            if query
-                .get("searchText")
-                .and_then(Value::as_str)
-                .is_none_or(str::is_empty)
-            {
-                return Err(issue(
-                    "local-search.search-text",
-                    prefix("searchText"),
-                    "searchText is required unless structural mode",
-                ));
-            }
-            let is_match_only = query.get("output").and_then(Value::as_str) == Some("matchOnly")
-                || query.get("resultView").and_then(Value::as_str) == Some("matchOnly");
-            if query.get("matchWindow").is_some() && !is_match_only {
-                return Err(issue(
-                    "local-search.match-window",
-                    prefix("matchWindow"),
-                    "matchWindow requires resultView:\"matchOnly\"",
-                ));
-            }
-            if let Some(unique @ ("list" | "count")) = query.get("unique").and_then(Value::as_str)
-                && !is_match_only
-            {
-                return Err(issue(
-                    "local-search.unique",
-                    prefix("unique"),
-                    format!("unique:\"{unique}\" requires resultView:\"matchOnly\""),
-                ));
-            }
-            continue;
-        }
-        if query.get("snapshot").is_some() {
-            return Err(issue(
-                "local-search.structural-snapshot",
-                prefix("snapshot"),
-                "Remove the lexical snapshot in structural mode",
-            ));
-        }
-        let pattern = query.get("pattern");
-        let rule = query.get("rule");
-        if pattern.is_none() && rule.is_none() {
-            return Err(issue(
-                "local-search.structural-selector",
-                prefix("pattern"),
-                "structural mode requires pattern or rule",
-            ));
-        }
-        if pattern.is_some() && rule.is_some() {
-            return Err(issue(
-                "local-search.structural-exclusive",
-                prefix("rule"),
-                "pattern and rule are mutually exclusive",
-            ));
-        }
-        if pattern
-            .or(rule)
-            .and_then(Value::as_str)
-            .is_some_and(|v| v.trim().is_empty())
-        {
-            return Err(issue(
-                "local-search.structural-blank",
-                prefix(if pattern.is_some() { "pattern" } else { "rule" }),
-                "Structural selector must not be blank",
-            ));
-        }
-        for (field, invalid) in [
-            (
-                "wholeWord",
-                query.get("wholeWord") == Some(&Value::Bool(true)),
-            ),
-            (
-                "invertMatch",
-                query.get("invertMatch") == Some(&Value::Bool(true)),
-            ),
-            (
-                "captureText",
-                query.get("captureText") == Some(&Value::Bool(true)),
-            ),
-            ("matchWindow", query.get("matchWindow").is_some()),
-        ] {
-            if invalid {
-                return Err(issue(
-                    "local-search.structural-field",
-                    prefix(field),
-                    format!("{field} is not valid in structural mode"),
-                ));
-            }
-        }
-        for (field, default) in [
-            ("regex", "smart"),
-            ("caseMode", "smart"),
-            ("multiline", "off"),
-        ] {
-            if query
-                .get(field)
-                .and_then(Value::as_str)
-                .is_some_and(|v| v != default)
-            {
-                return Err(issue(
-                    "local-search.structural-field",
-                    prefix(field),
-                    format!("{field} is not valid in structural mode"),
-                ));
-            }
-        }
         if query
-            .get("output")
+            .get("searchText")
             .and_then(Value::as_str)
-            .is_some_and(|v| !matches!(v, "content" | "countMatches" | "files"))
+            .is_none_or(str::is_empty)
         {
             return Err(issue(
-                "local-search.structural-output",
-                prefix("output"),
-                "unsupported structural output",
+                "local-search.search-text",
+                prefix("searchText"),
+                "searchText is required",
             ));
         }
-        if query
-            .get("unique")
-            .and_then(Value::as_str)
-            .is_some_and(|v| v != "off")
+        let is_match_only = query.get("resultView").and_then(Value::as_str) == Some("matchOnly");
+        if query.get("matchWindow").is_some() && !is_match_only {
+            return Err(issue(
+                "local-search.match-window",
+                prefix("matchWindow"),
+                "matchWindow requires resultView:\"matchOnly\"",
+            ));
+        }
+        if let Some(unique @ ("list" | "count")) = query.get("unique").and_then(Value::as_str)
+            && !is_match_only
         {
             return Err(issue(
-                "local-search.structural-unique",
+                "local-search.unique",
                 prefix("unique"),
-                "unique is not valid in structural mode",
-            ));
-        }
-        if let Some(pattern) = pattern.and_then(Value::as_str)
-            && two_dollar_meta.is_match(pattern)
-        {
-            return Err(issue(
-                "local-search.two-dollar-meta",
-                prefix("pattern"),
-                "two-dollar metavariables match nothing",
+                format!("unique:\"{unique}\" requires resultView:\"matchOnly\""),
             ));
         }
     }
@@ -1228,6 +1124,32 @@ mod tests {
     }
 
     #[test]
+    fn commit_keywords_reject_path_and_branch_scopes() {
+        // Commit-message keywords never silently drop path
+        // or branch; the combination is a validation error.
+        for field in ["path", "branch"] {
+            let mut query = json!({
+                "operation":"commit",
+                "owner":"octocat",
+                "repo":"Hello-World",
+                "keywords":["hello"],
+                "reasoning":"Reject a keyword search that would ignore its scope."
+            });
+            query[field] = json!("somewhere");
+            let error = validate("ghSearchHistory", json!({"queries":[query]}))
+                .expect_err("keywords plus scope is rejected");
+            assert!(
+                error
+                    .issues
+                    .iter()
+                    .any(|issue| issue.rule_id == "history.keyword-scope"
+                        && issue.path.last().is_some_and(|last| last == field)),
+                "{field}: {error:?}"
+            );
+        }
+    }
+
+    #[test]
     fn rejects_repo_scoped_code_wildcards_before_provider_io() {
         let error = validate(
             "ghSearch",
@@ -1383,7 +1305,7 @@ mod tests {
         // The enforcement IR carries no presentation examples; the accepted
         // parity fixtures are the generated per-tool query corpus instead.
         let fixtures: Value =
-            serde_json::from_str(include_str!("generated/contract-fixtures.json"))
+            serde_json::from_str(crate::contracts::generated::CONTRACT_FIXTURES_JSON)
                 .expect("generated fixtures");
         let contract = crate::contracts::parsed_contract().expect("generated contract");
         for tool in contract["tools"].as_array().expect("tool array") {
@@ -1413,7 +1335,7 @@ mod tests {
     #[test]
     fn matches_generated_reference_corpus() {
         let fixtures: Value =
-            serde_json::from_str(include_str!("generated/contract-fixtures.json"))
+            serde_json::from_str(crate::contracts::generated::CONTRACT_FIXTURES_JSON)
                 .expect("generated fixture JSON");
         for fixture in fixtures.as_array().expect("fixture array") {
             let result = prepare_and_validate(

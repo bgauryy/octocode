@@ -239,6 +239,13 @@ describe('createNativeMcp registration + execution', () => {
         client.connect(clientTransport),
       ]);
       const listed = await client.listTools();
+      // Shared guidance belongs to initialize.instructions, never each tool.
+      const sharedOpening = client.getInstructions()?.split('\n')[0];
+      expect(sharedOpening).toBeTruthy();
+      for (const registered of listed.tools) {
+        expect(registered.description).toBeTruthy();
+        expect(registered.description).not.toContain(sharedOpening!);
+      }
       expect(
         listed.tools.some(candidate => candidate.name === TOOL_NAMES.CLASIFY)
       ).toBe(clasifyAvailable);
@@ -328,15 +335,17 @@ describe('createNativeMcp registration + execution', () => {
       binding: bindingFor(() => ({
         fingerprint: getNativeContractFingerprint(),
         tools: [tool('astSearch', true)],
-        grammarCapabilities: [{
-          language: 'Rust',
-          languageId: 'rust',
-          selectorAliases: [],
-          extensions: ['rs'],
-          structuralSearch: true,
-          signatureOutline: true,
-          graphFacts: true,
-        }],
+        grammarCapabilities: [
+          {
+            language: 'Rust',
+            languageId: 'rust',
+            selectorAliases: [],
+            extensions: ['rs'],
+            structuralSearch: true,
+            signatureOutline: true,
+            graphFacts: true,
+          },
+        ],
       })),
     });
     const client = new Client({ name: 'grammar-inventory', version: '1' });
@@ -347,8 +356,10 @@ describe('createNativeMcp registration + execution', () => {
       client.connect(clientTransport),
     ]);
     expect(client.getInstructions()).toContain(
-      'Rust [id:rust; .rs; structural+outline+graph]'
+      'Runtime grammar inventory (structural+outline+graph unless noted): Rust (rust: .rs)'
     );
+    // Only astSearch is registered, so the grammar note must not name astTopology.
+    expect(client.getInstructions()).not.toContain('astTopology');
     await client.close();
     await instance.close();
   });

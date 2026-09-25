@@ -7,6 +7,7 @@
 use super::clasify_context::PAGE_ONLY_LIMITATION;
 use crate::tools::clasify::transport::ClassificationError;
 use serde_json::{Map, Value, json};
+use sha2::{Digest, Sha256};
 
 /// Provider state budget for coalesced file pages (~600 lines of code,
 /// ~6–8k tokens). Evidence-only state makes page count nearly free in tokens,
@@ -94,8 +95,14 @@ fn limitations(receipt: &Value) -> Option<Value> {
 
 fn page_base(receipt: &Value) -> Map<String, Value> {
     let mut page = Map::new();
+    if receipt.get("source").is_some_and(Value::is_object) {
+        page.insert("source".into(), receipt["source"].clone());
+    }
     if let Some(scope) = receipt.get("scope") {
         page.insert("scope".into(), scope.clone());
+    }
+    if let Some(view) = receipt.get("view") {
+        page.insert("view".into(), view.clone());
     }
     if let Some(limitations) = limitations(receipt) {
         page.insert("limitations".into(), limitations);
@@ -175,6 +182,15 @@ fn merge_scope(first: Option<&Value>, last: Option<&Value>) -> Option<Value> {
 }
 
 fn adjacent_scopes(previous: &Value, next: &Value) -> bool {
+    // Adjacent line numbers from different observed file versions are not a
+    // continuous captured excerpt.
+    for field in ["path", "modified", "ref"] {
+        let left = previous.pointer(&format!("/source/{field}"));
+        let right = next.pointer(&format!("/source/{field}"));
+        if left != right {
+            return false;
+        }
+    }
     let (Some(previous), Some(next)) = (previous.get("scope"), next.get("scope")) else {
         return false;
     };
@@ -279,7 +295,13 @@ pub(super) fn coalesce(pages: Vec<(Value, Value)>, max_bytes: usize) -> Vec<(Val
                 _ => {
                     let joined = std::mem::take(states);
                     let state = merge_file_evidence(&joined).unwrap_or(Value::Array(joined));
-                    output.push((state, merge_receipts(receipts)));
+                    let mut receipt = merge_receipts(receipts);
+                    let evidence_hash = hex::encode(Sha256::digest(state.to_string().as_bytes()));
+                    receipt["resultHash"] = json!(evidence_hash);
+                    if receipt.get("source").is_some_and(Value::is_object) {
+                        receipt["source"]["evidenceHash"] = json!(evidence_hash);
+                    }
+                    output.push((state, receipt));
                     receipts.clear();
                 }
             }
@@ -327,13 +349,13 @@ pub(super) fn query_meta(
     meta
 }
 
-/// Every candidate at or below this Noul is a "not here" screen.
+/// Heuristic for an optional low-signal hint; no candidate is removed.
 const LOW_SIGNAL_MAX_NOUL: f64 = 0.3;
 
-/// Noul question IDs where a multi-candidate screen found nothing: every
-/// resource was judged completely and no page exceeded `LOW_SIGNAL_MAX_NOUL`.
-/// The answer is then most likely outside the candidates, so reading the top
-/// one would chase noise. Partial or errored resources keep the signal off.
+/// Noul question IDs whose complete candidate pages all scored below the
+/// heuristic. Callers may widen or repair the search; this does not prove
+/// absence or suppress any answer or resource. Partial or errored resources
+/// keep the hint off.
 pub(super) fn low_signal(questions: &Value, resources: &[Value]) -> Option<Value> {
     if resources.len() < 2
         || resources
@@ -409,7 +431,7 @@ mod tests {
                     Ok(json!({"answer":{"type":"noul","noul":0.9},"resolvedModel":"m"})),
                     Err(provider_error("timeout")),
                 ],
-                focus: Some(json!({"startLine":3,"endLine":5,"confidence":0.9})),
+                focus: Some(json!({"retry":{"startLine":3,"endLine":5,"confidence":0.9}})),
             }],
             false,
         );
@@ -418,7 +440,7 @@ mod tests {
             json!({"resourceId":"file","coverage":"partial","pages":[{
                 "scope":{"startLine":1,"endLine":9,"totalLines":9},
                 "answers":{"retry":{"noul":0.9},"role":{"error":{"code":"timeout","message":"failed"}}},
-                "focus":{"startLine":3,"endLine":5,"confidence":0.9}
+                "focus":{"retry":{"startLine":3,"endLine":5,"confidence":0.9}}
             }]})
         );
     }
@@ -487,6 +509,31 @@ mod tests {
             merged[1].0.is_object(),
             "a lone page keeps its original state"
         );
+    }
+
+    #[test]
+    fn coalesced_evidence_has_its_own_hash_and_versions_do_not_merge() {
+        let page = |start: u64, end: u64, modified: &str| {
+            (
+                json!({"path":"a.rs","lines":[start,end],"content":"x\n"}),
+                json!({"coverage":"bounded","resultHash":format!("capture-{start}"),
+                "source":{"evidenceHash":format!("capture-{start}"),"path":"a.rs","modified":modified},
+                "scope":{"startLine":start,"endLine":end,"totalLines":3}}),
+            )
+        };
+        let merged = coalesce(vec![page(1, 1, "v1"), page(2, 2, "v1")], 10000);
+        assert_eq!(merged.len(), 1);
+        assert_eq!(
+            merged[0].1["source"]["evidenceHash"],
+            merged[0].1["resultHash"]
+        );
+        assert_ne!(merged[0].1["source"]["evidenceHash"], "capture-2");
+        assert_eq!(
+            merged[0].1["scope"],
+            json!({"startLine":1,"endLine":2,"totalLines":3})
+        );
+        let distinct = coalesce(vec![page(1, 1, "v1"), page(2, 2, "v2")], 10000);
+        assert_eq!(distinct.len(), 2);
     }
 
     #[test]

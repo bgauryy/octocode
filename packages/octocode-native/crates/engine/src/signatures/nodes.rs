@@ -163,22 +163,57 @@ pub(super) fn is_call_node(kind: &str) -> bool {
     )
 }
 
-pub(super) fn call_callee_name(node: Node<'_>, content: &str) -> Option<String> {
+/// The callee label of a call node and the node that spells it.
+pub(super) fn call_callee<'tree>(
+    node: Node<'tree>,
+    content: &str,
+) -> Option<(String, Node<'tree>)> {
     for field in ["function", "name", "method", "macro", "constructor"] {
         if let Some(child) = node.child_by_field_name(field) {
             if let Some(name) = node_text(child, content).and_then(compact_identifier) {
-                return Some(name);
+                return Some((name, child));
             }
             if let Some(descendant) = first_name_descendant(child, 3)
                 && let Some(name) = node_text(descendant, content).and_then(compact_identifier)
             {
-                return Some(name);
+                return Some((name, descendant));
             }
         }
     }
-    first_name_descendant(node, 3)
-        .and_then(|child| node_text(child, content))
-        .and_then(compact_identifier)
+    let child = first_name_descendant(node, 3)?;
+    Some((
+        node_text(child, content).and_then(compact_identifier)?,
+        child,
+    ))
+}
+
+/// The last name-leaf under `node` (inclusive) spelling `name`: the token a
+/// call edge targets (`run` in `self.run`, `new` in `Self::new`).
+pub(super) fn last_name_leaf<'tree>(
+    node: Node<'tree>,
+    content: &str,
+    name: &str,
+) -> Option<Node<'tree>> {
+    let mut found = None;
+    let mut pending = vec![node];
+    let mut cursor = node.walk();
+    while let Some(current) = pending.pop() {
+        if is_name_leaf(current)
+            && node_text(current, content) == Some(name)
+            && found.is_none_or(|last: Node<'_>| last.start_byte() < current.start_byte())
+        {
+            found = Some(current);
+        }
+        pending.extend(current.named_children(&mut cursor));
+    }
+    found
+}
+
+/// An identifier-kind token (`identifier`, `type_identifier`,
+/// `field_identifier`, …): the only nodes that can reference a declaration.
+/// Comments and string contents are separate token kinds, so they never match.
+pub(super) fn is_name_leaf(node: Node<'_>) -> bool {
+    node.named_child_count() == 0 && is_name_like(node.kind())
 }
 
 pub(super) fn is_exported_declaration(

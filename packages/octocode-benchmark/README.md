@@ -18,6 +18,10 @@ The earlier GitHub campaign compares Octocode with plain `gh`, `gh` + RTK, and
 [results/](results/README.md). Do not combine its character measurements with Terra
 metrics or with any other campaign.
 
+## Clasify GitHub pilot
+
+[Clasify benchmark](CLASIFY_BENCHMARK.md) defines ten questions from the shared GitHub pool and a five-question, two-agent comparison with classification enabled or disabled. It keeps research quality, transcript characters, and provider usage separate.
+
 ## Other deterministic diagnostics
 
 - [Tool sanity benchmark](BENCHMARK_SANITY.md) is a per-tool checkbox suite: one

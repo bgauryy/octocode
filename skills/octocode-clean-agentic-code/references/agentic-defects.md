@@ -11,8 +11,8 @@ The dominant agent smell: new code that stands alone instead of joining the code
 | Signal | Query | Evidence bar |
 |--------|-------|--------------|
 | Self-contained algorithm (distance, parser, retry, deep-clone, date math) with no imports | `astSearch` match on the function body | A dependency in `package.json` or an internal module already provides it |
-| Two modules exporting the same symbol names, disjoint consumer sets | `astSearch` topology dependents on both | `lspSearch` references prove which one is live |
-| New file with zero dependents and few outgoing calls | `astSearch` topology dependents + dead-code candidates | Reachability confirms it is unreferenced, rather than merely new |
+| Two modules exporting the same symbol names, disjoint consumer sets | `astTopology` dependents on both (beta; else `lspSearch` references) | `lspSearch` references prove which one is live |
+| New file with zero dependents and few outgoing calls | `astTopology` dependents + deadCode candidates (beta; else `lspSearch` references + `localSearch`) | Reachability confirms it is unreferenced, rather than merely new |
 | Third variant of one rule (validation, formatting, auth check) | `localSearch` lexical search on the rule's literals | All variants listed; canonical chosen before any delete |
 
 An availability check that wrongly reports the original as absent is a common root cause — verify the check before deleting either copy, or the agent rebuilds it again.

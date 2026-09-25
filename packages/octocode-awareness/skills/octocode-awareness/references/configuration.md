@@ -12,3 +12,5 @@ When validating policy fields, read the [configuration schema](awareness-config.
 All participants must reuse the same resolved database and normalized workspace identity. A scope change does not merge existing stores. Never hand-edit SQLite rows.
 
 Pi claims native ownership and does not install shell hooks. Shell-host installation requires a scoped dry-run preview, existing authorization, and a strict post-install check. Configuration preference alone is not authorization to mutate host settings.
+
+Next: read `hooks.md` when shell-host lifecycle wiring is involved.

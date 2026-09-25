@@ -1,6 +1,6 @@
 ---
 name: octocode-chrome-devtools
-description: "Use when a real running browser is needed: JS-rendered pages, live DOM snapshots, CTA automation, HAR network capture, console/performance monitoring, or authenticated sessions. Artifacts must be clasify-screened before reading. Not for static public pages or corpus building — use octocode-scraping instead."
+description: "Use when a real running browser is needed: JS-rendered pages, live DOM snapshots, CTA automation, HAR network capture, console/performance monitoring, or authenticated sessions. Screen ambiguous captures when it changes inspection order. Not for static public pages or corpus building — use octocode-scraping instead."
 ---
 
 # Octocode Chrome DevTools
@@ -18,7 +18,7 @@ Runs: `<output>/tmp/chrome-devtools/`; protocol cache: `<output>/octocode-chrome
 
 Default: open browser → snapshot/DOM → optional graph → measure → query → optional HAR → corpus bridge. Reuse one `--port` and `--keep-tab`; search existing artifacts before reopening Chrome. A full audit is several focused scripts on one session.
 
-**Context gate:** Before reading any captured body or HAR file, always run the SCREEN step (clasify). Never read `cdp/body-*.txt` or HAR-derived files directly into context without screening first.
+**Context gate:** Use capture metadata, check summaries, and exact searches to select a small source span. Screen ambiguous unread captures when that would change the next inspection.
 
 OPEN/ATTACH picks one live target; QUERY DISK uses measure/HAR/corpus helpers before another run; CLEANUP uses the tracked-browser and retention commands below.
 
@@ -28,20 +28,8 @@ Ask before real-profile access, cookie transfer, CAPTCHA/MFA, purchases, sends, 
 
 - Static map/bulk extract → `octocode-scraping`; DOM/action → `page-snapshot` then `dom-operations-check`; live graph → `graph-actionability-check` and diagnostics if empty. **Headless Chrome has known ligature/font rendering gaps** (e.g., “Sy tem One” instead of “System One”) — for clean text extraction from public pages, prefer `octocode-scraping`. `dom-operations-check` output shape is `{url, rows[]}`; parse with the `rows` key.
 - Page health → performance/network/storage measure checks, then `measure-query`; standalone HAR → `har-pager`; deep bodies only after measure/query through `live-har-monitor` or `network-body-har-fetch-check`.
-- **SCREEN (mandatory before any body read):** bridge captured bodies into a scrape session with `scripts/har-ingest-to-scrape.mjs`, then call `clasify` directly (never a wrapper script): build `resources[] × questions[]` matrices of ≤ 25 cells each (split across root `queries[]`) where each file is an unread `localFetch` resource with an absolute path, omit `maxChars` (a lower cap truncates to `coverage:"partial"` with no continuation), and run `octocode clasify --input <request>.json`. Drop 0-byte files first (they return `coverage:"error"` + `classificationContextEmpty`, not a verdict). Tailor clasify questions to artifact type: `dom-check.json` contains structured element/coverage data (ask about data quality or coverage); `graph-actionability.json` contains operable navigation nodes (ask which links to follow); HAR body files contain raw response text (ask about content relevance). The runtime captures and pages each file itself; output is `queries[].resources[].pages[]` with a line `scope` and `answers[questionId]`, bodies stay on disk, and routes exist only as your own Choice question (the runtime adds `insufficient` to every Choice). Exit 6 means run `next.clasify` unchanged; needs `OCTOCODE_CLASSIFICATION_API`. Never read `cdp/body-*.txt`, `dom-check.json`, `graph-actionability.json`, or HAR-derived files without running SCREEN first. When clasify is unavailable, fall back to `corpus-run-local` regex filters. **Accept a `route` choice only when `confidence >= 0.9`; treat lower confidence, `insufficient`, `partial`, and errored pages as `consider`.** On `consider`: run `scripts/corpus-run-local.mjs --artifact-dir <run-dir> --flags i --regex <term>` for `file`/`line`, then read or re-clasify that `startLine`/`endLine` window. Never cite a semantic route—read kept files for deciding spans.
-- For another bounded browser judgment, call `clasify` directly: use Choice for named alternatives, one Noul for one yes/no proposition, and one Score for one ordered dimension. Put shared questions in one SemanticQuery; use `{queries:[...]}` only when independent matrices need different resources or questions. Skip exact or settled checks. Keep the default `maxChars`, drop 0-byte files first, and accept a `route` choice only when `confidence >= 0.9`.
-- **Standard DOM question set** — use on `page-snapshot.json` (which has `{url, refs:{e1:{role,name},...}}` structure, all refs are operable elements):
-  - `has-product-nav` (Noul): "Does the DOM contain a product or section navigation menu with 5 or more named links? Score 0.9+ if distinct product/section names are present."
-  - `has-cta` (Noul): "Does the DOM contain primary call-to-action elements — sign-up, start-free-trial, get-started, or checkout buttons — that are operable?"
-  - `has-pricing-elements` (Noul): "Does the DOM contain pricing table elements, plan names, or fee rows visible in the element list?"
-  - `dom-intent` (Choice): `extract-nav-links` (navigation menu — extract link refs for routing), `click-cta` (CTA buttons present — use for automation), `extract-pricing` (pricing elements visible), `inspect-only` (metadata only — no actionable elements). **Note:** `dom-check.json` is a single-element inspection record, not a full DOM listing; ask only element-level questions on it (is this element visible, is it a CTA, is it stable).
-- **Standard HAR / network question set** — use on `live-network.har`, `cdp-network.jsonl`, or `network-summary.json`:
-  - `has-text-bodies` (Noul): "Do any captured network entries contain HTML, JSON, or text response bodies worth extracting for content analysis? Score 0.2 or lower if all entries are images, webp, webfonts, analytics beacons, or binary assets."
-  - `has-api-calls` (Noul): "Does the HAR contain XHR/fetch calls to an API endpoint (not analytics) that return structured JSON data?"
-  - `har-action` (Choice): `extract-bodies` (text/JSON bodies present — run `har-pager`), `navigate-more` (only assets captured — navigate pages during monitor window), `replay-api` (API calls found — use `api-replay.mjs`), `skip` (only noise — nothing to extract).
-  - On `network-summary.json`: ask `has-slow-requests` (Noul, "Are there requests exceeding 2s?") and `has-failures` (Noul, "Are there non-analytics failed requests?") for performance/health checks.
-- **Standard link-routing question** — when `graph-actionability.json` has navigation nodes, clasify them as `context.value` resources (not file reads): use `link-relevance` (Noul) + `link-action` (Choice: `follow` / `spot-check` / `skip`) to decide which links to navigate next without opening every one.
-- Prove captured API data without Chrome → with optional `octocode-scraping` installed, run `scripts/har-ingest-to-scrape.mjs`, then `scripts/corpus-run-local.mjs` (or call `octocode clasify` directly to gate reads semantically). **Bridge back to scraping:** after `dom-operations-check` or HAR capture, run `scripts/har-ingest.mjs` from the `octocode-scraping` skill to merge CDP data into the scraping corpus — then resume the scraping SCREEN/CITE pipeline on the merged session. Do not merge the skills; use this handoff instead.
+- **SCREEN (when unread captures remain ambiguous):** follow `references/clasify-screen.md` for optional relevance routing and coverage handling.
+- Prove captured API data without Chrome → with optional `octocode-scraping` installed, run `scripts/har-ingest-to-scrape.mjs`, then `scripts/corpus-run-local.mjs` (or SCREEN them per `references/clasify-screen.md`). The same bridge brings `dom-operations-check` or HAR captures back into the scraping corpus; resume its SCREEN/CITE pipeline on the merged session instead of merging the skills.
 - For repo, package, or source-map code claims, use `octocode-research`.
 
 ## Scripts
@@ -57,6 +45,7 @@ Ask before real-profile access, cookie transfer, CAPTCHA/MFA, purchases, sends, 
 
 ## References
 
+- When metadata and exact checks leave several unread captures ambiguous, load `references/clasify-screen.md` for optional semantic routing.
 - When choosing one intent, load `references/intents.md`: debug → `references/intents-debug.md`; inspection/security → `references/intents-inspect.md`; storage/consent → `references/intents-storage.md`; actions → `references/intents-automation.md`; auth → `references/intents-auth.md`; environment/bot walls → `references/intents-environment.md`.
 - When selecting ready checks/HAR, load `references/cdp-checks.md` or `references/har-capture.md`; for stealth, load `references/stealth-mandatory.md`; for cookies, load `references/cookie-bridge.md`.
 - Custom scripts: `references/script-patterns.md`, then one of `references/script-patterns-async.md`, `references/script-patterns-browser.md`, `references/script-patterns-observe.md`, or `references/script-patterns-special.md`.
@@ -64,4 +53,4 @@ Ask before real-profile access, cookie transfer, CAPTCHA/MFA, purchases, sends, 
 
 The scraping bridges have an optional runtime dependency on the separate `octocode-scraping` skill. Their help works with this folder alone. For real use, install that skill beside this one or pass `--scraping-skill-dir <dir>` before delegated arguments. A missing dependency returns `OPTIONAL_DEPENDENCY_MISSING` as JSON on stderr.
 
-After edits, run `node skills/octocode-chrome-devtools/scripts/hermetic-suite.mjs`. Redact secrets; report artifact paths and focused findings, not raw dumps.
+Redact secrets; report artifact paths and focused findings, not raw dumps.

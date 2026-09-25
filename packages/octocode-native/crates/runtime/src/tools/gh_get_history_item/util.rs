@@ -1,4 +1,6 @@
 //! Pure-value utility helpers shared across history-item shaping functions.
+use super::{GhGetHistoryItemQuery, ItemOperation};
+use crate::tools::result::remove_nulls;
 use serde_json::{Map, Value, json};
 
 pub(super) fn content_flag(value: Option<&Map<String, Value>>, key: &str) -> bool {
@@ -32,7 +34,7 @@ pub(super) fn compact(value: &str, max: usize) -> String {
 pub(super) fn map_comments(values: Vec<Value>, kind: &str, include_bots: bool) -> Vec<Value> {
     values.into_iter().filter(|v|include_bots||!is_bot(str_at(v,"/user/login").unwrap_or(""))).map(|v|{
     let mut out=json!({"id":v["id"].to_string().trim_matches('"'),"author":str_at(&v,"/user/login").unwrap_or("unknown"),"body":string(v.get("body")),"createdAt":string(v.get("created_at")),"updatedAt":string(v.get("updated_at")),"commentType":kind,
-        "path":v.get("path"),"line":v.get("line").or_else(||v.get("original_line")),"inReplyToId":v.get("in_reply_to_id")});super::remove_nulls(&mut out);out
+        "path":v.get("path"),"line":v.get("line").or_else(||v.get("original_line")),"inReplyToId":v.get("in_reply_to_id")});remove_nulls(&mut out);out
 }).collect()
 }
 pub(super) fn compare_identity(
@@ -128,4 +130,94 @@ pub(super) fn paginate_text(
         text,
         json!({"charOffset":start,"charLength":end-start,"totalChars":total,"hasMore":end<total,"nextCharOffset":(end<total).then_some(end)}),
     )
+}
+
+/// Lower-cased `matchString`, the needle every content filter matches.
+pub(super) fn needle(query: &GhGetHistoryItemQuery) -> Option<String> {
+    query.match_string.as_deref().map(str::to_lowercase)
+}
+
+/// Whether an item's `body` contains `needle` (always true without one).
+pub(super) fn body_matches(value: &Value, needle: Option<&str>) -> bool {
+    needle.is_none_or(|n| string(value.get("body")).to_lowercase().contains(n))
+}
+
+/// Pull-request text is minified unless `minify:"none"` or a `matchString`
+/// asks for the verbatim text.
+pub(super) fn minified_view(query: &GhGetHistoryItemQuery) -> bool {
+    matches!(query.operation, ItemOperation::PullRequest)
+        && query.minify.as_deref() != Some("none")
+        && query.match_string.is_none()
+}
+
+pub(super) fn history_body_view(value: &str, query: &GhGetHistoryItemQuery) -> String {
+    if minified_view(query) {
+        octocode_engine::portable::apply_content_view_minification(value, "history.md")
+    } else {
+        value.to_owned()
+    }
+}
+
+/// Window one item body through the body view, remembering the first window
+/// that has more text (the surface's body continuation).
+pub(super) fn window_body(
+    body: &str,
+    offset: Option<usize>,
+    query: &GhGetHistoryItemQuery,
+    first_more: &mut Option<Value>,
+) -> (String, Value) {
+    let view = history_body_view(body, query);
+    let (text, page) = paginate_text(&view, offset, query.char_length);
+    if page["hasMore"] == true && first_more.is_none() {
+        *first_more = Some(page.clone());
+    }
+    (text, page)
+}
+
+/// Shallow object merge: `right`'s keys overwrite `left`'s.
+pub(super) fn merge(mut left: Value, right: Value) -> Value {
+    if let (Some(l), Some(r)) = (left.as_object_mut(), right.as_object()) {
+        l.extend(r.clone());
+    }
+    left
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn text_windows_are_unicode_safe() {
+        let (value, page) = paginate_text("a🦀b", Some(1), Some(1));
+        assert_eq!(value, "🦀");
+        assert_eq!(page["nextCharOffset"], 2);
+    }
+
+    #[test]
+    fn filters_bots() {
+        assert!(is_bot("ci[bot]"));
+        assert!(is_bot("coderabbitai"));
+        assert!(!is_bot("robotics"));
+    }
+
+    #[test]
+    fn compare_identity_expands_permalink_abbreviations() {
+        let raw = json!({
+            "permalink_url": "https://github.com/a/b/compare/abc1234...def5678",
+            "base_commit": {"sha": "abc1234aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+            "commits": [{"sha": "def5678bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}]
+        });
+        let (base, head) = compare_identity(&raw, "main", "feature");
+        assert!(base.starts_with("abc1234"));
+        assert!(head.starts_with("def5678"));
+    }
+
+    #[test]
+    fn compact_truncates_multibyte_text_on_char_boundaries() {
+        let body = "修复内存泄漏".repeat(200);
+        let out = compact(&body, 500);
+        assert!(out.ends_with("..."));
+        assert_eq!(out.chars().count(), 500);
+        assert_eq!(compact("短", 500), "短");
+        assert_eq!(compact("🦀🦀🦀🦀🦀", 4), "🦀...");
+    }
 }

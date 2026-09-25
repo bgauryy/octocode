@@ -1,11 +1,11 @@
 use super::execute_ast;
 use crate::{
     policy::path::{PathPolicy, PathPolicyConfig},
-    security::{ContentSecurity, SecurityRegistry},
+    security::ContentSecurity,
     tools::local_fetch::CancellationCheck,
 };
 use serde_json::json;
-use std::{path::PathBuf, sync::Arc};
+use std::path::PathBuf;
 
 struct Fixture(PathBuf);
 impl Fixture {
@@ -37,21 +37,15 @@ fn descendant_policy_precedes_discovery_totals_and_line_reads() {
     let root = Fixture::new();
     std::fs::create_dir(root.0.join(".aws")).expect("sensitive directory");
     std::fs::write(root.0.join(".aws/credentials"), "hidden\n".repeat(50)).expect("secret");
-    std::fs::write(root.0.join("generated.locked.rs"), "ignored\n".repeat(70)).expect("ignored");
+    // Built-in sensitive file name: ignored by the path policy, not by config.
+    std::fs::write(root.0.join("terraform.tfstate"), "ignored\n".repeat(70)).expect("ignored");
     std::fs::write(root.0.join("visible.rs"), "pub fn visible() {\n}\n").expect("source");
-    let mut registry = SecurityRegistry::default();
-    registry
-        .add_ignored_file_patterns([regex::Regex::new(r"\.locked(?:\.|$)").expect("pattern")])
-        .expect("ignore");
-    let paths = PathPolicy::with_registry(
-        PathPolicyConfig {
-            workspace_root: Some(root.0.clone()),
-            ..Default::default()
-        },
-        &registry,
-    )
+    let paths = PathPolicy::new(PathPolicyConfig {
+        workspace_root: Some(root.0.clone()),
+        ..Default::default()
+    })
     .expect("policy");
-    let security = ContentSecurity::new(Arc::new(registry));
+    let security = ContentSecurity::new();
     let files = execute_ast(
         json!({"operation":"files","path":root.0,"detail":"full","sort":"lines","entryType":"f"}),
         &paths,
@@ -62,7 +56,7 @@ fn descendant_policy_precedes_discovery_totals_and_line_reads() {
     assert_eq!(files["pagination"]["totalFiles"], 1);
     assert_eq!(files["files"][0]["lineCount"], 2);
     assert!(!files.to_string().contains("credentials"));
-    assert!(!files.to_string().contains("locked"));
+    assert!(!files.to_string().contains("tfstate"));
     let symbols = execute_ast(
         json!({"operation":"symbols","path":root.0}),
         &paths,
@@ -75,7 +69,7 @@ fn descendant_policy_precedes_discovery_totals_and_line_reads() {
     assert_eq!(symbols["declarations"][0]["name"], "visible");
 
     std::fs::write(root.0.join(".aws/hidden.ts"), "oldCall(secret);\n").expect("hidden ast");
-    std::fs::write(root.0.join("generated.locked.ts"), "oldCall(ignored);\n").expect("ignored ast");
+    std::fs::write(root.0.join(".env.ts"), "oldCall(ignored);\n").expect("ignored ast");
     std::fs::write(root.0.join("visible.ts"), "oldCall(visible);\n").expect("visible ast");
     let matches = execute_ast(
         json!({
@@ -95,7 +89,7 @@ fn descendant_policy_precedes_discovery_totals_and_line_reads() {
         format!("{root_name}/visible.ts")
     );
     assert!(!matches.to_string().contains("hidden.ts"));
-    assert!(!matches.to_string().contains("locked.ts"));
+    assert!(!matches.to_string().contains(".env.ts"));
 }
 
 #[test]
@@ -108,7 +102,7 @@ fn structural_zero_is_empty_with_actionable_pattern_guidance() {
         ..Default::default()
     })
     .expect("policy");
-    let security = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+    let security = ContentSecurity::new();
 
     let missing = execute_ast(
         json!({"operation":"match","path":source,"pattern":"const $A = $B"}),
@@ -147,7 +141,7 @@ fn directory_prefilter_skips_are_aggregated_once() {
         ..Default::default()
     })
     .expect("policy");
-    let security = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+    let security = ContentSecurity::new();
     let result = execute_ast(
         json!({
             "operation":"match",
@@ -188,7 +182,7 @@ fn escaped_links_are_pruned_before_line_counting() {
         ..Default::default()
     })
     .expect("policy");
-    let security = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+    let security = ContentSecurity::new();
     let files = execute_ast(
         json!({"operation":"files","path":root.0,"detail":"full","entryType":"f"}),
         &paths,
@@ -218,7 +212,7 @@ fn cancellation_interrupts_descendant_traversal() {
         ..Default::default()
     })
     .expect("policy");
-    let security = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+    let security = ContentSecurity::new();
     let error = execute_ast(
         json!({"operation":"files","path":root.0}),
         &paths,
@@ -252,15 +246,12 @@ fn match_directory_scan_truncation_is_surfaced_not_silent() {
     for name in ["a.rs", "b.rs", "c.rs"] {
         std::fs::write(root.0.join(name), "pub fn source() {}\n").expect("source file");
     }
-    let paths = PathPolicy::with_registry(
-        PathPolicyConfig {
-            workspace_root: Some(root.0.clone()),
-            ..Default::default()
-        },
-        &SecurityRegistry::default(),
-    )
+    let paths = PathPolicy::new(PathPolicyConfig {
+        workspace_root: Some(root.0.clone()),
+        ..Default::default()
+    })
     .expect("policy");
-    let security = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+    let security = ContentSecurity::new();
     let out = execute_ast(
         json!({
             "operation":"match","path":root.0,"langType":"rust",
@@ -292,15 +283,12 @@ fn match_directory_scan_truncation_is_surfaced_not_silent() {
 }
 
 fn simple_policy(root: &std::path::Path) -> (PathPolicy, ContentSecurity) {
-    let paths = PathPolicy::with_registry(
-        PathPolicyConfig {
-            workspace_root: Some(root.to_path_buf()),
-            ..Default::default()
-        },
-        &SecurityRegistry::default(),
-    )
+    let paths = PathPolicy::new(PathPolicyConfig {
+        workspace_root: Some(root.to_path_buf()),
+        ..Default::default()
+    })
     .expect("policy");
-    let security = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+    let security = ContentSecurity::new();
     (paths, security)
 }
 

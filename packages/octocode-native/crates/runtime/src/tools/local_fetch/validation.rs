@@ -1,18 +1,18 @@
 use super::types::*;
-pub fn validate_request(q: &LocalFetchRequest) -> Result<(), String> {
+pub fn validate_request(q: &LocalFetchQuery) -> Result<(), String> {
     let full = q.full_content == Some(true);
     let matched = q.match_string.is_some();
-    let ranged = q.start_line.is_some() || q.end_line.is_some();
+    let ranged = q.start_line().is_some() || q.end_line().is_some();
     if q.path.trim().is_empty() {
         return Err("path is required".into());
     }
-    if q.minify == Some(MinifyMode::Symbols) && (matched || ranged) {
+    if q.minify == Some(Minify::Symbols) && (matched || ranged) {
         return Err("minify:\"symbols\" returns a whole-file signature skeleton and cannot be combined with matchString/startLine/endLine — remove the line/match constraints, or use minify:\"standard\" (or \"none\") to extract a specific range.".into());
     }
     if [full, matched, ranged].iter().filter(|x| **x).count() > 1 {
         return Err("fullContent, matchString, and startLine/endLine are mutually exclusive extraction methods".into());
     }
-    match (q.start_line, q.end_line) {
+    match (q.start_line(), q.end_line()) {
         (Some(start), None) => {
             return Err(format!(
                 "startLine={} provided without endLine — both are required for line-range extraction.",
@@ -27,13 +27,13 @@ pub fn validate_request(q: &LocalFetchRequest) -> Result<(), String> {
         }
         _ => {}
     }
-    if q.context_lines.is_some() && q.context_bytes.is_some() {
+    if q.context_lines().is_some() && q.context_bytes().is_some() {
         return Err("contextLines and contextBytes are mutually exclusive".into());
     }
-    if q.context_bytes.is_some() && !matched {
+    if q.context_bytes().is_some() && !matched {
         return Err("contextBytes requires matchString".into());
     }
-    if q.chunk_size == Some(0) {
+    if q.chunk_size() == Some(0) {
         return Err("chunkSize must be at least 1".into());
     }
     Ok(())

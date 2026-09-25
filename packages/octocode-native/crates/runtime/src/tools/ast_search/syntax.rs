@@ -111,11 +111,9 @@ pub fn execute_syntax(
         if let Some(map) = nq.as_object_mut() {
             map.retain(|_, value| !value.is_null());
         }
-        nq["goal"] = json!("Execute astSearch via octocode");
-        nq["reasoning"] = json!("Executed via octocode tool command");
         nq["snapshot"] = json!(snapshot);
         nq["nodeOffset"] = json!(next);
-        out["next"] = json!({"nextPage":{"tool":"astSearch","query":nq}})
+        out["next"] = json!({"nextPage":{"tool":"astSearch","query":nq,"confidence":"exact"}})
     } else if r.status == "partial" {
         out["terminalLimit"] = json!(true)
     }

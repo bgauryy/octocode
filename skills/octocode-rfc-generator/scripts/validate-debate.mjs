@@ -71,11 +71,11 @@ export function validateDebate(request, packet) {
   queries.forEach((query, index) => {
     const prefix = `Query ${index + 1}`;
     if (!only(query, ['id', 'reasoning', 'resources', 'questions']) ||
-        (Object.hasOwn(query, 'id') && !stableId.test(query.id ?? '')) ||
-        (Object.hasOwn(query, 'reasoning') && !text(query.reasoning)) ||
+        !stableId.test(query.id ?? '') ||
+        !text(query.reasoning) ||
         !Array.isArray(query.resources) || query.resources.length !== 1 || !typedQuestions(query.questions) ||
         query.resources.length * query.questions.length > 25) {
-      errors.push(`${prefix}: RFC review requires one source-free SemanticQuery with optional id/reasoning, one resources[] entry, typed questions[], and at most 25 resource-question cells.`);
+      errors.push(`${prefix}: RFC review requires one source-free SemanticQuery with required id and reasoning, one resources[] entry, typed questions[], and at most 25 resource-question cells.`);
       return;
     }
     const resource = query.resources[0];

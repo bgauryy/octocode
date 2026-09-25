@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 
 use regex::RegexBuilder;
 
+use crate::text::utf8_offsets::{ceil_char_boundary, floor_char_boundary};
 use crate::types::{
     ByteRange, ExtractMatchingLinesOptions, ExtractMatchingLinesResult, MatchRange,
 };
@@ -69,14 +70,8 @@ pub(crate) fn extract_matching_bytes(
         if !matched.contains(&line) {
             continue;
         }
-        let mut start = start.saturating_sub(context);
-        let mut end = end.saturating_add(context).min(content.len());
-        while !content.is_char_boundary(start) {
-            start -= 1;
-        }
-        while !content.is_char_boundary(end) {
-            end += 1;
-        }
+        let start = floor_char_boundary(content, start.saturating_sub(context));
+        let end = ceil_char_boundary(content, end.saturating_add(context));
         if let Some(last) = windows.last_mut()
             && start <= last.1
         {

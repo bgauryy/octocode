@@ -29,13 +29,25 @@ pub(super) fn success_value(
     };
     let has_more = !apply && offset.saturating_add(page_size) < matches.len();
     let total_pages = matches.len().div_ceil(page_size).max(1);
+    // A preview page carries only the files its matches touch, so patches are
+    // never repeated across pages; `affectedFiles` stays the full count and
+    // the final page's `next.apply` still guards every affected file.
+    let page_paths = shown
+        .iter()
+        .filter_map(|matched| matched.public["path"].as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    let page_files = files
+        .iter()
+        .filter(|file| apply || page_paths.contains(file.path.as_str()))
+        .map(public_file)
+        .collect::<Vec<_>>();
     let mut value = json!({
         "operation":"rewrite","mode":if apply {"apply"} else {"preview"},
         "root":root,"snapshot":snapshot,"executable":executable_value(executable),
         "isolation":isolation_receipt(),"totalMatches":matches.len(),
         "affectedFiles":files.len(),
         "matches":shown.iter().map(|matched| matched.public.clone()).collect::<Vec<_>>(),
-        "files":files.iter().map(public_file).collect::<Vec<_>>(),
+        "files":page_files,
         "complete":!has_more,"isPartial":has_more,
         "pagination":{"currentPage":page,"totalPages":total_pages,"pageSize":page_size,"hasMore":has_more}
     });
@@ -136,14 +148,17 @@ pub(super) fn public_file(file: &PreparedFile) -> Value {
 }
 
 pub(super) fn executable_value(executable: &ExecutableReceipt) -> Value {
-    json!({
+    let mut value = json!({
         "path":executable.path,
         "version":executable.version,
-        "sha256":executable.sha256,
         "capabilityContract":1,
         "capabilityDigest":executable.capability_digest,
         "capabilities":executable.capabilities
-    })
+    });
+    if !executable.sha256.is_empty() {
+        value["sha256"] = json!(executable.sha256);
+    }
+    value
 }
 
 pub(super) fn isolation_receipt() -> Value {

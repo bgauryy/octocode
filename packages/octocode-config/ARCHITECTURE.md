@@ -44,10 +44,36 @@ known-key lists.
 - `config` owns structured `.octocoderc` loading.
 - `policy` owns protected keys and project-level override restrictions.
 - The CLI exposes inspection only; it does not add a second configuration model.
-- `@octocodeai/octocode-core` owns every tool contract, Zod schema, description,
-  and capability-gated schema variant (such as search `semanticRerank`). The
-  `./schema` and `./mcp` subpaths only re-export core so interfaces import
-  contracts from one place; the root `.` entry never imports core.
+- `@octocodeai/octocode-core` authors every tool contract, Zod schema,
+  description, and capability-gated schema variant (such as search
+  `semanticRerank`). The `./schema` and `./mcp` subpaths re-export it so
+  interfaces import contracts from one place; the root `.` entry never imports
+  core.
+- This package owns the tool input/output **types** for every language (see
+  below). No surface hand-writes a tool wire type in TypeScript or Rust.
+
+## Tool types
+
+One derivation path produces every tool input/output type:
+
+```text
+core Zod schemas ── buildEnforcementContractIr ──▶ tool-types.schema.json
+      ├── json-schema-to-typescript ──▶ src/contracts/toolTypes.generated.ts
+      │        (exported from ./schema: <Tool>Query/Input/Output, ToolQuery<N>, …)
+      └── cargo-typify 0.8.0 ─────────▶ rust/tool_types.rs
+               (include!d by octocode-native as contracts::tool_types)
+```
+
+`scripts/generate-tool-types.ts` names each tool's `Query` (one row),
+`Input` (bulk envelope), and `Output` (result envelope), shares identical
+output `$defs` as `Shared*`, and lifts a property enum used by several tools
+(`chunkType`, `minify`, `caseMode`, …) into one named type. Both files carry
+the core contract fingerprint; the Rust header also pins the bundle's SHA-256,
+so `--check` (run by `build` and `lint`) detects staleness without cargo.
+Regenerating needs `cargo install cargo-typify --version 0.8.0 --locked`;
+native's `yarn contracts:regen` runs it after refreshing core. Where core's
+output schema is open (`unknown[]` payloads), the generated type is open too:
+tightening a payload shape is a core schema change, never a hand-written type.
 
 ## Invariants
 

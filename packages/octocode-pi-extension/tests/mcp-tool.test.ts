@@ -817,7 +817,11 @@ function createCallGateMcpFixture(): {
     } as unknown as import("../src/types.js").PiContext,
     callMarker,
     listMarker,
-    cleanup: () => fs.rmSync(cwd, { recursive: true, force: true }),
+    // A detached catalog warm may still be persisting its snapshot into this
+    // fixture's OCTOCODE_HOME when the test tears down; rmSync then sees
+    // ENOTEMPTY. Node's bounded retry absorbs that race, and a write that lands
+    // after removal fails inside the warm's own error handler.
+    cleanup: () => fs.rmSync(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }),
   };
 }
 
@@ -847,7 +851,11 @@ function createFailingMcpFixture(): {
       cwd,
       isProjectTrusted: () => true,
     } as unknown as import("../src/types.js").PiContext,
-    cleanup: () => fs.rmSync(cwd, { recursive: true, force: true }),
+    // A detached catalog warm may still be persisting its snapshot into this
+    // fixture's OCTOCODE_HOME when the test tears down; rmSync then sees
+    // ENOTEMPTY. Node's bounded retry absorbs that race, and a write that lands
+    // after removal fails inside the warm's own error handler.
+    cleanup: () => fs.rmSync(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }),
   };
 }
 

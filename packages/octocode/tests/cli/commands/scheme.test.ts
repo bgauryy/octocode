@@ -98,7 +98,8 @@ describe('scheme command admission', () => {
       })
     ).resolves.toBe(2);
     expect(JSON.parse(String(output.mock.calls[0]?.[0]))).toEqual({
-      success: false,
+      kind: 'octocode.toolError',
+      version: 1,
       error: '--view expects full|query|variants, got: invalid',
     });
   });
@@ -212,6 +213,16 @@ describe('usageLines', () => {
       true
     );
     expect(lines.some(line => line.startsWith('operation=match'))).toBe(true);
+  });
+
+  it('labels branches by the const that varies, not one shared by every branch', () => {
+    // Every astTopology branch fixes operation=topology; analysis differs.
+    const lines = usageLines(toolNamed('astTopology')).slice(1);
+    expect(lines.length).toBeGreaterThan(1);
+    expect(lines.every(line => line.startsWith('analysis='))).toBe(true);
+    expect(new Set(lines.map(line => line.split(' ')[0])).size).toBe(
+      lines.length
+    );
   });
 
   it('degrades to a scheme hint when no query fields are exposed', () => {

@@ -34,40 +34,9 @@ OPEN/ATTACH → STEALTH → PICK ONE INTENT → RUN(CDP) → REUSE PORT/TAB → 
 
 1. **OPEN** — `scripts/open-browser.mjs --headless --port 9222 --url <url>` → emits `BROWSER_READY` only; does **not** capture page content
 2. **RUN** — `scripts/cdp-sandbox.mjs <check-script.mjs> --port 9222` (sequentially — never two in parallel on the same port)
-3. **SCREEN** — clasify all captured artifacts *before* reading any body
-   - Drop 0-byte files (they return `classificationContextEmpty`); ≤ 25 cells per matrix; omit `maxChars`
-   - Accept route choices only when `confidence >= 0.9`; `insufficient` (auto-added to every Choice) or `partial` → `consider`
-   - Tailor questions to artifact type (see table below)
-4. **QUERY DISK** — read only clasify-approved artifacts
+3. **SCREEN, when useful** — use capture metadata and exact checks first; clasify ambiguous unread artifacts if it changes the next inspection. See [references/clasify-screen.md](references/clasify-screen.md)
+4. **QUERY DISK** — read the smallest deciding source span
 5. **CLEANUP** — `scripts/open-browser.mjs --cleanup --port 9222`
-
----
-
-## Clasify question templates by artifact type
-
-### `page-snapshot.json` (DOM — `{url, refs:{e1:{role,name},...}}`)
-
-- **`has-product-nav`** (Noul): *“Does the DOM contain 5+ named product/section navigation links?”*
-- **`has-cta`** (Noul): *“Does the DOM contain operable CTA buttons — sign-up, start, get-started?”*
-- **`has-pricing-elements`** (Noul): *“Does the DOM contain pricing table rows or plan names?”*
-- **`dom-intent`** (Choice): `extract-nav-links` / `click-cta` / `extract-pricing` / `inspect-only`
-
-> `dom-check.json` is a **single-element** record — ask only element-level questions (visible, operable, stable). Do not ask whole-DOM questions on it.
-
-### `live-network.har` / `cdp-network.jsonl`
-
-- **`has-text-bodies`** (Noul): *“Any HTML/JSON bodies worth extracting? Score 0.2 or lower if all are images, fonts, or analytics.”*
-- **`has-api-calls`** (Noul): *“Any XHR/fetch calls to real API endpoints returning structured JSON?”*
-- **`har-action`** (Choice): `extract-bodies` / `navigate-more` / `replay-api` / `skip`
-
-### `network-summary.json`
-
-- **`has-slow-requests`** (Noul): *“Any requests exceeding 2s?”*
-- **`has-failures`** (Noul): *“Any non-analytics failed requests indicating a blocked resource or auth wall?”*
-
-### `graph-actionability.json` navigation nodes (as `context.value`)
-
-- **`link-relevance`** (Noul) + **`link-action`** (Choice: `follow` / `spot-check` / `skip`)
 
 ---
 

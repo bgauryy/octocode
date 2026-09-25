@@ -1,5 +1,5 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use reqwest::header::{HeaderValue, IF_NONE_MATCH};
+use reqwest::header::{ACCEPT, HeaderValue, IF_NONE_MATCH};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::{future::Future, pin::Pin};
@@ -12,8 +12,33 @@ use super::{
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CachedContent {
     pub etag: Option<String>,
+    /// Base64 on disk (a JSON number array is ~3.5× the body); legacy array
+    /// entries still decode.
+    #[serde(with = "base64_bytes")]
     pub bytes: Vec<u8>,
     pub resolved_ref: String,
+}
+mod base64_bytes {
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+    use serde::{Deserialize, Deserializer, Serializer, de::Error};
+
+    pub fn serialize<S: Serializer>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&STANDARD.encode(bytes))
+    }
+
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Encoded {
+        Base64(String),
+        Legacy(Vec<u8>),
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<u8>, D::Error> {
+        match Encoded::deserialize(deserializer)? {
+            Encoded::Base64(text) => STANDARD.decode(text).map_err(D::Error::custom),
+            Encoded::Legacy(bytes) => Ok(bytes),
+        }
+    }
 }
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CachePartition(pub(crate) String);
@@ -99,7 +124,7 @@ impl<R: CredentialResolver, C: ConditionalCache> GitHubProvider<R, C> {
         // A cached large-file entry has no ETag (it came from the blob fallback
         // below). The cache key includes the resolved commit SHA, so that content
         // is immutable — serve it directly instead of re-issuing a request that
-        // will 413 again and re-download the whole blob on every read (N2).
+        // will 413 again and re-download the whole blob on every read.
         if let Some(value) = cached.as_ref().filter(|value| value.etag.is_none()) {
             return Ok(ContentResponse {
                 bytes: value.bytes.clone(),
@@ -272,53 +297,75 @@ impl<R: CredentialResolver, C: ConditionalCache> GitHubProvider<R, C> {
         request: &ContentRequest,
         context: &RequestContext,
     ) -> Result<String, ProviderError> {
-        if let Some(reference) = request.reference.as_deref()
-            && reference.len() == 40
-            && reference.bytes().all(|byte| byte.is_ascii_hexdigit())
+        self.resolve_reference(
+            &request.owner,
+            &request.repo,
+            request.reference.as_deref(),
+            request.force_refresh,
+            context,
+        )
+        .await
+    }
+
+    /// Resolve `reference` (branch, tag, short SHA, or the default branch when
+    /// `None`) to a lowercase 40-hex commit SHA in one round trip: the
+    /// `vnd.github.sha` media type returns just the SHA (40 B instead of the
+    /// full commit with patches), and `HEAD` resolves the default branch
+    /// without a separate `GET /repos/{o}/{r}`. Movable refs are memoized for
+    /// [`REF_MEMO_TTL_SECS`] in the credential partition so a batch of reads on
+    /// one ref resolves it once; `force_refresh` bypasses the memo.
+    pub async fn resolve_reference(
+        &self,
+        owner: &str,
+        repo: &str,
+        reference: Option<&str>,
+        force_refresh: bool,
+        context: &RequestContext,
+    ) -> Result<String, ProviderError> {
+        if let Some(reference) = reference
+            && is_full_sha(reference)
         {
             return Ok(reference.to_ascii_lowercase());
         }
-        let reference = match request.reference.as_deref() {
-            Some(reference) => reference.to_owned(),
-            None => {
-                let url =
-                    self.transport
-                        .endpoint()
-                        .rest(&["repos", &request.owner, &request.repo])?;
-                let page = self
-                    .transport
-                    .execute(RequestSpec::get(url), context)
-                    .await?;
-                let repo: RepositoryPayload = serde_json::from_slice(&page.body).map_err(|_| {
-                    ProviderError::new(
-                        ProviderErrorKind::Decode,
-                        "invalid GitHub repository response",
-                    )
-                })?;
-                repo.default_branch
-            }
-        };
-        let url = self.transport.endpoint().rest(&[
-            "repos",
-            &request.owner,
-            &request.repo,
-            "commits",
-            &reference,
-        ])?;
-        let page = self
-            .transport
-            .execute(RequestSpec::get(url), context)
-            .await?;
-        let commit: CommitPayload = serde_json::from_slice(&page.body).map_err(|_| {
-            ProviderError::new(ProviderErrorKind::Decode, "invalid GitHub commit response")
-        })?;
-        if commit.sha.len() != 40 || !commit.sha.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-            return Err(ProviderError::new(
-                ProviderErrorKind::Decode,
-                "GitHub returned an invalid commit SHA",
-            ));
+        let reference = reference.unwrap_or("HEAD");
+        let partition = self.transport.cache_partition(context, None).await?;
+        let key = ref_memo_key(owner, repo, reference);
+        // Single flight: a concurrent batch on one ref waits for the first
+        // resolution and then reads it from the memo.
+        let flight = ref_flight(&partition, &key);
+        let _guard = flight.lock().await;
+        if !force_refresh
+            && let Some(sha) = self
+                .cache
+                .get(&partition, &key)
+                .await
+                .and_then(|value| fresh_ref_memo(&value))
+        {
+            return Ok(sha);
         }
-        Ok(commit.sha.to_ascii_lowercase())
+        let url = self
+            .transport
+            .endpoint()
+            .rest(&["repos", owner, repo, "commits", reference])?;
+        let mut spec = RequestSpec::get(url);
+        spec.headers.insert(
+            ACCEPT,
+            HeaderValue::from_static("application/vnd.github.sha"),
+        );
+        let page = self.transport.execute(spec, context).await?;
+        let sha = parse_commit_sha(&page.body)?;
+        self.cache
+            .put(
+                &partition,
+                key,
+                CachedContent {
+                    etag: None,
+                    bytes: sha.as_bytes().to_vec(),
+                    resolved_ref: format!("{REF_MEMO_PREFIX}{}", unix_now()),
+                },
+            )
+            .await;
+        Ok(sha)
     }
 
     async fn fetch_via_directory_and_blob(
@@ -398,18 +445,14 @@ fn parse_content_payload(body: &[u8], path: &str) -> Result<ContentPayload, Prov
         ProviderError::new(ProviderErrorKind::Decode, "invalid GitHub content response")
     })?;
     if value.is_array() {
-        return Err(not_a_file(format!(
-            "Path \"{path}\" {IS_A_DIRECTORY}, not a file; list it with ghSearch operation:\"tree\"."
-        )));
+        return Err(is_a_directory(path));
     }
     let payload: ContentPayload = serde_json::from_value(value).map_err(|_| {
         ProviderError::new(ProviderErrorKind::Decode, "invalid GitHub content response")
     })?;
     match payload.kind.as_deref() {
         Some("file") => Ok(payload),
-        Some("dir") => Err(not_a_file(format!(
-            "Path \"{path}\" {IS_A_DIRECTORY}, not a file; list it with ghSearch operation:\"tree\"."
-        ))),
+        Some("dir") => Err(is_a_directory(path)),
         Some("symlink") => Err(not_a_file(match payload.target.as_deref() {
             Some(target) => format!(
                 "Path \"{path}\" is a symlink to \"{target}\"; read the target path instead."
@@ -427,9 +470,14 @@ fn parse_content_payload(body: &[u8], path: &str) -> Result<ContentPayload, Prov
         _ => Err(not_a_file(format!("GitHub path \"{path}\" is not a file"))),
     }
 }
-/// Message fragment identifying a directory read; `runtime::github::file_error`
-/// keys its tree-listing recovery hint off this exact text.
-const IS_A_DIRECTORY: &str = "is a directory";
+/// A directory read, typed so `runtime::github::file_error` keys its
+/// tree-listing recovery on the reason rather than the message.
+fn is_a_directory(path: &str) -> ProviderError {
+    not_a_file(format!(
+        "Path \"{path}\" is a directory, not a file; list it with ghSearch operation:\"tree\"."
+    ))
+    .with_reason(super::ProviderErrorReason::PathIsDirectory)
+}
 fn not_a_file(message: String) -> ProviderError {
     ProviderError::new(ProviderErrorKind::Validation, message)
 }
@@ -449,12 +497,84 @@ struct ContentPayload {
     submodule_git_url: Option<String>,
 }
 #[derive(Deserialize)]
-struct RepositoryPayload {
-    default_branch: String,
-}
-#[derive(Deserialize)]
 struct CommitPayload {
     sha: String,
+}
+/// Seconds a movable ref → SHA resolution is reused. Short enough that a push
+/// shows up on the next research step; long enough to cover one batch.
+const REF_MEMO_TTL_SECS: u64 = 60;
+/// Marker stored in `CachedContent.resolved_ref` for ref memo entries, followed
+/// by the unix time the SHA was resolved.
+const REF_MEMO_PREFIX: &str = "ref-memo@";
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_secs())
+}
+fn is_full_sha(value: &str) -> bool {
+    value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+type RefFlights = std::sync::Mutex<
+    std::collections::HashMap<(CachePartition, String), std::sync::Arc<tokio::sync::Mutex<()>>>,
+>;
+fn ref_flight(partition: &CachePartition, key: &str) -> std::sync::Arc<tokio::sync::Mutex<()>> {
+    static FLIGHTS: std::sync::OnceLock<RefFlights> = std::sync::OnceLock::new();
+    let mut flights = FLIGHTS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    // Drop idle entries so a long session does not grow the map unbounded.
+    if flights.len() > 256 {
+        flights.retain(|_, flight| std::sync::Arc::strong_count(flight) > 1);
+    }
+    flights
+        .entry((partition.clone(), key.to_owned()))
+        .or_default()
+        .clone()
+}
+fn ref_memo_key(owner: &str, repo: &str, reference: &str) -> String {
+    let mut digest = Sha256::new();
+    // Owner/repo names are case-insensitive on GitHub; refs are not.
+    for value in [
+        owner.to_ascii_lowercase().as_str(),
+        repo.to_ascii_lowercase().as_str(),
+        reference,
+    ] {
+        digest.update(value.as_bytes());
+        digest.update([0]);
+    }
+    format!("github-ref:{}", hex::encode(digest.finalize()))
+}
+fn fresh_ref_memo(value: &CachedContent) -> Option<String> {
+    let stored_at: u64 = value
+        .resolved_ref
+        .strip_prefix(REF_MEMO_PREFIX)?
+        .parse()
+        .ok()?;
+    let sha = std::str::from_utf8(&value.bytes).ok()?;
+    (unix_now().saturating_sub(stored_at) <= REF_MEMO_TTL_SECS && is_full_sha(sha))
+        .then(|| sha.to_ascii_lowercase())
+}
+/// `vnd.github.sha` answers with the bare SHA; GHES versions (and test
+/// fixtures) that ignore the media type answer with the commit JSON.
+fn parse_commit_sha(body: &[u8]) -> Result<String, ProviderError> {
+    let text = std::str::from_utf8(body).unwrap_or_default().trim();
+    let sha = if is_full_sha(text) {
+        text.to_owned()
+    } else {
+        serde_json::from_slice::<CommitPayload>(body)
+            .map_err(|_| {
+                ProviderError::new(ProviderErrorKind::Decode, "invalid GitHub commit response")
+            })?
+            .sha
+    };
+    if !is_full_sha(&sha) {
+        return Err(ProviderError::new(
+            ProviderErrorKind::Decode,
+            "GitHub returned an invalid commit SHA",
+        ));
+    }
+    Ok(sha.to_ascii_lowercase())
 }
 #[derive(Deserialize)]
 struct DirectoryEntry {

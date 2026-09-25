@@ -1,0 +1,16 @@
+#!/bin/sh
+set -eu
+base=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+case "$(uname -s):$(uname -m)" in
+  Darwin:arm64|Darwin:aarch64) target=aarch64-apple-darwin ;;
+  Darwin:x86_64) target=x86_64-apple-darwin ;;
+  Linux:aarch64|Linux:arm64) target=aarch64-unknown-linux-gnu ;;
+  Linux:x86_64) target=x86_64-unknown-linux-gnu ;;
+  *) echo 'Unsupported platform. On Windows, use agents-communication.ps1.' >&2; exit 1 ;;
+esac
+binary="$base/bin/$target/octocode-agents-communication"
+if [ ! -x "$binary" ]; then
+  echo "This source-only skill has no binary for $target. Install a built skill bundle; maintainers can run scripts/build-skill.mjs in the package checkout." >&2
+  exit 1
+fi
+exec "$binary" "$@"

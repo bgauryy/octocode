@@ -8,15 +8,31 @@ pub use types::*;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Test query from wire JSON over a base query (or a minimal valid one);
+    /// `null` removes a field so its contract default applies.
+    fn ls_query(fields: serde_json::Value, base: Option<&LocalSearchQuery>) -> LocalSearchQuery {
+        let mut value = base.map_or_else(
+            || serde_json::json!({"path": "_", "searchText": "_", "reasoning": "test"}),
+            |base| serde_json::to_value(base).expect("query serializes"),
+        );
+        let object = value.as_object_mut().expect("query object");
+        for (key, field) in fields.as_object().expect("fields object") {
+            if field.is_null() {
+                object.remove(key);
+            } else {
+                object.insert(key.clone(), field.clone());
+            }
+        }
+        serde_json::from_value(value).expect("valid localSearch query")
+    }
     use crate::{
         policy::path::{PathPolicy, PathPolicyConfig},
-        security::{ContentSecurity, SecurityRegistry},
+        security::ContentSecurity,
         tools::local_fetch::NeverCancel,
     };
-    use regex::Regex;
     use std::{
         fs,
-        sync::Arc,
         time::{SystemTime, UNIX_EPOCH},
     };
 
@@ -38,20 +54,15 @@ mod tests {
             ..Default::default()
         })
         .expect("policy");
-        let security = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+        let security = ContentSecurity::new();
         (root, policy, security)
     }
 
     #[test]
     fn context_lines_scale_the_default_match_content_length() {
         let (root, policy, security) = context_fixture();
-        let base = LocalSearchRequest {
-            path: root.path().to_string_lossy().into_owned(),
-            search_text: "needle".into(),
-            context_lines: Some(4),
-            ..Default::default()
-        };
-        let run = |request: &LocalSearchRequest| {
+        let base = ls_query(serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "needle".to_string(), "contextLines": 4}), None);
+        let run = |request: &LocalSearchQuery| {
             let result =
                 execute_local_search(request, &policy, &security, &NeverCancel).expect("search");
             serde_json::to_value(result).expect("serialize")
@@ -61,17 +72,10 @@ mod tests {
         assert!(matched.get("truncated").is_none(), "{scaled}");
         assert!(matched["value"].as_str().expect("value").chars().count() > 300);
 
-        let explicit = run(&LocalSearchRequest {
-            match_content_length: Some(200),
-            ..base.clone()
-        });
+        let explicit = run(&ls_query(serde_json::json!({"matchContentLength": 200}), Some(&base.clone())));
         assert_eq!(explicit["files"][0]["matches"][0]["truncated"], true);
 
-        let detailed = run(&LocalSearchRequest {
-            context_lines: None,
-            result_view: Some(ResultView::Detailed),
-            ..base.clone()
-        });
+        let detailed = run(&ls_query(serde_json::json!({"contextLines": null, "resultView": ResultView::Detailed}), Some(&base.clone())));
         assert!(
             detailed["files"][0]["matches"][0]
                 .get("truncated")
@@ -94,16 +98,8 @@ mod tests {
             ..Default::default()
         })
         .expect("policy");
-        let security = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
-        let request = LocalSearchRequest {
-            path: root.path().to_string_lossy().into_owned(),
-            search_text: "needle.*".into(),
-            result_view: Some(ResultView::MatchOnly),
-            match_content_length: Some(30),
-            max_matches_per_file: Some(1),
-            unique: Some(UniqueMode::Count),
-            ..Default::default()
-        };
+        let security = ContentSecurity::new();
+        let request = ls_query(serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "needle.*".to_string(), "resultView": ResultView::MatchOnly, "matchContentLength": 30, "maxMatchesPerFile": 1, "unique": UniqueMode::Count}), None);
         let first =
             execute_local_search(&request, &policy, &security, &NeverCancel).expect("first page");
         let body = serde_json::to_value(&first).expect("serialize");
@@ -130,11 +126,7 @@ mod tests {
         assert_eq!(next["matchContentLength"], 30);
         assert_eq!(next["unique"], "count");
         assert_eq!(next["matchPage"], 2);
-        let continued = LocalSearchRequest {
-            match_page: Some(2),
-            snapshot: first.source_snapshot,
-            ..request
-        };
+        let continued = ls_query(serde_json::json!({"matchPage": 2, "snapshot": first.source_snapshot}), Some(&request));
         let second = execute_local_search(&continued, &policy, &security, &NeverCancel)
             .expect("second page");
         let body = serde_json::to_value(second).expect("serialize");
@@ -147,12 +139,7 @@ mod tests {
         assert!(body.get("next").is_none());
 
         for (limit, expected_chars) in [(None, 200), (Some(1), 1), (Some(4105), 4105)] {
-            let bounded = LocalSearchRequest {
-                match_page: Some(1),
-                snapshot: None,
-                match_content_length: limit,
-                ..continued.clone()
-            };
+            let bounded = ls_query(serde_json::json!({"matchPage": 1, "snapshot": null, "matchContentLength": limit}), Some(&continued.clone()));
             let result = execute_local_search(&bounded, &policy, &security, &NeverCancel)
                 .expect("default, minimal and exact-boundary caps");
             let body = serde_json::to_value(result).expect("serialize");
@@ -170,10 +157,10 @@ mod tests {
         }
     }
 
-    // SEC-1: a search that matches an interior base64 body line of a private key
+    // A search that matches an interior base64 body line of a private key
     // must not return the key body, even though the match view holds no BEGIN/END
     // marker. The full-file block scan (triggered by the base64-shaped snippet)
-    // redacts it; the default `SecurityRegistry` window sanitizer alone cannot.
+    // redacts it; the window sanitizer alone cannot.
     #[test]
     fn interior_private_key_match_is_redacted_without_markers_in_view() {
         let root = tempfile::tempdir().expect("fixture directory");
@@ -188,16 +175,10 @@ mod tests {
             ..Default::default()
         })
         .expect("policy");
-        let security = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+        let security = ContentSecurity::new();
         // Content view returns the whole matched line (not just the match span),
         // so a hit inside the base64 body would surface the key material.
-        let request = LocalSearchRequest {
-            path: root.path().to_string_lossy().into_owned(),
-            search_text: "MIIEpQIB".into(),
-            result_view: Some(ResultView::Detailed),
-            context_lines: Some(0),
-            ..Default::default()
-        };
+        let request = ls_query(serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "MIIEpQIB".to_string(), "resultView": ResultView::Detailed, "contextLines": 0}), None);
         let result =
             execute_local_search(&request, &policy, &security, &NeverCancel).expect("search");
         let body_json = serde_json::to_value(&result).expect("serialize");
@@ -210,7 +191,7 @@ mod tests {
         );
     }
 
-    // SEC-1 over-redaction guard: a base64-shaped line with no private-key block
+    // Over-redaction guard: a base64-shaped line with no private-key block
     // anywhere in the file must be returned intact — the snippet triggers a
     // full-file scan that finds no block and redacts nothing.
     #[test]
@@ -227,14 +208,8 @@ mod tests {
             ..Default::default()
         })
         .expect("policy");
-        let security = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
-        let request = LocalSearchRequest {
-            path: root.path().to_string_lossy().into_owned(),
-            search_text: "aGVsbG8".into(),
-            result_view: Some(ResultView::Detailed),
-            context_lines: Some(0),
-            ..Default::default()
-        };
+        let security = ContentSecurity::new();
+        let request = ls_query(serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "aGVsbG8".to_string(), "resultView": ResultView::Detailed, "contextLines": 0}), None);
         let result =
             execute_local_search(&request, &policy, &security, &NeverCancel).expect("search");
         let body_json = serde_json::to_value(&result).expect("serialize");
@@ -247,7 +222,7 @@ mod tests {
         );
     }
 
-    // OUT-1: a pathological single giant line (generated/minified file) must not
+    // A pathological single giant line (generated/minified file) must not
     // emit a multi-MB body. The total-response budget clips each match value —
     // every match row and its line anchor is preserved (no silent drop, no
     // continuation cursor needed); the clip is flagged `truncated`.
@@ -261,15 +236,8 @@ mod tests {
             ..Default::default()
         })
         .expect("policy");
-        let security = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
-        let request = LocalSearchRequest {
-            path: root.path().to_string_lossy().into_owned(),
-            search_text: "needle".into(),
-            result_view: Some(ResultView::Detailed),
-            match_content_length: Some(5_000_000), // ask the engine for the whole line
-            context_lines: Some(0),
-            ..Default::default()
-        };
+        let security = ContentSecurity::new();
+        let request = ls_query(serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "needle".to_string(), "resultView": ResultView::Detailed, "matchContentLength": 5_000_000, "contextLines": 0}), None);
         let result =
             execute_local_search(&request, &policy, &security, &NeverCancel).expect("search");
         let matches = result.files[0].matches.as_ref().expect("matches");
@@ -298,9 +266,9 @@ mod tests {
 
     #[test]
     fn content_view_snippet_carries_truncation_indicator() {
-        // Fix 7: a content-view match on a line longer than matchContentLength is
+        // A content-view match on a line longer than matchContentLength is
         // clipped by the engine; the runtime must surface truncated/originalChars
-        // (previously only the matchOnly path did), plus the truncation warning.
+        // plus the truncation warning.
         let root = tempfile::tempdir().expect("fixture directory");
         let long_line = format!("needle {}", "x".repeat(600));
         fs::write(root.path().join("big.txt"), format!("{long_line}\n")).expect("fixture");
@@ -309,12 +277,8 @@ mod tests {
             ..Default::default()
         })
         .expect("policy");
-        let security = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
-        let request = LocalSearchRequest {
-            path: root.path().to_string_lossy().into_owned(),
-            search_text: "needle".into(),
-            ..Default::default()
-        };
+        let security = ContentSecurity::new();
+        let request = ls_query(serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "needle".to_string()}), None);
         let result =
             execute_local_search(&request, &policy, &security, &NeverCancel).expect("search");
         let body = serde_json::to_value(&result).expect("serialize");
@@ -334,7 +298,7 @@ mod tests {
     }
 
     #[test]
-    fn excludes_sensitive_binary_and_symlink_descendants_before_projection() {
+    fn excludes_sensitive_and_symlink_descendants_before_projection() {
         let root = std::env::temp_dir().join(format!(
             "local-search-security-{}",
             SystemTime::now()
@@ -347,40 +311,18 @@ mod tests {
         fs::write(root.join(".aws/credentials"), "needle secret\n").expect("secret fixture");
         fs::write(root.join("private-key.pem"), "needle private\n").expect("key fixture");
         fs::write(root.join("binary.dat"), b"needle\0binary").expect("binary fixture");
-        fs::write(root.join("denied.txt"), "unmatched policy file\n").expect("denied fixture");
-        fs::create_dir(root.join("vault")).expect("vault dir");
-        fs::write(root.join("vault/nested.txt"), "needle hidden\n").expect("vault fixture");
         #[cfg(unix)]
         {
             std::os::unix::fs::symlink("/etc/passwd", root.join("escape"))
                 .expect("symlink fixture");
         }
-        let mut registry = SecurityRegistry::default();
-        registry
-            .add_ignored_file_patterns([Regex::new(r"denied\.txt$").expect("file regex")])
-            .expect("file policy");
-        registry
-            .add_ignored_path_patterns([Regex::new(r"/vault(?:/|$)").expect("path regex")])
-            .expect("path policy");
-        let policy = PathPolicy::with_registry(
-            PathPolicyConfig {
-                workspace_root: Some(root.clone()),
-                additional_roots: vec![],
-                include_home: false,
-                home_dir: None,
-            },
-            &registry,
-        )
-        .expect("policy");
-        let security = ContentSecurity::new(Arc::new(registry));
-        let request = LocalSearchRequest {
-            path: root.to_string_lossy().into_owned(),
-            search_text: "needle".into(),
-            hidden: Some(true),
-            no_ignore: Some(true),
-            sort: Some(SortMode::Path),
+        let policy = PathPolicy::new(PathPolicyConfig {
+            workspace_root: Some(root.clone()),
             ..Default::default()
-        };
+        })
+        .expect("policy");
+        let security = ContentSecurity::new();
+        let request = ls_query(serde_json::json!({"path": root.to_string_lossy().into_owned(), "searchText": "needle".to_string(), "hidden": true, "noIgnore": true, "sort": SortMode::Path}), None);
         let result =
             execute_local_search(&request, &policy, &security, &NeverCancel).expect("search");
         assert_eq!(
@@ -389,9 +331,11 @@ mod tests {
                 .iter()
                 .map(|f| f.path.as_str())
                 .collect::<Vec<_>>(),
-            vec!["safe.txt"]
+            // A binary file keeps the matches before its first NUL.
+            vec!["binary.dat", "safe.txt"]
         );
         assert_eq!(result.stats.files_searched, 2);
+        assert_eq!(result.stats.cap_reason.as_deref(), Some("binaryQuit"));
         assert_eq!(
             result.source_root,
             root.canonicalize().expect("canonical root")
@@ -417,17 +361,13 @@ mod tests {
             ..Default::default()
         })
         .expect("policy");
-        let security = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
-        let request = LocalSearchRequest {
-            path: root.to_string_lossy().into_owned(),
-            search_text: "needle".into(),
-            ..Default::default()
-        };
+        let security = ContentSecurity::new();
+        let request = ls_query(serde_json::json!({"path": root.to_string_lossy().into_owned(), "searchText": "needle".to_string()}), None);
         let initial = execute_local_search(&request, &policy, &security, &NeverCancel)
             .expect("initial search");
         let snapshot = initial.source_snapshot.expect("identity on final page");
         let mut continued = request.clone();
-        continued.snapshot = Some(snapshot.clone());
+        continued.snapshot = Some(snapshot.parse().expect("snapshot"));
         execute_local_search(&continued, &policy, &security, &NeverCancel)
             .expect("unchanged snapshot");
 
@@ -446,15 +386,15 @@ mod tests {
         assert_eq!(restart["restart"]["query"]["matchPage"], 1);
 
         let mut empty = request.clone();
-        empty.search_text = "absent".into();
-        empty.snapshot = Some(snapshot);
+        empty.search_text = "absent".parse().expect("searchText");
+        empty.snapshot = Some(snapshot.parse().expect("snapshot"));
         assert_eq!(
             execute_local_search(&empty, &policy, &security, &NeverCancel)
                 .expect_err("query-scope/empty mismatch")
                 .code,
             "staleSnapshot"
         );
-        continued.snapshot = Some("forged".into());
+        continued.snapshot = Some("forged".parse().expect("snapshot"));
         assert_eq!(
             execute_local_search(&continued, &policy, &security, &NeverCancel)
                 .expect_err("forged snapshot")
@@ -468,23 +408,28 @@ mod tests {
     fn capped_or_bound_results_are_partial_and_terminal_when_next_is_impossible() {
         use super::executor::classify_search;
         assert_eq!(
-            classify_search(true, false, false, false, 0, 0, true),
+            classify_search(true, false, false, false, false, true),
             (SearchStatus::Empty, false)
         );
         assert_eq!(
-            classify_search(false, true, false, false, 0, 1, true),
+            classify_search(true, false, false, false, true, true),
+            (SearchStatus::Partial, true),
+            "an empty result with unsearched content is partial, not empty"
+        );
+        assert_eq!(
+            classify_search(false, true, false, false, false, true),
             (SearchStatus::Partial, true)
         );
         assert_eq!(
-            classify_search(false, false, true, false, 0, 1, false),
+            classify_search(false, false, true, false, false, false),
             (SearchStatus::Partial, false)
         );
         assert_eq!(
-            classify_search(false, false, true, false, 0, 1, true),
+            classify_search(false, false, true, false, false, true),
             (SearchStatus::Partial, true)
         );
         assert_eq!(
-            classify_search(false, false, false, false, 0, 1, true),
+            classify_search(false, false, false, false, false, true),
             (SearchStatus::Success, false)
         );
     }
@@ -507,12 +452,8 @@ mod tests {
             ..Default::default()
         })
         .expect("policy");
-        let security = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
-        let request = LocalSearchRequest {
-            path: oversized.to_string_lossy().into_owned(),
-            search_text: "needle".into(),
-            ..Default::default()
-        };
+        let security = ContentSecurity::new();
+        let request = ls_query(serde_json::json!({"path": oversized.to_string_lossy().into_owned(), "searchText": "needle".to_string()}), None);
 
         let result =
             execute_local_search(&request, &policy, &security, &NeverCancel).expect("search");
@@ -532,7 +473,7 @@ mod tests {
         assert!(hint.contains("localFetch"), "{hint}");
     }
 
-    fn search_fixture(files: &[(&str, &str)], request: LocalSearchRequest) -> serde_json::Value {
+    fn search_fixture(files: &[(&str, &str)], request: LocalSearchQuery) -> serde_json::Value {
         let root = tempfile::tempdir().expect("fixture directory");
         for (name, body) in files {
             let path = root.path().join(name);
@@ -546,11 +487,8 @@ mod tests {
             ..Default::default()
         })
         .expect("policy");
-        let security = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
-        let request = LocalSearchRequest {
-            path: root.path().to_string_lossy().into_owned(),
-            ..request
-        };
+        let security = ContentSecurity::new();
+        let request = ls_query(serde_json::json!({"path": root.path().to_string_lossy().into_owned()}), Some(&request));
         let result =
             execute_local_search(&request, &policy, &security, &NeverCancel).expect("search");
         serde_json::to_value(&result).expect("serialize")
@@ -574,28 +512,10 @@ mod tests {
         let token = "ghp_1234567890abcdefghijklmnopqrstuvwxyzAB";
         let file = format!("token: {token} end\n");
         let cases = [
-            LocalSearchRequest {
-                search_text: "ghp_[0-9a-z]{20}".into(),
-                result_view: Some(ResultView::MatchOnly),
-                ..Default::default()
-            },
-            LocalSearchRequest {
-                search_text: "token".into(),
-                result_view: Some(ResultView::MatchOnly),
-                match_window: Some(20),
-                ..Default::default()
-            },
-            LocalSearchRequest {
-                search_text: "end".into(),
-                result_view: Some(ResultView::MatchOnly),
-                match_window: Some(30),
-                ..Default::default()
-            },
-            LocalSearchRequest {
-                search_text: "token".into(),
-                match_content_length: Some(30),
-                ..Default::default()
-            },
+            ls_query(serde_json::json!({"searchText": "ghp_[0-9a-z]{20}".to_string(), "resultView": ResultView::MatchOnly}), None),
+            ls_query(serde_json::json!({"searchText": "token".to_string(), "resultView": ResultView::MatchOnly, "matchWindow": 20}), None),
+            ls_query(serde_json::json!({"searchText": "end".to_string(), "resultView": ResultView::MatchOnly, "matchWindow": 30}), None),
+            ls_query(serde_json::json!({"searchText": "token".to_string(), "matchContentLength": 30}), None),
         ];
         for request in cases {
             let body = search_fixture(&[("sec.txt", &file)], request);
@@ -608,11 +528,7 @@ mod tests {
         // Clean lines in the same file keep their exact values.
         let body = search_fixture(
             &[("sec.txt", &format!("{file}plain needle line\n"))],
-            LocalSearchRequest {
-                search_text: "needle".into(),
-                result_view: Some(ResultView::MatchOnly),
-                ..Default::default()
-            },
+            ls_query(serde_json::json!({"searchText": "needle".to_string(), "resultView": ResultView::MatchOnly}), None),
         );
         assert_eq!(all_values(&body), "needle");
     }
@@ -622,12 +538,7 @@ mod tests {
         let file = "-----BEGIN RSA PRIVATE KEY-----\nMIIEpQIBAAKCAQEAinteriorKeyBodyQWERTYAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n-----END RSA PRIVATE KEY-----\n";
         let body = search_fixture(
             &[("key.rs", file)],
-            LocalSearchRequest {
-                search_text: "interior".into(),
-                result_view: Some(ResultView::MatchOnly),
-                match_window: Some(6),
-                ..Default::default()
-            },
+            ls_query(serde_json::json!({"searchText": "interior".to_string(), "resultView": ResultView::MatchOnly, "matchWindow": 6}), None),
         );
         assert!(!all_values(&body).contains("interior"), "{body}");
     }
@@ -642,15 +553,7 @@ mod tests {
         ];
         let body = search_fixture(
             &files,
-            LocalSearchRequest {
-                search_text: "foo".into(),
-                page_size: Some(2),
-                match_page: Some(3),
-                max_matches_per_file: Some(2),
-                context_lines: Some(0),
-                sort: Some(SortMode::Path),
-                ..Default::default()
-            },
+            ls_query(serde_json::json!({"searchText": "foo".to_string(), "pageSize": 2, "matchPage": 3, "maxMatchesPerFile": 2, "contextLines": 0, "sort": SortMode::Path}), None),
         );
         // Page 1 at matchPage 3: a.txt's 5th row is shown, nothing is left over.
         assert!(
@@ -661,28 +564,34 @@ mod tests {
         assert_eq!(body["next"]["nextPage"]["query"]["matchPage"], 1);
         let body = search_fixture(
             &files,
-            LocalSearchRequest {
-                search_text: "foo".into(),
-                page_size: Some(2),
-                page: Some(2),
-                max_matches_per_file: Some(2),
-                context_lines: Some(0),
-                sort: Some(SortMode::Path),
-                ..Default::default()
-            },
+            ls_query(serde_json::json!({"searchText": "foo".to_string(), "pageSize": 2, "page": 2, "maxMatchesPerFile": 2, "contextLines": 0, "sort": SortMode::Path}), None),
         );
         assert_eq!(body["next"]["nextMatchPage"]["query"]["matchPage"], 2);
+    }
+
+    #[test]
+    fn later_match_pages_omit_files_exhausted_on_earlier_pages() {
+        let many = "foo\n".repeat(5);
+        let files = [("a.txt", many.as_str()), ("b.txt", "foo\n")];
+        let request = |match_page| ls_query(serde_json::json!({"searchText": "foo".to_string(), "matchPage": match_page, "maxMatchesPerFile": 2, "contextLines": 0, "sort": SortMode::Path}), None);
+        let body = search_fixture(&files, request(2));
+        let paths: Vec<&str> = body["files"]
+            .as_array()
+            .expect("files")
+            .iter()
+            .filter_map(|file| file["path"].as_str())
+            .collect();
+        assert_eq!(paths, ["a.txt"], "{body}");
+        // Every file exhausted: keep the out-of-range diagnostic rows.
+        let body = search_fixture(&files, request(9));
+        assert_eq!(body["files"][0]["pagination"]["outOfRange"], true, "{body}");
     }
 
     #[test]
     fn list_views_have_no_match_rows_to_page() {
         let body = search_fixture(
             &[("a.txt", &"foo\n".repeat(15))],
-            LocalSearchRequest {
-                search_text: "foo".into(),
-                result_view: Some(ResultView::Files),
-                ..Default::default()
-            },
+            ls_query(serde_json::json!({"searchText": "foo".to_string(), "resultView": ResultView::Files}), None),
         );
         assert!(body.get("next").is_none(), "{}", body["next"]);
         assert_ne!(body["status"], "partial", "{body}");
@@ -692,10 +601,7 @@ mod tests {
     fn binary_files_do_not_mark_a_search_partial_or_terminal() {
         let body = search_fixture(
             &[("bin.dat", "foo\u{0}foo\n"), ("a.txt", "foo\n")],
-            LocalSearchRequest {
-                search_text: "foo".into(),
-                ..Default::default()
-            },
+            ls_query(serde_json::json!({"searchText": "foo".to_string()}), None),
         );
         assert!(body.get("terminalLimit").is_none(), "{body}");
         assert!(body.get("next").is_none_or(|next| next.is_null()), "{body}");
@@ -709,11 +615,7 @@ mod tests {
         let order = |reverse| {
             let body = search_fixture(
                 &files,
-                LocalSearchRequest {
-                    search_text: "foo".into(),
-                    reverse,
-                    ..Default::default()
-                },
+                ls_query(serde_json::json!({"searchText": "foo".to_string(), "reverse": reverse}), None),
             );
             body["files"]
                 .as_array()
@@ -738,11 +640,7 @@ mod tests {
         fixtures.extend(many.iter().map(|(p, c)| (p.as_str(), c.as_str())));
         let body = search_fixture(
             &fixtures,
-            LocalSearchRequest {
-                search_text: "needle".into(),
-                sort: Some(SortMode::Path),
-                ..Default::default()
-            },
+            ls_query(serde_json::json!({"searchText": "needle".to_string(), "sort": SortMode::Path}), None),
         );
         let files = body["files"].as_array().expect("files");
         assert_eq!(files.len(), 20, "{body}");
@@ -752,11 +650,7 @@ mod tests {
         assert_eq!(a["pagination"]["totalMatches"], 12);
         let detailed = search_fixture(
             &[("a.txt", &numbered(30, &[20]))],
-            LocalSearchRequest {
-                search_text: "needle".into(),
-                result_view: Some(ResultView::Detailed),
-                ..Default::default()
-            },
+            ls_query(serde_json::json!({"searchText": "needle".to_string(), "resultView": ResultView::Detailed}), None),
         );
         assert_eq!(
             detailed["files"][0]["matches"][0]["value"],
@@ -783,11 +677,7 @@ mod tests {
         let file = numbered(30, &[5, 7, 12, 25]);
         let body = search_fixture(
             &[("a.txt", &file)],
-            LocalSearchRequest {
-                search_text: "needle".into(),
-                context_lines: Some(2),
-                ..Default::default()
-            },
+            ls_query(serde_json::json!({"searchText": "needle".to_string(), "contextLines": 2}), None),
         );
         let matches = body["files"][0]["matches"].as_array().expect("matches");
         // 5 and 7 overlap (3..=9), 12 is adjacent (10..=14 follows 9), 25 is apart.
@@ -820,11 +710,7 @@ mod tests {
         let file = numbered(6, &[1, 2, 6]);
         let body = search_fixture(
             &[("a.txt", &file)],
-            LocalSearchRequest {
-                search_text: "needle".into(),
-                context_lines: Some(1),
-                ..Default::default()
-            },
+            ls_query(serde_json::json!({"searchText": "needle".to_string(), "contextLines": 1}), None),
         );
         let matches = body["files"][0]["matches"].as_array().expect("matches");
         assert_eq!(matches.len(), 2, "{body}");
@@ -834,11 +720,7 @@ mod tests {
         // matchOnly never merges: it carries spans, not windows.
         let body = search_fixture(
             &[("a.txt", &file)],
-            LocalSearchRequest {
-                search_text: "needle".into(),
-                result_view: Some(ResultView::MatchOnly),
-                ..Default::default()
-            },
+            ls_query(serde_json::json!({"searchText": "needle".to_string(), "resultView": ResultView::MatchOnly}), None),
         );
         let matches = body["files"][0]["matches"].as_array().expect("matches");
         assert_eq!(matches.len(), 3, "{body}");
@@ -852,11 +734,7 @@ mod tests {
         let file = format!("{long}\nneedle a\n{long}\nneedle b\n{long}\n");
         let body = search_fixture(
             &[("a.txt", &file)],
-            LocalSearchRequest {
-                search_text: "needle".into(),
-                match_content_length: Some(100),
-                ..Default::default()
-            },
+            ls_query(serde_json::json!({"searchText": "needle".to_string(), "matchContentLength": 100}), None),
         );
         let matches = body["files"][0]["matches"].as_array().expect("matches");
         assert_eq!(matches.len(), 2, "{body}");
@@ -870,12 +748,7 @@ mod tests {
     fn single_page_results_omit_redundant_accounting() {
         let body = search_fixture(
             &[("a.txt", "foo\n"), ("b.txt", &"foo\n".repeat(3))],
-            LocalSearchRequest {
-                search_text: "foo".into(),
-                max_matches_per_file: Some(2),
-                context_lines: Some(0),
-                ..Default::default()
-            },
+            ls_query(serde_json::json!({"searchText": "foo".to_string(), "maxMatchesPerFile": 2, "contextLines": 0}), None),
         );
         assert!(body.get("searchEngine").is_none(), "{body}");
         assert!(body.get("pagination").is_none(), "{body}");
@@ -895,11 +768,7 @@ mod tests {
         // Multi-page file results still carry file pagination.
         let body = search_fixture(
             &[("a.txt", "foo\n"), ("b.txt", "foo\n")],
-            LocalSearchRequest {
-                search_text: "foo".into(),
-                page_size: Some(1),
-                ..Default::default()
-            },
+            ls_query(serde_json::json!({"searchText": "foo".to_string(), "pageSize": 1}), None),
         );
         assert_eq!(body["pagination"]["totalPages"], 2, "{body}");
         assert!(body["pagination"]["snapshot"].is_string(), "{body}");
@@ -911,12 +780,7 @@ mod tests {
     #[test]
     fn continuations_carry_the_view_context_default() {
         let file = "foo\n".repeat(3);
-        let make = |view| LocalSearchRequest {
-            search_text: "foo".into(),
-            result_view: Some(view),
-            max_matches_per_file: Some(1),
-            ..Default::default()
-        };
+        let make = |view| ls_query(serde_json::json!({"searchText": "foo".to_string(), "resultView": view, "maxMatchesPerFile": 1}), None);
         let body = search_fixture(&[("a.txt", &file)], make(ResultView::MatchOnly));
         let next = &body["next"]["nextMatchPage"]["query"];
         assert!(next.get("contextLines").is_none(), "{next}");
@@ -928,20 +792,219 @@ mod tests {
             ..Default::default()
         })
         .expect("policy");
-        let security = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
-        let request = LocalSearchRequest {
-            path: root.path().to_string_lossy().into_owned(),
-            ..make(ResultView::Detailed)
-        };
+        let security = ContentSecurity::new();
+        let request = ls_query(serde_json::json!({"path": root.path().to_string_lossy().into_owned()}), Some(&make(ResultView::Detailed)));
         let first =
             execute_local_search(&request, &policy, &security, &NeverCancel).expect("first page");
         let body = serde_json::to_value(&first).expect("serialize");
         let next = body["next"]["nextMatchPage"]["query"].clone();
         assert_eq!(next["contextLines"], 3, "{next}");
-        let mut continued: LocalSearchRequest =
+        let mut continued: LocalSearchQuery =
             serde_json::from_value(next).expect("continuation parses");
         continued.path = request.path.clone();
         execute_local_search(&continued, &policy, &security, &NeverCancel)
             .expect("detailed continuation is not stale");
+    }
+
+    fn policy_for(root: &std::path::Path) -> (PathPolicy, ContentSecurity) {
+        let policy = PathPolicy::new(PathPolicyConfig {
+            workspace_root: Some(root.to_path_buf()),
+            ..Default::default()
+        })
+        .expect("policy");
+        (policy, ContentSecurity::new())
+    }
+
+    /// Make `dir` unreadable; returns false when the process can still read it
+    /// (e.g. running as root), so the caller skips.
+    #[cfg(unix)]
+    fn lock_dir(dir: &std::path::Path) -> bool {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(dir, fs::Permissions::from_mode(0o000)).expect("chmod 000");
+        if fs::read_dir(dir).is_ok() {
+            fs::set_permissions(dir, fs::Permissions::from_mode(0o755)).expect("restore");
+            return false;
+        }
+        true
+    }
+
+    #[cfg(unix)]
+    fn unlock_dir(dir: &std::path::Path) {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(dir, fs::Permissions::from_mode(0o755));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_scope_where_every_path_is_unreadable_is_an_access_error_not_empty() {
+        let root = tempfile::tempdir().expect("fixture directory");
+        let hidden = root.path().join("hidden");
+        fs::create_dir(&hidden).expect("dir");
+        fs::write(hidden.join("secret.txt"), "needle-only-here\n").expect("fixture");
+        if !lock_dir(&hidden) {
+            return;
+        }
+        let (policy, security) = policy_for(root.path());
+        let request = ls_query(serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "needle-only-here".to_string(), "regex": RegexMode::Literal, "noIgnore": true}), None);
+        let outcome = execute_local_search(&request, &policy, &security, &NeverCancel);
+        unlock_dir(&hidden);
+        let error = outcome.expect_err("every candidate failed");
+        assert_eq!(error.code, "fileAccessFailed");
+        assert!(
+            error.message.contains("Permission denied"),
+            "{}",
+            error.message
+        );
+        assert!(error.hints.iter().any(|h| h.contains("permissions")));
+        assert!(error.hints.iter().all(|h| !h.contains("caseMode")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unreadable_paths_beside_readable_misses_make_the_result_partial() {
+        let root = tempfile::tempdir().expect("fixture directory");
+        fs::write(root.path().join("open.txt"), "nothing here\n").expect("fixture");
+        let hidden = root.path().join("hidden");
+        fs::create_dir(&hidden).expect("dir");
+        fs::write(hidden.join("secret.txt"), "needle-only-here\n").expect("fixture");
+        if !lock_dir(&hidden) {
+            return;
+        }
+        let (policy, security) = policy_for(root.path());
+        let request = ls_query(serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "needle-only-here".to_string(), "regex": RegexMode::Literal, "noIgnore": true}), None);
+        let outcome = execute_local_search(&request, &policy, &security, &NeverCancel);
+        unlock_dir(&hidden);
+        let result = outcome.expect("readable file searched");
+        assert_eq!(result.status, SearchStatus::Partial);
+        let body = serde_json::to_value(&result).expect("serialize");
+        assert_eq!(body["isPartial"], true, "{body}");
+        assert_eq!(body["terminalLimit"], true, "{body}");
+        assert_eq!(body["stats"]["errorCount"], 1, "{body}");
+        let hint = body["hints"][0].as_str().expect("hint");
+        assert!(hint.contains("permissions"), "{hint}");
+        assert!(!hint.contains("caseMode"), "{hint}");
+    }
+
+    #[test]
+    fn a_nul_keeps_the_matches_before_it_and_warns() {
+        let root = tempfile::tempdir().expect("fixture directory");
+        fs::write(
+            root.path().join("mixed.txt"),
+            b"alpha before\0alpha after\nalpha before\n",
+        )
+        .expect("fixture");
+        let (policy, security) = policy_for(root.path());
+        let request = ls_query(serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "alpha".to_string(), "regex": RegexMode::Literal}), None);
+        let result =
+            execute_local_search(&request, &policy, &security, &NeverCancel).expect("search");
+        assert_ne!(result.status, SearchStatus::Empty);
+        let body = serde_json::to_value(&result).expect("serialize");
+        assert_eq!(body["files"][0]["matches"][0]["line"], 1, "{body}");
+        assert_eq!(body["stats"]["totalOccurrences"], 1, "{body}");
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|w| w.starts_with("binaryFileSkipped")),
+            "{body}"
+        );
+    }
+
+    #[test]
+    fn an_empty_result_with_a_binary_cut_is_partial_not_empty() {
+        let body = search_fixture(
+            &[("blob.dat", "header\u{0}needle after the nul\n")],
+            ls_query(serde_json::json!({"searchText": "needle".to_string()}), None),
+        );
+        assert_eq!(body["isPartial"], true, "{body}");
+        assert!(
+            body["hints"].as_array().is_some_and(|hints| hints
+                .iter()
+                .any(|h| h.as_str().is_some_and(|h| h.contains("NUL byte")))),
+            "{body}"
+        );
+    }
+
+    #[test]
+    fn relevance_ranks_a_hot_file_beyond_the_path_sorted_cap() {
+        let root = tempfile::tempdir().expect("fixture directory");
+        for i in 0..=10_000 {
+            fs::write(root.path().join(format!("a{i:05}.txt")), "hit\n").expect("fixture");
+        }
+        fs::write(root.path().join("zzz-hot.txt"), "hit\n".repeat(40)).expect("fixture");
+        let (policy, security) = policy_for(root.path());
+        let request = ls_query(serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "hit".to_string(), "regex": RegexMode::Literal}), None);
+        let result =
+            execute_local_search(&request, &policy, &security, &NeverCancel).expect("search");
+        assert_eq!(result.files[0].path, "zzz-hot.txt");
+        let stats = &result.stats;
+        assert_eq!(stats.files_searched, 10_002);
+        assert_eq!(stats.files_matched, 10_002);
+        assert_eq!(stats.total_occurrences, 10_001 + 40);
+        assert!(
+            stats
+                .cap_reason
+                .as_deref()
+                .is_some_and(|r| r.contains("maxCollectedFiles")),
+            "{stats:?}"
+        );
+    }
+
+    #[test]
+    fn cancellation_during_the_walk_reports_cancelled() {
+        use crate::tools::local_fetch::CancellationCheck;
+        use std::sync::atomic::{AtomicU32, Ordering};
+        struct CancelAfter(AtomicU32, u32);
+        impl CancellationCheck for CancelAfter {
+            fn check(&self) -> Result<(), String> {
+                if self.0.fetch_add(1, Ordering::SeqCst) >= self.1 {
+                    Err("cancelled".into())
+                } else {
+                    Ok(())
+                }
+            }
+        }
+        let root = tempfile::tempdir().expect("fixture directory");
+        for i in 0..40 {
+            fs::write(root.path().join(format!("f{i:02}.txt")), "needle\n").expect("fixture");
+        }
+        let (policy, security) = policy_for(root.path());
+        let request = ls_query(serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "needle".to_string()}), None);
+        // The first check (before the walk) passes; the walk's polls cancel.
+        let cancel = CancelAfter(AtomicU32::new(0), 3);
+        let error = execute_local_search(&request, &policy, &security, &cancel)
+            .expect_err("cancelled mid-walk");
+        assert_eq!(error.code, "cancelled");
+        assert!(
+            cancel.0.load(Ordering::SeqCst) < 40,
+            "walk polled every file"
+        );
+    }
+
+    #[test]
+    fn clipped_secret_guard_fails_closed_when_the_source_cannot_be_reread() {
+        let security = ContentSecurity::new();
+        let mut file = octocode_engine::types::RipgrepFile {
+            path: "gone.txt".into(),
+            match_count: 1,
+            matches: vec![octocode_engine::types::RipgrepMatch {
+                line: 1,
+                column: 0,
+                value: "…token = ghp_abcdefghijklmnop".into(),
+                count: None,
+                kind: None,
+                score_hint: None,
+                original_chars: Some(400),
+            }],
+        };
+        let missing = tempfile::tempdir()
+            .expect("fixture directory")
+            .path()
+            .join("gone.txt");
+        let verified =
+            executor::guard_clipped_secrets(&mut file, &missing, 0..10, &security, false);
+        assert!(!verified);
+        assert!(!file.matches[0].value.contains("ghp_"));
+        assert!(file.matches[0].value.contains("REDACTED"));
     }
 }

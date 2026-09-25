@@ -19,7 +19,7 @@ Owner for the **cross-skill playbook** (chrome `SKILL.md` only points here). Liv
 5. **Measure** — `performance`/`network`/`storage-measure-check` with `MEASURE_EXISTING=1`.
 6. **Query** — `measure-query --dir|--latest`; HAR → `har-pager`; then deep HAR only if needed.
 7. **Process** — `har-ingest.mjs --session-dir <session> --from-cdp-dir <run>` (chrome alias `har-ingest-to-scrape`).
-8. **Triage** — before opening many saved bodies, call `octocode clasify` directly: screen each non-empty part as an unread `localFetch` resource per the SKILL.md SCREEN step. Retain partial, insufficient, relevant, or errored pages; if clasify is unavailable, fall back to `corpus-find.mjs`.
+8. **Triage** — use metadata and exact checks first; when many unread bodies remain ambiguous, screen them per `clasify-screen.md`.
 9. **Prove** — read deciding spans or run `corpus-run.mjs --roots cdp,extracts --regex …` (alias `corpus-run-local`). No re-browser for the same body; a semantic answer is not proof.
 
 Zero actionability rows → chrome `actionability-diagnostics`. Emit paths/counts — never cookies/tokens.

@@ -48,6 +48,13 @@ pub(crate) fn analyze(
         }
     };
     warnings.extend(extra_warnings);
+    // The resolved root list is page-invariant: emit it with the first result
+    // page only; later pages keep `entrypointsResolvedCount`.
+    if q.page > 1
+        && let Some(obj) = summary.as_object_mut()
+    {
+        obj.remove("entrypointsResolved");
+    }
     // Import-resolution health drives whether an edge-derived answer can be
     // trusted. Compute it before shaping the summary/confidence so an incomplete
     // import graph never presents as a confident zero (e.g. `cycleCount:0` when
@@ -87,6 +94,10 @@ pub(crate) fn analyze(
     if low {
         base.insert("confidence".into(), json!("low"));
     }
+    // `reasons` names real scope cuts (result limit, file-scan bound, skipped
+    // files). Coverage gaps — parse recovery, unresolved or unsupported
+    // imports — are not truncation: every page is still reachable, so they
+    // surface only as `completeness.coverageGapReasons` plus `confidence`.
     let mut reasons = Vec::<String>::new();
     if limit_truncated {
         reasons.push("limit".into());
@@ -98,39 +109,20 @@ pub(crate) fn analyze(
     if b.files_skipped > 0 {
         reasons.push("filesSkipped".into());
     }
-    if has_parse {
-        reasons.push("parseRecovery".into())
-    }
-    if has_unresolved {
-        reasons.push("unresolvedImports".into())
-    }
-    if has_unsupported {
-        reasons.push("unsupportedLinking".into())
-    }
-    reasons.sort_by_key(|x| {
-        [
-            "limit",
-            "maxFiles",
-            "filesSkipped",
-            "parseRecovery",
-            "unresolvedImports",
-            "unsupportedLinking",
-            "diagnosticPage",
-        ]
-        .iter()
-        .position(|y| y == x)
-        .unwrap_or(99)
-    });
-    reasons.dedup();
-    let diagnostics_changed = add_coverage(&mut base, &mut b, q, &mut reasons);
+    let gaps = [
+        (has_parse, "parseRecovery"),
+        (has_unresolved, "unresolvedImports"),
+        (has_unsupported, "unsupportedLinking"),
+    ]
+    .into_iter()
+    .filter_map(|(present, reason)| present.then_some(reason))
+    .collect::<Vec<_>>();
+    let diagnostics_changed = add_coverage(&mut base, &mut b, q);
     if !reasons.is_empty() {
         base.insert("truncated".into(), json!(true));
         base.insert("partialReasons".into(), json!(reasons));
     }
     let terminal = b.files_skipped > 0
-        || has_parse
-        || has_unsupported
-        || (has_unresolved && !b.truncated)
         || q.max_files.is_some_and(|x| x >= 50_000) && b.truncated
         || q.limit.is_some_and(|x| x >= 5_000) && limit_truncated;
     if terminal {
@@ -166,15 +158,6 @@ pub(crate) fn analyze(
     } else {
         "complete"
     };
-    let gaps = reasons
-        .iter()
-        .filter_map(|x| match x.as_str() {
-            "parseRecovery" => Some("parseRecovery"),
-            "unresolvedImports" => Some("unresolvedImports"),
-            "unsupportedLinking" => Some("unsupportedLinking"),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
     let graph_state = if reasons
         .iter()
         .any(|x| matches!(x.as_str(), "maxFiles" | "filesSkipped"))
@@ -211,7 +194,7 @@ fn traversal(
     if !b.nodes.contains_key(&file) {
         return Err(AstGraphError::new(
             "invalidGraphQuery",
-            format!("file is not in the scanned graph: {file}"),
+            missing_file_message(&file, &b.nodes),
         ));
     }
     let graph = if q.analysis == GraphAnalysis::Dependencies {
@@ -280,8 +263,18 @@ fn path_analysis(
             "file and target must both be in the scanned graph",
         ));
     }
+    let mut found = shortest_path(&b.nodes, &file, &target);
+    if let Some(edges) = found["edges"].as_array_mut() {
+        for edge in edges {
+            if let (Some(from), Some(to)) = (edge["from"].as_str(), edge["to"].as_str())
+                && let Some(line) = first_import_line(b, from, to)
+            {
+                edge["importLine"] = json!(line);
+            }
+        }
+    }
     Ok((
-        vec![shortest_path(&b.nodes, &file, &target)],
+        vec![found],
         json!({"source":file,"target":target}),
         vec![],
         false,
@@ -314,8 +307,7 @@ fn cycles(b: &BuiltGraph) -> (Vec<Value>, Value, Vec<String>, bool) {
             .unwrap_or_default()
             .into_iter()
             .collect::<Vec<_>>();
-        let outgoing_count = outgoing.len();
-        items.push(json!({"files":files,"size":files.len(),"edgeKinds":kinds,"runtimeCycle":runtime_count>0,"runtimeCycles":contained,"runtimeCycleCount":runtime_count,"cycleEdges":cycle_witness(&b.nodes,&members),"runtimeCycleEdges":cycle_witness(&runtime,&members),"componentId":id,"topologicalLayer":layers.get(&id),"outgoingComponents":outgoing,"outgoingComponentCount":outgoing_count,"confidence":"syntactic"}));
+        items.push(json!({"files":files,"edgeKinds":kinds,"runtimeCycle":runtime_count>0,"runtimeCycles":contained,"runtimeCycleCount":runtime_count,"cycleEdges":cycle_witness(&b.nodes,&members),"runtimeCycleEdges":cycle_witness(&runtime,&members),"componentId":id,"topologicalLayer":layers.get(&id),"outgoingComponents":outgoing,"confidence":"syntactic"}));
     }
     let rc = items.iter().filter(|x| x["runtimeCycle"] == true).count();
     let ce = c.edges.values().map(BTreeSet::len).sum::<usize>();
@@ -333,7 +325,7 @@ fn reachability(
     if low && roots.is_empty() {
         return (
             vec![],
-            json!({"entrypointsResolved":roots,"entrypointsResolvedCount":0,"classifiedCount":0,"unclassifiedCount":b.nodes.len()}),
+            json!({"entrypointsResolvedCount":0,"classifiedCount":0,"unclassifiedCount":b.nodes.len()}),
             warnings,
             true,
         );
@@ -365,7 +357,7 @@ fn dead_code(
         warnings.push("dead-code verdict suppressed: no entrypoints resolved, so reachability cannot be computed and no export can be proven dead. Pass `entrypoints` explicitly to enable the analysis.".into());
         return (
             vec![],
-            json!({"entrypointsResolved":roots,"entrypointsResolvedCount":0,"deadClusters":[],"deadClusterCount":0,"deadExportCount":0,"suppressed":true}),
+            json!({"entrypointsResolvedCount":0,"deadClusters":[],"deadClusterCount":0,"deadExportCount":0,"suppressed":true}),
             warnings,
             true,
         );
@@ -427,28 +419,43 @@ fn dead_code(
         for f in &report {
             cluster_by.insert(f.clone(), id);
         }
-        clusters.push(json!({"id":id,"files":report,"reason":"mutually-referencing cluster with no path from any entrypoint — each file looks locally referenced by the others, but the cluster as a whole is unreachable","size":report.len(),"edgeKinds":collect_kinds(&b.nodes,&report),"confidence":"syntactic"}));
+        clusters.push(json!({"id":id,"files":report,"reason":"mutually-referencing cluster with no path from any entrypoint — each file looks locally referenced by the others, but the cluster as a whole is unreachable","edgeKinds":collect_kinds(&b.nodes,&report),"confidence":"syntactic"}));
     }
     let mut rows = Vec::new();
     for (file, ff) in &b.facts {
         if !q.include_tests.unwrap_or(true) && crate::content::is_test_path(file) {
             continue;
         }
-        let live_names = live_names(file, ff, &public, &real, &rex, &star);
+        let live_ids = live_declarations(file, ff, &public, &real, &rex, &star);
         for d in ff.declarations.iter().filter(|d| d.exported) {
-            if !live.contains(file) {
+            let mut row = if !live.contains(file) {
                 if let Some(id) = cluster_by.get(file) {
-                    rows.push(json!({"file":file,"name":d.name,"kind":d.kind,"line":d.line,"reason":"dead-cluster","clusterId":id}));
+                    json!({"file":file,"name":d.name,"kind":d.kind,"line":d.line,"reason":"dead-cluster","clusterId":id})
                 } else {
-                    rows.push(json!({"file":file,"name":d.name,"kind":d.kind,"line":d.line,"reason":"unreachable-file"}));
+                    json!({"file":file,"name":d.name,"kind":d.kind,"line":d.line,"reason":"unreachable-file"})
                 }
             } else if !rootset.contains(file)
                 && !star_targets.contains(file)
                 && !b.namespace_targets.contains(file)
-                && !live_names.contains(&d.name)
+                && !live_ids.contains(&d.id)
             {
-                rows.push(json!({"file":file,"name":d.name,"kind":d.kind,"line":d.line,"reason":"unreferenced-export","viaHeuristic":if rex.contains_key(&binding(file,&d.name)){"reexport-chain"}else{"lexical-count"}}));
+                let via = if d
+                    .public_names()
+                    .iter()
+                    .any(|n| rex.contains_key(&binding(file, n)))
+                {
+                    "reexport-chain"
+                } else {
+                    ff.reference_basis
+                };
+                json!({"file":file,"name":d.name,"kind":d.kind,"line":d.line,"reason":"unreferenced-export","viaHeuristic":via})
+            } else {
+                continue;
+            };
+            if !d.exported_as.is_empty() {
+                row["exportedAs"] = json!(d.exported_as);
             }
+            rows.push(row);
         }
     }
     let count = rows.len();
@@ -464,7 +471,14 @@ fn dead_code(
 fn binding(f: &str, n: &str) -> String {
     format!("{f}::{n}")
 }
-fn live_names(
+/// Declaration ids of `file` that are live: reachable over syntactic call and
+/// containment edges from the file's roots. Roots are exported declarations
+/// consumed through an import or re-export chain, declarations that escape as
+/// a value (syntax-aware references other than the declaration, export clauses
+/// and call targets), and callees of module-level code. Identity is the
+/// declaration id, so two declarations with one display name (`run` and a
+/// `Calls.run` method) keep separate liveness.
+fn live_declarations(
     file: &str,
     ff: &FileFacts,
     public: &BTreeSet<String>,
@@ -491,65 +505,87 @@ fn live_names(
                 return true;
             }
             pending.extend(rex.get(&k).cloned().unwrap_or_default());
-            pending.extend(
-                star.get(&f)
-                    .into_iter()
-                    .flatten()
-                    .map(|x| (x.clone(), n.clone())),
-            )
+            // `export *` never re-exports `default`.
+            if n != "default" {
+                pending.extend(
+                    star.get(&f)
+                        .into_iter()
+                        .flatten()
+                        .map(|x| (x.clone(), n.clone())),
+                )
+            }
         }
         false
     }
-    let exported = ff
-        .declarations
-        .iter()
-        .filter(|d| d.exported)
-        .map(|d| d.name.clone())
-        .collect::<BTreeSet<_>>();
-    let mut live = exported
-        .iter()
-        .filter(|n| consumed(file, n, public, real, rex, star))
-        .cloned()
-        .collect::<BTreeSet<_>>();
-    let mut calls: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    let mut exported_counts: BTreeMap<String, u32> = BTreeMap::new();
-    for c in &ff.calls {
-        calls
-            .entry(c.caller.clone())
-            .or_default()
-            .push(c.callee.clone());
-        if exported.contains(&c.caller) {
-            *exported_counts.entry(c.callee.clone()).or_default() += 1
+    /// Last path segment of a callee (`this.run` → `run`, `Self::new` → `new`).
+    fn callee_name(callee: &str) -> &str {
+        callee
+            .rsplit(['.', ':'])
+            .next()
+            .filter(|n| !n.is_empty())
+            .unwrap_or(callee)
+    }
+    let mut by_name: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    let mut children: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    for d in &ff.declarations {
+        by_name.entry(&d.name).or_default().push(&d.id);
+        if let Some(parent) = &d.parent {
+            children.entry(parent).or_default().push(&d.id);
         }
     }
-    let mut pending = live.iter().cloned().collect::<VecDeque<_>>();
-    for (c, targets) in &calls {
-        if !exported.contains(c) {
-            for t in targets {
-                if exported.contains(t) && live.insert(t.clone()) {
-                    pending.push_back(t.clone())
+    let ids = ff
+        .declarations
+        .iter()
+        .map(|d| d.id.as_str())
+        .collect::<BTreeSet<_>>();
+    let mut edges: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    let mut live = BTreeSet::new();
+    let mut pending = VecDeque::new();
+    fn mark(id: &str, live: &mut BTreeSet<String>, pending: &mut VecDeque<String>) {
+        if live.insert(id.to_owned()) {
+            pending.push_back(id.to_owned());
+        }
+    }
+    for c in &ff.calls {
+        let targets = by_name
+            .get(callee_name(&c.callee))
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        match c.caller_id.as_deref().filter(|id| ids.contains(id)) {
+            Some(caller) => edges.entry(caller).or_default().extend(targets),
+            // Module-level code runs when the (live) module loads.
+            None => {
+                for t in targets {
+                    mark(t, &mut live, &mut pending)
                 }
             }
         }
     }
-    for n in &exported {
-        if ff
+    for d in &ff.declarations {
+        let is_consumed = d.exported
+            && d.public_names()
+                .iter()
+                .any(|n| consumed(file, n, public, real, rex, star));
+        // Counts exclude the declaration, export clauses and call targets, so
+        // any remaining reference is a value escape. A missing count means the
+        // producer could not count this declaration: treat it as escaping
+        // rather than risk a false dead verdict.
+        let escapes = ff
             .reference_counts
-            .get(n)
-            .copied()
-            .unwrap_or(0)
-            .saturating_sub(exported_counts.get(n).copied().unwrap_or(0))
-            > 1
-            && live.insert(n.clone())
-        {
-            pending.push_back(n.clone())
+            .get(&d.id)
+            .is_none_or(|count| *count > 0);
+        if is_consumed || escapes {
+            mark(&d.id, &mut live, &mut pending)
         }
     }
-    while let Some(c) = pending.pop_front() {
-        for t in calls.get(&c).into_iter().flatten() {
-            if t != &c && exported.contains(t) && live.insert(t.clone()) {
-                pending.push_back(t.clone())
-            }
+    while let Some(id) = pending.pop_front() {
+        for t in edges
+            .get(id.as_str())
+            .into_iter()
+            .flatten()
+            .chain(children.get(id.as_str()).into_iter().flatten())
+        {
+            mark(t, &mut live, &mut pending)
         }
     }
     live
@@ -974,12 +1010,7 @@ fn paginate(items: Vec<Value>, q: &AstGraphQuery) -> (Vec<Value>, Value, bool, u
     )
 }
 
-fn add_coverage(
-    base: &mut Map<String, Value>,
-    b: &mut BuiltGraph,
-    q: &AstGraphQuery,
-    reasons: &mut Vec<String>,
-) -> bool {
+fn add_coverage(base: &mut Map<String, Value>, b: &mut BuiltGraph, q: &AstGraphQuery) -> bool {
     b.diagnostics.sort();
     b.diagnostics.dedup();
     let tuples = b
@@ -995,21 +1026,26 @@ fn add_coverage(
         *counts.entry(d.code.clone()).or_default() += 1
     }
     let languages=b.languages.iter().map(|(language,files,linking)|json!({"language":language,"files":files,"linking":linking})).collect::<Vec<_>>();
+    let mut imports = json!({"resolved":b.imports[0],"external":b.imports[1],"unresolvedInternal":b.imports[2],"unsupported":b.imports[3]});
+    if b.imports[4] > 0 {
+        imports["nonCode"] = json!(b.imports[4]);
+    }
+    let mut coverage = json!({"basis":"syntactic","referenceBasis":"lexical-occurrence","languages":languages,"imports":imports});
+    if !counts.is_empty() {
+        coverage["diagnosticCounts"] = json!(counts);
+    }
     if q.diagnostic_snapshot.as_ref().is_some_and(|x| x != &id) {
         base.insert("status".into(), json!("error"));
         base.insert("errorCode".into(), json!("graphDiagnosticsChanged"));
         base.insert("error".into(), json!("Graph diagnostics changed between pages. Restart before combining diagnostic pages."));
         base.insert("results".into(), json!([]));
-        base.insert("coverage".into(),json!({"basis":"syntactic","referenceBasis":"lexical-occurrence","languages":languages,"imports":{"resolved":b.imports[0],"external":b.imports[1],"unresolvedInternal":b.imports[2],"unsupported":b.imports[3]},"diagnostics":[],"diagnosticCounts":counts}));
+        base.insert("coverage".into(), coverage);
         return true;
     }
     let size = q.diagnostic_page_size.unwrap_or(25).clamp(1, 100) as usize;
     let pages = usize::max(1, b.diagnostics.len().div_ceil(size));
     let current = (q.diagnostic_page.max(1) as usize).min(pages);
     let more = current < pages;
-    if more {
-        reasons.push("diagnosticPage".into())
-    }
     let ds = b
         .diagnostics
         .iter()
@@ -1030,7 +1066,15 @@ fn add_coverage(
             }
         }
     }
-    base.insert("coverage".into(),json!({"basis":"syntactic","referenceBasis":"lexical-occurrence","languages":languages,"imports":{"resolved":b.imports[0],"external":b.imports[1],"unresolvedInternal":b.imports[2],"unsupported":b.imports[3]},"diagnostics":ds,"diagnosticCounts":counts,"diagnosticsPagination":diagnostics_pagination}));
+    if !ds.is_empty() {
+        coverage["diagnostics"] = json!(ds);
+    }
+    // One diagnostic page needs no pagination envelope; emit it only when a
+    // continuation or an out-of-range correction depends on it.
+    if pages > 1 || diagnostics_pagination["outOfRange"] == true {
+        coverage["diagnosticsPagination"] = diagnostics_pagination;
+    }
+    base.insert("coverage".into(), coverage);
     false
 }
 fn add_next(
@@ -1149,6 +1193,23 @@ fn continuation(q: &AstGraphQuery, page: Option<u32>, max: Option<u32>, why: &st
     }
     json!({"tool":"astTopology","query":v,"why":why,"confidence":"exact"})
 }
+/// `file` resolves relative to the scanned `path`; name that rule and, when a
+/// scanned file shares the requested suffix, the spelling that would match.
+fn missing_file_message(file: &str, nodes: &BTreeMap<String, Node>) -> String {
+    let mut message = format!(
+        "file is not in the scanned graph: {file}. `file` is relative to `path` \
+         (or absolute under it), and must be a scanned source file"
+    );
+    let suffix = format!("/{file}");
+    if let Some(candidate) = nodes
+        .keys()
+        .find(|key| key.ends_with(&suffix) || file.ends_with(&format!("/{key}")))
+    {
+        message.push_str(&format!("; did you mean `{candidate}`?"));
+    }
+    message
+}
+
 fn graph_file(f: &str, root: &Path) -> String {
     let p = Path::new(f);
     if p.is_absolute() {
@@ -1403,5 +1464,16 @@ mod tests {
         assert_eq!(actual["right.ts"].as_deref(), Some("entry.ts"));
         assert_eq!(actual["shared.ts"].as_deref(), Some("entry.ts"));
         assert_eq!(actual["deep.ts"].as_deref(), Some("shared.ts"));
+    }
+
+    #[test]
+    fn missing_file_names_the_path_relative_rule_and_a_suffix_match() {
+        let graph = BTreeMap::from([("src/index.ts".into(), node(&[]))]);
+        let message = missing_file_message("index.ts", &graph);
+        assert!(message.contains("relative to `path`"), "{message}");
+        assert!(message.contains("did you mean `src/index.ts`"), "{message}");
+        let message = missing_file_message("pkg/src/index.ts", &graph);
+        assert!(message.contains("did you mean `src/index.ts`"), "{message}");
+        assert!(!missing_file_message("other.ts", &graph).contains("did you mean"));
     }
 }

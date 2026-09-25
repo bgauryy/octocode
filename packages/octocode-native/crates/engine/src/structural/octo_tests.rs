@@ -31,6 +31,18 @@ fn ast_audit_rule_rejects_unknown_kinds_at_every_level() {
     assert!(run_rule("const x = 1;", "ts", "kind: function_declaration").is_empty());
 }
 
+#[test]
+fn rule_kind_rejects_supertypes_and_error_prefixes() {
+    // Supertypes (`expression`) and ERROR prefixes name no concrete node, so a
+    // rule using them would silently match nothing; they must fail compile.
+    for kind in ["expression", "ERR", "E", "'('"] {
+        let error = CompiledRule::new(&lang("ts"), &format!("kind: {kind}"))
+            .err()
+            .unwrap_or_else(|| panic!("kind {kind} must be rejected"));
+        assert!(error.contains("unknown node kind"), "{error}");
+    }
+}
+
 #[cfg(feature = "tree-sitter-cpp")]
 #[test]
 fn ast_audit_cpp_multi_capture_body_matches_statements() {
@@ -117,20 +129,6 @@ fn shared_pattern_context_accepts_bare_calls_in_c_family_rust_and_go() {
             "{ext}"
         );
     }
-}
-
-#[test]
-fn point_column_uses_utf16_code_units_not_code_points() {
-    // "🌍" is one Unicode scalar value but TWO UTF-16 code units (surrogate
-    // pair) and FOUR UTF-8 bytes. Columns must agree with the resolver /
-    // signatures layers, which count UTF-16 code units.
-    let content = "const 🌍x = 1;";
-    let index = LineIndex::new(content);
-    // "const " = 6 bytes, "🌍" = 4 bytes → byte column of `x` is 10.
-    // UTF-16: 6 (ascii) + 2 (emoji) = 8.
-    assert_eq!(index.point_column_to_char_column(0, 10), 8);
-    // Pure-ASCII prefix is unchanged (byte == utf-16).
-    assert_eq!(index.point_column_to_char_column(0, 6), 6);
 }
 
 fn run_pattern(src: &str, ext: &str, pattern: &str) -> Vec<StructuralMatch> {
@@ -568,4 +566,144 @@ fn rust_raw_identifier_borrow_parses_without_recovery_and_matches() {
     let matches = run_pattern(source, "rs", "inspect($X)");
     assert_eq!(matches.len(), 1);
     assert_eq!(matches[0].metavars["X"], vec!["&raw"]);
+}
+
+#[test]
+fn capture_env_rollback_restores_inserts_and_replacements() {
+    let mut env = CaptureEnv::default();
+    assert!(env.capture_one("A", "a", (0, 0, 0, 1)));
+    env.capture_replace(SECONDARY_CAPTURE, "first".to_owned(), (0, 0, 0, 5));
+    let checkpoint = env.checkpoint();
+    assert!(env.capture_one("B", "b", (1, 0, 1, 1)));
+    assert!(env.capture_many("C", ["c1", "c2"].into_iter(), || vec![(2, 0, 2, 1); 2]));
+    env.capture_replace(SECONDARY_CAPTURE, "second".to_owned(), (3, 0, 3, 6));
+    // A backreference check that fails binds nothing.
+    assert!(!env.capture_one("A", "other", (4, 0, 4, 5)));
+    assert_eq!(env.undo_len(), 5);
+    env.rollback(checkpoint);
+    assert_eq!(env.undo_len(), 2);
+    assert!(env.capture_one("A", "a", (0, 0, 0, 1)), "A kept");
+    let (values, ranges) = env.into_maps();
+    assert_eq!(values.keys().collect::<Vec<_>>(), ["A"]);
+    assert_eq!(ranges["A"], vec![(0, 0, 0, 1)]);
+}
+
+#[test]
+fn failed_rule_branches_leave_no_bindings_behind() {
+    // The first `any` alternative binds X before failing on `bar`; its binding
+    // must be rolled back, not leak into the match from the second one.
+    let matches = run_rule(
+        "foo(a, b);\n",
+        "ts",
+        "any:\n  - pattern: foo($X, bar)\n  - pattern: foo($Y, $Z)",
+    );
+    assert_eq!(matches.len(), 1);
+    let mut names = matches[0].metavars.keys().cloned().collect::<Vec<_>>();
+    names.sort();
+    assert_eq!(names, ["Y", "Z"]);
+
+    // `not` never contributes bindings, and a failed `all` member rolls back
+    // everything its siblings bound for that candidate.
+    let matches = run_rule(
+        "foo(a, b);\n",
+        "ts",
+        "all:\n  - pattern: foo($X, $W)\n  - not: {pattern: 'foo($Q, c)'}",
+    );
+    assert_eq!(matches.len(), 1);
+    assert!(!matches[0].metavars.contains_key("Q"));
+    assert!(
+        run_rule(
+            "foo(a, b);\n",
+            "ts",
+            "all:\n  - pattern: foo($X, $W)\n  - pattern: foo($W, $X)",
+        )
+        .is_empty(),
+        "backreferences across all members still apply"
+    );
+
+    // A `$$$` split that binds then fails downstream is retried cleanly.
+    let matches = run_pattern("f(a, b, c);\n", "ts", "f($$$ARGS, $LAST)");
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].metavars["ARGS"], ["a", ",", "b"]);
+    assert_eq!(matches[0].metavars["LAST"], ["c"]);
+}
+
+#[test]
+fn jsx_tag_pattern_matches_elements_only_in_jsx_grammars() {
+    let source = "const view = <div className=\"x\"><Item id={1} /></div>;\n";
+    for ext in ["tsx", "jsx", "js"] {
+        let matches = run_pattern(source, ext, "<$T>");
+        let tags = matches
+            .iter()
+            .map(|m| m.metavars["T"][0].as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(tags, ["div", "Item"], "{ext}");
+        assert_eq!(matches[0].text, "<div className=\"x\">", "{ext}");
+        assert_eq!(matches[1].text, "<Item id={1} />", "{ext}");
+    }
+    // Rules share the same special matcher and backreference semantics.
+    assert_eq!(run_rule(source, "tsx", "pattern: <$T>").len(), 2);
+
+    // Grammars without JSX compile `<$T>` as an ordinary pattern: it never
+    // takes the tag path (and so never matches JSX-looking text).
+    for ext in ["ts", "py", "rs"] {
+        if let Ok(matcher) = compile_matcher(
+            &lang(ext),
+            &StructuralQuery::new(Some("<$T>"), None).expect("query"),
+        ) {
+            assert!(
+                matcher("let x = 1;\n")
+                    .map(|m| m.is_empty())
+                    .unwrap_or(true),
+                "{ext}"
+            );
+        }
+    }
+}
+
+#[test]
+fn key_value_pattern_is_gated_on_grammars_with_pairs() {
+    let matches = run_pattern("const o = { a: 1, b: two };\n", "ts", "$K: $V");
+    assert_eq!(matches.len(), 2);
+    assert_eq!(matches[1].metavars["K"], ["b"]);
+    assert_eq!(matches[1].metavars["V"], ["two"]);
+    let py = run_pattern("d = {'a': 1}\n", "py", "$K: $V");
+    assert_eq!(py.len(), 1);
+    assert_eq!(py[0].metavars["K"], ["'a'"]);
+}
+
+#[test]
+fn inside_stop_by_end_is_linear_in_depth_on_deep_nesting() {
+    // `inside` + `stopBy: end` must not call `Node::parent()` per ancestor,
+    // which re-searches from the root each call (O(depth²) per candidate).
+    // 2,000 nested blocks must finish well inside the deadline with every match.
+    let depth = 2_000;
+    let mut src = String::from("function f() {\n");
+    for level in 0..depth {
+        src.push_str(&format!("{{ id{level};\n"));
+    }
+    src.push_str(&"}".repeat(depth));
+    src.push_str("\n}\n");
+    let rule =
+        "rule:\n  kind: identifier\n  inside:\n    kind: function_declaration\n    stopBy: end\n";
+    let started = Instant::now();
+    let matches = run_rule(&src, "ts", rule);
+    let elapsed = started.elapsed();
+    // `f` itself plus one identifier per nesting level.
+    assert_eq!(matches.len(), depth + 1);
+    assert!(
+        elapsed < std::time::Duration::from_millis(1_500),
+        "deep inside took {elapsed:?}"
+    );
+}
+
+#[test]
+fn inside_nested_under_has_resolves_ancestors_without_a_cursor_path() {
+    // A `has` sub-rule evaluates descendants without a cursor path, so its own
+    // `inside` recomputes the ancestor chain from the document root.
+    let src = "function outer() { if (x) { call(a); } }\nfunction other() { call(b); }\n";
+    let rule = "rule:\n  kind: function_declaration\n  has:\n    kind: call_expression\n    stopBy: end\n    inside:\n      kind: if_statement\n      stopBy: end\n";
+    let matches = run_rule(src, "ts", rule);
+    assert_eq!(matches.len(), 1);
+    assert!(matches[0].text.starts_with("function outer"));
 }

@@ -76,10 +76,10 @@ mod tests {
             ))
         }
     }
-    fn q(path: &Path) -> LocalFetchRequest {
-        LocalFetchRequest {
-            path: path.to_string_lossy().into(),
-            ..Default::default()
+    fn q(path: &Path) -> LocalFetchQuery {
+        LocalFetchQuery {
+            path: path.to_string_lossy().parse().expect("path"),
+            ..LocalFetchQuery::test_default()
         }
     }
     #[test]
@@ -90,7 +90,7 @@ mod tests {
         let paths = Paths(t.0.clone());
         let mut req = q(&p);
         req.chunk_type = Some(ChunkType::Lines);
-        req.chunk_size = Some(1);
+        req.chunk_size = wire_positive(1);
         let mut joined = String::new();
         loop {
             let r = execute_local_fetch(&req, &paths, &Safe, &NeverCancel);
@@ -115,7 +115,7 @@ mod tests {
             .expect("test fixture operation should succeed");
         let paths = Paths(t.0.clone());
         let mut req = q(&p);
-        req.match_string = Some("^version.*\"$".into());
+        req.match_string = Some("^version.*\"$".parse().expect("match string"));
         req.match_string_is_regex = Some(true);
         req.context_lines = Some(0);
         let wire = serde_json::to_value(execute_local_fetch(&req, &paths, &Safe, &NeverCancel))
@@ -130,7 +130,7 @@ mod tests {
             .expect("test fixture operation should succeed");
         let paths = Paths(t.0.clone());
         let mut req = q(&p);
-        req.match_string = Some("needle".into());
+        req.match_string = Some("needle".parse().expect("match string"));
         req.context_lines = Some(1);
         let wire = serde_json::to_value(execute_local_fetch(&req, &paths, &Safe, &NeverCancel))
             .expect("serializable");
@@ -158,7 +158,7 @@ mod tests {
         }
 
         let mut paged = q(&p);
-        paged.chunk_size = Some(2);
+        paged.chunk_size = wire_positive(2);
         let wire = serde_json::to_value(execute_local_fetch(&paged, &paths, &Safe, &NeverCancel))
             .expect("serializable");
         assert_eq!(
@@ -199,7 +199,7 @@ mod tests {
         .expect("test fixture operation should succeed");
         let paths = Paths(t.0.clone());
         let mut req = q(&p);
-        req.match_string = Some("hit".into());
+        req.match_string = Some("hit".parse().expect("match string"));
         req.context_lines = Some(1);
         let wire = serde_json::to_value(execute_local_fetch(&req, &paths, &Safe, &NeverCancel))
             .expect("serializable");
@@ -226,7 +226,7 @@ mod tests {
         .expect("test fixture operation should succeed");
         let paths = Paths(t.0.clone());
         let mut req = q(&p);
-        req.match_string = Some("hit".into());
+        req.match_string = Some("hit".parse().expect("match string"));
         req.context_lines = Some(1);
         let wire = serde_json::to_value(execute_local_fetch(&req, &paths, &Safe, &NeverCancel))
             .expect("serializable");
@@ -249,7 +249,7 @@ mod tests {
         .expect("test fixture operation should succeed");
         let paths = Paths(t.0.clone());
         let mut req = q(&p);
-        req.match_string = Some("hit".into());
+        req.match_string = Some("hit".parse().expect("match string"));
         req.context_lines = Some(0);
         let r = execute_local_fetch(&req, &paths, &Safe, &NeverCancel);
         assert_eq!(
@@ -271,10 +271,10 @@ mod tests {
         .expect("test fixture operation should succeed");
         let paths = Paths(t.0.clone());
         let mut req = q(&p);
-        req.match_string = Some("hit".into());
+        req.match_string = Some("hit".parse().expect("match string"));
         req.context_lines = Some(1);
         req.chunk_type = Some(ChunkType::Lines);
-        req.chunk_size = Some(4);
+        req.chunk_size = wire_positive(4);
         let first = execute_local_fetch(&req, &paths, &Safe, &NeverCancel);
         assert_eq!(
             first.content.as_deref(),
@@ -304,7 +304,7 @@ mod tests {
         fs::write(&p, source).expect("test fixture operation should succeed");
         let paths = Paths(t.0.clone());
         let mut req = q(&p);
-        req.match_string = Some("needle".into());
+        req.match_string = Some("needle".parse().expect("match string"));
         req.context_bytes = Some(4);
         let r = execute_local_fetch(&req, &paths, &Safe, &NeverCancel);
         let content = r.content.expect("content");
@@ -324,7 +324,7 @@ mod tests {
         let paths = Paths(t.0.clone());
         let mut req = q(&p);
         req.chunk_type = Some(ChunkType::Bytes);
-        req.chunk_size = Some(2);
+        req.chunk_size = wire_positive(2);
         let a = execute_local_fetch(&req, &paths, &Safe, &NeverCancel);
         assert_eq!(a.content.as_deref(), Some("a😀"));
         req = a
@@ -345,7 +345,7 @@ mod tests {
             .expect("test fixture operation should succeed");
         let paths = Paths(t.0.clone());
         let mut req = q(&p);
-        req.match_string = Some("needle".into());
+        req.match_string = Some("needle".parse().expect("match string"));
         req.context_lines = Some(0);
         let r = execute_local_fetch(&req, &paths, &Safe, &NeverCancel);
         let expected_hash = hex::encode(sha2::Sha256::digest(b"zero\nneedle SECRET\nlast\n"));
@@ -391,14 +391,14 @@ mod tests {
     #[test]
     fn schema_rejects_unknown_fields_and_invalid_combinations() {
         assert!(
-            serde_json::from_value::<LocalFetchRequest>(
+            serde_json::from_value::<LocalFetchQuery>(
                 serde_json::json!({"path":"x","madeUp":true})
             )
             .is_err()
         );
         let mut req = q(Path::new("x"));
         req.full_content = Some(true);
-        req.match_string = Some("x".into());
+        req.match_string = Some("x".parse().expect("match string"));
         assert!(validate_request(&req).is_err())
     }
 
@@ -431,7 +431,7 @@ mod tests {
         fs::write(&view_limited, "x".repeat(60_000)).expect("view fixture should be written");
         let mut compact = q(&view_limited);
         compact.full_content = Some(true);
-        compact.minify = Some(MinifyMode::Standard);
+        compact.minify = Some(Minify::Standard);
         let result = execute_local_fetch(&compact, &paths, &Safe, &NeverCancel);
         assert_eq!(result.error_code.as_deref(), Some("fullContentLimit"));
         assert_eq!(
@@ -504,7 +504,7 @@ mod tests {
         let p = t.0.join("regex.txt");
         fs::write(&p, "needle one\nneedle two\n").expect("regex fixture should be written");
         let mut request = q(&p);
-        request.match_string = Some("(?<=needle )one".into());
+        request.match_string = Some("(?<=needle )one".parse().expect("match string"));
         request.match_string_is_regex = Some(true);
         request.context_lines = Some(0);
         let engine = std::sync::Arc::new(crate::regex::IsolatedRegexEngine::new(

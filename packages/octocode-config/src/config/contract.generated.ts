@@ -18,11 +18,7 @@ export interface LocalConfigOptions {
   /** ENABLE_LOCAL is canonical; OCTOCODE_ENABLE_LOCAL is an alias. */
   enabled?: boolean;
 
-  /** Legacy clone setting retained for config compatibility; CLI cloning requires persistent storage and MCP cloning is unavailable. */
-  /** This setting no longer gates ghCloneRepo. ENABLE_CLONE is canonical over OCTOCODE_ENABLE_CLONE. */
-  enableClone?: boolean;
-
-  /** Enable beta features. Currently the sole gate for the astRewrite tool (both preview and apply); off by default on every surface. */
+  /** Enable beta features. Gates the astRewrite (preview and apply) and astTopology tools; off by default on every surface. */
   beta?: boolean;
 
   /** Extra absolute or home-relative roots added to the allowed home directory. */
@@ -59,7 +55,7 @@ export interface LspConfigOptions {
 }
 
 export interface OutputConfigOptions {
-  /** Rendered response format. */
+  /** Encoding of rendered text content (the MCP text channel): yaml or json. Structured content and CLI stdout are always JSON. */
   format?: OutputFormat;
 
   /** Mask email addresses such as GitHub commit authors. */
@@ -76,6 +72,17 @@ export interface OutputPaginationConfigOptions {
 export interface StorageConfigOptions {
   /** Whether caches and runtime state may persist on disk. */
   mode?: StorageMode;
+}
+
+export interface CloneCacheConfigOptions {
+  /** Milliseconds a ghCloneRepo checkout stays fresh before it is re-fetched. */
+  ttl?: number;
+
+  /** Byte cap for the on-disk ghCloneRepo cache; least-recently-used checkouts are evicted above it. */
+  maxSize?: number;
+
+  /** Maximum repositories the ghCloneRepo cache keeps. */
+  maxClones?: number;
 }
 
 export interface ExtensionConfigOptions {
@@ -123,6 +130,8 @@ export interface OctocodeConfig {
 
   storage?: StorageConfigOptions;
 
+  cloneCache?: CloneCacheConfigOptions;
+
   extension?: ExtensionConfigOptions;
 
   classification?: ClassificationConfigOptions;
@@ -135,7 +144,6 @@ export interface RequiredGitHubConfig {
 
 export interface RequiredLocalConfig {
   enabled: boolean;
-  enableClone: boolean;
   beta: boolean;
   allowedPaths: string[];
   workspaceRoot: string | undefined;
@@ -170,6 +178,12 @@ export interface RequiredStorageConfig {
   mode: StorageMode;
 }
 
+export interface RequiredCloneCacheConfig {
+  ttl: number;
+  maxSize: number;
+  maxClones: number;
+}
+
 export interface RequiredExtensionConfig {
   storage: RequiredExtensionStorageConfig;
 }
@@ -196,6 +210,7 @@ export interface ResolvedConfigData {
   lsp: RequiredLspConfig;
   output: RequiredOutputConfig;
   storage: RequiredStorageConfig;
+  cloneCache: RequiredCloneCacheConfig;
   extension: RequiredExtensionConfig;
   classification: RequiredClassificationConfig;
   session: RequiredSessionConfig;
@@ -302,28 +317,6 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "defaultValue": true
   },
   {
-    "path": "local.enableClone",
-    "section": "local",
-    "key": "enableClone",
-    "type": "boolean",
-    "file": true,
-    "resolved": true,
-    "credential": false,
-    "description": "Legacy clone setting retained for config compatibility; CLI cloning requires persistent storage and MCP cloning is unavailable.",
-    "notes": "This setting no longer gates ghCloneRepo. ENABLE_CLONE is canonical over OCTOCODE_ENABLE_CLONE.",
-    "env": [
-      {
-        "name": "ENABLE_CLONE",
-        "priority": 0
-      },
-      {
-        "name": "OCTOCODE_ENABLE_CLONE",
-        "priority": 1
-      }
-    ],
-    "defaultValue": false
-  },
-  {
     "path": "local.beta",
     "section": "local",
     "key": "beta",
@@ -331,7 +324,7 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "file": true,
     "resolved": true,
     "credential": false,
-    "description": "Enable beta features. Currently the sole gate for the astRewrite tool (both preview and apply); off by default on every surface.",
+    "description": "Enable beta features. Gates the astRewrite (preview and apply) and astTopology tools; off by default on every surface.",
     "env": [
       {
         "name": "OCTOCODE_BETA",
@@ -494,7 +487,7 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "file": true,
     "resolved": true,
     "credential": false,
-    "description": "Rendered response format.",
+    "description": "Encoding of rendered text content (the MCP text channel): yaml or json. Structured content and CLI stdout are always JSON.",
     "env": [
       {
         "name": "OCTOCODE_OUTPUT_FORMAT",
@@ -568,6 +561,63 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
       "memory"
     ],
     "enumStyle": "quotedOr"
+  },
+  {
+    "path": "cloneCache.ttl",
+    "section": "cloneCache",
+    "key": "ttl",
+    "type": "number",
+    "file": true,
+    "resolved": true,
+    "credential": false,
+    "description": "Milliseconds a ghCloneRepo checkout stays fresh before it is re-fetched.",
+    "env": [
+      {
+        "name": "OCTOCODE_CACHE_TTL_MS",
+        "priority": 0
+      }
+    ],
+    "defaultValue": 86400000,
+    "minimum": 60000,
+    "maximum": 2592000000
+  },
+  {
+    "path": "cloneCache.maxSize",
+    "section": "cloneCache",
+    "key": "maxSize",
+    "type": "number",
+    "file": true,
+    "resolved": true,
+    "credential": false,
+    "description": "Byte cap for the on-disk ghCloneRepo cache; least-recently-used checkouts are evicted above it.",
+    "env": [
+      {
+        "name": "OCTOCODE_MAX_CACHE_SIZE",
+        "priority": 0
+      }
+    ],
+    "defaultValue": 2147483648,
+    "minimum": 1048576,
+    "maximum": 1099511627776
+  },
+  {
+    "path": "cloneCache.maxClones",
+    "section": "cloneCache",
+    "key": "maxClones",
+    "type": "number",
+    "file": true,
+    "resolved": true,
+    "credential": false,
+    "description": "Maximum repositories the ghCloneRepo cache keeps.",
+    "env": [
+      {
+        "name": "OCTOCODE_MAX_CLONES",
+        "priority": 0
+      }
+    ],
+    "defaultValue": 50,
+    "minimum": 1,
+    "maximum": 1000
   },
   {
     "path": "extension.storage.mode",
@@ -711,13 +761,12 @@ export const ENV_TOKEN_VARS = ["OCTOCODE_TOKEN","GH_TOKEN","GITHUB_TOKEN","GITHU
 export type EnvTokenVar = (typeof ENV_TOKEN_VARS)[number];
 export const PROTECTED_KEY_NAMES = ["PATH","HOME","SHELL","USER","LOGNAME","PWD","TMPDIR","NODE_OPTIONS","PYTHON","GH_HOST","OCTOCODE_TOKEN","GH_TOKEN","GITHUB_TOKEN","GITHUB_PERSONAL_ACCESS_TOKEN","OCTOCODE_HOME","GITHUB_API_URL","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_CLASSIFICATION_TYPE","OCTOCODE_CLASSIFICATION_API","OCTOCODE_JEV_KEY","OCTOCODE_CLASSIFICATION_API_HOST"] as const;
 export const HOME_TRUSTED_ENV_KEYS = ["OCTOCODE_CLASSIFICATION_TYPE","OCTOCODE_CLASSIFICATION_API","OCTOCODE_JEV_KEY","OCTOCODE_CLASSIFICATION_API_HOST"] as const;
-export const CONFIG_SOURCE_ENV_KEYS = ["OCTOCODE_GITHUB_CLIENT_ID","GITHUB_API_URL","OCTOCODE_GITHUB_GRAPHQL","ENABLE_LOCAL","OCTOCODE_ENABLE_LOCAL","ENABLE_CLONE","OCTOCODE_ENABLE_CLONE","OCTOCODE_BETA","ALLOWED_PATHS","WORKSPACE_ROOT","TOOLS_TO_RUN","DISABLE_TOOLS","REQUEST_TIMEOUT","MAX_RETRIES","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_LSP_CONFIG","OCTOCODE_OUTPUT_FORMAT","OCTOCODE_REDACT_EMAILS","OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH","OCTOCODE_STORAGE_MODE","OCTOCODE_EXTENSION_STORAGE_MODE","OCTOCODE_CLASSIFICATION_TYPE","OCTOCODE_CLASSIFICATION_API","OCTOCODE_JEV_KEY","OCTOCODE_CLASSIFICATION_API_HOST","OCTOCODE_CLASSIFICATION_CONCURRENCY","OCTOCODE_ENABLE_STATS"] as const;
+export const CONFIG_SOURCE_ENV_KEYS = ["OCTOCODE_GITHUB_CLIENT_ID","GITHUB_API_URL","OCTOCODE_GITHUB_GRAPHQL","ENABLE_LOCAL","OCTOCODE_ENABLE_LOCAL","OCTOCODE_BETA","ALLOWED_PATHS","WORKSPACE_ROOT","TOOLS_TO_RUN","DISABLE_TOOLS","REQUEST_TIMEOUT","MAX_RETRIES","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_LSP_CONFIG","OCTOCODE_OUTPUT_FORMAT","OCTOCODE_REDACT_EMAILS","OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH","OCTOCODE_STORAGE_MODE","OCTOCODE_CACHE_TTL_MS","OCTOCODE_MAX_CACHE_SIZE","OCTOCODE_MAX_CLONES","OCTOCODE_EXTENSION_STORAGE_MODE","OCTOCODE_CLASSIFICATION_TYPE","OCTOCODE_CLASSIFICATION_API","OCTOCODE_JEV_KEY","OCTOCODE_CLASSIFICATION_API_HOST","OCTOCODE_CLASSIFICATION_CONCURRENCY","OCTOCODE_ENABLE_STATS"] as const;
 export type ConfigSourceEnvKey = (typeof CONFIG_SOURCE_ENV_KEYS)[number];
-export const DEFAULT_CONFIG_VALUE: ResolvedConfigData = { "session": { "enableStats": false }, "classification": { "maxConcurrency": 10, "type": "jev" }, "storage": { "mode": "persistent" }, "output": { "pagination": { "defaultCharLength": 50000 }, "redactEmails": false, "format": "yaml" }, "lsp": { "configPath": undefined }, "network": { "allowPrivateRegistry": false, "maxRetries": 3, "timeout": 30000 }, "tools": { "disabled": null, "enabled": null }, "local": { "workspaceRoot": undefined, "allowedPaths": [], "beta": false, "enableClone": false, "enabled": true }, "github": { "graphqlEnabled": true, "apiUrl": "https://api.github.com" }, "version": 1, "extension": { "storage": { "mode": "persistent" } } };
+export const DEFAULT_CONFIG_VALUE: ResolvedConfigData = { "session": { "enableStats": false }, "classification": { "maxConcurrency": 10, "type": "jev" }, "cloneCache": { "maxClones": 50, "maxSize": 2147483648, "ttl": 86400000 }, "storage": { "mode": "persistent" }, "output": { "pagination": { "defaultCharLength": 50000 }, "redactEmails": false, "format": "yaml" }, "lsp": { "configPath": undefined }, "network": { "allowPrivateRegistry": false, "maxRetries": 3, "timeout": 30000 }, "tools": { "disabled": null, "enabled": null }, "local": { "workspaceRoot": undefined, "allowedPaths": [], "beta": false, "enabled": true }, "github": { "graphqlEnabled": true, "apiUrl": "https://api.github.com" }, "version": 1, "extension": { "storage": { "mode": "persistent" } } };
 export const DEFAULT_GITHUB_API_URL = "https://api.github.com" as const;
 export const DEFAULT_GITHUB_GRAPHQL_ENABLED = true as const;
 export const DEFAULT_LOCAL_ENABLED = true as const;
-export const DEFAULT_LOCAL_ENABLE_CLONE = false as const;
 export const DEFAULT_LOCAL_BETA = false as const;
 export const DEFAULT_LOCAL_ALLOWED_PATHS = [] as const;
 export const DEFAULT_LOCAL_WORKSPACE_ROOT = null;
@@ -739,6 +788,15 @@ export const MIN_OUTPUT_DEFAULT_CHAR_LENGTH = 1000;
 export const MAX_OUTPUT_DEFAULT_CHAR_LENGTH = 50000;
 export const DEFAULT_STORAGE_MODE = "persistent" as const;
 export const STORAGE_MODES = ["persistent","memory"] as const;
+export const DEFAULT_CLONE_CACHE_TTL = 86400000 as const;
+export const MIN_CLONE_CACHE_TTL = 60000;
+export const MAX_CLONE_CACHE_TTL = 2592000000;
+export const DEFAULT_CLONE_CACHE_MAX_SIZE = 2147483648 as const;
+export const MIN_CLONE_CACHE_MAX_SIZE = 1048576;
+export const MAX_CLONE_CACHE_MAX_SIZE = 1099511627776;
+export const DEFAULT_CLONE_CACHE_MAX_CLONES = 50 as const;
+export const MIN_CLONE_CACHE_MAX_CLONES = 1;
+export const MAX_CLONE_CACHE_MAX_CLONES = 1000;
 export const DEFAULT_CLASSIFICATION_TYPE = "jev" as const;
 export const CLASSIFICATION_VENDORS = ["jev"] as const;
 export const DEFAULT_CLASSIFICATION_MAX_CONCURRENCY = 10 as const;

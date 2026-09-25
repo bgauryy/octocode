@@ -26,8 +26,7 @@ pub fn byte_slice_content(content: String, byte_start: u32, byte_end: u32) -> St
 }
 
 /// Paginate `content` by char offset + length, with optional line-boundary
-/// snapping. Replaces both the char-mode conversion block in `applyPagination`
-/// and the `sliceByCharRespectLines` helper.
+/// snapping.
 #[napi(js_name = "sliceContent")]
 pub fn slice_content(
     content: String,
@@ -45,9 +44,6 @@ pub fn slice_content(
 
 /// Search `content` line-by-line for `pattern` (literal or regex), returning
 /// matched lines with context windows and omission markers.
-///
-/// Replaces `extractMatchingLines` (contentExtractor.ts) which performed 2–3
-/// full `forEach` scans with per-line `toLowerCase` + `RegExp.test`.
 #[napi(js_name = "extractMatchingLines")]
 pub fn extract_matching_lines(
     content: String,
@@ -59,11 +55,7 @@ pub fn extract_matching_lines(
     )?)
 }
 
-/// Filter and optionally trim a unified diff patch.
-///
-/// Replaces `filterPatch` + `trimDiffContext` from `utils/parsers/diff.ts` which
-/// called `patch.split('\n')` independently in both functions. This combines
-/// both operations in a single pass.
+/// Filter and optionally trim a unified diff patch in a single pass.
 #[napi(js_name = "filterPatch")]
 pub fn filter_patch(patch: String, options: Option<FilterPatchOptions>) -> String {
     crate::portable::filter_patch(&patch, options)

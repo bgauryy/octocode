@@ -4,7 +4,7 @@ use crate::contracts::{self, PrepareOptions};
 use crate::policy::path::{PathPolicy, PathPolicyConfig};
 use crate::regex::{IsolatedRegexEngine, IsolatedRegexLimits};
 use crate::response::{PreparedResponse, ResponsePageOptions, TextContent};
-use crate::security::{ContentSecurity, SecurityRegistry};
+use crate::security::ContentSecurity;
 use crate::tools::id::{ToolFamily, ToolId};
 use crate::tools::local_fetch::{CancellationCheck, LocalFetchRegex};
 
@@ -255,9 +255,7 @@ impl ToolRuntime {
             home_dir: Some(input.os_home.clone()),
         })
         .map_err(|error| RuntimeError::new("policy", error.message))?;
-        let mut registry = SecurityRegistry::default();
-        registry.freeze();
-        let security = ContentSecurity::new(Arc::new(registry));
+        let security = ContentSecurity::new();
         let requests = RequestRuntime::new(RuntimeLimits::default())
             .map_err(|e| RuntimeError::new("runtime", format!("{e:?}")))?;
         let github_cache = super::github_cache::GitHubContentCache::new(
@@ -303,7 +301,7 @@ impl ToolRuntime {
     }
 
     /// Scope digest partitioned by tool family so that toggling local-only
-    /// config (e.g. `enable_clone`) does not invalidate GitHub/remote cursors.
+    /// config (e.g. `allowed_paths`) does not invalidate GitHub/remote cursors.
     fn cursor_scope_for(&self, tool: &str) -> Result<String, RuntimeError> {
         let home = self.inspect_config().home;
         let os_home = &self.input.os_home;
@@ -725,6 +723,8 @@ impl ToolRuntime {
         let stats_enabled = config::is_stats_enabled(&self.config.resolved);
         let redact_emails = self.config.resolved.output.redact_emails;
         let auto_page_chars = self.config.resolved.output.pagination.default_char_length as usize;
+        let text_format =
+            super::render::TextFormat::from_config(&self.config.resolved.output.format);
         let output_tool = tool.clone();
         let cursor_scope = scope;
         let outcome = self
@@ -878,6 +878,16 @@ impl ToolRuntime {
                         }
                     }
                 }
+                if tool != "clasify" {
+                    super::continuations::filter_unavailable_cross_tool_next(
+                        &mut structured,
+                        &tool,
+                        |target| {
+                            (!mcp || target != "ghCloneRepo")
+                                && dispatcher.available_tools.contains(&target)
+                        },
+                    );
+                }
                 super::response_stage::finish(
                     super::response_stage::StageInput {
                         tool,
@@ -887,6 +897,7 @@ impl ToolRuntime {
                         mcp,
                         failure,
                         auto_page_chars,
+                        text_format,
                         // Model-scored rerank output is nondeterministic: a page
                         // replay would re-score and never match the snapshot.
                         allow_auto_paging: !super::semantic_rerank::has_requests(
@@ -950,6 +961,7 @@ mod output_recovery_tests {
             "ghCloneRepo",
             &structured,
             &json!({"owner":"a","repo":"b"}),
+            super::super::render::TextFormat::Yaml,
         );
         mcp_result(ToolOutcome {
             structured_content: structured,

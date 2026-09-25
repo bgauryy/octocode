@@ -1,5 +1,4 @@
-//! Native port of `@octocodeai/octocode-skill-installer` (RFC
-//! post-audit-hardening-2026-09, S7).
+//! Native port of `@octocodeai/octocode-skill-installer`.
 //!
 //! Behavior parity with the TS implementation is enforced by
 //! `parity_tests`, which replays the golden fixtures under
@@ -8,7 +7,7 @@
 //! place until this suite is green in CI and the CLI delegates here.
 //!
 //! Windows note: destinations use `symlink_dir`; junction fallback is part
-//! of the deferred Windows workstream (RFC unresolved question S12).
+//! of the deferred Windows workstream.
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -17,9 +16,6 @@ use std::path::{Component, Path, PathBuf};
 
 #[cfg(test)]
 mod parity_tests;
-
-pub const SKILL_NAME_PATTERN_HELP: &str =
-    "letters, digits, '.', '_', '-'; must not start with a separator";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

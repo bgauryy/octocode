@@ -1,0 +1,4 @@
+#!/bin/sh
+# Host must insert stdout into agent context. Empty stdout means no new messages.
+set -eu
+exec "$(dirname "$0")/agents-communication" hook "$@"

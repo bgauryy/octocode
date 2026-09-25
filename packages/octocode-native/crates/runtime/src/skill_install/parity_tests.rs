@@ -2,8 +2,7 @@
 //! (`packages/octocode-skill-installer/tests/parity.golden.test.ts`).
 //! Every fixture is materialized into a temp root, run through the native
 //! installer, normalized identically, and compared field-for-field against
-//! the recorded result and filesystem tree. Green here is the R6 gate that
-//! authorizes retiring the TS implementation.
+//! the recorded result and filesystem tree.
 
 use super::{InstallBundledSkillsOptions, install_bundled_skills};
 use serde_json::{Value, json};

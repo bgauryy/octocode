@@ -124,7 +124,7 @@ pub async fn execute(
             // which serialize to JSON `null` and fail the canonical
             // continuation contract (its exact-lookup branch expects strings).
             // Drop null fields so the query matches the keyword+cursor branch,
-            // mirroring gh_search's `remove_nulls` before building `nextPage`.
+            // mirroring gh_search's `remove_null_fields` before building `nextPage`.
             if let Some(object) = next_query.as_object_mut() {
                 object.retain(|_, value| !value.is_null());
             }

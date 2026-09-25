@@ -381,15 +381,11 @@ mod tests {
     fn octocode_prefixed_enable_aliases_resolve_and_canonical_wins() {
         let aliased = resolve_sections(
             None,
-            &BTreeMap::from([
-                ("OCTOCODE_ENABLE_LOCAL".into(), "false".into()),
-                ("OCTOCODE_ENABLE_CLONE".into(), "true".into()),
-            ]),
+            &BTreeMap::from([("OCTOCODE_ENABLE_LOCAL".into(), "false".into())]),
         );
         assert!(aliased.is_ok());
         let aliased = aliased.unwrap_or_default();
         assert!(!aliased.local.enabled);
-        assert!(aliased.local.enable_clone);
         let both = resolve_sections(
             None,
             &BTreeMap::from([
@@ -403,7 +399,7 @@ mod tests {
             "canonical spelling wins over the alias"
         );
         // Aliases count as env sources for source labeling.
-        let env = BTreeMap::from([("OCTOCODE_ENABLE_CLONE".into(), "true".into())]);
+        let env = BTreeMap::from([("OCTOCODE_ENABLE_LOCAL".into(), "true".into())]);
         assert_eq!(resolve_config(&input(env, None)).source, ConfigSource::Env);
     }
     #[test]
