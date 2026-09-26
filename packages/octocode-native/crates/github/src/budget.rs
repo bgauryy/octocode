@@ -354,6 +354,12 @@ pub(crate) struct Admission {
     _permits: Vec<OwnedSemaphorePermit>,
 }
 
+/// Keeps the host's OAuth throttling permits until the request finishes.
+#[must_use]
+pub struct AuthAdmission {
+    _admission: Admission,
+}
+
 pub(crate) struct KeyState {
     key: LimiterKey,
     global: Arc<Semaphore>,
@@ -855,6 +861,53 @@ impl GitHubBudget {
         &self.config
     }
 
+    /// Admit an OAuth attempt under the anonymous host key shared with API traffic.
+    /// The returned guard holds the auth and global permits until dropped.
+    pub async fn admit_auth(
+        &self,
+        origin: &Url,
+        cap: Duration,
+        deadline: Instant,
+        cancellation: &CancellationToken,
+    ) -> Result<AuthAdmission, ProviderError> {
+        let state = self.key_state(&LimiterKey::for_url(origin, None), None);
+        state
+            .wait_unblocked("auth", &self.config, cap, deadline, cancellation)
+            .await?;
+        let admission = state
+            .admit(
+                Some(Group::Auth),
+                &self.config,
+                false,
+                cap,
+                deadline,
+                cancellation,
+            )
+            .await?;
+        count_call();
+        Ok(AuthAdmission {
+            _admission: admission,
+        })
+    }
+
+    /// Admit a clone subprocess under the shared host/token cooldown and circuit.
+    /// The optional directory uses the same persisted rate-limit state as HTTP.
+    pub fn acquire_git_blocking(
+        &self,
+        key: &LimiterKey,
+        state_dir: Option<&Path>,
+        cap: Duration,
+        deadline: Instant,
+        is_cancelled: &dyn Fn() -> bool,
+    ) -> Result<OwnedSemaphorePermit, ProviderError> {
+        self.key_state(key, state_dir).acquire_git_blocking(
+            &self.config,
+            cap,
+            deadline,
+            is_cancelled,
+        )
+    }
+
     /// State for `key`; attaches (and loads) the on-disk mirror when a
     /// state directory is supplied.
     pub(crate) fn key_state(&self, key: &LimiterKey, state_dir: Option<&Path>) -> Arc<KeyState> {
@@ -1144,18 +1197,83 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn oauth_admission_holds_permits_and_honors_cancellation_and_shared_cooldown() {
+        let budget = GitHubBudget::with_config(ExecutorConfig {
+            global_concurrency: 1,
+            ..ExecutorConfig::relaxed()
+        });
+        let origin = Url::parse("https://api.github.com").expect("origin");
+        let cap = Duration::from_secs(1);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let cancellation = CancellationToken::new();
+        let permit = budget
+            .admit_auth(&origin, cap, deadline, &cancellation)
+            .await
+            .expect("first admission");
+        let cancelled = CancellationToken::new();
+        cancelled.cancel();
+        let error = budget
+            .admit_auth(&origin, cap, deadline, &cancelled)
+            .await
+            .err()
+            .expect("cancelled while waiting for a permit");
+        assert_eq!(error.kind, ProviderErrorKind::Cancelled);
+        let error = budget
+            .admit_auth(
+                &origin,
+                cap,
+                Instant::now() + Duration::from_millis(20),
+                &cancellation,
+            )
+            .await
+            .err()
+            .expect("permit stays held");
+        assert_eq!(error.kind, ProviderErrorKind::Timeout);
+        drop(permit);
+        drop(
+            budget
+                .admit_auth(&origin, cap, deadline, &cancellation)
+                .await
+                .expect("permit released"),
+        );
+        budget
+            .key_state(&LimiterKey::new("github.com", None), None)
+            .cool_down(now_ms() + 60_000);
+        let error = budget
+            .admit_auth(&origin, cap, deadline, &cancellation)
+            .await
+            .err()
+            .expect("shared anonymous cooldown");
+        assert_eq!(error.kind, ProviderErrorKind::RateLimited);
+    }
+
     #[test]
     fn git_gate_fails_fast_on_long_cooldown() {
         let budget = GitHubBudget::relaxed();
-        let state = budget.key_state(&LimiterKey::new("github.com", None), None);
+        let dir = tempfile::tempdir().expect("state directory");
+        let key = LimiterKey::new("github.com", None);
+        let state = budget.key_state(&key, Some(dir.path()));
         let deadline = Instant::now() + Duration::from_secs(5);
-        let permit = state
-            .acquire_git_blocking(budget.config(), Duration::from_secs(1), deadline, &|| false)
+        let permit = budget
+            .acquire_git_blocking(
+                &key,
+                Some(dir.path()),
+                Duration::from_secs(1),
+                deadline,
+                &|| false,
+            )
             .expect("free git slot");
         drop(permit);
         state.cool_down(now_ms() + 60_000);
-        let error = state
-            .acquire_git_blocking(budget.config(), Duration::from_secs(1), deadline, &|| false)
+        let error = GitHubBudget::relaxed()
+            .acquire_git_blocking(
+                &key,
+                Some(dir.path()),
+                Duration::from_secs(1),
+                deadline,
+                &|| false,
+            )
             .expect_err("cooldown");
         assert_eq!(error.kind, ProviderErrorKind::RateLimited);
     }

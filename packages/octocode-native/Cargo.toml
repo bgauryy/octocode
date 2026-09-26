@@ -1,20 +1,11 @@
 [workspace]
-members = ["crates/engine", "crates/runtime"]
-default-members = ["crates/runtime"]
+members = ["crates/engine", "crates/github", "crates/runtime", "crates/cli", "crates/runtime-napi"]
+default-members = ["crates/cli"]
 resolver = "2"
 
-# ── Shared package metadata ───────────────────────────────────────────────────
-# Inherited by each crate via `edition.workspace = true`, etc. Centralizing here
-# guarantees the two crates never drift on edition or MSRV — a real hazard when
-# they compile against one shared N-API ABI.
-#
-# `version` is intentionally NOT centralized here: the release tooling
-# (scripts/sync-versions.cjs and scripts/check-version-consistency.cjs) reads and
-# rewrites a literal `version = "…"` line in each crate manifest and cross-checks
-# it against the npm release line. Moving the version into `[workspace.package]`
-# is a valid follow-up but requires teaching those two scripts about the root
-# manifest first.
+# Shared metadata keeps internal crates on the native npm release version.
 [workspace.package]
+version = "20.0.0"
 edition = "2024"
 # MSRV floor: highest stable API in use is File::try_lock/unlock (Rust 1.89).
 # Enforced in CI by `clippy::incompatible_msrv` (in `clippy::all`, denied, run
@@ -24,9 +15,9 @@ license = "MIT"
 repository = "https://github.com/bgauryy/octocode.git"
 
 # ── Shared dependency versions ────────────────────────────────────────────────
-# Only dependencies used by BOTH crates, or that are ABI/security-critical, are
+# Dependencies shared across crates, or that are ABI/security-critical, are
 # centralized. The napi / napi-derive / napi-build trio is the important one:
-# both crates compile against one N-API ABI, so a version skew between them would
+# both addon crates compile against one N-API ABI, so a version skew between them would
 # be a silent breakage. Crate-local single-consumer deps stay in their own
 # manifest — a single-use version has no second place to drift to.
 #

@@ -36,22 +36,31 @@ Removed direct dependencies: `ast-grep-language`, `grep`, `lightningcss`, `cross
 | Dependency | Owned job | Decision |
 |---|---|---|
 | `serde`, `serde_json`, `serde_yaml_ng`, `toml` | Contracts, configuration, provider payloads, and rendered output | Keep |
-| `regex`, `regress` | Linear native patterns and isolated ECMAScript-compatible regex execution | Keep |
+| `regex` | Linear native patterns and regex protocol validation | Keep |
 | `url` | Provider endpoint and URI validation | Keep |
-| `clap` | Native CLI parsing and help | Keep |
 | `base64`, `sha2`, `hex` | Provider encoding, hashes, snapshots, and integrity receipts | Keep |
-| `flate2`, `zip` | Managed LSP archive extraction | Keep |
 | `reqwest`, `bytes`, `futures-util` | Bounded HTTP providers and streaming responses | Keep |
 | `secrecy`, `keyring-core` | Credential secrecy and platform-store abstraction (`secrecy` supplies zeroization transitively) | Keep |
 | `octocode-engine` | Internal search, syntax, security, graph, minification, and LSP algorithms | Keep with explicit feature set; runtime policy remains separate |
 | `tokio`, `tokio-util` | Runtime lifecycle, cancellation, signals, and asynchronous tools | Keep |
-| `napi`, `napi-derive` | Runtime addon ABI | Keep, optional under `napi-addon` |
-| `napi-build` (build) | N-API build setup when the addon feature is enabled | Keep, optional |
 | `libc` (Unix) | Process-group and low-level lifecycle controls | Keep, target-specific |
 | `apple-native-keyring-store` (macOS) | Keychain credential store | Keep, target-specific |
 | `zbus-secret-service-keyring-store` (Linux) | Secret Service credential store | Keep, target-specific |
 | `windows-sys`, `windows-native-keyring-store` (Windows) | Job-object/process controls and credential store | Keep, target-specific |
 | `tempfile`, `wiremock` (development) | Filesystem and provider integration tests | Keep |
+
+## Extracted protocol and host crates
+
+`octocode-github` owns GitHub protocol transport dependencies (`reqwest`, `bytes`,
+`futures-util`, URL/encoding/hash helpers, Tokio, and payload serialization).
+Runtime credential discovery, configuration, and platform keyrings remain in
+`octocode-native`.
+
+`octocode-cli` owns `clap` for argument parsing, `regress` for the isolated regex
+worker, and `flate2`/`zip` for managed LSP installation. It calls runtime and engine
+libraries directly. `octocode-runtime-napi` owns `napi`, `napi-derive`, and
+`napi-build` for the runtime addon; the runtime library has no N-API dependency.
+The engine's separate feature-gated bindings are unchanged.
 
 ## Footprint interpretation
 

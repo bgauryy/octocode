@@ -283,7 +283,7 @@ rl.on('line',line=>{const c=JSON.parse(line);
   const started=Date.now();
   let events;
   try {
-   events=await runUntilTurn(['run','--vendor',vendor,'--model','test','--prompt','Task sentinel','--trace','--duration-ms','10000','--workspace',f.workspace,'--database',f.database],vendorEnv);
+   events=await runUntilTurn(['run','--vendor',vendor,'--model','test','--prompt','Task sentinel','--tools','peers,send_message,ack','--trace','--duration-ms','10000','--workspace',f.workspace,'--database',f.database],vendorEnv);
   } catch(error) {
    const boot=existsSync(capture+'.boot')?JSON.parse(readFileSync(capture+'.boot','utf8')):null;
    const frames=existsSync(capture+'.frames')?readFileSync(capture+'.frames','utf8').trim().split('\n').slice(-20).map(JSON.parse):[];
@@ -292,9 +292,11 @@ rl.on('line',line=>{const c=JSON.parse(line);
   }
   assert.ok(existsSync(capture),`${vendor}: prompt not captured; boot=${existsSync(capture+'.boot')}; ${JSON.stringify(events)}`);
   const prompt=JSON.parse(readFileSync(capture,'utf8'));
-  assert.equal(prompt.split('# Agents communication').length,2);
+  assert.equal(prompt.split('## Workflow').length,2);
   assert.ok(prompt.includes('ackReply'));
-  assert.ok(!prompt.includes('**Delivery setup:**'));
+  assert.ok(!prompt.includes('## Host setup'));
+  assert.ok(!prompt.includes('## CLI command map'));
+  assert.equal(prompt.split('\n')[0], 'Available communication tools: ["peers","send_message","ack"]');
   assert.ok(!prompt.includes('heartbeat'));
   assert.ok(prompt.includes(events.find(e=>e.type==='ready').session));
   assert.ok(prompt.endsWith('User task:\nTask sentinel'));

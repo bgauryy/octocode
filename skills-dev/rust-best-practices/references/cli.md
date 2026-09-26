@@ -4,7 +4,7 @@ Load when building or reviewing a Rust command-line tool: args, output, exit cod
 
 ## Shape
 - `main.rs` stays thin: parse args → call the library → map the result to an exit code. Logic lives in `lib.rs`/a core crate so it's testable without spawning (`references/crate-boundaries.md`).
-- `fn main() -> ExitCode` (or `Result<(), E>` for simple tools). Grounded: `octocode-native/crates/runtime/src/main.rs` returns `std::process::ExitCode`. Avoid `std::process::exit` deep in code — it skips destructors (unflushed buffers, temp-file cleanup).
+- `fn main() -> ExitCode` (or `Result<(), E>` for simple tools). Grounded: `octocode-native/crates/cli/src/main.rs` returns `std::process::ExitCode`. Avoid `std::process::exit` deep in code — it skips destructors (unflushed buffers, temp-file cleanup).
 - Exit codes: `0` ok, `1` general failure, `2` usage error (clap's default), documented extras for distinct outcomes (e.g. "found nothing" vs "error"). Scripts depend on them — treat them as API.
 
 ## Arguments (`clap` derive)
@@ -18,7 +18,7 @@ Load when building or reviewing a Rust command-line tool: args, output, exit cod
 - Machine output is a contract: stable `--json` (serde), one record per line (NDJSON) for streams, no color or decoration.
 - Detect the terminal with `std::io::IsTerminal`; color only when stdout is a TTY, honor `NO_COLOR`, `CLICOLOR_FORCE`, and `--color auto|always|never`. `anstream`/`anstyle` (what clap uses) strip ANSI automatically when not a terminal.
 - Lock and buffer hot output: `let mut out = BufWriter::new(io::stdout().lock()); writeln!(out, …)?;` — `println!` re-locks and line-flushes each call.
-- **Broken pipe:** Rust ignores SIGPIPE, so `println!` panics under `app | head`. Write with `writeln!` and treat `ErrorKind::BrokenPipe` as success (exit 0) — this repo does it in `crates/runtime/src/cli/mod.rs`.
+- **Broken pipe:** Rust ignores SIGPIPE, so `println!` panics under `app | head`. Write with `writeln!` and treat `ErrorKind::BrokenPipe` as success (exit 0) — this repo does it in `crates/cli/src/cli/mod.rs`.
 - Progress: `indicatif` on stderr, hidden automatically when stderr isn't a TTY; prompts (`dialoguer`/`inquire`) only when stdin is a TTY, with a flag to skip them in CI.
 
 ## Errors & logs

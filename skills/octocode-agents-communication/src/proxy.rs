@@ -231,7 +231,8 @@ fn worker(
     }
     output(&json!({"type":"ready","session":id,"vendor":vendor,"pid":host.pid()}))?;
     let guidance = format!(
-        "{}\n\nBound communication identity: {id}. {}\n\nUser task:\n{prompt}",
+        "Available communication tools: {}\n\n{}\n\nBound communication identity: {id}. {}\n\nUser task:\n{prompt}",
+        serde_json::to_string(&tool_names)?,
         catalog::worker_skill(),
         store.peer_context(id, "worker", "session")?
     );

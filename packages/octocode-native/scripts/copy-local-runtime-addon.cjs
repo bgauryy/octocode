@@ -12,10 +12,10 @@ if (!suffix) throw new Error(`Unsupported platform ${process.platform}-${process
 const root = join(__dirname, '..');
 const library =
   process.platform === 'win32'
-    ? 'octocode_native.dll'
+    ? 'octocode_runtime_napi.dll'
     : process.platform === 'darwin'
-      ? 'liboctocode_native.dylib'
-      : 'liboctocode_native.so';
+      ? 'liboctocode_runtime_napi.dylib'
+      : 'liboctocode_runtime_napi.so';
 const destination = `octocode-native.${suffix}.node`;
 const destinationPath = join(root, destination);
 copyFileSync(join(root, 'target', profile, library), destinationPath);

@@ -13,7 +13,7 @@ process environment
       parse → trust policy → resolved config
                  │
                  ├── CLI / MCP runtime surfaces
-                 ├── Pi and communication
+                 ├── communication skill
                  └── injected standalone skill helper
 ```
 

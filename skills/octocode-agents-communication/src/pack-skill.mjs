@@ -4,29 +4,28 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { checkSkill, checkStartup, digest, executableName, rustHostTarget, verifyExecutable } from './artifact-checks.mjs';
 
-export function packSkill(root, { hostTarget, timeoutMs = 10000 }) {
+export function packSkill(root, { hostTarget, target = process.env.CARGO_BUILD_TARGET ?? hostTarget, timeoutMs = 10000 }) {
   const skill = root;
-  const bin = join(skill, 'scripts/bin');
+  const bin = join(skill, 'scripts');
   if (!existsSync(bin)) throw new Error('Build the skill before packaging it.');
-  const targets = readdirSync(bin, { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => entry.name).sort();
-  if (!targets.length) throw new Error('No platform binaries to package.');
+  const targets = [target];
   const checkHashes = base => {
     for (const target of targets) {
       const name = executableName(target);
-      for (const entry of readdirSync(join(base, target), { withFileTypes: true })) {
-        if (!entry.isFile() || ![name, 'SHA256SUMS'].includes(entry.name)) {
-          throw new Error(`Unexpected platform artifact: ${target}/${entry.name}; finish the build before packaging.`);
+      for (const entry of readdirSync(base, { withFileTypes: true })) {
+        if (entry.name.endsWith('.tmp') || entry.name === 'bin') {
+          throw new Error(`Unexpected runtime artifact: ${target}/${entry.name}; finish the build before packaging.`);
         }
       }
-      const expected = `${digest(join(base, target, name))}  ${name}\n`;
-      if (readFileSync(join(base, target, 'SHA256SUMS'), 'utf8') !== expected) throw new Error(`Checksum mismatch: ${target}`);
+      const expected = `${digest(join(base, name))}  ${name}\n`;
+      if (readFileSync(join(base, 'SHA256SUMS'), 'utf8') !== expected) throw new Error(`Checksum mismatch: ${target}`);
     }
   };
   checkHashes(bin);
   const { version } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
   const out = join(root, 'out');
   mkdirSync(out, { recursive: true });
-  const name = `octocode-agents-communication-${version}-${targets.length === 1 ? targets[0] : 'multi-platform'}.tar.gz`;
+  const name = `octocode-agents-communication-${version}-${target}.tar.gz`;
   const archive = join(out, name);
   const staging = mkdtempSync(join(out, '.communication-pack-'));
   try {
@@ -41,10 +40,10 @@ export function packSkill(root, { hostTarget, timeoutMs = 10000 }) {
     execFileSync('tar', ['-czf', candidate, '-C', payload, 'octocode-agents-communication'], { timeout: 60000, killSignal: 'SIGKILL' });
     execFileSync('tar', ['-xzf', candidate, '-C', extracted], { timeout: 60000, killSignal: 'SIGKILL' });
     const extractedSkill = join(extracted, 'octocode-agents-communication');
-    const extractedBin = join(extractedSkill, 'scripts/bin');
+    const extractedBin = join(extractedSkill, 'scripts');
     checkHashes(extractedBin);
     const verification = Object.fromEntries(targets.map(target => {
-      const executable = join(extractedBin, target, executableName(target));
+      const executable = join(extractedBin, executableName(target));
       const checks = verifyExecutable(executable, { target, hostTarget, timeoutMs });
       checks.skill = target === hostTarget
         ? checkSkill(executable, join(extractedSkill, 'SKILL.md'), timeoutMs)

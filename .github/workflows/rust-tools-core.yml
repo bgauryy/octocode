@@ -54,17 +54,24 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: packages/octocode-native
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Verify crate boundaries and release scripts
+        working-directory: packages/octocode-native
+        run: node scripts/check-crate-boundaries.cjs && node --test tests/build-publication.test.cjs
       - name: Format check
         working-directory: packages/octocode-native
         run: cargo fmt --all --check
-      - name: Test runtime and engine crates
+      - name: Test Rust libraries and host adapters
         working-directory: packages/octocode-native
-        run: cargo test -p octocode-native --no-default-features && cargo test -p octocode-engine --all-features
+        run: cargo test --locked -p octocode-native -p octocode-github -p octocode-cli --no-default-features && cargo test --locked -p octocode-engine --all-features && cargo test --locked -p octocode-runtime-napi --features napi-test
         env:
           RUST_BACKTRACE: 1
-      - name: Clippy runtime and engine crates
+      - name: Clippy workspace crates
         working-directory: packages/octocode-native
-        run: cargo clippy -p octocode-native --no-default-features --all-targets -- -D warnings && cargo clippy -p octocode-engine --all-targets --all-features -- -D warnings
+        run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
 
   package:
     name: Package ${{ matrix.target }}

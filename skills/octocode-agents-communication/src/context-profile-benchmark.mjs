@@ -50,7 +50,7 @@ export function summarize(directory){
 }
 export async function main(){
  const output=resolve(process.env.COMMUNICATION_OUTPUT??join(root,'../../.octocode/benchmarks/communication-context-v2/profiles'));
- const binary=resolve(process.env.COMMUNICATION_BINARY??join(root,'scripts/bin/aarch64-apple-darwin/octocode-agents-communication'));
+ const binary=resolve(process.env.COMMUNICATION_BINARY??join(root,'scripts/octocode-agents-communication'));
  mkdirSync(output,{recursive:true});
  const schedule=[];
  for(const family of ['review','handoff'])for(const pair of [1,2])for(const arm of pair===1?['full','scoped']:['scoped','full'])schedule.push({family,pair,arm});

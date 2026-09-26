@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,19 +7,8 @@ import { fileURLToPath } from 'node:url';
 export const root = fileURLToPath(new URL('../', import.meta.url));
 const scripts = join(root, 'scripts');
 const executable = `octocode-agents-communication${process.platform === 'win32' ? '.exe' : ''}`;
-// Same platform table as the shipped launchers; rustc only when no prebuilt binary matches.
-const launcherTargets = {
-  'darwin-arm64': 'aarch64-apple-darwin', 'darwin-x64': 'x86_64-apple-darwin',
-  'linux-arm64': 'aarch64-unknown-linux-gnu', 'linux-x64': 'x86_64-unknown-linux-gnu',
-  'win32-x64': 'x86_64-pc-windows-msvc', 'win32-arm64': 'aarch64-pc-windows-msvc',
-};
-const prebuilt = target => join(scripts, 'bin', target, executable);
-const mapped = launcherTargets[`${process.platform}-${process.arch}`];
-const hostTarget = mapped && existsSync(prebuilt(mapped)) ? mapped
-  : execFileSync('rustc', ['-vV'], { encoding: 'utf8' }).match(/^host: (.+)$/m)[1];
-
 /** Binary installed by src/build-skill.mjs for this host. */
-export const nativeBinary = prebuilt(hostTarget);
+export const nativeBinary = join(scripts, executable);
 /** COMMUNICATION_BINARY override, else the prebuilt host binary. */
 export const binary = process.env.COMMUNICATION_BINARY || nativeBinary;
 /** Shipped POSIX launcher. */

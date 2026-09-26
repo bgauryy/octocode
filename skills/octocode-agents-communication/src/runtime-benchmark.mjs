@@ -27,8 +27,6 @@ function measured(name, operation) {
   return value;
 }
 const digest = value => createHash('sha256').update(value).digest('hex');
-const target = execFileSync('rustc', ['-vV'], { encoding: 'utf8', timeout: 10000 }).match(/^host: (.+)$/m)?.[1];
-assert.ok(target, 'Rust host target must be available for binary provenance');
 const manifest = {
   goal: 'Measure local CLI storage, delivery and lease latency with correctness guards; no models.',
   sampleCount: samples, repetitions: 1, threshold: null,
@@ -36,7 +34,7 @@ const manifest = {
   guards: ['identical retries store once', 'hooks do not repeat offered messages', 'idle hooks inject zero bytes', 'competing lease sets have one winner and no partial reservations'],
   node: process.version, platform: `${process.platform}/${process.arch}`,
   harnessHash: digest(readFileSync(fileURLToPath(import.meta.url))),
-  binaryHash: digest(readFileSync(join(root, 'scripts/bin', target, `octocode-agents-communication${process.platform === 'win32' ? '.exe' : ''}`))),
+  binaryHash: digest(readFileSync(join(root, 'scripts', `octocode-agents-communication${process.platform === 'win32' ? '.exe' : ''}`))),
   skillHash: digest(readFileSync(join(root, 'SKILL.md'))),
   startedAt: new Date().toISOString(),
 };

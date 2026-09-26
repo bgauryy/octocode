@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - 'packages/octocode-native/crates/engine/**'
+      - 'packages/octocode-native/Cargo.toml'
+      - 'packages/octocode-native/Cargo.lock'
+      - 'packages/octocode-native/package.json'
       - 'packages/octocode-native/js/engine.*'
       - 'packages/octocode-native/tests/engine/**'
       - 'packages/octocode-native/scripts/check-engine-*.cjs'
@@ -12,6 +15,9 @@ on:
     branches: [main]
     paths:
       - 'packages/octocode-native/crates/engine/**'
+      - 'packages/octocode-native/Cargo.toml'
+      - 'packages/octocode-native/Cargo.lock'
+      - 'packages/octocode-native/package.json'
       - 'packages/octocode-native/js/engine.*'
       - 'packages/octocode-native/tests/engine/**'
       - 'packages/octocode-native/scripts/check-engine-*.cjs'
@@ -54,10 +60,10 @@ jobs:
         run: yarn workspace @octocodeai/octocode-native verify:napi-abi
       - name: Clippy
         working-directory: packages/octocode-native
-        run: cargo clippy -p octocode-engine --all-targets --all-features -- -D warnings
+        run: cargo clippy --locked -p octocode-engine --all-targets --all-features -- -D warnings
       - name: Cargo tests
         working-directory: packages/octocode-native
-        run: cargo test -p octocode-engine --all-features
+        run: cargo test --locked -p octocode-engine --all-features
       - name: Node parity tests
         env:
           OCTOCODE_REQUIRE_NATIVE: '1'

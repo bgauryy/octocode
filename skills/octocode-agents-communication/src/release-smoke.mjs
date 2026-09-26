@@ -42,7 +42,7 @@ try {
   result.package = packSkill(root, { hostTarget: target });
   run('tar', ['-xzf', result.package.archive, '-C', temporary]);
   const skill = join(temporary, 'octocode-agents-communication');
-  binary = join(skill, 'scripts/bin', target, `octocode-agents-communication${process.platform === 'win32' ? '.exe' : ''}`);
+  binary = join(skill, 'scripts', `octocode-agents-communication${process.platform === 'win32' ? '.exe' : ''}`);
   result.binarySha256 = hash(binary); result.skillSha256 = hash(join(skill, 'SKILL.md'));
   assert.equal(JSON.parse(run(binary, ['skill'])).instructions, readFileSync(join(skill, 'SKILL.md'), 'utf8'));
   result.checks.push('extracted executable and embedded skill agree');

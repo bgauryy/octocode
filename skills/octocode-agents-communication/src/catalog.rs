@@ -3,8 +3,6 @@ use serde_json::{Value, json};
 use std::{collections::HashMap, sync::OnceLock};
 
 pub const SKILL: &str = include_str!("../SKILL.md");
-/// Lines a managed `run` worker never needs: the host owns identity, presence and delivery.
-const WORKER_OMITS: [&str; 2] = ["Use bound tools, else", "   Without a host"];
 fn body() -> impl Iterator<Item = &'static str> {
     SKILL.lines().skip_while(|line| !line.starts_with("# "))
 }
@@ -22,8 +20,8 @@ pub fn skill_instructions(vendor: Option<&str>) -> String {
 pub fn worker_skill() -> String {
     join_lines(
         body()
-            .take_while(|line| !line.starts_with("**"))
-            .filter(|line| !WORKER_OMITS.iter().any(|prefix| line.starts_with(prefix))),
+            .skip_while(|line| *line != "## Workflow")
+            .take_while(|line| *line != "## Host setup"),
     )
 }
 pub fn catalog() -> Result<Value> {
@@ -148,7 +146,7 @@ pub fn help() -> Result<Value> {
         .collect();
     Ok(json!({
         "package":"@octocodeai/octocode-agents-communication", "implementation":"Rust",
-        "usage":"scripts/agents-communication <command> [json|-] --workspace <path> [--database <file>] [--session <id>]",
+        "usage":"scripts/octocode-agents-communication <command> [json|-] --workspace <path> [--database <file>] [--session <id>]",
         "commands":commands,
         "discover":["skill", "<command> --help", "schema entity <name>", "db info"],
     }))
@@ -373,21 +371,38 @@ mod tests {
     }
 
     #[test]
+    fn skill_command_map_covers_the_live_catalog() -> Result<()> {
+        let map = SKILL
+            .split("## CLI command map")
+            .nth(1)
+            .ok_or_else(|| anyhow!("missing CLI map"))?
+            .split("## Workflow")
+            .next()
+            .ok_or_else(|| anyhow!("missing workflow boundary"))?;
+        for command in cached_catalog()?["commands"]
+            .as_array()
+            .ok_or_else(|| anyhow!("commands"))?
+        {
+            let name = command["name"]
+                .as_str()
+                .ok_or_else(|| anyhow!("command name"))?;
+            assert!(map.contains(&format!("`{name}`")), "missing {name}");
+        }
+        Ok(())
+    }
+
+    #[test]
     fn skill_profiles_drop_what_the_reader_cannot_use() {
         assert!(SKILL.lines().count() <= 50);
-        for prefix in WORKER_OMITS {
-            assert!(
-                SKILL.lines().any(|line| line.starts_with(prefix)),
-                "{prefix}"
-            );
-        }
         let claude = skill_instructions(Some("claude"));
-        assert!(claude.starts_with("# ") && claude.contains("**Delivery setup:**"));
+        assert!(claude.starts_with("# ") && claude.contains("## Host setup"));
         assert_eq!(skill_instructions(None), SKILL);
         let worker = worker_skill();
         assert!(worker.contains("ackReply") && worker.contains("leaseId"));
         for setup in [
-            "**Delivery setup:**",
+            "## Host setup",
+            "## CLI command map",
+            "## Storage and efficiency",
             "heartbeat",
             "scripts/agents-communication",
         ] {

@@ -356,7 +356,7 @@ A misconfigured file or value never stops Octocode: it is skipped and reported o
 
 Remote data is shared by the CLI and MCP under `<octocode-home>/tmp/`: git clones in `clone/`, commit-addressed file trees in `tree/`, and reusable API/package responses in `response/`. A persisted 24-hour maintenance gate bounds automatic cleanup across short-lived CLI processes and long-lived MCP sessions. See the [configuration reference](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#cache-storage-and-lifecycle) for lifecycle and limit details.
 
-For memory-only operation, set `storage.mode` to `"memory"` in `.octocoderc` or set `OCTOCODE_STORAGE_MODE=memory`. This prevents persistent runtime cache, materialization, session, stats, and Pi SQLite writes without deleting existing files or credentials.
+For memory-only operation, set `storage.mode` to `"memory"` in `.octocoderc` or set `OCTOCODE_STORAGE_MODE=memory`. This prevents persistent runtime cache, materialization, session, and stats writes without deleting existing files or credentials.
 
 Set values as MCP `env` entries (per client; these win over `.octocoderc`), per project in `<project>/.octocode/.octocoderc`, or globally in `<octocode-home>/.octocoderc` (JSON with comments). **Tokens never go in `.octocoderc`** — use `env` or `npx octocode auth login`.
 

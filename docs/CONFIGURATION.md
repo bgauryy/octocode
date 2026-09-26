@@ -134,7 +134,7 @@ All Octocode config, credentials, cache, and session data live under the **Octoc
 
 The CLI and MCP share the same file-based cache roots under `OCTOCODE_HOME` (no database, no editor-local storage).
 
-Set `storage.mode` to `"memory"` when Octocode must not create persistent caches or session state: it disables clone/directory/exact-file materialization, response-cache disk reads and writes, cache maintenance, session and stats writes, and the Pi extension's SQLite state (kept in process memory until exit). File-content requests still return content without a `localPath`. It does not delete existing files or configured credentials.
+Set `storage.mode` to `"memory"` when Octocode must not create persistent caches or session state: it disables clone/directory/exact-file materialization, response-cache disk reads and writes, cache maintenance, and session and stats writes. File-content requests still return content without a `localPath`. It does not delete existing files or configured credentials.
 
 | Concern | Behavior |
 |---------|----------|

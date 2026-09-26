@@ -403,13 +403,27 @@ try {
     assert.match(data.hints[0], /try|shorter|case|regex/i);
   });
   await check('local file discovery positive', async () => {
-    const data = await call('astSearch', {
+    const data = await call('structureSearch', {
       operation: 'files',
       path: fixture,
       extensions: ['ts'],
       pageSize: 50,
     });
     assert.ok(data.files.some(file => file.path.endsWith('math.ts')));
+  });
+  await check('AST symbols identify the exported arithmetic declaration', async () => {
+    const data = await call('astSearch', {
+      operation: 'symbols',
+      path: path.join(fixture, 'math.ts'),
+      name: 'add',
+      kinds: ['function'],
+    });
+    assert.equal(data.operation, 'symbols');
+    assert.equal(data.totalDeclarations, 1);
+    assert.equal(data.declarations[0].name, 'add');
+    assert.equal(data.declarations[0].kind, 'function');
+    assert.equal(data.declarations[0].line, 2);
+    assert.equal(data.declarations[0].exported, true);
   });
   await check('astRewrite previews and guarded apply mutate only an isolated fixture', async () => {
     const directory = await mkdtemp(path.join(path.resolve('.octocode/tmp'), 'mcp-rewrite-'));
@@ -492,8 +506,8 @@ try {
       'file pagination executes continuations and preserves full inventory',
       async () => {
         const query = { operation: 'files', path: fixture, extensions: ['ts'] };
-        const full = await call('astSearch', { ...query, pageSize: 50 });
-        const first = await call('astSearch', { ...query, pageSize: 1 });
+        const full = await call('structureSearch', { ...query, pageSize: 50 });
+        const first = await call('structureSearch', { ...query, pageSize: 1 });
         const paged = await pages(first, 'nextPage', data =>
           data.files.map(file => file.path)
         );

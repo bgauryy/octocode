@@ -7,15 +7,18 @@ This package owns one distribution for four artifacts on six platforms:
 - `NativeRuntime` addon exposed by `.` and `./runtime`;
 - engine primitive addon exposed by `./engine`.
 
-The runtime and engine remain separate Rust crates and separate Node addons.
+Five internal Rust crates compile into the same four artifacts. Runtime and engine remain separate Node addons; no Rust crate is published to a Cargo registry.
 
 ## Package map
 
 ```text
 packages/octocode-native/
 ├── Cargo.toml
-├── crates/runtime/
-├── crates/engine/
+├── crates/runtime/             pure runtime library
+├── crates/cli/                 CLI and regex worker
+├── crates/runtime-napi/        runtime Node adapter
+├── crates/github/              GitHub protocol services
+├── crates/engine/              primitives and engine Node adapter
 ├── js/                         runtime and engine loaders/types
 ├── bin/                        Node launchers
 ├── npm/<platform>/             four release artifacts per platform
@@ -48,6 +51,8 @@ For one release target:
 yarn workspace @octocodeai/octocode-native build:darwin-arm64
 ```
 
+The Windows release command is `build:win32-x64-msvc`, matching its CI matrix suffix.
+
 For a complete release matrix:
 
 ```sh
@@ -55,20 +60,20 @@ yarn workspace @octocodeai/octocode-native build:all
 yarn workspace @octocodeai/octocode-native platforms:check
 ```
 
-`build:<platform>` produces and stages all four artifacts. Darwin staging replaces linker-generated ad-hoc addon signatures with fresh ad-hoc signatures. When the target matches the host, staging loads both addons in subprocesses immediately. `platforms:check` verifies all 24 files and also loads both host-platform addons.
+`build:<platform>` produces and stages all four artifacts using the committed lockfile. The internal runtime adapter library is named `octocode_runtime_napi`; staging preserves the published `octocode-native.<platform>.node` filename. Engine filenames and capability features remain unchanged. Darwin staging replaces linker-generated ad-hoc addon signatures with fresh ad-hoc signatures. When the target matches the host, staging loads both addons in subprocesses immediately. `platforms:check` verifies all 24 files and also loads both host-platform addons.
 
 Cross-target presence is not runtime proof. CI runs each `build:<platform>` command on the matching runner, as configured by `.github/workflows/rust-tools-core.yml`, so `npm/verify-binary.cjs` can execute the package’s addons and binaries. Its downstream `packages` job then assembles the six uploaded platform directories, restores executable modes lost by artifact transport, runs the 24-file `platforms:check` gate, and uploads the verified release-package set.
 
 ## Version contract
 
-The coordinator and all six platform packages use one version. Rust crate versions are checked against that release line where applicable.
+The coordinator, all six platform packages, and all five internal Rust crates use one version. Rust crates inherit `workspace.package.version`; Cargo metadata supplies the membership and resolved versions for validation.
 
 ```sh
 yarn workspace @octocodeai/octocode-native version:sync
 yarn workspace @octocodeai/octocode-native version:check
 ```
 
-Review the resulting manifest changes. Do not hand-publish mixed root/platform versions: exact optional dependencies intentionally turn a mismatch into a loader failure rather than silently selecting another ABI.
+Run version synchronization before building release artifacts. It updates the shared Cargo version and npm manifests, then resolves the updated workspace against the existing lockfile offline instead of broadly regenerating it. Review any dependency changes; offline mode prevents fetching but can still select cached versions. Review those changes and rebuild. Prepublish runs the read-only version check; it never synchronizes versions or regenerates a lockfile. Do not hand-publish mixed root/platform versions: exact optional dependencies intentionally turn a mismatch into a loader failure rather than silently selecting another ABI.
 
 ## Preflight
 
@@ -83,7 +88,7 @@ yarn workspace @octocodeai/octocode-native platforms:check
 
 Required evidence:
 
-- Rust formatting, clippy, type checks, and tests pass;
+- Rust crate-boundary checks, formatting, clippy, type checks, and tests pass (including GitHub protocol, CLI, and runtime adapter tests);
 - Node runtime and engine tests pass;
 - loader and N-API ABI checks pass;
 - all 24 artifacts exist;
@@ -100,7 +105,7 @@ Use a prerelease version and dist-tag first.
 1. Publish all six platform packages.
 2. Publish `@octocodeai/octocode-native` at the exact same version.
 3. Install from the registry in clean platform-specific jobs.
-4. Publish canary CLI, MCP, and Pi consumers with exact native dependencies.
+4. Publish canary CLI and MCP consumers with exact native dependencies.
 5. Promote platform packages, then the root package, then consumers.
 
 Example platform loop after all platform artifacts have been collected and verified:

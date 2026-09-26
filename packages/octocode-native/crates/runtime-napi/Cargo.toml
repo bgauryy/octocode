@@ -1,0 +1,30 @@
+[package]
+name = "octocode-runtime-napi"
+version.workspace = true
+publish = false
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Node host adapter for the Octocode runtime"
+
+[lib]
+name = "octocode_runtime_napi"
+crate-type = ["cdylib", "rlib"]
+doctest = false
+
+[features]
+napi-test = ["napi/noop"]
+
+[dependencies]
+octocode-native = { path = "../runtime" }
+octocode-engine = { path = "../engine", default-features = false, features = ["portable-default", "embedded-ast-grep-rewrite"] }
+napi = { workspace = true }
+napi-derive = { workspace = true }
+serde_json = { workspace = true }
+
+[build-dependencies]
+napi-build = { workspace = true }
+
+[lints]
+workspace = true

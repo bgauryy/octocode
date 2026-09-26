@@ -1,6 +1,6 @@
 [package]
 name = "octocode-engine"
-version = "20.0.0"
+version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 build = "build.rs"

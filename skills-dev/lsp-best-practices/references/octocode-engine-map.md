@@ -23,7 +23,7 @@ E = `packages/octocode-native/crates/engine/src/lsp/`, R = `packages/octocode-na
 | Definition chain, alias recovery | `R/recovery.rs` |
 | Call/type hierarchy BFS | `R/walk.rs` |
 | Public coordinates, pagination, errors, receipts | `R/locations.rs` (1-based choke point), `R/failure.rs` (`LspFailure::from_engine`), `R/receipt.rs` |
-| Managed install; napi | `crates/runtime/src/cli/lsp_provision/`; `engine/src/bindings/lsp.rs` |
+| Managed install; napi | `crates/cli/src/cli/lsp_provision/`; `engine/src/bindings/lsp.rs` |
 
 ## Bounds (reuse; don't add parallel ones)
 | Bound | Value | Symbol |

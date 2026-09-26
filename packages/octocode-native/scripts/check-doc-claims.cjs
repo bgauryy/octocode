@@ -22,7 +22,7 @@ const nativeRoot = path.resolve(__dirname, '..');
 const repoRoot = path.resolve(nativeRoot, '..', '..');
 
 const read = (p) => fs.readFileSync(p, 'utf8');
-const cliSource = read(path.join(nativeRoot, 'crates/runtime/src/cli/mod.rs'));
+const cliSource = read(path.join(nativeRoot, 'crates/cli/src/cli/mod.rs'));
 const configContract = JSON.parse(
   read(path.join(repoRoot, 'packages/octocode-config/config-contract.json'))
 );
@@ -96,7 +96,9 @@ if (!toolEnum) {
 // Docs → code: every env var named in a CONFIGURATION.md table row must be
 // read somewhere in product source — the native runtime or a package's
 // TS/JS source (name typos, renames, and retired keys surface).
-const sourceDirs = [path.join(nativeRoot, 'crates/runtime/src')];
+const sourceDirs = fs.readdirSync(path.join(nativeRoot, 'crates'))
+  .map(crate => path.join(nativeRoot, 'crates', crate, 'src'))
+  .filter(dir => fs.existsSync(dir));
 for (const pkg of fs.readdirSync(path.join(repoRoot, 'packages'))) {
   const src = path.join(repoRoot, 'packages', pkg, 'src');
   if (fs.existsSync(src)) sourceDirs.push(src);
@@ -118,7 +120,7 @@ for (const m of configDoc.matchAll(/^\|\s*`([A-Z][A-Z0-9_]{2,})`\s*\|/gm)) {
 }
 for (const key of documentedKeys) {
   if (!runtimeSource.includes(key)) {
-    fail('env names', `docs/CONFIGURATION.md documents ${key} but crates/runtime/src never reads it`);
+    fail('env names', `docs/CONFIGURATION.md documents ${key} but native or interface source never reads it`);
   }
 }
 // Code → docs: every configuration-source environment key in the canonical
@@ -175,7 +177,9 @@ const ignoredDirs = new Set([
   'coverage',
   'octocode-benchmark',
 ]);
-const ignoredFiles = new Set([
+const ignoredPaths = new Set([
+  // Separate checkouts have their own validation; keep this scan in the current tree.
+  path.join(repoRoot, '.claude/worktrees'),
   path.join(repoRoot, 'packages/octocode-native/scripts/check-doc-claims.cjs'),
   path.join(repoRoot, 'skills/octocode-research/scripts/check-guidance.mjs'),
   path.join(repoRoot, 'packages/octocode/skills/octocode-research/scripts/check-guidance.mjs'),
@@ -185,11 +189,12 @@ function scanRetiredCliGrammar(dir) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     if (ignoredDirs.has(entry.name)) continue;
     const file = path.join(dir, entry.name);
+    if (ignoredPaths.has(file)) continue;
     if (entry.isDirectory()) {
       scanRetiredCliGrammar(file);
       continue;
     }
-    if (ignoredFiles.has(file) || !activeExtensions.has(path.extname(entry.name))) continue;
+    if (!activeExtensions.has(path.extname(entry.name))) continue;
     const lines = read(file).split('\n');
     for (let index = 0; index < lines.length; index += 1) {
       if (retiredCliPatterns.some((pattern) => pattern.test(lines[index]))) {

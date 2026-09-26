@@ -22,14 +22,14 @@ The packaged acceptance test deletes only its unique fictional OS-store hostname
 | `gh auth token` | `auth/discovery.rs`; `tests/auth_discovery.rs` | Host argument, explicit PATH, environment-token removal, bounded output, subprocess failure, cancellation, request pinning |
 | Secret formatting | `auth/storage.rs`; `login/flow_tests.rs` | Access and refresh tokens never appear in credential/result `Debug` output |
 | Main encrypted home credentials | `auth/home_store/tests.rs`; `tests/auth_discovery.rs` | Native reads an independent Node fixture; CLI selects it before gh |
-| CLI logout | `src/cli/system.rs::auth_tests` (relative to `crates/runtime`) | Configured-host selection, deletion error propagated, environment credentials unchanged |
+| CLI logout | `src/cli/system.rs::auth_tests` (relative to `crates/cli`) | Configured-host selection, deletion error propagated, environment credentials unchanged |
 | Home persistence | `auth/home_store/tests.rs`; `auth/credential_store.rs` | Save/load/update/delete, host isolation, key cleanup, corruption, wrong/missing key, bounded size, Unix permissions, symlink/hard-link rejection, concurrent writers, partial logout failure |
 | Packaged interfaces | `packages/octocode-native/tests/auth-home.acceptance.mjs` | Independent Node decryption of native writes; fresh-runtime load; CLI, N-API, stdio MCP; separate-process writers; explicit home isolation; home logout and OS-delete failure reporting; corrupt-home gh fallback |
 | Real OS-store round trip | Not exercised | Platform integration requires an isolated credential-store test environment |
 
 Paths without a package prefix are relative to
 `crates/runtime/src/providers/github`, except `src/config/mod.rs` and `tests/`,
-which are relative to `crates/runtime`.
+which are relative to `crates/runtime` and `crates/cli`, respectively.
 
 ## Run
 
@@ -38,9 +38,9 @@ From `packages/octocode-native`:
 ```sh
 cargo test -p octocode-native --no-default-features --lib providers::github::
 cargo test -p octocode-native --no-default-features --lib config::
-cargo test -p octocode-native --no-default-features --test auth_discovery
-cargo test -p octocode-native --no-default-features --test cli auth_
-cargo test -p octocode-native --no-default-features --bin octocode auth_tests
+cargo test -p octocode-cli --no-default-features --test auth_discovery
+cargo test -p octocode-cli --no-default-features --test cli auth_
+cargo test -p octocode-cli --no-default-features --bin octocode auth_tests
 ```
 
 From the repository root, after rebuilding native, CLI, and MCP:

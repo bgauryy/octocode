@@ -1,30 +1,28 @@
 'use strict';
 
-const { existsSync, readFileSync, readdirSync, writeFileSync } = require('fs');
-const { join } = require('path');
-const { execFileSync } = require('child_process');
+const { existsSync, readFileSync, readdirSync, writeFileSync } = require('node:fs');
+const { join } = require('node:path');
+const { execFileSync } = require('node:child_process');
 
 const root = join(__dirname, '..');
 const rootPackagePath = join(root, 'package.json');
 const rootPackage = JSON.parse(readFileSync(rootPackagePath, 'utf8'));
 const version = rootPackage.version;
-const writeJson = (path, value) =>
-  writeFileSync(path, JSON.stringify(value, null, 2) + '\n');
+const writeJson = (path, value) => writeFileSync(path, JSON.stringify(value, null, 2) + '\n');
+const manifestPath = join(root, 'Cargo.toml');
+const manifest = readFileSync(manifestPath, 'utf8');
+const workspacePackage = /(^\[workspace\.package\]\s*\n)([\s\S]*?)(?=^\[|$(?![\s\S]))/m;
+const section = manifest.match(workspacePackage);
+if (!section || !/^version\s*=\s*"[^"]+"/m.test(section[2])) {
+  throw new Error('Cargo.toml must declare workspace.package.version before version synchronization');
+}
+writeFileSync(manifestPath, manifest.replace(workspacePackage, (_, heading, body) =>
+  heading + body.replace(/^version\s*=\s*"[^"]+"/m, `version = "${version}"`)));
 
 for (const name of Object.keys(rootPackage.optionalDependencies ?? {})) {
   rootPackage.optionalDependencies[name] = version;
 }
 writeJson(rootPackagePath, rootPackage);
-
-for (const crate of ['engine', 'runtime']) {
-  const path = join(root, 'crates', crate, 'Cargo.toml');
-  const source = readFileSync(path, 'utf8').replace(
-    /^version\s*=\s*"[^"]+"/m,
-    `version = "${version}"`
-  );
-  writeFileSync(path, source);
-}
-
 for (const suffix of readdirSync(join(root, 'npm'))) {
   const path = join(root, 'npm', suffix, 'package.json');
   if (!existsSync(path)) continue;
@@ -33,15 +31,9 @@ for (const suffix of readdirSync(join(root, 'npm'))) {
   writeJson(path, platform);
 }
 
-const compatibilityPath = join(root, '..', 'octocode-engine', 'package.json');
-const compatibility = JSON.parse(readFileSync(compatibilityPath, 'utf8'));
-compatibility.version = version;
-compatibility.dependencies[rootPackage.name] = version;
-writeJson(compatibilityPath, compatibility);
-
-execFileSync('cargo', ['generate-lockfile', '--manifest-path', join(root, 'Cargo.toml')], {
-  stdio: 'inherit',
+// Update workspace versions using the existing lockfile, without broadly regenerating it.
+// Offline resolution avoids fetching; review any dependency changes before building.
+execFileSync('cargo', ['metadata', '--manifest-path', manifestPath, '--format-version', '1', '--offline'], {
+  stdio: ['ignore', 'ignore', 'inherit'],
 });
-execFileSync('node', [join(__dirname, 'check-version-consistency.cjs')], {
-  stdio: 'inherit',
-});
+execFileSync(process.execPath, [join(__dirname, 'check-version-consistency.cjs')], { stdio: 'inherit' });

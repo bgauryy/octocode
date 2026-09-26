@@ -42,6 +42,12 @@ mod base64_bytes {
 }
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CachePartition(pub(crate) String);
+impl CachePartition {
+    /// Opaque credential-scoped identity for host cache storage.
+    pub fn identity(&self) -> &str {
+        &self.0
+    }
+}
 pub trait ConditionalCache: Send + Sync {
     fn get<'a>(
         &'a self,

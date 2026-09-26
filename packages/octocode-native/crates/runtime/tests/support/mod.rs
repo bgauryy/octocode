@@ -8,7 +8,6 @@ use octocode_native::runtime::{RuntimeError, ToolOutcome, ToolRuntime};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Per-fixture token suffix. The GitHub rate-limit budget is process-wide and
@@ -114,23 +113,6 @@ impl Workspace {
 
     pub fn runtime(&self, extra: &[(&str, String)]) -> ToolRuntime {
         ToolRuntime::new(self.config(extra)).expect("native runtime")
-    }
-
-    pub fn cli(&self) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_octocode"));
-        command
-            .current_dir(&self.workspace)
-            .env_clear()
-            .env("PATH", "/usr/bin:/bin")
-            .env("HOME", &self.home)
-            .env("OCTOCODE_HOME", &self.home)
-            .env("WORKSPACE_ROOT", &self.workspace)
-            .env("ALLOWED_PATHS", &self.workspace)
-            .env("ENABLE_LOCAL", "true")
-            .env("ENABLE_CLONE", "false")
-            .env("NO_COLOR", "1")
-            .env("OCTOCODE_ENABLE_STATS", "false");
-        command
     }
 }
 

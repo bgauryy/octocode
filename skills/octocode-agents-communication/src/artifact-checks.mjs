@@ -7,7 +7,7 @@ export const rustHostTarget = () => execFileSync('rustc', ['-vV'], { encoding: '
 export const executableName = target => `octocode-agents-communication${target.includes('windows') ? '.exe' : ''}`;
 /** Executable that build-skill.mjs installs for `target`. */
 export const installedBinary = (target = rustHostTarget()) =>
-  fileURLToPath(new URL(`../scripts/bin/${target}/${executableName(target)}`, import.meta.url));
+  fileURLToPath(new URL(`../scripts/${executableName(target)}`, import.meta.url));
 export const digest = path => createHash('sha256').update(readFileSync(path)).digest('hex');
 
 export function checkSkill(executable, skillPath, timeoutMs = 10000) {

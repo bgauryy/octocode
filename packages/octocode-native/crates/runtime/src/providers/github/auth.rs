@@ -10,60 +10,10 @@ pub use storage::{
     store_platform_credential, token_from_stored_blob,
 };
 
-use std::{future::Future, pin::Pin};
-
-use secrecy::{ExposeSecret, SecretString};
-
-use super::ProviderError;
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum CredentialSource {
-    Override,
-    Environment,
-    Storage,
-    Home,
-    GhCli,
-}
-
-#[derive(Clone)]
-pub struct ResolvedCredential {
-    secret: SecretString,
-    pub source: CredentialSource,
-}
-
-impl ResolvedCredential {
-    pub fn new(secret: impl Into<SecretString>, source: CredentialSource) -> Self {
-        Self {
-            secret: secret.into(),
-            source,
-        }
-    }
-    pub(crate) fn expose(&self) -> &str {
-        self.secret.expose_secret()
-    }
-}
-
-impl std::fmt::Debug for ResolvedCredential {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ResolvedCredential")
-            .field("secret", &"[REDACTED]")
-            .field("source", &self.source)
-            .finish()
-    }
-}
-
-#[derive(Clone)]
-pub struct CredentialRequest<'a> {
-    pub host: &'a str,
-    pub override_token: Option<&'a str>,
-}
-
-pub trait CredentialResolver: Send + Sync {
-    fn resolve<'a>(
-        &'a self,
-        request: CredentialRequest<'a>,
-    ) -> Pin<Box<dyn Future<Output = Result<Option<ResolvedCredential>, ProviderError>> + Send + 'a>>;
-}
+pub use octocode_github::{
+    CredentialRequest, CredentialResolver, CredentialSource, ResolvedCredential,
+    StaticCredentialResolver,
+};
 
 /// Derive the credential host that a configured GitHub API URL authenticates
 /// against, mirroring `GitHubEndpoint::credential_host` (api.github.com maps to
@@ -88,40 +38,6 @@ pub(super) fn normalize_host(host: &str) -> String {
         .trim_end_matches('/')
         .to_owned()
 }
-#[derive(Clone, Default)]
-pub struct StaticCredentialResolver {
-    token: Option<ResolvedCredential>,
-}
-
-impl StaticCredentialResolver {
-    pub fn anonymous() -> Self {
-        Self::default()
-    }
-    pub fn new(token: impl Into<SecretString>, source: CredentialSource) -> Self {
-        Self {
-            token: Some(ResolvedCredential::new(token, source)),
-        }
-    }
-}
-
-impl CredentialResolver for StaticCredentialResolver {
-    fn resolve<'a>(
-        &'a self,
-        request: CredentialRequest<'a>,
-    ) -> Pin<Box<dyn Future<Output = Result<Option<ResolvedCredential>, ProviderError>> + Send + 'a>>
-    {
-        Box::pin(async move {
-            if let Some(token) = request.override_token {
-                return Ok(Some(ResolvedCredential::new(
-                    token,
-                    CredentialSource::Override,
-                )));
-            }
-            Ok(self.token.clone())
-        })
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{configured_credential_host, token_from_stored_blob};

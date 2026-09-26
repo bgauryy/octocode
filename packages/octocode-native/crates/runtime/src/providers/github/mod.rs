@@ -1,16 +1,7 @@
+//! GitHub host integration: credential policy, OAuth, and relative query dates.
 mod auth;
-mod budget;
-mod content;
 mod dates;
-mod endpoint;
-mod error;
-mod history;
-mod history_item;
 pub mod login;
-mod query_syntax;
-mod search;
-mod transport;
-mod tree;
 
 pub use auth::{
     AuthMode, AuthSelection, Authentication, CredentialRequest, CredentialResolver,
@@ -18,32 +9,15 @@ pub use auth::{
     StoredCredentials, delete_platform_credential, load_stored_credentials,
     store_platform_credential, token_from_stored_blob,
 };
-pub use budget::{ExecutorConfig, GitHubBudget, GitHubResource, LimiterKey, session_snapshot};
-pub use content::{
-    CachePartition, CachedContent, ConditionalCache, ContentRequest, ContentResponse,
-    GitHubProvider, NoCache,
-};
 pub use dates::resolve_date_window;
-pub use endpoint::GitHubEndpoint;
-pub use error::{ProviderError, ProviderErrorKind, ProviderErrorReason, RateLimit};
-#[cfg(test)]
-pub(crate) use history::MAX_PR_ONLY_PAGES_TO_SKIP;
-pub use history::{
-    CommitListRequest, HistoryPage, HistoryRequest, IssueListRequest, PullListRequest,
+pub use octocode_github::{
+    CachePartition, CachedContent, CodeSearchItem, CodeSearchPage, CodeSearchRequest,
+    CommitListRequest, ConditionalCache, ContentRequest, ContentResponse, ContentsEntry,
+    ContentsListing, ExecutorConfig, GitHubBudget, GitHubEndpoint, GitHubProvider, GitHubResource,
+    GitHubTransport, GraphQlError, GraphQlPage, HistoryPage, HistoryRequest, HttpMethod,
+    IssueListRequest, LimiterKey, NoCache, ProviderError, ProviderErrorKind, ProviderErrorReason,
+    PullListRequest, RateLimit, RepositoryMetadata, RepositorySearchPage, RepositorySearchRequest,
+    RequestContext, RequestSpec, ResponsePage, RetryPolicy, SearchName, TextMatch, TreeEntry,
+    TreeRequest, TreeResponse, qualifier_value, quote_search_keyword, search_phrase,
+    session_snapshot, validate_qualifier_value, validate_search_name,
 };
-pub use query_syntax::{
-    SearchName, qualifier_value, quote_search_keyword, search_phrase, validate_qualifier_value,
-    validate_search_name,
-};
-pub use search::{
-    CodeSearchItem, CodeSearchPage, CodeSearchRequest, RepositoryMetadata, RepositorySearchPage,
-    RepositorySearchRequest, TextMatch, TreeEntry, TreeRequest, TreeResponse,
-};
-pub use transport::{
-    GitHubTransport, GraphQlError, GraphQlPage, HttpMethod, RequestContext, RequestSpec,
-    ResponsePage, RetryPolicy,
-};
-pub use tree::{ContentsEntry, ContentsListing};
-
-#[cfg(test)]
-mod tests;

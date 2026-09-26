@@ -58,7 +58,9 @@ Note friction, gaps, or wrong defaults and log them (comment/issue) instead of s
                        ├──────────────▶ INTERFACES  octocode-mcp · octocode (CLI) · octocode-vscode
                        │                             (import contracts + types from @octocodeai/config/schema|mcp)
                        └──────────────▶ BRAIN       @octocodeai/octocode-native — build.rs embeds contract/ in place
+                                                     ├── crates/cli + crates/runtime-napi (host adapters)
                                                      ├── crates/runtime  (validate · execute · secure · shape)
+                                                     ├── crates/github   (HTTP, budgets, GitHub protocol)
                                                      └── crates/engine   (ripgrep, AST, LSP, minify, secrets)
 ```
 
@@ -97,7 +99,7 @@ Workspace packages (`packages/*`) and one external core. Each package has its ow
 | Package | npm name | Role |
 |---|---|---|
 | [`octocode-config`](packages/octocode-config) | `@octocodeai/config` | **Content/context layer + the single contract generator.** Zero-dep env/config loader (`.` entry; single source for home, env, protected keys), the tool-contract hub (`./schema`, `./mcp` re-export core), and the generated `contract/` (embed JSON, fixtures, provenance, Rust `tool_types.rs`) + TS tool types. Every interface and native consume contracts from here. |
-| [`octocode-native`](packages/octocode-native) | `@octocodeai/octocode-native` | **Brain and distribution owner.** Two Rust crates: runtime policy/CLI/N-API plus reusable engine primitives. Publishes runtime at `.`/`./runtime` and primitives at `./engine` through one six-platform family. |
+| [`octocode-native`](packages/octocode-native) | `@octocodeai/octocode-native` | **Brain and distribution owner.** Five Rust crates: runtime policy/orchestration, GitHub protocol, CLI hosts, runtime N-API adapter, and engine primitives/addon. Publishes runtime at `.`/`./runtime` and primitives at `./engine` through one six-platform family. |
 | [`octocode-extension-rust`](packages/octocode-extension-rust) | `@octocodeai/octocode-extension-rust` | Rust primitives for agent hosts: filesystem snapshots, mutations, durability, line diff. Separate from the research engine. |
 | `@octocodeai/octocode-core` *(external)* | sibling repo | Authors all public tool contracts (Zod schemas, descriptions, examples). Source of truth; consumed only through `@octocodeai/config` after `yarn contracts:regen`. |
 
@@ -207,10 +209,10 @@ yarn docs:verify · yarn health:check · yarn deps:dedupe   # docs links, worksp
 ```
 
 **Use `yarn build:dev` locally** (debug native + extension-rust + TS). `yarn build` compiles in
-**release**, and `octocode-native` rebuilds its Rust dep graph **~3× per run** — the runtime crate
-as a CLI bin (`--no-default-features`) **and** as a napi cdylib (`--features napi-addon`), plus the
-engine addon (`--features portable-default,napi-addon`). Those are three distinct feature sets Cargo
-can't share, so a cold release build is ~25 min (dominated by the engine crate at `codegen-units=1`).
+**release**. Native builds produce the CLI executables from `octocode-cli`, the runtime addon
+from `octocode-runtime-napi`, and the engine addon with `portable-default,napi-addon`. Runtime and
+GitHub are reusable libraries; actual compilation reuse depends on features, target and compiler
+flags. Measure with Cargo timings instead of assuming a fixed multiplier or build duration.
 Reserve `yarn build` for release/perf-representative artifacts; `build:dev` for everything else.
 `[profile.dev]` emits line-tables-only debuginfo and `split-debuginfo="unpacked"` (skips macOS
 `dsymutil`); deps carry none. For optimized-but-fast local artifacts use `--profile profiling`

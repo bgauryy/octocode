@@ -51,8 +51,9 @@ exposed context without defining a second tool schema or an OS permission policy
 Plain `skill` returns the embedded `SKILL.md`: one CLI and the shared routine.
 Host attachment is `attach --help`. `skill --vendor <host>` returns the body
 without install frontmatter. Managed `run` workers get `catalog::worker_skill()`
-once: the workflow rules without identity, presence or delivery setup the host
-owns. No prompt is regenerated per message.
+once: the explicit Workflow section, preceded by the selected tool names, without
+the full CLI map or setup the host owns. A coverage test checks that the skill
+command map includes every catalog command. No prompt is regenerated per message.
 
 ## Message flow
 
@@ -135,8 +136,8 @@ renders bounded changes from those records; a workspace revision and receiver vi
 cache suppress repeated context without introducing another routing authority.
 
 SQLite stores identities, subscriptions, leases, messages, deliveries, attachments,
-dispatches and audit. Migrations preserve historical schemas and require an explicit
-upgrade with no active workers. Reads do not create missing stores. SQLite triggers
+dispatches and audit. Only the current development schema is supported; mismatched
+stores are rejected without repair. Reads do not create missing stores. SQLite triggers
 audit conforming raw writes; message bodies remain in the message table rather than
 being copied into audit events. Pruning removes expired leases, not conversation history.
 

@@ -24,7 +24,7 @@ Paths are relative to the monorepo root; `CORE` = `../octocode-mcp-host/packages
 | Output shaping | `src/response/mod.rs`, `runtime/{response,response_stage,render,continuations,cursor}.rs`, `tools/result.rs` | Rows, evidence, `next.*`, compact CLI |
 | Security | `src/security/{content,walk,registry}.rs`, `src/policy/` | Redaction, path sandbox |
 | MCP registration | `packages/octocode-mcp/src/native/index.ts` (instructions), `src/public.ts` | Thin forward, no logic |
-| CLI | `packages/octocode/src/cli/{native-delegate,parser,options}.ts`, `commands/scheme.ts`; native CLI `crates/runtime/src/cli/` | Rendering, flags |
+| CLI | `packages/octocode/src/cli/{native-delegate,parser,options}.ts`, `commands/scheme.ts`; native CLI `crates/cli/src/cli/` | Rendering, flags |
 | Config | `packages/octocode-config/config-contract.json` → `packages/octocode-config/scripts/generate-config-contract.ts` → `src/config/contract.generated.ts`, `docs/generated/CONFIG_SETTINGS.md`; native struct from `crates/runtime/build.rs`; runtime `src/config/` | One declared knob, one resolver |
 | Docs | `docs/OCTOCODE_TOOLS.md`, `docs/TOOL_DATA_CONTRACT.md`, `docs/MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md`, `docs/CONFIGURATION.md`, `docs/OCTOCODE_MCP.md`, `packages/octocode/docs/OCTOCODE_CLI.md` | Match live behavior |
 

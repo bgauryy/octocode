@@ -1,13 +1,10 @@
-//! Native execution shared by the CLI and the optional MCP addon.
+//! Native execution shared by the CLI and the MCP addon.
 //! Migration is incremental; an absent handler must never delegate to Node.
 
 // Production code is held to the `expect_used`/`unwrap_used`/`panic` denials in
 // Cargo.toml `[lints]`. Test code is exempt: tests legitimately assert with
 // `.unwrap()`/`.expect()`/`panic!`.
 #![cfg_attr(test, allow(clippy::expect_used, clippy::unwrap_used, clippy::panic))]
-
-#[cfg(feature = "napi-addon")]
-mod adapter_napi;
 
 pub mod cache;
 mod civil_date;

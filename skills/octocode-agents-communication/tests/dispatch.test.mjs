@@ -142,6 +142,22 @@ test('unreachable Claude attempts stay visible and are not silently retried', t 
   assert.equal(f.call('inbox', {}, f.b.id).items.length, 1);
 });
 
+function listener(f, session, extra = []) {
+  const child = spawn(binary, ['listen', '--workspace', f.workspace, '--database', f.database, '--session', session, ...extra]);
+  let stdout = '', stderr = '';
+  child.stdout.on('data', x => stdout += x); child.stderr.on('data', x => stderr += x);
+  const closed = new Promise(resolve => child.on('close', code => resolve(code)));
+  const started = new Promise((resolve, reject) => {
+    child.stdout.on('data', () => { if (stdout.includes('"listening"')) resolve(); });
+    child.on('close', () => reject(Error(`listen exited: ${stderr}`)));
+  });
+  started.catch(() => {});
+  return { child, closed, started, output: () => ({ stdout, stderr }) };
+}
+const until = async (check, ms = 5000) => {
+  for (const deadline = Date.now() + ms; Date.now() < deadline; await new Promise(r => setTimeout(r, 25))) if (check()) return true;
+  return false;
+};
 test('listen survives vendor failures with backoff and keeps mail queued', async t => {
   const f = fixture(t);
   const port = await new Promise(resolve => { const s = createServer(); s.listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => resolve(port)); }); });

@@ -17,7 +17,8 @@ use tokio_util::sync::CancellationToken;
 
 pub const GITHUB_APP_CLIENT_ID: &str = "178c6fc778ccc68e1d6a";
 
-pub(crate) fn client_id_for_host<'a>(host: &str, configured: Option<&'a str>) -> &'a str {
+/// Select the shared OAuth client for native CLI and Node authentication.
+pub fn client_id_for_host<'a>(host: &str, configured: Option<&'a str>) -> &'a str {
     configured
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| {
@@ -199,30 +200,10 @@ async fn auth_call<T>(
             )
         })?;
     let budget = super::GitHubBudget::global();
-    let state = budget.key_state(&super::LimiterKey::for_url(&origin, None), None);
     let deadline = Instant::now() + LOGIN_HTTP_TIMEOUT * 2;
-    // OAuth web-origin calls have no API bucket; only the key's secondary
-    // cooldown and circuit apply.
-    state
-        .wait_unblocked(
-            "auth",
-            budget.config(),
-            Duration::from_secs(10),
-            deadline,
-            cancellation,
-        )
+    let _admission = budget
+        .admit_auth(&origin, Duration::from_secs(10), deadline, cancellation)
         .await?;
-    let _admission = state
-        .admit(
-            Some(super::budget::Group::Auth),
-            budget.config(),
-            false,
-            Duration::from_secs(10),
-            deadline,
-            cancellation,
-        )
-        .await?;
-    super::budget::count_call();
     tokio::select! {
         _ = cancellation.cancelled() => Err(login_cancelled()),
         result = call => result,

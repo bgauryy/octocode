@@ -61,10 +61,10 @@ On Alpine / musl Linux the shim detects `/etc/alpine-release` and resolves
 # dev build
 yarn workspace @octocodeai/octocode-native build:dev
 # or
-cargo build --manifest-path packages/octocode-native/Cargo.toml -p octocode-native --bins --no-default-features
+cargo build --manifest-path packages/octocode-native/Cargo.toml -p octocode-cli --bins --no-default-features
 
 # release build (LTO + strip)
-cargo build --manifest-path packages/octocode-native/Cargo.toml -p octocode-native --bins --release --no-default-features
+cargo build --manifest-path packages/octocode-native/Cargo.toml -p octocode-cli --bins --release --no-default-features
 ```
 
 Binary locations:
@@ -76,16 +76,20 @@ packages/octocode-native/target/release/octocode
 ## Architecture
 
 ```text
-crates/runtime  ── Rust rlib ──▶ crates/engine
-      │                              │
-      ├─ native CLI                  └─ primitive N-API addon (`./engine`)
-      └─ NativeRuntime addon (`.` / `./runtime`)
+crates/cli ──────────┐
+                    ├──▶ crates/runtime ───▶ crates/github
+crates/runtime-napi ┘          │
+       │                       └───────────▶ crates/engine
+       └─ NativeRuntime addon                └─ primitive N-API addon
 ```
 
-The runtime crate owns policy, providers, contracts, cancellation, response
-shaping, and CLI behavior. The engine crate owns reusable search, syntax,
-minification, security, graph, and LSP algorithms. They remain separate crates
-and separate addons even though one npm distribution owns their artifacts.
+The runtime library owns policy, credentials, contracts, cancellation, tool
+orchestration, and response shaping. The CLI crate owns both executables; the
+runtime N-API crate owns Node conversion and lifecycle. The GitHub crate owns
+protocol and transport services with explicit inputs, without runtime configuration
+or credential discovery. The engine retains reusable algorithms and its existing
+primitive addon. All five Rust crates are internal (`publish = false`); one npm
+distribution still ships four artifacts per platform.
 
 ### Language boundary
 
@@ -108,7 +112,10 @@ custom LSP configuration remain language-agnostic. See
 
 ```
 packages/octocode-native/
-├─ crates/runtime/               ← ToolRuntime, CLI, runtime N-API
+├─ crates/runtime/               ← pure ToolRuntime library
+├─ crates/cli/                   ← CLI and regex worker binaries
+├─ crates/runtime-napi/          ← runtime Node adapter
+├─ crates/github/                ← GitHub protocol services
 ├─ crates/engine/                ← reusable primitives + engine N-API
 ├─ js/                           ← independent runtime and engine loaders
 ├─ bin/                          ← platform-selecting CLI launchers
@@ -264,11 +271,11 @@ every other command delegates to this binary.
 ## Test
 
 ```sh
-# all tests
-cargo test --manifest-path packages/octocode-native/Cargo.toml
+# all Rust libraries, CLI, and adapter tests
+yarn workspace @octocodeai/octocode-native test:rust
 
 # CLI integration tests only
-cargo test --manifest-path packages/octocode-native/Cargo.toml --test cli
+cargo test --manifest-path packages/octocode-native/Cargo.toml -p octocode-cli --test cli
 
 # via yarn
 yarn workspace @octocodeai/octocode-native test
@@ -276,7 +283,7 @@ yarn workspace @octocodeai/octocode-native test
 
 ## Key constraints
 
-- **No NAPI in the CLI binary.** NAPI is only compiled with `--features napi-addon` on the lib target.
+- **No NAPI in the CLI binary or runtime library.** Runtime N-API is isolated in `crates/runtime-napi`; engine bindings remain feature-gated.
 - **No Node fallback for research or auth.** The binary terminates with an error rather than shelling out to Node. The `skill` command delegates to the Node CLI by design.
 - **Strict clippy.** `unwrap_used = deny`, `dbg_macro = deny`.
 - **clap v4 derive.** All argument parsing uses `#[derive(Parser)]` / `#[derive(Args)]` — no builder API.

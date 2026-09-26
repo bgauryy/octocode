@@ -16,6 +16,13 @@ export declare class NativeLspClient {
   getReadiness(): 'progressIdle' | 'settledWithoutProgress' | 'timeout' | null;
   getRecentStderr(): Array<string>;
   openDocument(filePath: string, content: string): Promise<void>;
+  /** Wait for project readiness on first open; returns null when updating an already open document. */
+  openDocumentAndWait(
+    filePath: string,
+    content: string,
+    settleMs?: number | undefined | null,
+    timeoutMs?: number | undefined | null
+  ): Promise<'progressIdle' | 'settledWithoutProgress' | 'timeout' | null>;
   closeDocument(filePath: string): Promise<void>;
   getDefinition(
     filePath: string,

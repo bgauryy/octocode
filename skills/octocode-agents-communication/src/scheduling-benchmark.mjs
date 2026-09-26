@@ -81,12 +81,11 @@ export async function main() {
   const call = (fixture, command, input = {}, session) => JSON.parse(execFileSync(cli,
     [command, JSON.stringify(input), '--workspace', fixture.workspace, '--database', fixture.database,
       ...(session ? ['--session', session] : [])], { encoding: 'utf8', timeout: 10000 }));
-  const nativeTarget = `${process.arch === 'arm64' ? 'aarch64' : 'x86_64'}-${process.platform === 'darwin' ? 'apple-darwin' : 'unknown-linux-gnu'}`;
   const files = ['src/scheduling-benchmark.mjs', ...readdirSync(join(packageRoot, 'src')).filter(path => path.endsWith('.rs')).map(path => `src/${path}`),
     'SKILL.md',
     'scripts/pi-extension.mjs',
     'scripts/agents-communication',
-    `scripts/bin/${nativeTarget}/octocode-agents-communication`];
+    `scripts/octocode-agents-communication`];
   const subject = Object.fromEntries(files.map(path => [path, hash(readFileSync(join(packageRoot, path)))]));
   const versions = Object.fromEntries(Object.keys(models).map(vendor => [vendor,
     execFileSync(vendor, ['--version'], { encoding: 'utf8', timeout: 10000 }).trim()]));

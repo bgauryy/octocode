@@ -1,6 +1,6 @@
 [package]
 name = "octocode-native"
-version = "20.0.0"
+version.workspace = true
 publish = false
 edition.workspace = true
 rust-version.workspace = true
@@ -8,22 +8,10 @@ autobins = false
 autoexamples = false
 license.workspace = true
 repository.workspace = true
-description = "Native Octocode tool runtime and command-line interface"
+description = "Native Octocode tool execution library"
 
 [lib]
-crate-type = ["rlib", "cdylib"]
-
-[[bin]]
-name = "octocode"
-path = "src/main.rs"
-
-[[bin]]
-name = "octocode-regex-worker"
-path = "src/bin/regex_worker.rs"
-
-[features]
-default = []
-napi-addon = ["dep:napi", "dep:napi-derive", "dep:napi-build"]
+crate-type = ["rlib"]
 
 [dependencies]
 serde = { workspace = true }
@@ -31,16 +19,14 @@ serde_json = { workspace = true }
 toml = { version = "0.9", features = ["preserve_order"] }
 serde_yaml_ng = { workspace = true }
 regex = { workspace = true }
+# Generated contract types use ECMAScript pattern validation.
 regress = "0.12"
 url = { workspace = true }
-clap = { version = "4", features = ["derive"] }
 base64 = "0.23"
 sha2 = { workspace = true }
 hmac = "0.13"
 getrandom = "0.3"
 aes-gcm = { version = "0.11.1", default-features = false, features = ["aes", "alloc", "zeroize"] }
-flate2 = "1"
-zip = { version = "2", default-features = false, features = ["deflate"] }
 # http2 is intentionally omitted: it links the `h2` stack (HPACK tables, ~0.2 MB)
 # and no code path relies on HTTP/2 semantics — GitHub's REST/raw endpoints all
 # serve over HTTP/1.1. Re-add "http2" if a future endpoint requires h2.
@@ -51,13 +37,11 @@ secrecy = "0.10"
 keyring-core = "1"
 hex = { workspace = true }
 octocode-engine = { path = "../engine", default-features = false, features = ["portable-default", "embedded-ast-grep-rewrite"] }
+octocode-github = { path = "../github" }
 tokio = { workspace = true, features = ["fs", "rt-multi-thread", "macros", "sync", "time", "signal", "process", "io-util"] }
 tokio-util = { version = "0.7", default-features = false }
-napi = { workspace = true, optional = true }
-napi-derive = { workspace = true, optional = true }
 
 [build-dependencies]
-napi-build = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
@@ -79,8 +63,7 @@ windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_
 windows-native-keyring-store = "1"
 
 # Inherits the shared floor from [workspace.lints] (root Cargo.toml). The runtime
-# is the CLI-owning binary, so it deliberately does NOT deny print_stdout /
-# print_stderr — that stricter policy lives only in the engine library's inline
-# lint block.
+# keeps the existing shared policy; the engine library owns its stricter
+# stdout/stderr lint policy.
 [lints]
 workspace = true

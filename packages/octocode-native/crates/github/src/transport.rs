@@ -253,7 +253,7 @@ impl<R: CredentialResolver> GitHubTransport<R> {
         digest.update(self.endpoint.rest(&[])?.as_str().as_bytes());
         digest.update([0]);
         if let Some(credential) = credential {
-            digest.update(credential.expose().as_bytes());
+            digest.update(credential.expose_secret().as_bytes());
         }
         digest.update([0]);
         if let Some(session) = session {
@@ -272,7 +272,7 @@ impl<R: CredentialResolver> GitHubTransport<R> {
                 .endpoint
                 .rest(&[])
                 .unwrap_or_else(|_| self.endpoint.graphql()),
-            credential.map(super::ResolvedCredential::expose),
+            credential.map(super::ResolvedCredential::expose_secret),
         );
         self.budget.key_state(&key, self.state_dir.as_deref())
     }
@@ -440,7 +440,8 @@ impl<R: CredentialResolver> GitHubTransport<R> {
             .header("x-github-api-version", "2022-11-28")
             .headers(spec.headers.clone());
             if let Some(token) = &credential {
-                request = request.header(AUTHORIZATION, format!("Bearer {}", token.expose()));
+                request =
+                    request.header(AUTHORIZATION, format!("Bearer {}", token.expose_secret()));
             }
             if let Some(body) = &spec.body {
                 request = request.json(body);

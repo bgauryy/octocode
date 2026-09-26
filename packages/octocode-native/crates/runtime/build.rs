@@ -921,8 +921,5 @@ fn main() -> Result<(), Box<dyn Error>> {
     generate_config_contract()?;
     embed_tool_contract()?;
 
-    #[cfg(feature = "napi-addon")]
-    napi_build::setup();
-
     Ok(())
 }

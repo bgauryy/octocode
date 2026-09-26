@@ -28,7 +28,7 @@ impl AuthSelection {
         }
     }
     pub fn token(&self) -> &str {
-        self.credential.expose()
+        self.credential.expose_secret()
     }
 }
 

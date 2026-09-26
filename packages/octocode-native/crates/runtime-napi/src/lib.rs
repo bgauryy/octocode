@@ -1,14 +1,17 @@
-use crate::providers::github::login::{
-    client_id_for_host, get_token_with_refresh_in_store, refresh_auth_token_result_in_store,
-};
-use crate::providers::github::{CredentialStore, StoredCredentials};
-use crate::runtime::{HostOptions, RuntimeError, ToolRuntime};
+//! Node host adapter for the shared Octocode runtime.
+#![cfg_attr(test, allow(clippy::expect_used, clippy::unwrap_used, clippy::panic))]
+
 use napi::{Env, bindgen_prelude::PromiseRaw};
 use napi_derive::napi;
+use octocode_native::providers::github::login::{
+    client_id_for_host, get_token_with_refresh_in_store, refresh_auth_token_result_in_store,
+};
+use octocode_native::providers::github::{CredentialStore, StoredCredentials};
+use octocode_native::runtime::{HostOptions, RuntimeError, ToolRuntime};
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-fn credential_error(error: crate::providers::github::ProviderError) -> napi::Error {
+fn credential_error(error: octocode_native::providers::github::ProviderError) -> napi::Error {
     napi::Error::new(napi::Status::GenericFailure, error.message.to_string())
 }
 
@@ -35,7 +38,7 @@ fn scrub_error_text(text: &str) -> String {
 
 /// Sanitize every string leaf of an error payload in place.
 fn scrub_error_payload(payload: &mut Value) {
-    let _ = crate::security::sanitize_json(payload, &mut |text: &str| {
+    let _ = octocode_native::security::sanitize_json(payload, &mut |text: &str| {
         Ok::<_, std::convert::Infallible>(scrub_error_text(text))
     });
 }
@@ -99,7 +102,7 @@ impl NativeRuntime {
 
     #[napi(getter)]
     pub fn abi_version(&self) -> u32 {
-        crate::NATIVE_ABI_VERSION
+        octocode_native::NATIVE_ABI_VERSION
     }
     #[napi(getter)]
     pub fn closed(&self) -> bool {

@@ -80,7 +80,7 @@ jobs:
           node src/release-smoke.mjs --output out/release-smoke.json
           node --test tests/release-evidence.test.mjs
       # Product and tooling tests drive the release binary installed under
-      # skills/.../scripts/bin/<host>. Every matrix runner is native (host ==
+      # skills/.../scripts. Every matrix runner is native (host ==
       # target), but the process tests use POSIX launchers and /bin/sh fixtures,
       # so Windows keeps only the release-evidence tests above.
       - name: Node process, integration and tooling tests

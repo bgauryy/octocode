@@ -302,11 +302,14 @@ fn git_permit(
         .config
         .persistent
         .then(|| context.config.cache_home.join("tmp").join("ratelimit"));
-    let state = budget.key_state(&LimiterKey::for_url(&url, token), state_dir.as_deref());
-    state
-        .acquire_git_blocking(budget.config(), GIT_COOLDOWN_CAP, context.deadline, &|| {
-            context.cancellation.check().is_err()
-        })
+    budget
+        .acquire_git_blocking(
+            &LimiterKey::for_url(&url, token),
+            state_dir.as_deref(),
+            GIT_COOLDOWN_CAP,
+            context.deadline,
+            &|| context.cancellation.check().is_err(),
+        )
         .map_err(|error| match error.kind {
             ProviderErrorKind::Cancelled => {
                 CloneError::new("clone.execution.cancelled", error.message.to_string())
@@ -340,7 +343,9 @@ fn run(
         .map(OsString::from)
         .chain(args)
         .collect();
-    let authorization = context.credential.map(|credential| credential.expose());
+    let authorization = context
+        .credential
+        .map(|credential| credential.expose_secret());
     // Network git operations share the host/token executor: honor its
     // secondary-limit cooldown and cap concurrent clones via the `git` group.
     let _git_permit = match authorization_url {

@@ -52,10 +52,10 @@ for (const name of ['octocode', 'octocode-regex-worker']) {
 }
 
 const libraryName = isWindows
-  ? 'octocode_native.dll'
+  ? 'octocode_runtime_napi.dll'
   : platform.startsWith('darwin')
-    ? 'liboctocode_native.dylib'
-    : 'liboctocode_native.so';
+    ? 'liboctocode_runtime_napi.dylib'
+    : 'liboctocode_runtime_napi.so';
 const addonName = `octocode-native.${platform}.node`;
 const addonPath = join(destDir, addonName);
 copyFileSync(join(srcDir, libraryName), addonPath);

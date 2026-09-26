@@ -849,7 +849,7 @@
     },
     {
       "name": "lock_many",
-      "description": "Reserve a set of file/tree leases atomically, or none (renames, multi-file work). Only ok:true grants; keep each lease ID for renew/unlock.",
+      "description": "Reserve advisory file/tree leases atomically, or none (renames, multi-file work). Only ok:true grants; keep each lease ID for renew/unlock. Does not authorize edits or fence filesystem writes.",
       "inputSchema": {
         "type": "object",
         "properties": {

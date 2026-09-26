@@ -42,12 +42,8 @@ for (const failure of ['missing', 'dirty', 'revision', 'unexecuted', 'checksum',
   assert.throws(() => verifyReleaseEvidence(root, revision, version));
 });
 
-test('the native matrix covers every target selectable by either shipped launcher', () => {
+test('the native matrix covers every supported build target', () => {
   const root = fileURLToPath(new URL('../', import.meta.url));
-  const shell = readFileSync(join(root, 'scripts/agents-communication'), 'utf8');
-  const powershell = readFileSync(join(root, 'scripts/agents-communication.ps1'), 'utf8');
-  const selectors = [...shell.matchAll(/target=([a-z0-9_-]+)/g), ...powershell.matchAll(/\$target = '([^']+)'/g)].map(match => match[1]);
-  assert.deepEqual(selectors.sort(), [...releaseTargets].sort());
   const workflow = readFileSync(join(root, '../../.github/workflows/agents-communication.yml'), 'utf8');
   const matrix = [...workflow.matchAll(/^\s+target: ([a-z0-9_-]+)$/gm)].map(match => match[1]);
   assert.deepEqual(matrix.sort(), [...releaseTargets].sort());

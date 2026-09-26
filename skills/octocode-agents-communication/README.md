@@ -1,6 +1,6 @@
 # Octocode agents communication
 
-Cross-vendor agent discovery, durable messages, advisory path leases, and host delivery. The [skill](SKILL.md) defines the agent workflow; command help is the input reference.
+Cross-vendor agent discovery, durable messages, advisory path leases, shared context memories, and host delivery. The [skill](SKILL.md) defines the agent workflow; command help is the input reference. The [capability manifest](docs/MANIFEST.md) records guarantees, pagination, storage boundaries and proposed contract simplifications.
 
 ## Get started
 
@@ -118,8 +118,8 @@ The `verify` package script runs lint (Rust format, strict Clippy and a Markdown
 
 - `src/`: Rust implementation, catalog, schema, build and evaluation tools.
 - `src/runtime/`: launcher and host adapter sources.
-- `scripts/`: generated runnable bundle, including `bin/<target>/` and checksums. Edit `src/`, then rebuild.
+- `scripts/`: generated runnable bundle, including `octocode-agents-communication` (`.exe` on Windows) and its checksum. Edit `src/`, then rebuild.
 - `tests/`: protocol, delivery, retry, trace and packaging regression tests.
 - `docs/`: storage and host integration contracts; [ARCHITECTURE.md](ARCHITECTURE.md) maps implementation ownership.
 
-The build replaces runtime output and retains other platform binaries for multi-platform packaging. Installed bundles contain only `SKILL.md` and `scripts/`; source, tests and build caches stay in the checkout.
+Each build produces one platform bundle directly in `scripts/`. Installed bundles contain only `SKILL.md` and `scripts/`; source, tests and build caches stay in the checkout.

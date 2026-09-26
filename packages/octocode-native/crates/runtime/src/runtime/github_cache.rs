@@ -208,7 +208,7 @@ impl GitHubContentCache {
             resource: resource.into(),
             partition: CachePartition {
                 endpoint: "provider-partition-v1".into(),
-                credential_fingerprint: partition.0.clone(),
+                credential_fingerprint: partition.identity().to_owned(),
             },
         }
     }
@@ -304,13 +304,42 @@ impl ConditionalCache for GitHubContentCache {
 mod tests {
     use super::*;
 
+    async fn partition(identity: &str) -> ProviderPartition {
+        use crate::providers::github::{
+            CredentialSource, GitHubEndpoint, GitHubTransport, RequestContext, RetryPolicy,
+            StaticCredentialResolver,
+        };
+        let (endpoint, credential) = identity.split_once('/').unwrap_or(("fixture", identity));
+        let transport = GitHubTransport::new(
+            GitHubEndpoint::new(
+                format!("https://{endpoint}.example/api/v3")
+                    .parse()
+                    .unwrap(),
+            )
+            .unwrap(),
+            Arc::new(StaticCredentialResolver::new(
+                credential,
+                CredentialSource::Override,
+            )),
+            RetryPolicy::default(),
+        )
+        .unwrap();
+        transport
+            .cache_partition(
+                &RequestContext::with_timeout(Duration::from_secs(1), 1),
+                None,
+            )
+            .await
+            .unwrap()
+    }
+
     #[tokio::test]
     async fn disk_cache_isolates_endpoint_and_credential_partitions() {
         let dir = tempfile::tempdir().unwrap();
         let cache = || GitHubContentCache::new(CacheConfig::default(), 7, Some(dir.path().into()));
-        let first = ProviderPartition("endpoint-a/credential-a".into());
-        let other_credential = ProviderPartition("endpoint-a/credential-b".into());
-        let other_endpoint = ProviderPartition("endpoint-b/credential-a".into());
+        let first = partition("endpoint-a/credential-a").await;
+        let other_credential = partition("endpoint-a/credential-b").await;
+        let other_endpoint = partition("endpoint-b/credential-a").await;
         let content = CachedContent {
             bytes: b"private source".to_vec(),
             etag: Some("v1".into()),
@@ -326,7 +355,7 @@ mod tests {
     async fn commit_pinned_file_bodies_skip_revalidation_but_trees_keep_etags() {
         let dir = tempfile::tempdir().unwrap();
         let cache = || GitHubContentCache::new(CacheConfig::default(), 7, Some(dir.path().into()));
-        let part = ProviderPartition("endpoint/credential".into());
+        let part = partition("endpoint/credential").await;
         let content = CachedContent {
             bytes: b"source".to_vec(),
             etag: Some("v1".into()),
@@ -354,7 +383,7 @@ mod tests {
     async fn expired_disk_entries_and_explicit_clear_do_not_survive() {
         let dir = tempfile::tempdir().unwrap();
         let cache = || GitHubContentCache::new(CacheConfig::default(), 7, Some(dir.path().into()));
-        let part = ProviderPartition("endpoint/credential".into());
+        let part = partition("endpoint/credential").await;
         let content = CachedContent {
             bytes: b"source".to_vec(),
             etag: Some("v1".into()),
@@ -402,12 +431,7 @@ mod tests {
             .unwrap(),
         )
         .unwrap();
-        assert_eq!(
-            cache
-                .get(&ProviderPartition("partition".into()), "file")
-                .await,
-            None
-        );
+        assert_eq!(cache.get(&partition("partition").await, "file").await, None);
     }
     #[tokio::test]
     async fn refuses_oversized_bodies_and_never_crosses_provider_partitions() {
@@ -419,8 +443,8 @@ mod tests {
             7,
             None,
         );
-        let one = ProviderPartition("endpoint/credential/one".into());
-        let two = ProviderPartition("endpoint/credential/two".into());
+        let one = partition("endpoint/credential/one").await;
+        let two = partition("endpoint/credential/two").await;
         let content = CachedContent {
             bytes: b"private source".to_vec(),
             etag: Some("v1".into()),
@@ -446,7 +470,7 @@ mod tests {
     #[tokio::test]
     async fn disk_bodies_are_base64_legacy_arrays_decode_and_hits_promote() {
         let dir = tempfile::tempdir().unwrap();
-        let part = ProviderPartition("endpoint/credential".into());
+        let part = partition("endpoint/credential").await;
         let body = vec![b'a'; 3000];
         let content = CachedContent {
             bytes: body.clone(),
@@ -494,7 +518,7 @@ mod tests {
             7,
             Some(dir.path().into()),
         );
-        let part = ProviderPartition("endpoint/credential".into());
+        let part = partition("endpoint/credential").await;
         let content = CachedContent {
             bytes: b"x".to_vec(),
             etag: None,
@@ -523,7 +547,7 @@ mod tests {
         let dir =
             std::env::temp_dir().join(format!("octocode-ghcache-test-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
-        let part = ProviderPartition("endpoint/credential".into());
+        let part = partition("endpoint/credential").await;
         let content = CachedContent {
             bytes: b"tree-body".to_vec(),
             etag: None,

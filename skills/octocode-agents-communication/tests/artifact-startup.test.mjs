@@ -45,7 +45,7 @@ test('startup timeout is bounded, does not retry and rejects malformed help', { 
 
 function packageFixture(t) {
   const f = fixture(t), directory = join(f.directory, '.');
-  const bin = join(directory, 'scripts/bin/fixture'); mkdirSync(bin, { recursive: true });
+  const bin = join(directory, 'scripts'); mkdirSync(bin, { recursive: true });
   writeFileSync(join(f.directory, 'package.json'), '{"version":"0.1.0"}');
   writeFileSync(join(directory, 'SKILL.md'), skill);
   const executable = join(bin, 'octocode-agents-communication');
@@ -55,7 +55,7 @@ function packageFixture(t) {
   };
   update(valid);
   const launcher = join(directory, 'scripts/agents-communication');
-  writeFileSync(launcher, '#!/bin/sh\nexec "$(dirname "$0")/bin/fixture/octocode-agents-communication" "$@"\n'); chmodSync(launcher, 0o755);
+  writeFileSync(launcher, '#!/bin/sh\nexec "$(dirname "$0")/octocode-agents-communication" "$@"\n'); chmodSync(launcher, 0o755);
   return { ...f, skillDirectory: directory, bin, executable, update };
 }
 
@@ -76,7 +76,7 @@ test('failed package verification preserves prior archive and leaves no staging 
   assert.throws(() => packSkill(f.directory, options), /Embedded skill differs/);
   assert.deepEqual(readFileSync(packed.archive), before);
   writeFileSync(join(f.bin, 'incomplete.tmp'), 'unfinished build');
-  assert.throws(() => packSkill(f.directory, options), /Unexpected platform artifact/);
+  assert.throws(() => packSkill(f.directory, options), /Unexpected runtime artifact/);
   rmSync(join(f.bin, 'incomplete.tmp'));
   writeFileSync(join(f.bin, 'SHA256SUMS'), 'wrong checksum');
   assert.throws(() => packSkill(f.directory, options), /Checksum mismatch/);

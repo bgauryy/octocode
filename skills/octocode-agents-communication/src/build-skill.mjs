@@ -14,7 +14,7 @@ execFileSync('cargo', flags, { cwd: root, stdio: 'inherit' });
 const filename = executableName(target);
 const source = join(process.env.CARGO_TARGET_DIR ?? join(root, 'target'), target, release ? 'release' : 'debug', filename);
 const output = join(root, 'scripts');
-const directory = join(output, 'bin', target);
+const directory = output;
 mkdirSync(directory, { recursive: true });
 const destination = join(directory, filename);
 // Reuse an unchanged executable; copying it needlessly forces fresh OS checks.
@@ -25,9 +25,9 @@ try {
   writeFileSync(temporary, `${installed.sha256}  ${filename}\n`);
   renameSync(temporary, checksum);
 } finally { rmSync(temporary, { force: true }); }
-// Runtime sources own every non-binary output. Keep other platforms for packaging.
+// Refresh runtime output, keeping only the current executable and checksum.
 for (const entry of readdirSync(output)) {
-  if (entry !== 'bin') rmSync(join(output, entry), { recursive: true, force: true });
+  if (![filename, 'SHA256SUMS'].includes(entry)) rmSync(join(output, entry), { recursive: true, force: true });
 }
 cpSync(join(root, 'src/runtime'), output, { recursive: true });
 console.log(JSON.stringify({ executable: destination, ...installed }));

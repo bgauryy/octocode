@@ -2051,6 +2051,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "octocode-cli"
+version = "20.0.0"
+dependencies = [
+ "clap",
+ "flate2",
+ "futures-util",
+ "hex",
+ "libc",
+ "octocode-engine",
+ "octocode-native",
+ "regress",
+ "reqwest",
+ "serde_json",
+ "serde_yaml_ng",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "toml",
+ "url",
+ "windows-sys 0.61.2",
+ "wiremock",
+ "zip",
+]
+
+[[package]]
 name = "octocode-engine"
 version = "20.0.0"
 dependencies = [
@@ -2103,6 +2129,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "octocode-github"
+version = "20.0.0"
+dependencies = [
+ "base64 0.23.1",
+ "bytes",
+ "futures-util",
+ "getrandom 0.3.4",
+ "hex",
+ "reqwest",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "url",
+ "wiremock",
+]
+
+[[package]]
 name = "octocode-native"
 version = "20.0.0"
 dependencies = [
@@ -2110,18 +2157,14 @@ dependencies = [
  "apple-native-keyring-store",
  "base64 0.23.1",
  "bytes",
- "clap",
- "flate2",
  "futures-util",
  "getrandom 0.3.4",
  "hex",
  "hmac",
  "keyring-core",
  "libc",
- "napi",
- "napi-build",
- "napi-derive",
  "octocode-engine",
+ "octocode-github",
  "regex",
  "regress",
  "reqwest",
@@ -2139,7 +2182,18 @@ dependencies = [
  "windows-sys 0.61.2",
  "wiremock",
  "zbus-secret-service-keyring-store",
- "zip",
+]
+
+[[package]]
+name = "octocode-runtime-napi"
+version = "20.0.0"
+dependencies = [
+ "napi",
+ "napi-build",
+ "napi-derive",
+ "octocode-engine",
+ "octocode-native",
+ "serde_json",
 ]
 
 [[package]]
