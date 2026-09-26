@@ -75,11 +75,24 @@ fn lock_overlap_generation_and_expiry() -> Result<()> {
     )?;
     let next = f.store.call(&f.b, "lock", &json!({"reasoning":"Exercise lock contract in an isolated regression fixture","path":"src/file"}))?;
     assert_eq!(next["ok"], true);
+    let expired = f
+        .store
+        .call(&f.a, "renew", &json!({"leaseId":first["lease"]["id"]}))?;
+    assert_eq!(expired["renewed"], false);
     assert_eq!(
-        f.store
-            .call(&f.a, "renew", &json!({"leaseId":first["lease"]["id"]}))?["renewed"],
-        false
+        expired["guidance"],
+        "No live owned lease covers this ID. Stop writing; acquire a fresh lock before resuming."
     );
+    let foreign = f
+        .store
+        .call(&f.a, "renew", &json!({"leaseId":next["lease"]["id"]}))?;
+    assert_eq!(foreign["renewed"], false);
+    assert_eq!(foreign["guidance"], expired["guidance"]);
+    let active = f
+        .store
+        .call(&f.b, "renew", &json!({"leaseId":next["lease"]["id"]}))?;
+    assert_eq!(active["renewed"], true);
+    assert!(active.get("guidance").is_none());
     assert_eq!(
         f.store
             .call(&f.a, "unlock", &json!({"leaseId":next["lease"]["id"]}))?["released"],
@@ -281,6 +294,17 @@ fn topics_snapshot_and_resume_do_not_revive_leases() -> Result<()> {
         f.store
             .call(&f.b, "renew", &json!({"leaseId":lease["lease"]["id"]}))?["renewed"],
         false
+    );
+    let fresh = f.store.call(
+        &f.b,
+        "lock",
+        &json!({"reasoning":"Acquire a fresh lease after resumed presence","path":"owned"}),
+    )?;
+    assert_eq!(fresh["ok"], true);
+    assert_eq!(
+        f.store
+            .call(&f.b, "renew", &json!({"leaseId":fresh["lease"]["id"]}))?["renewed"],
+        true
     );
     f.sql("UPDATE messages SET expiresAt=0", &[])?;
     assert_eq!(f.store.inbox(&f.b, 0)?["items"], json!([]));

@@ -224,7 +224,7 @@ impl Store {
                 if count == 1 {
                     json!({"renewed":true,"expiresAt":expires})
                 } else {
-                    json!({"renewed":false})
+                    json!({"renewed":false,"guidance":"No live owned lease covers this ID. Stop writing; acquire a fresh lock before resuming."})
                 }
             } else {
                 let count = execute(

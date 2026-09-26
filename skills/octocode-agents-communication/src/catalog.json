@@ -72,7 +72,7 @@
         },
         "additionalProperties": false
       },
-      "description": "Renew presence for 60s; optionally update task/status. Never renews leases.",
+      "description": "Renew live presence for 60s; update task/status. It cannot revive expiry or renew leases.",
       "usage": "heartbeat [json] --session <id>"
     },
     {
@@ -91,7 +91,7 @@
         ],
         "additionalProperties": false
       },
-      "description": "Resume an expired session with the same vendor; reacquire old leases. Live sessions cannot be taken over.",
+      "description": "Host/CLI: resume an expired same-vendor session; it deletes old leases. Lock fresh before writing. Live sessions cannot be taken over.",
       "usage": "resume [json] --session <id>"
     },
     {
@@ -135,7 +135,7 @@
     },
     {
       "name": "send_message",
-      "description": "Send to or topic (exclusive), or replyTo's sender. Reuse key only for identical retries; storage is not handling.",
+      "description": "Send direct/topic, or replyTo's sender. Key reuse rejects changed stored fields; ackReply may complete an identical reply.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -266,7 +266,7 @@
     },
     {
       "name": "ack",
-      "description": "Record handling (not agreement) of message, or 1\u2013100 messages atomically; all must be yours. Never ACK unfinished work.",
+      "description": "Record handling of received answers, FYIs, or completed no-reply messages; all must be yours. Final request reply: replyTo+ackReply. Never ACK unfinished work.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -381,7 +381,7 @@
     },
     {
       "name": "renew",
-      "description": "Extend one owned, live lease while working. On renewed:false or an error, stop writing and reacquire. Heartbeats do not renew leases.",
+      "description": "Renew a live owned lease while working. Known expiry: stop, do not renew; acquire fresh lock. renewed:false/error: stop and fresh lock. Expired identity: host/CLI resume first. Heartbeats never renew.",
       "inputSchema": {
         "type": "object",
         "properties": {

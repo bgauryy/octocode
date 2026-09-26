@@ -45,6 +45,14 @@ For the current host during development:
 yarn workspace @octocodeai/octocode-native build:dev
 ```
 
+Every build script runs `scripts/build-native.cjs`. It builds both host crates
+in one Cargo invocation and, concurrently, the engine addon in its own target dir
+(`target/napi-engine/`; the engine needs different features, and Cargo holds one
+lock per target dir). It then stages atomically: CLI binaries into
+`npm/<platform>/`, both addons into the package root. `build` is the same in
+release mode; `build:hosts[:dev]` / `build:engine[:dev]` build one half and
+`--serial` restores the one-dir sequential flow for comparison.
+
 For one release target:
 
 ```sh
@@ -53,7 +61,9 @@ yarn workspace @octocodeai/octocode-native build:darwin-arm64
 
 The Windows release command is `build:win32-x64-msvc`, matching its CI matrix suffix.
 
-For a complete release matrix:
+For a complete release matrix (platforms build concurrently, each in
+`target/platforms/<platform>/`; Linux targets cross-link with cargo-zigbuild and
+Windows with cargo-xwin, mirroring napi's `--cross-compile`):
 
 ```sh
 yarn workspace @octocodeai/octocode-native build:all

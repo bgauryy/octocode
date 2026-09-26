@@ -67,6 +67,10 @@ cargo build --manifest-path packages/octocode-native/Cargo.toml -p octocode-cli 
 cargo build --manifest-path packages/octocode-native/Cargo.toml -p octocode-cli --bins --release --no-default-features
 ```
 
+`scripts/build-native.cjs` builds the CLI + runtime addon (one Cargo invocation)
+and the engine addon concurrently in separate target dirs, then stages them
+atomically. Use `build:hosts:dev` or `build:engine:dev` for one half.
+
 Binary locations:
 ```sh
 packages/octocode-native/target/debug/octocode
@@ -127,18 +131,19 @@ packages/octocode-native/
 │   ├─ linux-x64-musl/
 │   └─ win32-x64-msvc/
 └─ scripts/
-    ├─ copy-binaries.cjs         ← cargo output → npm/<platform>/
+    ├─ build-native.cjs          ← concurrent hosts + engine builds → atomic staging
     └─ check-platform-binaries.cjs
 ```
 
 Build a single platform and copy binaries:
 ```sh
 yarn workspace @octocodeai/octocode-native build:darwin-arm64
-# → cargo build --release --target aarch64-apple-darwin
-# → copies binaries into npm/darwin-arm64/
+# → hosts + engine build concurrently in target/platforms/darwin-arm64/
+# → stages all four artifacts into npm/darwin-arm64/
 ```
 
-Build all platforms (requires cross-compilation toolchains / CI):
+Build all platforms concurrently (cross targets need cargo-zigbuild + zig and
+cargo-xwin; `--jobs N` overrides the CPU/memory-derived concurrency):
 ```sh
 yarn workspace @octocodeai/octocode-native build:all
 ```

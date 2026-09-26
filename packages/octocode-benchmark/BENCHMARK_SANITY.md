@@ -27,14 +27,13 @@ performance benchmark — for comparative measurement see `compare/terra-v3/`.
 cd <repo>/packages/octocode-native
 # If octocode-core (sibling repo) changed, build + relink first:
 #   (cd ../../../octocode-mcp-host/packages/octocode-core && yarn build) && (cd ../.. && yarn install)
-yarn build:darwin-arm64   # your platform: CLI binary + platform addon
-yarn build:addon          # REQUIRED for MCP — rebuilds the ROOT addon js/runtime.cjs loads
+yarn build                # release CLI into npm/<platform>/ + ROOT addons js/runtime.cjs loads
 cd ../.. && yarn workspace octocode-mcp build:dev && yarn workspace octocode build:dev
 ```
 
 > **Gotcha (load-bearing):** MCP loads the **root** `octocode-native.<platform>.node`
-> via `js/runtime.cjs`, not the `npm/<platform>/` copy. `build:darwin-arm64` alone
-> leaves MCP on the old addon — always run `build:addon` too.
+> via `js/runtime.cjs`, not the `npm/<platform>/` copy. `build` / `build:dev` (and
+> `build:<platform>` for the host platform) restage both root addons.
 
 **0.2 — Environment:**
 

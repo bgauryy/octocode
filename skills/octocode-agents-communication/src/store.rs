@@ -146,7 +146,7 @@ impl Store {
         )?;
         rows.into_iter()
             .next()
-            .ok_or_else(|| anyhow!("Unknown or expired session in this workspace. Refresh peers and copy the exact current ID; never reconstruct it. If your bound identity expired, ask the host to restore it."))
+            .ok_or_else(|| anyhow!("Unknown or expired session in this workspace. Refresh peers and copy the exact current ID; never reconstruct it. If your bound identity expired, ask its host to resume it, then acquire fresh leases before writing."))
     }
     pub(crate) fn host_identities(&self, vendor: &str, host: &str) -> Result<Vec<Value>> {
         query(

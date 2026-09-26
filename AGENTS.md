@@ -77,7 +77,7 @@ Note friction, gaps, or wrong defaults and log them (comment/issue) instead of s
 | 4b. Native | `crates/runtime/build.rs` | Embeds `contract/` **in place** (no copy); `contracts::tool_types` includes `contract/tool_types.rs`. Build fails on a fingerprint mismatch; cargo rebuilds when `contract/` changes. |
 
 **Hard rules**
-- Change a contract → edit core → `yarn contracts:regen` → rebuild. That is the whole change; there is no native script, copy, or pin to update. Rebuild native (`build:<platform>` **and** `build:addon`) right after every regen: until then the MCP server fails closed on the core/native fingerprint mismatch and new MCP sessions cannot start.
+- Change a contract → edit core → `yarn contracts:regen` → rebuild. That is the whole change; there is no native script, copy, or pin to update. Rebuild native (`yarn workspace @octocodeai/octocode-native build:dev`, or `build` for release) right after every regen: until then the MCP server fails closed on the core/native fingerprint mismatch and new MCP sessions cannot start.
 - **Never hand-write a tool wire type** — no TS interface/Zod copy in interfaces, no serde query/result struct in native. Native tools parse rows straight into the generated `<Tool>Query` and build continuations from it; they may add accessor `impl` blocks (e.g. `usize` getters) on generated types, nothing more.
 - Generated-output payloads that core leaves open (`unknown[]`) stay open — tighten the Zod output schema in core, don't add a Rust/TS shape.
 - The only native-side follow-up a contract change can force: a **new** field or discriminator value must be declared in `crates/runtime/src/contracts/field-effect-coverage.json` (and implemented). Public limit changes also trip `public_response_and_tree_limits_are_pinned` by design.
@@ -209,10 +209,14 @@ yarn docs:verify · yarn health:check · yarn deps:dedupe   # docs links, worksp
 ```
 
 **Use `yarn build:dev` locally** (debug native + extension-rust + TS). `yarn build` compiles in
-**release**. Native builds produce the CLI executables from `octocode-cli`, the runtime addon
-from `octocode-runtime-napi`, and the engine addon with `portable-default,napi-addon`. Runtime and
-GitHub are reusable libraries; actual compilation reuse depends on features, target and compiler
-flags. Measure with Cargo timings instead of assuming a fixed multiplier or build duration.
+**release**. Root builds run through `scripts/workspace-health.mjs run build --parallel`: each
+workspace starts once its dependencies finish (package deps plus `BUILD_INPUTS` edges, e.g.
+native's build.rs reads octocode-config's generated contract), so the three Cargo workspaces
+overlap. Native builds go through `packages/octocode-native/scripts/build-native.cjs`: the CLI
+binaries + runtime addon (one Cargo invocation) and the engine addon (`portable-default,napi-addon`,
+different engine features) build **concurrently in separate target dirs** (`target/` and
+`target/napi-engine/`), then stage atomically — binaries into `npm/<platform>/`, both addons into
+the package root. `--serial` restores the one-dir sequential flow for comparison.
 Reserve `yarn build` for release/perf-representative artifacts; `build:dev` for everything else.
 `[profile.dev]` emits line-tables-only debuginfo and `split-debuginfo="unpacked"` (skips macOS
 `dsymutil`); deps carry none. For optimized-but-fast local artifacts use `--profile profiling`
@@ -228,7 +232,7 @@ yarn workspace octocode build:dev        # or: yarn workspace octocode-mcp build
 $OCTO config --json && $OCTO scheme
 ```
 
-`build:dev` skips clean + lint and builds both addons in debug mode. Verify by exit code — don't inspect `target/debug/` paths. Coverage floors are per-package ratchets in `vitest.config.*` — never lower them, raise when coverage improves. Rust tests: `yarn workspace @octocodeai/octocode-native test:rust`.
+`build:dev` skips clean + lint and builds the CLI and both addons in debug mode. Verify by exit code — don't inspect `target/debug/` paths. Coverage floors are per-package ratchets in `vitest.config.*` — never lower them, raise when coverage improves. Rust tests: `yarn workspace @octocodeai/octocode-native test:rust`.
 
 ---
 

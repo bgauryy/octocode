@@ -43,10 +43,10 @@
     "minimatch@npm:10.0.1": "npm:10.2.6"
   },
   "scripts": {
-    "build": "yarn workspaces foreach -At --exclude octocode-monorepo run build",
-    "build:dev": "yarn workspace @octocodeai/octocode-native build:dev && yarn workspace @octocodeai/octocode-extension-rust build:dev && yarn workspaces foreach -At --exclude @octocodeai/octocode-native --exclude @octocodeai/octocode-extension-rust --exclude octocode-monorepo run build",
-    "build:ci": "yarn prepublish && yarn workspace @octocodeai/octocode-native build && node ./scripts/workspace-health.mjs run build --exclude @octocodeai/octocode-native --exclude @octocodeai/octocode-benchmark",
-    "build:native:all": "yarn workspace @octocodeai/octocode-extension-rust build:all && yarn workspace @octocodeai/octocode-native build:all",
+    "build": "node ./scripts/workspace-health.mjs run build --parallel",
+    "build:dev": "node ./scripts/workspace-health.mjs run build --parallel --prefer build:dev",
+    "build:ci": "yarn prepublish && node ./scripts/workspace-health.mjs run build --parallel --exclude @octocodeai/octocode-benchmark",
+    "build:native:all": "yarn workspaces foreach -Ap --include @octocodeai/octocode-extension-rust --include @octocodeai/octocode-native run build:all",
     "build:publish": "yarn prepublish && yarn build:native:all && yarn platforms:check && yarn workspace octocode-mcp build:publish",
     "deps:dedupe": "node ./scripts/dedupe-deps.mjs",
     "deps:dedupe:fix": "node ./scripts/dedupe-deps.mjs --fix",

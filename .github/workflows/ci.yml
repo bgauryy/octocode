@@ -97,7 +97,7 @@ jobs:
           workspaces: packages/octocode-native
 
       - name: Build native debug binary
-        run: yarn workspace @octocodeai/octocode-native build:runtime:dev
+        run: yarn workspace @octocodeai/octocode-native build:hosts:dev
 
       - name: Build launcher
         run: yarn workspace octocode build

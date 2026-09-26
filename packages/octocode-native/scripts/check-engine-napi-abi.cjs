@@ -3,8 +3,8 @@
  * NAPI ABI drift guard.
  *
  * `loader/index.d.ts` is the HAND-MAINTAINED type surface for the native addon;
- * `napi build` generates the real ABI types, which postbuild.cjs snapshots to
- * `.napi-abi-snapshot.d.ts` before restoring the hand loader. Nothing otherwise
+ * `napi build` generates the real ABI types, which scripts/build-native.cjs snapshots to
+ * `.napi-abi-snapshot.d.ts` (the generated loader never reaches the package root). Nothing otherwise
  * checks that the hand types still match the real ABI — a Rust `#[napi]` rename,
  * added/removed export, or changed arity drifts silently (the same failure class
  * as the patterns.rs and get_file_config drifts).
@@ -90,7 +90,7 @@ function main() {
   if (!existsSync(SNAPSHOT)) {
     console.error(
       `check-napi-abi: no ABI snapshot at ${SNAPSHOT}.\n` +
-        `Run \`yarn build:dev\` (or \`yarn build\`) first — postbuild.cjs writes it.`
+        `Run \`yarn build:dev\` (or \`yarn build\`) first — scripts/build-native.cjs writes it.`
     );
     process.exit(2);
   }

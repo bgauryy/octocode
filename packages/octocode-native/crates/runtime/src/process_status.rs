@@ -33,7 +33,8 @@ mod platform {
         let queried = unsafe { GetExitCodeProcess(handle, &mut exit_code) } != 0;
         // SAFETY: handle is non-null and owned by this function.
         unsafe { CloseHandle(handle) };
-        queried && exit_code == STILL_ACTIVE
+        // STILL_ACTIVE is an NTSTATUS (i32 259); the exit code is a u32 DWORD.
+        queried && i32::try_from(exit_code) == Ok(STILL_ACTIVE)
     }
 }
 

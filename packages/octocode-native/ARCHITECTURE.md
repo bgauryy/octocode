@@ -133,8 +133,14 @@ Configuration policy is independently owned by `@octocodeai/config` in `config-c
 
 ## Build modes
 
+`scripts/build-native.cjs` selects `octocode-cli` and `octocode-runtime-napi` in
+one Cargo invocation, so shared dependencies resolve with one feature set for the
+host artifacts. The engine addon resolves different engine features, so it builds
+concurrently in its own target dir. Measured on a 12-core M-series, a debug
+rebuild after an engine edit went from 51–56s (serial, one dir) to 41s.
+
 - Binary builds select `octocode-cli` with `--no-default-features` and contain the full CLI/runtime.
-- `build:runtime:dev` stages the host binaries into their platform package so the local CLI launcher executes the rebuilt runtime. Staging atomically replaces each executable inode to avoid stale macOS code-signature caching after an in-place overwrite.
+- Every build stages the host binaries into their platform package so the local CLI launcher executes the rebuilt runtime. Staging (binaries and addons) atomically replaces each inode — never an in-place overwrite, which can crash a running MCP server that has the addon mapped or leave a stale macOS code-signature cache.
 - Runtime addon builds select `octocode-runtime-napi` and expose the same runtime to MCP. Its optional `napi-test` feature is for Rust tests only. Engine addon builds keep `portable-default,napi-addon`.
 - Each platform package contains the optimized native CLI, regex worker, runtime addon, and engine addon.
 - Root entrypoints are lazy and independent: `.`/`./runtime` load only the runtime addon, while `./engine` loads only the engine addon.

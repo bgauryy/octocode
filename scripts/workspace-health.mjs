@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,6 +12,17 @@ const ROOT = path.resolve(__dirname, '..');
 const PACKAGE_SCRIPT_POLICY = ['build', 'lint', 'test', 'typecheck', 'verify'];
 const SKILL_SCRIPT_POLICY = ['build', 'lint', 'test'];
 const VERIFY_ORDER = ['@octocodeai/octocode-native', 'octocode-mcp', 'octocode', 'octocode-mcp-vscode'];
+// Build-order edges that are not package dependencies: the consumer's build
+// reads or rewrites files another workspace's build generates, so they must
+// never run concurrently (or out of order).
+// - native's build.rs embeds octocode-config's config-contract.json and
+//   contract/, which config's build regenerates.
+// - octocode's build.mjs re-runs agents-communication's build-skill.mjs, which
+//   writes the same outputs as that skill's own build.
+const BUILD_INPUTS = {
+  '@octocodeai/octocode-native': ['@octocodeai/config'],
+  octocode: ['@octocodeai/octocode-agents-communication'],
+};
 const BUILD_OUTPUTS = {
   'packages/octocode-mcp': ['dist/index.js'],
   'packages/octocode': ['out/octocode.js'],
@@ -110,13 +121,21 @@ function collectInternalDependencies(workspace, workspaceMap) {
   return internalDependencies;
 }
 
+function collectBuildDependencies(workspace, workspaceMap) {
+  const dependencies = collectInternalDependencies(workspace, workspaceMap);
+  for (const input of BUILD_INPUTS[workspace.name] ?? []) {
+    if (workspaceMap.has(input)) dependencies.add(input);
+  }
+  return dependencies;
+}
+
 function topologicallySort(workspaces) {
   const workspaceMap = getWorkspaceMap(workspaces);
   const inDegree = new Map(workspaces.map(workspace => [workspace.name, 0]));
   const dependents = new Map(workspaces.map(workspace => [workspace.name, new Set()]));
 
   for (const workspace of workspaces) {
-    const dependencies = collectInternalDependencies(workspace, workspaceMap);
+    const dependencies = collectBuildDependencies(workspace, workspaceMap);
     for (const dependencyName of dependencies) {
       if (!inDegree.has(dependencyName)) {
         continue;
@@ -292,7 +311,12 @@ function runCommand(command, args, cwd = ROOT) {
   }
 }
 
-function runWorkspaceScript(workspaces, scriptName) {
+function resolveScript(workspace, scriptName, preferScript) {
+  const scripts = workspace.packageJson.scripts || {};
+  return preferScript && scripts[preferScript] ? preferScript : scriptName;
+}
+
+function runWorkspaceScript(workspaces, scriptName, preferScript) {
   const eligibleWorkspaces = workspaces.filter(workspace =>
     workspace.requiredScripts.includes(scriptName)
   );
@@ -300,9 +324,78 @@ function runWorkspaceScript(workspaces, scriptName) {
   const orderedWorkspaces = topologicallySort(eligibleWorkspaces);
 
   for (const workspace of orderedWorkspaces) {
-    console.log(`\n==> ${workspace.location}: ${scriptName}`);
-    runCommand('yarn', ['workspace', workspace.name, 'run', scriptName]);
+    const script = resolveScript(workspace, scriptName, preferScript);
+    console.log(`\n==> ${workspace.location}: ${script}`);
+    runCommand('yarn', ['workspace', workspace.name, 'run', script]);
   }
+}
+
+function runPrefixed(label, command, args) {
+  return new Promise(resolve => {
+    const child = spawn(command, args, { cwd: ROOT, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+    for (const stream of [child.stdout, child.stderr]) {
+      let pending = '';
+      stream.setEncoding('utf8');
+      stream.on('data', chunk => {
+        const lines = (pending + chunk).split('\n');
+        pending = lines.pop();
+        for (const line of lines) process.stdout.write(`[${label}] ${line}\n`);
+      });
+      stream.on('end', () => pending && process.stdout.write(`[${label}] ${pending}\n`));
+    }
+    child.on('error', error => resolve({ status: 1, error }));
+    child.on('close', status => resolve({ status: status ?? 1 }));
+  });
+}
+
+/**
+ * Runs each workspace as soon as its dependencies (package + BUILD_INPUTS
+ * edges) finished. Independent packages — the separate Cargo workspaces
+ * (native, extension-rust, agents-communication) each own a target dir, so
+ * they never contend on a Cargo lock — overlap. After a failure no new task
+ * starts; running ones finish, then the run exits non-zero.
+ */
+async function runWorkspaceScriptParallel(workspaces, scriptName, preferScript) {
+  const eligibleWorkspaces = workspaces.filter(workspace =>
+    workspace.requiredScripts.includes(scriptName)
+  );
+  const workspaceMap = getWorkspaceMap(eligibleWorkspaces);
+  const results = new Map();
+  let failed = false;
+  const started = Date.now();
+
+  for (const workspace of topologicallySort(eligibleWorkspaces)) {
+    const dependencies = [...collectBuildDependencies(workspace, workspaceMap)].map(name => results.get(name));
+    results.set(
+      workspace.name,
+      Promise.all(dependencies).then(async () => {
+        if (failed) return { workspace, skipped: true };
+        const script = resolveScript(workspace, scriptName, preferScript);
+        const taskStarted = Date.now();
+        console.log(`==> ${workspace.location}: ${script}`);
+        const { status, error } = await runPrefixed(workspace.location, 'yarn', ['workspace', workspace.name, 'run', script]);
+        const seconds = ((Date.now() - taskStarted) / 1000).toFixed(1);
+        if (status !== 0) {
+          failed = true;
+          console.error(`<== ${workspace.location}: ${script} FAILED (${error?.message ?? `exit ${status}`}) after ${seconds}s`);
+        } else {
+          console.log(`<== ${workspace.location}: ${script} ok in ${seconds}s`);
+        }
+        return { workspace, status, seconds };
+      })
+    );
+  }
+
+  const outcomes = await Promise.all(results.values());
+  console.table(
+    outcomes.map(({ workspace, status, seconds, skipped }) => ({
+      workspace: workspace.location,
+      result: skipped ? 'skipped' : status === 0 ? 'ok' : 'FAILED',
+      seconds: seconds ?? '-',
+    }))
+  );
+  console.log(`${scriptName}: ${((Date.now() - started) / 1000).toFixed(1)}s wall`);
+  if (failed) process.exit(1);
 }
 
 function runVerify(workspaces) {
@@ -330,13 +423,19 @@ function runVerify(workspaces) {
   checkBuildOutputs(workspaces);
 }
 
-function main() {
+async function main() {
   const args = process.argv.slice(2);
   const excludes = [];
   const positional = [];
+  let parallel = false;
+  let preferScript;
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--exclude' && i + 1 < args.length) {
       excludes.push(args[++i]);
+    } else if (args[i] === '--parallel') {
+      parallel = true;
+    } else if (args[i] === '--prefer' && i + 1 < args.length) {
+      preferScript = args[++i];
     } else {
       positional.push(args[i]);
     }
@@ -362,11 +461,14 @@ function main() {
       return;
     case 'run':
       if (!scriptName) {
-        console.error('Usage: node scripts/workspace-health.mjs run <script> [--exclude <workspace>]');
+        console.error(
+          'Usage: node scripts/workspace-health.mjs run <script> [--parallel] [--prefer <script>] [--exclude <workspace>]'
+        );
         process.exit(1);
       }
       checkRequiredScripts(workspaces);
-      runWorkspaceScript(workspaces, scriptName);
+      if (parallel) await runWorkspaceScriptParallel(workspaces, scriptName, preferScript);
+      else runWorkspaceScript(workspaces, scriptName, preferScript);
       return;
     case 'verify':
       runVerify(workspaces);
@@ -377,4 +479,4 @@ function main() {
   }
 }
 
-main();
+await main();
