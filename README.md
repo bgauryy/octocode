@@ -339,15 +339,18 @@ Full syntax, flags, and exit codes: [Octocode CLI guide](https://github.com/bgau
 
 ## Configuration
 
-Everything is optional; Octocode runs on sensible defaults. Settings resolve from three sources, in priority order:
+Everything is optional; Octocode runs on sensible defaults. Settings resolve per field, in priority order:
 
 ```text
-environment variables  >  <octocode-home>/.octocoderc  >  built-in defaults
+environment variables  >  <project>/.octocode/.octocoderc  >  <octocode-home>/.octocoderc  >  built-in defaults
 ```
 
-1. **MCP / environment variables** (highest): per client or per project, set in your MCP config `env` or your shell.
-2. **Global config**: `<octocode-home>/.octocoderc`, machine-wide defaults read by **both the CLI and the MCP server**.
-3. **Built-in defaults**: used when neither is set.
+1. **MCP / environment variables** (highest): per client or per project, set in your MCP config `env`, your shell, or a `.env` file (workspace `.octocode/.env` beats `<octocode-home>/.env`).
+2. **Workspace config**: `<project>/.octocode/.octocoderc` in the working directory, overriding the global file field by field.
+3. **Global config**: `<octocode-home>/.octocoderc`, machine-wide defaults read by **both the CLI and the MCP server**.
+4. **Built-in defaults**: used when nothing else sets a value.
+
+A misconfigured file or value never stops Octocode: it is skipped and reported on stderr with the file path and the reason.
 
 **Octocode home** (`<octocode-home>`) holds the global config, encrypted credentials, sessions, stats, and tmp materialization caches. On every platform it is `.octocode` inside the OS home directory — `~/.octocode` on macOS and Linux, `%USERPROFILE%\.octocode` on Windows. Override it with `OCTOCODE_HOME`.
 
@@ -355,7 +358,7 @@ Remote data is shared by the CLI and MCP under `<octocode-home>/tmp/`: git clone
 
 For memory-only operation, set `storage.mode` to `"memory"` in `.octocoderc` or set `OCTOCODE_STORAGE_MODE=memory`. This prevents persistent runtime cache, materialization, session, stats, and Pi SQLite writes without deleting existing files or credentials.
 
-Set values as MCP `env` entries (per client; these win over `.octocoderc`) or globally in `<octocode-home>/.octocoderc` (JSON with comments). **Tokens never go in `.octocoderc`** — use `env` or `npx octocode auth login`.
+Set values as MCP `env` entries (per client; these win over `.octocoderc`), per project in `<project>/.octocode/.octocoderc`, or globally in `<octocode-home>/.octocoderc` (JSON with comments). **Tokens never go in `.octocoderc`** — use `env` or `npx octocode auth login`.
 
 ### Common settings
 
@@ -395,7 +398,7 @@ Most-used settings (both CLI and MCP unless noted):
 }
 ```
 
-Per-project overrides and custom LSP servers live in a workspace `.octocode/` folder. For the full `.octocoderc` schema, a ready-to-copy example, clone-cache tuning, GitHub Enterprise setup, and precedence details, see the [Configuration Reference](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md).
+Per-project overrides (`.octocode/.octocoderc`, `.octocode/.env`) and custom LSP servers live in a workspace `.octocode/` folder. For the full `.octocoderc` schema, a ready-to-copy example, clone-cache tuning, GitHub Enterprise setup, and precedence details, see the [Configuration Reference](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md).
 
 ---
 

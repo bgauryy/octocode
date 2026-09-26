@@ -89,23 +89,12 @@ export const DEFAULT_OCTOCODE_MCP_SERVER_NAME = 'octocode';
 const DEFAULT_OCTOCODE_MCP_NPX_CACHE = path.join(extensionCacheRoot(), 'mcp-npx');
 
 /**
- * Env defaults every octocode MCP server spawn must carry:
- * - OCTOCODE_MCP_FULL_TEXT: octocode-mcp compacts text content to a
- *   "structuredContent available …" stub for structured-content-aware clients;
- *   Request full text directly; the gateway also expands structured-content
- *   stubs from servers that omit it.
- * - ENABLE_LOCAL: turns on the local tool family (localSearch, localFetch, etc.). Force
- *   it rather than trusting octocode-mcp's own internal default — if that
- *   upstream default ever flips, local tools must not silently disappear here.
- * - ENABLE_CLONE: legacy and ignored. ghCloneRepo is CLI-only (persistent
- *   storage); octocode-mcp never registers it. Kept for older servers.
- * - npm_config_*: ensure npx resolves the local cache with the native addon.
- * User-supplied env values always take precedence over these defaults.
+ * Env defaults for the built-in octocode MCP server spawn: npm_config_* keeps
+ * npx resolving the extension-owned cache with the native addon. Tool
+ * availability (local tools, beta, disabled tools) is left to the user's
+ * Octocode config/env; the extension never overrides it. User env wins.
  */
 export const OCTOCODE_MCP_ENV_DEFAULTS: Record<string, string> = {
-  OCTOCODE_MCP_FULL_TEXT: 'true',
-  ENABLE_LOCAL: 'true',
-  ENABLE_CLONE: 'true',
   npm_config_include: 'optional',
   npm_config_cache: DEFAULT_OCTOCODE_MCP_NPX_CACHE,
 };
@@ -475,7 +464,7 @@ export function requestOptions(config: McpServerConfig, signal?: AbortSignal): {
 
 export function normalizeServerConfig(name: string, config: McpServerConfig): McpServerConfig {
   if (name !== DEFAULT_OCTOCODE_MCP_SERVER_NAME) return config;
-  // Always ensure full-text responses + the npm cache path; user env wins.
+  // Always ensure the npm cache path; user env wins.
   return {
     ...config,
     env: { ...OCTOCODE_MCP_ENV_DEFAULTS, ...(config.env ?? {}) },
@@ -506,37 +495,3 @@ export function configSignature(config: McpServerConfig): string {
   });
 }
 
-/** Best-effort stderr warning; never throws or touches the TUI. */
-function warnMcp(message: string): void {
-  try { process.stderr.write(`[octocode-mcp] ${message}\n`); } catch { /* stderr unavailable */ }
-}
-
-export function patchGlobalMcpOctocodeEnv(configPath = globalMcpPath()): void {
-  try {
-    if (!fs.existsSync(configPath)) return;
-    // Re-parse as raw JSON so we can write it back with minimal diff.
-    let raw: Record<string, unknown>;
-    try { raw = JSON.parse(fs.readFileSync(configPath, 'utf8')); }
-    catch { warnMcp(`global mcp.json is not valid JSON (${configPath}); skipping env patch`); return; }
-
-    const servers = raw['mcpServers'];
-    if (!isPlainRecord(servers)) return;
-    const entry = servers[DEFAULT_OCTOCODE_MCP_SERVER_NAME];
-    if (!isPlainRecord(entry)) return;
-
-    // Check whether every required env var is already present.
-    const env = isPlainRecord(entry['env']) ? entry['env'] : {};
-    const missing = Object.keys(OCTOCODE_MCP_ENV_DEFAULTS).filter(
-      (key) => !(typeof env[key] === 'string' && (env[key] as string).length > 0),
-    );
-    if (missing.length === 0) return;
-    // User-supplied values take precedence.
-    entry['env'] = { ...OCTOCODE_MCP_ENV_DEFAULTS, ...env };
-    servers[DEFAULT_OCTOCODE_MCP_SERVER_NAME] = entry;
-    raw['mcpServers'] = servers;
-    writeMcpJsonAtomic(configPath, raw);
-  } catch (err) {
-    // Must not block session start, but make the failure observable.
-    warnMcp(`failed to patch global mcp.json env: ${(err as Error)?.message ?? String(err)}`);
-  }
-}

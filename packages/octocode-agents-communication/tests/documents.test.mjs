@@ -97,9 +97,10 @@ test('context pages advance across sparse audit rows and incremental reads never
   db.exec('COMMIT');
   for (let i = 0; i < 3; i++) f.call('share_document', { name: `note-${i}.md`, content: `proof ${i}`, context: { summary: `Gotcha ${i}` } }, f.a.id);
   let page = f.call('context', { limit: 1 }, f.b.id);
-  assert.deepEqual(page.items, []); assert.ok(page.next); assert.equal(page.scanned, 200);
+  // The document registry skips unrelated audit history: the first page holds the first note.
+  assert.deepEqual(page.items.map(x => x.name), ['note-0.md']); assert.ok(page.next); assert.equal(page.scanned, 1);
   f.call('share_document', { name: 'concurrent.md', content: 'later snapshot', context: { summary: 'Published during pagination' } }, f.a.id);
-  const names = [];
+  const names = page.items.map(x => x.name);
   while (page.next) { page = f.call('context', page.next, f.b.id); names.push(...page.items.map(x => x.name)); }
   assert.deepEqual(names, ['note-0.md', 'note-1.md', 'note-2.md']);
   page = f.call('context', { after: page.cursor }, f.b.id);

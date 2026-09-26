@@ -148,10 +148,22 @@ describe('PROTECTED_KEYS', () => {
     }
   });
 
-  it('allows product settings from both dotenv sources while protecting process infrastructure', () => {
-    expect(PROTECTED_KEYS.has('GITHUB_API_URL')).toBe(false);
-    expect(PROTECTED_KEYS.has('OCTOCODE_ALLOW_PRIVATE_REGISTRY')).toBe(false);
-    expect(PROTECTED_KEYS.has('GH_HOST')).toBe(true);
+  it('keeps endpoints, sandbox roots, and executables out of a workspace .env', () => {
+    for (const k of [
+      'GITHUB_API_URL',
+      'OCTOCODE_CLASSIFICATION_API_HOST',
+      'OCTOCODE_ALLOW_PRIVATE_REGISTRY',
+      'OCTOCODE_LSP_CONFIG',
+      'ALLOWED_PATHS',
+      'WORKSPACE_ROOT',
+      'OCTOCODE_BETA',
+      'OCTOCODE_CARGO',
+      'OCTOCODE_TS_SERVER_PATH',
+      'GH_HOST',
+    ]) {
+      expect(PROTECTED_KEYS.has(k), `${k} should be protected`).toBe(true);
+    }
+    expect(PROTECTED_KEYS.has('REQUEST_TIMEOUT')).toBe(false);
   });
 
   it('does not protect tool API keys (they go in .env)', () => {
@@ -177,6 +189,26 @@ describe('PROTECTED_KEYS', () => {
       'GH_HOST',
       // A trusted-project .env must not relocate a child's config home.
       'OCTOCODE_HOME',
+      // Home-only: a workspace .env must not redirect credentials, widen the
+      // sandbox, or pick executables.
+      'OCTOCODE_TS_SERVER_PATH',
+      'OCTOCODE_RUST_SERVER_PATH',
+      'OCTOCODE_GO_SERVER_PATH',
+      'OCTOCODE_PYTHON_SERVER_PATH',
+      'OCTOCODE_JAVA_SERVER_PATH',
+      'OCTOCODE_CLANGD_SERVER_PATH',
+      'OCTOCODE_CSHARP_SERVER_PATH',
+      'OCTOCODE_SCALA_SERVER_PATH',
+      'OCTOCODE_ASM_SERVER_PATH',
+      'OCTOCODE_TRUST_PROJECT_LSP_CONFIG',
+      'OCTOCODE_CARGO',
+      'GITHUB_API_URL',
+      'OCTOCODE_BETA',
+      'ALLOWED_PATHS',
+      'WORKSPACE_ROOT',
+      'OCTOCODE_ALLOW_PRIVATE_REGISTRY',
+      'OCTOCODE_LSP_CONFIG',
+      'OCTOCODE_CLASSIFICATION_API_HOST',
     ];
     expect([...PROTECTED_KEYS].sort()).toEqual([...CANONICAL].sort());
   });

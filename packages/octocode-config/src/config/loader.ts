@@ -64,21 +64,25 @@ function parseJson5(content: string): unknown {
 
 // ─── Path helpers ─────────────────────────────────────────────────────────────
 
-/** Absolute path to the `.octocoderc` config file. */
+/** Absolute path to the global `<home>/.octocoderc` config file. */
 export function getConfigFilePath(home: string = getOctocodeHome()): string {
   return path.join(home, '.octocoderc');
 }
 
-/** True when the `.octocoderc` file exists at the canonical location. */
+/** Absolute path to the workspace `<cwd>/.octocode/.octocoderc` config file. */
+export function getProjectConfigFilePath(cwd: string = process.cwd()): string {
+  return path.join(path.resolve(cwd), '.octocode', '.octocoderc');
+}
+
+/** True when the global `.octocoderc` file exists at the canonical location. */
 export function configExists(home?: string): boolean {
   return existsSync(getConfigFilePath(home));
 }
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
-export function loadConfigSync(home?: string): LoadConfigResult {
-  const filePath = getConfigFilePath(home);
-
+/** Load one `.octocoderc`-format file (JSON with comments and trailing commas). */
+export function loadConfigFileSync(filePath: string): LoadConfigResult {
   if (!existsSync(filePath)) {
     return { success: false, error: 'Config file does not exist', path: filePath };
   }
@@ -107,6 +111,16 @@ export function loadConfigSync(home?: string): LoadConfigResult {
     const message = e instanceof Error ? e.message : String(e);
     return { success: false, error: `Failed to parse config file: ${message}`, path: filePath };
   }
+}
+
+/** Load the global `<home>/.octocoderc`. */
+export function loadConfigSync(home?: string): LoadConfigResult {
+  return loadConfigFileSync(getConfigFilePath(home));
+}
+
+/** Load the workspace `<cwd>/.octocode/.octocoderc`. */
+export function loadProjectConfigSync(cwd?: string): LoadConfigResult {
+  return loadConfigFileSync(getProjectConfigFilePath(cwd));
 }
 
 export async function loadConfig(home?: string): Promise<LoadConfigResult> {

@@ -2,29 +2,12 @@
 use anyhow::{Context, Result, bail};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde_json::{Value, json};
-use std::{net::IpAddr, time::Duration};
+use std::time::Duration;
 
 pub fn validate(endpoint: &str) -> Result<()> {
-    let uri: ureq::http::Uri = endpoint.parse()?;
-    let ip: IpAddr = uri
-        .host()
-        .unwrap_or("")
-        .trim_matches(['[', ']'])
-        .parse()
-        .context("OpenCode endpoint requires a literal loopback IP address")?;
-    if uri.scheme_str() != Some("http")
-        || !ip.is_loopback()
-        || uri.port_u16().is_none_or(|port| port == 0)
-        || uri.path() != "/"
-        || uri.query().is_some()
-        || endpoint.contains('#')
-        || uri.authority().is_some_and(|a| a.as_str().contains('@'))
-    {
-        bail!(
-            "OpenCode endpoint must be http://loopback-ip:port; no credentials, path, query or fragment"
-        );
-    }
-    Ok(())
+    super::loopback(endpoint, "http", false)
+        .map(|_| ())
+        .map_err(|error| anyhow::anyhow!("OpenCode {error}"))
 }
 
 pub struct OpenCode {

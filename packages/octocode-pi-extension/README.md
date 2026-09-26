@@ -60,7 +60,7 @@ The prompt and effective catalog refresh at the next turn boundary. MCP discover
 Octocode configuration is shared by the CLI, MCP server, and this extension. Resolution order is:
 
 ```text
-environment variables > <octocode-home>/.octocoderc > built-in defaults
+environment variables > <project>/.octocode/.octocoderc > <octocode-home>/.octocoderc > built-in defaults
 ```
 
 Existing `.octocoderc` files remain valid. The optional storage setting is backward-compatible; omitting it keeps persistent behavior.

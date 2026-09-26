@@ -65,6 +65,18 @@ Separate Rust/N-API package for filesystem snapshots, guarded mutations, durabil
 
 Private evaluation workspace for controlled comparisons, VRPT scoring, routing regressions, graders, and reproducible reports.
 
+## Development and internal environment variables
+
+These are not user configuration settings and are not part of `.octocoderc`.
+
+| Variable | Read by | Effect |
+|---|---|---|
+| `OCTOCODE_NATIVE_BIN` | `octocode` CLI launcher | Absolute path to a native `octocode` binary used instead of the packaged platform binary; a missing path disables native delegation. |
+| `OCTOCODE_NATIVE_BINDING` | `octocode-mcp` | Path to a candidate `.node` addon loaded instead of the packaged one. Ignored when `NODE_ENV=production`. |
+| `OCTOCODE_ALLOW_CONTRACT_DRIFT` | `octocode-mcp` | `1` downgrades the core/native contract-fingerprint mismatch from a startup failure to a stderr warning. Ignored when `NODE_ENV=production`. |
+| `OCTOCODE_SKILL_DELEGATED` | native `octocode skill` | Internal recursion guard set when the native binary delegates `skill` to the npm CLI; do not set it. |
+| `XDG_CONFIG_HOME` | native `octocode install` (Linux) | Locates IDE/client config directories (default `~/.config`). It never moves the Octocode home, which only `OCTOCODE_HOME` overrides. |
+
 ## Ownership rules
 
 - Public tool behavior belongs only in `octocode-native` Rust.

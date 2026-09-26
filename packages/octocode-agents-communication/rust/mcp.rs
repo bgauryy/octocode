@@ -1,4 +1,9 @@
-use crate::{catalog, cli::output, store::Store, wire::read_frame};
+use crate::{
+    catalog,
+    cli::{compact, emit as output},
+    store::Store,
+    wire::read_frame,
+};
 use anyhow::Result;
 use serde_json::{Value, json};
 
@@ -6,7 +11,23 @@ pub fn serve(store: &Store, session: &str, selection: Option<&str>) -> Result<()
     // A running server has one embedded contract. Retain it across requests.
     let tools = catalog::selected_tools(selection)?;
     let mut reader = std::io::stdin().lock();
-    while let Some(line) = read_frame(&mut reader)? {
+    loop {
+        let line = match read_frame(&mut reader) {
+            Ok(Some(line)) => line,
+            Ok(None) => break,
+            // Reject only the oversized request; the ones queued behind it still get answers.
+            Err(error) if error.is::<crate::wire::OversizedFrame>() => {
+                crate::wire::skip_line(&mut reader)?;
+                output(
+                    &json!({"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":error.to_string()}}),
+                )?;
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
+        if line.iter().all(u8::is_ascii_whitespace) {
+            continue;
+        }
         let request: Value = match serde_json::from_slice(&line) {
             Ok(value) => value,
             Err(_) => {
@@ -51,7 +72,9 @@ pub fn serve(store: &Store, session: &str, selection: Option<&str>) -> Result<()
                     Err(anyhow::anyhow!("Unknown tool: {name}"))
                 };
                 match result {
-                    Ok(value) => json!({"content":[{"type":"text","text":value.to_string()}]}),
+                    Ok(value) => {
+                        json!({"content":[{"type":"text","text":compact(&value).to_string()}]})
+                    }
                     Err(error) => {
                         json!({"isError":true,"content":[{"type":"text","text":error.to_string()}]})
                     }

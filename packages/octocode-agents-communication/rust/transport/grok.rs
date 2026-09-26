@@ -8,7 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-const MAX_FRAME: usize = 8 * 1024 * 1024;
+use crate::wire::MAX_FRAME;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const TURN_TIMEOUT: Duration = Duration::from_secs(300);
 
@@ -19,12 +19,7 @@ pub fn validate(endpoint: &str) -> Result<()> {
     }
     #[cfg(unix)]
     {
-        use std::os::unix::fs::{FileTypeExt, MetadataExt};
-        let metadata = std::fs::symlink_metadata(path)?;
-        if !metadata.file_type().is_socket() || metadata.uid() != nix::unistd::geteuid().as_raw() {
-            bail!("Grok endpoint must be a socket owned by this OS user, not a symlink");
-        }
-        Ok(())
+        super::owned_socket(path)
     }
     #[cfg(not(unix))]
     {
@@ -145,35 +140,38 @@ impl Grok {
         Ok(Some(frame))
     }
     // Preserve partial headers and bodies across timeouts; never read_exact into a discarded buffer.
+    // Drain what the socket already holds until one frame completes: a large frame
+    // must not trickle in one small chunk per poll.
     fn frame(&mut self) -> Result<Option<Value>> {
-        if let Some(frame) = self.buffered_frame()? {
-            return Ok(Some(frame));
-        }
-        #[cfg(unix)]
-        {
-            let mut chunk = [0u8; 8192];
-            match self.socket.read(&mut chunk) {
-                Ok(0) => bail!(
-                    "Grok leader closed; delivery may have succeeded; inspect before retrying"
-                ),
-                Ok(size) => self.bytes.extend_from_slice(&chunk[..size]),
-                Err(e)
-                    if matches!(
-                        e.kind(),
-                        std::io::ErrorKind::WouldBlock
-                            | std::io::ErrorKind::TimedOut
-                            | std::io::ErrorKind::Interrupted
-                    ) =>
-                {
-                    return Ok(None);
-                }
-                Err(e) => return Err(e.into()),
+        loop {
+            if let Some(frame) = self.buffered_frame()? {
+                return Ok(Some(frame));
             }
-            self.buffered_frame()
-        }
-        #[cfg(not(unix))]
-        {
-            bail!("Grok native leader delivery requires Unix")
+            #[cfg(unix)]
+            {
+                let mut chunk = [0u8; 64 * 1024];
+                match self.socket.read(&mut chunk) {
+                    Ok(0) => bail!(
+                        "Grok leader closed; delivery may have succeeded; inspect before retrying"
+                    ),
+                    Ok(size) => self.bytes.extend_from_slice(&chunk[..size]),
+                    Err(e)
+                        if matches!(
+                            e.kind(),
+                            std::io::ErrorKind::WouldBlock
+                                | std::io::ErrorKind::TimedOut
+                                | std::io::ErrorKind::Interrupted
+                        ) =>
+                    {
+                        return Ok(None);
+                    }
+                    Err(e) => return Err(e.into()),
+                }
+            }
+            #[cfg(not(unix))]
+            {
+                bail!("Grok native leader delivery requires Unix")
+            }
         }
     }
     fn response(&mut self, expected: u64) -> Result<Option<Value>> {
@@ -190,7 +188,9 @@ impl Grok {
                             .ok_or_else(|| anyhow!("Grok ACP payload must be text"))?,
                     )?;
                     if rpc.get("method").is_some() && rpc.get("id").is_some() {
-                        self.send_rpc(json!({"jsonrpc":"2.0","id":rpc["id"],"error":{"code":-32601,"message":"Communication delivery cannot approve actions or execute tools"}}))?;
+                        let mut refusal = crate::wire::refusal(&rpc["id"]);
+                        refusal["jsonrpc"] = json!("2.0");
+                        self.send_rpc(refusal)?;
                     } else if rpc["id"] == expected {
                         if rpc.get("error").is_some() {
                             bail!("Grok ACP request failed: {}", rpc["error"]);
@@ -287,6 +287,35 @@ mod tests {
         }
         peer.write_all(&bytes[bytes.len() - 1..])?;
         assert_eq!(client.frame()?, Some(json!({"type":"pong"})));
+        Ok(())
+    }
+    #[test]
+    fn large_frame_arrives_in_one_poll() -> Result<()> {
+        let (mut client, peer) = pair()?;
+        let body = "x".repeat(200 * 1024);
+        let bytes = encoded(json!({"type":"pong","body":body}));
+        let writer = std::thread::spawn(move || {
+            let mut peer = peer;
+            peer.write_all(&bytes).map(|()| peer)
+        });
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut polls = 0;
+        let frame = loop {
+            polls += 1;
+            if let Some(frame) = client.frame()? {
+                break frame;
+            }
+            if Instant::now() >= deadline {
+                bail!("Frame never completed");
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        };
+        assert_eq!(frame["body"].as_str().map(str::len), Some(200 * 1024));
+        assert!(
+            polls < 10,
+            "a buffered frame must not need one poll per 8 KiB: {polls}"
+        );
+        writer.join().map_err(|_| anyhow!("writer panicked"))??;
         Ok(())
     }
     #[test]

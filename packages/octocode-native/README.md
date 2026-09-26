@@ -209,7 +209,7 @@ contract is identical to the MCP server tool of the same name.
 | `ghGetHistoryItem` | Read one PR, issue, commit, or comparison. |
 | `ghCloneRepo` | Clone into the local cache for offline analysis. |
 | `artifactSearch` | Package lookup/discovery across 8 registries. |
-| `clasify` | Apply Noul, Choice, or Score questions to one resource matrix or a batch of independent matrices. Requires `OCTOCODE_CLASSIFICATION_API`; CLI calls without it report the missing key. |
+| `clasify` | Apply Noul, Choice, or Score questions to one resource matrix or a batch of independent matrices. Requires a classification key (`OCTOCODE_CLASSIFICATION_API`, `OCTOCODE_JEV_KEY`, or `classification.api` in `.octocoderc`); CLI calls without one report the missing key. |
 
 ### System
 

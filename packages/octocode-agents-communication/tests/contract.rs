@@ -72,12 +72,12 @@ fn lock_overlap_generation_and_expiry() -> Result<()> {
     assert_eq!(next["ok"], true);
     assert_eq!(
         f.store
-            .call(&f.a, "renew", &json!({"lease":first["lease"]["id"]}))?["renewed"],
+            .call(&f.a, "renew", &json!({"leaseId":first["lease"]["id"]}))?["renewed"],
         false
     );
     assert_eq!(
         f.store
-            .call(&f.a, "unlock", &json!({"lease":next["lease"]["id"]}))?["released"],
+            .call(&f.a, "unlock", &json!({"leaseId":next["lease"]["id"]}))?["released"],
         false
     );
     Ok(())
@@ -154,7 +154,7 @@ fn portable_case_and_unicode_aliases_conflict_before_creation() -> Result<()> {
             .entity_list(&f.b, "lease", &json!({"path":second}))?;
         assert_eq!(view["items"][0]["id"], held["lease"]["id"]);
         f.store
-            .call(&f.a, "unlock", &json!({"lease":held["lease"]["id"]}))?;
+            .call(&f.a, "unlock", &json!({"leaseId":held["lease"]["id"]}))?;
     }
     f.store
         .call(&f.a, "lock", &json!({"reasoning":"Exercise lock contract in an isolated regression fixture","path":"SRC","kind":"tree"}))?;
@@ -181,10 +181,7 @@ fn symlink_parent_traversal_matches_os_identity() -> Result<()> {
     let held = f
         .store
         .call(&f.a, "lock", &json!({"reasoning":"Exercise lock contract in an isolated regression fixture","path":"alias/../shared.txt"}))?;
-    assert_eq!(
-        held["lease"]["path"],
-        json!(fs::canonicalize(root.join("alias/../shared.txt"))?)
-    );
+    assert_eq!(held["lease"]["path"], json!("real/shared.txt"));
     assert_eq!(
         f.store
             .call(&f.b, "lock", &json!({"reasoning":"Exercise lock contract in an isolated regression fixture","path":"real/shared.txt"}))?["ok"],
@@ -277,7 +274,7 @@ fn topics_snapshot_and_resume_do_not_revive_leases() -> Result<()> {
     assert_eq!(f.store.claim(&f.b, "new")?.len(), 2);
     assert_eq!(
         f.store
-            .call(&f.b, "renew", &json!({"lease":lease["lease"]["id"]}))?["renewed"],
+            .call(&f.b, "renew", &json!({"leaseId":lease["lease"]["id"]}))?["renewed"],
         false
     );
     f.sql("UPDATE messages SET expiresAt=0", &[])?;
@@ -480,7 +477,7 @@ fn deleting_and_recreating_files_does_not_release_path_reservations() -> Result<
     );
     assert_eq!(
         f.store
-            .call(&f.a, "unlock", &json!({"lease":held["lease"]["id"]}))?["released"],
+            .call(&f.a, "unlock", &json!({"leaseId":held["lease"]["id"]}))?["released"],
         true
     );
     let next = f.store.call(&f.b, "lock", &json!({"reasoning":"Exercise lock contract in an isolated regression fixture","path":"tree/file"}))?;
@@ -488,7 +485,7 @@ fn deleting_and_recreating_files_does_not_release_path_reservations() -> Result<
     assert_ne!(next["lease"]["id"], held["lease"]["id"]);
     assert_eq!(
         f.store
-            .call(&f.a, "unlock", &json!({"lease":held["lease"]["id"]}))?["released"],
+            .call(&f.a, "unlock", &json!({"leaseId":held["lease"]["id"]}))?["released"],
         false
     );
     Ok(())

@@ -17,7 +17,7 @@ pub(crate) async fn nuget(
         return exact(name, client).await;
     }
     let offset = state.offset.unwrap_or(0);
-    if offset > 3000 {
+    if offset >= REACHABLE_END {
         return Ok(ArtifactProviderPage {
             artifacts: vec![],
             next_state: None,
@@ -27,20 +27,24 @@ pub(crate) async fn nuget(
         });
     }
     let base = service_endpoint("SearchQueryService", client).await?;
-    let size = if offset == 3000 {
-        1000
+    let size = query
+        .page_size()
+        .unwrap_or(10)
+        .min((REACHABLE_END - offset) as usize);
+    // NuGet rejects skip > 3000. Past it, fetch one window from skip=3000
+    // (take stays <= 1000) and slice the caller's page out locally.
+    let (skip, drop) = if offset > MAX_SKIP {
+        (MAX_SKIP, (offset - MAX_SKIP) as usize)
     } else {
-        query
-            .page_size()
-            .unwrap_or(10)
-            .min((3000 - offset) as usize)
+        (offset, 0)
     };
+    let take = drop + size;
     let url = endpoint(
         base.as_str(),
         &[
             ("q", Some(query.terms())),
-            ("skip", Some(offset.to_string())),
-            ("take", Some(size.to_string())),
+            ("skip", Some(skip.to_string())),
+            ("take", Some(take.to_string())),
             ("prerelease", Some("true".into())),
             ("semVerLevel", Some("2.0.0".into())),
         ],
@@ -50,22 +54,25 @@ pub(crate) async fn nuget(
         .await?
         .ok_or_else(|| super::util::invalid(ArtifactSearchQueryType::Nuget))?;
     let data = object_for(&response, ArtifactSearchQueryType::Nuget)?;
-    let artifacts = rows(
+    let fetched = rows(
         data.get("data")
             .ok_or_else(|| super::util::invalid(ArtifactSearchQueryType::Nuget))?,
         ArtifactSearchQueryType::Nuget,
-    )?
-    .iter()
-    .map(|value| item(object_for(value, ArtifactSearchQueryType::Nuget)?))
-    .collect::<Result<Vec<_>, _>>()?;
+    )?;
+    let artifacts = fetched
+        .iter()
+        .skip(drop)
+        .take(size)
+        .map(|value| item(object_for(value, ArtifactSearchQueryType::Nuget)?))
+        .collect::<Result<Vec<_>, _>>()?;
     let count = total(data.get("totalHits"));
     let next_offset = offset + artifacts.len() as u64;
     let more = count
         .map(|count| next_offset < count)
-        .unwrap_or(artifacts.len() == size);
+        .unwrap_or(fetched.len() >= take);
     let reason = if more && artifacts.is_empty() {
         Some("NuGet returned an empty page before its reported total.".into())
-    } else if more && next_offset > 3000 {
+    } else if more && next_offset >= REACHABLE_END {
         Some(limit_reason())
     } else {
         None
@@ -81,6 +88,11 @@ pub(crate) async fn nuget(
         registry: None,
     })
 }
+
+/// NuGet search accepts `skip <= 3000` and `take <= 1000`, so result 4000 is
+/// the last one any request can reach.
+const MAX_SKIP: u64 = 3000;
+const REACHABLE_END: u64 = MAX_SKIP + 1000;
 
 async fn exact(
     package_name: &str,
@@ -243,12 +255,27 @@ fn item(row: &Map<String, Value>) -> Result<ArtifactItem, ArtifactError> {
     artifact.license = string(row.get("licenseExpression"));
     // NuGet serializes `repository` as either an object with `url` or a plain
     // (often empty) string, and the registration API's inline catalogEntry
-    // usually omits it entirely even when the nuspec carries one. Fall back to
-    // projectUrl so exact lookups still surface an upstream link, mirroring the
-    // packagist/rubygems source-vs-homepage fallback chains.
-    artifact.repository =
-        repository_url(row.get("repository")).or_else(|| safe_url(row.get("projectUrl")));
+    // usually omits it entirely even when the nuspec carries one. projectUrl
+    // is only a repository when it names a repo on a source host; any other
+    // projectUrl stays a homepage.
+    artifact.repository = repository_url(row.get("repository"))
+        .or_else(|| artifact.homepage.clone().filter(|url| is_source_repo(url)));
     Ok(artifact)
+}
+
+/// `https://<source host>/<owner>/<repo>…` on a known code host.
+fn is_source_repo(url: &str) -> bool {
+    let Ok(url) = Url::parse(url) else {
+        return false;
+    };
+    let host = url.host_str().unwrap_or_default().to_ascii_lowercase();
+    let host = host.strip_prefix("www.").unwrap_or(&host);
+    matches!(
+        host,
+        "github.com" | "gitlab.com" | "bitbucket.org" | "codeberg.org"
+    ) && url
+        .path_segments()
+        .is_some_and(|segments| segments.filter(|part| !part.is_empty()).count() >= 2)
 }
 
 fn repository_url(value: Option<&Value>) -> Option<String> {
@@ -323,7 +350,7 @@ fn compare_versions(left: &str, right: &str) -> Result<Ordering, ArtifactError> 
 }
 
 fn limit_reason() -> String {
-    "NuGet search supports skip up to 3000. Narrow keywords to reach additional packages.".into()
+    "NuGet search reaches only the first 4000 results (skip <= 3000, take <= 1000). Narrow keywords to reach additional packages.".into()
 }
 
 #[cfg(test)]
@@ -447,11 +474,115 @@ mod tests {
             item.registry_url
         );
         // Live catalogEntry payloads omit `repository` (verified against
-        // registration5-gz-semver2 for Newtonsoft.Json); projectUrl is the
-        // fallback upstream link.
+        // registration5-gz-semver2 for Newtonsoft.Json). A marketing
+        // projectUrl is a homepage, never a verified source repository.
+        assert_eq!(item.repository, None);
         assert_eq!(
-            item.repository.as_deref(),
+            item.homepage.as_deref(),
             Some("https://www.newtonsoft.com/json")
+        );
+    }
+
+    #[test]
+    fn project_url_is_a_repository_only_on_a_source_host() {
+        let row = |project: &str| {
+            json!({"id": "P", "projectUrl": project})
+                .as_object()
+                .cloned()
+                .unwrap()
+        };
+        let github = item(&row("https://github.com/o/r")).unwrap();
+        assert_eq!(github.repository.as_deref(), Some("https://github.com/o/r"));
+        for homepage in [
+            "https://www.newtonsoft.com/json",
+            "https://github.com/o",
+            "https://github.com.evil.example/o/r",
+        ] {
+            let artifact = item(&row(homepage)).unwrap();
+            assert_eq!(artifact.repository, None, "{homepage}");
+            assert_eq!(artifact.homepage.as_deref(), Some(homepage));
+        }
+    }
+
+    /// Search mock: echoes `take` synthetic rows starting at `skip` and
+    /// records every search request's (skip, take).
+    struct SearchMock(std::sync::Mutex<Vec<(u64, u64)>>);
+
+    impl ArtifactHttp for SearchMock {
+        fn get<'a>(
+            &'a self,
+            req: ArtifactHttpRequest,
+            _budget: &'a RequestBudget,
+        ) -> ArtifactHttpFuture<'a> {
+            let body = if req.url.path().ends_with("/v3/index.json") {
+                json!({"resources": [{"@type": "SearchQueryService/3.5.0", "@id": "https://azuresearch-usnc.nuget.org/query"}]})
+            } else {
+                let param = |name: &str| {
+                    req.url
+                        .query_pairs()
+                        .find(|(key, _)| key == name)
+                        .and_then(|(_, value)| value.parse::<u64>().ok())
+                        .unwrap()
+                };
+                let (skip, take) = (param("skip"), param("take"));
+                self.0.lock().unwrap().push((skip, take));
+                let data: Vec<_> = (skip..skip + take)
+                    .map(|index| json!({"id": format!("pkg{index}"), "version": "1.0.0"}))
+                    .collect();
+                json!({"totalHits": 50_000, "data": data})
+            };
+            Box::pin(async move {
+                Ok(ArtifactHttpResponse {
+                    status: 200,
+                    body: serde_json::to_vec(&body).unwrap(),
+                })
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn nuget_tail_pages_respect_page_size_past_the_skip_limit() {
+        let http = SearchMock(Default::default());
+        let b = budget();
+        let client = RegistryClient {
+            http: &http,
+            budget: &b,
+            cache_revision: 0,
+            cache_enabled: false,
+        };
+        let q = artifact_query(
+            json!({"type": ArtifactSearchQueryType::Nuget, "keywords": ["json"], "pageSize": 2}),
+            None,
+        );
+        let at = |offset: u64| ArtifactProviderState {
+            offset: Some(offset),
+            ..Default::default()
+        };
+        let names = |page: &ArtifactProviderPage| {
+            page.artifacts
+                .iter()
+                .map(|a| a.name.clone())
+                .collect::<Vec<_>>()
+        };
+        let page = nuget(&q, &at(3000), &client).await.unwrap();
+        assert_eq!(names(&page), ["pkg3000", "pkg3001"]);
+        assert_eq!(page.next_state.as_ref().unwrap().offset, Some(3002));
+        // Past skip=3000 the tail is sliced locally from one bounded window.
+        let page = nuget(&q, &at(3002), &client).await.unwrap();
+        assert_eq!(names(&page), ["pkg3002", "pkg3003"]);
+        // The final reachable page ends with an honest terminal limit.
+        let page = nuget(&q, &at(3998), &client).await.unwrap();
+        assert_eq!(names(&page), ["pkg3998", "pkg3999"]);
+        assert!(page.next_state.is_none());
+        assert!(page.terminal_limit.is_some());
+        let page = nuget(&q, &at(4000), &client).await.unwrap();
+        assert!(page.artifacts.is_empty() && page.terminal_limit.is_some());
+        assert!(
+            http.0
+                .lock()
+                .unwrap()
+                .iter()
+                .all(|&(skip, take)| skip <= 3000 && take <= 1000)
         );
     }
 

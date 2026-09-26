@@ -563,13 +563,20 @@ fn value_receipt(state: &Value) -> Value {
     })
 }
 
-/// Select the first canonical same-resource continuation from a body-free
-/// receipt. Map iteration is stable, so repeated runs choose the same axis.
+/// Page axes nested inside an outer page. The last inner page re-emits the
+/// outer continuation, so following the inner axis first visits every branch;
+/// following the outer axis first drops the remaining inner pages for good.
+const INNER_PAGE_AXES: &[&str] = &["nextMatchPage"];
+
+/// Select the canonical same-resource continuation from a body-free receipt:
+/// an inner page axis first, else the first entry. Map iteration is stable,
+/// so repeated runs choose the same axis.
 pub(super) fn continuation(receipt: &Value) -> Option<Value> {
-    let continuation = receipt
-        .get("next")
-        .and_then(Value::as_object)
-        .and_then(|next| next.values().next())
+    let next = receipt.get("next").and_then(Value::as_object)?;
+    let continuation = INNER_PAGE_AXES
+        .iter()
+        .find_map(|axis| next.get(*axis))
+        .or_else(|| next.values().next())
         .and_then(Value::as_object)?;
     Some(json!({
         "tool": continuation.get("tool")?,
@@ -987,6 +994,24 @@ mod tests {
         }}}]});
         let receipt = receipt("ghSearch", &state);
         assert!(continuation(&receipt).is_none(), "{receipt}");
+    }
+
+    #[test]
+    fn nested_match_pages_are_exhausted_before_the_file_page_advances() {
+        let search = |page: u32, match_page: u32| {
+            json!({"reasoning":"r","path":"/w","searchText":"marker","pageSize":1,
+                "maxMatchesPerFile":1,"page":page,"matchPage":match_page})
+        };
+        // localSearch emits the outer axis first; following it would skip the
+        // current file's remaining match rows for good.
+        let state = json!({"results":[{"index":0,"data":{"next":{
+            "nextPage":{"tool":"localSearch","confidence":"exact","query":search(2, 1)},
+            "nextMatchPage":{"tool":"localSearch","confidence":"exact","query":search(1, 2)}
+        }}}]});
+        let receipt = receipt("localSearch", &state);
+        let next = continuation(&receipt).expect("continuation");
+        assert_eq!(next["query"]["page"], 1, "{next}");
+        assert_eq!(next["query"]["matchPage"], 2, "{next}");
     }
 
     #[test]

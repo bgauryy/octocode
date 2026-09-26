@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { benchmarkModels, completeUsage, delta, gradeWorker, schedule, usage } from '../scripts/scheduling-benchmark.mjs';
+import { benchmarkModels, completeUsage, delta, gradeWorker, schedule, usage } from '../../scripts/scheduling-benchmark.mjs';
 
 test('live benchmark requires an explicit Pi model before allocating a run', () => {
   assert.throws(() => benchmarkModels({}), /Set COMMUNICATION_PI_MODEL/);

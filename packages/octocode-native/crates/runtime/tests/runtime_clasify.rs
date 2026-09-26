@@ -794,7 +794,7 @@ async fn file_chunk_scout_hydrates_five_candidates_and_returns_exact_reads() {
     for index in 0..8 {
         workspace.write(
             &format!("src/candidate{index}.txt"),
-            &format!("header\nneedle marker\nbody-only fact {index}\nfooter\n"),
+            format!("header\nneedle marker\nbody-only fact {index}\nfooter\n"),
         );
     }
     let root = workspace
@@ -1150,5 +1150,80 @@ async fn long_positive_scout_sends_only_authored_questions_and_preserves_probabi
     assert!(sent.get("windows").is_none());
     octocode_native::contracts::validate_output("clasify", &outcome.structured_content)
         .expect("pure scout output contract");
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn snippet_continuations_visit_every_file_and_match_page_before_completing() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/systemone"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "model":"resolved",
+            "answers":{"answer":{"type":"noul","noul":0.1}},
+            "usage":{"input_tokens":2,"output_tokens":1}
+        })))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    workspace.write(
+        "fixture/a.txt",
+        "marker: alpha\nmarker: secret needle\nmarker: omega\n",
+    );
+    let root = workspace.write(
+        "fixture/b.txt",
+        "marker: beta\nmarker: gamma\nmarker: delta\n",
+    );
+    let root = root.parent().unwrap().to_string_lossy().into_owned();
+    let runtime = workspace.runtime(&[
+        ("OCTOCODE_CLASSIFICATION_API", "secret".into()),
+        ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
+        ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
+    ]);
+    let mut input = json!({
+        "id":"matrix-1","reasoning":"Cover every file and match page.",
+        "resources":[{"id":"files","context":{"tool":"localSearch","query":{
+            "reasoning":"Page snippets.","path":root,"searchText":"marker",
+            "pageSize":1,"maxMatchesPerFile":1,"sort":"path"
+        }}}],
+        "questions":[{"id":"needle","type":"noul","instructions":"Does the evidence contain secret needle?"}]
+    });
+    let mut coverages = Vec::new();
+    for call in 0..10 {
+        let outcome = runtime
+            .execute(format!("page-{call}"), "clasify".into(), input.clone())
+            .await
+            .unwrap();
+        let query = &outcome.structured_content["queries"][0];
+        coverages.push(query["resources"][0]["coverage"].clone());
+        match query["next"].get("clasify") {
+            Some(next) => input = next.clone(),
+            None => break,
+        }
+    }
+    let sent = server
+        .received_requests()
+        .await
+        .unwrap()
+        .iter()
+        .map(|request| {
+            let body: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
+            body["state"].to_string()
+        })
+        .collect::<Vec<_>>();
+    let visited = |needle: &str| sent.iter().filter(|state| state.contains(needle)).count();
+    for line in ["alpha", "secret needle", "omega", "beta", "gamma", "delta"] {
+        assert_eq!(
+            visited(line),
+            1,
+            "{line} must be judged exactly once: {sent:#?}"
+        );
+    }
+    assert_eq!(coverages.len(), 6, "{coverages:?}");
+    assert!(
+        coverages[..5].iter().all(|coverage| coverage == "partial"),
+        "every page with an outstanding branch is partial: {coverages:?}"
+    );
+    assert_eq!(coverages[5], "complete", "{coverages:?}");
     runtime.close().await;
 }

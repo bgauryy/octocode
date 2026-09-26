@@ -8,23 +8,40 @@ impl Store {
         let at = now();
         let threshold = input["staleAfterMs"].as_f64().unwrap_or(300_000.0) as i64;
         let limit = input["limit"].as_f64().unwrap_or(25.0) as usize;
+        // A staged row whose offering process died stays staged forever (at-most-once:
+        // never auto-replayed). Without a live delivery owner it is reported after a
+        // short grace instead of the full stale threshold.
+        let orphaned = at - threshold.min(30_000);
+        let database = self.database.clone();
+        self.db.create_scalar_function(
+            "delivery_owner_live",
+            1,
+            rusqlite::functions::FunctionFlags::SQLITE_UTF8,
+            move |context| {
+                Ok(crate::dispatch::delivery_owner_live(
+                    &database,
+                    &context.get::<String>(0)?,
+                ))
+            },
+        )?;
         let transaction = self.db.unchecked_transaction()?;
         // Start with recipient + unacknowledged index entries; never read bodies or audit history.
-        let pending = "WITH pending AS (
+        let pending = format!("WITH pending AS (
             SELECT d.message,d.recipient,s.name,s.vendor,m.wake,m.expiresAt,
               coalesce(x.state,'queued') AS state,x.attemptedAt,x.submittedAt,
               CASE
                 WHEN x.state='uncertain' THEN 'uncertain'
                 WHEN m.wake='action' AND m.expiresAt<=?2 THEN 'expiredAction'
                 WHEN m.wake='action' AND s.expiresAt<=?2 THEN 'offlineRecipient'
-                WHEN x.state='staged' AND x.attemptedAt<=?3 THEN 'stalledOffer'
+                WHEN x.state='staged' AND (x.attemptedAt<=?3
+                  OR (x.attemptedAt<={orphaned} AND NOT delivery_owner_live(x.recipient))) THEN 'stalledOffer'
                 WHEN x.state='submitted' AND m.wake='action' AND x.submittedAt<=?3 THEN 'overdueHandling'
                 ELSE NULL END AS issue
             FROM sessions s JOIN deliveries d ON d.recipient=s.id AND d.acknowledgedAt IS NULL
             JOIN messages m ON m.id=d.message
             LEFT JOIN dispatches x ON x.message=d.message AND x.recipient=d.recipient
             WHERE s.workspace=?1)
-        ";
+        ");
         let params = [json!(self.workspace), json!(at), json!(at - threshold)];
         let counts = query(
             &transaction,
@@ -66,6 +83,7 @@ impl Store {
         } else {
             None
         };
+        issues.iter_mut().for_each(crate::dispatch::prune_nulls);
         let mut actions = serde_json::Map::new();
         for row in &issues {
             let (code, action) = match row["issue"].as_str().unwrap_or("") {
@@ -102,11 +120,14 @@ impl Store {
         } else {
             "clear"
         };
-        let result = json!({
+        let mut result = json!({
             "status":status,
             "workspace":self.workspace,"observedAt":at,"staleAfterMs":threshold,
-            "counts":counts,"issues":issues,"next":next,"actions":actions
+            "counts":counts,"issues":issues,"actions":actions
         });
+        if let Some(next) = next {
+            result["next"] = next;
+        }
         transaction.commit()?;
         Ok(result)
     }

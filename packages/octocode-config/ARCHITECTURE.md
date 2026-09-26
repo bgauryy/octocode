@@ -6,7 +6,7 @@
 
 ```text
 process environment
-      ├── home .env / .octocoderc
+      ├── home .env / .octocoderc · workspace .octocode/.env / .octocode/.octocoderc
       └── workspace .octocode/.env
                  │
                  ▼

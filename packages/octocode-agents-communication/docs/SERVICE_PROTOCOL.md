@@ -2,10 +2,7 @@
 
 This document defines how the skill, Rust runtime, database and host adapters work
 together. [DB.md](DB.md) is the exact SQLite/client contract; CLI `schema` owns
-field types and limits. [OPTIMIZATION_PLAN.md](OPTIMIZATION_PLAN.md) separates
-implemented behavior, acceptance gates and future work. The
-[service evaluation](SERVICE_EVALUATION.md) records the tested artifact, native
-adapter coverage, measured outputs and unresolved limits.
+field types and limits.
 
 ## Service boundary
 
@@ -87,7 +84,12 @@ Before planning shared edits, inspect peers and ask about overlaps or capabiliti
 only when that information changes the next action.
 
 An attachment binds a registered session to one explicit delivery mechanism.
-Use one delivery owner for that identity. Resolve identity from the host binding,
+Use one delivery owner for that identity: `listen`, `dispatch` and `run` hold an
+OS advisory lock (`<db>.owner-<hash>.lock` beside the DB) for their lifetime, so a
+second owner for the same session fails fast; the kernel releases it on crash.
+A managed `run` worker stops when its launcher exits (reparenting); on Linux its
+vendor process also receives `PR_SET_PDEATHSIG` so a killed worker orphans nothing.
+Resolve identity from the host binding,
 not from an incoming peer's claimed metadata. All agents share the same database
 path; a per-agent default database accidentally creates disconnected networks.
 
@@ -118,7 +120,7 @@ is already resident on the owning leader. Resume/load can replace that session's
 MCP configuration. It validates the socket owner and protocol version and waits up
 to 300 seconds for prompt completion while renewing presence. No routing model or
 recipient process is created. A completed native request does not replace the
-recipient's explicit DB acknowledgement. See [GROK_INTEGRATION.md](GROK_INTEGRATION.md).
+recipient's explicit DB acknowledgement.
 
 OpenCode's adapter disables environment proxies and redirects and permits only
 HTTP literal-loopback endpoints with an explicit port and no credentials or path.
@@ -128,7 +130,7 @@ Before staging, the adapter verifies the session ID and canonical directory, the
 checks status. All requests include the canonical directory query. Busy/retry recipients defer; invalid metadata or failed preflight
 leaves messages queued. HTTP connections are reused within a listener, with no
 empty-mail HTTP polling. Status can change after preflight: ambiguous submission
-still requires inspection, never automatic fallback. See the [OpenCode evaluation](OPENCODE_EVALUATION.md).
+still requires inspection, never automatic fallback.
 An HTTP acknowledgement proves neither inference completion nor handling. Native
 capability depends on the host/version and endpoint, not merely the vendor name.
 
@@ -236,8 +238,21 @@ snapshot. This is notification fanout, not a retained event-stream subscription.
 Use deterministic host events for delivery: context injection and safe idle
 boundaries. Use presence heartbeats independently of model work. Do not attach a
 model turn to every filesystem event, heartbeat, receipt or passive notice.
-Event-driven dispatch hints are a future optimization; polling with revalidation
-provides bounded discovery of committed eligible work.
+`listen` polls cheaply: it reads `PRAGMA data_version` every tick (250 ms, 1 s
+after 10 s idle) and runs candidate queries only after another connection commits,
+after a submission, or every 5 s for time-based eligibility. Presence renews on a
+wall-clock schedule; an identity that expired during suspend is resumed. Vendor
+failures before staging (connect, preflight, non-200) and after an offer (already
+marked `uncertain`) are logged to stderr and retried with backoff from 250 ms to
+30 s; busy (deferred) recipients back off to 5 s. DB, identity and database
+replacement errors stop the listener. Persistent-socket adapters (Codex, Grok)
+reconnect per batch so unread recipient events never accumulate.
+
+Delivered context is one rule line plus a JSON array. Items name the sender
+(`from`), carry its exact `sender` ID once per batch, and omit absent optional
+fields; `wake` appears only for `passive` FYIs. `hook '{"format":"json"}'`
+returns `items` with IDs (plus `dispatchToken` under `deferConfirm`), `context`
+when non-empty and `action:true` when any item requests handling.
 
 ## Leases and cooperative handoff
 
@@ -270,8 +285,7 @@ rather than adopting or deleting them automatically.
 Optional scoped document summaries use this same audit record. `context` performs
 a bounded, read-only path/branch/expiry lookup with explicit pagination and an
 incremental cursor. It creates no message, dispatch or ACK and never reads bodies
-for the host. See [the discovery contract](CONTEXT_DISCOVERY.md); persistent notes
-do not replace active questions or handoffs.
+for the host. Persistent notes do not replace active questions or handoffs.
 
 Keep prompts/tools stable for a session, and deliver only new peer IDs, attribution,
 intent and content. Request only needed catalog entries and document pages. Native
@@ -328,6 +342,4 @@ failed selected vendor in a multi-vendor run.
   writer require short transactions; WAL is not a cross-host broker.
 
 These sources guide adapter selection, not a blanket compatibility guarantee.
-Use [GROK_INTEGRATION.md](GROK_INTEGRATION.md), [VENDOR_MESSAGES.md](VENDOR_MESSAGES.md),
-[HOST_HOOKS.md](HOST_HOOKS.md) and
-[BENCHMARKS.md](BENCHMARKS.md) for actual exercised hosts, receipts and limits.
+Host event contracts are in [HOST_HOOKS.md](HOST_HOOKS.md).

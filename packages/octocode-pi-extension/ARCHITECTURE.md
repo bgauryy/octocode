@@ -522,7 +522,8 @@ All config/env flows through `@octocodeai/config`:
 |---|---|
 | `getOctocodeHome()` | `OCTOCODE_HOME` env → platform default |
 | `propagateOctocodeEnv({ cwd, trusted, env })` | global + project `.env` → `process.env` |
-| `loadOctocoderc(home?)` | `.octocoderc` config file |
+| `loadOctocoderc(home?)` | global `.octocoderc` config file |
+| `loadOctocodercLayers({ home, cwd, env })` | `[workspace, global]` `.octocoderc` layers for `resolveConfigFields` |
 | `PROTECTED_KEYS` | Keys never propagated |
 
 Never reimplement — import from `@octocodeai/config`.

@@ -187,44 +187,76 @@ fn warn_unknown_keys(root: &Map<String, Value>, warnings: &mut Vec<String>) {
     }
 }
 
-pub fn validate_config(config: &Value) -> ValidationResult {
+/// One rejected config value: the contract path to drop (a field or a whole
+/// section) and a human-readable reason that already names that path.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ConfigIssue {
+    pub path: String,
+    pub message: String,
+}
+
+/// Field-level validation. Every error is attributed to the smallest contract
+/// path that can be discarded on its own, so callers can keep the rest of a
+/// file instead of rejecting it whole.
+pub fn config_issues(config: &Value) -> (Vec<ConfigIssue>, Vec<String>) {
     let Some(root) = config.as_object() else {
-        return ValidationResult {
-            valid: false,
-            errors: vec!["Configuration must be a JSON object".into()],
-            warnings: vec![],
-            config: None,
-        };
+        return (
+            vec![ConfigIssue {
+                path: String::new(),
+                message: "Configuration must be a JSON object".into(),
+            }],
+            vec![],
+        );
     };
-    let mut errors = Vec::new();
+    let mut issues = Vec::new();
     let mut warnings = Vec::new();
+    let mut broken_sections = Vec::new();
 
     for section in section_paths() {
         if let Some(value) = get_path(config, &section)
             && !value.is_null()
             && !value.is_object()
         {
-            errors.push(format!("{section}: Must be an object"));
+            issues.push(ConfigIssue {
+                message: format!("{section}: Must be an object"),
+                path: section.clone(),
+            });
+            broken_sections.push(section);
         }
     }
     for field in CONFIG_FIELDS.iter().filter(|field| field.file) {
+        if broken_sections.iter().any(|section| {
+            field.section == section || field.section.starts_with(&format!("{section}."))
+        }) {
+            continue;
+        }
         let parent = if field.section.is_empty() {
             Some(root)
         } else {
             get_path(config, field.section).and_then(Value::as_object)
         };
+        let mut errors = Vec::new();
         validate_field(
             field,
             parent.and_then(|parent| parent.get(field.key)),
             &mut errors,
             &mut warnings,
         );
+        issues.extend(errors.into_iter().map(|message| ConfigIssue {
+            path: field.path.to_owned(),
+            message,
+        }));
     }
     warn_unknown_keys(root, &mut warnings);
-    let valid = errors.is_empty();
+    (issues, warnings)
+}
+
+pub fn validate_config(config: &Value) -> ValidationResult {
+    let (issues, warnings) = config_issues(config);
+    let valid = issues.is_empty();
     ValidationResult {
         valid,
-        errors,
+        errors: issues.into_iter().map(|issue| issue.message).collect(),
         warnings,
         config: valid.then(|| config.clone()),
     }

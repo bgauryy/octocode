@@ -108,7 +108,7 @@ const ROLE_SKILLS: Record<string, string[]> = {
 };
 const LOCAL_MCP_TOOLS = ['localSearch', 'localFetch', 'astSearch', 'lspSearch'];
 const ROLE_MCP_TOOLS: Record<string, string[]> = {
-  researcher: [...LOCAL_MCP_TOOLS, 'ghSearch', 'ghGetFileContent', 'ghSearchHistory', 'ghGetHistoryItem', 'ghCloneRepo', 'artifactSearch'],
+  researcher: [...LOCAL_MCP_TOOLS, 'ghSearch', 'ghGetFileContent', 'ghSearchHistory', 'ghGetHistoryItem', 'artifactSearch'],
   planner: [...LOCAL_MCP_TOOLS, 'ghSearch', 'ghGetFileContent', 'artifactSearch'],
   architect: [...LOCAL_MCP_TOOLS, 'ghSearchHistory', 'ghGetHistoryItem'],
   implementer: LOCAL_MCP_TOOLS,

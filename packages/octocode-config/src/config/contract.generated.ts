@@ -270,7 +270,7 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
       {
         "name": "GITHUB_API_URL",
         "priority": 0,
-        "dotenv": "all",
+        "dotenv": "home",
         "normalize": "trim",
         "invalid": "skip"
       }
@@ -328,7 +328,8 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "env": [
       {
         "name": "OCTOCODE_BETA",
-        "priority": 0
+        "priority": 0,
+        "dotenv": "home"
       }
     ],
     "defaultValue": false
@@ -346,7 +347,8 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "env": [
       {
         "name": "ALLOWED_PATHS",
-        "priority": 0
+        "priority": 0,
+        "dotenv": "home"
       }
     ],
     "defaultValue": [],
@@ -365,6 +367,7 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
       {
         "name": "WORKSPACE_ROOT",
         "priority": 0,
+        "dotenv": "home",
         "normalize": "trim"
       }
     ],
@@ -456,7 +459,7 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
       {
         "name": "OCTOCODE_ALLOW_PRIVATE_REGISTRY",
         "priority": 0,
-        "dotenv": "all"
+        "dotenv": "home"
       }
     ],
     "defaultValue": false
@@ -474,6 +477,7 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
       {
         "name": "OCTOCODE_LSP_CONFIG",
         "priority": 0,
+        "dotenv": "home",
         "normalize": "trim"
       }
     ],
@@ -708,7 +712,7 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
       {
         "name": "OCTOCODE_CLASSIFICATION_API_HOST",
         "priority": 0,
-        "dotenv": "all",
+        "dotenv": "home",
         "normalize": "trim"
       }
     ],
@@ -759,8 +763,8 @@ export type RuntimeSurface = (typeof RUNTIME_SURFACES)[number];
 export const DEFAULT_RUNTIME_SURFACE: RuntimeSurface = RUNTIME_SURFACES[0];
 export const ENV_TOKEN_VARS = ["OCTOCODE_TOKEN","GH_TOKEN","GITHUB_TOKEN","GITHUB_PERSONAL_ACCESS_TOKEN"] as const;
 export type EnvTokenVar = (typeof ENV_TOKEN_VARS)[number];
-export const PROTECTED_KEY_NAMES = ["PATH","HOME","SHELL","USER","LOGNAME","PWD","TMPDIR","NODE_OPTIONS","PYTHON","GH_HOST","OCTOCODE_HOME"] as const;
-export const HOME_TRUSTED_ENV_KEYS = [] as const;
+export const PROTECTED_KEY_NAMES = ["PATH","HOME","SHELL","USER","LOGNAME","PWD","TMPDIR","NODE_OPTIONS","PYTHON","GH_HOST","OCTOCODE_HOME","OCTOCODE_TS_SERVER_PATH","OCTOCODE_RUST_SERVER_PATH","OCTOCODE_GO_SERVER_PATH","OCTOCODE_PYTHON_SERVER_PATH","OCTOCODE_JAVA_SERVER_PATH","OCTOCODE_CLANGD_SERVER_PATH","OCTOCODE_CSHARP_SERVER_PATH","OCTOCODE_SCALA_SERVER_PATH","OCTOCODE_ASM_SERVER_PATH","OCTOCODE_TRUST_PROJECT_LSP_CONFIG","OCTOCODE_CARGO","GITHUB_API_URL","OCTOCODE_BETA","ALLOWED_PATHS","WORKSPACE_ROOT","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_LSP_CONFIG","OCTOCODE_CLASSIFICATION_API_HOST"] as const;
+export const HOME_TRUSTED_ENV_KEYS = ["OCTOCODE_TS_SERVER_PATH","OCTOCODE_RUST_SERVER_PATH","OCTOCODE_GO_SERVER_PATH","OCTOCODE_PYTHON_SERVER_PATH","OCTOCODE_JAVA_SERVER_PATH","OCTOCODE_CLANGD_SERVER_PATH","OCTOCODE_CSHARP_SERVER_PATH","OCTOCODE_SCALA_SERVER_PATH","OCTOCODE_ASM_SERVER_PATH","OCTOCODE_TRUST_PROJECT_LSP_CONFIG","OCTOCODE_CARGO","GITHUB_API_URL","OCTOCODE_BETA","ALLOWED_PATHS","WORKSPACE_ROOT","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_LSP_CONFIG","OCTOCODE_CLASSIFICATION_API_HOST"] as const;
 export const CONFIG_SOURCE_ENV_KEYS = ["OCTOCODE_GITHUB_CLIENT_ID","GITHUB_API_URL","OCTOCODE_GITHUB_GRAPHQL","ENABLE_LOCAL","OCTOCODE_ENABLE_LOCAL","OCTOCODE_BETA","ALLOWED_PATHS","WORKSPACE_ROOT","TOOLS_TO_RUN","DISABLE_TOOLS","REQUEST_TIMEOUT","MAX_RETRIES","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_LSP_CONFIG","OCTOCODE_OUTPUT_FORMAT","OCTOCODE_REDACT_EMAILS","OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH","OCTOCODE_STORAGE_MODE","OCTOCODE_CACHE_TTL_MS","OCTOCODE_MAX_CACHE_SIZE","OCTOCODE_MAX_CLONES","OCTOCODE_EXTENSION_STORAGE_MODE","OCTOCODE_CLASSIFICATION_TYPE","OCTOCODE_CLASSIFICATION_API","OCTOCODE_JEV_KEY","OCTOCODE_CLASSIFICATION_API_HOST","OCTOCODE_CLASSIFICATION_CONCURRENCY","OCTOCODE_ENABLE_STATS"] as const;
 export type ConfigSourceEnvKey = (typeof CONFIG_SOURCE_ENV_KEYS)[number];
 export const DEFAULT_CONFIG_VALUE: ResolvedConfigData = { "session": { "enableStats": false }, "classification": { "maxConcurrency": 10, "type": "jev" }, "cloneCache": { "maxClones": 50, "maxSize": 2147483648, "ttl": 86400000 }, "storage": { "mode": "persistent" }, "output": { "pagination": { "defaultCharLength": 50000 }, "redactEmails": false, "format": "yaml" }, "lsp": { "configPath": undefined }, "network": { "allowPrivateRegistry": false, "maxRetries": 3, "timeout": 30000 }, "tools": { "disabled": null, "enabled": null }, "local": { "workspaceRoot": undefined, "allowedPaths": [], "beta": false, "enabled": true }, "github": { "graphqlEnabled": true, "apiUrl": "https://api.github.com" }, "version": 1, "extension": { "storage": { "mode": "persistent" } } };

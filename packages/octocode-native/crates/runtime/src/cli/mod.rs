@@ -311,8 +311,12 @@ fn compact_tool_catalog(
                         .and_then(Value::as_bool)
                         .unwrap_or(false);
                     let mut availability = json!({ "enabled": enabled });
+                    let tool_list_excluded =
+                        tool.get("unavailableReason").and_then(Value::as_str) == Some("toolsList");
                     if !enabled {
-                        if let Some(env_var) = availability_env_var(name) {
+                        if let Some(env_var) =
+                            availability_env_var(name).filter(|_| !tool_list_excluded)
+                        {
                             availability["envVar"] = Value::String(env_var.to_owned());
                             if let Some(hint) = dropped_key_hint(env_var, dotenv) {
                                 availability["hint"] = Value::String(hint);
@@ -475,6 +479,7 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
                 .clone()
                 .unwrap_or_else(|| view.home.join(".octocoderc"));
             let config_file_exists = view.config_path.is_some();
+            let project_config_exists = view.project_config_path.is_some();
             if json {
                 return write_json(
                     &json!({
@@ -485,6 +490,11 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
                             "exists": config_file_exists,
                             "keys": view.config_keys,
                         },
+                        "projectConfigFile": {
+                            "path": view.project_config_file,
+                            "exists": project_config_exists,
+                            "keys": view.project_config_keys,
+                        },
                         "envFiles": {
                             "global": view.global_env_path,
                             "project": view.project_env_path,
@@ -492,6 +502,7 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
                         "envKeys": view.loaded_keys,
                         "skippedProtected": view.skipped_protected,
                         "skippedExisting": view.skipped_existing,
+                        "diagnostics": view.diagnostics,
                         "note": "Key names only; values are never printed.",
                     }),
                     true,
@@ -508,12 +519,27 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
                     " (not found)"
                 }
             );
+            println!(
+                "project config file: {}{}",
+                view.project_config_file.display(),
+                if project_config_exists {
+                    ""
+                } else {
+                    " (not found)"
+                }
+            );
             println!("env files:");
             println!("  global:  {}", view.global_env_path.display());
             println!("  project: {}", view.project_env_path.display());
             if !view.config_keys.is_empty() {
                 println!("config keys ({}):", view.config_keys.len());
                 for key in &view.config_keys {
+                    println!("  {key}");
+                }
+            }
+            if !view.project_config_keys.is_empty() {
+                println!("project config keys ({}):", view.project_config_keys.len());
+                for key in &view.project_config_keys {
                     println!("  {key}");
                 }
             }
@@ -538,9 +564,7 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
                     skip.source_path.display()
                 );
             }
-            for diagnostic in &view.diagnostics {
-                eprintln!("{}: {}", diagnostic.code, diagnostic.message);
-            }
+            // Diagnostics were already printed to stderr at runtime start.
             0
         }
         Command::Auth { command, json } => match command {

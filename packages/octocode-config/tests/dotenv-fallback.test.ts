@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   CONFIG_FIELDS,
   ENV_TOKEN_VARS,
+  HOME_TRUSTED_ENV_KEYS,
 } from '../src/config/contract.generated.js';
 import { propagateOctocodeEnv, resolveEnvToken } from '../src/index.js';
 
@@ -30,7 +31,6 @@ describe('trusted dotenv credential fallbacks', () => {
     'OCTOCODE_CLASSIFICATION_API',
     'OCTOCODE_JEV_KEY',
     'OCTOCODE_CLASSIFICATION_TYPE',
-    'OCTOCODE_CLASSIFICATION_API_HOST',
   ])('%s uses process > trusted project > home per key', key => {
     writeFileSync(join(home, '.env'), `${key}=home-secret\nHOME_ONLY=home`);
     writeFileSync(join(cwd, '.octocode', '.env'), `${key}=project-secret`);
@@ -51,11 +51,30 @@ describe('trusted dotenv credential fallbacks', () => {
     }
   });
 
+  const homeOnly = new Set<string>(HOME_TRUSTED_ENV_KEYS);
+
+  it.each([...homeOnly])(
+    '%s is honored from the home .env but never from a workspace .env',
+    key => {
+      writeFileSync(join(home, '.env'), `${key}=home-value`);
+      writeFileSync(join(cwd, '.octocode', '.env'), `${key}=workspace-value`);
+      for (const trusted of [undefined, true, false]) {
+        const env: Record<string, string | undefined> = {};
+        propagateOctocodeEnv({ home, cwd, trusted, env });
+        expect(env[key]).toBe('home-value');
+      }
+      rmSync(join(home, '.env'));
+      const env: Record<string, string | undefined> = {};
+      propagateOctocodeEnv({ home, cwd, trusted: true, env });
+      expect(env[key]).toBeUndefined();
+    }
+  );
+
   it.each([
     ...new Set(
       CONFIG_FIELDS.flatMap(field => field.env.map(binding => binding.name))
     ),
-  ])('all product config bindings use the same source order: %s', key => {
+  ].filter(key => !homeOnly.has(key)))('all product config bindings use the same source order: %s', key => {
     writeFileSync(join(home, '.env'), `${key}=home-value\nHOME_ONLY=home`);
     writeFileSync(join(cwd, '.octocode', '.env'), `${key}=workspace-value`);
     const env: Record<string, string | undefined> = {};

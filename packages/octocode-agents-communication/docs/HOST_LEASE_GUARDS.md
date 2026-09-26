@@ -47,7 +47,8 @@ export default function (pi) {
 
 The default remains unchanged. With `requireLeases:true`, the adapter registers a
 `tool_call` handler for Pi's structured `write` and `edit` tools. It resolves their
-`input.path` from the event's working directory. Missing/stale bindings, missing paths, failed coverage, expired
+`input.path` from the event's working directory through the same
+`hooks/lease-check.mjs` admission call as the Claude and OpenCode guards. Missing/stale bindings, missing paths, failed coverage, expired
 results, and CLI failures return an explicit block before that tool runs. The
 adapter never auto-acquires a lease; the agent must coordinate and retry.
 

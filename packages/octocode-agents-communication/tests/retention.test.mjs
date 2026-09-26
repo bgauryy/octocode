@@ -64,9 +64,9 @@ test('compaction reclaims pages freed by expired lease pruning without removing 
   const f = fixture(t);
   const parent = message(f, 'retain-key'); message(f, 'retain-reply', { replyTo: parent });
   message(f, 'retain-uncertain', { acknowledged: false, uncertain: true });
-  const lease = f.db.prepare('INSERT INTO leases(workspace,path,kind,owner,expiresAt,reasoning) VALUES(?,?,?,?,?,?)');
+  const lease = f.db.prepare('INSERT INTO leases(workspace,path,kind,owner,expiresAt,reasoning,pathKey) VALUES(?,?,?,?,?,?,?)');
   f.db.exec('BEGIN');
-  for (let n = 0; n < 400; n++) lease.run(f.workspace, `${n}/${'p'.repeat(2048)}`, 'file', f.session, 1, 'Create expired fixture pages');
+  for (let n = 0; n < 400; n++) lease.run(f.workspace, `${n}/${'p'.repeat(2048)}`, 'file', f.session, 1, 'Create expired fixture pages', `/${n}/${'p'.repeat(2048)}`);
   f.db.exec('COMMIT');
   while (f.db.prepare('SELECT count(*) n FROM leases').get().n) f.call(['prune', '{}']);
   f.db.exec('PRAGMA wal_checkpoint(TRUNCATE)');

@@ -85,15 +85,7 @@ pub fn apply_env(
     for (key, value) in map {
         let home_trusted = HOME_TRUSTED_ENV_KEYS.contains(&key.as_str())
             && report.sources.get(key).map(String::as_str) == Some("global");
-        // Windows env vars are case-insensitive: match protected keys the same
-        // way there so a `.env` `Gh_Token=…` cannot dodge the exact-case check
-        // and fold into `GH_TOKEN`. POSIX keeps exact-case semantics.
-        let protected_key = PROTECTED_KEYS.contains(&key.as_str())
-            || (cfg!(windows)
-                && PROTECTED_KEYS
-                    .iter()
-                    .any(|protected| protected.eq_ignore_ascii_case(key)));
-        if protected_key && !home_trusted {
+        if is_protected_key(key) && !home_trusted {
             report.skipped_protected.push(key.clone());
         } else if target.get(key).is_some_and(|v| !v.trim().is_empty())
             || shadowed.contains(key.as_str())
@@ -106,6 +98,17 @@ pub fn apply_env(
         }
     }
     report
+}
+
+// Windows env vars are case-insensitive: match protected keys the same way
+// there so a `.env` `Gh_Token=…` cannot dodge the exact-case check and fold
+// into `GH_TOKEN`. POSIX keeps exact-case semantics.
+fn is_protected_key(key: &str) -> bool {
+    PROTECTED_KEYS.contains(&key)
+        || (cfg!(windows)
+            && PROTECTED_KEYS
+                .iter()
+                .any(|protected| protected.eq_ignore_ascii_case(key)))
 }
 
 pub fn merged_env(
@@ -127,6 +130,11 @@ pub fn merged_env(
             .into_iter()
             .filter(|(_, v)| !v.trim().is_empty())
         {
+            // A workspace value for a protected key is dropped later; it must
+            // not also evict the trusted home value for that key.
+            if map.contains_key(&k) && is_protected_key(&k) {
+                continue;
+            }
             sources.insert(k.clone(), "project".into());
             map.insert(k, v);
         }
@@ -172,5 +180,23 @@ pub fn parse_string_array_env(value: Option<&str>) -> Option<Vec<String>> {
                 .map(str::to_owned)
                 .collect(),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn workspace_protected_key_keeps_the_home_value() {
+        let (map, sources) = merged_env(
+            Some("GITHUB_API_URL=https://ghe.example/api/v3\nREQUEST_TIMEOUT=9000"),
+            Some("GITHUB_API_URL=http://127.0.0.1:1\nREQUEST_TIMEOUT=7000"),
+            true,
+        );
+        assert_eq!(map["GITHUB_API_URL"], "https://ghe.example/api/v3");
+        assert_eq!(sources["GITHUB_API_URL"], "global");
+        assert_eq!(map["REQUEST_TIMEOUT"], "7000");
+        assert_eq!(sources["REQUEST_TIMEOUT"], "project");
     }
 }

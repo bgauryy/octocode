@@ -6,7 +6,7 @@ pair prevents a retry from creating another message. Audit rows are append-only
 and reference the original message rather than duplicating its body. Replies also
 depend on retained parent messages and delivery visibility.
 
-Consequently, schema v6 has no automatic message, session, delivery, dispatch or
+Consequently, schema v7 has no automatic message, session, delivery, dispatch or
 audit purge. Maintenance can report retained history, remove already-expired
 leases through `prune`, compact unused SQLite pages, and create full snapshots.
 It never drops triggers or bypasses idempotency to reduce storage.
@@ -70,9 +70,12 @@ benchmark. [SQLite documents passive checkpoint behavior](https://www.sqlite.org
 
 ## Leases and archives
 
-`prune` remains the only expiry-based deletion command: it removes a bounded
-batch of expired leases and records their removal in audit. Follow its continuation
-when `morePossible` is true. It does not remove old messages or closed identities.
+`prune` remains the only expiry-based deletion command: it removes up to 100 expired
+leases (or leases of expired owners) in the bound `--workspace` and records their
+removal in audit. It never touches another workspace's leases. `next` is the same
+command while a full batch was removed, otherwise `null`. It does not remove old
+messages or closed identities. `leave` already deletes an identity's leases and
+subscriptions; a crashed identity keeps subscriptions for `resume`.
 
 `db export '{"path":"/absolute/new-snapshot.sqlite"}'` already creates a verified,
 compact, full-database snapshot without changing the live source or overwriting
@@ -80,6 +83,21 @@ an existing destination. It includes committed WAL data and every workspace.
 Keep referenced `.octocode/communication` documents separately. Snapshot deletion
 or replacement of the live DB is an operator decision; there is no implicit
 archive rotation that could discard audit history.
+
+### Why there is no purge or in-place archive command
+
+A purge of closed sessions' "unreferenced" rows was evaluated and rejected. Every
+candidate row is referenced by a protocol guarantee: sessions are foreign-key
+parents of audit, messages, deliveries and attachments; audit rows reject
+update/delete by trigger and anchor the v7 `documents` registry; message
+`(sender,key)` rows are the idempotency record a late retry is checked against;
+`replyTo` visibility checks read retained parents and deliveries. Deleting any of
+them would either require dropping integrity triggers or silently change what a
+retry, reply or audit query returns, and a partial purge could not be verified by
+the schema fingerprint. Growth is instead bounded operationally: `db export`
+takes a verified snapshot, and an operator may start a fresh store at a new path
+after all workers stop. Reads stay fast as history grows because hot paths use
+indexes (see [DB.md](DB.md#schema-v7-indexes)); `db retention` measures what is kept.
 
 ## Verification
 

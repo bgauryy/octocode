@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from 'child_process';
-import { MCP_ARGS, MCP_COMMAND } from './mcpConfig';
+import { MCP_ARGS, MCP_COMMAND, MCP_TOKEN_ENV } from './mcpConfig';
 
 type ProcessEvents = {
   getToken(): Promise<string | undefined>;
@@ -27,7 +27,7 @@ export class McpProcess {
       const token = await this.events.getToken();
       if (generation !== this.generation) return 'cancelled';
       const env = { ...process.env };
-      if (token) env.GITHUB_TOKEN = token;
+      if (token) env[MCP_TOKEN_ENV] = token;
       const child = spawn(MCP_COMMAND, [...MCP_ARGS], {
         env,
         stdio: ['pipe', 'pipe', 'pipe'],

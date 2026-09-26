@@ -131,67 +131,65 @@ async fn local_fetch_pages_and_unions_through_the_runtime() {
 }
 
 #[tokio::test]
-async fn mcp_local_fetch_cursors_stale_only_the_mutated_batch_row() {
+async fn mcp_local_fetch_snapshots_stale_only_the_mutated_batch_row() {
     let workspace = Workspace::new();
-    let first_path = workspace.write("cursor-first.txt", "first-1\nfirst-2\n");
-    let second_path = workspace.write("cursor-second.txt", "second-1\nsecond-2\n");
+    let first_path = workspace.write("snapshot-first.txt", "first-1\nfirst-2\n");
+    let second_path = workspace.write("snapshot-second.txt", "second-1\nsecond-2\n");
     let runtime = workspace.runtime(&[]);
     let initial = runtime
         .execute_mcp(
-            "mcp-local-cursor-batch".into(),
+            "mcp-local-snapshot-batch".into(),
             "localFetch".into(),
             json!({"queries":[
                 {
                     "path":first_path,
                     "chunkType":"lines",
                     "chunkSize":1,
-                    "reasoning":"Page the first cursor fixture."
+                    "reasoning":"Page the first snapshot fixture."
                 },
                 {
                     "path":second_path,
                     "chunkType":"lines",
                     "chunkSize":1,
-                    "reasoning":"Page the second cursor fixture."
+                    "reasoning":"Page the second snapshot fixture."
                 }
             ]}),
         )
         .await
         .expect("MCP localFetch batch");
-    let rows = initial["structuredContent"]["results"]
-        .as_array()
-        .expect("MCP result rows");
-    let first_cursor = rows[0]["data"]["next"]["continue"]["cursor"]
-        .as_str()
-        .expect("first row cursor")
-        .to_owned();
-    let second_cursor = rows[1]["data"]["next"]["continue"]["cursor"]
-        .as_str()
-        .expect("second row cursor")
-        .to_owned();
+    let structured = &initial["structuredContent"];
+    assert!(
+        !structured.to_string().contains("\"cursor\""),
+        "the replayable query carries source identity; no cursor duplicate: {structured}"
+    );
+    let rows = structured["results"].as_array().expect("MCP result rows");
+    let continuation = |row: usize| rows[row]["data"]["next"]["continue"]["query"].clone();
+    let (first_next, second_next) = (continuation(0), continuation(1));
+    assert_eq!(
+        first_next["snapshot"].as_str().map(str::len),
+        Some(64),
+        "{first_next}"
+    );
 
     std::fs::write(&first_path, "changed-1\nchanged-2\n").expect("mutate first source");
-    let stale = runtime
-        .execute(
-            "resume-mutated-local-row".into(),
-            "localFetch".into(),
-            json!({"cursor":first_cursor}),
-        )
-        .await
-        .expect_err("mutated source must stale its cursor");
-    assert_eq!(stale.code, "staleCursor");
-
     let resumed = runtime
         .execute(
-            "resume-unchanged-local-row".into(),
+            "resume-local-snapshot-batch".into(),
             "localFetch".into(),
-            json!({"cursor":second_cursor}),
+            json!({"queries":[first_next, second_next]}),
         )
         .await
-        .expect("unchanged source cursor remains valid");
-    assert_eq!(
-        resumed.structured_content["results"][0]["data"]["content"],
-        "second-2\n"
-    );
+        .expect("typed batch rows");
+    let rows = resumed.structured_content["results"]
+        .as_array()
+        .expect("resumed rows");
+    assert_eq!(rows[0]["status"], "error", "{}", rows[0]);
+    assert_eq!(rows[0]["data"]["errorCode"], "staleSnapshot", "{}", rows[0]);
+    let restart = &rows[0]["data"]["next"]["restart"]["query"];
+    assert_eq!(restart["path"], json!(first_path), "{}", rows[0]);
+    assert!(restart.get("snapshot").is_none(), "{restart}");
+    assert!(restart.get("offset").is_none(), "{restart}");
+    assert_eq!(rows[1]["data"]["content"], "second-2\n", "{}", rows[1]);
     runtime.close().await;
 }
 
@@ -705,6 +703,111 @@ async fn workspace_root_symbol_queries_infer_the_server_from_project_markers() {
     assert!(
         rendered.contains("missing-rust-lsp-for-root-test"),
         "the Rust route for the root should have been attempted: {rendered}"
+    );
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn ast_topology_result_pages_reject_a_changed_graph() {
+    let workspace = Workspace::new();
+    workspace.write(
+        "graph/a.ts",
+        "import { b } from './b';\nimport { c } from './c';\nexport const a = b + c;\n",
+    );
+    workspace.write("graph/b.ts", "export const b = 1;\n");
+    workspace.write("graph/c.ts", "export const c = 2;\n");
+    let runtime = workspace.runtime(&[("OCTOCODE_BETA", "true".into())]);
+    let root = workspace.workspace.join("graph");
+    let first = call(
+        &runtime,
+        "astTopology",
+        json!({"operation":"topology","analysis":"dependencies","path":root,"file":"a.ts","pageSize":1}),
+    )
+    .await
+    .expect("first topology page");
+    let next = row_data(&first)["next"]["nextPage"]["query"].clone();
+    assert!(next.is_object(), "{}", row_data(&first));
+    let second = call(&runtime, "astTopology", next.clone())
+        .await
+        .expect("unchanged second page");
+    assert_ne!(row_status(&second), "error", "{}", row_data(&second));
+    assert_eq!(
+        row_data(&second)["results"].as_array().map(Vec::len),
+        Some(1)
+    );
+
+    workspace.write("graph/aa.ts", "export const aa = 1;\n");
+    workspace.write(
+        "graph/a.ts",
+        "import { aa } from './aa';\nimport { b } from './b';\nimport { c } from './c';\nexport const a = aa + b + c;\n",
+    );
+    let stale = call(&runtime, "astTopology", next)
+        .await
+        .expect("typed stale row");
+    let data = row_data(&stale);
+    assert_eq!(data["errorCode"], "graphSnapshotChanged", "{data}");
+    assert_eq!(data["results"], json!([]), "{data}");
+    let restart = &data["next"]["restartDiagnostics"]["query"];
+    // Page 1 is the default, so compaction may omit it.
+    assert!(restart.get("page").is_none_or(|page| page == 1), "{data}");
+    assert!(restart.get("diagnosticSnapshot").is_none(), "{data}");
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn local_fetch_binary_hint_does_not_blame_an_absent_match_string() {
+    let workspace = Workspace::new();
+    let path = workspace.write("blob.ts", b"\x00\x01\x02binary\x00".as_slice());
+    let runtime = workspace.runtime(&[]);
+    let outcome = call(&runtime, "localFetch", query_path(&path, json!({})))
+        .await
+        .expect("typed binary row");
+    let data = row_data(&outcome);
+    assert_eq!(data["errorCode"], "binaryFileUnsupported", "{data}");
+    let hints = outcome.structured_content.to_string();
+    assert!(!hints.contains("remove matchString"), "{hints}");
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn local_fetch_redacted_content_is_marked_not_verbatim() {
+    let workspace = Workspace::new();
+    let path = workspace.write(
+        "fixture.ts",
+        "export const clean = 1;\nconst url = \"https://admin:hunter2secret@db.example.com:5432/app\";\n",
+    );
+    let clean = workspace.write("clean.ts", "export const clean = 1;\n");
+    let runtime = workspace.runtime(&[]);
+    for extra in [json!({}), json!({"chunkType":"lines","chunkSize":5})] {
+        let outcome = call(&runtime, "localFetch", query_path(&path, extra.clone()))
+            .await
+            .expect("redacted read");
+        let data = row_data(&outcome);
+        assert!(
+            data["content"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("[REDACTED"),
+            "{extra}: {data}"
+        );
+        let warning = data["warnings"]
+            .as_array()
+            .and_then(|warnings| {
+                warnings
+                    .iter()
+                    .filter_map(|w| w.as_str())
+                    .find(|w| w.starts_with("redactedContent"))
+            })
+            .unwrap_or_else(|| panic!("{extra}: missing redaction warning: {data}"));
+        assert!(warning.contains("not verbatim"), "{warning}");
+    }
+    let outcome = call(&runtime, "localFetch", query_path(&clean, json!({})))
+        .await
+        .expect("clean read");
+    assert!(
+        !row_data(&outcome).to_string().contains("redactedContent"),
+        "{}",
+        row_data(&outcome)
     );
     runtime.close().await;
 }

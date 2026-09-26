@@ -27,7 +27,7 @@ test('health stays read-only under a writer, omits bodies, and treats passive wa
   try {health=JSON.parse((await exec(binary,f.args('health'),{timeout:1500})).stdout);}
   finally {f.db.exec('ROLLBACK');}
   assert.equal(health.status,'clear');assert.equal(health.counts.waitingPassive,1);assert.equal(health.counts.attention,0);
-  assert.deepEqual(health.issues,[]);assert.equal(health.next,null);
+  assert.deepEqual(health.issues,[]);assert.equal(health.next,undefined);
   assert.ok(!JSON.stringify(health).includes('private-context-never-in-health'));
   assert.equal(f.db.prepare('SELECT count(*) n FROM audit').get().n,audit);
   assert.equal(f.db.prepare('SELECT acknowledgedAt FROM deliveries').get().acknowledgedAt,null);
@@ -41,7 +41,7 @@ test('health reports uncertain, stalled and expired action work without replay o
   const first=f.call('health',{limit:1,staleAfterMs:1000});
   assert.equal(first.status,'attention');assert.equal(first.counts.attention,2);assert.equal(first.issues.length,1);
   const second=f.call(first.next.command,first.next.input);
-  assert.equal(second.issues.length,1);assert.equal(second.next,null);
+  assert.equal(second.issues.length,1);assert.equal(second.next,undefined);
   assert.notEqual(second.issues[0].recipient,first.issues[0].recipient);
   assert.deepEqual([first.issues[0].issue,second.issues[0].issue].sort(),['stalledOffer','uncertain']);
   assert.equal(f.db.prepare('SELECT count(*) n FROM dispatches').get().n,2);
@@ -65,4 +65,19 @@ test('health rejects invalid limits and never creates a missing DB',t=>{
   const absent=join(f.workspace,'missing.sqlite');
   assert.throws(()=>execFileSync(binary,['health','--workspace',f.workspace,'--database',absent],{stdio:'pipe',timeout:10000}));
   assert.equal(existsSync(absent),false);
+});
+test('health flags an ownerless staged offer promptly but not one held by a live delivery owner',async t=>{
+  const f=fixture(t);
+  f.call('attach',{transport:'raw'},f.b);
+  const message=f.call('send_message',{to:f.b,body:'Offered then crashed',reasoning:'Surface stranded offers'},f.a);
+  f.db.prepare("INSERT INTO dispatches(message,recipient,token,transport,state,attemptedAt) VALUES(?,?,?,'hook:grok','staged',?)").run(message.id,f.b,'crashed',Date.now()-31000);
+  const orphan=f.call('health');
+  assert.equal(orphan.status,'attention');assert.equal(orphan.issues[0].issue,'stalledOffer');
+  assert.equal(orphan.issues[0].submittedAt,undefined,'No nulls in issue rows');
+  const {spawn}=await import('node:child_process');
+  const listen=spawn(binary,['listen','--workspace',f.workspace,'--database',f.database,'--session',f.b]);
+  t.after(()=>listen.kill('SIGKILL'));
+  await new Promise((resolve,reject)=>{listen.stdout.on('data',resolve);listen.on('close',reject);});
+  assert.deepEqual(f.call('health').issues,[],'A live owner keeps the full stale threshold');
+  assert.equal(f.db.prepare('SELECT state FROM dispatches').get().state,'staged','Health never replays');
 });

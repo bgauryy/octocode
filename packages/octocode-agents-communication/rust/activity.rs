@@ -482,9 +482,10 @@ pub fn read(workspace: &Path, input: &Value) -> Result<Value> {
     } else {
         Value::Null
     };
-    Ok(
-        json!({"view":view,"workspace":workspace,"observedAt":now,"items":rows.drain(after..end).collect::<Vec<_>>(),"totalMatched":total,"next":next,"coverage":{"scanned":scanned,"scanLimit":if view=="files" {Value::Null}else{json!(cap)},"truncated":truncated,"limitReason":if truncated {json!("History scan limit reached; increase scanLimit (max 2000). This is not complete history.")}else{Value::Null},"unknownFileTimes":unknown,"unknownTimeQuery":unknown_time_query},"timeBasis":match view {"files"=>"Current filesystem mtime; not an edit/staging timestamp. Deletions may have unknown time and are excluded by time filters.","commits"=>"Committer time on current HEAD history; not command execution time.",_=>"Local HEAD reflog time; reference updates only, not complete Git command history."},"attribution":"Observed Git/filesystem state does not identify the acting agent."}),
-    )
+    let mut result = json!({"view":view,"workspace":workspace,"observedAt":now,"items":rows.drain(after..end).collect::<Vec<_>>(),"totalMatched":total,"next":next,"coverage":{"scanned":scanned,"scanLimit":if view=="files" {Value::Null}else{json!(cap)},"truncated":truncated,"limitReason":if truncated {json!("History scan limit reached; increase scanLimit (max 2000). This is not complete history.")}else{Value::Null},"unknownFileTimes":unknown,"unknownTimeQuery":unknown_time_query},"timeBasis":match view {"files"=>"Current filesystem mtime; not an edit/staging timestamp. Deletions may have unknown time and are excluded by time filters.","commits"=>"Committer time on current HEAD history; not command execution time.",_=>"Local HEAD reflog time; reference updates only, not complete Git command history."},"attribution":"Observed Git/filesystem state does not identify the acting agent."});
+    // Unknown times, absent cursors and inapplicable limits are omitted, never null.
+    crate::dispatch::prune_nulls(&mut result);
+    Ok(result)
 }
 
 #[cfg(all(test, unix))]

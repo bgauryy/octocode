@@ -45,13 +45,11 @@ test('Stop enforces native identity/workspace and selective recovery cannot expo
  assert.deepEqual(f.call('inbox',{message:first},f.b).items,[]);
  assert.ok(!f.call('completion-check',f.event,f.b).reason.includes(`[${first},`));
 });
-test('vendor skill profiles preserve common workflow and full default while dropping unrelated setup',()=>{
+test('skill command returns the one installed routine for every vendor flag',()=>{
  const read=vendor=>JSON.parse(execFileSync(binary,['skill',...(vendor?['--vendor',vendor]:[])],{encoding:'utf8',timeout:10000})).instructions;
- const full=read();for(const vendor of ['claude','codex','grok','pi','opencode','cursor','generic']){
-  const text=read(vendor);assert.ok(Buffer.byteLength(text)<Buffer.byteLength(full));
-  for(const line of full.split('\n').filter(l=>!/^\*\*(Claude|Codex|Grok|OpenCode|Pi|Cursor\/Grok hooks):\*\*/.test(l))) assert.ok(text.includes(line),line);
-  if(vendor!=='claude')assert.ok(!text.includes('**Claude:**'));
- }
- assert.ok(read('claude').includes('completion-check'));assert.ok(read('grok').includes('**Cursor/Grok hooks:**'));
- assert.ok(read('codex').includes('**No API, any vendor:**'));assert.ok(full.includes('**Claude:**')&&full.includes('**Pi:**'));
+ const full=read();
+ assert.match(full,/scripts\/agents-communication/);
+ assert.doesNotMatch(full,/\*\*(Claude|Codex|Grok|OpenCode|Pi|Cursor\/Grok hooks):\*\*/);
+ assert.doesNotMatch(full,/sqlite_agent/);
+ for(const vendor of ['claude','codex','grok','pi','opencode','cursor','generic']) assert.equal(read(vendor),full);
 });

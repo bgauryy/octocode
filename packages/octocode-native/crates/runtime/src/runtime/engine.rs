@@ -198,7 +198,15 @@ impl ToolRuntime {
             1,
         );
         let mut runtime = Self::new(input)?;
-        super::maintenance::run_if_due(&runtime.inspect_config().home);
+        // Misconfiguration never fails startup; say what was ignored and
+        // where. stderr only: stdout carries CLI results and MCP JSON-RPC.
+        for diagnostic in &runtime.config.diagnostics {
+            eprintln!("{diagnostic}");
+        }
+        // storage.mode=memory must not touch the disk cache at all.
+        if config::is_persistent_storage_enabled(&runtime.config.resolved) {
+            super::maintenance::run_if_due(&runtime.inspect_config().home);
+        }
         if let Some(secs) = options.timeout_secs {
             // Replace the default 60-second runtime with the caller-specified timeout.
             // Interactive surfaces use 300 s so initialize, Java readiness,
@@ -355,6 +363,20 @@ impl ToolRuntime {
         }
     }
 
+    /// True when `tools.enabled`/`tools.disabled` (not a feature gate)
+    /// excludes the tool, so the remedy is the tool list.
+    fn excluded_by_tool_list(&self, tool: &str) -> bool {
+        let tools = &self.config.resolved.tools;
+        tools
+            .enabled
+            .as_ref()
+            .is_some_and(|names| !names.iter().any(|name| name == tool))
+            || tools
+                .disabled
+                .as_ref()
+                .is_some_and(|names| names.iter().any(|name| name == tool))
+    }
+
     pub fn is_available(&self, tool: &str) -> bool {
         let local = self.config.resolved.local.enabled;
         let clone = self.input.runtime_surface == RuntimeSurface::Cli
@@ -375,20 +397,7 @@ impl ToolRuntime {
             || (id == Some(ToolId::GhCloneRepo) && clone)
             || id == Some(ToolId::ArtifactSearch)
             || classification)
-            && self
-                .config
-                .resolved
-                .tools
-                .enabled
-                .as_ref()
-                .is_none_or(|names| names.iter().any(|name| name == tool))
-            && !self
-                .config
-                .resolved
-                .tools
-                .disabled
-                .as_ref()
-                .is_some_and(|names| names.iter().any(|name| name == tool))
+            && !self.excluded_by_tool_list(tool)
     }
 
     /// Runtime truth only: tool names, availability, grammar capabilities, and
@@ -403,11 +412,15 @@ impl ToolRuntime {
             .iter()
             .map(|tool| {
                 let name = tool.get("name").and_then(Value::as_str).unwrap_or_default();
-                json!({
+                let mut entry = json!({
                     "name": name,
                     "shortDescription": tool["shortDescription"],
                     "available": self.is_available(name),
-                })
+                });
+                if self.excluded_by_tool_list(name) {
+                    entry["unavailableReason"] = json!("toolsList");
+                }
+                entry
             })
             .collect::<Vec<_>>();
         Ok(json!({
@@ -941,52 +954,12 @@ mod output_recovery_tests {
 
 #[cfg(test)]
 mod cursor_tests {
-    use super::super::response_stage::inject_cursors;
+    //! Legacy `{cursor}` resume: responses no longer stamp cursors (localFetch
+    //! continuations carry `snapshot`), but previously issued read cursors
+    //! still verify their source before resuming.
     use super::*;
     use crate::policy::path::PathPolicyConfig;
     use sha2::{Digest, Sha256};
-
-    #[test]
-    fn only_local_fetch_continuations_carry_a_cursor() {
-        let mut structured = json!({"results":[{"index":0,"data":{"next":{
-            "search":{"tool":"localSearch","query":{"searchText":"x","snapshot":"s"}},
-            "remote":{"tool":"ghSearch","query":{"operation":"code","keywords":["x"]}}
-        }}}]});
-        inject_cursors(&mut structured, "scope", &[Some("digest".into())]);
-        assert!(
-            !structured.to_string().contains("\"cursor\""),
-            "replayable queries must not be duplicated into a cursor: {structured}"
-        );
-    }
-
-    #[test]
-    fn local_fetch_continuations_are_bound_to_their_result_row_digest() {
-        let mut structured = json!({
-            "results":[
-                {"index":0,"data":{"next":{"continue":{"tool":"localFetch","query":{"path":"/workspace/a.rs","offset":1}}}}},
-                {"index":1,"data":{"next":{"continue":{"tool":"localFetch","query":{"path":"/workspace/b.rs","offset":1}}}}}
-            ]
-        });
-        inject_cursors(
-            &mut structured,
-            "scope",
-            &[Some("digest-a".into()), Some("digest-b".into())],
-        );
-
-        let first = structured["results"][0]["data"]["next"]["continue"]["cursor"]
-            .as_str()
-            .expect("first cursor");
-        let second = structured["results"][1]["data"]["next"]["continue"]["cursor"]
-            .as_str()
-            .expect("second cursor");
-        let first = super::super::cursor::ReadCursor::decode(first, "scope")
-            .expect("decode first read cursor");
-        let second = super::super::cursor::ReadCursor::decode(second, "scope")
-            .expect("decode second read cursor");
-        assert_eq!(first.source_sha256, "digest-a");
-        assert_eq!(second.source_sha256, "digest-b");
-        assert_ne!(first.source_sha256, second.source_sha256);
-    }
 
     #[test]
     fn changing_one_local_fetch_source_stales_only_that_rows_cursor() {

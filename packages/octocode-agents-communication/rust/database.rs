@@ -13,15 +13,26 @@ use std::{
     time::Duration,
 };
 
-pub const VERSION: i64 = 6;
+pub const VERSION: i64 = 7;
 pub const APPLICATION_ID: i64 = 1329678147;
+/// Schema steps; `STEPS[n]` upgrades an intact v`n` store to v`n+1`.
+const STEPS: [&str; 7] = [
+    include_str!("schema-v1.sql"),
+    include_str!("schema-v2.sql"),
+    include_str!("schema-v3.sql"),
+    include_str!("schema-v4.sql"),
+    include_str!("schema-v5.sql"),
+    include_str!("schema-v6.sql"),
+    include_str!("schema-v7.sql"),
+];
 pub const SQL: &str = concat!(
     include_str!("schema-v1.sql"),
     include_str!("schema-v2.sql"),
     include_str!("schema-v3.sql"),
     include_str!("schema-v4.sql"),
     include_str!("schema-v5.sql"),
-    include_str!("schema-v6.sql")
+    include_str!("schema-v6.sql"),
+    include_str!("schema-v7.sql")
 );
 
 pub fn values(args: &[Value]) -> Result<Vec<SqlValue>> {
@@ -40,6 +51,8 @@ pub fn values(args: &[Value]) -> Result<Vec<SqlValue>> {
         })
         .collect()
 }
+/// Rows are JSON objects without SQL NULL members: absent means null, so outputs
+/// never spend bytes on empty optional fields.
 pub fn query(db: &Connection, sql: &str, args: &[Value]) -> Result<Vec<Value>> {
     let mut statement = db.prepare(sql)?;
     let columns: Vec<String> = statement
@@ -54,7 +67,7 @@ pub fn query(db: &Connection, sql: &str, args: &[Value]) -> Result<Vec<Value>> {
         let mut object = Map::new();
         for (i, name) in columns.iter().enumerate() {
             let value = match row.get_ref(i)? {
-                ValueRef::Null => Value::Null,
+                ValueRef::Null => continue,
                 ValueRef::Integer(n) => json!(n),
                 ValueRef::Real(n) => json!(n),
                 ValueRef::Text(s) => json!(std::str::from_utf8(s)?),
@@ -67,7 +80,17 @@ pub fn query(db: &Connection, sql: &str, args: &[Value]) -> Result<Vec<Value>> {
     Ok(result)
 }
 pub fn execute(db: &Connection, sql: &str, args: &[Value]) -> Result<usize> {
-    Ok(db.execute(sql, params_from_iter(values(args)?))?)
+    Ok(db.prepare(sql)?.execute(params_from_iter(values(args)?))?)
+}
+/// Deferred read transaction: validation and reads never take the writer lock.
+pub fn read_transaction<T>(
+    db: &Connection,
+    action: impl FnOnce(&Connection) -> Result<T>,
+) -> Result<T> {
+    let tx = Transaction::new_unchecked(db, TransactionBehavior::Deferred)?;
+    let result = action(&tx)?;
+    tx.commit()?;
+    Ok(result)
 }
 pub fn transaction<T>(db: &Connection, action: impl FnOnce(&Connection) -> Result<T>) -> Result<T> {
     let tx = Transaction::new_unchecked(db, TransactionBehavior::Immediate)?;
@@ -83,22 +106,21 @@ pub fn metadata(db: &Connection) -> Result<Value> {
     )
 }
 fn signature(db: &Connection) -> Result<String> {
-    let mut rows = query(
-        db,
+    let mut statement = db.prepare(
         "SELECT type,name,tbl_name,sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' ORDER BY type,name",
-        &[],
     )?;
-    for row in &mut rows {
-        row["sql"] = json!(
-            row["sql"]
-                .as_str()
-                .unwrap_or("")
-                .split_whitespace()
-                .collect::<Vec<_>>()
-                .join(" ")
+    let mut rows = statement.query([])?;
+    let mut result = Vec::new();
+    while let Some(row) = rows.next()? {
+        let sql: Option<String> = row.get(3)?;
+        // The digest format keeps every member, including an empty `sql`.
+        result.push(
+            json!({"type":row.get::<_,String>(0)?,"name":row.get::<_,String>(1)?,
+            "tbl_name":row.get::<_,String>(2)?,
+            "sql":sql.unwrap_or_default().split_whitespace().collect::<Vec<_>>().join(" ")}),
         );
     }
-    Ok(serde_json::to_string(&rows)?)
+    Ok(serde_json::to_string(&result)?)
 }
 pub fn fingerprint(db: &Connection) -> Result<String> {
     Ok(Sha256::digest(signature(db)?)
@@ -121,49 +143,60 @@ pub fn expected() -> Result<String> {
         .cloned()
         .map_err(|error| anyhow::anyhow!(error.clone()))
 }
-fn compatible(db: &Connection) -> Result<bool> {
-    let info = metadata(db)?;
+fn compatible_with(db: &Connection, info: &Value) -> Result<bool> {
     Ok(info["applicationId"] == APPLICATION_ID
         && info["schemaVersion"] == VERSION
         && fingerprint(db)? == expected()?)
 }
-fn validate(db: &Connection) -> Result<()> {
-    if !compatible(db)? {
+fn compatible(db: &Connection) -> Result<bool> {
+    compatible_with(db, &metadata(db)?)
+}
+fn validate_with(db: &Connection, info: &Value) -> Result<()> {
+    if !compatible_with(db, info)? {
         bail!(
-            "Incompatible agents-communication database: expected schema v6. Stop old workers and use db migrate for an intact v1/v2/v3/v4/v5 store. No automatic repair."
+            "Incompatible agents-communication database: expected schema v7. Stop old workers and use db migrate for an intact v1-v6 store. No automatic repair."
         );
     }
     Ok(())
+}
+fn validate(db: &Connection) -> Result<()> {
+    validate_with(db, &metadata(db)?)
+}
+/// SQL cannot fold Unicode case, so migration computes lease keys natively.
+fn backfill_lease_keys(db: &Connection) -> Result<usize> {
+    let rows = query(db, "SELECT id,path FROM leases WHERE pathKey IS NULL", &[])?;
+    for row in &rows {
+        execute(
+            db,
+            "UPDATE leases SET pathKey=? WHERE id=?",
+            &[
+                json!(crate::paths::lease_key(row["path"].as_str().unwrap_or(""))),
+                row["id"].clone(),
+            ],
+        )?;
+    }
+    Ok(rows.len())
 }
 pub fn migrate(path: &Path) -> Result<Value> {
     let db = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
     db.busy_timeout(Duration::from_secs(5))?;
     db.pragma_update(None, "foreign_keys", true)?;
-    transaction(&db, |db| {
-        if compatible(db)? {
+    let result = transaction(&db, |db| {
+        let info = metadata(db)?;
+        if compatible_with(db, &info)? {
             return Ok(json!({"schemaVersion":VERSION,"migrated":false}));
         }
-        let old = Connection::open_in_memory()?;
-        old.execute_batch(include_str!("schema-v1.sql"))?;
-        let info = metadata(db)?;
         let version = info["schemaVersion"].as_i64().unwrap_or(0);
-        if version >= 2 {
-            old.execute_batch(include_str!("schema-v2.sql"))?;
-        }
-        if version >= 3 {
-            old.execute_batch(include_str!("schema-v3.sql"))?;
-        }
-        if version >= 4 {
-            old.execute_batch(include_str!("schema-v4.sql"))?;
-        }
-        if version >= 5 {
-            old.execute_batch(include_str!("schema-v5.sql"))?;
-        }
-        if info["applicationId"] != APPLICATION_ID
-            || !matches!(version, 1..=5)
-            || fingerprint(db)? != fingerprint(&old)?
-        {
-            bail!("Migration requires an intact v1, v2, v3, v4 or v5 store");
+        let intact =
+            info["applicationId"] == APPLICATION_ID && (1..VERSION).contains(&version) && {
+                let old = Connection::open_in_memory()?;
+                for step in &STEPS[..version as usize] {
+                    old.execute_batch(step)?;
+                }
+                fingerprint(db)? == fingerprint(&old)?
+            };
+        if !intact {
+            bail!("Migration requires an intact v1-v6 store");
         }
         let active: i64 = db.query_row(
             "SELECT count(*) FROM sessions WHERE expiresAt>?",
@@ -173,24 +206,20 @@ pub fn migrate(path: &Path) -> Result<Value> {
         if active != 0 {
             bail!("Stop workers and leave sessions or wait for presence expiry before migration");
         }
-        if version == 1 {
-            db.execute_batch(include_str!("schema-v2.sql"))?;
-            db.execute("INSERT INTO audit(session,kind,entityId,at,data) SELECT id,'session.imported',id,?,json_object('name',name,'vendor',vendor,'vendorSession',vendorSession,'workspace',workspace) FROM sessions", [crate::store::now()])?;
+        for (index, step) in STEPS.iter().enumerate().skip(version as usize) {
+            db.execute_batch(step)?;
+            if index == 1 {
+                db.execute("INSERT INTO audit(session,kind,entityId,at,data) SELECT id,'session.imported',id,?,json_object('name',name,'vendor',vendor,'vendorSession',vendorSession,'workspace',workspace) FROM sessions", [crate::store::now()])?;
+            }
         }
-        if version < 3 {
-            db.execute_batch(include_str!("schema-v3.sql"))?;
-        }
-        if version < 4 {
-            db.execute_batch(include_str!("schema-v4.sql"))?;
-        }
-        if version < 5 {
-            db.execute_batch(include_str!("schema-v5.sql"))?;
-        }
-        db.execute_batch(include_str!("schema-v6.sql"))?;
+        backfill_lease_keys(db)?;
         db.pragma_update(None, "user_version", VERSION)?;
         validate(db)?;
         Ok(json!({"schemaVersion":VERSION,"migrated":true}))
-    })
+    })?;
+    // New indexes need planner statistics; bounded analysis, advisory on failure.
+    let _ = db.execute_batch("PRAGMA optimize=0x10002");
+    Ok(result)
 }
 pub fn path(database: Option<&Path>) -> Result<PathBuf> {
     if let Some(path) = database {
@@ -388,28 +417,43 @@ fn open_connection(path: &Path, read_only: bool, create: bool) -> Result<Connect
     db.busy_timeout(Duration::from_secs(5))?;
     db.pragma_update(None, "foreign_keys", true)?;
     if read_only {
-        validate(&db)?;
+        read_transaction(&db, validate)?;
         return Ok(db);
     }
     if rusqlite::version_number() < 3_051_003 {
         bail!("SQLite >=3.51.3 required for concurrent WAL");
     }
-    transaction(&db, |db| {
+    // Validate under a read snapshot; only first initialization takes the writer lock.
+    let uninitialized = |info: &Value| info["applicationId"] == 0 && info["schemaVersion"] == 0;
+    let info = read_transaction(&db, |db| {
         let info = metadata(db)?;
-        let empty = query(db, "SELECT count(*) AS n FROM sqlite_schema", &[])?[0]["n"] == 0;
-        if empty && info["applicationId"] == 0 && info["schemaVersion"] == 0 {
-            if !create {
-                bail!("Database is not initialized. Run join first.");
-            }
-            db.execute_batch(SQL)?;
-            db.pragma_update(None, "application_id", APPLICATION_ID)?;
-            db.pragma_update(None, "user_version", VERSION)?;
-        } else {
-            validate(db)?;
+        if !uninitialized(&info) {
+            validate_with(db, &info)?;
         }
-        Ok(())
+        Ok(info)
     })?;
-    db.pragma_update(None, "journal_mode", "WAL")?;
+    if uninitialized(&info) {
+        transaction(&db, |db| {
+            let info = metadata(db)?;
+            let empty: i64 =
+                db.query_row("SELECT count(*) FROM sqlite_schema", [], |r| r.get(0))?;
+            if empty == 0 && uninitialized(&info) {
+                if !create {
+                    bail!("Database is not initialized. Run join first.");
+                }
+                db.execute_batch(SQL)?;
+                db.pragma_update(None, "application_id", APPLICATION_ID)?;
+                db.pragma_update(None, "user_version", VERSION)?;
+            } else {
+                validate_with(db, &info)?;
+            }
+            Ok(())
+        })?;
+    }
+    // journal_mode persists in the file; synchronous is per connection.
+    if info["journalMode"] != "wal" {
+        db.pragma_update(None, "journal_mode", "WAL")?;
+    }
     db.pragma_update(None, "synchronous", "FULL")?;
     Ok(db)
 }

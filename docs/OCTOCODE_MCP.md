@@ -59,7 +59,7 @@ At startup, the Node adapter loads the platform-specific Rust N-API addon (`@oct
 
 The full discovery catalog contains 13 tools. With default settings and no
 provider key, the MCP server registers 9: `ghCloneRepo` is CLI-only and is
-always omitted. `clasify` needs a nonblank `OCTOCODE_CLASSIFICATION_API`;
+always omitted. `clasify` needs a nonblank resolved classification key: `OCTOCODE_CLASSIFICATION_API`, else the selected vendor's key (`OCTOCODE_JEV_KEY` for jev), else `.octocoderc` `classification.api` (a present-but-blank `OCTOCODE_CLASSIFICATION_API` disables it);
 `astRewrite` and `astTopology` need `OCTOCODE_BETA=true`. Unavailable tools
 are omitted from MCP discovery entirely, not registered as failing calls.
 
@@ -90,7 +90,7 @@ complete response and continuation rules, see the [Octocode tools reference](OCT
 
 ## Configuration and auth
 
-Use environment variables for per-client or per-project settings. Use `<octocode-home>/.octocoderc` for machine-level defaults. Environment variables win over file values.
+Use environment variables for per-client or per-project settings. Use `<octocode-home>/.octocoderc` for machine-level defaults and `<project>/.octocode/.octocoderc` for per-project overrides (resolved relative to the server's working directory). Environment variables win over file values.
 
 | Setting | Default | Why it matters |
 |---------|---------|----------------|
@@ -106,11 +106,11 @@ Use environment variables for per-client or per-project settings. Use `<octocode
 | `OCTOCODE_OUTPUT_FORMAT` | `yaml` | Tool response format: `yaml` or `json`. |
 | `OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH` | `50000` | Automatic response pagination budget (1 000 – 50 000). A larger response without explicit `responseCharLength` is paged: MCP pages the rendered text (structuredContent then carries only `responsePagination`); the CLI returns complete JSON pages of whole result rows (`responseScope:"rows"`; an oversized row is split on its largest array and marked `rowPart`). Follow `responsePagination.next` unchanged. |
 | `OCTOCODE_LSP_CONFIG` | unset | Path to a custom `lsp-servers.json`. |
-| `OCTOCODE_CLASSIFICATION_API` | unset | Classification provider API key (jev default: TypeSafe). A nonblank resolved value registers `clasify`; keep it in the environment or a protected secret source. |
+| `OCTOCODE_CLASSIFICATION_API` | unset | Classification provider API key (jev default: TypeSafe). A nonblank resolved value (or `OCTOCODE_JEV_KEY`, or `.octocoderc` `classification.api`) registers `clasify`; present-but-blank disables it. Keep it in the environment or a protected secret source. |
 | `OCTOCODE_CLASSIFICATION_TYPE` | `jev` | Classification vendor selector; per-vendor model/host/endpoint defaults are built in (jev → model `jev-latest`). Results preserve both requested and resolved model names. |
 | `OCTOCODE_CLASSIFICATION_API_HOST` | vendor default (jev: `https://api.typesafe.ai`) | Optional override of the selected vendor's trusted API root. |
 
-For full details, see the [Octocode configuration and authentication](CONFIGURATION.md) reference.
+For full details, see the [Octocode configuration and authentication](CONFIGURATION.md) reference. Development-only overrides (`OCTOCODE_NATIVE_BINDING`, `OCTOCODE_ALLOW_CONTRACT_DRIFT`) are listed in [package overview](PACKAGES.md#development-and-internal-environment-variables).
 
 ## Tool name migration
 

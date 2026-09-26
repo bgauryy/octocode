@@ -47,9 +47,12 @@ For ordinary settings, highest priority wins:
 process environment / MCP client env block
   → workspace .octocode/.env
   → home .octocode/.env
+  → workspace .octocode/.octocoderc
   → home .octocode/.octocoderc
   → generated default
 ```
+
+Resolution is per field: the first source holding a valid value wins, so an invalid value in one layer falls through to the next. A workspace `.octocoderc` field whose environment binding is protected (`dotenv` other than `all`) is ignored with a `workspace_config_protected` warning — the same boundary as the workspace `.env`. Misconfiguration is never fatal: bad files, fields, and environment values become warning diagnostics (file path + field path + reason) printed once to stderr at runtime start.
 
 CLI and MCP load both `.env` files. Node helpers load the supplied workspace by default; an explicit `trusted:false` opts out. Native executable LSP-project trust is separate. Missing or blank file values fall back to the next source.
 
@@ -256,7 +259,7 @@ Classification is the reference: `classification.api` and `classification.apiHos
 Tests for Pattern B must prove:
 
 1. process environment wins over `.octocoderc`;
-2. `.octocoderc` fills an absent value;
+2. `.octocoderc` fills an absent value, and a workspace `.octocoderc` beats the home one;
 3. workspace `.env` wins over global, including across different aliases;
 4. missing/blank file values fall back, while the explicit process classification opt-out remains disabled;
 5. `Debug`, inspection JSON, and `get_config_value` do not contain the secret.
@@ -332,7 +335,7 @@ After native/runtime changes, also rebuild the native package and the consuming 
 - [ ] Set `dotenv` deliberately; never rely on an undocumented trust assumption.
 - [ ] For Pattern B, set `credential: true` and keep the section `resolved: false`.
 - [ ] Verify no secret reaches `ResolvedConfig`, diagnostics, `Debug`, or inspection output.
-- [ ] Test process environment, home `.env`, project `.env`, and `.octocoderc` precedence as applicable.
+- [ ] Test process environment, home `.env`, project `.env`, and workspace/home `.octocoderc` precedence as applicable (see `crates/runtime/src/config/layering_tests.rs`).
 
 ## Common mistakes
 

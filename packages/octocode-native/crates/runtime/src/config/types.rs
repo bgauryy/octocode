@@ -81,7 +81,11 @@ pub struct ConfigInput {
     pub trusted_project: bool,
     pub global_env: FileInput,
     pub project_env: FileInput,
+    /// Global `<octocode-home>/.octocoderc`.
     pub config_file: FileInput,
+    /// Workspace `<cwd>/.octocode/.octocoderc`; per field it overrides the
+    /// global file, and both rank below every environment source.
+    pub project_config_file: FileInput,
     pub runtime_surface: RuntimeSurface,
     pub revision: u64,
 }
@@ -108,6 +112,20 @@ pub struct ConfigDiagnostic {
     pub field_path: Option<String>,
     pub message: String,
     pub source_path: Option<PathBuf>,
+}
+impl fmt::Display for ConfigDiagnostic {
+    /// One self-contained line: where the problem is, then what and the effect.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let severity = match self.severity {
+            Severity::Warning => "warning",
+            Severity::Error => "error",
+        };
+        write!(f, "octocode: config {severity}")?;
+        if let Some(path) = &self.source_path {
+            write!(f, ": {}", path.display())?;
+        }
+        write!(f, ": {} [{}]", self.message, self.code)
+    }
 }
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct EnvApplyReport {
@@ -169,7 +187,10 @@ pub struct ConfigOutput {
     pub token: Option<PrivateTokenSelection>,
     pub child_env: ChildEnvPlan,
     pub source: ConfigSource,
+    /// Global `.octocoderc` path when that file exists (valid or not).
     pub config_path: Option<PathBuf>,
+    /// Workspace `.octocoderc` path when that file exists (valid or not).
+    pub project_config_path: Option<PathBuf>,
     pub revision: u64,
 }
 impl ConfigOutput {
@@ -196,6 +217,7 @@ impl fmt::Debug for ConfigOutput {
             .field("child_env", &self.child_env)
             .field("source", &self.source)
             .field("config_path", &self.config_path)
+            .field("project_config_path", &self.project_config_path)
             .field("revision", &self.revision)
             .finish()
     }
@@ -223,6 +245,10 @@ pub struct ConfigInspectorData {
     pub config_keys: Vec<String>,
     pub source: ConfigSource,
     pub config_path: Option<PathBuf>,
+    /// Canonical workspace `.octocoderc` location, whether or not it exists.
+    pub project_config_file: PathBuf,
+    pub project_config_path: Option<PathBuf>,
+    pub project_config_keys: Vec<String>,
     pub diagnostics: Vec<ConfigDiagnostic>,
     pub revision: u64,
 }

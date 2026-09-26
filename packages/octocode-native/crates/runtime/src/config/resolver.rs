@@ -3,7 +3,7 @@ use super::dotenv::{
 };
 use super::loader::load_config;
 use super::types::*;
-use super::validation::validate_config;
+use super::validation::config_issues;
 use serde_json::{Number, Value, json};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -143,9 +143,23 @@ fn parse_candidate(
         }
     }
 }
+/// Resolve every contract field. `files` are `.octocoderc` layers in priority
+/// order (workspace before global); for each field the environment wins, then
+/// the first layer holding a valid value, then the generated default.
 pub fn resolve_sections(
-    file: Option<&Value>,
+    files: &[&Value],
     environment: &BTreeMap<String, String>,
+) -> Result<ResolvedConfig, String> {
+    resolve_fields(files, environment, &mut |_, _| {})
+}
+
+/// `on_invalid_env(field, variable)` fires for a nonblank environment value
+/// that the field rejects; the value is skipped (or reset to the default when
+/// the binding says so), never fatal.
+fn resolve_fields(
+    files: &[&Value],
+    environment: &BTreeMap<String, String>,
+    on_invalid_env: &mut dyn FnMut(&ConfigFieldSpec, &str),
 ) -> Result<ResolvedConfig, String> {
     let mut resolved: Value = serde_json::from_str(DEFAULT_RESOLVED_CONFIG_JSON)
         .map_err(|error| format!("generated config defaults are invalid: {error}"))?;
@@ -163,17 +177,20 @@ pub fn resolve_sections(
                 selected = Some(value);
                 break;
             }
+            if raw.as_str().is_some_and(|raw| !raw.trim().is_empty()) {
+                on_invalid_env(field, binding.name);
+            }
             if binding.invalid == ConfigInvalidEnv::Default {
                 selected = Some(default.clone());
                 break;
             }
         }
 
-        if selected.is_none()
-            && field.file
-            && let Some(raw) = file.and_then(|config| get_path(config, field.path))
-        {
-            selected = parse_candidate(field, raw, false, None);
+        if selected.is_none() && field.file {
+            selected = files
+                .iter()
+                .filter_map(|config| get_path(config, field.path))
+                .find_map(|raw| parse_candidate(field, raw, false, None));
         }
 
         if selected.is_none() {
@@ -214,8 +231,7 @@ fn effective_disables_classification(effective: &BTreeMap<String, String>, key: 
             .is_some_and(|value| value.trim().is_empty())
 }
 
-fn apply_credential_file_fallbacks(file: Option<&Value>, effective: &mut BTreeMap<String, String>) {
-    let Some(file) = file else { return };
+fn apply_credential_file_fallbacks(files: &[&Value], effective: &mut BTreeMap<String, String>) {
     for field in CONFIG_FIELDS.iter().filter(|field| field.credential) {
         let Some(binding) = field.env.first() else {
             continue;
@@ -228,15 +244,156 @@ fn apply_credential_file_fallbacks(file: Option<&Value>, effective: &mut BTreeMa
         {
             continue;
         }
-        if let Some(value) = get_path(file, field.path)
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        {
+        if let Some(value) = files.iter().find_map(|file| {
+            get_path(file, field.path)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+        }) {
             effective.insert(binding.name.to_owned(), value.to_owned());
         }
     }
 }
+
+/// A workspace `.octocoderc` may set a field only when its environment
+/// bindings may come from a workspace `.env` — the same trust boundary, so a
+/// checked-out repository gains no power through one file it lacks via the
+/// other.
+pub(super) fn workspace_file_allowed(field: &ConfigFieldSpec) -> bool {
+    !field
+        .env
+        .iter()
+        .any(|binding| PROTECTED_KEYS.contains(&binding.name))
+}
+
+#[cfg(test)]
+pub(super) fn insert_path(root: &mut Value, field_path: &str, value: Value) {
+    let mut current = root;
+    let mut parts = field_path.split('.').peekable();
+    while let Some(part) = parts.next() {
+        let object = current.as_object_mut().expect("object path");
+        if parts.peek().is_none() {
+            object.insert(part.to_owned(), value);
+            return;
+        }
+        current = object.entry(part).or_insert_with(|| json!({}));
+    }
+}
+
+pub(super) fn remove_path(root: &mut Value, field_path: &str) -> bool {
+    let (parents, key) = field_path
+        .rsplit_once('.')
+        .map_or(("", field_path), |(parents, key)| (parents, key));
+    let mut current = root;
+    for part in parents.split('.').filter(|part| !part.is_empty()) {
+        let Some(next) = current.as_object_mut().and_then(|o| o.get_mut(part)) else {
+            return false;
+        };
+        current = next;
+    }
+    current
+        .as_object_mut()
+        .is_some_and(|object| object.remove(key).is_some())
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum LayerState {
+    Absent,
+    Valid,
+    Invalid,
+}
+
+fn expected_kind(field: &ConfigFieldSpec) -> String {
+    match field.kind {
+        ConfigFieldKind::Boolean => "boolean (true/false/1/0)".into(),
+        ConfigFieldKind::Number => "integer".into(),
+        ConfigFieldKind::String => "nonblank string".into(),
+        ConfigFieldKind::Url => "http(s) URL".into(),
+        ConfigFieldKind::Path => "absolute or ~ path without ..".into(),
+        ConfigFieldKind::StringArray if field.item_path => {
+            "comma-separated list of absolute or ~ paths".into()
+        }
+        ConfigFieldKind::StringArray => "comma-separated list".into(),
+        ConfigFieldKind::Enum => format!("value ({})", field.values.join(", ")),
+        ConfigFieldKind::SchemaVersion => "schema version".into(),
+    }
+}
+
+fn warning(
+    code: &str,
+    field_path: Option<&str>,
+    message: String,
+    source_path: &std::path::Path,
+) -> ConfigDiagnostic {
+    ConfigDiagnostic {
+        severity: Severity::Warning,
+        code: code.into(),
+        field_path: field_path.map(str::to_owned),
+        message,
+        source_path: Some(source_path.to_path_buf()),
+    }
+}
+
+/// Load and validate one `.octocoderc` layer. Misconfiguration never fails
+/// the runtime: an unreadable or unparseable file is skipped, and each invalid
+/// value is dropped on its own so the rest of the file still applies. Every
+/// skip is reported as a warning naming the file and the offending path.
+fn load_layer(
+    input: &FileInput,
+    workspace: bool,
+    diagnostics: &mut Vec<ConfigDiagnostic>,
+) -> (Option<Value>, LayerState) {
+    let load = load_config(input);
+    if !load.success {
+        if load.error.as_deref() == Some("Config file does not exist") {
+            return (None, LayerState::Absent);
+        }
+        diagnostics.push(warning(
+            "config_load_error",
+            None,
+            format!(
+                "{}; the whole file is ignored",
+                load.error.unwrap_or_else(|| "Invalid configuration".into())
+            ),
+            &load.path,
+        ));
+        return (None, LayerState::Invalid);
+    }
+    let mut value = load.config.unwrap_or_else(|| json!({}));
+    let (issues, warnings) = config_issues(&value);
+    for m in warnings {
+        diagnostics.push(warning("unknown_or_future_config", None, m, &load.path));
+    }
+    for issue in issues {
+        remove_path(&mut value, &issue.path);
+        diagnostics.push(warning(
+            "invalid_config",
+            Some(&issue.path),
+            format!("{}; value ignored", issue.message),
+            &load.path,
+        ));
+    }
+    if workspace {
+        for field in CONFIG_FIELDS
+            .iter()
+            .filter(|field| !workspace_file_allowed(field))
+        {
+            if remove_path(&mut value, field.path) {
+                diagnostics.push(warning(
+                    "workspace_config_protected",
+                    Some(field.path),
+                    format!(
+                        "{} is protected and ignored in a workspace config file; set it in the global config file or the process environment",
+                        field.path
+                    ),
+                    &load.path,
+                ));
+            }
+        }
+    }
+    (Some(value), LayerState::Valid)
+}
+
 pub fn resolve_config(input: &ConfigInput) -> ConfigOutput {
     let gt = match &input.global_env {
         FileInput::Read { text, .. } => Some(text.as_str()),
@@ -251,58 +408,59 @@ pub fn resolve_config(input: &ConfigInput) -> ConfigOutput {
     let (map, sources) = merged_env(gt, pt, true);
     let mut effective = input.env.clone();
     let dotenv = apply_env(&map, sources, &mut effective);
-    let load = load_config(&input.config_file);
     let mut diagnostics = vec![];
-    let (file, state) = if load.success {
-        let value = load.config.unwrap_or_else(|| json!({}));
-        let v = validate_config(&value);
-        for m in &v.warnings {
-            diagnostics.push(ConfigDiagnostic {
-                severity: Severity::Warning,
-                code: "unknown_or_future_config".into(),
-                field_path: None,
-                message: m.clone(),
-                source_path: Some(load.path.clone()),
-            })
-        }
-        if v.valid {
-            (Some(value), "valid")
-        } else {
-            for m in v.errors {
-                diagnostics.push(ConfigDiagnostic {
-                    severity: Severity::Error,
-                    code: "invalid_config".into(),
-                    field_path: None,
-                    message: m,
-                    source_path: Some(load.path.clone()),
-                })
-            }
-            (None, "invalid")
-        }
-    } else if load.error.as_deref() == Some("Config file does not exist") {
-        (None, "absent")
-    } else {
-        diagnostics.push(ConfigDiagnostic {
-            severity: Severity::Error,
-            code: "config_load_error".into(),
-            field_path: None,
-            message: load.error.unwrap_or_else(|| "Invalid configuration".into()),
-            source_path: Some(load.path.clone()),
-        });
-        (None, "invalid")
-    };
+    let (project_file, project_state) =
+        load_layer(&input.project_config_file, true, &mut diagnostics);
+    let (global_file, global_state) = load_layer(&input.config_file, false, &mut diagnostics);
+    let files: Vec<&Value> = project_file.iter().chain(global_file.iter()).collect();
     let has_env = CONFIG_SOURCE_ENV_KEYS
         .iter()
         .any(|key| effective.contains_key(*key));
-    let source = match state {
-        "invalid" => ConfigSource::Invalid,
-        "valid" if has_env => ConfigSource::Mixed,
-        "valid" => ConfigSource::File,
-        "absent" if has_env => ConfigSource::Env,
-        _ => ConfigSource::Defaults,
+    let states = [project_state, global_state];
+    let source = if states.contains(&LayerState::Invalid) {
+        ConfigSource::Invalid
+    } else if states.contains(&LayerState::Valid) {
+        if has_env {
+            ConfigSource::Mixed
+        } else {
+            ConfigSource::File
+        }
+    } else if has_env {
+        ConfigSource::Env
+    } else {
+        ConfigSource::Defaults
     };
-    apply_credential_file_fallbacks(file.as_ref(), &mut effective);
-    let resolved = match resolve_sections(file.as_ref(), &effective) {
+    apply_credential_file_fallbacks(&files, &mut effective);
+    // Which file supplied an environment value; None = the process env.
+    let env_source = |name: &str| -> Option<std::path::PathBuf> {
+        if !dotenv.applied.iter().any(|key| key == name) {
+            return None;
+        }
+        match dotenv.sources.get(name).map(String::as_str) {
+            Some("project") => Some(input.project_env.path().clone()),
+            _ => Some(input.global_env.path().clone()),
+        }
+    };
+    let mut env_warnings = vec![];
+    let resolved = match resolve_fields(&files, &effective, &mut |field, name| {
+        let source_path = env_source(name);
+        env_warnings.push(ConfigDiagnostic {
+            severity: Severity::Warning,
+            code: "invalid_env_value".into(),
+            field_path: Some(field.path.into()),
+            message: format!(
+                "{name}{} is not a valid {} for {}; value ignored",
+                if source_path.is_none() {
+                    " (process environment)"
+                } else {
+                    ""
+                },
+                expected_kind(field),
+                field.path
+            ),
+            source_path,
+        })
+    }) {
         Ok(config) => config,
         Err(message) => {
             diagnostics.push(ConfigDiagnostic {
@@ -310,13 +468,17 @@ pub fn resolve_config(input: &ConfigInput) -> ConfigOutput {
                 code: "generated_config_contract_error".into(),
                 field_path: None,
                 message,
-                source_path: Some(load.path.clone()),
+                source_path: Some(input.config_file.path().clone()),
             });
             ResolvedConfig::default()
         }
     };
+    diagnostics.extend(env_warnings);
     let token = resolve_env_token(&effective);
-    let config_path = (state != "absent").then(|| load.path.clone());
+    let config_path =
+        (global_state != LayerState::Absent).then(|| input.config_file.path().clone());
+    let project_config_path =
+        (project_state != LayerState::Absent).then(|| input.project_config_file.path().clone());
     let child_env = ChildEnvPlan {
         set: effective.clone(),
     };
@@ -330,6 +492,7 @@ pub fn resolve_config(input: &ConfigInput) -> ConfigOutput {
         child_env,
         source,
         config_path,
+        project_config_path,
         revision: input.revision,
     }
 }
@@ -360,13 +523,14 @@ pub fn inspector_data(input: &ConfigInput, output: &ConfigOutput) -> ConfigInspe
         .parent()
         .unwrap_or(&input.os_home)
         .to_path_buf();
-    let load = load_config(&input.config_file);
-    let mut config_keys: Vec<String> = load
-        .config
-        .and_then(|v| v.as_object().cloned())
-        .map(|o| o.keys().cloned().collect())
-        .unwrap_or_default();
-    config_keys.sort();
+    let top_level_keys = |file: &FileInput| -> Vec<String> {
+        let mut keys: Vec<String> = load_config(file)
+            .config
+            .and_then(|v| v.as_object().map(|o| o.keys().cloned().collect()))
+            .unwrap_or_default();
+        keys.sort();
+        keys
+    };
     let skip_source = |key: &String| EnvSkip {
         key: key.clone(),
         source_path: match output.dotenv.sources.get(key).map(String::as_str) {
@@ -404,9 +568,12 @@ pub fn inspector_data(input: &ConfigInput, output: &ConfigOutput) -> ConfigInspe
             .filter(|s| s.as_str() == "project")
             .count(),
         storage_mode: output.resolved.storage.mode.clone(),
-        config_keys,
+        config_keys: top_level_keys(&input.config_file),
         source: output.source.clone(),
         config_path: output.config_path.clone(),
+        project_config_file: input.project_config_file.path().clone(),
+        project_config_path: output.project_config_path.clone(),
+        project_config_keys: top_level_keys(&input.project_config_file),
         diagnostics: output.diagnostics.clone(),
         revision: output.revision,
     }
@@ -444,6 +611,9 @@ mod tests {
                 path: home.join(".octocoderc"),
                 text: "{\"classification\":{\"api\":\"from-config-file\"}}".into(),
             },
+            project_config_file: FileInput::Missing {
+                path: "/synthetic/cwd/.octocode/.octocoderc".into(),
+            },
             runtime_surface: RuntimeSurface::Mcp,
             revision: 1,
         };
@@ -472,7 +642,7 @@ mod tests {
 
     #[test]
     fn non_http_env_api_url_falls_back_to_default() {
-        let resolved = resolve_sections(None, &env(&[("GITHUB_API_URL", "ftp://evil.example")]));
+        let resolved = resolve_sections(&[], &env(&[("GITHUB_API_URL", "ftp://evil.example")]));
         assert!(resolved.is_ok());
         assert_eq!(
             resolved.unwrap_or_default().github.api_url,
@@ -483,7 +653,7 @@ mod tests {
     #[test]
     fn https_env_api_url_is_honored() {
         let resolved = resolve_sections(
-            None,
+            &[],
             &env(&[("GITHUB_API_URL", "https://ghe.internal/api/v3")]),
         );
         assert!(resolved.is_ok());

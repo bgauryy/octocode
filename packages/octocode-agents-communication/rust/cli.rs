@@ -36,12 +36,33 @@ pub struct Args {
     pub help: bool,
     pub args: Vec<String>,
 }
-pub fn output(value: &Value) -> Result<()> {
+/// Every command result goes through this one compaction step: object fields
+/// whose value is null are omitted (absent means null/none, e.g. no `next` page).
+/// Arrays, empty strings and empty objects stay because they carry meaning
+/// (`items:[]` is an empty page, `{}` is a hook's "no decision").
+pub fn compact(value: &Value) -> Value {
+    match value {
+        Value::Object(fields) => Value::Object(
+            fields
+                .iter()
+                .filter(|(_, value)| !value.is_null())
+                .map(|(key, value)| (key.clone(), compact(value)))
+                .collect(),
+        ),
+        Value::Array(items) => Value::Array(items.iter().map(compact).collect()),
+        other => other.clone(),
+    }
+}
+/// Write a protocol frame exactly as given (JSON-RPC needs `"id":null`).
+pub fn emit(value: &Value) -> Result<()> {
     let mut out = stdout().lock();
     serde_json::to_writer(&mut out, value)?;
     writeln!(out)?;
     out.flush()?;
     Ok(())
+}
+pub fn output(value: &Value) -> Result<()> {
+    emit(&compact(value))
 }
 fn arity(args: &[String], min: usize, max: usize) -> Result<()> {
     if args.len() < min || args.len() > max {
@@ -78,9 +99,9 @@ pub fn run() -> Result<()> {
         }
         "skill" => {
             arity(rest, 0, 0)?;
-            let mut skill = catalog::skill();
-            skill["instructions"] = json!(catalog::skill_instructions(args.vendor.as_deref()));
-            return output(&skill);
+            return output(
+                &json!({"instructions": catalog::skill_instructions(args.vendor.as_deref())}),
+            );
         }
         "schema" => {
             let value = match rest
@@ -108,7 +129,9 @@ pub fn run() -> Result<()> {
                 arity(rest, 1, 2)?;
                 let input: Value =
                     serde_json::from_str(rest.get(1).map(String::as_str).unwrap_or("{}"))?;
-                catalog::command(&format!("db {}", rest[0]), &input)?;
+                if rest[0] == "compact" {
+                    catalog::command("db compact", &input)?;
+                }
                 let path = database::path(args.database.as_deref())?;
                 return output(&if rest[0] == "retention" {
                     crate::retention::report(&path, &input)?
@@ -159,7 +182,7 @@ pub fn run() -> Result<()> {
             arity(rest, 2, 4)?;
             let action = rest[0].as_str();
             let name = rest[1].as_str();
-            let definition = catalog::entity(name)?;
+            catalog::entity(name)?;
             let session = args
                 .session
                 .as_deref()
@@ -172,19 +195,12 @@ pub fn run() -> Result<()> {
                 }
                 "list" => {
                     arity(rest, 2, 3)?;
-                    let input: Value =
-                        serde_json::from_str(rest.get(2).map(String::as_str).unwrap_or("{}"))?;
-                    catalog::validate(&definition["list"], &input)?;
-                    input
+                    // Store::entity_list/entity_set validate; parse only here.
+                    serde_json::from_str(rest.get(2).map(String::as_str).unwrap_or("{}"))?
                 }
                 "set" => {
                     arity(rest, 4, 4)?;
-                    if definition["set"].is_null() {
-                        bail!("Use dedicated transitions");
-                    }
-                    let input: Value = serde_json::from_str(&rest[3])?;
-                    catalog::validate(&definition["set"], &input)?;
-                    input
+                    serde_json::from_str(&rest[3])?
                 }
                 _ => bail!("Use entity get, list, or set"),
             };
@@ -228,7 +244,23 @@ pub fn run() -> Result<()> {
         }
     }
     let input: Value = serde_json::from_str(if argument == "-" { &stdin } else { argument })?;
-    catalog::command(if wait { "inbox wait" } else { command }, &input)?;
+    let name = if wait { "inbox wait" } else { command.as_str() };
+    // Validate once: Store::call, attach, activity, retry_delivery and record_usage
+    // validate at their own ingress. `join` stays here so bad input creates no DB.
+    if matches!(
+        name,
+        "join"
+            | "inbox wait"
+            | "completion-check"
+            | "hook"
+            | "dispatch"
+            | "confirm_delivery"
+            | "mcp"
+    ) {
+        catalog::command(name, &input)?;
+    } else {
+        catalog::definition(name)?;
+    }
     if command == "activity" {
         return output(&crate::activity::read(&args.workspace, &input)?);
     }
@@ -288,4 +320,15 @@ pub fn run() -> Result<()> {
         }
     }
     output(&store.call(session, command, &input)?)
+}
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn compaction_drops_null_fields_only() {
+        let raw = serde_json::json!({"next":null,"items":[{"topic":null,"id":1},null],"hook":{},"empty":[],"text":""});
+        assert_eq!(
+            super::compact(&raw),
+            serde_json::json!({"items":[{"id":1},null],"hook":{},"empty":[],"text":""})
+        );
+    }
 }

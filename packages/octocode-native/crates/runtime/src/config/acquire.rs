@@ -22,6 +22,13 @@ pub fn read_file(path: PathBuf) -> FileInput {
         },
     }
 }
+fn same_file(a: &Path, b: &Path) -> bool {
+    a == b
+        || matches!(
+            (fs::canonicalize(a), fs::canonicalize(b)),
+            (Ok(a), Ok(b)) if a == b
+        )
+}
 pub fn acquire_config_input(
     env: BTreeMap<String, String>,
     cwd: PathBuf,
@@ -31,10 +38,22 @@ pub fn acquire_config_input(
     revision: u64,
 ) -> ConfigInput {
     let home = octocode_home(&env, &cwd, &os_home);
+    let workspace = cwd.join(".octocode");
+    let global_config = home.join(CONFIG_FILE_NAME);
+    let project_config = workspace.join(CONFIG_FILE_NAME);
     ConfigInput {
         global_env: read_file(home.join(".env")),
-        project_env: read_file(cwd.join(".octocode").join(".env")),
-        config_file: read_file(home.join(CONFIG_FILE_NAME)),
+        project_env: read_file(workspace.join(".env")),
+        // When the workspace directory IS the Octocode home (cwd = OS home),
+        // the global file must not be read a second time as a workspace layer.
+        project_config_file: if same_file(&project_config, &global_config) {
+            FileInput::Missing {
+                path: project_config,
+            }
+        } else {
+            read_file(project_config)
+        },
+        config_file: read_file(global_config),
         env,
         cwd,
         os_home,

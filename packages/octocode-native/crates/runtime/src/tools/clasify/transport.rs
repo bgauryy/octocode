@@ -264,7 +264,11 @@ fn retry_after(headers: &reqwest::header::HeaderMap, now: SystemTime) -> Option<
         .to_str()
         .ok()
         .and_then(parse_http_date)?;
-    Some(date.duration_since(now).unwrap_or(Duration::ZERO))
+    Some(
+        date.duration_since(now)
+            .unwrap_or(Duration::ZERO)
+            .min(MAX_RETRY_AFTER),
+    )
 }
 
 fn random_unit() -> f64 {
@@ -921,6 +925,16 @@ mod tests {
                 Some(MAX_RETRY_AFTER)
             );
         }
+        // A far-future HTTP-date is bounded by the same cap.
+        let mut date = reqwest::header::HeaderMap::new();
+        date.insert(
+            reqwest::header::RETRY_AFTER,
+            reqwest::header::HeaderValue::from_static("Fri, 31 Dec 9999 23:59:59 GMT"),
+        );
+        assert_eq!(
+            retry_after(&date, SystemTime::UNIX_EPOCH),
+            Some(MAX_RETRY_AFTER)
+        );
     }
 
     /// Minimal HTTP/1.1 server: one request per connection. `script` decides,

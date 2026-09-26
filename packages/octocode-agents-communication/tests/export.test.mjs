@@ -41,7 +41,7 @@ test('export includes committed WAL and all workspaces, preserves source, verifi
   const sourceHash = digest(f.database), walHash = digest(`${f.database}-wal`);
   const destination = join(f.workspace, 'archive.sqlite'), result = f.export(destination);
   assert.equal(result.path, destination); assert.equal(result.source, f.database);
-  assert.equal(result.scope, 'all-workspaces'); assert.equal(result.schemaVersion, 6);
+  assert.equal(result.scope, 'all-workspaces'); assert.equal(result.schemaVersion, 7);
   assert.equal(result.includesWorkspaceDocuments, false); assert.match(result.documents, /Preserve referenced workspace/);
   assert.equal(result.sha256, digest(destination)); assert.equal(result.bytes, statSync(destination).size);
   assert.equal(result.integrity, 'ok'); assert.equal(typeof result.directorySynced, 'boolean');

@@ -6,6 +6,7 @@ use anyhow::{Result, anyhow, bail};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 use std::{
+    cell::RefCell,
     fs,
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
@@ -17,6 +18,38 @@ pub struct Store {
     database_identity: fs::Metadata,
     pub workspace: String,
     pub database: PathBuf,
+    writer: bool,
+    /// Last empty inbox read: (session, after, data_version, total_changes).
+    idle_inbox: RefCell<Option<(String, i64, i64, u64)>>,
+}
+impl Drop for Store {
+    fn drop(&mut self) {
+        // Keep planner statistics current for new indexes; bounded and advisory.
+        if self.writer {
+            let _ = self.db.execute_batch("PRAGMA optimize");
+        }
+    }
+}
+/// Remove null members recursively so outputs never carry empty optional fields.
+pub fn strip_nulls(value: &mut Value) {
+    match value {
+        Value::Object(map) => {
+            map.retain(|_, v| !v.is_null());
+            map.values_mut().for_each(strip_nulls);
+        }
+        Value::Array(items) => items.iter_mut().for_each(strip_nulls),
+        _ => {}
+    }
+}
+struct ByteCount(usize);
+impl std::io::Write for ByteCount {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0 += bytes.len();
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 pub fn now() -> i64 {
     SystemTime::now()
@@ -28,7 +61,12 @@ pub fn page(mut rows: Vec<Value>, string_cursor: bool) -> Value {
     let mut bytes = 64;
     let mut count = 0;
     for row in rows.iter().take(100) {
-        let size = row.to_string().len() + 1;
+        // Measure the serialized size without allocating a string per row.
+        let mut counter = ByteCount(1);
+        if serde_json::to_writer(&mut counter, row).is_err() {
+            break;
+        }
+        let size = counter.0;
         if count > 0 && bytes + size > 256 * 1024 {
             break;
         }
@@ -70,6 +108,8 @@ impl Store {
             database_identity,
             workspace,
             database,
+            writer: !read_only,
+            idle_inbox: RefCell::new(None),
         })
     }
     fn check_database(&self) -> Result<()> {
@@ -129,7 +169,7 @@ impl Store {
             "peers" => Ok(page(
                 query(
                     &self.db,
-                    "SELECT * FROM sessions WHERE workspace=? AND expiresAt>? AND id>? ORDER BY id LIMIT 101",
+                    "SELECT id,name,vendor,vendorSession,expiresAt FROM sessions WHERE workspace=? AND expiresAt>? AND id>? ORDER BY id LIMIT 101",
                     &[
                         json!(self.workspace),
                         json!(now()),
@@ -144,7 +184,7 @@ impl Store {
                     Ok(page(
                         query(
                             &self.db,
-                            "SELECT m.id,m.sender,m.body,m.reasoning,m.topic,m.expiresAt,m.wake,m.conversationId,m.replyTo FROM messages m JOIN deliveries d ON m.id=d.message WHERE d.recipient=? AND d.acknowledgedAt IS NULL AND m.expiresAt>? AND m.id=?",
+                            "SELECT m.id,m.sender,s.name AS senderName,m.body,m.reasoning,m.topic,m.expiresAt,m.wake,m.conversationId,m.replyTo FROM deliveries d JOIN messages m ON m.id=d.message JOIN sessions s ON s.id=m.sender WHERE d.recipient=? AND d.acknowledgedAt IS NULL AND m.expiresAt>? AND m.id=?",
                             &[json!(session), json!(now()), message.clone()],
                         )?,
                         false,
@@ -198,10 +238,14 @@ impl Store {
                 self.known(session, true)
             }),
             "heartbeat" => transaction(&self.db, |db| {
-                self.known(session, true)?;
+                let identity = self.known(session, true)?;
                 if input.get("vendorSession").is_some() {
                     text(input, "vendorSession")?;
-                    self.validate_vendor_session_update(session, &input["vendorSession"])?;
+                    self.validate_vendor_session_update(
+                        session,
+                        &identity,
+                        &input["vendorSession"],
+                    )?;
                 }
                 execute(
                     db,
@@ -216,7 +260,13 @@ impl Store {
             }),
             "leave" => transaction(&self.db, |db| {
                 self.known(session, false)?;
+                // Leaving ends the identity's claims; a crash-resume keeps subscriptions.
                 execute(db, "DELETE FROM leases WHERE owner=?", &[json!(session)])?;
+                execute(
+                    db,
+                    "DELETE FROM subscriptions WHERE session=?",
+                    &[json!(session)],
+                )?;
                 execute(
                     db,
                     "UPDATE sessions SET expiresAt=? WHERE id=?",
@@ -229,13 +279,19 @@ impl Store {
                 let topics = input["topics"]
                     .as_array()
                     .ok_or_else(|| anyhow!("Missing topics"))?;
-                execute(
-                    db,
-                    "DELETE FROM subscriptions WHERE session=?",
-                    &[json!(session)],
-                )?;
                 for topic in topics {
                     text(&json!({"topic":topic}), "topic")?;
+                }
+                // Apply only the difference: unchanged topics write no audit rows.
+                execute(
+                    db,
+                    "DELETE FROM subscriptions WHERE session=? AND topic NOT IN (SELECT value FROM json_each(?))",
+                    &[
+                        json!(session),
+                        json!(Value::Array(topics.clone()).to_string()),
+                    ],
+                )?;
+                for topic in topics {
                     execute(
                         db,
                         "INSERT OR IGNORE INTO subscriptions VALUES(?,?)",
@@ -245,64 +301,9 @@ impl Store {
                 Ok(json!({"subscribed":true}))
             }),
             "check_write" => self.check_write(session, input),
-            "check_paths" => {
-                self.known(session, true)?;
-                let mut conflicts = Vec::new();
-                for path in input["paths"]
-                    .as_array()
-                    .ok_or_else(|| anyhow!("paths required"))?
-                {
-                    let mut filter = path.clone();
-                    filter["status"] = json!("active");
-                    loop {
-                        let rows = self.entity_list(session, "lease", &filter)?;
-                        for lease in rows["items"]
-                            .as_array()
-                            .ok_or_else(|| anyhow!("Invalid lease page"))?
-                        {
-                            if lease["owner"] != session
-                                && !conflicts
-                                    .iter()
-                                    .any(|prior: &Value| prior["id"] == lease["id"])
-                            {
-                                conflicts.push(lease.clone());
-                            }
-                        }
-                        if rows["next"].is_null() {
-                            break;
-                        }
-                        filter["after"] = rows["next"].clone();
-                    }
-                }
-                Ok(json!({"ok":conflicts.is_empty(),"conflicts":conflicts}))
-            }
+            "check_paths" => self.check_paths(session, input),
             "lock" | "lock_many" => self.lock(session, input, name == "lock_many"),
-            "renew" | "unlock" => transaction(&self.db, |db| {
-                self.known(session, true)?;
-                let count = if name == "renew" {
-                    execute(
-                        db,
-                        "UPDATE leases SET expiresAt=? WHERE id=? AND owner=? AND expiresAt>?",
-                        &[
-                            json!(now() + ttl(input, 60_000)?),
-                            input["lease"].clone(),
-                            json!(session),
-                            json!(now()),
-                        ],
-                    )?
-                } else {
-                    execute(
-                        db,
-                        "DELETE FROM leases WHERE id=? AND owner=? AND expiresAt>?",
-                        &[input["lease"].clone(), json!(session), json!(now())],
-                    )?
-                };
-                Ok(if name == "renew" {
-                    json!({"renewed":count==1})
-                } else {
-                    json!({"released":count==1})
-                })
-            }),
+            "renew" | "unlock" => self.lease_transition(session, input, name == "renew"),
             "send_message" => self.send(session, input, false),
             "share_document" => self.share_document(session, input),
             "read_document" => self.read_document(session, input),
@@ -335,15 +336,20 @@ impl Store {
                 )?;
                 Ok(json!({"acknowledged":count==1}))
             }),
+            // Scoped to the bound workspace: one workspace never deletes another's leases.
             "prune" => transaction(&self.db, |db| {
+                let at = now();
                 let removed = execute(
                     db,
-                    "DELETE FROM leases WHERE id IN (SELECT l.id FROM leases l JOIN sessions s ON s.id=l.owner WHERE l.expiresAt<=? OR s.expiresAt<=? ORDER BY l.id LIMIT 100)",
-                    &[json!(now()), json!(now())],
+                    "DELETE FROM leases WHERE id IN (SELECT l.id FROM leases l JOIN sessions s ON s.id=l.owner WHERE l.workspace=? AND (l.expiresAt<=? OR s.expiresAt<=?) ORDER BY l.id LIMIT 100)",
+                    &[json!(self.workspace), json!(at), json!(at)],
                 )?;
-                Ok(
-                    json!({"removed":removed,"morePossible":removed>0,"next":if removed>0 {json!({"command":"prune"})}else{Value::Null}}),
-                )
+                let next = if removed == 100 {
+                    json!({"command":"prune"})
+                } else {
+                    Value::Null
+                };
+                Ok(json!({"removed":removed,"next":next}))
             }),
             _ => bail!("Unknown operation: {name}"),
         }
@@ -351,9 +357,10 @@ impl Store {
     pub(crate) fn validate_vendor_session_update(
         &self,
         session: &str,
+        identity: &Value,
         value: &Value,
     ) -> Result<()> {
-        if self.known(session, false)?["vendorSession"] != *value {
+        if identity["vendorSession"] != *value {
             self.ensure_binding_change_allowed(session)?;
             if !query(
                 &self.db,
@@ -466,8 +473,11 @@ impl Store {
                     || row["wake"] != wake
                     || row["conversationId"] != conversation
                     || row["replyTo"] != input["replyTo"]
+                    || row.get("ttlMs").is_some_and(|stored| *stored != duration)
                 {
-                    bail!("Message key reused with different content");
+                    bail!(
+                        "Message key reused with different content (target, topic, body, reasoning, wake, correlation or ttlMs); use a new key"
+                    );
                 }
                 let count = query(
                     db,
@@ -476,6 +486,7 @@ impl Store {
                 )?;
                 return receipt(row["id"].clone(), count[0]["n"].clone());
             }
+            let mut offline = false;
             let recipients = if broadcast {
                 query(
                     db,
@@ -483,7 +494,10 @@ impl Store {
                     &[json!(self.workspace), json!(now()), json!(session)],
                 )?
             } else if input.get("topic").is_none() {
-                self.known(target, false)?;
+                // Offline direct targets stay valid (resume delivers); flag it to the sender.
+                offline = self.known(target, false)?["expiresAt"]
+                    .as_i64()
+                    .is_none_or(|at| at <= now());
                 vec![json!({"id":target})]
             } else {
                 query(
@@ -499,7 +513,7 @@ impl Store {
             };
             execute(
                 db,
-                "INSERT INTO messages(sender,target,topic,body,key,expiresAt,reasoning,wake,conversationId,replyTo) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO messages(sender,target,topic,body,key,expiresAt,reasoning,wake,conversationId,replyTo,ttlMs) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                 &[
                     json!(session),
                     json!(target),
@@ -511,6 +525,7 @@ impl Store {
                     json!(wake),
                     conversation,
                     input["replyTo"].clone(),
+                    json!(duration),
                 ],
             )?;
             let id = db.last_insert_rowid();
@@ -521,19 +536,38 @@ impl Store {
                     &[json!(id), recipient["id"].clone()],
                 )?;
             }
-            receipt(json!(id), json!(recipients.len()))
+            let mut result = receipt(json!(id), json!(recipients.len()))?;
+            if offline {
+                result["recipientOffline"] = json!(true);
+            }
+            Ok(result)
         })
     }
     pub fn inbox(&self, session: &str, after: i64) -> Result<Value> {
         self.known(session, true)?;
-        Ok(page(
+        // An empty page stays empty until some commit lands: skip the query while
+        // neither another connection (data_version) nor this one changed the store.
+        let version: i64 = self
+            .db
+            .pragma_query_value(None, "data_version", |r| r.get(0))?;
+        let changes = self.db.total_changes();
+        let state = (session.to_owned(), after, version, changes);
+        if self.idle_inbox.borrow().as_ref() == Some(&state) {
+            return Ok(json!({"items":[],"next":null}));
+        }
+        let result = page(
             query(
                 &self.db,
-                "SELECT m.id,m.sender,m.body,m.reasoning,m.topic,m.expiresAt,m.wake,m.conversationId,m.replyTo FROM messages m JOIN deliveries d ON m.id=d.message WHERE d.recipient=? AND d.acknowledgedAt IS NULL AND m.expiresAt>? AND m.id>? ORDER BY m.id LIMIT 101",
+                "SELECT m.id,m.sender,s.name AS senderName,m.body,m.reasoning,m.topic,m.expiresAt,m.wake,m.conversationId,m.replyTo FROM deliveries d JOIN messages m ON m.id=d.message JOIN sessions s ON s.id=m.sender WHERE d.recipient=? AND d.acknowledgedAt IS NULL AND m.expiresAt>? AND d.message>? ORDER BY d.message LIMIT 101",
                 &[json!(session), json!(now()), json!(after)],
             )?,
             false,
-        ))
+        );
+        *self.idle_inbox.borrow_mut() = result["items"]
+            .as_array()
+            .is_some_and(Vec::is_empty)
+            .then_some(state);
+        Ok(result)
     }
     pub fn claim(&self, session: &str, owner: &str) -> Result<Vec<Value>> {
         self.known(session, true)?;

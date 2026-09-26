@@ -26,7 +26,7 @@ impl ResponsePageOptions {
         self.response_scope.as_deref() == Some("rows") && self.response_char_length.is_some()
     }
 
-    fn explicit(&self) -> bool {
+    pub(crate) fn explicit(&self) -> bool {
         self.response_char_length.is_some()
             || self.response_char_offset.is_some()
             || self.response_snapshot.is_some()
@@ -154,6 +154,9 @@ impl ResponsePager {
             .as_object()
             .cloned()
             .ok_or(ResponseError::StructuredContentMustBeObject)?;
+        if input.options.rows_scope() || input.options.structured_scope() {
+            strip_transient_telemetry(&mut structured);
+        }
         if input.options.rows_scope() {
             // Same bytes as the Value form, without cloning the envelope first.
             let full = serde_json::to_string(&structured)
@@ -271,6 +274,22 @@ impl ResponsePager {
             structured_content: Value::Object(structured),
             is_error: input.is_error,
         })
+    }
+}
+
+/// Per-row fields that describe how a call was served (e.g. cache warmth),
+/// not the evidence. A paged response drops them so a copied continuation
+/// served from a warmer cache keeps the same snapshot, page plan, and bytes.
+const TRANSIENT_ROW_FIELDS: &[&str] = &["cache"];
+
+/// Remove transient per-row telemetry from an envelope before it is paged.
+pub(crate) fn strip_transient_telemetry(structured: &mut Map<String, Value>) {
+    if let Some(Value::Array(rows)) = structured.get_mut("results") {
+        for row in rows.iter_mut().filter_map(Value::as_object_mut) {
+            for field in TRANSIENT_ROW_FIELDS {
+                row.remove(*field);
+            }
+        }
     }
 }
 
@@ -1187,6 +1206,63 @@ mod tests {
         let (_, restart) = paginate_rows(structured.as_object().unwrap().clone(), &full, &stale);
         assert_eq!(restart.restart, Some(true));
         assert_eq!(restart.next_char_offset, Some(0));
+    }
+
+    /// Cold call, then the copied continuation served from a warm cache: the
+    /// per-row `cache` telemetry must not read as a source change.
+    #[test]
+    fn cache_warmth_does_not_restart_a_copied_continuation() {
+        let pager = ResponsePager::new(ResponsePagerConfig::default());
+        let envelope = |warm: bool| {
+            let rows = (0..3)
+                .map(|index| {
+                    let mut row = json!({"index":index,"data":{"content":"x".repeat(300)}});
+                    if warm {
+                        row["cache"] = json!(1);
+                    }
+                    row
+                })
+                .collect::<Vec<_>>();
+            json!({"shared":{"commitSha":"abc"},"results":rows})
+        };
+        for scope in ["rows", "structured"] {
+            let prepare = |warm: bool, offset: Option<usize>, snapshot: Option<String>| {
+                pager
+                    .prepare(
+                        ResponseInput {
+                            tool: "ghGetFileContent".into(),
+                            query: json!({"queries":[{"path":"a"}]}),
+                            structured: envelope(warm),
+                            rendered_text: None,
+                            is_error: false,
+                            options: ResponsePageOptions {
+                                response_char_length: Some(400),
+                                response_char_offset: offset,
+                                response_snapshot: snapshot,
+                                response_scope: Some(scope.into()),
+                                render_text: None,
+                            },
+                        },
+                        &AtomicBool::new(false),
+                    )
+                    .expect("page")
+                    .structured_content
+            };
+            let cold = prepare(false, None, None);
+            let pagination = &cold["responsePagination"];
+            assert_eq!(pagination["hasMore"], true, "{scope}: {cold}");
+            let next = pagination["next"]["query"].clone();
+            let warm = prepare(
+                true,
+                next["responseCharOffset"].as_u64().map(|x| x as usize),
+                next["responseSnapshot"].as_str().map(str::to_owned),
+            );
+            let page = &warm["responsePagination"];
+            assert!(page.get("restart").is_none(), "{scope}: {warm}");
+            assert!(page.get("changed").is_none(), "{scope}: {warm}");
+            assert_eq!(page["snapshot"], pagination["snapshot"], "{scope}");
+            assert!(!warm.to_string().contains("\"cache\""), "{scope}: {warm}");
+        }
     }
 }
 

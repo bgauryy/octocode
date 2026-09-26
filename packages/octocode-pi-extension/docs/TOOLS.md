@@ -365,9 +365,8 @@ field for the default sequential, stop-on-first-error behavior.
 
 MCP results retain complete text and every image block in model content. Unsupported
 block types remain JSON text. The gateway does not apply a second truncation budget;
-server-owned partial state and continuations remain intact. When an MCP server emits only
-the compact `structuredContent available` stub, the gateway surfaces the complete
-`structuredContent` payload instead.
+server-owned partial state and continuations remain intact. When an MCP server returns
+no text content but does return `structuredContent`, the gateway surfaces that payload as text.
 
 The built-in `octocode` research server uses the installed `octocode-mcp` binary,
 with an npx fallback constrained to the extension manifest's dependency version. Add a trusted stdio command or Streamable
@@ -554,8 +553,7 @@ code and add only config you trust.
 | ---------------------------------------------- | ----------------------------------------------------------------------------------- |
 | `OCTOCODE_TOKEN` / `GH_TOKEN` / `GITHUB_TOKEN` | GitHub authentication (priority order)                                              |
 | `GITHUB_API_URL`                               | GitHub Enterprise API base URL                                                      |
-| `ENABLE_LOCAL`                                 | Set `false` to disable all local tools                                              |
-| `ENABLE_CLONE`                                 | Legacy setting; cloning is CLI-only with persistent storage |
+| `ENABLE_LOCAL`                                 | Set `false` (or `local.enabled: false`) to disable all local tools; not overridden by the extension |
 | `OCTOCODE_CDP_DEBUG`                           | Set `1` to write CDP events to `~/.octocode/chrome-debug/port-<N>/cdp-events.jsonl` |
 
 Loaded via `@octocodeai/config`. Run `npx @octocodeai/config --keys` to inspect active values.

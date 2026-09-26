@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { nativeResults, verifyContributionReads } from '../scripts/collaboration-evidence.mjs';
+import { nativeResults, verifyContributionReads } from '../../scripts/collaboration-evidence.mjs';
 
 function fixture() {
   const old = { name: 'author-coordination.md', author: 'author', sha256: 'old' };

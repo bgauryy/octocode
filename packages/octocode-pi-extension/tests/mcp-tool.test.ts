@@ -93,37 +93,14 @@ function tmpMcpJson(content: unknown): string {
 
 // ─── OCTOCODE_MCP_ENV_DEFAULTS contract ──────────────────────────────────────
 
-test("env defaults: full-text MCP responses + local tools + npm cache vars are always on for the octocode server", () => {
-  assert.equal(OCTOCODE_MCP_ENV_DEFAULTS["OCTOCODE_MCP_FULL_TEXT"], "true");
-  assert.equal(OCTOCODE_MCP_ENV_DEFAULTS["ENABLE_LOCAL"], "true");
+test("env defaults: only npm cache vars; tool availability is never overridden", () => {
+  assert.deepEqual(Object.keys(OCTOCODE_MCP_ENV_DEFAULTS).sort(), ["npm_config_cache", "npm_config_include"]);
   assert.equal(OCTOCODE_MCP_ENV_DEFAULTS["npm_config_include"], "optional");
   assert.ok(OCTOCODE_MCP_ENV_DEFAULTS["npm_config_cache"]!.length > 0);
 });
 
 
 // ─── resolveMcpCallText — structuredContent interop fallback ─────────────────
-
-const STUB =
-  "structuredContent available · results=1 · [q1 ok]. Read structuredContent for full data; if your client cannot read structuredContent, set OCTOCODE_MCP_FULL_TEXT=true.";
-
-test("call text: compact stub + structuredContent → structuredContent is surfaced as text", () => {
-  const payload = {
-    content: [{ type: "text", text: STUB }],
-    structuredContent: {
-      status: "ok",
-      results: [{ id: "q1", data: "real-data" }],
-    },
-  };
-  const text = resolveMcpCallText(payload);
-  assert.ok(
-    text.includes("real-data"),
-    "structured data must be visible to the model",
-  );
-  assert.ok(
-    !text.startsWith("structuredContent available"),
-    "stub must not lead the output",
-  );
-});
 
 test("call text: empty content + structuredContent → structuredContent surfaced", () => {
   const text = resolveMcpCallText({
@@ -140,11 +117,6 @@ test("call text: normal text content passes through unchanged", () => {
   };
   assert.ok(resolveMcpCallText(payload).includes("plain full result"));
   assert.ok(resolveMcpCallText(payload).includes("ignored"));
-});
-
-test("call text: stub without structuredContent stays as-is (nothing better available)", () => {
-  const payload = { content: [{ type: "text", text: STUB }] };
-  assert.equal(resolveMcpCallText(payload), STUB);
 });
 
 test("call text: non-record / malformed payloads stringify without throwing", () => {
@@ -187,10 +159,10 @@ test("call details summarize MCP payload shape without duplicating text, images,
   assert.doesNotMatch(JSON.stringify(details), /large-provider-visible-text|aGVsbG8|real-data/);
 });
 
-test("call content: compact stub fallback keeps structured data and native images", () => {
+test("call content: text-less fallback keeps structured data and native images", () => {
   const image = { type: "image", data: "aGVsbG8=", mimeType: "image/png" };
   const content = resolveMcpCallContent({
-    content: [{ type: "text", text: STUB }, image],
+    content: [image],
     structuredContent: { results: [{ id: "full-result" }] },
   });
   assert.match((content[0] as { text: string }).text, /full-result/);

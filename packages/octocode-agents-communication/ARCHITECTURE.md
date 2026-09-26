@@ -47,12 +47,10 @@ the process lifetime. MCP discovery and calls use that same selection; managed
 workers and native Pi reuse the catalog's selected descriptors. This reduces
 exposed context without defining a second tool schema or an OS permission policy.
 
-`skill --vendor <host>` derives instructions from the single embedded skill by
-omitting other vendors' setup paragraphs. Shared protocol, safety, locks and raw
-fallback remain. Plain `skill` and managed workers retain the full canonical file:
-the matched profile trial missed its input/latency gates. Scoping is an explicit
-host option; no prompt is regenerated per message. It reduces instruction bytes,
-not the host's retained history or necessarily its token bill.
+Plain `skill` returns the embedded `SKILL.md`: one CLI and the shared routine.
+Host attachment is `attach --help`. `skill --vendor <host>` returns that same
+file; it still drops a host-only line when one is present. Managed workers load
+this file once. No prompt is regenerated per message.
 
 ## Message flow
 
@@ -124,11 +122,9 @@ second native delivery owner. See the [internal protocol](docs/SERVICE_PROTOCOL.
 
 The [service protocol](docs/SERVICE_PROTOCOL.md) owns message and delivery semantics;
 [lock rules](docs/LOCKS.md) own conflict/recovery behavior. Vendor prerequisites,
-action/passive scheduling and receipt strength live in the [delivery matrix](README.md#choose-a-delivery-path),
-[Grok integration](docs/GROK_INTEGRATION.md), [Pi integration](docs/PI_MESSAGES.md),
-[OpenCode evaluation](docs/OPENCODE_EVALUATION.md), and [hook contracts](docs/HOST_HOOKS.md).
-ACP capability/reconnect experiments remain outside the production dispatcher;
-see the [ACP evaluation](docs/ACP_EVALUATION.md).
+action/passive scheduling and receipt strength live in the [delivery matrix](README.md#supported-hosts),
+[OpenCode setup](README.md#connect-a-native-recipient), and [hook contracts](docs/HOST_HOOKS.md).
+ACP capability experiments stay outside the production dispatcher.
 
 ## Persistence and context
 
@@ -161,17 +157,16 @@ Optional document `context` metadata records a short summary, canonical path,
 file/tree scope, exact branch and expiry in the existing publication audit record.
 The read-only `context` command scans bounded audit windows and returns matching
 summaries with explicit continuation and incremental cursors. It reads no bodies,
-injects no context and owns no delivery state. See [scoped context](docs/CONTEXT_DISCOVERY.md).
+injects no context and owns no delivery state.
 
 ## Validation and distribution
 
-The package's `verify` script runs format, strict Clippy, Rust tests and real CLI/MCP
-process tests. Tests cover transaction contention, identity/transport overlap, expiry,
+The package's `verify` script runs format, strict Clippy, a Markdown link check, Rust
+tests and real CLI/MCP process tests; `test:tooling` covers benchmark/POC harnesses. Tests cover transaction contention, identity/transport overlap, expiry,
 path aliases, schema integrity, retries, invalid frames, visibility and standalone
-skill execution. Python interoperability requires the documented compatible runtime.
+skill execution. SQL-only participants follow `db protocol` with their own client.
 The live service matrix checks existing recipients and automatic wake; managed-worker
-probes test the separate optional process-creation path. Results and their platform
-limits are recorded in [Grok integration](docs/GROK_INTEGRATION.md) and [benchmarks](docs/BENCHMARKS.md).
+probes test the separate optional process-creation path.
 
 Build and packaging instructions belong to the [README](README.md#build-and-validate).
 Release bundles include checksummed platform binaries; source checkouts omit them.

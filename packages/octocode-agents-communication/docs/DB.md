@@ -1,4 +1,4 @@
-# Local database protocol v6
+# Local database protocol v7
 
 This reference defines the coordination contract for cooperating local processes.
 Use the bundled Rust CLI when available. A generic agent can use
@@ -16,16 +16,31 @@ SQLite version, and journal mode. Missing-file inspection does not create a stor
 `schema` returns the command catalog, thirteen bound tools, entity catalog, and canonical
 DDL under `database.sql`. `schema entities` and `schema entity <name>` narrow the
 output. The database identity is application ID `1329678147` (`0x4f414743`),
-`user_version=6`. Readers and writers must reject another identity or schema.
+`user_version=7`. Readers and writers must reject another identity or schema.
 The CLI checks all user tables, indexes, constraints, and foreign-key declarations
 through the normalized `sqlite_schema` definition; it never fills in missing tables.
-The historical filename `v1.sqlite` stays stable; it does not indicate the current
-schema version. There is no automatic migration or Awareness import. To upgrade an
-intact v1, v2, v3, v4 or v5 store, stop all workers and let presence expire, then run `db migrate`.
-Migration checks the exact old schema, preserves identities/messages/deliveries,
-and adds audit snapshots when upgrading v1. V3 adds intent without inventing reasons
-for old rows: historical `reasoning` remains null. It rejects active workers. Upgrade all
-clients together; old schema-pinned clients must not keep writing. V4 adds immutable `wake` scheduling intent: old direct messages retain `action`, old topic/broadcast messages become `passive`. New CLI/Python direct sends default `action`; fanout defaults `passive`. SQL writers supply the corresponding value explicitly. V5 adds optional immutable conversation/reply correlation and OpenCode attachments; historical messages retain null correlation. V6 adds Grok attachments without changing message or audit history.
+The default filename `v1.sqlite` stays stable; it does not indicate the schema
+version. There is no automatic migration or Awareness import. An intact older
+store is upgraded only by `db migrate` after workers are stopped. Historical rows
+keep null `reasoning` when none was stored. Historical direct messages keep `wake`
+`action`; historical topic and broadcast messages keep `wake` `passive`. Historical
+correlation stays null. Attachments include the Grok transport. New direct sends
+default `action`; fanout defaults `passive`. SQL writers supply `wake` explicitly.
+V7 adds the folded lease `pathKey` (backfilled natively by `db migrate`, without
+audit rows), the `documents` registry (backfilled from `document.created` audit),
+optional `messages.ttlMs`, lookup indexes, and audit snapshots that omit null members.
+Migration refreshes planner statistics (`PRAGMA optimize`); writers run it on close.
+
+### Schema v7 indexes
+
+| Index | Serves |
+| --- | --- |
+| `leases_path(workspace,pathKey)` | lock/lock_many, `check_paths`, lease path filters |
+| `leases_owner(owner)` | leave/resume cleanup, held-lease lists |
+| `sessions_scope(workspace,expiresAt)` | peers, notify_all and topic recipients |
+| `sessions_host(workspace,vendorSession)` partial | host identity binding |
+| `subscriptions_topic(topic)` | topic fanout |
+| `documents_scan(workspace,id)` + `UNIQUE(workspace,name)` | `context`, `read_document`, `share_document` |
 
 The schema digest is SHA-256 of UTF-8 JSON for `type,name,tbl_name,sql` rows from
 `sqlite_schema`, excluding names beginning `sqlite_`, ordered by `type,name`.
@@ -50,7 +65,9 @@ Every entity command requires `--session`. Get/list accepts an expired identity 
 inspection, but the identity must belong to the bound workspace. Session, lease,
 subscription, attachment, and audit metadata is visible within that workspace. A message is visible
 to its sender or a recipient; a delivery is visible to its sender or that delivery's
-recipient. Unknown or inaccessible IDs return JSON `null`. Identity strings are
+recipient. Unknown or inaccessible IDs return JSON `null`. Rows omit SQL-null
+columns (an absent member means null), including inbox, peers and entity views; lease
+rows never expose the internal `pathKey`. Identity strings are
 routing identifiers, not secrets: this is a trusted OS-user database, not a security
 boundary against another process with file access.
 
@@ -61,7 +78,10 @@ transitions cannot be replaced by `entity set`.
 
 List returns at most 100 items, targeting 256 KiB of serialized JSON, and a nullable
 `next` cursor. A single oversized row is returned to ensure progress. Copy `next` into the
-same filter's `after` field until null. Session/lease lists default to `status:active`;
+same filter's `after` field until null. Integer IDs sort numerically; delivery and
+dispatch lists sort by `(message, recipient)`, so `10:…` follows `9:…`. Message,
+delivery and dispatch lists start from the caller's own sent/received index entries;
+audit lists walk IDs in order and stop at the page size. Session/lease lists default to `status:active`;
 use `expired` or `all` for history. Lease activity includes owner presence. Lease
 `path` with optional `kind` lists overlaps using the same canonical file/tree rules
 as acquisition, without acquiring anything. Message lists support `direction`, `topic`, `conversationId` and `replyTo`; delivery lists support `message` and `acknowledged`. Subscriptions support
@@ -75,7 +95,9 @@ CLI's `join` initializes an empty store under a writer transaction. New files us
 mode 0600; directories it creates use mode 0700. Existing file permissions are kept.
 
 For every writing connection, enable foreign keys, a 5000 ms busy timeout, WAL,
-and FULL synchronous durability. Use parameter binding. Begin a short
+and FULL synchronous durability. The CLI validates the schema fingerprint under a
+read snapshot (no writer lock) and takes `BEGIN IMMEDIATE` only for initialization
+and state-changing transitions. Use parameter binding. Begin a short
 `BEGIN IMMEDIATE` transaction before checking identity and reading any state that
 controls a write. Commit the complete transition, or roll it back. Never hold a
 transaction while waiting for a model, another process, or filesystem edits. Retry
@@ -97,8 +119,8 @@ cannot resurrect an expired identity. Send heartbeats approximately every 15 sec
 Resume requires an expired or ended session with matching workspace and vendor.
 In one transaction, delete its old leases, clear its unacknowledged delivery claims,
 and extend presence. Preserve messages, subscriptions, and identity metadata. Leave
-expires presence and deletes owned leases. It can clean up an already-expired
-session. A process death needs no cleanup for logical expiry. DB resume does not recreate vendor history. Optional managed `run --session` starts
+expires presence and deletes owned leases and subscriptions (a crashed identity keeps
+its subscriptions for resume). It can clean up an already-expired session. A process death needs no cleanup for logical expiry. DB resume does not recreate vendor history. Optional managed `run --session` starts
 a fresh vendor conversation; attached hosts retain ownership of their conversation.
 
 ## Required intent
@@ -133,7 +155,7 @@ Preserve stored/access paths; apply folding only to equality and tree-prefix che
 This intentionally makes `A.txt` and `a.txt` conflict even on case-sensitive volumes,
 and treats composed/decomposed Unicode names as aliases before they exist.
 `src` contains `SRC/file` but not `src-other`. `schema.database.leasePathComparison`
-reports the pinned Unicode versions. Rust, Python, and entity conflict queries must
+reports the pinned Unicode versions. The CLI and entity conflict queries must
 use these same rules; do not use SQLite's ASCII-only NOCASE or lower().
 
 This replaces the earlier case-sensitive comparison without changing the SQL
@@ -142,14 +164,18 @@ upgrading every participant. Mixed old/new lock clients are not supported. Reacq
 rename or symlink change; hard-link aliases and filesystem mutation enforcement
 are outside the advisory path contract.
 
-Within one writer transaction, validate active ownership and load leases whose own
-expiry and owner's presence are both active in this workspace. Reject acquisition
-when paths match, an existing tree contains the candidate, or a candidate tree
-contains an existing path. This includes overlap with your own leases. Otherwise
-insert a lease with default TTL 60000 and let SQLite assign its acquisition ID.
+Within one writer transaction, validate active ownership and look up live leases
+(own expiry and owner presence both active) in this workspace whose `pathKey`
+conflicts. `pathKey` is `"/" + NFD(casefold(NFD(component)))` per component, root
+omitted. Reject acquisition when keys match, a tree lease holds an ancestor key, or a
+tree candidate has leases in the key range `(key+"/", key+"0")`. This includes overlap
+with your own leases. Otherwise insert the lease with its `pathKey` (a trigger rejects
+a missing key) and default TTL 60000, and let SQLite assign its acquisition ID. See
+[LOCKS.md](LOCKS.md) for the query.
 
-Renew and unlock must atomically check the active session, acquisition ID, matching
-owner, and unexpired lease. Renew uses the requested TTL from now. A false result
+Renew and unlock take `leaseId` and must atomically check the active session,
+acquisition ID, matching owner, and unexpired lease. Renew returns the new
+`expiresAt`. Renew uses the requested TTL from now. A false result
 means stop editing and acquire a fresh lease. Never reuse IDs or revive an expired
 lease. Direct SQL that skips these checks can insert conflicting leases: application
 protocol compliance is required, even though SQLite serializes transactions.
@@ -160,7 +186,7 @@ then check every candidate and insert all leases in one writer transaction. A
 conflict inserts nothing. Returned leases have separate IDs for renew/unlock.
 This does not release previously held leases: release those before waiting.
 
-Conflict results include owner identity, held lease IDs, and `retryAfterMs` based
+Conflict results report workspace-relative paths, owner identity once, held lease IDs, and `retryAfterMs` based
 on the earlier of the lease expiry and current owner presence expiry. This is a
 snapshot, not a guaranteed future grant: the owner may renew. `next` proposes one
 sender-keyed question per conflicting lease; send it once, do independent work,
@@ -168,7 +194,8 @@ then retry after a reply or expiry. Self-conflicts have no message suggestion.
 No operation waits for another agent while holding a transaction. Heartbeats
 extend presence only. `leave` frees leases immediately; process death frees them
 logically at the earlier expiry. A stuck but heartbeating process still loses
-unrenewed leases. `prune` removes expired leases or leases of expired owners.
+unrenewed leases. `prune` removes expired leases or leases of expired owners in the
+bound workspace only.
 
 ## Shared handoff documents
 
@@ -179,6 +206,10 @@ CLI JSON `-` reads bounded stdin for content too large for command arguments.
 The file is immutable through this API; identical retries return the original
 metadata. Different content, reasoning or context metadata requires a new name. `document.created` audit data
 stores name, path, author, reasoning, byte count and SHA-256; content stays once on disk.
+An audit trigger registers each name once per workspace in the immutable `documents`
+table (`id` = audit ID), which serves name lookups and `context` scans. The CLI writes
+and syncs the file before taking the writer lock; the transaction only renames and
+registers it, and an identical retry is answered from a read snapshot.
 Reasoning is concrete intent (nonblank, at most 512 UTF-8 bytes), validated by the
 shared runtime for CLI/MCP/Pi. DB-only publishers must implement the same contract;
 the generic audit table does not enforce document-specific fields. Historical records
@@ -213,15 +244,16 @@ Existing inbox/ack clients consume broadcasts through deliveries without a migra
 Send validates the sender's active session and exactly one target: direct session
 ID or exact topic. In one writer transaction, check `(sender,key)` idempotency,
 insert the immutable message, and insert its delivery rows. A repeated key returns
-the existing receipt only when target, topic, body, reasoning, wake and resolved correlation match; changed content fails.
-A retry does not refresh expiry. Default message TTL is 3600000 ms.
+the existing receipt only when target, topic, body, reasoning, wake, resolved correlation and
+`ttlMs` match (v7 stores the requested `ttlMs`; history without it skips that check);
+changed content fails. A retry does not refresh expiry. Default message TTL is 3600000 ms.
 
 `conversationId` is optional, case-sensitive ASCII `[A-Za-z0-9._:-]`, 1–128
 characters. `replyTo` is an optional positive safe-integer message ID. Roots default
 to null for both fields. A reply inherits its parent's nullable conversation ID;
 explicit mismatches fail. The parent must exist in this workspace and be visible
 to the sender as its original sender or recipient. Expired or acknowledged parents
-remain valid. CLI, bound tools and the Python helper infer the parent sender when
+remain valid. The CLI and bound tools infer the parent sender when
 `replyTo` is supplied without `to` or `topic`; explicit targets remain authoritative.
 Resolution and visibility checks share the writer transaction. A reply can target another peer, but correlation grants that peer no
 access to the parent. These fields are immutable, included in retry equality and
@@ -233,14 +265,18 @@ matching. Do not manufacture a new conversation ID for a parent with null
 correlation. This metadata links ordinary messages; it does not define task
 completion, cancellation, authorization or a separate conversation entity.
 
-Direct targets must exist in the same workspace, including offline targets. Topic
+Direct targets must exist in the same workspace, including offline targets; the
+receipt then adds `recipientOffline:true` (delivery waits for resume). Topic
 fanout snapshots active sessions subscribed to that exact topic in the workspace,
 excluding the sender. Set `target` to the direct ID or topic and set `topic` to null
-for direct messages. Subscription replacement validates at most 32 topics, deletes
-the old set, and inserts the deduplicated new set in one transaction.
+for direct messages. Subscription replacement validates at most 32 topics and, in one transaction,
+deletes only removed topics and inserts only new ones, so an identical replacement
+writes no audit rows.
 
 Inbox joins messages and deliveries for the recipient, requiring an active session,
-`acknowledgedAt IS NULL`, and unexpired message. Return ascending message IDs, at
+`acknowledgedAt IS NULL`, and unexpired message. Items add the sender's `senderName`
+and omit null `topic`, `conversationId` and `replyTo`. `inbox wait` skips the query
+while `PRAGMA data_version` shows no commit since the last empty read. Return ascending message IDs, at
 most 100 and targeting 256 KiB of serialized JSON, with `next` when another row
 exists. Size-based pages use the last returned ID as the cursor, so no row is lost. Reads never acknowledge. Start a new
 poll from zero after processing a page sequence so previously unhandled messages
@@ -354,7 +390,7 @@ or full transcript on every delivery. Recipient history remains vendor-owned.
 ## Cleanup and conformance
 
 Expiry does not depend on pruning. Each prune transaction removes up to 100 expired
-leases (their removal is audited). Repeat its continuation until no work remains.
+leases of the bound workspace (their removal is audited). Repeat its continuation until no work remains.
 Sessions, messages, deliveries, dispatch receipts and audit are retained, including
 after acknowledgement/expiry. Expiry controls eligibility, not audit retention.
 There is no automatic transcript deletion or audit purge; long-running stores need
@@ -385,23 +421,16 @@ or mix unrelated WAL files with a restored snapshot. There is no restore command
 automatic history merge or in-place schema downgrade. Export does not relax exact
 schema compatibility or authorize deletion of the original history.
 
-The [Python example](../skills/octocode-agents-communication/scripts/sqlite_agent.py) implements direct messages, notify_all,
-presence, resume, acknowledgements, and path leases using only the standard library.
-It opens a store initialized by the CLI and pins the v6 schema digest. Path leases
-require Python 3.14 with Unicode 16.0.0, matching the native tables. Other operations
-can run on older Python versions with a sufficiently recent SQLite. Topic send,
-notification claiming, entity APIs, and pruning remain documented protocol operations
-outside that small example. Its conformance test checks two-way messaging,
-idempotency, acknowledgements, resume, and conflicting Python/Rust lease acquisition.
+A process that cannot exec the CLI follows this protocol itself. The skill ships
+no second client. Initialize the store with the CLI, then keep the same identity,
+expiry, transaction, idempotency, and acknowledgement rules.
 
-From the monorepo root, run all deterministic checks including Python conformance:
+From the monorepo root:
 
 ```sh
-COMMUNICATION_PYTHON=/absolute/python3.14-with-recent-sqlite \
-  yarn workspace @octocodeai/octocode-agents-communication verify
+yarn workspace @octocodeai/octocode-agents-communication verify
 ```
 
-Without `COMMUNICATION_PYTHON`, the test runner explicitly skips Python conformance.
 The [model POC](https://github.com/bgauryy/octocode/tree/main/packages/octocode-agents-communication#verify) separately exercises real Haiku and Luna processes.
 
 ## Delivery scheduling and durable host receipts
@@ -433,8 +462,10 @@ attempts are never automatically retried. Run only one adapter lifecycle owner f
 a Pi session. Missing receipt support fails closed. No model call performs recovery.
 
 `check_paths` is a host-only CLI command accepting up to 128 `{path,kind?}` entries.
-It returns foreign live advisory lease conflicts using native canonicalization and
-tree overlap without acquisition or renewal. A clear result is a point-in-time
+It returns foreign live advisory lease conflicts (`id`, relative `path`, `kind`, `owner`,
+`expiresAt`, `reasoning`) using native canonicalization and indexed tree overlap
+without acquisition or renewal, under one read snapshot. It reports at most 100
+distinct conflicts and adds `truncated:true` when more exist. A clear result is a point-in-time
 observation, not permission to overwrite or an OS lock.
 
 Activity file rows retain raw Git `status` and add `changes`, `indexState`, and
@@ -450,6 +481,5 @@ This is a transaction option, not a message column or a new schema version. A
 conforming SQL client validates that `replyTo` was delivered to this session and
 that the reply targets the parent sender, persists/verifies the keyed reply and
 its deliveries, then sets the parent delivery's `acknowledgedAt` only if NULL, in
-one writer transaction. Roll back all operations on any error. The Python example
-implements this path. Clarification/partial replies leave the flag unset; ordinary
+one writer transaction. Roll back all operations on any error. Clarification/partial replies leave the flag unset; ordinary
 ACK remains available for handled messages requiring no reply.

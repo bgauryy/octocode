@@ -14,16 +14,46 @@ use std::{
     time::{Duration, Instant},
 };
 
-const MAX_FRAME: usize = 8 * 1024 * 1024;
+/// One frame bound for every stdio, socket and IPC transport.
+pub(crate) const MAX_FRAME: usize = 8 * 1024 * 1024;
+/// A peer sent a frame above [`MAX_FRAME`]; its remainder is still unread.
+#[derive(Debug)]
+pub(crate) struct OversizedFrame;
+impl std::fmt::Display for OversizedFrame {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("JSON frame exceeds 8 MiB")
+    }
+}
+impl std::error::Error for OversizedFrame {}
 pub(crate) fn read_frame(reader: &mut impl BufRead) -> Result<Option<Vec<u8>>> {
     let mut bytes = Vec::new();
     reader
         .take((MAX_FRAME + 1) as u64)
         .read_until(b'\n', &mut bytes)?;
     if bytes.len() > MAX_FRAME {
-        bail!("JSON frame exceeds 8 MiB");
+        return Err(OversizedFrame.into());
     }
     Ok(if bytes.is_empty() { None } else { Some(bytes) })
+}
+/// Discard the rest of an oversized line without buffering it, so a server can
+/// reject that one request and keep serving the ones queued behind it.
+pub(crate) fn skip_line(reader: &mut impl BufRead) -> Result<()> {
+    loop {
+        let buffer = reader.fill_buf()?;
+        if buffer.is_empty() {
+            return Ok(());
+        }
+        if let Some(end) = buffer.iter().position(|b| *b == b'\n') {
+            reader.consume(end + 1);
+            return Ok(());
+        }
+        let size = buffer.len();
+        reader.consume(size);
+    }
+}
+/// The single reply to vendor reverse requests: delivery never grants approvals or runs tools.
+pub(crate) fn refusal(id: &Value) -> Value {
+    json!({"id":id,"error":{"code":-32601,"message":"Communication delivery cannot approve actions or execute tools"}})
 }
 pub(crate) struct Wire {
     child: Child,
@@ -59,6 +89,19 @@ impl Wire {
         {
             use std::os::unix::process::CommandExt;
             command.process_group(0);
+        }
+        // A killed worker must not orphan its vendor agent. Linux can tie the child to
+        // this process; elsewhere close() and the proxy's parent watch own teardown.
+        #[cfg(target_os = "linux")]
+        {
+            use std::os::unix::process::CommandExt;
+            // SAFETY: prctl is async-signal-safe and touches no parent state.
+            unsafe {
+                command.pre_exec(|| {
+                    nix::sys::prctl::set_pdeathsig(nix::sys::signal::Signal::SIGKILL)
+                        .map_err(std::io::Error::from)
+                });
+            }
         }
         let mut child = command.spawn()?;
         let mut input = child
@@ -219,7 +262,7 @@ impl Wire {
                     return Ok(value[if pi { "data" } else { "result" }].clone());
                 }
                 if value.get("id").is_some() && value.get("method").is_some() {
-                    self.send(&json!({"id":value["id"],"error":{"code":-32601,"message":"Interactive approvals are unavailable in this communication worker"}}))?;
+                    self.send(&refusal(&value["id"]))?;
                 } else {
                     if self.pending.len() >= 512 {
                         bail!("Vendor notification queue full");
@@ -242,12 +285,17 @@ impl Wire {
                 sys::signal::{Signal, killpg},
                 unistd::Pid,
             };
-            let _ = killpg(Pid::from_raw(self.child.id() as i32), Signal::SIGTERM);
+            let group = Pid::from_raw(self.child.id() as i32);
+            let _ = killpg(group, Signal::SIGTERM);
             let deadline = Instant::now() + Duration::from_secs(2);
             while self.child.try_wait()?.is_none() && Instant::now() < deadline {
                 thread::sleep(Duration::from_millis(20));
             }
-            let _ = killpg(Pid::from_raw(self.child.id() as i32), Signal::SIGKILL);
+            // The unreaped leader pins its group ID. After a reap the ID may be reused,
+            // so the group is escalated only while the leader is still unreaped.
+            if self.child.try_wait()?.is_none() {
+                let _ = killpg(group, Signal::SIGKILL);
+            }
         }
         #[cfg(windows)]
         {
@@ -263,11 +311,18 @@ impl Wire {
         }
         self.child.wait()?;
         self.rx.take();
-        if let Some(reader) = self.reader.take() {
-            let _ = reader.join();
-        }
-        if let Some(writer) = self.writer.take() {
-            let _ = writer.join();
+        // A grandchild that escaped the group can keep stdout open; never hang on it.
+        let deadline = Instant::now() + Duration::from_secs(1);
+        for handle in [self.reader.take(), self.writer.take()]
+            .into_iter()
+            .flatten()
+        {
+            while !handle.is_finished() && Instant::now() < deadline {
+                thread::sleep(Duration::from_millis(10));
+            }
+            if handle.is_finished() {
+                let _ = handle.join();
+            }
         }
         Ok(())
     }

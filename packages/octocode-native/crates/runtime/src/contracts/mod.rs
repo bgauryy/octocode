@@ -399,7 +399,15 @@ mod contract_owner_tests {
         PrepareOptions, contract_json, contract_provenance_json, isolate_row_violations,
         prepare_and_validate, prepare_many_and_validate, validate_output,
     };
-    use serde_json::json;
+    use serde_json::{Value, json};
+
+    /// Questions are flat objects: an optional correlation `id` beside the
+    /// question's own fields.
+    fn with_id(id: impl Into<String>, question: &Value) -> Value {
+        let mut question = question.clone();
+        question["id"] = Value::String(id.into());
+        question
+    }
 
     #[test]
     fn row_scoped_output_violations_degrade_to_row_errors() {
@@ -485,7 +493,7 @@ mod contract_owner_tests {
                     {"id":"r2","context":{"value":{"text":"two"}}}
                 ],
                 "questions":[
-                    {"id":"q1","question":question},
+                    with_id("q1", &question),
                     {"id":"q2","type":"score","instructions":"Rate risk","criteria":["low","high"]}
                 ]
             }),
@@ -512,7 +520,7 @@ mod contract_owner_tests {
                     {"id":"same","context":{"value":"one"}},
                     {"id":"same","context":{"value":"two"}}
                 ],
-                "questions":[{"id":"q1","question":question}]
+                "questions":[with_id("q1", &question)]
             }),
             PrepareOptions::default(),
         )
@@ -523,7 +531,7 @@ mod contract_owner_tests {
             .map(|index| json!({"id":format!("r{index}"),"context":{"value":{"index":index}}}))
             .collect();
         let questions: Vec<_> = (0..5)
-            .map(|index| json!({"id":format!("q{index}"),"question":question.clone()}))
+            .map(|index| with_id(format!("q{index}"), &question))
             .collect();
         let oversized = prepare_many_and_validate(
             "clasify",
@@ -547,7 +555,7 @@ mod contract_owner_tests {
             }})
         });
         let hydrated_questions = (0..3)
-            .map(|index| json!({"id":format!("q{index}"),"question":question.clone()}))
+            .map(|index| with_id(format!("q{index}"), &question))
             .collect::<Vec<_>>();
         let expanded = prepare_many_and_validate(
             "clasify",
@@ -589,7 +597,7 @@ mod contract_owner_tests {
                     "id":"invalid-context",
                     "reasoning":"Reject invalid delegated context before execution.",
                     "resources":[{"id":"r","context":context}],
-                    "questions":[{"id":"q","question":question.clone()}]
+                    "questions":[with_id("q", &question)]
                 }),
                 PrepareOptions::default(),
             )
@@ -606,9 +614,7 @@ mod contract_owner_tests {
                     "candidateEvidence":"fileChunks",
                     "query":{"reasoning":"Find candidates.","path":"/tmp","searchText":"anchor"}
                 }}],
-                "questions":(0..5).map(|index| json!({
-                    "id":format!("q{index}"),"question":question.clone()
-                })).collect::<Vec<_>>()
+                "questions":(0..5).map(|index| with_id(format!("q{index}"), &question)).collect::<Vec<_>>()
             })
         };
         let error = prepare_many_and_validate(

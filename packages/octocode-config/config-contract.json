@@ -22,20 +22,20 @@
     "GITHUB_PERSONAL_ACCESS_TOKEN": { "dotenv": "all", "tokenPriority": 3, "description": "GitHub personal access token" },
     "OCTOCODE_GITHUB_CLIENT_ID": { "configSource": true, "description": "GitHub OAuth client override" },
     "OCTOCODE_HOME": { "documentation": true, "dotenv": "never", "description": "Overrides the Octocode configuration directory (default: <os-home>/.octocode)" },
-    "OCTOCODE_TS_SERVER_PATH": { "documentation": true, "description": "Override the TypeScript/JavaScript LSP server binary (e.g. tsgo)." },
-    "OCTOCODE_RUST_SERVER_PATH": { "documentation": true, "description": "Override the Rust LSP server binary (rust-analyzer)." },
-    "OCTOCODE_GO_SERVER_PATH": { "documentation": true, "description": "Override the Go LSP server binary (gopls)." },
-    "OCTOCODE_PYTHON_SERVER_PATH": { "documentation": true, "description": "Override the Python LSP server binary." },
-    "OCTOCODE_JAVA_SERVER_PATH": { "documentation": true, "description": "Override the Java LSP server binary." },
-    "OCTOCODE_CLANGD_SERVER_PATH": { "documentation": true, "description": "Override the C/C++ LSP server binary (clangd)." },
-    "OCTOCODE_CSHARP_SERVER_PATH": { "documentation": true, "description": "Override the C# LSP server binary." },
-    "OCTOCODE_SCALA_SERVER_PATH": { "documentation": true, "description": "Override the Scala LSP server binary (metals)." },
-    "OCTOCODE_ASM_SERVER_PATH": { "documentation": true, "description": "Override the assembly LSP server binary." },
+    "OCTOCODE_TS_SERVER_PATH": { "documentation": true, "dotenv": "home", "description": "Override the TypeScript/JavaScript LSP server binary (e.g. tsgo)." },
+    "OCTOCODE_RUST_SERVER_PATH": { "documentation": true, "dotenv": "home", "description": "Override the Rust LSP server binary (rust-analyzer)." },
+    "OCTOCODE_GO_SERVER_PATH": { "documentation": true, "dotenv": "home", "description": "Override the Go LSP server binary (gopls)." },
+    "OCTOCODE_PYTHON_SERVER_PATH": { "documentation": true, "dotenv": "home", "description": "Override the Python LSP server binary." },
+    "OCTOCODE_JAVA_SERVER_PATH": { "documentation": true, "dotenv": "home", "description": "Override the Java LSP server binary." },
+    "OCTOCODE_CLANGD_SERVER_PATH": { "documentation": true, "dotenv": "home", "description": "Override the C/C++ LSP server binary (clangd)." },
+    "OCTOCODE_CSHARP_SERVER_PATH": { "documentation": true, "dotenv": "home", "description": "Override the C# LSP server binary." },
+    "OCTOCODE_SCALA_SERVER_PATH": { "documentation": true, "dotenv": "home", "description": "Override the Scala LSP server binary (metals)." },
+    "OCTOCODE_ASM_SERVER_PATH": { "documentation": true, "dotenv": "home", "description": "Override the assembly LSP server binary." },
     "OCTOCODE_LSP_AUTO_INSTALL": { "documentation": true, "description": "LSP server auto-install policy: off (default), prompt, or auto." },
     "OCTOCODE_LSP_CACHE_DIR": { "documentation": true, "description": "Override the managed LSP server download/cache directory." },
-    "OCTOCODE_TRUST_PROJECT_LSP_CONFIG": { "documentation": true, "description": "Trust a project-local lsp-servers.json (1/true/yes/on). Security-sensitive: a trusted project config can launch server binaries, so prefer setting this in your shell rather than a project .env." },
+    "OCTOCODE_TRUST_PROJECT_LSP_CONFIG": { "documentation": true, "dotenv": "home", "description": "Trust a project-local lsp-servers.json (1/true/yes/on). Security-sensitive: a trusted project config can launch server binaries, so prefer setting this in your shell rather than a project .env." },
     "OCTOCODE_AST_REWRITE_STATE_DIR": { "documentation": true, "description": "Override the astRewrite transaction/recovery state directory." },
-    "OCTOCODE_CARGO": { "documentation": true, "description": "Override the cargo executable used for Rust dependency-graph analysis." }
+    "OCTOCODE_CARGO": { "documentation": true, "dotenv": "home", "description": "Override the cargo executable used for Rust dependency-graph analysis." }
   },
   "sections": {
     "": {
@@ -60,7 +60,7 @@
           "default": "https://api.github.com",
           "description": "GitHub REST API root. GitHub Enterprise commonly uses /api/v3.",
           "env": {
-            "GITHUB_API_URL": { "priority": 0, "dotenv": "all", "normalize": "trim", "invalid": "skip" }
+            "GITHUB_API_URL": { "priority": 0, "dotenv": "home", "normalize": "trim", "invalid": "skip" }
           }
         },
         "graphqlEnabled": {
@@ -93,7 +93,7 @@
           "default": false,
           "description": "Enable beta features. Gates the astRewrite (preview and apply) and astTopology tools; off by default on every surface.",
           "env": {
-            "OCTOCODE_BETA": { "priority": 0 }
+            "OCTOCODE_BETA": { "priority": 0, "dotenv": "home" }
           }
         },
         "allowedPaths": {
@@ -102,7 +102,7 @@
           "itemFormat": "path",
           "description": "Extra absolute or home-relative roots added to the allowed home directory.",
           "env": {
-            "ALLOWED_PATHS": { "priority": 0 }
+            "ALLOWED_PATHS": { "priority": 0, "dotenv": "home" }
           },
           "notes": "The environment value is a comma-separated list."
         },
@@ -112,7 +112,7 @@
           "displayDefault": "process.cwd()",
           "description": "Optional absolute or home-relative workspace root.",
           "env": {
-            "WORKSPACE_ROOT": { "priority": 0, "normalize": "trim" }
+            "WORKSPACE_ROOT": { "priority": 0, "dotenv": "home", "normalize": "trim" }
           }
         }
       }
@@ -174,7 +174,7 @@
           "default": false,
           "description": "Allow private, loopback, or link-local artifact registries.",
           "env": {
-            "OCTOCODE_ALLOW_PRIVATE_REGISTRY": { "priority": 0, "dotenv": "all" }
+            "OCTOCODE_ALLOW_PRIVATE_REGISTRY": { "priority": 0, "dotenv": "home" }
           },
           "notes": "Security-sensitive SSRF escape hatch; opt in only for trusted enterprise registries."
         }
@@ -190,7 +190,7 @@
           "default": null,
           "description": "Optional path to a custom lsp-servers.json.",
           "env": {
-            "OCTOCODE_LSP_CONFIG": { "priority": 0, "normalize": "trim" }
+            "OCTOCODE_LSP_CONFIG": { "priority": 0, "dotenv": "home", "normalize": "trim" }
           }
         }
       }
@@ -361,7 +361,7 @@
           "credential": true,
           "description": "Optional override of the selected vendor's default API root.",
           "env": {
-            "OCTOCODE_CLASSIFICATION_API_HOST": { "priority": 0, "dotenv": "all", "normalize": "trim" }
+            "OCTOCODE_CLASSIFICATION_API_HOST": { "priority": 0, "dotenv": "home", "normalize": "trim" }
           },
           "displayDefault": "vendor default (jev: https://api.typesafe.ai)",
           "notes": "Requires HTTP or HTTPS at config validation; provider policy may require HTTPS except loopback."

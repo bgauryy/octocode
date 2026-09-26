@@ -421,7 +421,9 @@ async fn lists_issues_skipping_pull_request_only_pages() {
                 sort: None,
                 order: None,
                 page: 1,
-                per_page: 30,
+                // One-row mock pages: a full 100-row window keeps raw
+                // provider pages and windows aligned.
+                per_page: 100,
             },
             &RequestContext::with_timeout(Duration::from_secs(5), 16 * 1024),
         )
@@ -430,6 +432,118 @@ async fn lists_issues_skipping_pull_request_only_pages() {
     assert_eq!(page.skipped_pull_request_pages, 1);
     assert_eq!(page.provider_page, 2);
     assert_eq!(page.items[0]["number"], 2);
+}
+
+/// Synthetic `/issues` listing honoring `page`/`per_page`: raw rows 1..=250,
+/// where rows 1..=9 are pull requests. Counts requests.
+struct IssueDataset(String, Arc<AtomicUsize>);
+impl Respond for IssueDataset {
+    fn respond(&self, req: &Request) -> ResponseTemplate {
+        self.1.fetch_add(1, Ordering::SeqCst);
+        let param = |name: &str, default: usize| {
+            req.url
+                .query_pairs()
+                .find(|(k, _)| k == name)
+                .and_then(|(_, v)| v.parse::<usize>().ok())
+                .unwrap_or(default)
+        };
+        let (page, per_page) = (param("page", 1), param("per_page", 30));
+        let start = (page - 1) * per_page + 1;
+        let end = (start + per_page).min(251);
+        let rows: Vec<_> = (start..end)
+            .map(|number| {
+                if number <= 9 {
+                    serde_json::json!({"number": number, "title": "pr", "pull_request": {"url": "https://example.test"}})
+                } else {
+                    serde_json::json!({"number": number, "title": "issue"})
+                }
+            })
+            .collect();
+        let mut response = ResponseTemplate::new(200).set_body_json(rows);
+        if end <= 250 {
+            response = response.insert_header(
+                "link",
+                &format!(
+                    "<{}/api/v3/repos/acme/repo/issues?page={}&per_page={per_page}>; rel=\"next\"",
+                    self.0,
+                    page + 1
+                ),
+            );
+        }
+        response
+    }
+}
+
+/// A tiny output page must not cost one provider request per skipped
+/// PR-only window: provider batches are decoupled from `per_page`, while
+/// `page` keeps its per_page-window meaning.
+#[tokio::test]
+async fn list_issues_batches_provider_pages_independently_of_page_size() {
+    let server = MockServer::start().await;
+    let hits = Arc::new(AtomicUsize::new(0));
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/acme/repo/issues"))
+        .respond_with(IssueDataset(server.uri(), Arc::clone(&hits)))
+        .mount(&server)
+        .await;
+    let endpoint =
+        GitHubEndpoint::new(url::Url::parse(&format!("{}/api/v3", server.uri())).expect("URL"))
+            .expect("endpoint");
+    let transport = GitHubTransport::new(
+        endpoint,
+        Arc::new(StaticCredentialResolver::anonymous()),
+        RetryPolicy {
+            max_attempts: 2,
+            base_delay: Duration::from_millis(1),
+            max_retry_after: Duration::from_secs(1),
+        },
+    )
+    .expect("transport");
+    let list = |page: usize, per_page: usize| {
+        let transport = &transport;
+        async move {
+            transport
+                .list_issues(
+                    &IssueListRequest {
+                        owner: "acme".into(),
+                        repo: "repo".into(),
+                        state: None,
+                        assignee: None,
+                        author: None,
+                        mentions: None,
+                        labels: None,
+                        sort: None,
+                        order: None,
+                        page,
+                        per_page,
+                    },
+                    &RequestContext::with_timeout(Duration::from_secs(5), 1024 * 1024),
+                )
+                .await
+                .expect("list")
+        }
+    };
+    let numbers = |page: &HistoryPage| {
+        page.items
+            .iter()
+            .map(|item| item["number"].as_u64().unwrap())
+            .collect::<Vec<_>>()
+    };
+    let first = list(1, 1).await;
+    assert_eq!(numbers(&first), [10]);
+    assert_eq!(first.provider_page, 10);
+    assert_eq!(first.skipped_pull_request_pages, 9);
+    assert!(first.has_more);
+    assert_eq!(hits.load(Ordering::SeqCst), 1, "one provider batch");
+    // `page` keeps its per_page-window meaning across batch boundaries.
+    let page = list(2, 30).await;
+    assert_eq!(numbers(&page), (31..=60).collect::<Vec<_>>());
+    assert!(page.has_more);
+    let last = list(9, 30).await;
+    assert_eq!(numbers(&last), (241..=250).collect::<Vec<_>>());
+    assert!(!last.has_more);
+    let beyond = list(10, 30).await;
+    assert!(beyond.items.is_empty() && !beyond.has_more);
 }
 
 /// A repo where issues never turn up before the skip budget runs out (e.g. a

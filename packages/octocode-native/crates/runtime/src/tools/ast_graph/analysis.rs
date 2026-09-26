@@ -84,6 +84,7 @@ pub(crate) fn analyze(
             );
         }
     }
+    let results_digest = digest(&items);
     let (page, pagination, limit_truncated, total) = paginate(items, q);
     base.insert("results".into(), Value::Array(page));
     base.insert("pagination".into(), pagination);
@@ -117,7 +118,7 @@ pub(crate) fn analyze(
     .into_iter()
     .filter_map(|(present, reason)| present.then_some(reason))
     .collect::<Vec<_>>();
-    let diagnostics_changed = add_coverage(&mut base, &mut b, q);
+    let diagnostics_changed = add_coverage(&mut base, &mut b, q, &results_digest);
     if !reasons.is_empty() {
         base.insert("truncated".into(), json!(true));
         base.insert("partialReasons".into(), json!(reasons));
@@ -129,14 +130,9 @@ pub(crate) fn analyze(
         base.insert("terminalLimit".into(), json!(true));
     }
     if diagnostics_changed {
-        let mut restart_query = clean_query(q);
-        restart_query["diagnosticPage"] = json!(1);
-        if let Some(query) = restart_query.as_object_mut() {
-            query.remove("diagnosticSnapshot");
-        }
         base.insert(
             "next".into(),
-            json!({"restartDiagnostics":{"tool":"astTopology","query":restart_query,"why":"Restart diagnostic pagination from the current diagnostic snapshot.","confidence":"exact"}}),
+            json!({"restartDiagnostics": restart_continuation(q)}),
         );
     } else {
         add_next(
@@ -925,6 +921,18 @@ pub(crate) fn drift(
     base_map.insert("filesScanned".into(), json!(head.facts.len()));
     base_map.insert("baselineFilesScanned".into(), json!(base.facts.len()));
 
+    let snapshot = digest(&items);
+    if q.diagnostic_snapshot()
+        .is_some_and(|expected| expected != snapshot)
+    {
+        base_map.insert("results".into(), json!([]));
+        insert_snapshot_changed(&mut base_map);
+        base_map.insert(
+            "next".into(),
+            json!({"restartDiagnostics": restart_continuation(q)}),
+        );
+        return Ok(Value::Object(base_map));
+    }
     let (page, pagination, limit_truncated, total) = paginate(items, q);
     let has_more = pagination["hasMore"] == json!(true);
     base_map.insert("results".into(), Value::Array(page));
@@ -971,10 +979,15 @@ pub(crate) fn drift(
         json!({"results":results_state,"graph":graph_state,"diagnostics":"complete"}),
     );
     if has_more && q.page() < 1000 {
-        base_map.insert(
-            "next".into(),
-            json!({"nextPage": continuation(q, Some(q.page() + 1), None, "Continue topology drift results.")}),
+        let mut next = continuation(
+            q,
+            Some(q.page() + 1),
+            None,
+            "Continue topology drift results.",
         );
+        next["query"]["diagnosticSnapshot"] = json!(snapshot);
+        base_map["pagination"]["resultId"] = json!(snapshot);
+        base_map.insert("next".into(), json!({ "nextPage": next }));
     }
     Ok(Value::Object(base_map))
 }
@@ -1009,7 +1022,46 @@ fn paginate(items: Vec<Value>, q: &AstTopologyQuery) -> (Vec<Value>, Value, bool
     )
 }
 
-fn add_coverage(base: &mut Map<String, Value>, b: &mut BuiltGraph, q: &AstTopologyQuery) -> bool {
+/// Stable identity of a JSON sequence.
+fn digest<T: serde::Serialize>(value: &T) -> String {
+    hex::encode(Sha256::digest(
+        serde_json::to_vec(value).unwrap_or_default(),
+    ))
+}
+
+/// Mark a replayed page whose graph snapshot no longer matches.
+fn insert_snapshot_changed(base: &mut Map<String, Value>) {
+    base.insert("status".into(), json!("error"));
+    base.insert("errorCode".into(), json!("graphSnapshotChanged"));
+    base.insert(
+        "error".into(),
+        json!(
+            "Graph results or diagnostics changed between pages. Restart before combining pages."
+        ),
+    );
+}
+
+/// Restart both result and diagnostic pagination from the current graph.
+fn restart_continuation(q: &AstTopologyQuery) -> Value {
+    let mut query = clean_query(q);
+    query["page"] = json!(1);
+    if let Some(query) = query.as_object_mut() {
+        query.remove("diagnosticSnapshot");
+        query.remove("diagnosticPage");
+    }
+    json!({"tool":"astTopology","query":query,"why":"Restart pagination from the current graph snapshot.","confidence":"exact"})
+}
+
+/// Attach coverage and diagnostics. The snapshot id binds both the diagnostic
+/// list and the full result list, so a replayed result or diagnostic page from
+/// a changed graph is rejected instead of silently mixing graph versions.
+/// Returns whether the caller's snapshot is stale.
+fn add_coverage(
+    base: &mut Map<String, Value>,
+    b: &mut BuiltGraph,
+    q: &AstTopologyQuery,
+    results_digest: &str,
+) -> bool {
     b.diagnostics.sort();
     b.diagnostics.dedup();
     let tuples = b
@@ -1017,9 +1069,7 @@ fn add_coverage(base: &mut Map<String, Value>, b: &mut BuiltGraph, q: &AstTopolo
         .iter()
         .map(|d| json!([d.file, d.line, d.code, d.message]))
         .collect::<Vec<_>>();
-    let id = hex::encode(Sha256::digest(
-        serde_json::to_vec(&tuples).unwrap_or_default(),
-    ));
+    let id = digest(&json!([tuples, results_digest]));
     let mut counts = BTreeMap::<String, u32>::new();
     for d in &b.diagnostics {
         *counts.entry(d.code.clone()).or_default() += 1
@@ -1034,9 +1084,7 @@ fn add_coverage(base: &mut Map<String, Value>, b: &mut BuiltGraph, q: &AstTopolo
         coverage["diagnosticCounts"] = json!(counts);
     }
     if q.diagnostic_snapshot().as_ref().is_some_and(|x| x != &id) {
-        base.insert("status".into(), json!("error"));
-        base.insert("errorCode".into(), json!("graphDiagnosticsChanged"));
-        base.insert("error".into(), json!("Graph diagnostics changed between pages. Restart before combining diagnostic pages."));
+        insert_snapshot_changed(base);
         base.insert("results".into(), json!([]));
         base.insert("coverage".into(), coverage);
         return true;
@@ -1075,6 +1123,9 @@ fn add_coverage(base: &mut Map<String, Value>, b: &mut BuiltGraph, q: &AstTopolo
         coverage["diagnosticsPagination"] = diagnostics_pagination;
     }
     base.insert("coverage".into(), coverage);
+    if base["pagination"]["hasMore"] == true {
+        base["pagination"]["resultId"] = json!(id);
+    }
     false
 }
 fn add_next(
@@ -1096,10 +1147,12 @@ fn add_next(
             GraphAnalysis::DeadCode => "Continue dead-code candidates.",
             GraphAnalysis::Drift => "Continue topology drift results.",
         };
-        next.insert(
-            "nextPage".into(),
-            continuation(q, Some(q.page() + 1), None, why),
-        );
+        let mut value = continuation(q, Some(q.page() + 1), None, why);
+        // Bind the next result page to this graph snapshot.
+        if let Some(snapshot) = base["pagination"].get("resultId") {
+            value["query"]["diagnosticSnapshot"] = snapshot.clone();
+        }
+        next.insert("nextPage".into(), value);
     }
     if base["coverage"]["diagnosticsPagination"]["hasMore"] == true && q.diagnostic_page() < 1000 {
         let mut value = clean_query(q);

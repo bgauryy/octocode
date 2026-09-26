@@ -3,33 +3,28 @@ use serde_json::{Value, json};
 use std::{collections::HashMap, sync::OnceLock};
 
 pub const SKILL: &str = include_str!("../skills/octocode-agents-communication/SKILL.md");
-/// Select only host-specific setup paragraphs; all shared workflow remains canonical.
-/// The full skill remains the default for installation and unknown-host discovery.
-pub fn skill_instructions(vendor: Option<&str>) -> String {
-    let Some(vendor) = vendor else {
-        return SKILL.to_owned();
-    };
-    let host_lines = [
-        ("**Claude:**", &["claude"][..]),
-        ("**Codex:**", &["codex"][..]),
-        ("**Grok:**", &["grok"][..]),
-        ("**OpenCode:**", &["opencode"][..]),
-        ("**Pi:**", &["pi"][..]),
-        ("**Cursor/Grok hooks:**", &["cursor", "grok"][..]),
-    ];
-    SKILL
-        .lines()
-        .filter(|line| {
-            host_lines
-                .iter()
-                .all(|(prefix, hosts)| !line.starts_with(prefix) || hosts.contains(&vendor))
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-        + "\n"
+/// Lines a managed `run` worker never needs: the host owns identity, presence and delivery.
+const WORKER_OMITS: [&str; 2] = ["Use bound tools, else", "   Without a host"];
+fn body() -> impl Iterator<Item = &'static str> {
+    SKILL.lines().skip_while(|line| !line.starts_with("# "))
 }
-pub fn skill() -> Value {
-    json!({"name":"octocode-agents-communication", "url":"https://github.com/bgauryy/octocode/blob/main/packages/octocode-agents-communication/skills/octocode-agents-communication/SKILL.md", "command":"scripts/agents-communication skill"})
+fn join_lines<'a>(lines: impl Iterator<Item = &'a str>) -> String {
+    lines.map(|line| format!("{line}\n")).collect()
+}
+/// Plain `skill` returns the canonical file; a host profile drops the install frontmatter.
+pub fn skill_instructions(vendor: Option<&str>) -> String {
+    if vendor.is_none() {
+        return SKILL.to_owned();
+    }
+    join_lines(body())
+}
+/// Workflow rules for a managed worker, without setup it must not perform.
+pub fn worker_skill() -> String {
+    join_lines(
+        body()
+            .take_while(|line| !line.starts_with("**"))
+            .filter(|line| !WORKER_OMITS.iter().any(|prefix| line.starts_with(prefix))),
+    )
 }
 pub fn catalog() -> Result<Value> {
     Ok(cached_catalog()?.clone())
@@ -98,11 +93,22 @@ fn build_catalog() -> Result<Value> {
     Ok(value)
 }
 pub fn validate(schema: &Value, input: &Value) -> Result<()> {
-    let validator = jsonschema::validator_for(schema)?;
-    if let Err(error) = validator.validate(input) {
-        bail!("Invalid input: {error}");
+    stored_lengths(input)?;
+    jsonschema::validator_for(schema)?
+        .validate(input)
+        .map_err(|error| invalid(&error))
+}
+/// Report where and which rule failed, never the offending value: a rejected
+/// 1 MiB document must not come back as a 1 MiB error.
+fn invalid(error: &jsonschema::ValidationError) -> anyhow::Error {
+    let at = error.instance_path().to_string();
+    let message = error
+        .masked_with(if at.is_empty() { "input" } else { &at })
+        .to_string();
+    match message.char_indices().nth(160) {
+        Some((end, _)) => anyhow!("Invalid input: {}…", &message[..end]),
+        None => anyhow!("Invalid input: {message}"),
     }
-    Ok(())
 }
 pub fn help() -> Result<Value> {
     let all = cached_catalog()?;
@@ -113,12 +119,10 @@ pub fn help() -> Result<Value> {
         .map(|command| &command["name"])
         .collect();
     Ok(json!({
-        "package":"@octocodeai/octocode-agents-communication", "implementation":"Rust", "skill":skill(),
-        "usage":"scripts/agents-communication <command> [json] --workspace <path> [--database <file>] [--session <id>]",
-        "workflow":["Use supplied identity/tools; otherwise join → attach → listen, or heartbeat every 15s; leave when done.", "peers → coordinate with reasoning → handle new deliveries once → ack; inbox is recovery.", "lock/lock_many with reasoning → edit only on ok:true → renew while progressing → unlock.", "On conflict release held leases, ask the owner once, then retry after handoff/expiry.", "Share large context with share_document; read only needed byte pages."],
+        "package":"@octocodeai/octocode-agents-communication", "implementation":"Rust",
+        "usage":"scripts/agents-communication <command> [json|-] --workspace <path> [--database <file>] [--session <id>]",
         "commands":commands,
-        "discover":["<command> --help", "schema <command>", "schema entities", "schema entity <name>", "db info", "db protocol", "skill"],
-        "run":all["commands"].as_array().and_then(|items| items.iter().find(|c| c["name"] == "run")).map(|c| &c["usage"])
+        "discover":["skill", "<command> --help", "schema entity <name>", "db info"],
     }))
 }
 pub fn definition(name: &str) -> Result<Value> {
@@ -166,12 +170,11 @@ pub fn command(name: &str, input: &Value) -> Result<()> {
         })
         .as_ref()
         .map_err(|error| anyhow!(error.clone()))?;
-    if let Some(validator) = validator
-        && let Err(error) = validator.validate(input)
-    {
-        bail!("Invalid input: {error}");
+    stored_lengths(input)?;
+    match validator {
+        Some(validator) => validator.validate(input).map_err(|error| invalid(&error)),
+        None => Ok(()),
     }
-    Ok(())
 }
 pub fn entity(name: &str) -> Result<Value> {
     cached_catalog()?["entities"]
@@ -180,23 +183,61 @@ pub fn entity(name: &str) -> Result<Value> {
         .cloned()
         .ok_or_else(|| anyhow!("Unknown entity: {name}"))
 }
+/// The one text-length authority. Units match storage: `reasoning` is capped in
+/// UTF-8 bytes by the DB trigger and `content` by the document store; other text
+/// uses UTF-16 units like `sqlite_agent.py`. Schema `maxLength` counts code points,
+/// so the same number there is never the stricter check.
+fn stored_limit(key: &str) -> Option<(usize, bool)> {
+    match key {
+        "reasoning" => Some((512, true)),
+        "content" => Some((1024 * 1024, true)),
+        "body" => Some((16384, false)),
+        "path" => Some((4096, false)),
+        "prompt" => None,
+        _ => Some((256, false)),
+    }
+}
+fn check_length(key: &str, value: &str) -> Result<()> {
+    if let Some((max, bytes)) = stored_limit(key) {
+        let (used, unit) = if bytes {
+            (value.len(), "UTF-8 bytes")
+        } else {
+            (value.encode_utf16().count(), "UTF-16 units")
+        };
+        if used > max {
+            let mib = 1024 * 1024;
+            if max % mib == 0 {
+                bail!("Invalid {key}: {used} {unit} exceeds {} MiB", max / mib);
+            }
+            bail!("Invalid {key}: {used} {unit} exceeds {max}");
+        }
+    }
+    Ok(())
+}
+/// Apply storage units before schema validation so an over-limit field fails
+/// with its name, unit and limit.
+fn stored_lengths(input: &Value) -> Result<()> {
+    match input {
+        Value::Object(fields) => fields.iter().try_for_each(|(key, value)| match value {
+            Value::String(text)
+                if matches!(key.as_str(), "reasoning" | "content" | "body" | "path") =>
+            {
+                check_length(key, text)
+            }
+            other => stored_lengths(other),
+        }),
+        Value::Array(items) => items.iter().try_for_each(stored_lengths),
+        _ => Ok(()),
+    }
+}
 pub fn text<'a>(input: &'a Value, key: &str) -> Result<&'a str> {
     let value = input[key]
         .as_str()
         .ok_or_else(|| anyhow!("Missing string: {key}"))?;
-    let max = match key {
-        "body" => 16384,
-        "path" => 4096,
-        "reasoning" => 512,
-        "prompt" => usize::MAX,
-        _ => 256,
-    };
-    if value.trim().is_empty()
-        || value.encode_utf16().count() > max
-        || (key == "reasoning" && value.len() > 512)
-    {
-        bail!("Invalid {key}");
+    if value.trim().is_empty() {
+        bail!("Invalid {key}: blank");
     }
+    check_length(key, value)?;
     Ok(value)
 }
 pub fn ttl(input: &Value, default: i64) -> Result<i64> {
@@ -208,4 +249,122 @@ pub fn ttl(input: &Value, default: i64) -> Result<i64> {
         bail!("Invalid TTL");
     }
     Ok(value)
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn error(name: &str, input: &Value) -> String {
+        command(name, input)
+            .err()
+            .map(|e| e.to_string())
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn invalid_input_reports_location_and_rule_never_the_value() {
+        let mut extra = serde_json::Map::new();
+        extra.insert("k".repeat(100_000), json!(1));
+        extra.insert("name".into(), json!("x.md"));
+        extra.insert("content".into(), json!(""));
+        extra.insert("reasoning".into(), json!("r"));
+        for (name, input) in [
+            (
+                "share_document",
+                json!({"name":"x.md","content":"a".repeat(1024 * 1024 + 1),"reasoning":"r"}),
+            ),
+            (
+                "share_document",
+                json!({"name":"B".repeat(100_000),"content":"","reasoning":"r"}),
+            ),
+            ("share_document", Value::Object(extra)),
+            (
+                "send_message",
+                json!({"body":"b","reasoning":"r","ttlMs":"x".repeat(100_000)}),
+            ),
+        ] {
+            let message = error(name, &input);
+            assert!(message.starts_with("Invalid"), "{message}");
+            assert!(message.len() < 300, "{} bytes", message.len());
+        }
+        let message = error(
+            "send_message",
+            &json!({"body":"b","reasoning":"r","wake":"x".repeat(1000)}),
+        );
+        assert!(message.contains("/wake"), "{message}");
+    }
+
+    #[test]
+    fn one_length_authority_names_field_unit_and_limit() -> Result<()> {
+        let reasoning = error(
+            "send_message",
+            &json!({"body":"b","reasoning":"é".repeat(300)}),
+        );
+        assert_eq!(reasoning, "Invalid reasoning: 600 UTF-8 bytes exceeds 512");
+        let body = error(
+            "send_message",
+            &json!({"body":"😀".repeat(9000),"reasoning":"r"}),
+        );
+        assert_eq!(body, "Invalid body: 18000 UTF-16 units exceeds 16384");
+        let nested = error(
+            "lock_many",
+            &json!({"paths":[{"path":"😀".repeat(2049)}],"reasoning":"r"}),
+        );
+        assert!(
+            nested.starts_with("Invalid path: 4098 UTF-16 units"),
+            "{nested}"
+        );
+        let input = json!({"body":"😀".repeat(8192),"reasoning":"é".repeat(256)});
+        command("send_message", &input)?;
+        assert_eq!(text(&input, "body")?.chars().count(), 8192);
+        let blank = text(&json!({"body":" \n"}), "body")
+            .err()
+            .map(|e| e.to_string());
+        assert_eq!(blank.as_deref(), Some("Invalid body: blank"));
+        Ok(())
+    }
+
+    #[test]
+    fn discovery_surfaces_stay_within_token_budgets() -> Result<()> {
+        let tools = serde_json::to_string(&selected_tools(None)?)?;
+        assert_eq!(selected_tools(None)?.len(), 14);
+        assert!(!tools.contains("$schema"));
+        assert!(tools.len() <= 12_000, "tools/list {} bytes", tools.len());
+        let mut total = 0;
+        for command in cached_catalog()?["commands"]
+            .as_array()
+            .ok_or_else(|| anyhow!("commands"))?
+        {
+            let size = serde_json::to_string(command)?.len();
+            assert!(size <= 1_600, "{} help {size} bytes", command["name"]);
+            total += size;
+        }
+        assert!(total <= 26_000, "help total {total} bytes");
+        assert!(serde_json::to_string(&help()?)?.len() <= 1_200);
+        Ok(())
+    }
+
+    #[test]
+    fn skill_profiles_drop_what_the_reader_cannot_use() {
+        assert!(SKILL.lines().count() <= 50);
+        for prefix in WORKER_OMITS {
+            assert!(
+                SKILL.lines().any(|line| line.starts_with(prefix)),
+                "{prefix}"
+            );
+        }
+        let claude = skill_instructions(Some("claude"));
+        assert!(claude.starts_with("# ") && claude.contains("**Delivery setup:**"));
+        assert_eq!(skill_instructions(None), SKILL);
+        let worker = worker_skill();
+        assert!(worker.contains("ackReply") && worker.contains("leaseId"));
+        for setup in [
+            "**Delivery setup:**",
+            "heartbeat",
+            "scripts/agents-communication",
+        ] {
+            assert!(!worker.contains(setup), "{setup}");
+        }
+        assert!(worker.len() * 10 < SKILL.len() * 8);
+    }
 }

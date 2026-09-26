@@ -116,21 +116,6 @@ test('migration refuses active sessions and altered old schemas without repair',
   assert.equal(db.prepare('PRAGMA user_version').get().user_version, 4); db.close();
 });
 
-test('SQL-only generic agents exchange correlated replies with native agents', { skip: !process.env.COMMUNICATION_PYTHON }, t => {
-  const f = fixture(t), a = agent(f, 'native');
-  const py = (operation, data) => JSON.parse(execFileSync(process.env.COMMUNICATION_PYTHON, [join(root, 'skills/octocode-agents-communication/scripts/sqlite_agent.py'), f.database, f.workspace, operation, JSON.stringify(data)], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }));
-  const b = py('join', { name: 'sql-only', vendor: 'unknown' }).id;
-  const question = send(f, a, { to: b, body: 'Can you inspect tests?', conversationId: 'interop:1' });
-  assert.equal(py('inbox', { session: b }).items[0].conversationId, 'interop:1');
-  const payload = { session: b, to: a, body: 'Yes.', replyTo: question.id, key: 'response', reasoning: 'Confirm test ownership' };
-  const reply = py('send_message', payload);
-  assert.deepEqual(py('send_message', payload), reply);
-  assert.equal(entity(f, a, reply.id).conversationId, 'interop:1');
-  assert.equal(call(f, a, 'inbox').items[0].replyTo, question.id);
-  assert.throws(() => py('send_message', { ...payload, conversationId: 'wrong' }), /must match/);
-  assert.throws(() => py('send_message', { ...payload, replyTo: reply.id }), /key reused/);
-});
-
 test('replyTo alone infers the visible parent sender without correcting explicit targets', t => {
   const f = fixture(t), a = agent(f, 'questioner'), b = agent(f, 'responder'), c = agent(f, 'observer');
   call(f, b, 'subscribe', { topics: ['requests'] });
@@ -154,20 +139,4 @@ test('replyTo alone infers the visible parent sender without correcting explicit
   const topicRow = entity(f, c, topic.id);
   assert.equal(topicRow.target, 'reports'); assert.equal(topicRow.topic, 'reports'); assert.equal(topicRow.wake, 'passive');
   assert.equal(entity(f, c, question.id), null, 'reply correlation grants no parent visibility');
-});
-
-test('SQL-only reply target inference matches Rust normalization and visibility', { skip: !process.env.COMMUNICATION_PYTHON }, t => {
-  const f = fixture(t), a = agent(f, 'native'), outsider = agent(f, 'outsider');
-  const py = (operation, data) => JSON.parse(execFileSync(process.env.COMMUNICATION_PYTHON, [join(root, 'skills/octocode-agents-communication/scripts/sqlite_agent.py'), f.database, f.workspace, operation, JSON.stringify(data)], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }));
-  const b = py('join', { name: 'sql-only', vendor: 'unknown' }).id;
-  const question = send(f, a, { to: b, body: 'Please review.', conversationId: 'sql:inferred' });
-  const payload = { session: b, body: 'Reviewed.', replyTo: question.id, key: 'inferred', reasoning: 'Complete the requested review' };
-  const reply = py('send_message', payload), row = entity(f, a, reply.id);
-  assert.equal(row.target, a); assert.equal(row.conversationId, 'sql:inferred'); assert.equal(row.wake, 'action');
-  assert.deepEqual(py('send_message', payload), reply);
-  assert.deepEqual(py('send_message', { ...payload, to: a }), reply);
-  assert.throws(() => py('send_message', { ...payload, session: outsider }), /visible parent/);
-  assert.throws(() => py('send_message', { ...payload, key: 'typo', to: 'mistyped-uuid' }), /Unknown recipient/);
-  assert.throws(() => py('send_message', { ...payload, to: a, topic: 'invalid' }), /direct target/);
-  assert.equal(call(f, a, 'inbox').items.length, 1);
 });

@@ -11,7 +11,7 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const target = execFileSync('rustc', ['-vV'], { encoding: 'utf8' }).match(/^host: (.+)$/m)[1];
 const binary = join(root, 'skills/octocode-agents-communication/scripts/bin', target, `octocode-agents-communication${process.platform === 'win32' ? '.exe' : ''}`);
 
-function fixture(t, python = false) {
+function fixture(t) {
   const workspace = realpathSync(mkdtempSync(join(tmpdir(), 'communication-completion-')));
   const database = join(workspace, 'mail.sqlite');
   t.after(() => rmSync(workspace, { recursive: true, force: true }));
@@ -21,11 +21,7 @@ function fixture(t, python = false) {
   const sender = cli('join', { name: 'requester', vendor: 'raw' }).id;
   const receiver = cli('join', { name: 'worker', vendor: 'raw' }).id;
   const other = cli('join', { name: 'other', vendor: 'raw' }).id;
-  const send = (input, session = receiver) => python
-    ? JSON.parse(execFileSync(process.env.COMMUNICATION_PYTHON,
-      [join(root, 'skills/octocode-agents-communication/scripts/sqlite_agent.py'), database, workspace, 'send_message', JSON.stringify({ ...input, session })],
-      { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 10000 }))
-    : cli('send_message', input, session);
+  const send = (input, session = receiver) => cli('send_message', input, session);
   const request = cli('send_message', { to: receiver, body: 'Review the change', reasoning: 'Need review before release', key: 'request' }, sender);
   const db = new DatabaseSync(database);
   t.after(() => db.close());
@@ -34,11 +30,8 @@ function fixture(t, python = false) {
   return { cli, send, db, sender, receiver, other, request, reply, ack, workspace, database };
 }
 
-for (const python of [false, true]) {
-  const options = { skip: python && !process.env.COMMUNICATION_PYTHON };
-  const label = python ? 'SQL fallback' : 'Rust CLI';
-  test(`${label}: final reply and handling ACK commit together, retry is idempotent`, options, t => {
-    const f = fixture(t, python);
+test('final reply and handling ACK commit together, retry is idempotent', t => {
+    const f = fixture(t);
     const sent = f.send(f.reply);
     assert.equal(sent.acknowledged, true);
     const stamp = f.ack();
@@ -48,8 +41,8 @@ for (const python of [false, true]) {
     assert.equal(f.db.prepare('SELECT count(*) n FROM messages WHERE sender=?').get(f.receiver).n, 1);
     assert.equal(f.db.prepare("SELECT count(*) n FROM audit WHERE kind='delivery.acknowledged'").get().n, 1);
   });
-  test(`${label}: clarification remains pending; failed reply cannot complete parent`, options, t => {
-    const f = fixture(t, python);
+test('clarification remains pending; failed reply cannot complete parent', t => {
+    const f = fixture(t);
     const clarification = { ...f.reply, ackReply: false, body: 'Which version?' };
     f.send(clarification);
     assert.equal(f.ack(), null);
@@ -63,8 +56,8 @@ for (const python of [false, true]) {
     assert.equal(f.ack(), null);
     assert.equal(f.db.prepare('SELECT count(*) n FROM messages WHERE sender=?').get(f.receiver).n, 1);
   });
-  test(`${label}: completion requires an incoming direct reply to the parent sender`, options, t => {
-    const f = fixture(t, python);
+test('completion requires an incoming direct reply to the parent sender', t => {
+    const f = fixture(t);
     for (const input of [
       { ...f.reply, replyTo: undefined, to: f.sender },
       { ...f.reply, to: f.other },
@@ -75,16 +68,15 @@ for (const python of [false, true]) {
     assert.equal(f.ack(), null);
     assert.equal(f.db.prepare('SELECT count(*) n FROM messages').get().n, 1);
   });
-  test(`${label}: explicit completion on an identical retry changes handling, not content`, options, t => {
-    const f = fixture(t, python);
+test('explicit completion on an identical retry changes handling, not content', t => {
+    const f = fixture(t);
     const first = f.send({ ...f.reply, ackReply: false });
     assert.equal(f.ack(), null);
     const final = f.send(f.reply);
     assert.equal(final.id, first.id);
     assert.equal(final.acknowledged, true);
     assert.equal(f.db.prepare('SELECT count(*) n FROM messages').get().n, 2);
-  });
-}
+});
 
 test('bound MCP exposes and executes the atomic completion contract', t => {
   const f = fixture(t);

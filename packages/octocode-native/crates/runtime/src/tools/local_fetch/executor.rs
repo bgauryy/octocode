@@ -122,6 +122,11 @@ pub fn execute_local_fetch_with_regex(
             ),
         );
         result.resolved_path = Some(q.path.to_string());
+        // No range or matchString can make binary bytes readable; say so
+        // instead of the generic "remove matchString" recovery.
+        result.hints = vec![
+            "Do not retry this path with other ranges; choose a text source file instead.".into(),
+        ];
         return result;
     }
     if q.full_content == Some(true)
@@ -162,7 +167,7 @@ pub fn execute_local_fetch_with_regex(
             return LocalFetchResult::error(q.path.to_string(), "fileReadFailed", e.to_string());
         }
     };
-    process_fetched_content(
+    let mut result = process_fetched_content(
         q,
         &bytes,
         &path,
@@ -170,7 +175,26 @@ pub fn execute_local_fetch_with_regex(
         security,
         cancel,
         regex,
-    )
+    );
+    bind_continuation_to_source(&mut result);
+    result
+}
+
+/// Bind the next page of a local view to the file version it was cut from, so
+/// a replay against a changed file is rejected instead of mixing versions.
+/// (Remote reads pin a commit SHA in their continuation instead.)
+fn bind_continuation_to_source(result: &mut LocalFetchResult) {
+    let snapshot = result
+        .source_sha256
+        .as_deref()
+        .and_then(|digest| digest.parse().ok());
+    if let Some(next) = result
+        .next
+        .as_mut()
+        .and_then(|next| next.r#continue.as_mut())
+    {
+        next.query.snapshot = snapshot;
+    }
 }
 
 /// Shared post-acquisition content processing. Performs no filesystem access;
@@ -188,6 +212,11 @@ pub fn process_fetched_content(
         return LocalFetchResult::error(q.path.to_string(), "invalidQuery", error);
     }
     let source_sha256 = hex::encode(Sha256::digest(bytes));
+    if let Some(expected) = q.snapshot.as_deref()
+        && **expected != source_sha256
+    {
+        return stale_snapshot(q);
+    }
     if let Err(e) = cancel.check() {
         return LocalFetchResult::error(q.path.to_string(), "cancelled", e);
     }
@@ -387,6 +416,19 @@ pub fn process_fetched_content(
         (pg, safe != selected, safe.is_empty())
     };
     let (chars, ret_bytes, ret_lines) = result_counts(&pg.text);
+    // Redacted text is not the source: say so, as localSearch does. Count only
+    // when a redaction pass ran, so literal placeholder text in a clean file
+    // is not misreported.
+    let redactions = if view_redacted || match_redacted || key_blocks_redacted {
+        pg.text.matches("[REDACTED").count()
+    } else {
+        0
+    };
+    if redactions > 0 || view_redacted {
+        warnings.push(format!(
+            "redactedContent: {redactions} secret-shaped value(s) in the returned text were replaced by [REDACTED…] placeholders; this content is not verbatim source."
+        ));
+    }
     let out_of_range = pg.out_of_range;
     let next = if out_of_range {
         warnings.push(format!(
@@ -529,6 +571,31 @@ fn single_line_query(q: &LocalFetchQuery, line: usize) -> LocalFetchQuery {
         chunk_size: None,
         ..q.clone()
     }
+}
+
+/// The continued source changed since its page was cut. Pages of two file
+/// versions must not be combined; restart the same view from the start.
+fn stale_snapshot(q: &LocalFetchQuery) -> LocalFetchResult {
+    let mut result = LocalFetchResult::error(
+        q.path.to_string(),
+        "staleSnapshot",
+        "The file changed since the previous page was read; its pages cannot be combined. Follow next.restart to read the current version from the start.".into(),
+    );
+    result.resolved_path = Some(q.path.to_string());
+    let mut query = q.clone();
+    query.snapshot = None;
+    query.offset = None;
+    result.next = Some(NextCalls {
+        r#continue: None,
+        read_bounded_lines: None,
+        restart: Some(Continuation {
+            tool: "localFetch".into(),
+            query,
+            confidence: "exact".into(),
+            reason: Some("The source changed; restart this view on the current version.".into()),
+        }),
+    });
+    result
 }
 
 fn bounded_continuation(q: &LocalFetchQuery) -> NextCalls {

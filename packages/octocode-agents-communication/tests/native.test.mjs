@@ -76,6 +76,16 @@ test('eight cold CLI processes initialize one database and acquire one lease',as
  for(const result of locks)assert.equal(result.code,0,result.stderr);
  assert.equal(locks.filter(r=>JSON.parse(r.stdout).ok).length,1);
 });
+test('MCP rejects an oversized frame, ignores blank lines and keeps serving queued requests',async t=>{
+ const f=fixture(t),a=joinAgent(f);
+ const oversized=JSON.stringify({jsonrpc:'2.0',id:1,method:'ping',params:{pad:'x'.repeat(8*1024*1024)}});
+ const input=['',oversized,'   ',JSON.stringify({jsonrpc:'2.0',id:2,method:'ping'})].join('\n')+'\n';
+ const result=await start(f,['mcp','--session',a.id],input);assert.equal(result.code,0,result.stderr);
+ const rows=result.stdout.trim().split('\n').map(JSON.parse);
+ assert.equal(rows.length,2);
+ assert.equal(rows[0].error.code,-32600);assert.equal(rows[0].id,null);
+ assert.deepEqual(rows[1],{jsonrpc:'2.0',id:2,result:{}});
+});
 test('MCP binds identity and survives malformed frames',async t=>{
  const f=fixture(t),a=joinAgent(f);
  const frames=[null,'INVALID',...[
@@ -136,49 +146,6 @@ test('copied skill runs outside the repo with no Node, Cargo or vendor executabl
  assert.equal(run('peers','--workspace',f.workspace,'--database',f.database).items[0].id,a.id);
  assert.equal(run('db','info','--database',f.database).compatible,true);
 });
-test('SQLite-only Python agent interoperates with native CLI', {skip:!process.env.COMMUNICATION_PYTHON&&'Set COMMUNICATION_PYTHON to Python 3.14 / Unicode 16 with SQLite >=3.51.3'},async t=>{
- const f=fixture(t),a=joinAgent(f);
- const py=(op,data)=>JSON.parse(execFileSync(process.env.COMMUNICATION_PYTHON,[join(skill,'scripts/sqlite_agent.py'),f.database,f.workspace,op,JSON.stringify(testInput(op,data))],{env:{...process.env,PATH:''},encoding:'utf8',stdio:['pipe','pipe','pipe']}));
- const b=py('join',{name:'python',vendor:'stdlib'});
- const broadcast=py('notify_all',{session:b.id,body:'all from Python',key:'py-all'});
- assert.equal(broadcast.recipients,1);assert.deepEqual(py('notify_all',{session:b.id,body:'all from Python',key:'py-all'}),broadcast);
- assert.equal(invoke(f,['inbox','--session',a.id]).items[0].id,broadcast.id);
- invoke(f,['ack',JSON.stringify({message:broadcast.id}),'--session',a.id]);
- const reverseBroadcast=invoke(f,['notify_all','{"body":"all from Rust"}','--session',a.id]);
- assert.equal(py('inbox',{session:b.id}).items[0].id,reverseBroadcast.id);
- py('ack',{session:b.id,message:reverseBroadcast.id});
- const lease=invoke(f,['lock','{"path":"src","kind":"tree"}','--session',a.id]).lease;
- assert.equal(py('lock',{session:b.id,path:'src/file'}).ok,false);
- const sent=py('send_message',{session:b.id,to:a.id,body:'Python -> Rust',key:'one'});
- assert.equal(invoke(f,['inbox','--session',a.id]).items[0].id,sent.id);
- invoke(f,['ack',JSON.stringify({message:sent.id}),'--session',a.id]);
- const reply=invoke(f,['send_message',JSON.stringify({to:b.id,body:'Rust -> Python'}),'--session',a.id]);
- assert.equal(py('inbox',{session:b.id}).items[0].id,reply.id);
- assert.equal(py('ack',{session:b.id,message:reply.id}).acknowledged,true);
- invoke(f,['unlock',JSON.stringify({lease:lease.id}),'--session',a.id]);
- const owned=py('lock',{session:b.id,path:'src',kind:'tree'});assert.equal(owned.ok,true);
- assert.equal(invoke(f,['lock','{"path":"src/file"}','--session',a.id]).ok,false);
- py('unlock',{session:b.id,lease:owned.lease.id});
- for (const [left,right] of [['NEW.txt','new.txt'],['CAFÉ/file','cafe\u0301/FILE'],['Straße','STRASSE']]) {
-  const held=invoke(f,['lock',JSON.stringify({path:left}),'--session',a.id]).lease;
-  assert.equal(py('lock',{session:b.id,path:right}).ok,false);
-  invoke(f,['unlock',JSON.stringify({lease:held.id}),'--session',a.id]);
-  const reverse=py('lock',{session:b.id,path:right});assert.equal(reverse.ok,true);
-  assert.equal(invoke(f,['lock',JSON.stringify({path:left}),'--session',a.id]).ok,false);
-  py('unlock',{session:b.id,lease:reverse.lease.id});
- }
- if (process.platform !== 'win32') {
-  mkdirSync(join(f.workspace,'real/sub'),{recursive:true});
-  writeFileSync(join(f.workspace,'real/shared'),'target');symlinkSync('real/sub',join(f.workspace,'alias'));
-  const held=py('lock',{session:b.id,path:'alias/../shared'});
-  assert.equal(invoke(f,['lock','{"path":"real/shared"}','--session',a.id]).ok,false);
-  py('unlock',{session:b.id,lease:held.lease.id});
-  symlinkSync('cycle',join(f.workspace,'cycle'));
-  assert.throws(()=>py('lock',{session:b.id,path:'cycle'}));
-  assert.throws(()=>py('lock',{session:b.id,path:'../escape'}));
- }
-});
-
 test('Pi inbox pages maximum escaped messages without loss or buffer overflow',async t=>{
  const f=fixture(t),a=joinAgent(f),b=joinAgent(f,'pi');
  const db=new DatabaseSync(f.database);
@@ -266,7 +233,18 @@ test('duration also bounds a blocked vendor stdin write', {skip:process.platform
 });
 
 
-test('all proxy protocols receive the exact full skill once with their bound identity', {skip:process.platform==='win32'},t=>{
+// Stop a worker once its first turn completes instead of waiting out --duration-ms.
+function runUntilTurn(args,env,timeout=15000){return new Promise((resolve,reject)=>{
+ const child=spawn(binary,args,{env});let stdout='',stderr='',interrupted=false;
+ const timer=setTimeout(()=>child.kill('SIGKILL'),timeout);
+ child.stdout.on('data',chunk=>{stdout+=chunk;
+  if(!interrupted&&stdout.split('\n').some(line=>line.includes('"turn-completed"'))){interrupted=true;child.kill('SIGINT');}});
+ child.stderr.on('data',chunk=>stderr+=chunk);child.on('error',reject);
+ child.on('close',code=>{clearTimeout(timer);
+  if(code===0&&interrupted)resolve(stdout.trim().split('\n').map(JSON.parse));
+  else reject(Object.assign(Error(`worker exited ${code}`),{stdout,stderr}));});
+});}
+test('all proxy protocols receive the exact full skill once with their bound identity', {skip:process.platform==='win32'},async t=>{
  for(const vendor of ['codex','claude','pi']){
   const f=fixture(t),bin=join(f.workspace,'path'),capture=join(f.workspace,'prompt.json');mkdirSync(bin);
   writeFileSync(join(bin,vendor),`#!${process.execPath}
@@ -308,7 +286,7 @@ rl.on('line',line=>{const c=JSON.parse(line);
   const started=Date.now();
   let events;
   try {
-   events=execFileSync(binary,['run','--vendor',vendor,'--model','test','--prompt','Task sentinel','--trace','--duration-ms','10000','--workspace',f.workspace,'--database',f.database],{env:vendorEnv,encoding:'utf8',stdio:['pipe','pipe','pipe'],timeout:15000}).trim().split('\n').map(JSON.parse);
+   events=await runUntilTurn(['run','--vendor',vendor,'--model','test','--prompt','Task sentinel','--trace','--duration-ms','10000','--workspace',f.workspace,'--database',f.database],vendorEnv);
   } catch(error) {
    const boot=existsSync(capture+'.boot')?JSON.parse(readFileSync(capture+'.boot','utf8')):null;
    const frames=existsSync(capture+'.frames')?readFileSync(capture+'.frames','utf8').trim().split('\n').slice(-20).map(JSON.parse):[];

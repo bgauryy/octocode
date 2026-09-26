@@ -129,6 +129,10 @@ impl NativeDelivery {
             backend,
         })
     }
+    /// Adapters on a persistent socket start receiving recipient events once a turn runs.
+    pub fn subscribes(&self) -> bool {
+        matches!(self.backend, Backend::Codex(_) | Backend::Grok(_))
+    }
     pub fn prepare(&mut self) -> Result<Readiness> {
         let ready = match &mut self.backend {
             Backend::Codex(client) => client.idle(&self.session, &self.workspace)?,

@@ -71,6 +71,18 @@ test('Grok context cap uses explicit references without clipping stored bodies',
   assert.equal(db.prepare('SELECT body FROM messages WHERE id=?').get(sent.id).body, body);
   assert.equal(db.prepare('SELECT acknowledgedAt FROM deliveries').get().acknowledgedAt, null);
 });
+test('oversized batches never strand staged rows', t => {
+  const f = fixture(t, 'grok'); f.hook('SessionStart');
+  const db = new DatabaseSync(f.database); t.after(() => db.close());
+  const recipient = db.prepare('SELECT id FROM sessions').get().id;
+  const sender = f.cli('join', { name: 'sender', vendor: 'raw' });
+  for (let i = 0; i < 16; i++) f.cli('send_message', { to: recipient, body: `short ${i}`, reasoning: `${i} ${'r'.repeat(500)}`.slice(0, 500) }, sender.id);
+  const content = f.hook('PostToolUse').hookSpecificOutput.additionalContext;
+  assert.ok(content.length <= 9000);
+  assert.equal(content.includes('r'.repeat(100)), false, 'References omit repeated reasoning');
+  assert.equal(db.prepare("SELECT count(*) n FROM dispatches WHERE state='staged'").get().n, 0);
+  assert.equal(db.prepare("SELECT count(*) n FROM dispatches WHERE state='submitted'").get().n, 16);
+});
 test('concurrent host hooks register one identity and offer one delivery', async t => {
   const f = fixture(t, 'cursor');
   const hook = () => new Promise((resolve, reject) => {
@@ -111,7 +123,10 @@ test('native config previews have timeouts, supported events and no writes', t =
 
 test('host identity is emitted once per explicit context generation', t => {
  const f=fixture(t,'cursor');
- assert.ok(f.hook('sessionStart').additional_context.includes('Communication identity:'));
+ const identity=f.hook('sessionStart').additional_context;
+ assert.ok(identity.includes('Communication identity:'));
+ assert.ok(identity.includes('--workspace . --database audit.sqlite'),identity);
+ assert.ok(identity.length<300,'Identity context stays short and relative');
  assert.deepEqual(f.hook('sessionStart'),{});
  assert.deepEqual(f.hook('postToolUse'),{});
  assert.ok(f.hook('postToolUse',{context_generation:'after-compaction-1'}).additional_context.includes('Communication identity:'));

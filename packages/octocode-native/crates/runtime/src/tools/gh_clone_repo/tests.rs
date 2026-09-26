@@ -427,6 +427,58 @@ fn clones_caches_refreshes_sparse_tag_and_commit_without_token_argv() {
 }
 
 #[test]
+fn sparse_file_path_checks_out_only_that_file() {
+    let fixture = Fixture::new();
+    let root = Temp::new("sparse-file");
+    let cache_home = root.0.join("home");
+    fs::create_dir_all(&cache_home).expect("home");
+    let policy = PathPolicy::new(PathPolicyConfig {
+        workspace_root: Some(root.0.clone()),
+        ..Default::default()
+    })
+    .expect("policy");
+    let endpoint = GitHubEndpoint::github_com();
+    let runner = RewriteRunner::new(
+        "https://github.com/fixture-owner/fixture-repo.git",
+        &fixture.bare_url,
+    );
+    let config = CloneConfig::persistent(&cache_home);
+    let context = setup(
+        &root.0,
+        &runner,
+        &config,
+        &endpoint,
+        &policy,
+        &NeverCancel,
+        None,
+    );
+    for branch in [Some("main".to_owned()), Some(fixture.first_commit.clone())] {
+        for (file, absent) in [
+            ("README.md", ["src/lib.rs", "other/skip.txt"]),
+            ("src/lib.rs", ["README.md", "src/nested/data.txt"]),
+        ] {
+            let clone = execute_clone(
+                &GhCloneRepoQuery {
+                    branch: branch.clone(),
+                    sparse_path: Some(file.into()),
+                    ..query()
+                },
+                &context,
+            )
+            .expect("sparse file clone");
+            let local = Path::new(&clone.location.local_path);
+            assert!(local.join(file).is_file(), "{file} missing ({branch:?})");
+            for sibling in absent {
+                assert!(
+                    !local.join(sibling).exists(),
+                    "{sibling} checked out beside {file} ({branch:?})"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn corruption_expiry_stale_lock_and_failed_publication_preserve_cache() {
     let fixture = Fixture::new();
     let root = Temp::new("recovery");

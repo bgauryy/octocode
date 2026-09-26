@@ -14,7 +14,7 @@ pub mod protocol;
 /// Capabilities describe this adapter, not permissions or proof that a model read a message.
 pub fn capabilities(mode: &str) -> Value {
     let Ok(transport) = protocol::NativeTransport::parse(mode) else {
-        return json!({"nativeInput":false,"passiveInjection":null,"actionWake":null,"acceptanceReceipt":"host-confirmation","readReceipt":false});
+        return json!({"nativeInput":false,"acceptanceReceipt":"host-confirmation","readReceipt":false});
     };
     let mut result = json!({"nativeInput":true,"passiveInjection":!transport.requires_action(),"actionWake":true,"acceptanceReceipt":transport.receipt().name(),"readReceipt":false});
     match transport {
@@ -123,44 +123,51 @@ pub fn validate(transport: &str, endpoint: Option<&str>) -> Result<()> {
         }
         return Ok(());
     }
-    let _: SocketAddr = address(endpoint)?;
-    Ok(())
+    loopback(endpoint, "ws", true)
+        .map(|_| ())
+        .map_err(|error| anyhow!("Codex {error}; or use unix:///absolute/socket"))
 }
-fn address(endpoint: &str) -> Result<SocketAddr> {
+/// One loopback rule for every networked adapter: explicit port, root path, no
+/// credentials, query or fragment. Names resolve only where the vendor documents them.
+pub(crate) fn loopback(endpoint: &str, scheme: &str, allow_localhost: bool) -> Result<SocketAddr> {
     let uri: tungstenite::http::Uri = endpoint.parse()?;
-    if uri.scheme_str() != Some("ws")
-        || uri.query().is_some()
-        || uri.path() != "/"
-        || uri.authority().is_some_and(|a| a.as_str().contains('@'))
-    {
-        bail!(
-            "Codex endpoint must be ws://loopback:port or unix:///absolute/socket; no credentials or query"
-        );
-    }
-    let host = uri
-        .host()
-        .ok_or_else(|| anyhow!("Endpoint host required"))?;
-    let ip: IpAddr = if host == "localhost" {
-        "127.0.0.1".parse()?
+    let host = uri.host().unwrap_or("");
+    let ip = if allow_localhost && host == "localhost" {
+        Some(IpAddr::from([127, 0, 0, 1]))
     } else {
-        host.trim_matches(['[', ']']).parse()?
+        host.trim_matches(['[', ']']).parse::<IpAddr>().ok()
     };
-    if !ip.is_loopback() {
-        bail!("Only local loopback endpoints are supported");
+    match (ip, uri.port_u16()) {
+        (Some(ip), Some(port))
+            if ip.is_loopback()
+                && port != 0
+                && uri.scheme_str() == Some(scheme)
+                && uri.path() == "/"
+                && uri.query().is_none()
+                && !endpoint.contains('#')
+                && !uri.authority().is_some_and(|a| a.as_str().contains('@')) =>
+        {
+            Ok(SocketAddr::new(ip, port))
+        }
+        _ => bail!(
+            "endpoint must be {scheme}://<loopback-IP{}>:<port>/; no credentials, path, query or fragment",
+            if allow_localhost { "|localhost" } else { "" }
+        ),
     }
-    Ok(SocketAddr::new(
-        ip,
-        uri.port_u16()
-            .ok_or_else(|| anyhow!("Endpoint port required"))?,
-    ))
 }
+/// Same-user Unix socket, never a symlink: the only local endpoint trust rule.
 #[cfg(unix)]
-fn unix(path: &str) -> Result<std::os::unix::net::UnixStream> {
+pub(crate) fn owned_socket(path: &str) -> Result<()> {
     use std::os::unix::fs::{FileTypeExt, MetadataExt};
     let metadata = std::fs::symlink_metadata(path)?;
     if !metadata.file_type().is_socket() || metadata.uid() != nix::unistd::geteuid().as_raw() {
         bail!("Endpoint must be a socket owned by this OS user, not a symlink");
     }
+    Ok(())
+}
+#[cfg(unix)]
+fn unix(path: &str) -> Result<std::os::unix::net::UnixStream> {
+    owned_socket(path)?;
     let stream = std::os::unix::net::UnixStream::connect(path)?;
     stream.set_read_timeout(Some(Duration::from_millis(250)))?;
     stream.set_write_timeout(Some(Duration::from_secs(5)))?;
@@ -187,7 +194,10 @@ impl Codex {
                 );
             }
         } else {
-            let stream = TcpStream::connect_timeout(&address(endpoint)?, Duration::from_secs(3))?;
+            let stream = TcpStream::connect_timeout(
+                &loopback(endpoint, "ws", true)?,
+                Duration::from_secs(3),
+            )?;
             stream.set_read_timeout(Some(Duration::from_secs(3)))?;
             stream.set_write_timeout(Some(Duration::from_secs(3)))?;
             (Stream::Tcp(stream), endpoint)
@@ -230,7 +240,7 @@ impl Codex {
                         return Ok(frame["result"].clone());
                     }
                     if frame.get("id").is_some() && frame.get("method").is_some() {
-                        self.send(json!({"id":frame["id"],"error":{"code":-32601,"message":"Delivery client cannot approve actions"}}))?;
+                        self.send(crate::wire::refusal(&frame["id"]))?;
                     }
                 }
                 Ok(Message::Close(_)) => bail!("Codex endpoint closed"),

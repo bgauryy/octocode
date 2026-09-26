@@ -17,12 +17,9 @@ export function assistantText(message: unknown): string | undefined {
 }
 
 /**
- * Interop fallback for MCP call results: octocode-mcp (without
- * OCTOCODE_MCP_FULL_TEXT) replaces text content with a compact
- * "structuredContent available …" stub while the real data lives in
- * structuredContent. When the stub sentinel is
- * detected (or content is empty) and structuredContent exists, surface the
- * structured payload instead — otherwise the model researches blind.
+ * Interop fallback for MCP call results: when a server returns no text
+ * content but does return structuredContent, surface the structured payload
+ * as text — otherwise the model researches blind.
  */
 export function resolveMcpCallText(payload: unknown): string {
   return resolveMcpCallContent(payload)
@@ -30,7 +27,7 @@ export function resolveMcpCallText(payload: unknown): string {
     .join("\n");
 }
 
-/** Preserve both MCP content channels; expand compact stubs instead of duplicating them. */
+/** Preserve both MCP content channels without duplicating a JSON copy of structuredContent. */
 export function resolveMcpCallContent(payload: unknown): ContentPart[] {
   if (!isPlainRecord(payload))
     return [{ type: "text", text: stringify(payload) }];
@@ -43,12 +40,7 @@ export function resolveMcpCallContent(payload: unknown): ContentPart[] {
   );
   const structured = payload["structuredContent"];
   const hasStructured = structured !== undefined && structured !== null;
-  const onlyStub =
-    textBlocks.length > 0 &&
-    textBlocks.every((item) =>
-      String(item["text"]).startsWith("structuredContent available"),
-    );
-  if (hasStructured && (textBlocks.length === 0 || onlyStub)) {
+  if (hasStructured && textBlocks.length === 0) {
     const nonText = content.filter(
       (item) => !(isPlainRecord(item) && item["type"] === "text"),
     );

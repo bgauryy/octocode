@@ -297,7 +297,7 @@ fn simple_policy(root: &std::path::Path) -> (PathPolicy, ContentSecurity) {
 // 0.0 and pages fall back to OS readdir order. The default order must instead
 // be lexicographic by path and stable across identical invocations.
 #[test]
-fn files_default_sort_is_lexicographic_and_stable() {
+fn files_path_sort_is_lexicographic_and_stable() {
     let root = Fixture::new();
     for name in ["zebra.rs", "apple.rs", "mango.rs", "banana.rs"] {
         std::fs::write(root.0.join(name), "x\n").expect("file");
@@ -305,7 +305,7 @@ fn files_default_sort_is_lexicographic_and_stable() {
     let (paths, security) = simple_policy(&root.0);
     let run = || {
         let out = execute_ast(
-            json!({"operation":"files","reasoning":"test","path":root.0,"entryType":"f"}),
+            json!({"operation":"files","reasoning":"test","path":root.0,"entryType":"f","sort":"path"}),
             &paths,
             &security,
             &Active,
@@ -321,9 +321,9 @@ fn files_default_sort_is_lexicographic_and_stable() {
     let first = run();
     let mut sorted = first.clone();
     sorted.sort();
-    assert_eq!(first, sorted, "default order must be lexicographic by path");
+    assert_eq!(first, sorted, "path sort must be lexicographic");
     let second = run();
-    assert_eq!(first, second, "default order must be stable across runs");
+    assert_eq!(first, second, "path sort must be stable across runs");
 }
 
 #[test]
@@ -869,4 +869,93 @@ fn file_rows_omit_the_default_file_type() {
     {
         assert_eq!(dir["type"], "directory", "{dir}");
     }
+}
+
+#[test]
+fn list_captures_default_to_one_span_row_and_expand_on_request() {
+    let root = Fixture::new();
+    let source = root.0.join("body.rs");
+    std::fs::write(
+        &source,
+        "fn a() -> u8 {\n    let x = 1;\n    let y = 2;\n    x + y\n}\n",
+    )
+    .expect("source");
+    let query = json!({"operation":"match","reasoning":"test","path":source,
+        "pattern":"fn $N() -> u8 { $$$B }"});
+    let out = run(&root.0, query.clone()).expect("match");
+    let m = &out["files"][0]["matches"][0];
+    let body = m["metavarRanges"]["B"].as_array().expect("B ranges");
+    assert_eq!(body.len(), 1, "list capture must collapse to one span: {m}");
+    assert_eq!(body[0]["count"], 3, "{m}");
+    assert_eq!(body[0]["line"], 2, "{m}");
+    assert_eq!(body[0]["endLine"], 4, "{m}");
+    assert!(
+        body[0].get("text").is_none(),
+        "no body dump by default: {m}"
+    );
+    assert_eq!(m["capturesTruncated"], true, "{m}");
+    assert!(out["next"]["expandCaptures"].is_object(), "{out}");
+    // Single captures keep their text.
+    assert_eq!(m["metavarRanges"]["N"][0]["text"], "a", "{m}");
+
+    let mut expanded = query;
+    expanded["captureText"] = json!(true);
+    let out = run(&root.0, expanded).expect("match");
+    let body = out["files"][0]["matches"][0]["metavarRanges"]["B"]
+        .as_array()
+        .expect("B ranges");
+    assert_eq!(body.len(), 3, "{out}");
+    assert_eq!(body[0]["text"], "let x = 1;", "{out}");
+}
+
+#[test]
+fn rust_item_pattern_without_visibility_notes_that_pub_items_are_excluded() {
+    let root = Fixture::new();
+    let source = root.0.join("lib.rs");
+    std::fs::write(
+        &source,
+        "pub fn a() -> Result<u8, String> { Ok(1) }\nfn b() -> Result<u8, String> { Ok(2) }\n",
+    )
+    .expect("source");
+    let out = run(
+        &root.0,
+        json!({"operation":"match","reasoning":"test","path":source,
+            "pattern":"fn $N() -> Result<$T, String> { $$$B }"}),
+    )
+    .expect("match");
+    // ast-grep semantics: the modifier is a named child, so `pub fn` is not
+    // matched. The result must say so instead of implying full coverage.
+    assert_eq!(out["stats"]["totalStructuralMatches"], 1, "{out}");
+    let notes = out["diagnostics"].as_array().expect("diagnostics");
+    assert!(
+        notes
+            .iter()
+            .any(|d| d["code"] == "structural.pattern.visibilityExact"),
+        "{out}"
+    );
+    // A pattern that already names the visibility gets no note.
+    let out = run(
+        &root.0,
+        json!({"operation":"match","reasoning":"test","path":source,
+            "pattern":"pub fn $N() -> Result<$T, String> { $$$B }"}),
+    )
+    .expect("match");
+    assert!(!out.to_string().contains("visibilityExact"), "{out}");
+}
+
+#[test]
+fn yaml_rule_compile_errors_get_a_rule_hint_not_a_pattern_hint() {
+    let root = Fixture::new();
+    let source = root.0.join("lib.rs");
+    std::fs::write(&source, "fn a() {}\n").expect("source");
+    let error = run(
+        &root.0,
+        json!({"operation":"match","reasoning":"test","path":source,
+            "rule":"rule:\n  kindx: function_item\n"}),
+    )
+    .expect_err("invalid rule");
+    assert_eq!(error.code, "structural.query.compileFailed");
+    let hint = error.hints.join(" ");
+    assert!(hint.contains("rule"), "{hint}");
+    assert!(!hint.contains("add `;`"), "{hint}");
 }

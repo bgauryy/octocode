@@ -298,6 +298,29 @@ describe('projectSelected', () => {
     expect(union).toHaveLength(2);
   });
 
+  it('keeps every branch sharing the selected const (operation=match)', () => {
+    const projected = projectSelected(
+      toolNamed('astSearch'),
+      'query',
+      'operation=match'
+    );
+    const schema = projected.querySchema as JsonObject;
+    const union = (schema.oneOf ?? schema.anyOf) as JsonObject[];
+    expect(union).toHaveLength(2);
+  });
+
+  it('accepts a catalog label such as operation=match(pattern)', () => {
+    const projected = projectSelected(
+      toolNamed('astSearch'),
+      'query',
+      'operation=match(pattern)'
+    );
+    const schema = projected.querySchema as JsonObject;
+    const union = (schema.oneOf ?? schema.anyOf) as JsonObject[];
+    expect(union).toHaveLength(1);
+    expect(union[0]!.required).toContain('pattern');
+  });
+
   it('rejects selections matching no branch', () => {
     expect(() =>
       projectSelected(toolNamed('ghSearch'), 'query', 'operation=nope')

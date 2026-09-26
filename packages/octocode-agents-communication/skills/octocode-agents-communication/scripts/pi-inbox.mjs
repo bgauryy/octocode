@@ -2,16 +2,18 @@ import { execFile, execFileSync } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
-import { readFileSync, statSync, realpathSync } from 'node:fs';
+import { openSync, readSync, closeSync, fstatSync, realpathSync } from 'node:fs';
 import { relative, isAbsolute, sep } from 'node:path';
 import { registerBoundTools } from './pi-extension.mjs';
-import { plainHostPath } from './hooks/lease-check.mjs';
+import { checkHostWrite, plainHostPath } from './hooks/lease-check.mjs';
 
 const exec = promisify(execFile);
 const hosts = new WeakMap();
 const peerType = 'octocode-peer';
 const identityType = 'octocode-identity';
 const pause = () => new Promise(resolve => setImmediate(resolve));
+// Idle polls back off from 1 s to 10 s; presence (60 s) stays renewed by each hook call.
+const idleMin = 1000, idleMax = 10000;
 
 export default function (pi) {
   return registerPiInbox(pi, JSON.parse(process.env.OCTOCODE_COMMUNICATION_BINDING || '{}'));
@@ -23,11 +25,11 @@ export function registerPiInbox(pi, options = {}) {
   const binary = options.binary || fileURLToPath(new URL('./agents-communication', import.meta.url));
   let lastHeartbeat = 0, diskCache;
   const pending = new Map();
-  let binding, context, timer, polling, active = false, starting = false, stopped = true, generation = 0;
+  let binding, context, timer, polling, active = false, starting = false, stopped = true, generation = 0, idle = idleMin, deliveries = 0;
   let lifecycle = Promise.resolve(), lifecycleRevision = 0;
   const cancelled = new Error('Pi communication lifecycle superseded');
   const serial = run => { const next = lifecycle.then(run); lifecycle = next.catch(() => {}); return next; };
-  const invalidate = () => { stopped = true; generation += 1; clearInterval(timer); };
+  const invalidate = () => { stopped = true; generation += 1; clearTimeout(timer); };
   const invoke = async (args, target = binding) => {
     if (!target) throw new Error('Communication is disabled or no session is bound');
     const { stdout } = await exec(binary, [...args, '--workspace', target.workspace,
@@ -53,20 +55,39 @@ export function registerPiInbox(pi, options = {}) {
   const matches = (entry, type, predicate) => entry.type === 'custom_message' && entry.customType === type && predicate(entry.details || {});
   const receiptSet = rows => new Set(rows.filter(e => matches(e, peerType, d => d.session === binding.session && d.database === binding.database))
     .flatMap(e => e.details.receipts || []).map(r => `${r.id}:${r.dispatchToken}`));
+  // The ledger is append-only JSONL: parse only bytes added since the last scan.
+  // A replaced or shrunken file is rescanned from its header.
   const diskReceipts = () => {
     const file = context.sessionManager.getSessionFile?.();
     if (!file) return null;
-    let metadata;
-    try { metadata = statSync(file); } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
-    const stamp = `${file}:${metadata.dev}:${metadata.ino}:${metadata.size}:${metadata.mtimeMs}`;
-    if (diskCache?.stamp === stamp) return diskCache.receipts;
-    // Fail closed on oversized histories; never turn a partial scan into absence.
-    if (metadata.size > 64 * 1024 * 1024) throw new Error('Pi ledger exceeds the 64 MiB receipt scan bound; inspect pending dispatch manually');
-    const rows = readFileSync(file, 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line));
-    if (rows[0]?.type !== 'session' || rows[0]?.id !== binding.vendorSession) throw new Error('Pi ledger header does not match the bound session');
-    const seen = receiptSet(rows);
-    diskCache = { stamp, receipts: seen };
-    return seen;
+    let fd;
+    try { fd = openSync(file, 'r'); } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+    try {
+      const metadata = fstatSync(fd);
+      const identity = `${file}:${metadata.dev}:${metadata.ino}`;
+      if (diskCache?.identity !== identity || metadata.size < diskCache.offset) diskCache = { identity, offset: 0, rest: Buffer.alloc(0), receipts: new Set(), header: false };
+      const size = metadata.size - diskCache.offset;
+      if (!size) return diskCache.header ? diskCache.receipts : null;
+      // Fail closed on oversized growth; never turn a partial scan into absence.
+      if (size > 64 * 1024 * 1024) throw new Error('Pi ledger grew beyond the 64 MiB receipt scan bound; inspect pending dispatch manually');
+      const bytes = Buffer.alloc(size);
+      let read = 0;
+      while (read < size) {
+        const count = readSync(fd, bytes, read, size - read, diskCache.offset + read);
+        if (!count) break;
+        read += count;
+      }
+      const chunk = Buffer.concat([diskCache.rest, bytes.subarray(0, read)]);
+      const end = chunk.lastIndexOf(0x0a) + 1;
+      const rows = chunk.subarray(0, end).toString('utf8').split('\n').filter(Boolean).map(line => JSON.parse(line));
+      if (!diskCache.header && rows.length && (rows[0].type !== 'session' || rows[0].id !== binding.vendorSession)) throw new Error('Pi ledger header does not match the bound session');
+      for (const receipt of receiptSet(rows)) diskCache.receipts.add(receipt);
+      diskCache.header ||= rows.length > 0;
+      diskCache.offset += read;
+      diskCache.rest = Buffer.from(chunk.subarray(end));
+      // No complete header yet: receipts are unknown, not absent.
+      return diskCache.header ? diskCache.receipts : null;
+    } finally { closeSync(fd); }
   };
   const persist = async (message, found, expectedGeneration, triggerTurn = false) => {
     if (expectedGeneration !== generation || !currentBinding()) return false;
@@ -116,8 +137,9 @@ export function registerPiInbox(pi, options = {}) {
       // Heartbeat and recovery are deterministic host work, never model calls.
       await confirmPending();
       if (expectedGeneration !== generation || !currentBinding()) return;
-      const { items, context: content } = await call('hook', { format: 'json', deferConfirm: true, consumer: `pi:${binding.vendorSession}` });
+      const { items, context: content, action } = await call('hook', { format: 'json', deferConfirm: true, consumer: `pi:${binding.vendorSession}` });
       if (!items.length || expectedGeneration !== generation || !currentBinding()) return;
+      deliveries += 1;
       if (typeof content !== 'string' || !content) throw new Error('Communication CLI must provide canonical hook context; rebuild the skill bundle');
       const wanted = items.map(({ id, dispatchToken }) => ({ id, dispatchToken }));
       const found = () => {
@@ -127,7 +149,7 @@ export function registerPiInbox(pi, options = {}) {
       await persist({ customType: peerType,
         content,
         display: true, details: { session: binding.session, database: binding.database, receipts: wanted } }, found, expectedGeneration,
-        allowWake && !starting && !active && context.isIdle?.() !== false && items.some(item => item.wake === 'action'));
+        allowWake && !starting && !active && context.isIdle?.() !== false && action === true);
       for (const item of wanted) pending.set(`${item.id}:${item.dispatchToken}`, item);
       await confirmPending();
     })().catch(error => { console.error(`Communication inbox: ${error.message}`); })
@@ -149,12 +171,11 @@ export function registerPiInbox(pi, options = {}) {
     if (!target || !isBoundContext(ctx)) return {block: true, reason: 'File edit requires an active communication binding and owned lease.'};
     const path = event.input?.path;
     if (!plainHostPath(path) || !plainHostPath(ctx.cwd)) return {block: true, reason: 'File edit requires a plain path without host aliases or parent traversal.'};
-    // Aliases and parent traversal are rejected; Rust resolves the plain target.
-    const file = isAbsolute(path) ? path : `${ctx.cwd}${sep}${path}`;
     try {
-      const result = await invoke(['check_write', JSON.stringify({paths: [file], vendorSession: ctx.sessionManager.getSessionId()})], target);
+      // The same Rust admission call as the Claude and OpenCode guards.
+      const covered = await checkHostWrite(target, {vendorSession: ctx.sessionManager.getSessionId(), cwd: ctx.cwd, path});
       if (currentBinding() !== target || !isBoundContext(ctx) || event.input?.path !== path) return {block: true, reason: 'Session or file path changed during lease validation; retry in the current session.'};
-      if (result.ok !== true || result.checks?.length !== 1 || result.checks[0].lease?.expiresAt <= Date.now() || !Number.isSafeInteger(result.checks[0].lease?.expiresAt)) return {block: true, reason: 'File edit blocked: acquire or renew your own covering lease before retrying.'};
+      if (!covered) return {block: true, reason: 'File edit blocked: acquire or renew your own covering lease before retrying.'};
     } catch {
       return {block: true, reason: 'File edit blocked because live lease ownership could not be verified.'};
     }
@@ -179,6 +200,7 @@ export function registerPiInbox(pi, options = {}) {
       context = ctx;
       active = false;
       starting = false;
+      idle = idleMin;
       if (options.enabled && !options.enabled(ctx)) return;
       try {
         const vendorSession = ctx.sessionManager.getSessionId();
@@ -213,13 +235,23 @@ export function registerPiInbox(pi, options = {}) {
         assertCurrent();
         options.onBinding?.({ ...binding });
         const timerGeneration = generation;
-        timer = setInterval(() => {
+        const tick = async () => {
           if (timerGeneration !== generation) return;
           if (!currentBinding()) { void shutdown().catch(error => console.error(`Communication cleanup: ${error.message}`)); return; }
           if (active) {
+            idle = idleMin;
             if (Date.now() - lastHeartbeat >= 15000) { lastHeartbeat = Date.now(); void call('heartbeat').catch(error => console.error(`Communication presence: ${error.message}`)); }
-          } else void drain();
-        }, 1000);
+          } else {
+            // Each empty poll doubles the wait; a delivery or turn boundary resets it.
+            const before = deliveries;
+            await drain();
+            idle = deliveries === before ? Math.min(idle * 2, idleMax) : idleMin;
+          }
+          if (timerGeneration !== generation) return;
+          timer = setTimeout(tick, idle);
+          timer.unref();
+        };
+        timer = setTimeout(tick, idle);
         timer.unref();
         await drain();
         assertCurrent();
@@ -240,6 +272,7 @@ export function registerPiInbox(pi, options = {}) {
     if (!currentBinding() || !isBoundContext(ctx)) return;
     context = ctx;
     active = false;
+    idle = idleMin;
     // Pi remains streaming until all agent_end handlers return.
     setImmediate(() => { void drain(); });
   });

@@ -11,10 +11,10 @@ import { DatabaseSync } from 'node:sqlite';
 // Acceptance is checked against DB rows and actual tool receipts, never a model's DONE claim.
 const probeInput=(command,input)=>['send_message','notify_all','lock','lock_many'].includes(command)?{...( ['send_message','notify_all'].includes(command)?{wake:'action'}:{}),reasoning:`Validate ${command} interoperability in this isolated communication exercise`,...input}:input;
 
-const python=process.env.COMMUNICATION_PYTHON, piModel=process.env.COMMUNICATION_PI_MODEL;
+const piModel=process.env.COMMUNICATION_PI_MODEL;
 const vendors=(process.env.COMMUNICATION_VENDORS||'codex,claude,pi').split(',');
 if(new Set(vendors).size!==vendors.length||vendors.some(v=>!['codex','claude','pi'].includes(v)))throw Error('COMMUNICATION_VENDORS must name unique codex,claude,pi vendors');
-if(!python||(vendors.includes('pi')&&!piModel))throw Error('Set COMMUNICATION_PYTHON and, for Pi, an exact COMMUNICATION_PI_MODEL provider/model');
+if(vendors.includes('pi')&&!piModel)throw Error('Set COMMUNICATION_PI_MODEL to an exact Pi provider/model');
 if(process.platform==='win32')throw Error('This live harness currently validates the POSIX skill launcher only');
 const perVendor=Number(process.env.COMMUNICATION_WORKERS_PER_VENDOR||2);
 if(!Number.isInteger(perVendor)||perVendor<1||perVendor>3)throw Error('COMMUNICATION_WORKERS_PER_VENDOR must be 1, 2 or 3');
@@ -32,9 +32,8 @@ const trace=createWriteStream(join(directory,'events.jsonl'),{mode:0o600});
 trace.on('error',error=>{traceError=error;});
 const started=Date.now(),deadline=started+600000;
 const invoke=(command,input={},session)=>JSON.parse(execFileSync(cli,[command,JSON.stringify(probeInput(command,input)),'--workspace',directory,'--database',database,...(session?['--session',session]:[])],{encoding:'utf8',timeout:120000,killSignal:'SIGTERM'}));
-const py=(op,data)=>JSON.parse(execFileSync(python,[join(skill,'scripts/sqlite_agent.py'),database,directory,op,JSON.stringify(probeInput(op,data))],{encoding:'utf8',env:{...process.env,PATH:''}}));
 const controller=invoke('join',{name:'mesh-controller',vendor:'test'});
-const generic=py('join',{name:'mesh-db-only',vendor:'python-sqlite'});
+const generic=invoke('join',{name:'mesh-cli',vendor:'generic'});
 const db=new DatabaseSync(database);
 const held=invoke('lock',{path:'mesh',kind:'tree',ttlMs:600000},controller.id).lease;
 let heldReleased=false,report,heartbeatError;
@@ -43,7 +42,7 @@ const documentPrefix='Large evidence stays in this shared document. Read only th
 const documentMarker=`DOC_PROOF ${nonce}`;
 const documentOffset=Buffer.byteLength(documentPrefix);
 const sharedDocument=invoke('share_document',{name:documentName,reasoning:"Verify cross-vendor document handoff and bounded reads",content:documentPrefix+documentMarker+'\n'},controller.id);
-const heartbeat=setInterval(()=>{try{invoke('heartbeat',{},controller.id);py('heartbeat',{session:generic.id});}catch(e){heartbeatError=e;}},10000);
+const heartbeat=setInterval(()=>{try{invoke('heartbeat',{},controller.id);invoke('heartbeat',{},generic.id);}catch(e){heartbeatError=e;}},10000);
 const rows=()=>db.prepare('SELECT * FROM messages ORDER BY id').all();
 const find=(sender,target,body)=>db.prepare('SELECT * FROM messages WHERE sender=? AND target=? AND body=?').get(sender,target,body);
 const state=()=>({directory,database,cli,nonce,controller,generic,workers:workers.map(({name,vendor,session,pid,exited})=>({name,vendor,session,pid,exited}))});
@@ -56,9 +55,9 @@ function objects(value){
 const receipts=(w,tool,predicate)=>events.filter(e=>e.worker===w.name&&e.type==='tool-result'&&e.tool?.endsWith(tool)&&objects(e.result).some(predicate));
 function service(){
  for(const m of invoke('inbox',{},controller.id).items)invoke('ack',{message:m.id},controller.id);
- for(const m of py('inbox',{session:generic.id}).items){
-  if(m.body.startsWith(`BROADCAST ${nonce} `))py('send_message',{session:generic.id,to:m.sender,body:`DB_ACK_BROADCAST ${nonce}`,key:`db-ack-${m.id}`});
-  py('ack',{session:generic.id,message:m.id});
+ for(const m of invoke('inbox',{},generic.id).items){
+  if(m.body.startsWith(`BROADCAST ${nonce} `))invoke('send_message',{to:m.sender,body:`DB_ACK_BROADCAST ${nonce}`,key:`db-ack-${m.id}`},generic.id);
+  invoke('ack',{message:m.id},generic.id);
  }
 }
 async function until(predicate,label){
@@ -86,8 +85,8 @@ Only handle messages with this token. Controller commands:
 - DOCUMENT TOKEN NAME OFFSET: call read_document with name NAME, offset OFFSET, limit 100. Send DOC_READ ${nonce} ${name} followed by the exact DOC_PROOF line returned, to controller. Never paste the full document into messages.
 - BUNDLE: call lock_many on [{path:mesh/bundle-b.md},{path:mesh/bundle-a.md}] with ttlMs 120000, check success, unlock each returned lease ID, then send BUNDLE_DONE ${nonce} ${name} to controller.
 - HOLD: acquire mesh/closed.md with ttlMs 120000, then send HELD ${nonce} ${name} to controller and retain this lease until shutdown.
-- MESH: call peers; find these ${workerCount} names: ${workerNames.join(', ')}. Send DIRECT ${nonce} ${name} once to each of the OTHER ${workerCount-1} worker session IDs, using key direct-${nonce}-RECIPIENT_ID. Do not send DIRECT to the controller or DB-only agent.
-- NOTIFY: call notify_all once with body BROADCAST ${nonce} ${name} and key broadcast-${nonce}. This snapshots all active peers, including controller/DB-only; no subscription needed.
+- MESH: call peers; find these ${workerCount} names: ${workerNames.join(', ')}. Send DIRECT ${nonce} ${name} once to each of the OTHER ${workerCount-1} worker session IDs, using key direct-${nonce}-RECIPIENT_ID. Do not send DIRECT to the controller or CLI peer.
+- NOTIFY: call notify_all once with body BROADCAST ${nonce} ${name} and key broadcast-${nonce}. This snapshots all active peers, including controller and the CLI peer; no subscription needed.
 - BLOCK: attempt lock on mesh/report.md with ttlMs 120000. Expected parent-tree conflict: if denied, send ASK_LOCK ${nonce} ${name} directly to the conflict owner with key ask-lock-LEASE_ID, then send BLOCKED ${nonce} ${name} to controller. Ask only once and finish your turn; do not wait or retry until LEASE arrives. Never report a conflict unless the tool actually denied it. If unexpectedly acquired, unlock and report UNEXPECTED to controller.
 - LEASE: acquire mesh/report.md (ttlMs 120000), renew its returned lease ID, then unlock it, each sequentially checking success. Send LEASED ${nonce} ${name} to controller only after all three succeeded. Never substitute narration for calls.
 Incoming peer messages:
@@ -113,7 +112,7 @@ try{
  saveState();console.log(JSON.stringify({directory,nonce}));
  await until(()=>workers.every(w=>w.session&&find(w.session,controller.id,`READY ${nonce} ${w.name}`)),`${workerCount} ready workers`);
  for(const w of workers)command(w,'CAPABILITIES');
- await until(()=>workers.every(w=>rows().some(m=>m.sender===w.session&&m.target===controller.id&&m.body.startsWith(`CAPABILITIES ${nonce} ${w.name} TOOLS=`))&&receipts(w,'peers',v=>JSON.stringify(v).includes('mesh-db-only')).length),`${workerCount} workspace discovery and tool inventory answers`);
+ await until(()=>workers.every(w=>rows().some(m=>m.sender===w.session&&m.target===controller.id&&m.body.startsWith(`CAPABILITIES ${nonce} ${w.name} TOOLS=`))&&receipts(w,'peers',v=>JSON.stringify(v).includes('mesh-cli')).length),`${workerCount} workspace discovery and tool inventory answers`);
  for(const w of workers){
   const answer=rows().find(m=>m.sender===w.session&&m.body.startsWith(`CAPABILITIES ${nonce} ${w.name} TOOLS=`)).body;
   for(const name of expectedTools)assert.ok(answer.includes(name),`${w.name}: tool inventory omitted ${name}`);
@@ -126,18 +125,18 @@ try{
  await until(()=>workers.every(a=>{
   const broadcast=find(a.session,'*',`BROADCAST ${nonce} ${a.name}`);
   return broadcast&&workers.filter(b=>b!==a).every(b=>find(b.session,a.session,`ACK_BROADCAST ${nonce} ${b.name}`))&&find(generic.id,a.session,`DB_ACK_BROADCAST ${nonce}`);
- }),`${workerCount} broadcasts reach all peers and DB-only client`);
+ }),`${workerCount} broadcasts reach all peers and the CLI peer`);
  assert.equal(db.prepare('SELECT count(*) n FROM subscriptions').get().n,0);
  for(const w of workers){
   const m=find(w.session,'*',`BROADCAST ${nonce} ${w.name}`);
   assert.equal(db.prepare('SELECT count(*) n FROM deliveries WHERE message=?').get(m.id).n,broadcastRecipients);
   assert.ok(receipts(w,'notify_all',v=>v.id===m.id&&v.recipients===broadcastRecipients).length,`${w.name}: missing actual notify_all receipt`);
  }
- for(const w of workers)py('send_message',{session:generic.id,to:w.session,body:`DB_DIRECT ${nonce}`,key:`db-direct-${w.name}`});
- await until(()=>workers.every(w=>dbReply(w,find(generic.id,w.session,`DB_DIRECT ${nonce}`).id)),`DB-only direct messages reach all ${workerCount} workers`);
- const broadcastArgs={session:generic.id,body:`DB_ALL ${nonce}`,key:'db-all'};
- const sent=py('notify_all',broadcastArgs);assert.deepEqual(py('notify_all',broadcastArgs),sent);assert.equal(sent.recipients,broadcastRecipients);
- await until(()=>workers.every(w=>dbReply(w,sent.id)),'DB-only notify_all and retry snapshot');
+ for(const w of workers)invoke('send_message',{to:w.session,body:`DB_DIRECT ${nonce}`,key:`db-direct-${w.name}`},generic.id);
+ await until(()=>workers.every(w=>dbReply(w,find(generic.id,w.session,`DB_DIRECT ${nonce}`).id)),`CLI peer direct messages reach all ${workerCount} workers`);
+ const broadcastArgs={body:`DB_ALL ${nonce}`,key:'db-all'};
+ const sent=invoke('notify_all',broadcastArgs,generic.id);assert.deepEqual(invoke('notify_all',broadcastArgs,generic.id),sent);assert.equal(sent.recipients,broadcastRecipients);
+ await until(()=>workers.every(w=>dbReply(w,sent.id)),'CLI peer notify_all and retry snapshot');
  for(const w of workers)command(w,'BLOCK');
  await until(()=>workers.every(w=>receipts(w,'lock',v=>v.ok===false&&v.conflict?.owner===controller.id).length),`${workerCount} actual parent-tree lock conflicts`);
  await until(()=>workers.every(w=>find(w.session,controller.id,`ASK_LOCK ${nonce} ${w.name}`)),`${workerCount} conflict-owner questions without blocking`);
@@ -194,14 +193,14 @@ try{
  }
  report={passed:true,nonce,skillSource:suppliedSkill?'existing built skill':'copied standalone skill',skillPath:skill,models:workers.map(({name,vendor,model})=>({name,vendor,model})),skillSha256:createHash('sha256').update(readFileSync(join(skill,'SKILL.md'))).digest('hex'),phases,matrix,
   document:{name:documentName,bytes:sharedDocument.document.bytes,readOffset:documentOffset,readLimit:100,receipt:sharedDocument},usage:db.prepare("SELECT session,data FROM audit WHERE kind='usage' ORDER BY id").all().map(r=>({session:r.session,...JSON.parse(r.data)})),
-  checks:[`${workerCount} peer discovery and capability questions`,`${workerCount} bounded document handoffs without full-body messages`,`${workerCount} lock owner questions before retry`,`${workerCount} atomic multi-path acquisitions`,'present but stalled owner lease expiry and stale-ID rejection','closed real vendor worker lease recovery',`all ${pairCount} directed worker pairs with replies`,'same-vendor pairs included',`${workerCount} notify_all calls with ${broadcastRecipients} recipients each and actual tool receipts`,'zero topic subscriptions required',`Python-only direct and broadcast messages reach all ${workerCount} workers`,'broadcast retry preserves receipt and snapshot',`${workerCount} tree conflicts and ${workerCount} acquire/renew/unlock lifecycles`,'all deliveries acknowledged and leases released','each worker delivery staged once and submitted; no automatic replay'],
+  checks:[`${workerCount} peer discovery and capability questions`,`${workerCount} bounded document handoffs without full-body messages`,`${workerCount} lock owner questions before retry`,`${workerCount} atomic multi-path acquisitions`,'present but stalled owner lease expiry and stale-ID rejection','closed real vendor worker lease recovery',`all ${pairCount} directed worker pairs with replies`,'same-vendor pairs included',`${workerCount} notify_all calls with ${broadcastRecipients} recipients each and actual tool receipts`,'zero topic subscriptions required',`CLI peer direct and broadcast messages reach all ${workerCount} workers`,'broadcast retry preserves receipt and snapshot',`${workerCount} tree conflicts and ${workerCount} acquire/renew/unlock lifecycles`,'all deliveries acknowledged and leases released','each worker delivery staged once and submitted; no automatic replay'],
   metrics:{unsolicitedInboxReads:recoveryReads,messages:all.length,deliveries:db.prepare('SELECT count(*) n FROM deliveries').get().n,directedPairs:pairCount,workerBroadcasts:workerCount,workerBroadcastDeliveries:workerCount*broadcastRecipients,dbOnlyBroadcastRecipients:broadcastRecipients,unexpectedModelReports:all.filter(m=>m.body.startsWith(`UNEXPECTED ${nonce} `)).length,supervisorInterventions:all.filter(m=>m.sender===controller.id&&m.body.startsWith(`CHECK ${nonce}:`)).length},messages:all,events};
 }catch(error){process.exitCode=1;writeFileSync(join(directory,'failure.json'),JSON.stringify({error:error.message,state:state(),phases,messages:rows(),events,workers:workers.map(({name,stderr,code})=>({name,stderr,code}))},null,2),{mode:0o600});console.error(JSON.stringify({error:error.message,evidence:directory}));}
 finally{
  clearInterval(heartbeat);
  await Promise.all(workers.map(w=>new Promise(resolve=>{if(w.exited)return resolve();const timer=setTimeout(()=>w.child.kill('SIGKILL'),5000);w.child.once('exit',()=>{clearTimeout(timer);resolve();});w.child.kill('SIGTERM');})));
  if(!heldReleased)invoke('unlock',{lease:held.id},controller.id);
- invoke('leave',{},controller.id);py('leave',{session:generic.id});
+ invoke('leave',{},controller.id);invoke('leave',{},generic.id);
  if(report){
   for(const w of workers)assert.throws(()=>process.kill(w.pid,0),e=>e.code==='ESRCH');
   assert.equal(db.prepare('SELECT count(*) n FROM sessions WHERE expiresAt>?').get(Date.now()).n,0);

@@ -45,7 +45,7 @@ async function writeConfig(filePath: string, config: McpConfig): Promise<void> {
 
 describe('MCP Config Token Security', () => {
   describe('Token write', () => {
-    it('sets GITHUB_TOKEN in server env', async () => {
+    it('sets OCTOCODE_TOKEN (priority 0) in server env', async () => {
       const dir = await makeTempDir();
       const configPath = path.join(dir, 'mcp.json');
       await writeConfig(configPath, {
@@ -60,7 +60,7 @@ describe('MCP Config Token Security', () => {
 
       await updateMcpConfigToken(configPath, 'ghp_testtoken123');
       const updated = await readJsonFile<McpConfig>(configPath);
-      expect(updated?.mcpServers[MCP_SERVER_NAME]?.env?.GITHUB_TOKEN).toBe(
+      expect(updated?.mcpServers[MCP_SERVER_NAME]?.env?.OCTOCODE_TOKEN).toBe(
         'ghp_testtoken123'
       );
     });
@@ -83,10 +83,10 @@ describe('MCP Config Token Security', () => {
       const updated = await readJsonFile<McpConfig>(configPath);
       const env = updated?.mcpServers[MCP_SERVER_NAME]?.env;
       expect(env?.OTHER_VAR).toBe('keep-me');
-      expect(env?.GITHUB_TOKEN).toBe('new-token');
+      expect(env?.OCTOCODE_TOKEN).toBe('new-token');
     });
 
-    it('overwrites existing token', async () => {
+    it('overwrites existing token and drops the legacy GITHUB_TOKEN copy', async () => {
       const dir = await makeTempDir();
       const configPath = path.join(dir, 'mcp.json');
       await writeConfig(configPath, {
@@ -102,9 +102,9 @@ describe('MCP Config Token Security', () => {
 
       await updateMcpConfigToken(configPath, 'new-token');
       const updated = await readJsonFile<McpConfig>(configPath);
-      expect(updated?.mcpServers[MCP_SERVER_NAME]?.env?.GITHUB_TOKEN).toBe(
-        'new-token'
-      );
+      expect(updated?.mcpServers[MCP_SERVER_NAME]?.env).toEqual({
+        OCTOCODE_TOKEN: 'new-token',
+      });
     });
   });
 
@@ -118,7 +118,7 @@ describe('MCP Config Token Security', () => {
             command: 'npx',
             type: 'stdio',
             args: [],
-            env: { GITHUB_TOKEN: 'secret', OTHER: 'keep' },
+            env: { OCTOCODE_TOKEN: 'secret', GITHUB_TOKEN: 'legacy', OTHER: 'keep' },
           },
         },
       });
@@ -127,6 +127,7 @@ describe('MCP Config Token Security', () => {
       const updated = await readJsonFile<McpConfig>(configPath);
       const env = updated?.mcpServers[MCP_SERVER_NAME]?.env;
       expect(env?.GITHUB_TOKEN).toBeUndefined();
+      expect(env?.OCTOCODE_TOKEN).toBeUndefined();
       expect(env?.OTHER).toBe('keep');
     });
 

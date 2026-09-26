@@ -60,7 +60,7 @@ test('dirty paths filter by time, literal prefix and regex, preserving unusual n
   assert.deepEqual(deleted.changes,['deleted']);
   assert.equal(deleted.indexState,'unchanged');
   assert.equal(deleted.worktreeState,'deleted');
-  assert.equal(deleted.modifiedAt,null);
+  assert.equal(deleted.modifiedAt,undefined);
   assert.equal(rows.coverage.unknownTimeQuery.sinceMs,undefined);
   assert.equal(rows.coverage.unknownTimeQuery.untilMs,undefined);
   assert.equal(rows.coverage.unknownTimeQuery.path,'src/');
@@ -68,7 +68,7 @@ test('dirty paths filter by time, literal prefix and regex, preserving unusual n
   const renamed = f.activity({ path: 'src/rename.rs' }).items[0];
   assert.deepEqual(renamed.changes,['renamed']);
   assert.equal(renamed.path, 'src/renamed.rs'); assert.equal(renamed.previousPath, 'src/rename.rs');
-  assert.equal(f.activity({ path: 'src/deleted.rs' }).items[0].modifiedAt, null);
+  assert.equal(f.activity({ path: 'src/deleted.rs' }).items[0].modifiedAt, undefined);
   assert.equal(f.activity({ path: 'sr' }).items.length, 0);
   assert.deepEqual(f.activity({ path: 'a.rs' }, join(f.workspace, 'src')).items.map(r => r.path), ['a.rs']);
 });
@@ -81,7 +81,7 @@ test('activity continuation freezes relative time and rejects changed snapshots'
   assert.equal(first.next.withinMs, undefined); assert.equal(typeof first.next.sinceMs, 'number');
   const second = f.activity(first.next), third = f.activity(second.next);
   assert.equal(new Set([...first.items, ...second.items, ...third.items].map(r => r.path)).size, 3);
-  assert.equal(third.next, null);
+  assert.equal(third.next, undefined);
   f.put('extra');
   assert.throws(() => f.activity(first.next), /Activity changed during pagination/);
 });

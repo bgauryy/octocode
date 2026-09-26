@@ -6,8 +6,9 @@
 // `./mcp` subpaths re-export `@octocodeai/octocode-core` (esbuild-external).
 // Cross-platform.
 //
-// Precedence:
-//   explicit process.env  >  <project>/.octocode/.env  >  <home>/.env  >  <home>/.octocoderc  >  defaults
+// Precedence (per field):
+//   explicit process.env  >  <project>/.octocode/.env  >  <home>/.env
+//     >  <project>/.octocode/.octocoderc  >  <home>/.octocoderc  >  defaults
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -81,8 +82,11 @@ export {
 export { validateConfig } from './config/validator.js';
 export {
   getConfigFilePath,
+  getProjectConfigFilePath,
   configExists,
+  loadConfigFileSync,
   loadConfigSync,
+  loadProjectConfigSync,
   loadConfig,
 } from './config/loader.js';
 export {
@@ -91,6 +95,7 @@ export {
   parseBooleanEnv,
   parseIntEnv,
   parseStringArrayEnv,
+  resolveConfigFields,
   resolveExtensionStorage,
   resolveGitHub,
   resolveLocal,
@@ -111,9 +116,13 @@ export {
   resolveEnvToken,
 } from './tokens/envTokens.js';
 
-// ─── Env loading (uses loadConfigSync from config/loader.ts below) ────────────
+// ─── Env loading (uses the loaders from config/loader.ts below) ───────────────
 
-import { loadConfigSync } from './config/loader.js';
+import {
+  getConfigFilePath,
+  getProjectConfigFilePath,
+  loadConfigFileSync,
+} from './config/loader.js';
 
 /** Keys restricted by the shared dotenv policy (infrastructure and security controls). */
 export const PROTECTED_KEYS: ReadonlySet<string> = new Set(PROTECTED_KEY_NAMES);
@@ -208,6 +217,9 @@ export function loadOctocodeEnv({
       parseEnv(readTextIfExists(path.join(cwd, '.octocode', '.env')))
     )) {
       if (!v.trim()) continue;
+      // A workspace value for a protected key is dropped later; it must not
+      // also evict the trusted home value for that key.
+      if (k in map && isProtectedKey(k)) continue;
       map[k] = v;
       sources[k] = 'project';
     }
@@ -328,18 +340,23 @@ export function isStatsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
 }
 
 /**
- * Read storage.mode directly from env then raw .octocoderc — no validator,
- * no resolver pipeline. Only the two valid enum values are accepted.
- * Precedence: OCTOCODE_STORAGE_MODE env > storage.mode in .octocoderc > default.
+ * Read storage.mode directly from env then raw .octocoderc layers — no
+ * validator, no resolver pipeline. Only the two valid enum values are accepted.
+ * Precedence: OCTOCODE_STORAGE_MODE env > workspace .octocoderc
+ * > global .octocoderc > default.
  */
 export function isPersistentStorageEnabled(
-  env: NodeJS.ProcessEnv = process.env
+  env: NodeJS.ProcessEnv = process.env,
+  cwd: string = process.cwd()
 ): boolean {
   const v = env['OCTOCODE_STORAGE_MODE']?.trim().toLowerCase();
   if (v === 'persistent' || v === 'memory') return v === 'persistent';
-  const rc = loadOctocoderc() as { storage?: { mode?: unknown } };
-  const m = rc.storage?.mode;
-  if (m === 'persistent' || m === 'memory') return m === 'persistent';
+  for (const rc of loadOctocodercLayers({ env, cwd }) as {
+    storage?: { mode?: unknown };
+  }[]) {
+    const m = rc.storage?.mode;
+    if (m === 'persistent' || m === 'memory') return m === 'persistent';
+  }
   return DEFAULT_STORAGE_MODE === 'persistent';
 }
 
@@ -348,11 +365,14 @@ export function isPersistentStorageEnabled(
  * continuity on this machine.
  *
  * Precedence: OCTOCODE_EXTENSION_STORAGE_MODE env > OCTOCODE_STORAGE_MODE env
- * > extension.storage.mode in .octocoderc > storage.mode in .octocoderc > default.
+ * > extension.storage.mode in .octocoderc (workspace, then global)
+ * > storage.mode in .octocoderc (workspace, then global) > default.
  * This allows the CLI to run with storage.mode=memory while the Pi extension
  * uses extension.storage.mode=persistent.
  */
-export function isPersistentStorageEnabledForExtension(): boolean {
+export function isPersistentStorageEnabledForExtension(
+  cwd: string = process.cwd()
+): boolean {
   const env = process.env;
   const extVar = env['OCTOCODE_EXTENSION_STORAGE_MODE']?.trim().toLowerCase();
   if (extVar === 'persistent' || extVar === 'memory')
@@ -360,36 +380,113 @@ export function isPersistentStorageEnabledForExtension(): boolean {
   const storageVar = env['OCTOCODE_STORAGE_MODE']?.trim().toLowerCase();
   if (storageVar === 'persistent' || storageVar === 'memory')
     return storageVar === 'persistent';
-  // Read rc once for both extension and storage fallback.
-  const rc = loadOctocoderc() as {
+  // Read the layers once for both extension and storage fallback.
+  const layers = loadOctocodercLayers({ env, cwd }) as {
     storage?: { mode?: unknown };
     extension?: { storage?: { mode?: unknown } };
-  };
-  const extMode = rc.extension?.storage?.mode;
-  if (extMode === 'persistent' || extMode === 'memory')
-    return extMode === 'persistent';
-  const storageMode = rc.storage?.mode;
-  if (storageMode === 'persistent' || storageMode === 'memory')
-    return storageMode === 'persistent';
+  }[];
+  for (const rc of layers) {
+    const extMode = rc.extension?.storage?.mode;
+    if (extMode === 'persistent' || extMode === 'memory')
+      return extMode === 'persistent';
+  }
+  for (const rc of layers) {
+    const storageMode = rc.storage?.mode;
+    if (storageMode === 'persistent' || storageMode === 'memory')
+      return storageMode === 'persistent';
+  }
   return DEFAULT_STORAGE_MODE === 'persistent';
 }
 
+/** Parse one `.octocoderc` file; {} when absent. Never throws: any other
+ * failure is reported on stderr with the file path, and the file is ignored. */
+function readOctocodercFile(filePath: string): Record<string, unknown> {
+  const result = loadConfigFileSync(filePath);
+  if (result.success)
+    return result.config ? (result.config as Record<string, unknown>) : {};
+  if (result.error && result.error !== 'Config file does not exist') {
+    process.stderr.write(
+      `[octocode-config] warning: ${filePath}: ${result.error}; the whole file is ignored\n`
+    );
+  }
+  return {};
+}
+
 /**
- * Read and parse `<home>/.octocoderc`.
+ * Read and parse the global `<home>/.octocoderc`.
  * Delegates to the robust JSON5 loader (state-machine based, handles // inside strings).
  * Returns {} when absent or invalid. No secrets belong here.
  */
 export function loadOctocoderc(
   home: string = getOctocodeHome()
 ): Record<string, unknown> {
-  const result = loadConfigSync(home);
-  if (result.success)
-    return result.config ? (result.config as Record<string, unknown>) : {};
-  // File absent is silent; any other failure (parse error etc.) is reported.
-  if (result.error && result.error !== 'Config file does not exist') {
-    process.stderr.write(
-      `[octocode-config] Failed to parse .octocoderc: ${result.error}\n`
-    );
+  return readOctocodercFile(getConfigFilePath(home));
+}
+
+export interface LoadOctocodercLayersOptions {
+  home?: string;
+  cwd?: string;
+  env?: Record<string, string | undefined>;
+}
+
+/**
+ * `.octocoderc` layers in priority order: workspace
+ * `<cwd>/.octocode/.octocoderc`, then global `<home>/.octocoderc`. Pass the
+ * result to `resolveConfigFields` for per-field resolution. When the workspace
+ * directory is the Octocode home, the file is returned once.
+ */
+export function loadOctocodercLayers({
+  env = process.env,
+  home = getOctocodeHome(env),
+  cwd = process.cwd(),
+}: LoadOctocodercLayersOptions = {}): Record<string, unknown>[] {
+  const globalPath = getConfigFilePath(home);
+  const projectPath = getProjectConfigFilePath(cwd);
+  const layers = [readOctocodercFile(globalPath)];
+  if (!sameFile(projectPath, globalPath))
+    layers.unshift(stripWorkspaceProtected(readOctocodercFile(projectPath), projectPath));
+  return layers;
+}
+
+/**
+ * A workspace file may not set a field whose environment binding is
+ * protected from a workspace `.env` (same trust boundary as native).
+ */
+function stripWorkspaceProtected(
+  layer: Record<string, unknown>,
+  filePath: string
+): Record<string, unknown> {
+  for (const field of CONFIG_FIELDS) {
+    if (!field.file || !field.env.some(binding => PROTECTED_KEYS.has(binding.name)))
+      continue;
+    const parts = field.path.split('.');
+    let parent: unknown = layer;
+    for (const part of parts.slice(0, -1))
+      parent =
+        typeof parent === 'object' && parent !== null
+          ? (parent as Record<string, unknown>)[part]
+          : undefined;
+    const key = parts.at(-1)!;
+    if (
+      typeof parent === 'object' &&
+      parent !== null &&
+      !Array.isArray(parent) &&
+      key in parent
+    ) {
+      delete (parent as Record<string, unknown>)[key];
+      process.stderr.write(
+        `[octocode-config] warning: ${filePath}: ${field.path} is protected and ignored in a workspace config file; set it in the global config file or the process environment\n`
+      );
+    }
   }
-  return {};
+  return layer;
+}
+
+function sameFile(a: string, b: string): boolean {
+  if (path.resolve(a) === path.resolve(b)) return true;
+  try {
+    return fs.realpathSync(a) === fs.realpathSync(b);
+  } catch {
+    return false;
+  }
 }

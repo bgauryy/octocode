@@ -28,23 +28,30 @@ model keeps the skill usable by generic agents.
    comparison keys never authorize filesystem access or an escape from the workspace.
 3. Compare lease components using Unicode 16 canonical caseless matching:
    `NFD(casefold(NFD(component)))`. Preserve the stored spelling. Pin the Rust data
-   versions; the Python reference requires matching Unicode 16 for path leases.
+   versions. SQL clients use the same Unicode 16 caseless comparison for path leases.
 4. A file lease conflicts at an equal path. A tree lease also conflicts with
    descendants. Comparison respects component boundaries, not raw string prefixes.
-5. Acquire under `BEGIN IMMEDIATE`: validate active presence, inspect active leases,
-   reject an overlap, or insert an acquisition ID with expiry measured after the
-   writer transaction is acquired. Never keep the transaction open during a model
-   call or while waiting for another agent.
-6. Renew/unlock require the original acquisition ID and live owner/lease. A failed
-   renewal means stop writing. Expired leases are never revived. Existing same-owner
-   overlaps still conflict; callers must retain and renew their existing lease.
+5. Acquire under `BEGIN IMMEDIATE`: validate active presence, look up overlapping
+   live leases, reject an overlap, or insert an acquisition ID with expiry measured
+   after the writer transaction is acquired. Never keep the transaction open during
+   a model call or while waiting for another agent.
+6. Renew/unlock take the original acquisition ID as `leaseId` and require the live
+   owner/lease. A failed renewal means stop writing. Expired leases are never revived.
+   Existing same-owner overlaps still conflict; callers must retain and renew their
+   existing lease.
 
-Lease inspection uses the exact same overlap function as acquisition, through a
-connection-local SQLite function. Path comparison itself requires no schema change; the
-required intent field uses [schema v3](DB.md). All participants
-must upgrade together after old workers stop and their leases are released or their
-presence expires; the earlier comparison algorithm is not compatible with the new
-one for mixed-client acquisition.
+Schema v7 stores the folded comparison key with each lease: `pathKey` is
+`"/" + NFD(casefold(NFD(component)))` for every path component (root omitted), so
+equal keys alias and a tree contains exactly the keys under `pathKey + "/"`. Each
+request is folded once; overlap is three indexed lookups on `(workspace,pathKey)`:
+the exact key, tree leases at each ancestor key, and — for a tree request — the
+range `pathKey > key+"/" AND pathKey < key+"0"` (`0` follows `/` in byte order).
+Acquisition, `check_paths` and entity path filters share this query; no call loads
+every active lease. Writers must supply `pathKey` (a trigger rejects a missing key);
+`db migrate` computes it natively for existing leases. The Python reference computes
+the same key with `unicodedata` (Unicode 16). All participants must upgrade together
+after old workers stop; the earlier comparison algorithm is not compatible with the
+new one for mixed-client acquisition.
 
 ## Limits kept explicit
 
@@ -62,8 +69,8 @@ mount, or naming semantics. Only macOS ARM64 has live vendor validation here.
 
 The old implementation failed regressions for symlink-plus-parent traversal and
 missing-file case aliases. The repaired tests cover those paths, dangling links,
-cycles, workspace escapes, canonical Unicode aliases, tree boundaries, concurrent
-case-alias contenders, and both directions of Python/Rust conflict checks.
+cycles, workspace escapes, canonical Unicode aliases, tree boundaries, and concurrent
+case-alias contenders.
 
 - [POSIX pathname resolution](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap04.html#tag_04_13): link contents are resolved with the remaining path.
 - [Apple APFS filename behavior](https://developer.apple.com/library/archive/documentation/FileManagement/Conceptual/APFS_Guide/FAQ/FAQ.html): case and normalization behavior vary; ASCII lowercase is insufficient.
@@ -82,8 +89,10 @@ A request requires `reasoning`: a nonblank explanation of why the paths are need
 limited to 512 UTF-8 bytes. A bundle shares one reason. The reason is stored with
 each lease and its audit events; renewal and release retain the original intent.
 
-A conflict returns the owner's reason, current effective expiry, your held IDs, and a
-stable keyed question carrying your reason to request a handoff. Release held reservations before
+A conflict returns the conflicting lease (workspace-relative path, kind, expiry,
+reason), its owner once (`owner`: ID, name, vendor, presence expiry), your held IDs,
+`retryAfterMs`, and a stable keyed question carrying your reason to request a handoff.
+Granted leases report workspace-relative paths; `lock_many` reports one shared expiry. Release held reservations before
 waiting, ask once, and use independent work instead of a model polling loop.
 Self-conflicts tell the owner to reuse its covering lease or release/reacquire.
 A timeout is a cue to retry acquisition, never permission to write unlocked.
@@ -107,10 +116,6 @@ renewals. These sources inform the design, not a claim of distributed consensus.
 Regression evidence: `tests/leases.test.mjs` covers concurrent reversed sets,
 no partial grants, one keyed owner question, internal alias overlap, stale ID
 rejection, stalled-owner expiry, orderly leave, and expired-owner cleanup.
-See [the six-worker exercise](COORDINATION_MESH.md) for real vendor coordination.
-
-The separate `scripts/lease-crash-poc.mjs` kills a real raw listener with SIGKILL,
-keeps a peer alive, and waits for natural owner presence expiry. The live run
-recovered a 120-second lease after 60,063 ms, before the lease's own expiry.
-Stale renewal failed both before and after resuming the dead owner's identity.
-The fixture changes no timestamps; `out/lease-crash-poc.json` retains the evidence.
+`tests/storage-scale.test.mjs` bounds lock, conflict and `check_paths` latency with
+10,000 leases and 100,000 audit rows; `check_paths` reports at most 100 conflicts
+and marks a larger set with `truncated:true`.

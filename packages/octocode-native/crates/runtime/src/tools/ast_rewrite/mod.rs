@@ -1929,6 +1929,44 @@ mod tests {
     }
 
     #[test]
+    fn preview_pages_send_each_file_patch_once_and_reference_it_afterward() {
+        let (root, policy, security) = fixture();
+        // pageSize 1 over a.ts's two matches: both pages touch a.ts.
+        let first = execute_ast_rewrite_with_options(
+            query(&root),
+            &policy,
+            &security,
+            &Active,
+            &Default::default(),
+        );
+        let first_file = &first["files"][0];
+        assert_eq!(first_file["path"], "a.ts", "{first}");
+        assert!(first_file["patch"].as_str().is_some(), "{first}");
+        let patch_bytes = first_file["patchBytes"].clone();
+
+        let second = execute_ast_rewrite_with_options(
+            first["next"]["nextPage"]["query"].clone(),
+            &policy,
+            &security,
+            &Active,
+            &Default::default(),
+        );
+        let second_file = &second["files"][0];
+        assert_eq!(second_file["path"], "a.ts", "{second}");
+        assert!(
+            second_file.get("patch").is_none(),
+            "patch must not repeat: {second}"
+        );
+        assert_eq!(second_file["patchOnPage"], 1, "{second}");
+        assert_eq!(second_file["patchBytes"], patch_bytes, "{second}");
+        assert!(second_file["beforeHash"].as_str().is_some(), "{second}");
+        // The guarded apply is unchanged by the patch reference.
+        let apply = &second["next"]["apply"]["query"];
+        assert_eq!(apply["expectedHashes"]["a.ts"], first_file["beforeHash"]);
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
     fn interrupted_multi_file_transaction_is_rolled_back_from_journal() {
         let root = make_temp_dir("octocode-rewrite-recovery-test-").expect("fixture");
         let id = "recovery-fixture";

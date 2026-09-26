@@ -23,7 +23,7 @@ node packages/octocode/out/octocode.js scheme ghGetHistoryItem --view query
 ```
 
 The discovery catalog contains 13 tools, with 9 enabled by default when no Jev provider key is resolved, clone is not enabled, and beta tools are disabled. Enabled tools depend on local-tool,
-clone, storage, allowlist, and credential-gated `clasify` settings. MCP omits that tool when `OCTOCODE_CLASSIFICATION_API` is absent or blank. Record the effective configuration and
+clone, storage, allowlist, and credential-gated `clasify` settings. MCP omits that tool when no classification key resolves (`OCTOCODE_CLASSIFICATION_API`, `OCTOCODE_JEV_KEY`, or `.octocoderc` `classification.api`) or `OCTOCODE_CLASSIFICATION_API` is present but blank. Record the effective configuration and
 unavailable capabilities with each acceptance run. Enabling a tool does not
 install its external language server or grant provider access.
 

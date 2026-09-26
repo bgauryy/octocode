@@ -296,6 +296,10 @@ pub fn execute_local_search(
     } else {
         root.as_path()
     };
+    // (path, line, column) of every match whose value was changed by secret
+    // redaction: the returned text is then not verbatim source, and the row
+    // says so via a `redactedMatches` warning.
+    let mut redacted = std::collections::HashSet::<(String, u32, u32)>::new();
     for file in &mut parsed.files {
         if let Ok(relative) = std::path::Path::new(&file.path).strip_prefix(output_root) {
             file.path = relative.to_string_lossy().into_owned();
@@ -325,18 +329,22 @@ pub fn execute_local_search(
         };
         for matched in &mut file.matches {
             cancel.check().map_err(cancelled)?;
-            if !key_ranges.is_empty()
+            let changed = if !key_ranges.is_empty()
                 && crate::security::match_window_intersects_key_block(
                     matched.line,
                     &matched.value,
                     &key_ranges,
-                )
-            {
+                ) {
                 matched.value = crate::security::key_fragment_placeholder();
+                true
             } else {
-                matched.value = security
-                    .sanitize_text(&matched.value, Some(&source_path))
-                    .content;
+                let sanitized = security.sanitize_text(&matched.value, Some(&source_path));
+                let changed = sanitized.content != matched.value;
+                matched.value = sanitized.content;
+                changed
+            };
+            if changed {
+                redacted.insert((file.path.clone(), matched.line, matched.column));
             }
         }
     }
@@ -394,6 +402,11 @@ pub fn execute_local_search(
         let match_skip = (match_page - 1).saturating_mul(matches_per) as usize;
         for file in &mut parsed.files[page_range.clone()] {
             cancel.check().map_err(cancelled)?;
+            let before = file
+                .matches
+                .iter()
+                .map(|matched| matched.value.clone())
+                .collect::<Vec<_>>();
             if !guard_clipped_secrets(
                 file,
                 &output_root.join(&file.path),
@@ -402,6 +415,11 @@ pub fn execute_local_search(
                 view == LocalSearchQueryResultView::MatchOnly,
             ) {
                 unverified_redactions = true;
+            }
+            for (matched, before) in file.matches.iter().zip(before) {
+                if matched.value != before {
+                    redacted.insert((file.path.clone(), matched.line, matched.column));
+                }
             }
         }
     }
@@ -478,6 +496,7 @@ pub fn execute_local_search(
         && multiline == LocalSearchQueryMultiline::Off
         && context_lines > 0)
         .then_some(context_lines);
+    let mut shown_redacted = 0usize;
     let files = parsed
         .files
         .into_iter()
@@ -491,6 +510,11 @@ pub fn execute_local_search(
                 .iter()
                 .skip(ms)
                 .take(matches_per as usize)
+                .inspect(|m| {
+                    if redacted.contains(&(f.path.clone(), m.line, m.column)) {
+                        shown_redacted += 1;
+                    }
+                })
                 .map(|m| project_match(m, display_cap))
                 .collect::<Vec<_>>();
             let shown = match merge_context {
@@ -540,16 +564,9 @@ pub fn execute_local_search(
         files_searched: parsed.stats.files_searched.unwrap_or(0),
         bytes_searched: parsed.stats.bytes_searched,
         search_time: None,
-        // A binary file cut short at its first NUL is not a cap a continuation
-        // could lift; it stays visible as capReason plus a warning.
-        capped: parsed.stats.capped.map(|capped| {
-            capped
-                && parsed
-                    .stats
-                    .cap_reason
-                    .as_deref()
-                    .is_none_or(|reason| reason.split(", ").any(|r| r != "binaryQuit"))
-        }),
+        // A binary cut (capReason `binaryQuit`) stays `capped`: coverage ended
+        // early, and the result is marked partial/terminal below.
+        capped: parsed.stats.capped,
         cap_reason: parsed.stats.cap_reason,
         error_count: parsed.stats.error_count.filter(|n| *n > 0),
         first_error: parsed.stats.first_error,
@@ -568,6 +585,11 @@ pub fn execute_local_search(
         warnings.push(
             "Some match values were truncated to matchContentLength; originalChars and returnedChars describe each shortened value. Counts and row pagination are unchanged. Use localFetch at the returned path/line anchors for full source.".into(),
         );
+    }
+    if shown_redacted > 0 && !list {
+        warnings.push(format!(
+            "redactedMatches: {shown_redacted} returned match value(s) had secret-shaped text replaced by [REDACTED…] placeholders; those values are not verbatim source."
+        ));
     }
     if unverified_redactions {
         warnings.push(
@@ -588,7 +610,7 @@ pub fn execute_local_search(
     let binary_cut = cap_has("binaryQuit");
     if binary_cut {
         warnings.push(
-            "binaryFileSkipped: at least one file holds a NUL byte and was searched only up to it; matches after that byte are not reported. Use localFetch to inspect such files.".into(),
+            "binaryFileSkipped: at least one file holds a NUL byte and was searched only up to it; matches after that byte are not reported, and no text tool reads past it. Treat those files as covered only up to their first NUL.".into(),
         );
     }
     let error_count = stats.error_count.unwrap_or(0);
@@ -597,8 +619,9 @@ pub fn execute_local_search(
         // unreadable-path explanation as a warning.
         warnings.push(unreadable_hint(error_count));
     }
-    // Unreadable paths or a binary cut leave "no matches" unproven.
-    let coverage_gap = error_count > 0 || (empty && binary_cut);
+    // Unreadable paths or a binary cut leave coverage incomplete: absence is
+    // unproven, and prefix matches before a NUL are not the file's full set.
+    let coverage_gap = error_count > 0 || binary_cut;
     let has_more = page < total_pages;
     let capped = stats.capped.unwrap_or(false);
     let (status, terminal_limit) = classify_search(
@@ -680,7 +703,7 @@ fn skipped_target_hint(
     let reason = cap_reason?;
     if single_file && reason.contains("binaryQuit") {
         return Some(
-            "The target file is binary (NUL byte found); it was not searched past that point. Use localFetch to inspect it."
+            "The target file is binary (NUL byte found); it was not searched past that point, and no text tool reads past it."
                 .into(),
         );
     }

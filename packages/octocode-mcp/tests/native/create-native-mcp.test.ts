@@ -80,6 +80,14 @@ class FakeRuntime implements NativeRuntime {
     input: unknown
   ): Promise<unknown> {
     this.executions.push({ requestId, tool, input });
+    if (tool === 'clasify') {
+      // Native clasify receipts carry no rendered text block.
+      return {
+        content: [],
+        structuredContent: { queries: [{ id: 'q1', status: 'ok' }] },
+        isError: false,
+      };
+    }
     return {
       content: [{ type: 'text', text: 'ok' }],
       structuredContent: { results: [{ index: 0, data: { ok: true } }] },
@@ -237,6 +245,10 @@ describe('createNativeMcp registration + execution', () => {
       tool: TOOL_NAMES.CLASIFY,
       input: { queries: [matrix] },
     });
+    // Text-only clients must not receive an empty content array.
+    expect(response.content).toEqual([
+      { type: 'text', text: JSON.stringify(response.structuredContent) },
+    ]);
 
     await client.close();
     await instance.close();

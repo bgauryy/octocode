@@ -224,7 +224,7 @@ export async function runProbe(config) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
-    if (process.argv.length !== 3) throw Error('Usage: node scripts/acp-probe.mjs CONFIG.json (see docs/ACP_EVALUATION.md)');
+    if (process.argv.length !== 3) throw Error('Usage: node scripts/acp-probe.mjs CONFIG.json');
     const contents = await readFile(process.argv[2]);
     if (contents.length > 1024 * 1024) throw Error('Probe configuration too large');
     const report = await runProbe(JSON.parse(contents));

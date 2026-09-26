@@ -425,7 +425,7 @@ mod limit_tests {
 
     #[test]
     fn contract_defaults_match_persistent_defaults_and_env_overrides_apply() {
-        let defaults = crate::config::resolve_sections(None, &BTreeMap::new()).expect("defaults");
+        let defaults = crate::config::resolve_sections(&[], &BTreeMap::new()).expect("defaults");
         let base = CloneConfig::persistent("/h");
         let resolved = CloneConfig::persistent("/h").with_limits(&defaults.clone_cache);
         assert_eq!(resolved.cache_ttl, base.cache_ttl);
@@ -438,7 +438,7 @@ mod limit_tests {
             // Below the contract minimum: clamped, not silently ignored.
             ("OCTOCODE_MAX_CACHE_SIZE".to_owned(), "5".to_owned()),
         ]);
-        let overridden = crate::config::resolve_sections(None, &env).expect("env");
+        let overridden = crate::config::resolve_sections(&[], &env).expect("env");
         let config = CloneConfig::persistent("/h").with_limits(&overridden.clone_cache);
         assert_eq!(config.cache_ttl, Duration::from_secs(120));
         assert_eq!(config.max_clone_count, 7);

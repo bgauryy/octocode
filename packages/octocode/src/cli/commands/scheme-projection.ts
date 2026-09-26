@@ -237,7 +237,8 @@ export function projectSelected(
   if (view !== 'query' || typeof tool.name !== 'string') {
     throw new Error('--select requires --view query and a tool name');
   }
-  const [field, value] = parseSelection(selection);
+  const [field, selectedValue] = parseSelection(selection);
+  let value = selectedValue;
   const projected = project(tool, view);
   const schema = projected.querySchema;
   if (!schema || typeof schema !== 'object' || Array.isArray(schema)) {
@@ -320,32 +321,48 @@ export function projectSelected(
     !Array.isArray((variant as JsonObject).example)
       ? ((variant as JsonObject).example as JsonObject)
       : undefined;
-  const candidates: Array<['oneOf' | 'anyOf', number]> = [];
-  for (const union of ['oneOf', 'anyOf'] as const) {
-    const branches = (schema as JsonObject)[union];
-    if (!Array.isArray(branches)) continue;
-    branches.forEach((branch, index) => {
-      if (variantExample) {
-        const selectors = Object.entries(variantExample).filter(
-          ([propertyName]) => propertyConst(branch, propertyName) !== undefined
-        );
-        if (
-          selectors.length > 0 &&
-          selectors.every(([propertyName, expected]) =>
-            deepEqual(propertyConst(branch, propertyName), expected)
-          )
-        ) {
-          candidates.push([union, index]);
-        }
-      } else if (deepEqual(constOf(branch), value)) {
-        candidates.push([union, index]);
-      }
-    });
+  // Catalog labels like `match(pattern)` name a const plus a required field.
+  const labelled =
+    variantExample === undefined && typeof value === 'string'
+      ? /^([^()]+)\(([^()]+)\)$/.exec(value)
+      : null;
+  const requires = (branch: JsonValue, name: string): boolean => {
+    const required = (branch as JsonObject | null)?.required;
+    return Array.isArray(required) && required.includes(name);
+  };
+  const matchesVariant = (branch: JsonValue): boolean => {
+    const selectors = Object.entries(variantExample ?? {}).filter(
+      ([name]) => propertyConst(branch, name) !== undefined
+    );
+    const same = ([name, expected]: [string, JsonValue]) =>
+      deepEqual(propertyConst(branch, name), expected);
+    return selectors.length > 0 && selectors.every(same);
+  };
+  const collect = (target: JsonValue, requiredField?: string) => {
+    const found: Array<['oneOf' | 'anyOf', number]> = [];
+    for (const union of ['oneOf', 'anyOf'] as const) {
+      const branches = (schema as JsonObject)[union];
+      if (!Array.isArray(branches)) continue;
+      branches.forEach((branch, index) => {
+        const hit = variantExample
+          ? matchesVariant(branch)
+          : deepEqual(constOf(branch), target) &&
+            (requiredField === undefined || requires(branch, requiredField));
+        if (hit) found.push([union, index]);
+      });
+    }
+    return found;
+  };
+  let candidates = collect(value);
+  if (candidates.length === 0 && labelled) {
+    value = labelled[1]!.trim();
+    candidates = collect(value, labelled[2]!.trim());
   }
-  const allowMultiple = variantExample !== undefined;
-  if (candidates.length === 0 || (!allowMultiple && candidates.length !== 1)) {
+  // Every branch sharing the selected const is a valid slice (operation=match
+  // keeps both the pattern and rule shapes); only an empty match is an error.
+  if (candidates.length === 0) {
     throw new Error(
-      `--select "${selection}" matched ${candidates.length} top-level oneOf/anyOf branches; choose a variant name or const field/value identifying one branch in --view query.`
+      `--select "${selection}" matched 0 top-level oneOf/anyOf branches; choose a variant name or const field/value identifying one branch in --view query.`
     );
   }
   const union = candidates[0]![0];
@@ -355,25 +372,19 @@ export function projectSelected(
   const branches = (schema as JsonObject)[union] as JsonValue[];
   const indexes = new Set(candidates.map(([, index]) => index));
   const selectedBranches = branches.filter((_, index) => indexes.has(index));
-  const selected = selectedBranches[0];
   // Removing other oneOf branches must not admit instances that previously
   // matched multiple branches. Const discriminators usually prove disjointness;
   // retain exclusion constraints for siblings whose overlap cannot be ruled out.
-  const requiresField = (branch: JsonValue): boolean => {
-    if (!branch || typeof branch !== 'object' || Array.isArray(branch))
-      return false;
-    const required = (branch as JsonObject).required;
-    return Array.isArray(required) && required.some(name => name === field);
-  };
   const overlaps: JsonValue[] = [];
-  if (union === 'oneOf' && !allowMultiple) {
+  if (union === 'oneOf' && variantExample === undefined) {
     branches.forEach((branch, i) => {
       if (indexes.has(i)) return;
       const other = constOf(branch);
       const provablyDisjoint =
         other !== undefined &&
         constsDisjoint(other, value) &&
-        (requiresField(selected) || requiresField(branch));
+        (selectedBranches.every(selected => requires(selected, field)) ||
+          requires(branch, field));
       if (!provablyDisjoint) overlaps.push(branch);
     });
   }

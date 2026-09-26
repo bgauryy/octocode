@@ -165,10 +165,18 @@ function parseValue(
   }
 }
 
+/**
+ * Resolve every contract field. `fileConfig` is one `.octocoderc` object or
+ * the layers in priority order (workspace before global): per field the
+ * environment wins, then the first layer holding a valid value, then defaults.
+ */
 export function resolveConfigFields(
-  fileConfig: OctocodeConfig = {},
+  fileConfig: OctocodeConfig | readonly OctocodeConfig[] = {},
   env: Record<string, string | undefined> = process.env
 ): ResolvedConfigData {
+  const layers: readonly OctocodeConfig[] = Array.isArray(fileConfig)
+    ? fileConfig
+    : [fileConfig as OctocodeConfig];
   const resolved = structuredClone(DEFAULT_CONFIG_VALUE) as unknown as Record<
     string,
     unknown
@@ -195,16 +203,21 @@ export function resolveConfigFields(
     }
 
     if (!selected && field.file) {
-      const raw = getPath(fileConfig, field.path);
-      if (raw !== undefined && raw !== null) {
+      for (const layer of layers) {
+        const raw = getPath(layer, field.path);
+        if (raw === undefined) continue;
+        if (raw === null) {
+          if (field.type !== 'stringArray') continue;
+          setPath(resolved, field.path, null);
+          selected = true;
+          break;
+        }
         const parsed = parseValue(field, raw, false);
         if (parsed.valid) {
           setPath(resolved, field.path, parsed.value);
           selected = true;
+          break;
         }
-      } else if (raw === null && field.type === 'stringArray') {
-        setPath(resolved, field.path, null);
-        selected = true;
       }
     }
 

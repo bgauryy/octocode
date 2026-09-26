@@ -69,13 +69,13 @@ Delegated reads share a limit of four concurrent reads per call and sixteen per 
 
 ## Availability
 
-- Credential: `OCTOCODE_CLASSIFICATION_API`
+- Credential: `OCTOCODE_CLASSIFICATION_API`, else the vendor key `OCTOCODE_JEV_KEY`, else `.octocoderc` `classification.api`
 - Optional HTTPS host override: `OCTOCODE_CLASSIFICATION_API_HOST`
 - Provider/model family: Jev; resolved model and usage remain internal telemetry
 - MCP registers `clasify` only when the credential is nonblank at process start.
 - CLI remains callable without a credential and returns an actionable configuration error.
 
-Credential resolution is process environment → workspace `.octocode/.env` → global Octocode `.env` (`~/.octocode/.env`, or `$OCTOCODE_HOME/.env`) → private `.octocoderc` `classification.api`. CLI and MCP load both files; no project-trust flag is needed for dotenv. Missing or blank file values fall back to the next source. An explicitly empty or whitespace process `OCTOCODE_CLASSIFICATION_API` disables Clasify even when file/vendor-key fallbacks exist. Restart MCP after changing configuration so clients refresh their catalog. Never put credentials in requests, logs, benchmark artifacts, or committed configuration.
+Credential resolution is process environment → workspace `.octocode/.env` → global Octocode `.env` (`~/.octocode/.env`, or `$OCTOCODE_HOME/.env`) → private `.octocoderc` `classification.api` (workspace `.octocode/.octocoderc`, then global). CLI and MCP load both files; no project-trust flag is needed for dotenv. Missing or blank file values fall back to the next source. An explicitly empty or whitespace process `OCTOCODE_CLASSIFICATION_API` disables Clasify even when file/vendor-key fallbacks exist. Restart MCP after changing configuration so clients refresh their catalog. Never put credentials in requests, logs, benchmark artifacts, or committed configuration.
 
 ```bash
 npx octocode config --json

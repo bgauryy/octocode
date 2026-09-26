@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
-const script = fileURLToPath(new URL('../scripts/compare-service.mjs', import.meta.url));
+const script = fileURLToPath(new URL('../../scripts/compare-service.mjs', import.meta.url));
 // These are grader fixtures, never benchmark observations.
 function fixture(t) {
   const dir = mkdtempSync(join(tmpdir(), 'communication-comparison-test-'));

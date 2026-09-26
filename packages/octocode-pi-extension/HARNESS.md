@@ -278,8 +278,7 @@ Read from env at runtime (not set by harness):
 | `CODEX_HOME` | Codex sources for disabled foreign discovery (default: `~/.codex`) |
 | `ALLOWED_PATHS` | Colon/comma-separated extra roots for path-guard (`file`/`bash`) |
 | `OCTOCODE_AGENT_MAX_ACTIVE` | Cap on concurrent spawned workers |
-| `ENABLE_CLONE` | Legacy, ignored: `ghCloneRepo` is CLI-only and never registered over MCP |
-| `ENABLE_LOCAL` | Set `false` to disable all `local*` tools |
+| `ENABLE_LOCAL` | Set `false` (or `local.enabled: false` in `.octocoderc`) to disable all `local*` tools; the extension never overrides it |
 
 ---
 

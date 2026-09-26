@@ -1,8 +1,10 @@
 //! Deterministic native Octocode configuration.
 mod acquire;
 mod dotenv;
+#[cfg(test)]
+mod layering_tests;
 mod loader;
-mod resolver;
+pub(crate) mod resolver;
 mod types;
 mod validation;
 pub use acquire::{acquire_config_input, octocode_home};
@@ -66,6 +68,9 @@ mod tests {
                 None => FileInput::Missing {
                     path: home.join(".octocoderc"),
                 },
+            },
+            project_config_file: FileInput::Missing {
+                path: "/synthetic/cwd/.octocode/.octocoderc".into(),
             },
             runtime_surface: RuntimeSurface::Mcp,
             revision: 1,
@@ -180,15 +185,20 @@ mod tests {
         );
     }
     #[test]
-    fn invalid_file_is_all_or_nothing_and_diagnostic() {
+    fn invalid_field_is_dropped_alone_with_a_warning() {
         let out = resolve_config(&input(
             BTreeMap::new(),
             Some("{\"local\":{\"enabled\":\"no\"},\"network\":{\"timeout\":5000}}"),
         ));
-        assert_eq!(out.source, ConfigSource::Invalid);
-        assert!(out.resolved.local.enabled);
-        assert_eq!(out.resolved.network.timeout, 30000.);
-        assert_eq!(out.diagnostics.len(), 1)
+        assert_eq!(out.source, ConfigSource::File);
+        assert!(out.resolved.local.enabled, "bad field → default");
+        assert_eq!(out.resolved.network.timeout, 5000., "valid sibling kept");
+        assert_eq!(out.diagnostics.len(), 1);
+        assert_eq!(out.diagnostics[0].severity, Severity::Warning);
+        assert_eq!(
+            out.diagnostics[0].field_path.as_deref(),
+            Some("local.enabled")
+        );
     }
     #[test]
     fn dotenv_protection_and_trust() {
@@ -228,9 +238,7 @@ mod tests {
         assert_eq!(token.token(), "synthetic");
         assert!(!format!("{token:?}").contains("synthetic"));
         let cfg = resolve_sections(
-            Some(
-                &json!({"storage":{"mode":"memory"},"extension":{"storage":{"mode":"persistent"}}}),
-            ),
+            &[&json!({"storage":{"mode":"memory"},"extension":{"storage":{"mode":"persistent"}}})],
             &BTreeMap::from([("OCTOCODE_ENABLE_STATS".into(), "true".into())]),
         );
         assert!(cfg.is_ok());
@@ -384,14 +392,14 @@ mod tests {
     #[test]
     fn octocode_prefixed_enable_aliases_resolve_and_canonical_wins() {
         let aliased = resolve_sections(
-            None,
+            &[],
             &BTreeMap::from([("OCTOCODE_ENABLE_LOCAL".into(), "false".into())]),
         );
         assert!(aliased.is_ok());
         let aliased = aliased.unwrap_or_default();
         assert!(!aliased.local.enabled);
         let both = resolve_sections(
-            None,
+            &[],
             &BTreeMap::from([
                 ("ENABLE_LOCAL".into(), "true".into()),
                 ("OCTOCODE_ENABLE_LOCAL".into(), "false".into()),
@@ -451,6 +459,13 @@ mod tests {
                 (true, None, "project-secret"),
                 (true, Some("process-secret"), "process-secret"),
             ] {
+                // Home-trusted keys (e.g. an endpoint) never come from a workspace.
+                let expected =
+                    if expected == "project-secret" && HOME_TRUSTED_ENV_KEYS.contains(&key) {
+                        "home-secret"
+                    } else {
+                        expected
+                    };
                 let env = explicit
                     .map(|value| BTreeMap::from([(key.into(), value.into())]))
                     .unwrap_or_default();
@@ -512,6 +527,8 @@ mod tests {
                         out.env_value(key),
                         Some(if explicit {
                             "process-value"
+                        } else if HOME_TRUSTED_ENV_KEYS.contains(&key) {
+                            "home-value"
                         } else {
                             "workspace-value"
                         }),

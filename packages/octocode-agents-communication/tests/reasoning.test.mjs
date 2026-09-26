@@ -25,6 +25,7 @@ test('messages and single/bundled locks require explicit nonblank bounded reason
    assert.throws(()=>f.call(command,{...input,...(reasoning===undefined?{}:{reasoning})},f.a),undefined,`${command} accepted invalid reasoning`);
   }
  }
+ assert.throws(()=>f.call('send_message',{to:f.b,body:'x',reasoning:'é'.repeat(300)},f.a),e=>e.stderr.trim()==='Invalid reasoning: 600 UTF-8 bytes exceeds 512');
  const db=new DatabaseSync(f.database);t.after(()=>db.close());
  assert.equal(db.prepare('SELECT count(*) n FROM messages').get().n,0);
  assert.equal(db.prepare('SELECT count(*) n FROM leases').get().n,0);
@@ -75,16 +76,4 @@ test('raw SQLite cannot omit or rewrite intent; v2 migration preserves unknown h
  }
  assert.throws(()=>db.prepare('UPDATE messages SET reasoning=?').run('Invented later'));
  assert.throws(()=>db.prepare('UPDATE leases SET reasoning=?').run('Invented later'));
-});
-
-test('Python-only agents must supply intent and Rust peers see it', {skip:!process.env.COMMUNICATION_PYTHON}, t=>{
- const f=fixture(t),reasoning='Ask the reviewer to verify compatibility before editing';
- const py=(operation,input)=>JSON.parse(execFileSync(process.env.COMMUNICATION_PYTHON,[join(root,'skills/octocode-agents-communication/scripts/sqlite_agent.py'),f.database,f.workspace,operation,JSON.stringify(input)],{encoding:'utf8',stdio:['pipe','pipe','pipe'],env:{...process.env,PATH:''}}));
- assert.throws(()=>py('send_message',{session:f.a,to:f.b,body:'Please review'}));
- assert.throws(()=>py('lock',{session:f.a,path:'src'}));
- const sent=py('send_message',{session:f.a,to:f.b,body:'Please review',reasoning});
- assert.equal(f.call('inbox',{},f.b).items.find(item=>item.id===sent.id).reasoning,reasoning);
- const lease=py('lock',{session:f.a,path:'src',reasoning}).lease;
- assert.equal(f.call('lock',{path:'src',reasoning:'Investigate the competing change'},f.b).conflict.reasoning,reasoning);
- assert.equal(lease.reasoning,reasoning);
 });

@@ -26,6 +26,11 @@ uuid = { version = "1", features = ["v4"] }
 tempfile = "3"
 tungstenite = "0.30"
 ureq = { version = "3", default-features = false, features = ["json"] }
+# Exact pins: lease path components are compared with Unicode 16 canonical
+# caseless matching, NFD(casefold(NFD(x))), and the shipped Python client
+# (sqlite_agent.py, Python 3.14 / unidata 16.0.0) must fold identically. A data
+# table bump could let two agents lease one path under different keys. See
+# docs/LOCKS.md and docs/DB.md; upgrade only with the Python Unicode check.
 caseless = "=0.2.2"
 unicode-normalization = "=0.1.24"
 

@@ -30,10 +30,12 @@ test('MCP explicit tool selection reduces discovery and refuses hidden tools', t
   const rows = run.stdout.trim().split('\n').map(JSON.parse);
   assert.deepEqual(rows[0].result.tools.map(t => t.name), ['peers', 'send_message', 'ack'], 'catalog order is stable independent of selection order');
   assert.equal(rows[1].result.isError, undefined);
+  assert.doesNotMatch(rows[1].result.content[0].text, /null/, 'tool results omit null fields');
   assert.equal(rows[2].result.isError, true);
   const full = JSON.parse(f.run(['schema']).stdout).tools;
   assert.deepEqual(JSON.parse(f.run(['schema', 'tools', '--tools', 'ack,send_message,peers']).stdout), rows[0].result.tools);
   assert.ok(Buffer.byteLength(JSON.stringify(rows[0].result.tools)) < Buffer.byteLength(JSON.stringify(full)) / 2);
+  assert.ok(Buffer.byteLength(JSON.stringify(full)) <= 12000, 'default tools/list stays within its token budget');
   const leases = JSON.parse(f.run(['entity', 'list', 'lease', '--session', session]).stdout);
   assert.equal(leases.items.length, 0);
 });

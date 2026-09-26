@@ -1,10 +1,11 @@
 use crate::{
     catalog::text,
-    database::{execute, query, transaction},
+    database::{execute, query, read_transaction, transaction},
     paths::{overlap, resolve_path},
     store::{Store, now},
 };
 use anyhow::{Result, anyhow, bail};
+use rusqlite::Connection;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
@@ -116,10 +117,34 @@ fn digest(content: &str) -> String {
         .collect()
 }
 
+/// Documents scanned per context call; a page ends early once `limit` notes match.
+const CONTEXT_SCAN: i64 = 200;
+
 impl Store {
-    fn document_record(&self, name: &str) -> Result<Option<Value>> {
-        query(&self.db, "SELECT a.data FROM audit a JOIN sessions s ON s.id=a.session WHERE s.workspace=? AND a.kind='document.created' AND a.key=? ORDER BY a.id LIMIT 1", &[json!(self.workspace), json!(name)])?
+    /// Indexed lookup through the workspace document registry (one row per name).
+    fn document_record(&self, db: &Connection, name: &str) -> Result<Option<Value>> {
+        query(db, "SELECT a.data FROM documents d JOIN audit a ON a.id=d.id WHERE d.workspace=? AND d.name=?", &[json!(self.workspace), json!(name)])?
             .first().map(|row| serde_json::from_str(row["data"].as_str().ok_or_else(|| anyhow!("Invalid document audit"))?).map_err(Into::into)).transpose()
+    }
+    fn same_document(
+        record: &Value,
+        path: &Path,
+        content: &str,
+        metadata: &Value,
+        reasoning: &str,
+    ) -> Result<Value> {
+        let mut stored = record["context"].clone();
+        if let Some(object) = stored.as_object_mut() {
+            object.remove("expiresAt");
+        }
+        if record["sha256"] != digest(content)
+            || read(path)? != content
+            || stored != *metadata
+            || record["reasoning"] != reasoning
+        {
+            bail!("Document is immutable or has changed on disk; publish a new name");
+        }
+        Ok(json!({"created":false,"document":record}))
     }
     pub(crate) fn share_document(&self, session: &str, input: &Value) -> Result<Value> {
         let name = name(input)?;
@@ -131,30 +156,30 @@ impl Store {
             bail!("Document exceeds 1 MiB");
         }
         let metadata = context_metadata(&self.workspace, input)?;
+        let directory = directory(&self.workspace, true)?;
+        let path = directory.join(name);
+        // Identical retries finish under a read snapshot, without the writer lock.
+        if let Some(record) = read_transaction(&self.db, |db| {
+            self.known(session, true)?;
+            self.document_record(db, name)
+        })? {
+            return Self::same_document(&record, &path, content, &metadata, reasoning);
+        }
+        if fs::symlink_metadata(&path).is_ok() {
+            bail!("Unregistered document already exists; preserve it and publish a new name");
+        }
+        // Write and fsync before taking the writer lock; publication is a rename.
+        let mut temporary = tempfile::NamedTempFile::new_in(&directory)?;
+        temporary.write_all(content.as_bytes())?;
+        temporary.as_file().sync_all()?;
         transaction(&self.db, |db| {
             self.known(session, true)?;
-            let directory = directory(&self.workspace, true)?;
-            let path = directory.join(name);
-            if let Some(record) = self.document_record(name)? {
-                let mut stored = record["context"].clone();
-                if let Some(object) = stored.as_object_mut() {
-                    object.remove("expiresAt");
-                }
-                if record["sha256"] != digest(content)
-                    || read(&path)? != content
-                    || stored != metadata
-                    || record["reasoning"] != reasoning
-                {
-                    bail!("Document is immutable or has changed on disk; publish a new name");
-                }
-                return Ok(json!({"created":false,"document":record}));
+            if let Some(record) = self.document_record(db, name)? {
+                return Self::same_document(&record, &path, content, &metadata, reasoning);
             }
             if fs::symlink_metadata(&path).is_ok() {
                 bail!("Unregistered document already exists; preserve it and publish a new name");
             }
-            let mut temporary = tempfile::NamedTempFile::new_in(&directory)?;
-            temporary.write_all(content.as_bytes())?;
-            temporary.as_file().sync_all()?;
             // No partially written document is visible and existing names are never overwritten.
             temporary.persist_noclobber(&path)?;
             let mut record = json!({"name":name,"path":format!(".octocode/communication/{name}"),"author":session,"reasoning":reasoning,"bytes":content.len(),"sha256":digest(content)});
@@ -178,79 +203,84 @@ impl Store {
             Ok(json!({"created":true,"document":record}))
         })
     }
-    /// Pull scoped summaries, never bodies or host history. Scan a bounded audit
-    /// window so sparse matches also return a resumable continuation.
+    /// Pull scoped summaries, never bodies or host history. Walks this workspace's
+    /// document registry in ID order, a bounded number of rows per call.
     pub(crate) fn context(&self, session: &str, input: &Value) -> Result<Value> {
-        self.known(session, true)?;
         let path = scope_path(&self.workspace, input["path"].as_str().unwrap_or("."))?;
         let after = input["after"].as_i64().unwrap_or(0);
-        let through = match input["through"].as_i64() {
-            Some(value) => value,
-            None => query(&self.db, "SELECT coalesce(max(id),0) AS id FROM audit", &[])?[0]["id"]
-                .as_i64()
-                .unwrap_or(0),
-        };
-        if through < after {
-            bail!("Context through must be at least after");
-        }
         let limit = input["limit"].as_u64().unwrap_or(10) as usize;
-        let rows = query(
-            &self.db,
-            "SELECT a.id,CASE WHEN a.kind='document.created' AND s.workspace=? THEN a.data END AS data FROM (SELECT id,session,kind,data FROM audit WHERE id>? AND id<=? ORDER BY id LIMIT 200) a LEFT JOIN sessions s ON s.id=a.session ORDER BY a.id",
-            &[json!(self.workspace), json!(after), json!(through)],
-        )?;
-        let mut items = Vec::new();
-        let mut cursor = after;
-        let mut scanned = 0;
-        let at = now();
-        for row in &rows {
-            cursor = row["id"]
-                .as_i64()
-                .ok_or_else(|| anyhow!("Invalid audit ID"))?;
-            scanned += 1;
-            let Some(data) = row["data"].as_str() else {
-                continue;
+        read_transaction(&self.db, |db| {
+            self.known(session, true)?;
+            let through = match input["through"].as_i64() {
+                Some(value) => value,
+                None => db.query_row(
+                    "SELECT coalesce(max(id),0) FROM documents WHERE workspace=?",
+                    [&self.workspace],
+                    |r| r.get(0),
+                )?,
             };
-            let record: Value = serde_json::from_str(data)?;
-            let context = &record["context"];
-            let Some(scope) = context["path"].as_str() else {
-                continue;
-            };
-            if context["expiresAt"].as_i64().unwrap_or(0) <= at
-                || (!context["branch"].is_null() && context["branch"] != input["branch"])
-                || !(scope == "." && context["kind"] == "tree"
-                    || overlap(
+            if through < after {
+                bail!("Context through must be at least after");
+            }
+            let rows = query(
+                db,
+                "SELECT d.id,a.data FROM documents d JOIN audit a ON a.id=d.id WHERE d.workspace=? AND d.id>? AND d.id<=? ORDER BY d.id LIMIT ?",
+                &[
+                    json!(self.workspace),
+                    json!(after),
+                    json!(through),
+                    json!(CONTEXT_SCAN),
+                ],
+            )?;
+            let mut items = Vec::new();
+            let mut cursor = after;
+            let mut scanned = 0;
+            let at = now();
+            for row in &rows {
+                cursor = row["id"]
+                    .as_i64()
+                    .ok_or_else(|| anyhow!("Invalid document ID"))?;
+                scanned += 1;
+                let record: Value = serde_json::from_str(row["data"].as_str().unwrap_or("{}"))?;
+                let context = &record["context"];
+                let Some(scope) = context["path"].as_str() else {
+                    continue;
+                };
+                if context["expiresAt"].as_i64().unwrap_or(0) <= at
+                    || (!context["branch"].is_null() && context["branch"] != input["branch"])
+                    || !overlap(
                         scope,
                         context["kind"].as_str().unwrap_or("tree"),
                         &path,
                         "file",
-                    ))
-            {
-                continue;
+                    )
+                {
+                    continue;
+                }
+                items.push(json!({"id":cursor,"name":record["name"],"author":record["author"],"context":context}));
+                if items.len() == limit {
+                    break;
+                }
             }
-            items.push(json!({"id":cursor,"name":record["name"],"author":record["author"],"context":context}));
-            if items.len() == limit {
-                break;
+            // Exhausting the registry window is terminal, not a poll loop.
+            if scanned == rows.len() && (rows.len() as i64) < CONTEXT_SCAN {
+                cursor = through;
             }
-        }
-        // Gaps (or a cursor beyond current history) are terminal, not a poll loop.
-        if scanned == rows.len() && rows.len() < 200 {
-            cursor = through;
-        }
-        let next = if cursor < through {
-            let mut next = input.clone();
-            next["after"] = json!(cursor);
-            next["through"] = json!(through);
-            Some(next)
-        } else {
-            None
-        };
-        Ok(json!({"items":items,"cursor":cursor,"scanned":scanned,"next":next}))
+            let next = if cursor < through {
+                let mut next = input.clone();
+                next["after"] = json!(cursor);
+                next["through"] = json!(through);
+                next
+            } else {
+                Value::Null
+            };
+            Ok(json!({"items":items,"cursor":cursor,"scanned":scanned,"next":next}))
+        })
     }
     pub(crate) fn read_document(&self, session: &str, input: &Value) -> Result<Value> {
         self.known(session, true)?;
         let name = name(input)?;
-        let record = match self.document_record(name)? {
+        let record = match self.document_record(&self.db, name)? {
             Some(record) => record,
             None => {
                 // Do not silently choose a different immutable document. Offer a
@@ -258,8 +288,12 @@ impl Store {
                 let prefix = format!("{name}.");
                 let candidates = query(
                     &self.db,
-                    "SELECT DISTINCT a.key AS name FROM audit a JOIN sessions s ON s.id=a.session WHERE s.workspace=? AND a.kind='document.created' AND substr(a.key,1,length(?))=? ORDER BY a.key LIMIT 5",
-                    &[json!(self.workspace), json!(prefix), json!(prefix)],
+                    "SELECT name FROM documents WHERE workspace=? AND name>=? AND name<? ORDER BY name LIMIT 5",
+                    &[
+                        json!(self.workspace),
+                        json!(prefix),
+                        json!(format!("{name}/")),
+                    ],
                 )?;
                 bail!(
                     "Unknown document '{name}' in this workspace. Use the exact published document.name, including its extension. Matching names (up to 5): {}. Read the document successfully before using its contents.",

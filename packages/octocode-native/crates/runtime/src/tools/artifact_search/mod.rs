@@ -48,6 +48,31 @@ pub async fn execute(
     // (both reads and writes).  Mirrors `storage.mode == "persistent"`.
     cache_enabled: bool,
 ) -> Result<Value, ArtifactError> {
+    run(
+        query,
+        deadline,
+        cancellation,
+        allow_private_registry,
+        octocode_home,
+        cache_revision,
+        cache_enabled,
+        crate::providers::artifact::user_npmrc_path(),
+    )
+    .await
+}
+
+/// [`execute`] with the user npmrc location made explicit (tests inject it).
+#[allow(clippy::too_many_arguments)]
+async fn run(
+    query: &Value,
+    deadline: Instant,
+    cancellation: CancellationToken,
+    allow_private_registry: bool,
+    octocode_home: Option<&std::path::Path>,
+    cache_revision: u64,
+    cache_enabled: bool,
+    user_npmrc: Option<std::path::PathBuf>,
+) -> Result<Value, ArtifactError> {
     let mut query: ArtifactSearchQuery = serde_json::from_value(query.clone())
         .map_err(|error| ArtifactError::new("invalid_query", error.to_string()))?;
     let signing_key = crate::runtime::cursor::user_signing_key(octocode_home);
@@ -69,21 +94,37 @@ pub async fn execute(
         cancellation,
         max_body_bytes: 16 * 1024 * 1024,
     };
-    let requested_registry = match query.registry.as_deref() {
-        Some(raw) => {
-            let base = url::Url::parse(raw).map_err(|_| {
-                ArtifactError::new(
-                    "invalid_query",
-                    "Invalid npm registry URL: use HTTP(S) without credentials, query or fragment.",
-                )
-            })?;
-            Some(ResolvedNpmRegistry {
-                base: base.clone(),
-                authorization: None,
-                cache_identity: base.host_str().unwrap_or("npm").to_owned(),
-            })
-        }
-        None => None,
+    // The registry comes only from the query (default npmjs); credentials
+    // come only from the user npmrc and only when scoped to that origin.
+    let requested_registry = if query.type_ == ArtifactSearchQueryType::Npm {
+        let (base, cache_identity) = match query.registry.as_deref() {
+            Some(raw) => {
+                let base = url::Url::parse(raw).map_err(|_| {
+                    ArtifactError::new(
+                        "invalid_query",
+                        "Invalid npm registry URL: use HTTP(S) without credentials, query or fragment.",
+                    )
+                })?;
+                let identity = base.host_str().unwrap_or("npm").to_owned();
+                (base, identity)
+            }
+            None => (
+                url::Url::parse("https://registry.npmjs.org/").map_err(|_| {
+                    ArtifactError::new("invalid_query", "Invalid default npm registry URL.")
+                })?,
+                "npmjs".to_owned(),
+            ),
+        };
+        let authorization = user_npmrc
+            .as_ref()
+            .and_then(|path| crate::providers::artifact::npm_authorization(&base, path));
+        Some(ResolvedNpmRegistry {
+            base,
+            authorization,
+            cache_identity,
+        })
+    } else {
+        None
     };
     let page = execute_artifact(
         &query,
@@ -325,5 +366,90 @@ mod cursor_signing_tests {
             .await
             .expect_err("dead budget");
         assert_ne!(issued.code, "invalid_query");
+    }
+}
+
+#[cfg(test)]
+mod npm_auth_tests {
+    use super::*;
+
+    /// Loopback npm registry recording each request's Authorization header.
+    async fn registry() -> (u16, wiremock::MockServer) {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("GET"))
+            .respond_with(
+                wiremock::ResponseTemplate::new(200)
+                    .set_body_json(json!({"name": "audit-package", "version": "1.0.0"})),
+            )
+            .mount(&server)
+            .await;
+        (server.address().port(), server)
+    }
+
+    async fn authorizations(server: &wiremock::MockServer) -> Vec<Option<String>> {
+        server
+            .received_requests()
+            .await
+            .unwrap_or_default()
+            .iter()
+            .map(|request| {
+                request
+                    .headers
+                    .get("authorization")
+                    .and_then(|value| value.to_str().ok())
+                    .map(str::to_owned)
+            })
+            .collect()
+    }
+
+    async fn lookup(port: u16, npmrc: &std::path::Path) {
+        let query = json!({
+            "type": "npm",
+            "packageName": "audit-package",
+            "registry": format!("http://127.0.0.1:{port}"),
+            "reasoning": "test",
+        });
+        // Generous: building the system HTTP client (native root certs) can
+        // be slow in sandboxed test environments.
+        let deadline = Instant::now() + std::time::Duration::from_secs(300);
+        run(
+            &query,
+            deadline,
+            CancellationToken::new(),
+            true,
+            None,
+            0,
+            false,
+            Some(npmrc.to_path_buf()),
+        )
+        .await
+        .expect("lookup succeeds");
+    }
+
+    #[tokio::test]
+    async fn user_npmrc_token_reaches_only_its_scoped_registry() {
+        let (port, seen) = registry().await;
+        let dir = tempfile::tempdir().unwrap();
+        let scoped = dir.path().join("scoped.npmrc");
+        std::fs::write(
+            &scoped,
+            format!("//127.0.0.1:{port}/:_authToken=synthetic\n"),
+        )
+        .unwrap();
+        lookup(port, &scoped).await;
+        let other = dir.path().join("other.npmrc");
+        std::fs::write(
+            &other,
+            format!(
+                "//127.0.0.1:{}/:_authToken=elsewhere\n",
+                port.wrapping_add(1)
+            ),
+        )
+        .unwrap();
+        lookup(port, &other).await;
+        assert_eq!(
+            authorizations(&seen).await,
+            vec![Some("Bearer synthetic".to_owned()), None]
+        );
     }
 }

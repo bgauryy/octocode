@@ -69,18 +69,18 @@ Environment values take precedence over `.octocoderc`. Aliases are listed in pri
 | `.octocoderc` path | Environment | Default | Type / constraint | Description |
 |---|---|---|---|---|
 | `version` | — | `1` | integer | Configuration schema version. |
-| `github.apiUrl` | `GITHUB_API_URL` | `"https://api.github.com"` | url | GitHub REST API root. GitHub Enterprise commonly uses /api/v3. |
+| `github.apiUrl` | `GITHUB_API_URL` | `"https://api.github.com"` | url | GitHub REST API root. GitHub Enterprise commonly uses /api/v3. GITHUB_API_URL: shell or trusted home .env |
 | `github.graphqlEnabled` | `OCTOCODE_GITHUB_GRAPHQL` | `true` | boolean | Use GitHub GraphQL where supported; false forces REST-only access. |
 | `local.enabled` | `ENABLE_LOCAL`<br>`OCTOCODE_ENABLE_LOCAL` | `true` | boolean | Enable local filesystem tools on every runtime surface. ENABLE_LOCAL is canonical; OCTOCODE_ENABLE_LOCAL is an alias. |
-| `local.beta` | `OCTOCODE_BETA` | `false` | boolean | Enable beta features. Gates the astRewrite (preview and apply) and astTopology tools; off by default on every surface. |
-| `local.allowedPaths` | `ALLOWED_PATHS` | `[]` | string array | Extra absolute or home-relative roots added to the allowed home directory. The environment value is a comma-separated list. |
-| `local.workspaceRoot` | `WORKSPACE_ROOT` | process.cwd() | path | Optional absolute or home-relative workspace root. |
+| `local.beta` | `OCTOCODE_BETA` | `false` | boolean | Enable beta features. Gates the astRewrite (preview and apply) and astTopology tools; off by default on every surface. OCTOCODE_BETA: shell or trusted home .env |
+| `local.allowedPaths` | `ALLOWED_PATHS` | `[]` | string array | Extra absolute or home-relative roots added to the allowed home directory. The environment value is a comma-separated list. ALLOWED_PATHS: shell or trusted home .env |
+| `local.workspaceRoot` | `WORKSPACE_ROOT` | process.cwd() | path | Optional absolute or home-relative workspace root. WORKSPACE_ROOT: shell or trusted home .env |
 | `tools.enabled` | `TOOLS_TO_RUN` | unset | string array | Strict tool allowlist replacing the default tool set. |
 | `tools.disabled` | `DISABLE_TOOLS` | unset | string array | Tools removed from the default tool set. |
 | `network.timeout` | `REQUEST_TIMEOUT` | `30000` | integer (5000–300000) | Request timeout in milliseconds. |
 | `network.maxRetries` | `MAX_RETRIES` | `3` | integer (0–10) | Maximum retries after a failed request. |
-| `network.allowPrivateRegistry` | `OCTOCODE_ALLOW_PRIVATE_REGISTRY` | `false` | boolean | Allow private, loopback, or link-local artifact registries. Security-sensitive SSRF escape hatch; opt in only for trusted enterprise registries. |
-| `lsp.configPath` | `OCTOCODE_LSP_CONFIG` | unset | string | Optional path to a custom lsp-servers.json. |
+| `network.allowPrivateRegistry` | `OCTOCODE_ALLOW_PRIVATE_REGISTRY` | `false` | boolean | Allow private, loopback, or link-local artifact registries. Security-sensitive SSRF escape hatch; opt in only for trusted enterprise registries. OCTOCODE_ALLOW_PRIVATE_REGISTRY: shell or trusted home .env |
+| `lsp.configPath` | `OCTOCODE_LSP_CONFIG` | unset | string | Optional path to a custom lsp-servers.json. OCTOCODE_LSP_CONFIG: shell or trusted home .env |
 | `output.format` | `OCTOCODE_OUTPUT_FORMAT` | `"yaml"` | `yaml` or `json` | Encoding of rendered text content (the MCP text channel): yaml or json. Structured content and CLI stdout are always JSON. |
 | `output.redactEmails` | `OCTOCODE_REDACT_EMAILS` | `false` | boolean | Mask email addresses such as GitHub commit authors. |
 | `output.pagination.defaultCharLength` | `OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH` | `50000` | integer (1000–50000) | Automatic pagination character budget. |
@@ -91,7 +91,7 @@ Environment values take precedence over `.octocoderc`. Aliases are listed in pri
 | `extension.storage.mode` | `OCTOCODE_EXTENSION_STORAGE_MODE` | inherits storage.mode | `persistent` or `memory` | Pi extension storage mode override. |
 | `classification.type` | `OCTOCODE_CLASSIFICATION_TYPE` | jev | `jev` | Classification vendor. Per-vendor defaults (host, model, endpoint) are built in. |
 | `classification.api` | `OCTOCODE_CLASSIFICATION_API`<br>`OCTOCODE_JEV_KEY` | unset | string | Classification provider API key (bearer credential). Never appears in ResolvedConfig; shell environment wins over the trusted home config file. OCTOCODE_JEV_KEY is the vendor-native alias for the jev provider. Credential-only; excluded from ResolvedConfig. |
-| `classification.apiHost` | `OCTOCODE_CLASSIFICATION_API_HOST` | vendor default (jev: https://api.typesafe.ai) | url | Optional override of the selected vendor's default API root. Requires HTTP or HTTPS at config validation; provider policy may require HTTPS except loopback. Credential-only; excluded from ResolvedConfig. |
+| `classification.apiHost` | `OCTOCODE_CLASSIFICATION_API_HOST` | vendor default (jev: https://api.typesafe.ai) | url | Optional override of the selected vendor's default API root. Requires HTTP or HTTPS at config validation; provider policy may require HTTPS except loopback. OCTOCODE_CLASSIFICATION_API_HOST: shell or trusted home .env Credential-only; excluded from ResolvedConfig. |
 | `classification.maxConcurrency` | `OCTOCODE_CLASSIFICATION_CONCURRENCY` | `10` | integer (1–64) | Process-wide maximum in-flight classification provider requests per provider endpoint. |
 | — | `OCTOCODE_ENABLE_STATS` | `false` | boolean | Write stats.json on flush; stats remain in memory either way. Environment-only setting. |
 

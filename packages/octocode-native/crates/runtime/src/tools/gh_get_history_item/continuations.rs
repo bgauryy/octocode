@@ -72,7 +72,9 @@ const SMALL_DIFF_LINES: u64 = 100;
 /// return something the row does not already hold: no `getBody` when the body
 /// is empty or fully shown by `bodyPreview`; no file entries for a PR without
 /// changed files; no `getChangedFiles` when `getAllPatches` on a small diff
-/// returns the same file list plus patches; no `getComments` when the
+/// returns the same file list plus patches; no `getSelectedPatches` when the
+/// PR has one changed file or a small diff, where `getAllPatches` returns the
+/// same patch (or a cheap superset) in one call; no `getComments` when the
 /// provider counts zero discussion and zero inline comments.
 pub(super) fn pr_next_menu(
     query: &HistoryItemRequest,
@@ -123,8 +125,9 @@ pub(super) fn pr_next_menu(
     if !content_flag(content, "changedFiles") && patch_mode == "none" && has_files && !small_diff {
         next.insert("getChangedFiles".into(), call(json!({"changedFiles":true})));
     }
+    let single_file = changed_files == Some(1);
     if patch_mode == "none" && has_files {
-        if let Some(path) = first_path {
+        if let Some(path) = first_path.filter(|_| !single_file && !small_diff) {
             next.insert(
                 "getSelectedPatches".into(),
                 call(json!({"patches":{"mode":"selected","files":[path]}})),
@@ -659,6 +662,27 @@ mod tests {
             names(&pr_next_menu(&query, None, "none", None, &empty)),
             ["getReviews", "getCommits"]
         );
+    }
+
+    #[test]
+    fn pr_next_menu_drops_selected_patches_equivalent_to_all_patches() {
+        let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
+            "operation":"pullRequest","reasoning":"r","owner":"o","repo":"r","number":1
+        }))
+        .expect("query");
+        // One changed file: the selected patch of that file is the whole diff.
+        let one_file = json!({"body":"","changed_files":1,"additions":400,"deletions":10});
+        let menu = pr_next_menu(&query, None, "none", Some("src/a.rs"), &one_file);
+        assert!(menu.get("getSelectedPatches").is_none(), "{menu}");
+        assert!(menu.get("getAllPatches").is_some(), "{menu}");
+        // Small diff: all patches read in one cheap call.
+        let small = json!({"body":"","changed_files":5,"additions":10,"deletions":10});
+        let menu = pr_next_menu(&query, None, "none", Some("src/a.rs"), &small);
+        assert!(menu.get("getSelectedPatches").is_none(), "{menu}");
+        // Large multi-file diff keeps the narrow read.
+        let large = json!({"body":"","changed_files":30,"additions":900,"deletions":10});
+        let menu = pr_next_menu(&query, None, "none", Some("src/a.rs"), &large);
+        assert!(menu.get("getSelectedPatches").is_some(), "{menu}");
     }
 
     #[test]

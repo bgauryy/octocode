@@ -1068,7 +1068,7 @@ mod tests {
                 "{field}"
             );
         }
-        for field in ["id", "reasoning", "resources", "questions"] {
+        for field in ["reasoning", "resources", "questions"] {
             let mut invalid = query.clone();
             invalid.as_object_mut().expect("query object").remove(field);
             assert!(

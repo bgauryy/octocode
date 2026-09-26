@@ -11,7 +11,7 @@ It is the only owner of Octocode home-directory resolution and `.env` or
 - `parseEnv(text)` parses environment-file content.
 - `loadOctocodeEnv(options)` loads Octocode environment values.
 - `propagateOctocodeEnv(options)` applies trusted global and project settings.
-- `loadOctocoderc(home?)` reads the structured Octocode configuration.
+- `loadOctocoderc(home?)` reads the global `.octocoderc`; `loadOctocodercLayers({ home?, cwd?, env? })` returns `[workspace, global]` for `resolveConfigFields(layers, env)` (per-field precedence). Broken files warn on stderr with their path and are ignored; nothing throws.
 - `PROTECTED_KEYS` identifies values that project configuration cannot replace.
 
 Do not reimplement these rules in a consuming package.

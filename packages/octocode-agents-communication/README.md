@@ -6,7 +6,7 @@ Give agents from different vendors a shared way to discover teammates, coordinat
 
 Use Claude Code, Codex, Grok Build, Pi, OpenCode, Cursor, or another agent in the same workspace. Message routing requires **no proxy agent or extra model call**. Recipient work still uses its own model and context.
 
-[Read the skill](skills/octocode-agents-communication/SKILL.md) · [Features](#features) · [Connect agents](#get-started) · [Supported hosts](#supported-hosts) · [Readiness and evidence](docs/PRODUCTION_READINESS.md)
+[Read the skill](skills/octocode-agents-communication/SKILL.md) · [Features](#features) · [Connect agents](#get-started) · [Supported hosts](#supported-hosts)
 
 ## Why use the skill?
 
@@ -29,19 +29,17 @@ Agents need a shared working routine as well as a mailbox: discover peers before
 | Expiry and recovery | Renew leases; let abandoned reservations expire | Recover when an agent crashes or closes |
 | Optional edit guards | Check ownership before supported Claude, Pi, and OpenCode edits | Block some accidental unreserved writes |
 | Shared documents | Publish immutable documents and read selected portions | Share large context without repeatedly pasting it |
-| Scoped gotchas | Publish short document summaries; discover by workspace/path/branch with expiry and incremental cursors | Help later collaborators find relevant facts without replaying messages; [workflow and measured limits](docs/CONTEXT_DISCOVERY.md) |
+| Scoped gotchas | Publish short document summaries; discover by workspace/path/branch with expiry and incremental cursors | Help later collaborators find relevant facts without replaying messages |
 | Recent activity | Inspect bounded file/Git activity with time and path filters | Understand recent repository changes; this is not a shell-command log |
 | Native delivery | Deliver into existing supported vendor sessions | Avoid creating a proxy agent for routing |
 | No-API operation | Communicate through context hooks, manual CLI reads, or compatible SQLite clients | Include agents without messaging SDKs |
-| Context control | Load `skill --vendor <host>` once, expose needed tools, and batch ready messages | Hide unrelated setup; receiver history still consumes context |
+| Context control | Load the skill once, expose needed tools, and batch ready messages | One routine for every host; receiver history still consumes context |
 | Bounded completion recovery | Optionally check Claude's submitted pending IDs at Stop; retrieve only missing bodies | Recover overlooked work without replaying the inbox or creating a second delivery owner |
 | Audit and usage | Inspect messages, delivery attempts, acknowledgements, and reported usage | Diagnose problems and inspect available usage; missing counters remain unknown |
 | Health and storage | Inspect stalled deliveries, export snapshots, migrate storage, and compact the DB | Operate and recover the service |
 | Optional managed workers | Start explicitly requested Claude, Codex, or Pi workers through `run` | Give new workers the skill and bound tools |
 
 Message and broadcast recipients are snapshots: late joiners do not receive earlier fanout automatically. Delivery receipts and acknowledgements have different meanings, and ambiguous external delivery does not promise exactly-once effects. See the [service protocol](docs/SERVICE_PROTOCOL.md) for those boundaries.
-
-The [six-agent recovery test](docs/CONTEXT_PROFILES.md) passed all 30 questions, 30 replies and six broadcast recipients with no pending messages. It follows two preserved failed trials that exposed handling and identity-recovery gaps. CLI replay proves smaller delivery overhead. All eight [matched context trials](docs/CONTEXT_PROFILES.md#result-narrower-context-cost-target-missed) completed, but **the token-reduction and latency targets failed**. Scoped instructions remain an explicit option; managed workers keep the full skill. The [latest handling repair](docs/PRODUCTION_READINESS.md) passes both review and handoff with six agents and no pending messages; it also corrects a grader that demanded an obsolete document revision. Earlier failed trials remain recorded.
 
 ## What a team can accomplish
 
@@ -68,26 +66,7 @@ Reservations remain advisory outside supported edit guards. Agents without an AP
 | Delivery adapter | Offer pending messages through a native API, a supported context hook, or a manual read | Select one delivery owner per identity |
 | Recipient host | Put messages into context, schedule work, and provide reply tools | The host controls execution and permissions |
 
-Native APIs change how context reaches an agent. They do not replace the shared database, leases, message protocol, or audit. Routing and storage require no model inference.
-
-The [unified adapter protocol](docs/SERVICE_PROTOCOL.md#unified-adapter-protocol)
-gives Claude, Codex, Grok and OpenCode one internal delivery lifecycle: prepare,
-offer once, observe a receipt, and finalize. It preserves each API's receipt
-strength. Pi and generic hooks use the same DB staging and acknowledgement rules
-through their host-owned bridge. Every route keeps one identity, one audit and
-one delivery owner.
-
-```mermaid
-flowchart LR
-    A[Agent using the skill] --> B[Rust CLI or bound tools]
-    B --> C[(Local SQLite and audit)]
-    C --> D[Delivery owner]
-    D --> E[Existing recipient via native API]
-    D --> F[Supported context hook or manual inbox]
-    E --> G[Recipient handles and acknowledges]
-    F --> G
-    G --> B
-```
+Native APIs change how context reaches an agent. They do not replace the shared database, leases, message protocol, or audit. Routing and storage require no model inference. Every route keeps one identity, one audit and one delivery owner through the [unified adapter protocol](docs/SERVICE_PROTOCOL.md#unified-adapter-protocol); the [architecture](ARCHITECTURE.md) shows the message flow and module ownership.
 
 Start with one shared DB, the skill, and one delivery path per agent. APIs, hooks and manual reads are alternatives; they do not run as competing receivers. Topics, scoped notes, activity and edit guards are optional. Separate Git worktrees use separate workspace identities.
 
@@ -144,19 +123,30 @@ At setup, confirm the host/vendor and available tools from runtime metadata; a m
 
 Native adapters deliver into an **existing recipient session**. Its owner supplies the skill, reply tools, endpoint, and native session identity. Attachment creates neither an agent nor additional permissions.
 
-| Host | Native or host-specific delivery | Without its messaging API | Evidence and setup |
+| Host | Native or host-specific delivery | Without its messaging API | Setup |
 | --- | --- | --- | --- |
-| Claude Code | Existing session inbox socket; inbound policy controls handling | Raw CLI/manual inbox; generic hook if wired by the host | [Native messaging](docs/VENDOR_MESSAGES.md); two live recipients |
-| Codex | Owning app-server and loaded idle thread; action starts a turn, passive injects | Raw CLI/manual inbox; generic hook if wired by the host | [Service protocol](docs/SERVICE_PROTOCOL.md); two live recipients |
-| Grok Build | Leader socket and resident session; action prompts, passive waits | Supplied post-tool hooks or raw CLI/manual inbox | [Grok integration](docs/GROK_INTEGRATION.md); two live recipients and a live hook test |
-| Pi | Extension uses `pi.sendMessage` and durable session receipts | Raw CLI/manual inbox without the extension | [Pi setup](docs/PI_MESSAGES.md); two live recipients |
-| OpenCode | Existing idle loopback session; action prompts, passive uses `noReply:true` | Raw CLI/manual inbox; generic hook if wired by the host | [OpenCode setup](docs/OPENCODE_EVALUATION.md); two live recipients |
+| Claude Code | Existing session inbox socket; inbound policy controls handling | Raw CLI/manual inbox; generic hook if wired by the host | [Service protocol](docs/SERVICE_PROTOCOL.md) |
+| Codex | Owning app-server and loaded idle thread; action starts a turn, passive injects | Raw CLI/manual inbox; generic hook if wired by the host | [Service protocol](docs/SERVICE_PROTOCOL.md) |
+| Grok Build | Leader socket and resident session; action prompts, passive waits | Supplied post-tool hooks or raw CLI/manual inbox | [Hook contracts](docs/HOST_HOOKS.md) |
+| Pi | Extension uses `pi.sendMessage` and durable session receipts | Raw CLI/manual inbox without the extension | [Service protocol](docs/SERVICE_PROTOCOL.md) |
+| OpenCode | Existing idle loopback session; action prompts, passive uses `noReply:true` | Raw CLI/manual inbox; generic hook if wired by the host | [OpenCode setup](#connect-a-native-recipient) |
 | Cursor | Supplied project post-tool hooks; no native messaging adapter | Raw CLI/manual inbox when hooks are unavailable | [Hook setup](docs/HOST_HOOKS.md); fixtures, no live Cursor validation |
-| Any other vendor or custom agent | No vendor-specific adapter required for the shared protocol | Raw CLI, host-wired context hook, or conforming SQLite client | [Database protocol](docs/DB.md); generic CLI and Python interoperability |
+| Any other vendor or custom agent | No vendor-specific adapter required for the shared protocol | Raw CLI, host-wired context hook, or conforming SQLite client | [Database protocol](docs/DB.md) |
 
-For native attachment, start with `comm attach --help`, then run a supervised `comm listen --session SESSION_ID`. The `vendorSession` field identifies the native recipient; `--session` identifies its Octocode database record. Pi's extension manages its own lifecycle. Native integration can require a host SDK or Node even though raw CLI use does not.
+Fallback is an explicit choice: **native API → supported context hook → manual inbox**. A transport error never silently switches paths. A database write cannot wake an arbitrary process, and hooks need a host event. Agents without a local process or database connection need a local bridge. Generic ACP support stays outside the dispatcher.
 
-Fallback is an explicit choice: **native API → supported context hook → manual inbox**. A transport error never silently switches paths. A database write cannot wake an arbitrary process, and hooks need a host event. Agents without a local process or database connection need a local bridge. Generic ACP support remains a [maintainer prototype](docs/ACP_EVALUATION.md).
+### Connect a native recipient
+
+Register or reuse the recipient's identity, bind it to the existing host session with `attach`, then run one supervised delivery owner:
+
+```sh
+comm attach '{"transport":"opencode","endpoint":"http://127.0.0.1:4096","vendorSession":"OPENCODE_SESSION_ID"}' --session SESSION_ID
+comm listen --session SESSION_ID
+```
+
+`transport` is `claude`, `codex`, `grok`, `opencode` or `raw`; `comm attach --help` lists each one's endpoint requirements. `vendorSession` identifies the native recipient and `--session` its Octocode database record. Attachment creates no agent and grants no permissions. Pi's extension manages its own lifecycle. Grok needs its leader socket. Native integration can require a host SDK or Node even though raw CLI use does not.
+
+For **OpenCode**, start `opencode serve --hostname 127.0.0.1 --port 4096` in the same workspace and create or reuse an idle session. The endpoint must be literal-loopback HTTP with an explicit port and no path or credentials; proxies and redirects are disabled. When the server requires authentication, give only the listener's environment `OPENCODE_SERVER_PASSWORD`, optional `OPENCODE_SERVER_USERNAME`, and `OCTOCODE_OPENCODE_AUTH_ENDPOINT` set to the exact attached endpoint string; credentials are never written to the database. Before staging, the adapter checks the session ID, canonical directory and idle status; busy sessions defer. Passive messages use `noReply:true`, actionable ones `prompt_async`, and an HTTP 204 means submission, not handling. Structured-edit guards are separate ([OpenCode opt-in](docs/HOST_LEASE_GUARDS.md#opencode-opt-in)).
 
 ## Work without a vendor API
 
@@ -167,7 +157,7 @@ The raw path works for every listed vendor and for other agents that can execute
 | Supported native messaging API | Attach the existing recipient and run its delivery owner | According to the adapter and host policy |
 | Context hook, no messaging API | Bind `raw`; run `scripts/inbox-hook` at a documented context event and consume its output | Only when the host provides a suitable event; the supplied post-tool hooks do not wake idle hosts |
 | Local command execution, no API or hooks | Bind `raw`; read `hook` at task boundaries and handle its returned context | No; the agent must already be running |
-| Compatible SQLite access only | Follow `db protocol`; `scripts/sqlite_agent.py` is the reference client | No; the client must read and handle its inbox |
+| Compatible SQLite access only | Follow `db protocol` and apply it in the client's own transactions | No; the client must read and handle its inbox |
 
 Use the [raw setup above](#get-started) for the CLI path. SQL clients must preserve identity, expiry, transaction, idempotency, and acknowledgement rules; arbitrary SQL is not a substitute for the protocol. Without local execution or compatible DB access, an agent needs a local bridge. These are capability requirements, not claims that every third-party host has been tested.
 
@@ -179,7 +169,7 @@ Path reservations are advisory. Optional [structured-edit guards](docs/HOST_LEAS
 
 Use `health` for compact, read-only delivery diagnostics. Use `entity list audit` to inspect recorded events. Preserve both database snapshots and shared documents when backing up; maintenance retains message history and idempotency keys. See [operations and recovery](docs/OPERATIONS.md), [lock rules](docs/LOCKS.md), and [retention](docs/RETENTION.md).
 
-The scope is cooperating agents under the same trusted OS user. The [readiness report](docs/PRODUCTION_READINESS.md) records passing tests, live vendor versions, failed trials, and remaining platform, signing, and startup gates. Transport delivery, model compliance, and filesystem isolation have separate validation boundaries.
+The scope is cooperating agents under the same trusted OS user. Transport delivery, model compliance, and filesystem isolation have separate validation boundaries.
 
 ## Build and validate
 
@@ -190,9 +180,9 @@ yarn workspace @octocodeai/octocode-agents-communication build:release
 yarn workspace @octocodeai/octocode-agents-communication pack:skill
 ```
 
-The build produces an optimized executable. Packing checks the bundle and writes a standalone archive under the package's `out/` directory. Generated executables are not tracked by Git. Use the [release checklist](docs/RELEASE_CHECKLIST.md) for native platform, migration, and artifact validation.
+The build produces an optimized executable. Packing checks the bundle and writes a standalone archive under the package's `out/` directory. Generated executables are not tracked by Git.
 
-The `verify` package script runs lint and tests. Python conformance needs `COMMUNICATION_PYTHON` pointing to Python with Unicode 16 and SQLite 3.51.3 or later; those checks skip without it. The `poc:service-mesh` script exercises two recipients per configured vendor plus a raw peer, including directed questions and replies, broadcasts, documents, and automatic wake. It requires authenticated vendor CLIs and an explicit `COMMUNICATION_PI_MODEL`; `COMMUNICATION_OPENCODE_COMMAND` adds OpenCode. See the [evaluation evidence](docs/PRODUCTION_READINESS.md) before interpreting results.
+The `verify` package script runs lint (Rust format, strict Clippy and a Markdown link check) and the product tests; `test:tooling` covers the benchmark and POC harnesses. The `poc:service-mesh` script exercises two recipients per configured vendor plus a CLI peer, including directed questions and replies, broadcasts, documents, and automatic wake. It requires authenticated vendor CLIs and an explicit `COMMUNICATION_PI_MODEL`; `COMMUNICATION_OPENCODE_COMMAND` adds OpenCode.
 
 ## Explore further
 
@@ -200,11 +190,6 @@ The `verify` package script runs lint and tests. Python conformance needs `COMMU
 | --- | --- |
 | Give an agent the working instructions | [Single-file skill](skills/octocode-agents-communication/SKILL.md) |
 | Understand boundaries and ownership | [Architecture](ARCHITECTURE.md) |
-| Compare vendor APIs and delivery choices | [Vendor API review](docs/VENDOR_API_REVIEW.md) |
-| Inspect six-agent collaboration | [Two Claude, two Codex, two Grok evaluation](docs/SIX_AGENT_EVALUATION.md) |
-| Compare similar open-source approaches | [Communication landscape](docs/COMMUNICATION_LANDSCAPE.md) |
 | Implement a client or host adapter | [Service protocol](docs/SERVICE_PROTOCOL.md), [database contract](docs/DB.md) |
-| Reduce context and tool overhead | [Context evaluation](docs/CONTEXT_OPTIMIZATION.md), [benchmarks](docs/BENCHMARKS.md) |
-| Operate and recover the service | [Operations](docs/OPERATIONS.md), [recovery evaluation](docs/RECOVERY_EVALUATION.md) |
-| Inspect release evidence and remaining work | [Production readiness](docs/PRODUCTION_READINESS.md), [release checklist](docs/RELEASE_CHECKLIST.md) |
+| Operate and recover the service | [Operations](docs/OPERATIONS.md), [retention](docs/RETENTION.md), [lock rules](docs/LOCKS.md) |
 | Understand the Awareness migration | [Awareness retirement](../../docs/COMMUNICATION_RETIREMENT.md) |

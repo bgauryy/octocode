@@ -291,3 +291,48 @@ fn codex_wrong_or_missing_workspace_never_stages_or_injects() -> Result<()> {
     }
     Ok(())
 }
+
+#[test]
+fn context_names_senders_once_and_omits_defaults_and_nulls() {
+    let rendered = context(&[
+        json!({"id":1,"sender":"s-1","senderName":"alpha","body":"one","reasoning":null,"wake":"action","topic":null}),
+        json!({"id":2,"sender":"s-1","senderName":"alpha","body":"two","reasoning":"why","wake":"passive"}),
+        json!({"id":3,"sender":"s-2","body":"three","wake":"action"}),
+    ]);
+    let (rule, body) = rendered.split_once('\n').unwrap_or_default();
+    assert!(rule.len() < 200, "One short rule line: {rule}");
+    assert!(!body.contains("null"));
+    assert_eq!(
+        serde_json::from_str::<Value>(body).ok(),
+        Some(json!([
+            {"id":1,"from":"alpha","sender":"s-1","body":"one"},
+            {"id":2,"from":"alpha","body":"two","reasoning":"why","wake":"passive"},
+            {"id":3,"sender":"s-2","body":"three"}
+        ]))
+    );
+}
+
+#[test]
+fn released_rows_return_to_ready_and_connect_failures_are_transient() -> Result<()> {
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let endpoint = format!("ws://{}/", listener.local_addr()?);
+    drop(listener);
+    let (_temp, store, recipient, id) = fixture(&endpoint, "action")?;
+    let error = once(&store, &recipient, &mut DeliveryClients::default())
+        .err()
+        .ok_or_else(|| anyhow!("Expected connection failure"))?;
+    assert!(
+        error.is::<Transient>(),
+        "Vendor connect failure must be retryable"
+    );
+    let staged = store.stage(&recipient, "hook:test")?;
+    assert_eq!(staged.len(), 1);
+    assert!(store.stage(&recipient, "hook:test")?.is_empty());
+    store.release_dispatch(&recipient, &staged, "not emitted")?;
+    assert_eq!(
+        store.stage(&recipient, "hook:test")?[0]["id"],
+        json!(id),
+        "Released rows are offered again"
+    );
+    Ok(())
+}

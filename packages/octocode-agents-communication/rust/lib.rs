@@ -7,6 +7,8 @@ pub mod dispatch;
 mod documents;
 pub mod entities;
 mod health;
+// @octocodeai/config owns the home policy but ships no crate; rustc dep-info still
+// tracks this file for rebuilds, and `publish = false` means packaging never needs it.
 #[path = "../../octocode-config/rust/home.rs"]
 mod home;
 pub mod host_hooks;

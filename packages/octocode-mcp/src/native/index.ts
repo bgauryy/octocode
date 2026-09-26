@@ -245,6 +245,32 @@ export function actionableIssuesSchema(
   };
 }
 
+/**
+ * MCP clients that read only `content` must still see the result. When the
+ * native envelope carries structuredContent but no text block (clasify
+ * receipts are not text-rendered), serialize structuredContent as the text
+ * block, as the MCP spec recommends for structured results.
+ */
+export function ensureTextContent(result: unknown): unknown {
+  if (!result || typeof result !== 'object' || Array.isArray(result)) {
+    return result;
+  }
+  const envelope = result as {
+    content?: unknown;
+    structuredContent?: unknown;
+  };
+  const content = Array.isArray(envelope.content) ? envelope.content : [];
+  if (content.length > 0 || envelope.structuredContent === undefined) {
+    return result;
+  }
+  return {
+    ...envelope,
+    content: [
+      { type: 'text', text: JSON.stringify(envelope.structuredContent) },
+    ],
+  };
+}
+
 export function createNativeMcp({
   env = process.env,
   binding,
@@ -361,7 +387,9 @@ export function createNativeMcp({
         const cancel = () => runtime.cancel(requestId);
         signal?.addEventListener('abort', cancel, { once: true });
         try {
-          return await runtime.executeMcp(requestId, tool.name, args);
+          return ensureTextContent(
+            await runtime.executeMcp(requestId, tool.name, args)
+          );
         } catch (error) {
           // A thrown rejection here is an internal/native failure (not a normal
           // tool error, which is returned in the result envelope). The SDK would

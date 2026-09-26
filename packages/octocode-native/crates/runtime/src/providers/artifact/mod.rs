@@ -1,6 +1,7 @@
 mod http;
 mod maven;
 mod npm;
+mod npmrc;
 mod nuget;
 mod registries;
 mod types;
@@ -15,6 +16,8 @@ pub use types::{
     ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState, ArtifactSearchQuery,
     ArtifactSearchQueryType, ResolvedNpmRegistry,
 };
+
+pub(crate) use npmrc::{authorization_from_file as npm_authorization, user_npmrc_path};
 
 use crate::providers::RequestBudget;
 use http::RegistryClient;

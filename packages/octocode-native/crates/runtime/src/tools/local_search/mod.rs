@@ -212,6 +212,38 @@ mod tests {
         );
     }
 
+    #[test]
+    fn redacted_match_values_are_flagged_as_not_verbatim() {
+        let body = search_fixture(
+            &[(
+                "db.ts",
+                "const url = \"postgres://admin:hunter2secretpw@db.example.com/app\";\n",
+            )],
+            ls_query(
+                serde_json::json!({"searchText": "postgres".to_string()}),
+                None,
+            ),
+        );
+        let value = body["files"][0]["matches"][0]["value"]
+            .as_str()
+            .unwrap_or_default();
+        assert!(!value.contains("hunter2secretpw"), "{body}");
+        assert!(
+            body["warnings"].as_array().is_some_and(|warnings| warnings
+                .iter()
+                .any(|w| w.as_str().is_some_and(|w| w.starts_with("redactedMatches")))),
+            "redaction must be flagged: {body}"
+        );
+        let clean = search_fixture(
+            &[("a.txt", "plain needle\n")],
+            ls_query(
+                serde_json::json!({"searchText": "needle".to_string()}),
+                None,
+            ),
+        );
+        assert!(!clean.to_string().contains("redactedMatches"), "{clean}");
+    }
+
     // Over-redaction guard: a base64-shaped line with no private-key block
     // anywhere in the file must be returned intact — the snippet triggers a
     // full-file scan that finds no block and redacts nothing.
@@ -672,15 +704,22 @@ mod tests {
     }
 
     #[test]
-    fn binary_files_do_not_mark_a_search_partial_or_terminal() {
+    fn binary_prefix_matches_mark_a_search_partial_and_terminal() {
+        // Matches before the NUL do not prove the rest of the file was
+        // searched: the cut is a coverage limit no continuation can lift.
         let body = search_fixture(
             &[("bin.dat", "foo\u{0}foo\n"), ("a.txt", "foo\n")],
             ls_query(serde_json::json!({"searchText": "foo".to_string()}), None),
         );
-        assert!(body.get("terminalLimit").is_none(), "{body}");
+        assert_eq!(body["isPartial"], true, "{body}");
+        assert_eq!(body["terminalLimit"], true, "{body}");
         assert!(body.get("next").is_none_or(|next| next.is_null()), "{body}");
         assert_eq!(body["stats"]["capReason"], "binaryQuit");
-        assert_eq!(body["stats"]["capped"], false, "{body}");
+        // capped agrees with capReason instead of contradicting it.
+        assert_eq!(body["stats"]["capped"], true, "{body}");
+        // localFetch rejects binary files, so it is never the recovery route.
+        let text = body.to_string();
+        assert!(!text.contains("localFetch"), "{body}");
     }
 
     #[test]

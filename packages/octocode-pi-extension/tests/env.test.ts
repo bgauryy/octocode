@@ -54,9 +54,12 @@ test('applyOctocodeEnv: skips protected + already-set keys, applies the rest, re
   assert.ok(!blob.includes('serp') && !blob.includes('/evil'));
 });
 
-test('PROTECTED_KEYS covers infra + auth tokens', () => {
-  for (const k of ['PATH', 'HOME', 'OCTOCODE_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN']) {
+test('PROTECTED_KEYS covers infra, endpoints, and sandbox roots; tokens are .env fallbacks', () => {
+  for (const k of ['PATH', 'HOME', 'GITHUB_API_URL', 'OCTOCODE_LSP_CONFIG', 'ALLOWED_PATHS']) {
     assert.ok(PROTECTED_KEYS.has(k), `${k} protected`);
+  }
+  for (const k of ['OCTOCODE_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN']) {
+    assert.ok(!PROTECTED_KEYS.has(k), `${k} is a trusted .env fallback`);
   }
 });
 

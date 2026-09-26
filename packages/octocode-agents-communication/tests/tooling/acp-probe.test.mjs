@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
-import { AcpProbeClient, runProbe } from '../scripts/acp-probe.mjs';
+import { AcpProbeClient, runProbe } from '../../scripts/acp-probe.mjs';
 
 // A wire peer, not a model: failures exercise framing and lifecycle independently.
 function command(mode = 'normal') {

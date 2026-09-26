@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-const script = fileURLToPath(new URL('../scripts/service-mesh.mjs', import.meta.url));
+const script = fileURLToPath(new URL('../../scripts/service-mesh.mjs', import.meta.url));
 function plan(input = {}) {
   const env = {...process.env};
   for (const key of ['COMMUNICATION_VENDORS', 'COMMUNICATION_AGENT_ORIGINATED', 'COMMUNICATION_OPENCODE_COMMAND', 'COMMUNICATION_PI_MODEL', 'COMMUNICATION_COPIES', 'COMMUNICATION_COMPLETION_CHECK', 'COMMUNICATION_SCOPED_SKILL', 'COMMUNICATION_TASK_FAMILY']) delete env[key];

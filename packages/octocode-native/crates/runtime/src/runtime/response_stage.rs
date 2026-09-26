@@ -1,7 +1,7 @@
 //! Public response stage: the one boundary between executed rows and the
 //! envelope a caller receives. Execution (dispatch, reranking inference)
 //! finishes first; this stage owns the order of output-row isolation,
-//! continuation shaping, text rendering, paging, cursor stamping, and final
+//! continuation shaping, text rendering, paging, and final
 //! contract validation, identically for CLI JSON and MCP.
 
 use super::engine::{FailureKind, ToolOutcome};
@@ -24,7 +24,11 @@ pub(super) struct StageInput<'a> {
     pub text_format: super::render::TextFormat,
     /// False when a replay would not reproduce the page (reranked output).
     pub allow_auto_paging: bool,
+    // Unused: continuations carry their own source identity (`snapshot`), so
+    // no cursor is stamped. Remove once the engine stops supplying them.
+    #[allow(dead_code)]
     pub cursor_scope: &'a str,
+    #[allow(dead_code)]
     pub source_digests: &'a [Option<String>],
     pub source_digest: Option<String>,
 }
@@ -46,8 +50,8 @@ pub(super) fn finish(
         auto_page_chars,
         text_format,
         allow_auto_paging,
-        cursor_scope,
-        source_digests,
+        cursor_scope: _,
+        source_digests: _,
         source_digest,
     } = input;
     // Validate the complete, sanitized rows before deriving text, error state,
@@ -68,6 +72,15 @@ pub(super) fn finish(
         // Continuations replay through validation, which restores defaults;
         // emit only the fields that change the replay.
         super::continuations::compact_continuations(&mut structured);
+    }
+    // An explicitly paged text response hashes and windows the rendered
+    // text, so transient telemetry must leave before rendering (rows and
+    // structured scopes are handled by the pager itself).
+    if !is_clasify
+        && options.explicit()
+        && let Some(envelope) = structured.as_object_mut()
+    {
+        crate::response::strip_transient_telemetry(envelope);
     }
     context.check()?;
     let render = !is_clasify
@@ -98,14 +111,9 @@ pub(super) fn finish(
             &std::sync::atomic::AtomicBool::new(context.cancellation.is_cancelled()),
         )
         .map_err(|_| ExecutionError::WorkerFailed)?;
-    let mut structured_content = prepared.structured_content;
-    // Cursors cover responsePagination.next too, so they are stamped last;
-    // clasify receipts keep their own tool scopes.
-    if !is_clasify {
-        inject_cursors(&mut structured_content, cursor_scope, source_digests);
-    }
+    let structured_content = prepared.structured_content;
     context.check()?;
-    // Cursor insertion and page shaping cross the public contract as well.
+    // Page shaping crosses the public contract as well.
     if let Err(error) = contracts::validate_output(&tool, &structured_content) {
         return Ok(Err(error));
     }
@@ -156,73 +164,6 @@ pub(super) fn response_all_failed(structured: &Value) -> bool {
                             })
                 })
         })
-}
-
-pub(super) fn inject_cursors(value: &mut Value, scope: &str, source_digests: &[Option<String>]) {
-    inject_cursors_inner(value, scope, false, source_digests, None);
-}
-
-fn inject_cursors_inner<'a>(
-    value: &mut Value,
-    scope: &str,
-    inside_next: bool,
-    source_digests: &'a [Option<String>],
-    row_source_digest: Option<&'a str>,
-) {
-    match value {
-        Value::Array(arr) => {
-            for child in arr.iter_mut() {
-                inject_cursors_inner(child, scope, inside_next, source_digests, row_source_digest);
-            }
-        }
-        Value::Object(map) => {
-            let row_source_digest = map
-                .get("index")
-                .and_then(Value::as_u64)
-                .and_then(|index| source_digests.get(index as usize))
-                .and_then(Option::as_deref)
-                .or(row_source_digest);
-            if let (true, Some(tool_str), Some(query_val)) = (
-                inside_next && !map.contains_key("cursor"),
-                map.get("tool").and_then(Value::as_str),
-                map.get("query").filter(|v| v.is_object()),
-            ) {
-                // A cursor re-encodes the whole query (~1 KB), and replaying
-                // `query` ignores it, so emit one only where it adds a check the
-                // query lacks: localFetch source-change detection. localSearch
-                // queries carry `snapshot`, which replay already verifies.
-                // `{cursor}` resume stays accepted for older callers.
-                let token = (tool_str == "localFetch")
-                    .then_some(row_source_digest)
-                    .flatten()
-                    .and_then(|digest| {
-                        super::cursor::ReadCursor::create(
-                            tool_str,
-                            query_val.clone(),
-                            digest.to_owned(),
-                            scope.to_owned(),
-                        )
-                        .ok()
-                    });
-                if let Some(token) = token {
-                    map.insert("cursor".into(), Value::String(token));
-                }
-            }
-            let keys: Vec<String> = map.keys().cloned().collect();
-            for key in keys {
-                if let Some(child) = map.get_mut(&key) {
-                    inject_cursors_inner(
-                        child,
-                        scope,
-                        inside_next || key == "next",
-                        source_digests,
-                        row_source_digest,
-                    );
-                }
-            }
-        }
-        _ => {}
-    }
 }
 
 #[cfg(test)]

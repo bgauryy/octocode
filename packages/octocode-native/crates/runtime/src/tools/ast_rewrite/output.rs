@@ -29,17 +29,36 @@ pub(super) fn success_value(
     };
     let has_more = !apply && offset.saturating_add(page_size) < matches.len();
     let total_pages = matches.len().div_ceil(page_size).max(1);
-    // A preview page carries only the files its matches touch, so patches are
-    // never repeated across pages; `affectedFiles` stays the full count and
-    // the final page's `next.apply` still guards every affected file.
+    // A preview page carries only the files its matches touch. A file whose
+    // matches span pages sends its whole-file patch once, on the first page
+    // touching it; later pages reference that page (`patchOnPage`) instead of
+    // resending it. `affectedFiles` stays the full count and the final page's
+    // `next.apply` still guards every affected file.
     let page_paths = shown
         .iter()
         .filter_map(|matched| matched.public["path"].as_str())
         .collect::<std::collections::BTreeSet<_>>();
+    let mut first_page = std::collections::BTreeMap::<&str, usize>::new();
+    for (index, matched) in matches.iter().enumerate() {
+        if let Some(path) = matched.public["path"].as_str() {
+            first_page.entry(path).or_insert(index / page_size + 1);
+        }
+    }
     let page_files = files
         .iter()
         .filter(|file| apply || page_paths.contains(file.path.as_str()))
-        .map(public_file)
+        .map(|file| {
+            let mut value = public_file(file);
+            if let Some(&first) = first_page
+                .get(file.path.as_str())
+                .filter(|first| !apply && **first < page)
+                && let Some(object) = value.as_object_mut()
+            {
+                object.remove("patch");
+                object.insert("patchOnPage".to_owned(), json!(first));
+            }
+            value
+        })
         .collect::<Vec<_>>();
     let mut value = json!({
         "operation":"rewrite","mode":if apply {"apply"} else {"preview"},

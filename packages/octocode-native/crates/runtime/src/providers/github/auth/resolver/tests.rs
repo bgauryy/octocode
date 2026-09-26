@@ -17,6 +17,7 @@ fn authentication(token: Option<&str>) -> Authentication {
         global_env: missing(),
         project_env: missing(),
         config_file: missing(),
+        project_config_file: missing(),
         runtime_surface: RuntimeSurface::Mcp,
         revision: 1,
     });

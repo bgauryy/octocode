@@ -53,7 +53,10 @@ or failed renewal. See [host lease admission](HOST_LEASE_GUARDS.md) for the exac
 structured-tool coverage and the unguarded shell/custom-tool boundary.
 
 Before a migration or restore, stop delivery owners and confirm no other process
-is using the DB. `db export` creates a verified non-overwriting snapshot including
+is using the DB. Upgrading a v6 store to v7 is one `db migrate` transaction: it adds
+lookup indexes, backfills folded lease keys and the document registry, then refreshes
+planner statistics (about 1 s for 425,000 audit rows and 5,500 leases on an M-series
+laptop). `prune` only removes expired leases of the bound workspace. `db export` creates a verified non-overwriting snapshot including
 committed WAL state. Preserve `.octocode/communication/` documents separately.
 Use a new path for a recovery rehearsal; never overwrite a live store. Retained
 message keys and audit rows are protocol history, not disposable log clutter.

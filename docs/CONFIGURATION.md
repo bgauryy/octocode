@@ -18,10 +18,11 @@ Configures credentials, registries, feature gates, storage, timeouts, and enviro
   - [`.env` — environment fallback](#env--environment-fallback)
   - [`.octocoderc` — Octocode settings](#octocoderc--octocode-settings)
   - [How settings override each other](#how-settings-override-each-other)
+  - [Misconfiguration never blocks startup](#misconfiguration-never-blocks-startup)
 - [MCP client `env` block](#mcp-client-env-block)
 - [All settings reference](#all-settings-reference)
   - [Third-party keys](#third-party-keys)
-  - [Octocode settings — env var or `~/.octocode/.octocoderc`](#octocode-settings--env-var-or-octocodeoctocoderc)
+  - [Octocode settings — env var or `.octocoderc`](#octocode-settings--env-var-or-octocoderc)
   - [Advanced runtime — env var only](#advanced-runtime--env-var-only)
   - [Protected keys](#protected-keys--never-sourced-from-env)
 - [GitHub Enterprise](#github-enterprise)
@@ -122,7 +123,7 @@ All Octocode config, credentials, cache, and session data live under the **Octoc
 | Path | What it does |
 |------|-------------|
 | `.env` | Environment fallbacks, including GitHub/classification credentials and third-party API keys. Native CLI/MCP and Node config consumers load the home file. |
-| `.octocoderc` | Octocode behavior settings (tools, network, paths, output, storage). Read by the MCP server and CLI. |
+| `.octocoderc` | Global Octocode behavior settings (tools, network, paths, output, storage). Read by the MCP server and CLI. A workspace `<project>/.octocode/.octocoderc` overrides it per field. |
 | `stats.json` | Usage counters. Written only when `OCTOCODE_ENABLE_STATS=1`. |
 | `session.json` | Session identity. |
 | `tmp/clone/` | Git clones, keyed by owner, repo, and branch/sparse identity. |
@@ -195,7 +196,19 @@ Skills query every web-search engine whose key is set and validated, then fuse r
 
 ### `.octocoderc` — Octocode settings
 
-A JSONC file for Octocode's own behavior — tool availability, network, local path restrictions, output format, LSP config, and storage. Located at `~/.octocode/.octocoderc`. **Restart the MCP server or start a new agent session after editing.**
+A JSONC file for Octocode's own behavior — tool availability, network, local path restrictions, output format, LSP config, and storage. **Restart the MCP server or start a new agent session after editing.**
+
+**Where:** `~/.octocode/.octocoderc` (global, or `$OCTOCODE_HOME/.octocoderc`) · `<project>/.octocode/.octocoderc` (workspace, where `<project>` is the process working directory)
+
+```jsonc
+// <project>/.octocode/.octocoderc — only what this repo needs to change
+{
+  "output": { "format": "json" },
+  "local": { "allowedPaths": ["~/shared-fixtures"] }
+}
+```
+
+Layering is **per field**: a workspace value replaces the global value for that field only; every field the workspace file omits still comes from the global file. Arrays replace rather than concatenate, and `null` on a list field (for example `tools.enabled`) resets it. Both files rank below every environment source, including the global `.env`. The workspace file is loaded without a trust flag, exactly like the workspace `.env`, and follows the same [protected-key](#protected-keys--never-sourced-from-env) boundary: a field bound to a protected environment key is ignored in a workspace file, with a warning. When the working directory is your OS home, `<project>/.octocode` *is* the Octocode home, and the file is read once.
 
 Every setting also has an **env var**, and env vars always win. See [Octocode configuration settings](generated/CONFIG_SETTINGS.md) for the complete generated example, env mappings, defaults, constraints, credential policy, and token priority (generated from the same contract consumed by TypeScript and Rust).
 
@@ -207,12 +220,36 @@ Unknown keys emit a warning with their full path, so a misspelling like `local.e
 Shell env vars / MCP client env block       ← always win, highest priority
 <workspace>/.octocode/.env                  ← first file fallback
 ~/.octocode/.env                            ← trusted home fallback
-~/.octocode/.octocoderc                     ← Octocode settings (MCP server + CLI)
+<workspace>/.octocode/.octocoderc           ← workspace Octocode settings
+~/.octocode/.octocoderc                     ← global Octocode settings
 Built-in defaults                           ← lowest
 ```
 
-- **Env vars always beat file config.**
-- **Workspace `.env` wins over home `.env` for the same key**; missing or blank values fall back to home.
+Precedence is resolved per field, top to bottom; the first source with a valid value wins.
+
+- **Env vars always beat file config**, including a workspace `.octocoderc`.
+- **Workspace wins over home at each tier**: workspace `.env` over home `.env`, workspace `.octocoderc` over home `.octocoderc`. Missing, blank, or invalid values fall back to the next source.
+- **GitHub/classification credentials follow this fallback order.** Token discovery and OAuth refresh remain in native.
+
+### Misconfiguration never blocks startup
+
+A bad value is reported and skipped; the CLI and MCP server always start. Each problem is printed once per process to **stderr** (stdout is reserved for CLI results and MCP JSON-RPC), naming the file or variable and the reason:
+
+```
+octocode: config warning: /repo/.octocode/.octocoderc: network.maxRetries: Must be a number; value ignored [invalid_config]
+octocode: config warning: /repo/.octocode/.octocoderc: Failed to parse config file: …; the whole file is ignored [config_load_error]
+octocode: config warning: /Users/me/.octocode/.env: REQUEST_TIMEOUT is not a valid integer for network.timeout; value ignored [invalid_env_value]
+```
+
+| Problem | Effect |
+|---|---|
+| Unreadable file, invalid JSON, or a non-object root | That file is ignored; the other layers still apply. |
+| Invalid field value (wrong type, out of range, relative path, non-http URL, unknown enum) | Only that field is dropped; it falls back to the next layer or the default. |
+| A section that is not an object (for example `"network": 5`) | Only that section is dropped. |
+| Unknown key | Warning only; the key is ignored. |
+| Invalid nonblank environment value | Skipped, falling back to the next source. The value is never printed. |
+
+`octocode config` lists both `.octocoderc` files and their top-level keys; `octocode config --json` also returns the `diagnostics` array.
 - **GitHub/classification credentials follow this fallback order.** Token discovery and OAuth refresh remain in native.
 
 ---
@@ -253,7 +290,7 @@ Set in `~/.octocode/.env`, a workspace `.octocode/.env`, or your shell. Skills u
 | `SERPER_API_KEY` | unset | Web search — Google SERP results. [Get a key](https://serper.dev/) |
 | `EXA_API_KEY` | unset | Web search — neural/category search. [Get a key](https://dashboard.exa.ai/) |
 
-### Octocode settings — env var or `~/.octocode/.octocoderc`
+### Octocode settings — env var or `.octocoderc`
 
 Settings tables, defaults, ranges, enum values, aliases, protected-environment policy, GitHub token priority, and `OCTOCODE_HOME` behavior are generated in [Octocode configuration settings](generated/CONFIG_SETTINGS.md). Edit `packages/octocode-config/config-contract.json`, not this guide, when policy changes.
 
@@ -322,7 +359,7 @@ Always start with `npx octocode auth --json` (token source + identity), `npx oct
 | `.env` key not loading | Confirm the process uses the intended workspace cwd and restart after editing .env |
 | Enterprise hitting github.com | Set `GITHUB_API_URL` in both shell and `.octocoderc` |
 | Enterprise device login/refresh rejected | Set `OCTOCODE_GITHUB_CLIENT_ID` to an OAuth app client ID registered on that GHE host |
-| Settings not taking effect | Restart the MCP server or start a new agent session after editing `.octocoderc` |
+| Settings not taking effect | Restart the MCP server or start a new agent session after editing `.octocoderc`; check stderr (or `octocode config --json` → `diagnostics`) for ignored values; confirm the process working directory is the workspace whose `.octocode/.octocoderc` you edited |
 
 ---
 

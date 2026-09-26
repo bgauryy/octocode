@@ -104,6 +104,9 @@ impl Workspace {
             config_file: FileInput::Missing {
                 path: self.home.join(".octocoderc"),
             },
+            project_config_file: FileInput::Missing {
+                path: self.workspace.join(".octocode/.octocoderc"),
+            },
             runtime_surface: RuntimeSurface::Cli,
             revision: 1,
         }

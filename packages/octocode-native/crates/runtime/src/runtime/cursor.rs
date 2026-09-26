@@ -6,10 +6,11 @@ use sha2::{Digest, Sha256};
 use std::io::Read;
 use std::path::Path;
 use std::sync::OnceLock;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const MAX_TOKEN_BYTES: usize = 64 * 1024;
-const TOKEN_LIFETIME: Duration = Duration::from_secs(24 * 60 * 60);
+#[cfg(test)]
+const TOKEN_LIFETIME: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -43,6 +44,7 @@ fn cursor_signing_key() -> &'static [u8; 32] {
 }
 
 /// HMAC-SHA256 tag (hex) of `bytes` under the per-process signing key.
+#[cfg(test)]
 fn sign_payload(bytes: &[u8]) -> Result<String, CursorError> {
     let mut mac =
         HmacSha256::new_from_slice(cursor_signing_key()).map_err(|_| CursorError::Invalid)?;
@@ -142,6 +144,7 @@ pub fn verify_state(key: &[u8; 32], scope: &str, token: &str) -> Result<Vec<u8>,
 // ── Shared encode / decode primitives ─────────────────────────────────────
 
 /// Serialize `cursor` to a base64url payload with an authenticated HMAC suffix.
+#[cfg(test)]
 fn encode_to_token<T: Serialize>(cursor: &T) -> Result<String, CursorError> {
     let bytes = serde_json::to_vec(cursor).map_err(|_| CursorError::Invalid)?;
     if bytes.len() > MAX_TOKEN_BYTES {
@@ -306,6 +309,9 @@ fn now() -> Result<u64, CursorError> {
 }
 
 impl ReadCursor {
+    /// Outputs no longer mint read cursors (localFetch continuations carry
+    /// `snapshot`); decoding stays for tokens already issued.
+    #[cfg(test)]
     pub fn create(
         tool: &str,
         query: Value,

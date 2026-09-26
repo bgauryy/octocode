@@ -118,6 +118,49 @@ pub fn execute_match(
     security: &ContentSecurity,
     cancel: &dyn CancellationCheck,
 ) -> super::AstResult {
+    execute_match_inner(q, paths, security, cancel).map_err(|mut error| {
+        // A YAML rule that fails to compile needs a rule-shaped recovery, not
+        // the pattern advice (terminators, bodies) the generic hint gives.
+        if q.rule().is_some()
+            && error.code == "structural.query.compileFailed"
+            && error.hints.is_empty()
+        {
+            error.hints.push(RULE_COMPILE_HINT.to_owned());
+        }
+        error
+    })
+}
+
+const RULE_COMPILE_HINT: &str = "Fix the YAML rule at the position the error names: `rule:` takes keys such as kind, pattern, regex, has, inside, follows, precedes, all, any, not, matches (list values are YAML sequences). Check a nested pattern alone as a pattern query first.";
+
+/// Rust item keywords a visibility modifier (`pub`, `pub(crate)`) can precede.
+const RUST_VISIBLE_ITEMS: &[&str] = &[
+    "fn", "async", "unsafe", "const", "static", "struct", "enum", "union", "trait", "type", "mod",
+    "extern", "use",
+];
+
+/// ast-grep matches a Rust item pattern exactly: the visibility modifier is a
+/// named child, so `fn $N()` never matches `pub fn`. A complete result for such
+/// a pattern still excludes every visible item; say so.
+fn rust_visibility_note(pattern: &str, rust: bool) -> Option<Value> {
+    let first = pattern.split_whitespace().next()?;
+    (rust && RUST_VISIBLE_ITEMS.contains(&first)).then(|| {
+        json!({
+            "code":"structural.pattern.visibilityExact",
+            "severity":"info",
+            "stage":"match",
+            "message":format!("Pattern starts with `{first}` and has no visibility modifier; structural matching is exact, so items declared `pub`/`pub(crate)` are not matched."),
+            "recovery":format!("Re-run with `pub {first} …` (or `pub($V) {first} …`), or use a YAML rule on the item kind (e.g. `kind: function_item`) with has/regex constraints to match every visibility.")
+        })
+    })
+}
+
+fn execute_match_inner(
+    q: MatchQuery<'_>,
+    paths: &PathPolicy,
+    security: &ContentSecurity,
+    cancel: &dyn CancellationCheck,
+) -> super::AstResult {
     cancel.check().map_err(super::cancelled)?;
     let lang_extensions = q
         .lang_type()
@@ -455,6 +498,23 @@ pub fn execute_match(
             "path":path
         }]);
     }
+    let rust = q
+        .lang_type()
+        .as_deref()
+        .and_then(language_extensions)
+        .map_or_else(
+            || p.canonical.extension().is_some_and(|ext| ext == "rs"),
+            |extensions| extensions.contains("rs"),
+        );
+    if let Some(note) = q
+        .pattern()
+        .and_then(|pattern| rust_visibility_note(&pattern, rust))
+    {
+        match out["diagnostics"].as_array_mut() {
+            Some(diagnostics) => diagnostics.push(note),
+            None => out["diagnostics"] = json!([note]),
+        }
+    }
     let incomplete = scan_truncated
         || skipped_unsupported > 0
         || skipped_unreadable > 0
@@ -488,8 +548,9 @@ pub fn execute_match(
 }
 /// One match row. Captures are emitted once, in `metavarRanges` (text plus
 /// 1-based position); the parallel engine `metavars` text map is only used as a
-/// fallback for a capture that carries no range. `endLine` is omitted when the
-/// span is single-line (it equals `line`).
+/// fallback for a capture that carries no range. A multi-node list capture is
+/// one span row with `count` unless `captureText` is set. `endLine` is omitted
+/// when the span is single-line (it equals `line`).
 fn match_value(m: StructuralDetailedMatch, capture_text: bool, content_length: usize) -> Value {
     let text = compact_match(&m.text, content_length);
     let mut ranges = serde_json::Map::new();
@@ -497,12 +558,27 @@ fn match_value(m: StructuralDetailedMatch, capture_text: bool, content_length: u
     let mut truncated = false;
     for (name, values) in m.metavar_ranges {
         let list = values.len() > 1;
+        if list && !capture_text {
+            // A `$$$` list capture (bodies, argument lists) is summarized as
+            // one span; `captureText:true` (next.expandCaptures) returns the
+            // per-node text. The match `value` already shows the source.
+            if let (Some(first), Some(last)) = (values.first(), values.last()) {
+                let mut row = json!({
+                    "line":first.line,
+                    "column":first.column,
+                    "endColumn":last.end_column,
+                    "count":values.len()
+                });
+                if last.end_line != first.line {
+                    row["endLine"] = json!(last.end_line);
+                }
+                ranges.insert(name, json!([row]));
+                truncated = true;
+            }
+            continue;
+        }
         let mut budgeted = Vec::new();
         for range in values {
-            if !capture_text && list && is_comment(&range.text) {
-                truncated = true;
-                continue;
-            }
             if !capture_text && range.text.chars().count() > 120 {
                 truncated = true;
             }
@@ -588,14 +664,6 @@ fn truncate_capture(text: String, verbatim: bool) -> String {
         out.push('…');
         out
     }
-}
-
-fn is_comment(text: &str) -> bool {
-    let trimmed = text.trim_start();
-    trimmed.starts_with("//")
-        || trimmed.starts_with("/*")
-        || trimmed.starts_with('*')
-        || trimmed.starts_with('#')
 }
 
 fn match_display_path(root: &std::path::Path, path: &str) -> String {

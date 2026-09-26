@@ -1,6 +1,6 @@
 {
   "contractFormatVersion": 2,
-  "fingerprint": "70781d6148f66db1c6727585a40d3b390e3347e4bccf0dcbb8f799131549c25d",
+  "fingerprint": "12c8f1e165f6befa2b65e25d37f6aba60d0aa2edeb37fbce02d753916dabdb0d",
   "tools": [
     {
       "defaults": [
@@ -2627,6 +2627,10 @@
                                                   "minLength": 1,
                                                   "type": "string"
                                                 },
+                                                "snapshot": {
+                                                  "pattern": "^[a-f0-9]{64}$",
+                                                  "type": "string"
+                                                },
                                                 "startLine": {
                                                   "maximum": 1000000000,
                                                   "minimum": 1,
@@ -3071,6 +3075,10 @@
                                                 "reasoning": {
                                                   "description": "Why this call is needed.",
                                                   "minLength": 1,
+                                                  "type": "string"
+                                                },
+                                                "snapshot": {
+                                                  "pattern": "^[a-f0-9]{64}$",
                                                   "type": "string"
                                                 },
                                                 "startLine": {
@@ -8769,6 +8777,10 @@
                       "reasoning": {
                         "description": "Why this call is needed.",
                         "minLength": 1,
+                        "type": "string"
+                      },
+                      "snapshot": {
+                        "pattern": "^[a-f0-9]{64}$",
                         "type": "string"
                       },
                       "startLine": {
@@ -15745,6 +15757,10 @@
                         "minLength": 1,
                         "type": "string"
                       },
+                      "snapshot": {
+                        "pattern": "^[a-f0-9]{64}$",
+                        "type": "string"
+                      },
                       "startLine": {
                         "maximum": 1000000000,
                         "minimum": 1,
@@ -22436,6 +22452,10 @@
                       "reasoning": {
                         "description": "Why this call is needed.",
                         "minLength": 1,
+                        "type": "string"
+                      },
+                      "snapshot": {
+                        "pattern": "^[a-f0-9]{64}$",
                         "type": "string"
                       },
                       "startLine": {
@@ -29823,6 +29843,10 @@
                       "reasoning": {
                         "description": "Why this call is needed.",
                         "minLength": 1,
+                        "type": "string"
+                      },
+                      "snapshot": {
+                        "pattern": "^[a-f0-9]{64}$",
                         "type": "string"
                       },
                       "startLine": {
@@ -37657,6 +37681,10 @@
                         "minLength": 1,
                         "type": "string"
                       },
+                      "snapshot": {
+                        "pattern": "^[a-f0-9]{64}$",
+                        "type": "string"
+                      },
                       "startLine": {
                         "maximum": 1000000000,
                         "minimum": 1,
@@ -43624,6 +43652,10 @@
                         "minLength": 1,
                         "type": "string"
                       },
+                      "snapshot": {
+                        "pattern": "^[a-f0-9]{64}$",
+                        "type": "string"
+                      },
                       "startLine": {
                         "maximum": 1000000000,
                         "minimum": 1,
@@ -49550,6 +49582,10 @@
                       "reasoning": {
                         "description": "Why this call is needed.",
                         "minLength": 1,
+                        "type": "string"
+                      },
+                      "snapshot": {
+                        "pattern": "^[a-f0-9]{64}$",
                         "type": "string"
                       },
                       "startLine": {
@@ -56420,6 +56456,10 @@
                       "reasoning": {
                         "description": "Why this call is needed.",
                         "minLength": 1,
+                        "type": "string"
+                      },
+                      "snapshot": {
+                        "pattern": "^[a-f0-9]{64}$",
                         "type": "string"
                       },
                       "startLine": {
@@ -65081,6 +65121,10 @@
                         "minLength": 1,
                         "type": "string"
                       },
+                      "snapshot": {
+                        "pattern": "^[a-f0-9]{64}$",
+                        "type": "string"
+                      },
                       "startLine": {
                         "maximum": 1000000000,
                         "minimum": 1,
@@ -73331,6 +73375,10 @@
                         "minLength": 1,
                         "type": "string"
                       },
+                      "snapshot": {
+                        "pattern": "^[a-f0-9]{64}$",
+                        "type": "string"
+                      },
                       "startLine": {
                         "maximum": 1000000000,
                         "minimum": 1,
@@ -76668,6 +76716,11 @@
                 "reasoning": {
                   "description": "Why this call is needed.",
                   "minLength": 1,
+                  "type": "string"
+                },
+                "snapshot": {
+                  "description": "Copy next snapshot; a changed file is rejected, not mixed.",
+                  "pattern": "^[a-f0-9]{64}$",
                   "type": "string"
                 },
                 "startLine": {
@@ -81044,6 +81097,10 @@
                         "minLength": 1,
                         "type": "string"
                       },
+                      "snapshot": {
+                        "pattern": "^[a-f0-9]{64}$",
+                        "type": "string"
+                      },
                       "startLine": {
                         "maximum": 1000000000,
                         "minimum": 1,
@@ -81910,6 +81967,10 @@
                             "reasoning": {
                               "description": "Why this call is needed.",
                               "minLength": 1,
+                              "type": "string"
+                            },
+                            "snapshot": {
+                              "pattern": "^[a-f0-9]{64}$",
                               "type": "string"
                             },
                             "startLine": {
@@ -83036,6 +83097,11 @@
           "reasoning": {
             "description": "Why this call is needed.",
             "minLength": 1,
+            "type": "string"
+          },
+          "snapshot": {
+            "description": "Copy next snapshot; a changed file is rejected, not mixed.",
+            "pattern": "^[a-f0-9]{64}$",
             "type": "string"
           },
           "startLine": {
@@ -88430,6 +88496,10 @@
                       "reasoning": {
                         "description": "Why this call is needed.",
                         "minLength": 1,
+                        "type": "string"
+                      },
+                      "snapshot": {
+                        "pattern": "^[a-f0-9]{64}$",
                         "type": "string"
                       },
                       "startLine": {

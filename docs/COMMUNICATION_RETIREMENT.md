@@ -64,12 +64,11 @@ for API contracts; those controls are not automatically CLI options.
 
 ## Database upgrade and verification
 
-The communication schema is v4; the historical `v1.sqlite` filename stays stable.
-Stop old workers, let presence expire, then use the skill CLI's `db migrate` on
-the communication database. All clients must use the new schema together. The
-migration preserves old messages, keeps historical direct messages actionable,
-and makes historical topic/broadcast messages passive. It never invents past
-reasoning or imports an Awareness database.
+The communication schema is v6. The historical `v1.sqlite` filename stays stable
+and is not the schema version. Stop old workers, let presence expire, then use
+the skill CLI's `db migrate`. Upgrade rules and the meaning of historical rows
+are in the [database protocol](../packages/octocode-agents-communication/docs/DB.md).
+Migration never imports an Awareness database.
 
 The previous six-worker activity exercise reported 93% cached cumulative input.
 Two acknowledgement-only turns accounted for 73,482 input tokens (69,632 cached),
@@ -113,7 +112,7 @@ They do not establish an overall production token reduction. The skill is 43 lin
 characters, separately budgeted from its existing tool schemas. Stable schemas
 can be cached, but remain context.
 
-The follow-up [matched benchmark](../packages/octocode-agents-communication/docs/BENCHMARKS.md)
+A follow-up matched benchmark
 ran 12 workers under both wake policies. Handling turns fell from two to one in
 every pair; startup-adjusted input fell 40.2% for Codex, 60.0% for Claude and 49.6%
 for Pi, including cached input. Completion latency increased for all three

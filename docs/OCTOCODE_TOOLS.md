@@ -113,7 +113,7 @@ Row fields are `index`, optional `status`, optional `cache`, `meta`, and `data`.
 | `lspSearch` | Internal/local with a language-server process | Resolves an anchored symbol and asks a real language server for definitions, references, calls, types, symbols, hierarchy, or diagnostics. It reports unavailable capabilities instead of returning a syntactic approximation as semantic proof. |
 | `clasify` | External Jev provider | Executes unread read-tool requests or accepts supplied state, applies Noul, Choice, or Score questions across a resource-question matrix, and returns correlated typed pages without retrieved bodies. |
 
-Remote GitHub tools require provider runtime and credentials. `artifactSearch` uses official registry APIs; `type:"npm"` honors the effective npm registry configuration. Local tools require `ENABLE_LOCAL`; `ghCloneRepo` is CLI-only and requires persistent storage. `astRewrite` and `astTopology` additionally require `OCTOCODE_BETA=true` (the sole gate for both preview and apply). LSP availability also depends on a compatible server for the file language. `clasify` requires a nonblank resolved `OCTOCODE_CLASSIFICATION_API`; without one, MCP omits it and a CLI call returns an actionable missing-key error.
+Remote GitHub tools require provider runtime and credentials. `artifactSearch` uses official registry APIs; `type:"npm"` honors the effective npm registry configuration. Local tools require `ENABLE_LOCAL`; `ghCloneRepo` is CLI-only and requires persistent storage. `astRewrite` and `astTopology` additionally require `OCTOCODE_BETA=true` (the sole gate for both preview and apply). LSP availability also depends on a compatible server for the file language. `clasify` requires a nonblank resolved classification key: `OCTOCODE_CLASSIFICATION_API`, else the selected vendor's key (`OCTOCODE_JEV_KEY` for jev), else `.octocoderc` `classification.api`; without one, MCP omits it and a CLI call returns an actionable missing-key error.
 
 ## Text, AST, graph, and LSP: choose the evidence you need
 
@@ -642,7 +642,8 @@ Coverage and limits:
 
 - `relevance` (default) and `matchCount` keep the 10,000 most-matched files across every searched file. `stats` totals count all matched files; `capReason:"maxCollectedFiles"` marks the trimmed list.
 - If no file under `path` can be read, the call fails with `errorCode:"fileAccessFailed"` (exit 5). If some paths are unreadable, the result sets `isPartial` and `terminalLimit`, and `stats.errorCount`/`firstError` report the failures. Zero matches in that result do not prove absence.
-- A file with a NUL byte is searched up to that byte, and matches before it are kept. `capReason` includes `binaryQuit` and a `binaryFileSkipped` warning is added. If that leaves the result empty, it is `isPartial`, not empty.
+- A file with a NUL byte is searched up to that byte, and matches before it are kept. `capped` is true, `capReason` includes `binaryQuit`, a `binaryFileSkipped` warning is added, and the result is `isPartial` (with `terminalLimit` when no other continuation exists): no text tool reads past the NUL, so the kept matches are not the file's full set and an empty result does not prove absence.
+- Match values whose secret-shaped text was replaced by `[REDACTED…]` placeholders carry a `redactedMatches` warning; those values are not verbatim source.
 - `regex:"pcre2"` searches have a wall-clock limit. At the limit the result keeps the files finished so far and reports `capReason:"pcre2Deadline"`.
 - Files are opened without following symlinks. A path replaced by a symlink or special file after the walk counts as a read error.
 
@@ -708,6 +709,13 @@ Java call patterns may omit their trailing semicolon. The structural compiler
 supplies grammar-checked statement context for direct patterns and patterns
 nested anywhere in a YAML rule; complete patterns keep their original parse,
 match ranges, and captures.
+
+Pattern matching is exact about modifiers: a Rust `fn $N()` pattern does not
+match `pub fn` items (the visibility modifier is a named child). Such a pattern
+adds a `structural.pattern.visibilityExact` info diagnostic; write `pub fn …` or
+use a YAML rule on the item kind. A multi-node `$$$` capture is returned as one
+`metavarRanges` span row with `count` (and `capturesTruncated`); set
+`captureText:true` (`next.expandCaptures`) for per-node text.
 
 Structural failures retain native public codes such as
 `structural.query.invalid`, `structural.query.compileFailed`,
@@ -1018,7 +1026,7 @@ This is a beta feature, disabled by default. Set `OCTOCODE_BETA=true` (or
 | `pattern`, `rewrite` | Match and replacement for the `pattern` form. |
 | `include`, `exclude` | Optional file filters. |
 | `maxFiles`, `maxMatches` | Scan bounds; defaults are 2,000 files and 10,000 matches. |
-| `page`, `pageSize`, `snapshot` | Preview pagination; copy executable continuations and their snapshot. |
+| `page`, `pageSize`, `snapshot` | Preview pagination; copy executable continuations and their snapshot. A page lists only the files its matches touch; a file's whole-file `patch` is sent once, on the first page touching it, and later pages carry `patchOnPage` instead. |
 | `apply` | Defaults to `false`. Applying requires the unchanged preview snapshot and non-empty `expectedHashes`; a complete preview returns `next.apply` with both filled in. |
 | `expectedHashes`, `selectedMatchIds` | Preview SHA-256 hashes for exactly the selected files. With explicit match selection, omit unselected-file hashes. A stale or missing selected-file hash aborts the apply. |
 | `postconditions` | Check a required `remainingMatches` count in the staged selected files before commit. |

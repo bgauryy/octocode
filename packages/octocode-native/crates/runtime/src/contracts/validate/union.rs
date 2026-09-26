@@ -400,13 +400,13 @@ mod tests {
                     "id":"missing-question-field",
                     "reasoning":"Check the selected question.",
                     "resources":[{"id":"held","context":{"value":"Observed evidence"}}],
-                    "questions":[{"id":"check","question":question}]
+                    "questions":[question]
                 }),
                 PrepareOptions::default(),
             )
             .expect_err("the selected question lacks a required field");
             assert_eq!(error.issues.len(), 1, "{error:?}");
-            assert_eq!(error.issues[0].path, ["questions", "0", "question", field]);
+            assert_eq!(error.issues[0].path, ["questions", "0", field]);
             assert_eq!(error.issues[0].rule_id, "schema.required");
         }
     }

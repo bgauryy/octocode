@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {normalizeUsage,evaluate} from '../scripts/context-profile-benchmark.mjs';
+import {normalizeUsage,evaluate} from '../../scripts/context-profile-benchmark.mjs';
 test('context accounting separates exclusive Claude counters from inclusive input',()=>{
  const rows=[{inputTokens:10,cachedInputTokens:100,cacheWriteTokens:20,outputTokens:3}];
  assert.equal(normalizeUsage('claude',rows).input,130);

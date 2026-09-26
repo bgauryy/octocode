@@ -38,7 +38,8 @@ test('raw hook emits each committed message once; audit survives ack and prune',
   assert.equal(first.context.includes('dispatchToken'), false, 'Transport receipts must not consume model context');
   const empty = f.call('hook', { format: 'json' }, f.b.id);
   assert.deepEqual(empty.items, []);
-  assert.equal(empty.context, '', 'Idle hooks contribute no repeated context');
+  assert.equal(empty.context, undefined, 'Idle hooks contribute no repeated context');
+  assert.deepEqual(Object.keys(first.items[0]), ['id'], 'Bodies travel once, inside context');
   assert.equal(f.call('inbox', {}, f.b.id).items.length, 1, 'injection is not handling');
   f.call('ack', { message: sent.id }, f.b.id);
   const db = new DatabaseSync(f.database);
@@ -166,4 +167,52 @@ test('explicit v1 migration preserves messages and refuses active workers', t =>
   assert.equal(db.prepare('SELECT kind FROM audit').get().kind, 'session.imported');
   assert.equal(migrate().migrated, false);
   db.close();
+});
+
+function listener(f, session, extra = []) {
+  const child = spawn(binary, ['listen', '--workspace', f.workspace, '--database', f.database, '--session', session, ...extra]);
+  let stdout = '', stderr = '';
+  child.stdout.on('data', x => stdout += x); child.stderr.on('data', x => stderr += x);
+  const closed = new Promise(resolve => child.on('close', code => resolve(code)));
+  const started = new Promise((resolve, reject) => {
+    child.stdout.on('data', () => { if (stdout.includes('"listening"')) resolve(); });
+    child.on('close', () => reject(Error(`listen exited: ${stderr}`)));
+  });
+  started.catch(() => {});
+  return { child, closed, started, output: () => ({ stdout, stderr }) };
+}
+const until = async (check, ms = 5000) => {
+  for (const deadline = Date.now() + ms; Date.now() < deadline; await new Promise(r => setTimeout(r, 25))) if (check()) return true;
+  return false;
+};
+test('listen survives vendor failures with backoff and keeps mail queued', async t => {
+  const f = fixture(t);
+  const port = await new Promise(resolve => { const s = createServer(); s.listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => resolve(port)); }); });
+  f.call('attach', { transport: 'codex', endpoint: `ws://127.0.0.1:${port}/`, vendorSession: 'absent-thread' }, f.b.id);
+  f.call('send_message', { to: f.b.id, body: 'retry later' }, f.a.id);
+  const listen = listener(f, f.b.id, ['--duration-ms', '1500']);
+  assert.equal(await listen.closed, 0, listen.output().stderr);
+  const { stderr } = listen.output();
+  assert.match(stderr, /retrying in \d+ ms/);
+  assert.ok(stderr.split('\n').filter(Boolean).length <= 4, `Exponential backoff, not a tight retry loop: ${stderr}`);
+  const db = new DatabaseSync(f.database); t.after(() => db.close());
+  assert.equal(db.prepare('SELECT count(*) n FROM dispatches').get().n, 0, 'Pre-offer failures stage nothing');
+});
+test('listen resumes an identity that expired while suspended and owns delivery alone', async t => {
+  const f = fixture(t);
+  f.call('attach', { transport: 'raw' }, f.b.id);
+  const listen = listener(f, f.b.id);
+  t.after(() => listen.child.kill('SIGKILL'));
+  await listen.started;
+  const second = listener(f, f.b.id, ['--duration-ms', '500']);
+  assert.notEqual(await second.closed, 0);
+  assert.match(second.output().stderr, /delivery owner/);
+  const db = new DatabaseSync(f.database); t.after(() => db.close());
+  db.prepare('UPDATE sessions SET expiresAt=? WHERE id=?').run(Date.now() - 1, f.b.id);
+  assert.ok(await until(() => db.prepare('SELECT expiresAt FROM sessions WHERE id=?').get(f.b.id).expiresAt > Date.now() + 30000), 'Suspend-expired presence must resume');
+  assert.equal(listen.child.exitCode, null, listen.output().stderr);
+  listen.child.kill('SIGINT');
+  assert.equal(await listen.closed, 0, listen.output().stderr);
+  const after = listener(f, f.b.id, ['--duration-ms', '100']);
+  assert.equal(await after.closed, 0, 'A stopped owner releases delivery');
 });
