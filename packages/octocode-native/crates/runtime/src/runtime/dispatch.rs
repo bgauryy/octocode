@@ -7,6 +7,7 @@ use crate::tools::ast_rewrite::{AstRewriteRuntimeOptions, execute_ast_rewrite_wi
 use crate::tools::ast_search::execute_ast;
 use crate::tools::local_fetch::{LocalFetchQuery, LocalFetchRegex, execute_local_fetch_with_regex};
 use crate::tools::local_search::{LocalSearchQuery, SearchStatus, execute_local_search};
+use crate::tools::structure_search::execute_structure;
 use serde_json::{Value, json};
 
 pub(super) struct DomainResult {
@@ -111,6 +112,13 @@ pub(super) fn execute_local(
                 }
             }
         }
+        "structureSearch" => match execute_structure(query.clone(), paths, security, context) {
+            Ok(data) => Ok(value_result(data)),
+            Err(error) => Ok(domain_error(
+                json!({"error":error.message,"errorCode":error.code}),
+                None,
+            )),
+        },
         "astSearch" => match execute_ast(query.clone(), paths, security, context) {
             Ok(data) => Ok(value_result(data)),
             Err(error) => Ok(domain_error(

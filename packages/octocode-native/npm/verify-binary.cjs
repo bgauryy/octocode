@@ -112,7 +112,7 @@ const catalog = run(['scheme', '--compact'], {
 });
 const parsed = parseOutput(catalog);
 const tools = parsed && Array.isArray(parsed.tools) ? parsed.tools : [];
-const required = ['localSearch', 'astSearch', 'lspSearch'];
+const required = ['localSearch', 'structureSearch', 'astSearch', 'lspSearch'];
 if (
   catalog.status !== 0 ||
   required.some(name => !tools.some(tool => tool.name === name))
@@ -158,7 +158,6 @@ try {
 
   const local = run(
     [
-      'tools',
       'localSearch',
       JSON.stringify({
         path: fixture,
@@ -166,8 +165,6 @@ try {
         regex: 'literal',
         reasoning: 'Verify the staged native CLI can search a retained-language fixture',
       }),
-      '--json',
-      '--compact',
     ],
     { env }
   );
@@ -175,27 +172,23 @@ try {
     fail(`localSearch smoke failed: ${local.stderr.trim()}`);
   }
 
-  const ast = run(
+  const structure = run(
     [
-      'tools',
-      'astSearch',
+      'structureSearch',
       JSON.stringify({
         operation: 'files',
         path: fixture,
         reasoning: 'Verify the staged native CLI can list mixed-language fixture files',
       }),
-      '--json',
-      '--compact',
     ],
     { env }
   );
-  if (ast.status !== 0 || !ast.stdout.includes('source.rs')) {
-    fail(`astSearch smoke failed: ${ast.stderr.trim()}`);
+  if (structure.status !== 0 || !structure.stdout.includes('source.rs')) {
+    fail(`structureSearch smoke failed: ${structure.stderr.trim()}`);
   }
 
   const lsp = run(
     [
-      'tools',
       'lspSearch',
       JSON.stringify({
         operation: 'documentSymbols',
@@ -203,8 +196,6 @@ try {
         workspaceRoot: fixture,
         reasoning: 'Verify unavailable semantic routing remains a typed staged-CLI error',
       }),
-      '--json',
-      '--compact',
     ],
     { env }
   );

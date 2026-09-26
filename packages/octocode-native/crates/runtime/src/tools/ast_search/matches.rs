@@ -494,7 +494,7 @@ fn execute_match_inner(
             "code":"structural.query.noMatches",
             "severity":"info",
             "stage":"match",
-            "message":"0 structural matches for the requested pattern in this scope. Patterns must be complete parseable nodes, including punctuation such as trailing semicolons and relevant bodies (`$$$BODY`), return types, or decorators. Confirm the node shape with treeKind:\"syntax\"; use an explicit YAML rule for partial or relational constraints.",
+            "message":"0 structural matches for the requested pattern in this scope. Patterns must be complete parseable nodes, including punctuation such as trailing semicolons and relevant bodies (`$$$BODY`), return types, or decorators. Confirm the node shape with operation:\"syntaxTree\"; use an explicit YAML rule for partial or relational constraints.",
             "path":path
         }]);
     }

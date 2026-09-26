@@ -10,7 +10,7 @@ use crate::contracts::{self, ContractValidationError};
 use crate::response::{ResponseInput, ResponsePageOptions, ResponsePager, ResponsePagerConfig};
 use serde_json::Value;
 
-pub(super) struct StageInput<'a> {
+pub(super) struct StageInput {
     pub tool: String,
     /// Sanitized, reranked envelope: `{results}` or clasify `{queries}`.
     pub structured: Value,
@@ -24,12 +24,6 @@ pub(super) struct StageInput<'a> {
     pub text_format: super::render::TextFormat,
     /// False when a replay would not reproduce the page (reranked output).
     pub allow_auto_paging: bool,
-    // Unused: continuations carry their own source identity (`snapshot`), so
-    // no cursor is stamped. Remove once the engine stops supplying them.
-    #[allow(dead_code)]
-    pub cursor_scope: &'a str,
-    #[allow(dead_code)]
-    pub source_digests: &'a [Option<String>],
     pub source_digest: Option<String>,
 }
 
@@ -37,7 +31,7 @@ pub(super) struct StageInput<'a> {
 /// violation is returned as `Ok(Err(_))`; isolated row violations become
 /// explicit error rows and mark the outcome failed.
 pub(super) fn finish(
-    input: StageInput<'_>,
+    input: StageInput,
     context: &ExecutionContext,
 ) -> Result<Result<ToolOutcome, ContractValidationError>, ExecutionError> {
     let StageInput {
@@ -50,8 +44,6 @@ pub(super) fn finish(
         auto_page_chars,
         text_format,
         allow_auto_paging,
-        cursor_scope: _,
-        source_digests: _,
         source_digest,
     } = input;
     // Validate the complete, sanitized rows before deriving text, error state,
@@ -65,7 +57,7 @@ pub(super) fn finish(
     }
     let all_failed = response_all_failed(&structured);
     // clasify receipts carry scoped nested queries and pages at the evidence
-    // level (next.clasify): no continuation compaction, cursors, or replaying
+    // level (next.clasify): no continuation compaction or replaying
     // auto-pagination, which would re-run inference.
     let is_clasify = tool == "clasify";
     if !is_clasify {
@@ -194,8 +186,6 @@ mod tests {
                 auto_page_chars: 20_000,
                 text_format: super::super::render::TextFormat::Yaml,
                 allow_auto_paging: true,
-                cursor_scope: "scope",
-                source_digests: &[None, None],
                 source_digest: None,
             },
             &context(),
@@ -279,8 +269,6 @@ mod tests {
                 auto_page_chars: 20_000,
                 text_format: super::super::render::TextFormat::Yaml,
                 allow_auto_paging: true,
-                cursor_scope: "scope",
-                source_digests: &[],
                 source_digest: None,
             },
             &context(),

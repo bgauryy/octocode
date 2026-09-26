@@ -168,7 +168,7 @@ class PilotControls(unittest.TestCase):
         for query in ({"operation": "documentSymbols", "uri": str(self.source)},
                       {"operation": "documentSymbols", "uri": self.source.as_uri()},
                       {"operation": "workspaceSymbol", "workspaceRoot": str(self.corpus), "symbolName": "source"}):
-            call = f"node {self.cli} lspSearch {shlex.quote(json.dumps(query))} --compact"
+            call = f"node {self.cli} lspSearch {shlex.quote(json.dumps(query))}"
             self.assertIsNone(policy.audit(call), query)
 
     def test_secondary_query_paths_cannot_escape_corpus(self):
@@ -188,14 +188,14 @@ class PilotControls(unittest.TestCase):
         ]
         for tool, query in queries:
             with self.subTest(query=query):
-                call = f"node {self.cli} {tool} {shlex.quote(json.dumps(query))} --compact"
+                call = f"node {self.cli} {tool} {shlex.quote(json.dumps(query))}"
                 self.assertEqual(policy.audit(call), "query_outside_corpus")
 
     def test_scoped_topology_supports_root_inference_and_relative_targets(self):
         policy = pilot.Policy("octocode", self.cli, [self.corpus])
         for query in ({"operation": "topology", "analysis": "dependencies", "file": str(self.source)},
                       {"operation": "topology", "analysis": "path", "path": str(self.corpus), "file": "source.py", "target": "source.py"}):
-            call = f"node {self.cli} astSearch {shlex.quote(json.dumps(query))} --compact"
+            call = f"node {self.cli} astSearch {shlex.quote(json.dumps(query))}"
             self.assertIsNone(policy.audit(call), query)
 
     def test_exec_network_expansion_and_sed_program_rejected(self):
@@ -260,7 +260,7 @@ class PilotControls(unittest.TestCase):
     def test_octocode_only_local_scoped_queries(self):
         policy = pilot.Policy("octocode", self.cli, [self.corpus])
         query = json.dumps({"path": str(self.source), "startLine": 1, "endLine": 20})
-        base = f"node {self.cli} localFetch {shlex.quote(query)} --compact"
+        base = f"node {self.cli} localFetch {shlex.quote(query)}"
         self.assertIsNone(policy.audit(base))
         self.assertIsNotNone(policy.audit(base.replace(str(self.source), "/etc/passwd")))
         self.assertIsNotNone(policy.audit(f"node {self.cli} ghSearch '{{}}'"))
@@ -282,8 +282,8 @@ class PilotControls(unittest.TestCase):
     def test_malformed_positional_json_is_recorded_and_recoverable_within_call_budget(self):
         state = pilot.EventAudit(pilot.Policy("octocode", self.cli, [self.corpus]), pilot.Budgets())
         query = shlex.quote(json.dumps({"path": str(self.source), "searchText": "pass"}))
-        wrong = f"node {self.cli} localSearch '{{broken}}' --compact"
-        correct = f"node {self.cli} localSearch {query} --compact"
+        wrong = f"node {self.cli} localSearch '{{broken}}'"
+        correct = f"node {self.cli} localSearch {query}"
         state.feed(self.command(command=wrong, kind="item.started", output=""))
         self.assertFalse(state.stop_requested)
         state.feed(self.command(command=wrong, output="invalid query JSON", exit_code=1))
@@ -427,10 +427,10 @@ class PilotControls(unittest.TestCase):
             self.assertIsNotNone(policy.audit(f"rg pass {target}"), target)
         octocode = pilot.Policy("octocode", self.cli, [self.corpus])
         self.assertEqual(octocode.audit(
-            f'node {self.cli} localFetch \'{{"path":"$LANGCHAIN/source.py"}}\' --compact'),
+            f'node {self.cli} localFetch \'{{"path":"$LANGCHAIN/source.py"}}\''),
             "query_outside_corpus")
         self.assertIsNotNone(octocode.audit(
-            f'node {self.cli} localFetch "{{\\"path\\":\\"$LANGCHAIN/source.py\\"}}" --compact'))
+            f'node {self.cli} localFetch "{{\\"path\\":\\"$LANGCHAIN/source.py\\"}}"'))
 
     def test_tool_contract_capture_requires_enabled_schemas_and_bounded_output(self):
         from unittest.mock import patch

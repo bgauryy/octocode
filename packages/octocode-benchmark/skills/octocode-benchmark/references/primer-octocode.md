@@ -16,7 +16,8 @@ and is **not** counted; use it instead of paying for schema discovery.
 | `ghCloneRepo` | Materialize a repo/sparse subtree **only** for repeated reads, structural (AST) matching, or LSP semantics. |
 | `artifactSearch` | Resolve dependencies/source or discover packages by capability. Require ecosystem `type` and exact `packageName` or `keywords`; PyPI is exact-only. Skip when source is known or installed behavior needs local evidence. |
 | `localSearch` | Lexical text and regex occurrences with file+line anchors. Choose a result view and follow returned continuations. |
-| `astSearch` | File discovery, syntax trees, symbols, and structural matches. |
+| `structureSearch` | Directory outlines (`tree`) and file discovery by name or metadata (`files`). |
+| `astSearch` | Structural matches, syntax trees (`syntaxTree`), and symbols; a `symbols` row's `name`+`line` is `lspSearch` `symbolName`+`lineHint` as-is. |
 | `astTopology` | Bounded dependency graphs. Use `operation:"topology"` with `analysis` for dependencies, dependents, paths, reachability, cycles, drift, or dead-code candidates. |
 | `localFetch` | Read exact local file bytes or an anchored region. Use `minify:"symbols"` only for an outline; preserve `minify:"none"` for exact content. |
 | `lspSearch` | Definitions, references, callers/callees, symbols, types, and diagnostics — **after** search/read gives a real file+line. `documentSymbols`/`diagnostic` need `uri`; `workspaceSymbol` needs `symbolName` plus `uri` or `workspaceRoot`; anchored operations need `uri`+`symbolName`+`lineHint`. |
@@ -87,14 +88,14 @@ always add `$$$` before and after the field you care about when other fields may
 
 ### 3 — Largest file by line count (not bytes)
 
-`astSearch operation:files` with `detail:"basic"` or `detail:"full"` returns `size` in **bytes**.
+`structureSearch operation:files` with `detail:"basic"` or `detail:"full"` returns `size` in **bytes**.
 `sort:"size"` sorts by bytes — that is NOT the same as line count for large files.
 
 To find the file with the most lines:
 
 ```bash
 # Returns files sorted by line count (lineCount field appears in output when detail:full):
-npx octocode astSearch '{"reasoning":"Rank files by line count.","operation":"files","path":"/repo","detail":"full","sort":"lines","entryType":"f"}'
+npx octocode structureSearch '{"reasoning":"Rank files by line count.","operation":"files","path":"/repo","detail":"full","sort":"lines","entryType":"f"}'
 ```
 
 Alternatively, to get line count for a specific file:

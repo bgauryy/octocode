@@ -9,7 +9,7 @@ Use the built CLI's single public semantic tool for every provider call:
 
 ```bash
 node packages/octocode/out/octocode.js scheme clasify --view query --compact
-node packages/octocode/out/octocode.js clasify --input request.json --compact
+node packages/octocode/out/octocode.js clasify --input request.json
 ```
 
 The operator configures `OCTOCODE_CLASSIFICATION_API` and the model through runtime config.

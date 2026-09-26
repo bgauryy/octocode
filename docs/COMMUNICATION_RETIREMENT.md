@@ -5,18 +5,11 @@
 `@octocodeai/octocode-agents-communication` owns shared session identities, advisory
 path leases, messages, subscriptions, dispatch receipts and their SQLite audit.
 Any vendor can use its skill and Rust CLI; a conforming SQLite client is the fallback.
-Pi bundles that skill and registers its tools and lifecycle adapter directly.
-
-Pi retains its own plans, branch/session snapshots, context measurements,
-compaction policy, capability checks and human interactions. The small storage,
-validation and context-measurement primitives these features need now live in Pi.
-They do not require a second shared-work runtime.
 
 The Awareness package, CLI, installed repository skill and repository hook
 registrations are removed. Its duplicate plan projections, work/verification
 ledger, shared memory and automatic history capture are retired. `/rewind` depended
-on that history store and is removed; Pi's native file conflict checks and session
-plan snapshots remain.
+on that history store and is removed.
 
 Existing Awareness SQLite files and `.octocode/.localGit` archives are left on
 disk. They are not imported into communication or the new Pi interaction store.
@@ -62,13 +55,10 @@ cache controls. See [OpenAI caching](https://developers.openai.com/api/docs/guid
 and [Claude caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)
 for API contracts; those controls are not automatically CLI options.
 
-## Database upgrade and verification
+## Database and verification
 
-The communication schema is v6. The historical `v1.sqlite` filename stays stable
-and is not the schema version. Stop old workers, let presence expire, then use
-the skill CLI's `db migrate`. Upgrade rules and the meaning of historical rows
-are in the [database protocol](../packages/octocode-agents-communication/docs/DB.md).
-Migration never imports an Awareness database.
+Only the current development schema is supported. Use a fresh database after schema
+changes; see the [database protocol](../skills/octocode-agents-communication/docs/DB.md).
 
 The previous six-worker activity exercise reported 93% cached cumulative input.
 Two acknowledgement-only turns accounted for 73,482 input tokens (69,632 cached),
@@ -92,7 +82,7 @@ never sum cumulative Codex usage snapshots.
   sessions, with zero model calls. They exposed and verified the fix for premature
   delivery confirmation while the session existed only in memory.
 - Communication validation passed 74 JavaScript tests and 20 Rust tests, including
-  lease conflict/expiry, wake scheduling, migration and receipt recovery checks.
+  lease conflict/expiry, wake scheduling, schema rejection and receipt recovery checks.
   Release build, formatting and Clippy passed on the local macOS ARM64 host.
 - Pi's normal test command passed all 2,245 tests in 208 files with its default
   worker and timeout settings. Build, type checking, lint, documentation
@@ -103,7 +93,7 @@ The subsequent native rebuild and dependency refresh resolved the core/native
 contract mismatch. Root and Pi-bundled CLI smoke checks, a real local search, and
 immutable dependency installation now pass without a drift bypass. The default
 communication DB path does not yet exist on the checked host; no default user DB
-needed migration. Custom existing databases still require the documented upgrade.
+was changed. Existing stores must match the current development schema.
 
 These results test delivery and scheduling behavior, not universal exactly-once
 execution: uncertain transport outcomes still require inspection before retry.

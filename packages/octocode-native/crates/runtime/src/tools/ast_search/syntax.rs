@@ -5,10 +5,10 @@ use octocode_engine::structural::SyntaxTreeInspectOptions;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 const MAX_SOURCE: usize = 1_000_000;
-pub use crate::contracts::tool_types::AstSearchQueryTree;
+pub use crate::contracts::tool_types::AstSearchQuerySyntaxTree;
 
-/// Engine-unit views over the generated `tree` query.
-impl AstSearchQueryTree {
+/// Engine-unit views over the generated `syntaxTree` query.
+impl AstSearchQuerySyntaxTree {
     pub fn lang_type(&self) -> Option<String> {
         self.lang_type.as_ref().map(ToString::to_string)
     }
@@ -24,7 +24,7 @@ impl AstSearchQueryTree {
 }
 
 pub fn execute_syntax(
-    q: &AstSearchQueryTree,
+    q: &AstSearchQuerySyntaxTree,
     paths: &PathPolicy,
     security: &ContentSecurity,
     cancel: &dyn CancellationCheck,
@@ -94,7 +94,7 @@ pub fn execute_syntax(
         .file_name()
         .unwrap_or_default()
         .to_string_lossy();
-    let mut out = json!({"operation":"tree","treeKind":"syntax","path":display_path,"nodes":nodes,"totalNodes":r.total_nodes,"snapshot":snapshot,"isPartial":!complete});
+    let mut out = json!({"operation":"syntaxTree","path":display_path,"nodes":nodes,"totalNodes":r.total_nodes,"snapshot":snapshot,"isPartial":!complete});
     if !diagnostics.is_empty() {
         out["diagnostics"] = json!(diagnostics);
     }

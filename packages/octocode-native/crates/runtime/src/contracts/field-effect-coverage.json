@@ -22,7 +22,12 @@
           "fileChunks",
           "search"
         ],
-        "questions[].questionType": ["contribution", "addsEvidence", "supportsClaim", "locate"],
+        "questions[].questionType": [
+          "contribution",
+          "addsEvidence",
+          "supportsClaim",
+          "locate"
+        ],
         "questions[].type": [
           "noul",
           "choice",
@@ -30,9 +35,15 @@
         ]
       },
       "fields": {
-        "questions[].questionType": ["consumed"],
-        "questions[].target": ["consumed"],
-        "questions[].knownEvidence": ["consumed"],
+        "questions[].questionType": [
+          "consumed"
+        ],
+        "questions[].target": [
+          "consumed"
+        ],
+        "questions[].knownEvidence": [
+          "consumed"
+        ],
         "id": [
           "consumed"
         ],
@@ -823,36 +834,25 @@
         ]
       }
     },
-    "astSearch": {
+    "structureSearch": {
       "evidence": [
-        "src/tools/ast_search/mod.rs",
-        "src/tools/ast_search/policy_tests.rs",
+        "src/tools/structure_search/tests.rs",
         "tests/runtime_local.rs"
       ],
       "variants": [
-        "match",
-        "files",
-        "tree:syntax",
-        "symbols"
+        "tree",
+        "files"
       ],
       "discriminators": {
         "operation": [
-          "match",
-          "files",
           "tree",
-          "symbols"
-        ],
-        "treeKind": [
-          "syntax"
+          "files"
         ]
       },
       "fields": {
         "access": [
           "consumed",
           "security-policy"
-        ],
-        "captureText": [
-          "consumed"
         ],
         "debug": [
           "workflow-metadata",
@@ -867,13 +867,121 @@
         "entryType": [
           "consumed"
         ],
-        "exclude": [
-          "consumed"
-        ],
         "excludeDir": [
           "consumed"
         ],
         "extensions": [
+          "consumed"
+        ],
+        "goal": [
+          "workflow-metadata"
+        ],
+        "hidden": [
+          "consumed"
+        ],
+        "limit": [
+          "consumed",
+          "output-control"
+        ],
+        "maxDepth": [
+          "consumed"
+        ],
+        "minDepth": [
+          "consumed"
+        ],
+        "names": [
+          "consumed"
+        ],
+        "operation": [
+          "consumed"
+        ],
+        "page": [
+          "consumed",
+          "output-control",
+          "continuation"
+        ],
+        "pageSize": [
+          "consumed",
+          "output-control"
+        ],
+        "path": [
+          "consumed",
+          "security-policy"
+        ],
+        "pathPattern": [
+          "consumed"
+        ],
+        "pathRegex": [
+          "consumed"
+        ],
+        "permissions": [
+          "consumed",
+          "security-policy"
+        ],
+        "reasoning": [
+          "workflow-metadata"
+        ],
+        "size": [
+          "consumed"
+        ],
+        "size.greater": [
+          "consumed"
+        ],
+        "size.less": [
+          "consumed"
+        ],
+        "snapshot": [
+          "consumed",
+          "output-control",
+          "continuation"
+        ],
+        "sort": [
+          "consumed"
+        ],
+        "time": [
+          "consumed"
+        ],
+        "time.accessedWithin": [
+          "consumed"
+        ],
+        "time.modifiedBefore": [
+          "consumed"
+        ],
+        "time.modifiedWithin": [
+          "consumed"
+        ]
+      }
+    },
+    "astSearch": {
+      "evidence": [
+        "src/tools/ast_search/mod.rs",
+        "src/tools/ast_search/policy_tests.rs",
+        "tests/runtime_local.rs"
+      ],
+      "variants": [
+        "match",
+        "syntaxTree",
+        "symbols"
+      ],
+      "discriminators": {
+        "operation": [
+          "match",
+          "syntaxTree",
+          "symbols"
+        ]
+      },
+      "fields": {
+        "captureText": [
+          "consumed"
+        ],
+        "debug": [
+          "workflow-metadata",
+          "output-control"
+        ],
+        "exclude": [
+          "consumed"
+        ],
+        "excludeDir": [
           "consumed"
         ],
         "goal": [
@@ -895,10 +1003,6 @@
           "validated",
           "consumed"
         ],
-        "limit": [
-          "consumed",
-          "output-control"
-        ],
         "matchContentLength": [
           "consumed",
           "output-control"
@@ -917,16 +1021,10 @@
         "maxMatchesPerFile": [
           "consumed"
         ],
-        "minDepth": [
-          "consumed"
-        ],
         "name": [
           "consumed"
         ],
         "namedOnly": [
-          "consumed"
-        ],
-        "names": [
           "consumed"
         ],
         "noIgnore": [
@@ -957,18 +1055,8 @@
           "consumed",
           "security-policy"
         ],
-        "pathPattern": [
-          "consumed"
-        ],
-        "pathRegex": [
-          "consumed"
-        ],
         "pattern": [
           "consumed"
-        ],
-        "permissions": [
-          "consumed",
-          "security-policy"
         ],
         "reasoning": [
           "workflow-metadata"
@@ -983,36 +1071,12 @@
         "rule": [
           "consumed"
         ],
-        "size": [
-          "consumed"
-        ],
-        "size.greater": [
-          "consumed"
-        ],
-        "size.less": [
-          "consumed"
-        ],
         "snapshot": [
           "consumed",
           "output-control",
           "continuation"
         ],
         "sort": [
-          "consumed"
-        ],
-        "time": [
-          "consumed"
-        ],
-        "time.accessedWithin": [
-          "consumed"
-        ],
-        "time.modifiedBefore": [
-          "consumed"
-        ],
-        "time.modifiedWithin": [
-          "consumed"
-        ],
-        "treeKind": [
           "consumed"
         ]
       }
@@ -1285,6 +1349,11 @@
         ],
         "reasoning": [
           "workflow-metadata"
+        ],
+        "snapshot": [
+          "consumed",
+          "output-control",
+          "continuation"
         ],
         "startLine": [
           "consumed",

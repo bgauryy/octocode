@@ -73,7 +73,7 @@ for (const test of cases) {
 }
 const forbiddenByTool={artifactSearch:['cursor','invented'],ghSearch:['path','unrequested'],ghGetFileContent:['matchString','unrequested'],
   ghSearchHistory:['author','unrequested'],ghGetHistoryItem:['charOffset',12],ghCloneRepo:['sparsePath','src'],
-  localSearch:['include',['*.md']],astSearch:['names',['not-requested.ts']],localFetch:['matchString','unrequested'],
+  localSearch:['include',['*.md']],structureSearch:['names',['not-requested.ts']],localFetch:['matchString','unrequested'],
   lspSearch:['workspaceRoot','/unrelated/repo']};
 for(const test of cases.filter(test=>test.expected.tool!=='none')) {
   const output=structuredClone(test.reference), [key,value]=forbiddenByTool[test.expected.tool];
@@ -84,7 +84,7 @@ for(const test of cases.filter(test=>test.expected.tool!=='none')) {
   assert.equal(evaluate(test,normalized(positive),specs).success,true,`${test.id}: harmless metadata rejected`);assertions++;
 }
 for(const [id,key,value] of [['lsp-identity','includeDeclaration',false],['clone-known','forceRefresh',true],
-  ['local-text','page',1],['local-text','include',[]],['local-exact','minify','none'],['ast-files','detail','full'],
+  ['local-text','page',1],['local-text','include',[]],['local-exact','minify','none'],['structure-files','detail','full'],
   ['remote-symbol-search','concise',true],['local-exact','fullContent',false],['remote-anchored-read','forceRefresh',true]]) {
   const output=structuredClone(caseById(id).reference);output.calls[0].arguments.queries[0][key]=value;
   assert.equal(check(id,output).success,true,`${id}: harmless ${key} rejected`);assertions++;

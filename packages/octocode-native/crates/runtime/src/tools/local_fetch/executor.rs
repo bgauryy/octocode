@@ -65,7 +65,7 @@ pub fn execute_local_fetch_with_regex(
             let display = failure.safe_path.as_deref().unwrap_or(&q.path);
             let message = if failure.resource_missing {
                 format!(
-                    "File not found: {display}. Verify the path with astSearch operation:\"files\"."
+                    "File not found: {display}. Verify the path with structureSearch operation:\"files\"."
                 )
             } else {
                 failure.message
@@ -118,7 +118,7 @@ pub fn execute_local_fetch_with_regex(
             q.path.to_string(),
             "binaryFileUnsupported",
             format!(
-                "Binary file unsupported: {display_path}. Read a text source file, or use astSearch operation:\"files\" for file metadata."
+                "Binary file unsupported: {display_path}. Read a text source file, or use structureSearch operation:\"files\" for file metadata."
             ),
         );
         result.resolved_path = Some(q.path.to_string());
@@ -424,10 +424,14 @@ pub fn process_fetched_content(
     } else {
         0
     };
-    if redactions > 0 || view_redacted {
+    if redactions > 0 {
         warnings.push(format!(
             "redactedContent: {redactions} secret-shaped value(s) in the returned text were replaced by [REDACTED…] placeholders; this content is not verbatim source."
         ));
+    } else if view_redacted {
+        warnings.push(
+            "redactedContent: secret-shaped text in the requested view was redacted; this content is not verbatim source.".into(),
+        );
     }
     let out_of_range = pg.out_of_range;
     let next = if out_of_range {

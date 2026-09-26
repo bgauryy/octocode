@@ -22,7 +22,7 @@ node packages/octocode/out/octocode.js scheme localFetch --view query --compact
 node packages/octocode/out/octocode.js scheme ghGetHistoryItem --view query
 ```
 
-The discovery catalog contains 13 tools, with 9 enabled by default when no Jev provider key is resolved, clone is not enabled, and beta tools are disabled. Enabled tools depend on local-tool,
+The discovery catalog contains 14 tools, with 10 enabled by default when no Jev provider key is resolved, clone is not enabled, and beta tools are disabled. Enabled tools depend on local-tool,
 clone, storage, allowlist, and credential-gated `clasify` settings. MCP omits that tool when no classification key resolves (`OCTOCODE_CLASSIFICATION_API`, `OCTOCODE_JEV_KEY`, or `.octocoderc` `classification.api`) or `OCTOCODE_CLASSIFICATION_API` is present but blank. Record the effective configuration and
 unavailable capabilities with each acceptance run. Enabling a tool does not
 install its external language server or grant provider access.
@@ -129,7 +129,8 @@ for measured comparisons; record commands and artifacts with the result.
 | `localSearch` | Exercise lexical text and regex queries independently. | Verify match continuations, exclusions, and zero-result diagnostics. |
 | `localFetch` | Exercise path-only, full, range, match, and each supported view. | Preserve matched anchors; reconstruct transformed windows; verify effective fallback mode, redaction, and source lines. |
 | `clasify` | Exercise Noul, Choice, and Score over supplied values and delegated unread resources. | Verify body-free page answers, coverage, focus scopes, provider failures, and cache reuse on later exact reads. |
-| `astSearch` | Exercise `match`, `files`, syntax `tree`, and `symbols`. | Validate pattern/rule exclusivity and language selection; traverse captures, nodes, and results; expose parser and scan limits. |
+| `structureSearch` | Exercise `tree` and `files` with name and metadata filters. | Verify pagination, snapshots, depth bounds, and exclusions. |
+| `astSearch` | Exercise `match`, `syntaxTree`, and `symbols`. | Validate pattern/rule exclusivity and language selection; traverse captures, nodes, and results; expose parser and scan limits. |
 | `astTopology` | Exercise all seven graph analyses. | Traverse results and diagnostics; expose unresolved edges and coverage limits; corroborate deletion candidates. |
 | `astRewrite` | Exercise preview, stale snapshots, hash guards, and apply on an isolated fixture. | Verify overlap guidance, transaction recovery, changed bytes, and unchanged files. |
 | `lspSearch` | Exercise document, workspace, anchored, and hierarchy operations. | Distinguish unavailable server, unsupported capability, failed anchor, and valid empty result; verify server provenance and paginated snapshots. |

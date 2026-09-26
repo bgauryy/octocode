@@ -21,7 +21,7 @@ Load when a best-practice, idiom, or API claim needs an authoritative anchor, or
 |---|---|---|
 | Command-line apps | **Command Line Book** | https://rust-cli.github.io/book/ |
 | Embedded / microcontrollers | **Embedded Book** · **Discovery** · **Embedonomicon** | https://docs.rust-embedded.org/book/ · https://docs.rust-embedded.org/discovery/ · https://docs.rust-embedded.org/embedonomicon/ |
-| WebAssembly | **Rust and WebAssembly Book** | https://rustwasm.github.io/docs/book/ |
+| WebAssembly | **wasm-bindgen Guide** (the rustwasm org was archived in 2025; its book is frozen) | https://wasm-bindgen.github.io/wasm-bindgen/ |
 | Learning by doing / onboarding | **Rust by Example** · **Rustlings** | https://doc.rust-lang.org/rust-by-example/ · https://github.com/rust-lang/rustlings |
 
 ## How to use this canon
@@ -29,4 +29,4 @@ Load when a best-practice, idiom, or API claim needs an authoritative anchor, or
 - **Toolchain baseline** (from the official install/getting-started flow): install and manage via **rustup**; `cargo` is the single entry point — `cargo new` / `build` / `run` / `test` / `doc` / `publish`, add deps with `cargo add`. `Cargo.lock` pins exact versions; keep the toolchain current with `rustup update`. This is the ground every other axis assumes.
 - **When the canon and this skill disagree, the canon wins** — update the skill (via `octocode-skills`) and log why.
 
-Next: for the idiom/API-surface rules these documents formalize, load `references/idioms.md`; for the unsafe review the Nomicon backs, `references/safety-and-security.md`; for edition/MSRV wiring, `references/build-and-deps.md`.
+Next: for the idiom/API-surface rules these documents formalize, load `references/idioms.md`; for the unsafe review the Nomicon backs, `references/safety-and-security.md`; for edition/MSRV wiring, `references/workspace-manifest.md`.

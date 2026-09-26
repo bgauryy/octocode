@@ -24,8 +24,8 @@ const toolNamed = (name: string): JsonObject => {
 };
 
 describe('core public catalog', () => {
-  it('carries presentation for all 13 tools and never an output schema', () => {
-    expect(tools).toHaveLength(13);
+  it('carries presentation for all 14 tools and never an output schema', () => {
+    expect(tools).toHaveLength(14);
     for (const tool of tools) {
       expect(tool.outputSchema, String(tool.name)).toBeUndefined();
       expect(typeof tool.description, String(tool.name)).toBe('string');
@@ -151,7 +151,7 @@ describe('project', () => {
     expect(searchVariants.name).toBe('astSearch');
     expect(searchVariants.querySchema).toBeUndefined();
     expect(searchVariants.variants).toEqual(
-      expect.arrayContaining([expect.objectContaining({ name: 'tree:syntax' })])
+      expect.arrayContaining([expect.objectContaining({ name: 'syntaxTree' })])
     );
 
     const topologyVariants = project(toolNamed('astTopology'), 'variants');

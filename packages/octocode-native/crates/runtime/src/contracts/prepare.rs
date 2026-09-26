@@ -193,6 +193,5 @@ mod tests {
         )
         .expect("envelope only");
         assert_eq!(prepared.query["operation"], "syntax");
-        assert!(prepared.query.get("treeKind").is_none());
     }
 }

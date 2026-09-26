@@ -237,6 +237,72 @@ async fn local_search_finds_literal_matches() {
 }
 
 #[tokio::test]
+async fn structure_search_dispatches_on_both_surfaces_and_owns_file_discovery() {
+    let workspace = Workspace::new();
+    workspace.write("src/main.ts", "export const a = 1;\n");
+    workspace.write("docs/readme.md", "# docs\n");
+    let mcp = ToolRuntime::from_host(HostOptions {
+        cwd: Some(workspace.workspace.clone()),
+        env: Some(BTreeMap::from([("ENABLE_LOCAL".into(), "true".into())])),
+        surface: RuntimeSurface::Mcp,
+        ..HostOptions::default()
+    })
+    .expect("mcp runtime");
+    assert!(mcp.is_available("structureSearch"));
+    mcp.close().await;
+
+    let runtime = workspace.runtime(&[]);
+    assert!(runtime.is_available("structureSearch"));
+    let tree = call(
+        &runtime,
+        "structureSearch",
+        json!({"operation":"tree","path":workspace.workspace,"maxDepth":1}),
+    )
+    .await
+    .expect("tree");
+    assert_eq!(
+        row_status(&tree),
+        "success",
+        "{:?}",
+        tree.structured_content
+    );
+    let rendered = serde_json::to_string(row_data(&tree)).expect("json");
+    assert!(
+        rendered.contains("src/") && rendered.contains("docs/"),
+        "{rendered}"
+    );
+
+    let files = call(
+        &runtime,
+        "structureSearch",
+        json!({"operation":"files","path":workspace.workspace,"names":["*.ts"],"entryType":"f"}),
+    )
+    .await
+    .expect("files");
+    assert_eq!(
+        row_status(&files),
+        "success",
+        "{:?}",
+        files.structured_content
+    );
+    let rendered = serde_json::to_string(row_data(&files)).expect("json");
+    assert!(
+        rendered.contains("main.ts") && !rendered.contains("readme.md"),
+        "{rendered}"
+    );
+
+    let retired = call(
+        &runtime,
+        "astSearch",
+        json!({"operation":"files","path":workspace.workspace}),
+    )
+    .await
+    .expect_err("astSearch no longer discovers files");
+    assert_eq!(retired.code, "invalidInput");
+    runtime.close().await;
+}
+
+#[tokio::test]
 async fn disabled_local_family_is_unavailable() {
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("ENABLE_LOCAL", "false".into())]);
@@ -360,26 +426,6 @@ async fn runtime_catalog_lists_available_tools() {
                 .is_some_and(|extensions| extensions.contains(&json!("rs")))
             && entry["structuralSearch"] == true
     }));
-    runtime.close().await;
-}
-
-#[tokio::test]
-async fn ast_search_lists_files_through_the_runtime() {
-    let workspace = Workspace::new();
-    workspace.write("src/lib.rs", "pub fn needle() {}\n");
-    let runtime = workspace.runtime(&[]);
-    let outcome = call(
-        &runtime,
-        "astSearch",
-        json!({
-            "operation": "files",
-            "path": workspace.workspace
-        }),
-    )
-    .await
-    .expect("astSearch");
-    let rendered = serde_json::to_string(row_data(&outcome)).expect("json");
-    assert!(rendered.contains("lib.rs"), "expected lib.rs in {rendered}");
     runtime.close().await;
 }
 

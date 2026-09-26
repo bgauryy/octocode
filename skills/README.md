@@ -8,6 +8,7 @@ Tested skills that are not ready to publish live in [`../skills-beta/`](../skill
 
 | Need | Skill |
 |---|---|
+| Discover peers, send messages, and reserve shared paths | [octocode-agents-communication](octocode-agents-communication/) |
 | Investigate code, packages, history, or a failure | [octocode-research](octocode-research/) |
 | Review or refactor architecture, algorithms, dependencies, flows, interfaces, or maintainability | [octocode-architect](octocode-architect/) |
 | See a system's layers, modules, flows, stores, and dependencies as an interactive HTML map | [octocode-architecture-view](octocode-architecture-view/) |

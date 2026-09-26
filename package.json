@@ -75,6 +75,7 @@
     "packages/*",
     "packages/octocode-extension-rust/npm/*",
     "packages/octocode-native/npm/*",
-    "skills"
+    "skills",
+    "skills/octocode-agents-communication"
   ]
 }

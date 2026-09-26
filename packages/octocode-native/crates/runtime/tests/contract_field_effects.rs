@@ -14,7 +14,6 @@ const DISCRIMINATOR_FIELDS: &[&str] = &[
     "questionType",
     "ruleKind",
     "regex",
-    "treeKind",
     "type",
 ];
 
@@ -131,7 +130,7 @@ fn every_public_field_and_discriminator_has_declared_engine_effect_coverage() {
     let coverage_names = coverage_tools.keys().cloned().collect::<BTreeSet<_>>();
     assert_eq!(
         coverage_names, contract_names,
-        "coverage must name exactly the 13 public tools"
+        "coverage must name exactly the public tools"
     );
 
     for tool in contract_tools {

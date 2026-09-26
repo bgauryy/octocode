@@ -24,10 +24,27 @@ Load when a design question calls for a named pattern. Why: half of classic OO p
 - **RAII guards** (like `MutexGuard`): put teardown in `Drop`; return the guard so the resource lives exactly as long as the binding. Don't rely on `Drop` for critical async cleanup — it isn't `async` (use explicit shutdown).
 - **Sealed trait**: add a private supertrait so outside crates can't implement your public trait, leaving you free to add methods later without a breaking change.
 
+## Classic (GoF/OO) → Rust form
+| Classic | Rust form |
+|---|---|
+| Strategy | generic `<S: Strategy>` or closure `impl Fn(..)`; `Box<dyn Fn>` if chosen at runtime |
+| State | typestate (compile time) or `enum` + `match` transitions (runtime) |
+| Command | `enum Command { … }` + one `apply` fn — serializable, testable |
+| Visitor | `match` over an enum; a `Visit` trait with default methods only for big ASTs (oxc/syn style) |
+| Observer / event bus | channels (`mpsc`, `broadcast`) — not stored callback lists with shared borrows |
+| Singleton | pass a context struct; `OnceLock`/`LazyLock` only for truly global immutable state |
+| Decorator / middleware | wrapper struct implementing the same trait (tower `Layer`/`Service`) |
+| Dependency injection | constructor takes `impl Trait`/generic; tests pass a fake |
+Also: **functional core, imperative shell** (pure logic, I/O at the edges); **parse, don't validate** (constructor returns a type that proves validity); **extension traits** to add methods to foreign types; factories are associated fns / `FromStr`; template method is a trait with default methods.
+
 ## Anti-patterns to steer away from
 - Reaching for `Rc<RefCell<T>>` graphs to port an OO object model — usually a sign the ownership design needs rethinking (arena/index, or `Arc` + message passing).
 - Inheritance emulation via deref chains — prefer composition + traits.
 - Deep `Box<dyn Trait>` in hot paths — monomorphize with generics instead (`references/performance.md`).
-- Stringly-typed states/config — newtype or enum them.
+- Stringly-typed states/config — newtype or enum them. `bool` params and `Option`-soup structs — enums (`references/types-and-structs.md`).
+- Global mutable state (`static mut`, `lazy_static!<Mutex<…>>` config) — pass context; tests can't isolate globals.
+- God struct with every field `pub` and getters/setters on top — split by responsibility; private fields + constructor.
+- `Result<T, String>` / `Box<dyn Error>` in library APIs — typed error enum (`references/idioms.md`).
+- Over-generic code (traits with one impl, generic params nobody varies) — concrete until a second use appears.
 
 Next: for how these types shape signatures and conversions, load `references/idioms.md`; for the ownership-graph escape hatches, `references/gotchas.md`.

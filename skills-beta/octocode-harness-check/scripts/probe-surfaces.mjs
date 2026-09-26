@@ -65,8 +65,9 @@ const LOCAL = [
   ['lf.missing', 'localFetch', { ...R('missing'), path: 'src/nope.ts' }, 'not found|notFound|no such'],
   ['as.match', 'astSearch', { ...R('calls'), operation: 'match', path: 'src', pattern: 'greet($A)', langType: 'typescript' }, 'index\\.ts'],
   ['as.symbols', 'astSearch', { ...R('symbols'), operation: 'symbols', path: 'src' }, 'shout'],
-  ['as.files', 'astSearch', { ...R('files'), operation: 'files', path: '.', extensions: ['ts'] }, 'util\\.ts'],
-  ['as.tree', 'astSearch', { ...R('tree'), operation: 'tree', path: 'src/util.ts', treeKind: 'syntax' }, 'function'],
+  ['as.syntaxTree', 'astSearch', { ...R('syntax tree'), operation: 'syntaxTree', path: 'src/util.ts', nodeLimit: 100 }, 'function'],
+  ['ss.files', 'structureSearch', { ...R('files'), operation: 'files', path: '.', extensions: ['ts'] }, 'util\\.ts'],
+  ['ss.tree', 'structureSearch', { ...R('tree'), operation: 'tree', path: 'src', maxDepth: 1 }, 'util\\.ts'],
   ['lsp.refs', 'lspSearch', { ...R('refs'), operation: 'references', uri: join(FIX, 'src/util.ts'), symbolName: 'greet', lineHint: 1 }, 'index\\.ts'],
   ['lsp.def', 'lspSearch', { ...R('def'), operation: 'definition', uri: join(FIX, 'src/index.ts'), symbolName: 'shout', lineHint: 1 }, 'util\\.ts'],
   ['lsp.callers', 'lspSearch', { ...R('callers'), operation: 'callers', uri: join(FIX, 'src/util.ts'), symbolName: 'greet', lineHint: 1 }, 'shout|main'],
@@ -76,6 +77,7 @@ const LOCAL = [
   ['iv.noReason', 'localSearch', { searchText: 'greet', path: 'src' }, 'reasoning'],
   ['iv.unknownKey', 'localSearch', { ...R('typo'), searchText: 'greet', path: 'src', serchText2: 1 }, 'searchText'],
   ['iv.enumTypo', 'astSearch', { ...R('enum'), operation: 'matches', path: 'src', pattern: 'x' }, 'symbols'],
+  ['iv.removedFiles', 'astSearch', { ...R('removed op'), operation: 'files', path: '.', extensions: ['ts'] }, 'syntaxTree|symbols'],
 ];
 const REMOTE = [
   ['af.npm', 'artifactSearch', { ...R('npm'), type: 'npm', packageName: 'left-pad' }, 'left-pad'],

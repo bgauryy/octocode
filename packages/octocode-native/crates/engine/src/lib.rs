@@ -3,8 +3,7 @@
 //! This crate owns all engine primitives: search, LSP, signatures, structural
 //! analysis, minification, security, graph, index, and text utilities.
 //! When built with the `napi-addon` feature it also produces the platform
-//! `.node` binary consumed by `octocode-native`, `octocode`, and
-//! `octocode-pi-extension`.
+//! `.node` binary consumed by `octocode-native` and `octocode`.
 //!
 //! `octocode-native` uses this crate as a pure `rlib` (no N-API) for the
 //! native CLI and MCP runtime.

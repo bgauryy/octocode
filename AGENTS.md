@@ -55,7 +55,7 @@ Note friction, gaps, or wrong defaults and log them (comment/issue) instead of s
                        │                       contract/  tool-contract.json · contract-fixtures.json · provenance.json
                        │                                  tool-types.schema.json · tool_types.rs (Rust types)
                        │                       src/contracts/toolTypes.generated.ts (TS types)
-                       ├──────────────▶ INTERFACES  octocode-mcp · octocode (CLI) · octocode-vscode · octocode-pi-extension
+                       ├──────────────▶ INTERFACES  octocode-mcp · octocode (CLI) · octocode-vscode
                        │                             (import contracts + types from @octocodeai/config/schema|mcp)
                        └──────────────▶ BRAIN       @octocodeai/octocode-native — build.rs embeds contract/ in place
                                                      ├── crates/runtime  (validate · execute · secure · shape)
@@ -98,7 +98,7 @@ Workspace packages (`packages/*`) and one external core. Each package has its ow
 |---|---|---|
 | [`octocode-config`](packages/octocode-config) | `@octocodeai/config` | **Content/context layer + the single contract generator.** Zero-dep env/config loader (`.` entry; single source for home, env, protected keys), the tool-contract hub (`./schema`, `./mcp` re-export core), and the generated `contract/` (embed JSON, fixtures, provenance, Rust `tool_types.rs`) + TS tool types. Every interface and native consume contracts from here. |
 | [`octocode-native`](packages/octocode-native) | `@octocodeai/octocode-native` | **Brain and distribution owner.** Two Rust crates: runtime policy/CLI/N-API plus reusable engine primitives. Publishes runtime at `.`/`./runtime` and primitives at `./engine` through one six-platform family. |
-| [`octocode-extension-rust`](packages/octocode-extension-rust) | `@octocodeai/octocode-extension-rust` | Rust primitives for the Pi extension: filesystem snapshots, mutations, durability, line diff. Separate from the research engine. |
+| [`octocode-extension-rust`](packages/octocode-extension-rust) | `@octocodeai/octocode-extension-rust` | Rust primitives for agent hosts: filesystem snapshots, mutations, durability, line diff. Separate from the research engine. |
 | `@octocodeai/octocode-core` *(external)* | sibling repo | Authors all public tool contracts (Zod schemas, descriptions, examples). Source of truth; consumed only through `@octocodeai/config` after `yarn contracts:regen`. |
 
 ### Interfaces
@@ -108,33 +108,31 @@ Workspace packages (`packages/*`) and one external core. Each package has its ow
 | [`octocode-mcp`](packages/octocode-mcp) | `octocode-mcp` | Thin MCP stdio server: lifecycle → security → tool registration → sanitized output. No logic. |
 | [`octocode`](packages/octocode) | `octocode` | CLI: one command per tool (`<toolName> '<json>'`) + `scheme`, `skill`, `config`, `login`/`logout`/`auth`, `install`. Use `node packages/octocode/out/octocode.js` in-repo. |
 | [`octocode-vscode`](packages/octocode-vscode) | `octocode-mcp-vscode` | VS Code extension: GitHub OAuth, MCP install into Cursor/Windsurf/etc., token sync. |
-| [`octocode-pi-extension`](packages/octocode-pi-extension) | `@octocodeai/pi-extension` | Pi integration: native tools, bundled CLI/MCP wiring, host state, prompts, harness hooks. Contracts under `src/contracts/`. |
 
 ### Support / platform
 
 | Package | npm name | Role |
 |---|---|---|
 | [`octocode-skill-installer`](packages/octocode-skill-installer) | `@octocodeai/octocode-skill-installer` *(private)* | Shared durable skill materialization: platform paths, links/junctions, conflict policy. Bundled into callers. |
-| [`octocode-agents-communication`](packages/octocode-agents-communication) | `@octocodeai/octocode-agents-communication` *(private)* | Session identity, advisory path leases, and direct messages. The skill folder ships the Rust CLI. Unpublished. |
+| [`octocode-agents-communication`](skills/octocode-agents-communication) | `@octocodeai/octocode-agents-communication` *(private)* | Session identity, advisory path leases, and direct messages. The skill folder ships the Rust CLI. Unpublished. |
 | [`octocode-benchmark`](packages/octocode-benchmark) | `@octocodeai/octocode-benchmark` *(private)* | Internal evals: head-to-head comparisons, VRPT scoring. Ships the `octocode-benchmark` skill. |
 | [`octocode-jev-lab`](packages/octocode-jev-lab) | `@octocodeai/jev-lab` *(private)* | Direct Jev/clasify provider probe for latency and multi-resource experiments, bypassing the runtime adapter. `yarn jev:probe --input <manifest>`. |
 
 **Cross-cutting rules:**
-- Pi contracts → `packages/octocode-pi-extension/src/contracts`
 - Local core changes → build core → `yarn contracts:regen` (refreshes the `file:` copy + regenerates config `contract/`) → rebuild consumers
 
 ---
 
 ## Tools
 
-13 catalog tools. Full reference: [`docs/OCTOCODE_TOOLS.md`](docs/OCTOCODE_TOOLS.md) · handoffs: [`docs/TOOL_DATA_CONTRACT.md`](docs/TOOL_DATA_CONTRACT.md) · live: `$OCTO scheme`. `ghCloneRepo` is CLI-only; MCP registers the rest when their availability gates pass.
+14 catalog tools. Full reference: [`docs/OCTOCODE_TOOLS.md`](docs/OCTOCODE_TOOLS.md) · handoffs: [`docs/TOOL_DATA_CONTRACT.md`](docs/TOOL_DATA_CONTRACT.md) · live: `$OCTO scheme`. `ghCloneRepo` is CLI-only; MCP registers the rest when their availability gates pass.
 
 | Family | Tools | Role |
 |---|---|---|
 | GitHub | `ghSearch` · `ghGetFileContent` · `ghSearchHistory` · `ghGetHistoryItem` · `ghCloneRepo` | Code/repo/tree discovery, exact reads, history, clone |
 | Package | `artifactSearch` | Lookup across 8 ecosystems + source repo |
-| Local | `localSearch` · `localFetch` | Text/regex search · exact/minified file reads |
-| AST | `astSearch` | Files, syntax trees, symbols, structural match |
+| Local | `localSearch` · `structureSearch` · `localFetch` | Text/regex search · directory tree/file discovery (no parser) · exact/minified file reads |
+| AST | `astSearch` | Syntax trees, symbols, structural match |
 | AST topology *(beta)* | `astTopology` | deps/dependents/path/cycles/reachability/dead-code/drift — `OCTOCODE_BETA=1` |
 | AST rewrite *(beta)* | `astRewrite` | Preview structural edits; apply requires snapshot + unchanged file hashes — `OCTOCODE_BETA=1` |
 | LSP | `lspSearch` | Definitions, references, callers/callees, types, diagnostics |
@@ -154,7 +152,7 @@ Three skill trees. Entries in [`.agents/skills/`](.agents/skills/) (gitignored) 
 
 | Tree | What it is |
 |---|---|
-| [`skills/`](skills/) | **Public skills.** Published with the CLI and Pi bundle. `octocode skill install <name>` installs from here. |
+| [`skills/`](skills/) | **Public skills.** Published with the CLI. `octocode skill install <name>` installs from here. |
 | [`skills-beta/`](skills-beta/) | **Tested skills.** Not published and not bundled. |
 | [`skills-dev/`](skills-dev/) | **Local development.** For working on this repository. Not published. |
 
@@ -178,7 +176,7 @@ Three skill trees. Entries in [`.agents/skills/`](.agents/skills/) (gitignored) 
 | `octocode-scraping` | Fetch public URLs / crawl a site into a local corpus |
 | `octocode-chrome-devtools` | Real browser needed: JS-rendered pages, DOM, HAR, console, auth sessions |
 
-Package-owned skills, not in `skills/`: `octocode-benchmark` ([`packages/octocode-benchmark/skills/`](packages/octocode-benchmark/skills/)), `octocode-agents-communication` ([`packages/octocode-agents-communication/skills/`](packages/octocode-agents-communication/skills/)). Public folder contract: [`skills/README.md`](skills/README.md).
+Package-owned skill outside `skills/`: `octocode-benchmark` ([`packages/octocode-benchmark/skills/`](packages/octocode-benchmark/skills/)). Communication lives directly in [`skills/octocode-agents-communication/`](skills/octocode-agents-communication/), including its Rust runtime source. Public folder contract: [`skills/README.md`](skills/README.md).
 
 ### Tested — [`skills-beta/`](skills-beta/) (not published)
 
@@ -269,7 +267,7 @@ Index: [`docs/README.md`](docs/README.md). `out/docs` copies are build output �
 | Packages | [`docs/PACKAGES.md`](docs/PACKAGES.md) |
 | MCP | [`docs/OCTOCODE_MCP.md`](docs/OCTOCODE_MCP.md) |
 | Tools | [`docs/OCTOCODE_TOOLS.md`](docs/OCTOCODE_TOOLS.md) · [`docs/TOOL_DATA_CONTRACT.md`](docs/TOOL_DATA_CONTRACT.md) (response fields, pagination, handoffs) |
-| Tool quality | [`docs/MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md`](docs/MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md) (acceptance criteria for the 13 tools) |
+| Tool quality | [`docs/MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md`](docs/MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md) (acceptance criteria for the 14 tools) |
 | Local research | [`docs/LOCAL_RESEARCH_WORKFLOW.md`](docs/LOCAL_RESEARCH_WORKFLOW.md) |
 | Research | [`docs/OCTOCODE_RESEARCH_MANIFEST.md`](docs/OCTOCODE_RESEARCH_MANIFEST.md) |
 | Semantic assessment | [`docs/OCTOCODE_CLASIFY.md`](docs/OCTOCODE_CLASIFY.md) (contract + research loop) |

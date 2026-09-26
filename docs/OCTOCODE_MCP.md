@@ -57,8 +57,8 @@ At startup, the Node adapter loads the platform-specific Rust N-API addon (`@oct
 
 ## Tool catalog
 
-The full discovery catalog contains 13 tools. With default settings and no
-provider key, the MCP server registers 9: `ghCloneRepo` is CLI-only and is
+The full discovery catalog contains 14 tools. With default settings and no
+provider key, the MCP server registers 10: `ghCloneRepo` is CLI-only and is
 always omitted. `clasify` needs a nonblank resolved classification key: `OCTOCODE_CLASSIFICATION_API`, else the selected vendor's key (`OCTOCODE_JEV_KEY` for jev), else `.octocoderc` `classification.api` (a present-but-blank `OCTOCODE_CLASSIFICATION_API` disables it);
 `astRewrite` and `astTopology` need `OCTOCODE_BETA=true`. Unavailable tools
 are omitted from MCP discovery entirely, not registered as failing calls.
@@ -66,7 +66,7 @@ are omitted from MCP discovery entirely, not registered as failing calls.
 | Family | Tools |
 |--------|-------|
 | GitHub | `ghSearch`, `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem`, `ghCloneRepo` |
-| Local | `localSearch`, `localFetch`, `astSearch`, `astTopology`, `astRewrite`, `lspSearch` |
+| Local | `localSearch`, `localFetch`, `structureSearch`, `astSearch`, `astTopology`, `astRewrite`, `lspSearch` |
 | Package | `artifactSearch` |
 | Semantic assessment | `clasify` |
 
@@ -130,9 +130,9 @@ active catalog entries.
 | `local_analyze_graph` | `astTopology` |
 | `local_fetch_content` | `localFetch` |
 | `local_dead_code` | `astTopology` (`analysis:"deadCode"`) |
-| `local_find_files` | `astSearch` (`files` operation) |
+| `local_find_files` | `structureSearch` (`files` operation) |
 | `local_ripgrep` | `localSearch` (lexical `searchText`) |
-| `local_view_structure` | `astSearch` (`tree` operation) |
+| `local_view_structure` | `structureSearch` (`tree` operation) |
 | `local_search` | `localSearch` ✅ unchanged |
 | `lsp` | `lspSearch` |
 | `package_search` | `artifactSearch` |

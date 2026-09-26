@@ -4,41 +4,18 @@ Load when deciding module boundaries, file placement, crate splits, or workspace
 
 ## Single crate: files & modules
 - `src/lib.rs` is the library root and public surface; `src/main.rs` is a thin binary that calls into the library. Keep logic in the library so it's testable and reusable; `main` wires args → lib → exit code.
-- A module is a file (`foo.rs`) or a folder with `foo/mod.rs` **or** the modern `foo.rs` + `foo/` sibling (preferred over `mod.rs` since the 2018 style). Pick one convention per crate and hold it.
+- A module is a file (`foo.rs`) or a folder with `foo/mod.rs` **or** the modern `foo.rs` + `foo/` sibling (preferred over `mod.rs` since the 2018 style). Pick one per crate and enforce it with clippy `mod_module_files` (bans `mod.rs`) or `self_named_module_files`.
 - `pub(crate)` by default; expose `pub` deliberately. Re-export the intended public API from `lib.rs` with `pub use` so consumers get a flat, stable path.
-- Binaries beyond one: `src/bin/<name>.rs` or `[[bin]]` entries; examples in `examples/`, benches in `benches/`.
+- Cargo auto-discovers targets: `src/bin/<name>.rs` (extra binaries), `examples/`, `tests/`, `benches/` — follow the convention instead of `[[bin]]`/`[[test]]` entries unless a target needs settings (`harness = false`, `required-features`).
 
 ## Tests placement
-- Unit tests live next to the code in `#[cfg(test)] mod tests { ... }` — they can reach private items.
-- Integration tests live in `tests/` — each file is its own crate that sees only the public API, doubling as a usability check on that API.
-- Doc tests in `///` examples run under `cargo test` — keep them compiling.
+Unit tests beside the code, integration tests in one `tests/it/` binary, doc tests on public items — full layout and test kinds in `references/testing.md`.
 
 ## When to split into a workspace
-Split a crate out when: compile times bite and a stable lower layer rarely changes; a piece is independently publishable/reusable; or two areas have genuinely separate dependency sets. Don't split on taste alone.
+When and where to split is owned by `references/crate-boundaries.md`; the npm-style mechanics (layout, npm→Cargo map, add-a-crate commands) by `references/workspace-crates.md`.
 
-## Workspace anatomy (grounded template)
-```toml
-# root Cargo.toml
-[workspace]
-members = ["crates/engine", "crates/runtime"]
-default-members = ["crates/runtime"]
-resolver = "2"
-
-[workspace.package]             # shared edition/MSRV/license — ONE edition for the whole workspace
-edition = "2024"
-rust-version = "1.89"
-
-[workspace.dependencies]        # unify versions once, inherit in members
-serde = { version = "1", features = ["derive"] }
-
-[workspace.lints.clippy]        # define the lint policy once, not per crate
-unwrap_used = "deny"
-
-[profile.release]               # profiles ONLY take effect at the workspace root
-lto = "fat"
-codegen-units = 1
-```
-Members inherit with `edition.workspace = true`, `serde = { workspace = true }`, and `[lints] workspace = true`. One `Cargo.lock`, one `target/` shared across members. See `references/build-and-deps.md` for the full three-table centralization pattern, the exclusivity rule on `[lints] workspace = true`, and the profile set.
+## Workspace anatomy
+Virtual root `Cargo.toml` (no `[package]`) with `members = ["crates/*"]`, an explicit `resolver`, and `[workspace.package]` / `[workspace.dependencies]` / `[workspace.lints]` / `[profile.*]` — profiles only take effect at the root. Members inherit (`edition.workspace = true`, `{ workspace = true }`, `[lints] workspace = true`); one `Cargo.lock`, one `target/`. Full template and the lint-exclusivity rule: `references/workspace-manifest.md`; layout and add-a-crate commands: `references/workspace-crates.md`.
 
 ## Layered layout for larger apps
 Keep dependencies pointing inward:
@@ -54,4 +31,4 @@ The domain must not depend on infrastructure; if it does, invert with a trait th
 - **Misplaced file:** business logic under `utils/`, a model under `config/`, persistence in the API layer → move to the correct layer, update `use` paths, verify with build + LSP.
 - One file = one concern; one module = one domain.
 
-Next: to turn a boundary into a pattern (sealed trait, typestate), load `references/design-patterns.md`; for the build side of a workspace split, `references/build-and-deps.md`.
+Next: to turn a boundary into a pattern (sealed trait, typestate), load `references/design-patterns.md`; for the manifest side of a workspace, `references/workspace-manifest.md`.

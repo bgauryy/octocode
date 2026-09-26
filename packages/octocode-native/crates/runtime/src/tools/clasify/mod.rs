@@ -43,6 +43,7 @@ pub(crate) fn is_context_tool(tool: &str) -> bool {
                 | ToolId::ArtifactSearch
                 | ToolId::LocalSearch
                 | ToolId::LocalFetch
+                | ToolId::StructureSearch
                 | ToolId::AstSearch
                 | ToolId::AstTopology
                 | ToolId::LspSearch
@@ -415,6 +416,7 @@ mod tests {
         for tool in [
             "localFetch",
             "localSearch",
+            "structureSearch",
             "astSearch",
             "astTopology",
             "lspSearch",

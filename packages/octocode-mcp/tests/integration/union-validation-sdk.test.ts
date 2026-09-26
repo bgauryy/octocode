@@ -62,7 +62,7 @@ describe('canonical union repair through the real MCP SDK', () => {
         { name: 'localFetch', query: { reasoning }, expected: /path/ },
         {
           name: 'astSearch',
-          query: { reasoning, operation: 'tree', treeKind: 'syntax' },
+          query: { reasoning, operation: 'syntaxTree' },
           // Core intentionally preserves native single-branch union parity here;
           // the MCP SDK therefore reports the bounded canonical union error.
           expected: /Invalid input/,

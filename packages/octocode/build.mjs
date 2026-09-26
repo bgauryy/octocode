@@ -1,4 +1,5 @@
 import * as esbuild from 'esbuild';
+import { execFileSync } from 'node:child_process';
 import { builtinModules } from 'module';
 import { chmodSync, readFileSync, writeFileSync } from 'fs';
 import { rm } from 'fs/promises';
@@ -27,6 +28,7 @@ await rm('out', { recursive: true, force: true });
 
 const monorepoSkillsDir = resolve(__dirname, '..', '..', 'skills');
 const packageSkillsDir = resolve(__dirname, 'skills');
+execFileSync(process.execPath, [resolve(monorepoSkillsDir, 'octocode-agents-communication/src/build-skill.mjs')], { stdio: 'inherit' });
 stageSkills(monorepoSkillsDir, packageSkillsDir);
 console.log('✓ skills staged → skills/');
 

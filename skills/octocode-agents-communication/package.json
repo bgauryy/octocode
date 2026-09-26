@@ -1,0 +1,43 @@
+{
+  "name": "@octocodeai/octocode-agents-communication",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Agentic CLI for cross-vendor coordination: agent identity, path leases, durable messages, and a companion communication skill.",
+  "type": "module",
+  "bin": "./scripts/agents-communication",
+  "devDependencies": {
+    "@octocodeai/config": "20.0.0"
+  },
+  "scripts": {
+    "build": "node src/build-skill.mjs",
+    "build:release": "node src/build-skill.mjs --release",
+    "typecheck": "cargo check --locked",
+    "lint": "cargo fmt --check && cargo clippy --all-targets --locked -- -D warnings && yarn lint:links",
+    "lint:links": "node src/check-links.mjs",
+    "test": "yarn build && cargo test --locked && node --test --test-concurrency=1 tests/*.test.mjs",
+    "test:quiet": "yarn build && cargo test --locked --quiet && node --test --test-concurrency=1 --test-reporter=dot tests/*.test.mjs",
+    "test:tooling": "node --test --test-concurrency=1 tests/tooling/*.test.mjs",
+    "verify": "yarn lint && yarn test && yarn test:tooling",
+    "pack:skill": "node src/pack-skill.mjs",
+    "poc": "yarn build && node src/poc.mjs",
+    "poc:mesh": "yarn build && node src/mesh-poc.mjs",
+    "poc:attached": "yarn build && node src/attached-poc.mjs",
+    "poc:grok-hooks": "yarn build && node src/grok-hook-poc.mjs",
+    "poc:crash": "yarn build && node src/lease-crash-poc.mjs",
+    "poc:service-mesh": "yarn build && node src/service-mesh.mjs",
+    "poc:opencode": "yarn build && node src/opencode-poc.mjs",
+    "poc:recovery": "yarn build && node src/recovery-soak.mjs",
+    "poc:acp": "node src/acp-probe.mjs",
+    "eval:collaboration": "yarn build && node src/collaboration-eval.mjs",
+    "benchmark:runtime": "yarn build:release && node src/runtime-benchmark.mjs",
+    "benchmark:scheduling": "yarn build:release && node src/scheduling-benchmark.mjs",
+    "benchmark:service": "yarn build:release && node src/service-benchmark.mjs",
+    "benchmark:storage": "yarn build:release && node src/storage-benchmark.mjs",
+    "benchmark:context": "yarn build:release && node src/context-discovery-benchmark.mjs",
+    "benchmark:hooks": "node src/hook-benchmark.mjs"
+  },
+  "files": [
+    "SKILL.md",
+    "scripts"
+  ]
+}

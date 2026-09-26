@@ -43,6 +43,8 @@ coverage
 !/skills/octocode-research/output/
 # Build artifact injected at skill build — regenerated from packages/octocode-config/dist/
 /skills/*/scripts/octocode-config.mjs
+# Communication launchers/adapters and platform binaries are built from src/.
+/skills/octocode-agents-communication/scripts/
 # Canonical Agent Skills live here; generated scripts have targeted ignores above.
 /skills/octocode-agent-communication/
 /skills/octocode-reflection/

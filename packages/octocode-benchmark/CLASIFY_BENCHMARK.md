@@ -128,7 +128,7 @@ token-presentation header and the discovery mechanism.
 
 Run artifacts and the frozen wrapper are under `.octocode/octocode-eval-benchmark/clasify-ab-2026-09-24/` at the repository root. `questions.json`, `pins.json`, `rubric.json`, and `frozen.json` define the harness. `preflight.json` records tool availability and hashes; `catalog-*.json`, `schema-*.json`, and `mcp-*.json` preserve the actual agent surfaces.
 
-Each research call uses `python3 <run>/run-tool.py <with|without> <Q-id|SETUP> <tool> '<json>' --compact`. It delegates to the existing package instrumentation, rejects prohibited features, and pins file reads. Keep raw logs and artifacts; never replace failed attempts with only a successful rerun. Workers write one answer file per question, which the parent records and grades after both workers finish. Compare paired cases, not just pooled bytes.
+Each research call uses `python3 <run>/run-tool.py <with|without> <Q-id|SETUP> <tool> '<json>'`. It delegates to the existing package instrumentation, rejects prohibited features, and pins file reads. Keep raw logs and artifacts; never replace failed attempts with only a successful rerun. Workers write one answer file per question, which the parent records and grades after both workers finish. Compare paired cases, not just pooled bytes.
 
 ## Results
 

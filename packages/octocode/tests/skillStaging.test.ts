@@ -23,6 +23,12 @@ it('stages skills cleanly and excludes local artifacts on every run', () => {
     writeFileSync(join(source, 'research', 'SKILL.md'), 'current');
     writeFileSync(join(source, 'research', '.env'), 'private fixture');
     writeFileSync(join(source, 'research', '.env.example'), 'example');
+    mkdirSync(join(source, 'compiled', 'src'), { recursive: true });
+    mkdirSync(join(source, 'compiled', 'scripts'), { recursive: true });
+    writeFileSync(join(source, 'compiled', 'package.json'), JSON.stringify({ files: ['SKILL.md', 'scripts'] }));
+    writeFileSync(join(source, 'compiled', 'SKILL.md'), 'compiled skill');
+    writeFileSync(join(source, 'compiled', 'src', 'main.rs'), 'source');
+    writeFileSync(join(source, 'compiled', 'scripts', 'launcher'), 'runtime');
     writeFileSync(
       join(source, 'research', '__pycache__', 'cache.pyc'),
       'cache'
@@ -39,12 +45,16 @@ it('stages skills cleanly and excludes local artifacts on every run', () => {
     expect(readFileSync(join(target, 'research', 'SKILL.md'), 'utf8')).toBe(
       'current'
     );
+    expect(readFileSync(join(target, 'compiled', 'scripts', 'launcher'), 'utf8')).toBe('runtime');
+    expect(existsSync(join(target, 'compiled', 'SKILL.md'))).toBe(true);
     for (const path of [
       'removed-skill',
       'linked',
       'research/.env',
       'research/.env.example',
       'research/__pycache__',
+      'compiled/src',
+      'compiled/package.json',
     ]) {
       expect(existsSync(join(target, path)), path).toBe(false);
     }

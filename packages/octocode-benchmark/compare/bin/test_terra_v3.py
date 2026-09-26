@@ -346,9 +346,9 @@ class TerraV3PreflightTests(unittest.TestCase):
             cli.parent.mkdir(parents=True)
             cli.write_text("", encoding="utf-8")
             node = Path(shutil.which("node") or "node")
-            self.assertEqual(validate_octocode_argv([str(node), str(cli), "tools"], workspace), [])
-            self.assertTrue(validate_octocode_argv(["npx", "octocode", "tools"], workspace))
-            self.assertTrue(validate_octocode_argv(["octocode", "tools"], workspace))
+            self.assertEqual(validate_octocode_argv([str(node), str(cli), "scheme"], workspace), [])
+            self.assertTrue(validate_octocode_argv(["npx", "octocode", "scheme"], workspace))
+            self.assertTrue(validate_octocode_argv(["octocode", "scheme"], workspace))
             outside = workspace.parent / "outside-octocode.js"
             outside.write_text("", encoding="utf-8")
             try:

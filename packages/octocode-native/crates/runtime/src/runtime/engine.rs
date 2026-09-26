@@ -109,19 +109,14 @@ fn rejected_row(
 }
 
 /// Put rejected rows back at their input positions and renumber `index`, so
-/// rows and cursor digests stay aligned with the caller's queries.
-fn merge_rejected_rows(
-    rows: &mut Vec<Value>,
-    source_digests: &mut Vec<Option<String>>,
-    rejected: Vec<(usize, Value)>,
-) {
+/// rows stay aligned with the caller's queries.
+fn merge_rejected_rows(rows: &mut Vec<Value>, rejected: Vec<(usize, Value)>) {
     if rejected.is_empty() {
         return;
     }
     for (index, row) in rejected {
         let position = index.min(rows.len());
         rows.insert(position, row);
-        source_digests.insert(position.min(source_digests.len()), None);
     }
     for (index, row) in rows.iter_mut().enumerate() {
         row["index"] = json!(index);
@@ -718,13 +713,11 @@ impl ToolRuntime {
         let text_format =
             super::render::TextFormat::from_config(&self.config.resolved.output.format);
         let output_tool = tool.clone();
-        let cursor_scope = scope;
         let outcome = self
             .requests
             .execute_blocking_admitted(admission, move |context| {
                 let mut rows = Vec::with_capacity(queries.len());
                 let mut source_digest = None;
-                let mut source_digests = Vec::with_capacity(queries.len());
                 let mut failure = None;
                 let evaluated = if tool == "clasify" {
                     let _enter = handle.enter();
@@ -766,11 +759,9 @@ impl ToolRuntime {
                     context.check()?;
                     let result = evaluated.next().ok_or(ExecutionError::WorkerFailed)?;
                     context.check()?;
-                    let row_source_digest = result.source_digest;
                     if queries.len() == 1 {
-                        source_digest = row_source_digest.clone();
+                        source_digest = result.source_digest;
                     }
-                    source_digests.push(row_source_digest);
                     failure = failure.or(result.failure);
                     if tool == "clasify" {
                         rows.push(result.data);
@@ -785,7 +776,7 @@ impl ToolRuntime {
                     response::apply_hint_policy(&mut row, &tool, query);
                     rows.push(row);
                 }
-                merge_rejected_rows(&mut rows, &mut source_digests, rejected_rows);
+                merge_rejected_rows(&mut rows, rejected_rows);
                 // Clasify receipts and caller-authored rubric values are opaque JSON:
                 // path compaction would mutate their identity and meaning.
                 let mut structured = if tool == "clasify" {
@@ -830,8 +821,6 @@ impl ToolRuntime {
                         auto_page_chars,
                         text_format,
                         allow_auto_paging: true,
-                        cursor_scope: &cursor_scope,
-                        source_digests: &source_digests,
                         source_digest,
                     },
                     &context,

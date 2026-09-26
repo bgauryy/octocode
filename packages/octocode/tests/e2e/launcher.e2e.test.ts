@@ -60,9 +60,7 @@ describe.skipIf(!ready)('launcher → native binary e2e', () => {
       expect(instructions.length).toBeGreaterThan(0);
       expect(JSON.parse(scheme.stdout).instructions).toBe(instructions);
       expect(
-        instructions.includes(
-          'improve answer quality AND reduce total host tokens'
-        )
+        instructions.includes('delegate the read before loading its body')
       ).toBe(Boolean(key));
       for (const args of [['--help'], ['-h'], ['help']]) {
         const help = runLauncher(args, env);
@@ -89,7 +87,7 @@ describe.skipIf(!ready)('launcher → native binary e2e', () => {
       searchText: 'delegateToNative',
       pageSize: 5,
     });
-    const result = runLauncher(['localSearch', query, '--compact']);
+    const result = runLauncher(['localSearch', query]);
     expect(result.status).toBe(0);
     const payload = JSON.parse(result.stdout) as {
       results: Array<{ index: number }>;
@@ -98,7 +96,7 @@ describe.skipIf(!ready)('launcher → native binary e2e', () => {
   });
 
   it('propagates native validation failures as exit 2', () => {
-    const result = runLauncher(['localSearch', '{"path":"/tmp"}', '--compact']);
+    const result = runLauncher(['localSearch', '{"path":"/tmp"}']);
     expect(result.status).toBe(2);
   });
 

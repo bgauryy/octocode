@@ -49,7 +49,9 @@ impl LspFailure {
             PolicyErrorCode::OutsideAllowedRoots | PolicyErrorCode::SymlinkEscape => {
                 "The path is outside the allowed roots: run from inside the workspace, or add it to ALLOWED_PATHS / WORKSPACE_ROOT."
             }
-            _ => "Verify the path with astSearch operation:\"files\", then retry the exact path.",
+            _ => {
+                "Verify the path with structureSearch operation:\"files\", then retry the exact path."
+            }
         };
         Self {
             code: error.local_error_code("fileAccessFailed"),

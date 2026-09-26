@@ -7,7 +7,7 @@
 //! `//host[:port]/path/:_authToken` key is scoped to that registry's origin
 //! (npm "nerf-dart" matching, longest path prefix wins).
 use secrecy::SecretString;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use url::Url;
 
 /// Path of the user npmrc, following npm's `userconfig` resolution.
@@ -20,7 +20,7 @@ pub(crate) fn user_npmrc_path() -> Option<PathBuf> {
 }
 
 /// Authorization header value for `registry` from the npmrc at `path`.
-pub(crate) fn authorization_from_file(registry: &Url, path: &PathBuf) -> Option<SecretString> {
+pub(crate) fn authorization_from_file(registry: &Url, path: &Path) -> Option<SecretString> {
     // npmrc files are tiny; refuse anything implausibly large.
     let metadata = std::fs::metadata(path).ok()?;
     if !metadata.is_file() || metadata.len() > 1024 * 1024 {

@@ -65,14 +65,14 @@ cd "$FIX"
 `outputContractViolation`, no `Invalid arguments`/`invalidInput`, no crash, and
 the stated content check holds.
 
-**0.5 — Availability and automated runners.** `scheme` always discovers 13
+**0.5 — Availability and automated runners.** `scheme` always discovers 14
 tools. `ghCloneRepo` is CLI-only: the CLI enables it with persistent storage
 (`OCTOCODE_STORAGE_MODE`, persistent by default), and MCP never registers it —
 `ENABLE_CLONE` has no effect. Without `OCTOCODE_BETA` and
-`OCTOCODE_CLASSIFICATION_API`, MCP registers 9 tools and omits `clasify`,
+`OCTOCODE_CLASSIFICATION_API`, MCP registers 10 tools and omits `clasify`,
 `astRewrite`, and `astTopology`; the CLI keeps all commands and schemas
 discoverable and reports the missing gate when one is called. This setup opts
-into beta tools. Section 13 runs the 12 non-provider tools across
+into beta tools. Section 13 runs the 13 non-provider tools across
 three surfaces, section 12 checks the gated semantic tool, and section 14 covers
 advanced variants. Use the corresponding tool section to diagnose a failure.
 
@@ -81,7 +81,8 @@ advanced variants. Use the corresponding tool section to diagnose a failure.
 ## Rollup checklist
 
 - [ ] 1. `localSearch` — text/regex search + advanced (regex modes, case, unique, pagination)
-- [ ] 2. `astSearch` — match / symbols / files / syntax tree
+- [ ] 2. `astSearch` — match / symbols / syntaxTree
+- [ ] 2b. `structureSearch` — tree / files
 - [ ] 2a. `astTopology` — all 7 graph analyses
 - [ ] 3. `astRewrite` — structural rewrite (pattern/rule/experimental, apply, escape hatch)
 - [ ] 4. `localFetch` — read file + minify / matchString / line-range / chunk pagination
@@ -127,15 +128,16 @@ advanced variants. Use the corresponding tool section to diagnose a failure.
 
 ## 2. astSearch
 
-**Purpose:** structural/AST queries and file discovery. One tool, four `operation`s.
+**Purpose:** structural/AST queries. One tool, three `operation`s.
 
 **Schema:** required `reasoning`, `operation`, `path`.
 - `match`: + `pattern` **or** `rule` (JSON string); `langType` required for dirs;
   `resultView` (`content`|`files`|`countMatches`), `captureText`, pagination.
-- `symbols`: + optional `kinds`, `name`, `namedOnly`, `nodeLimit`, `nodeOffset`.
-- `files`: + filters `names`/`extensions`/`entryType`(`f`|`d`)/`access`/`size`/
-  `time`/`minDepth`/`maxDepth`/`pathPattern`/`pathRegex`/`empty`/`permissions`/`limit`.
-- `tree`: + `treeKind:"syntax"` for a single source file.
+- `symbols`: + optional `kinds`, `name`, `languageGlobs`, pagination.
+- `syntaxTree`: single source file; + optional `namedOnly`, `nodeLimit`, `nodeOffset`.
+
+File discovery moved to `structureSearch` (§2b); `operation:"files"`/`"tree"` and
+`treeKind` now fail validation here.
 
 **Core task:** *"Find `greet($A)` calls in `src/`."*
 `{"operation":"match","path":"src","pattern":"greet($A)","langType":"typescript"}`
@@ -145,8 +147,7 @@ advanced variants. Use the corresponding tool section to diagnose a failure.
 - [ ] `match` with `rule` (JSON) — `{"operation":"match","path":"src","langType":"typescript","rule":"{\"pattern\":\"greet($A)\"}"}`
 - [ ] `match` `resultView:"countMatches"` and `resultView:"files"`
 - [ ] `operation:"symbols"` on `src` → lists `greet`/`shout`/`main`
-- [ ] `operation:"files"` with `extensions:["ts"]`
-- [ ] `operation:"tree"` with `treeKind:"syntax"` on a single file
+- [ ] `operation:"syntaxTree"` on a single file
 - [ ] language spread: run a `match` on a Rust/Python file with the right `langType`
 
 - [ ] native CLI [ ] node CLI [ ] MCP
@@ -177,6 +178,27 @@ fields include `entrypoints`, `includeTests`, `rustWorkspace`
 - [ ] `analysis:"drift"` with a separate `baseline`
 - [ ] **R1 (regression):** `analysis:"deadCode"` completes with **no**
       `outputContractViolation` (guards `deadcode_verify_references_continuation_is_contract_valid`)
+
+- [ ] native CLI [ ] node CLI [ ] MCP
+
+---
+
+## 2b. structureSearch
+
+**Purpose:** filesystem layout without a parser. Two `operation`s.
+
+**Schema:** required `reasoning`, `operation`, `path`.
+- `tree`: + optional `maxDepth`/`entryType`/`extensions`/`excludeDir`/`hidden`/`limit`, pagination.
+- `files`: + filters `names`/`extensions`/`entryType`(`f`|`d`)/`access`/`size`/
+  `time`/`minDepth`/`maxDepth`/`pathPattern`/`pathRegex`/`empty`/`permissions`/`limit`,
+  `detail`, `sort`.
+
+**Core task:** *"List the TypeScript files under the fixture."*
+`{"operation":"files","path":".","extensions":["ts"]}` → **PASS:** includes `src/util.ts`.
+
+**Advanced coverage:**
+- [ ] `operation:"tree"` with `maxDepth:1`
+- [ ] `operation:"files"` with `names:["*.ts"]` and `detail:"full"`
 
 - [ ] native CLI [ ] node CLI [ ] MCP
 
@@ -410,7 +432,7 @@ Inspect and execute through the built CLI:
 
 ```bash
 node "$NODECLI" scheme clasify --view query --compact
-node "$NODECLI" clasify --input request.json --compact
+node "$NODECLI" clasify --input request.json
 ```
 
 Each SemanticQuery has a stable `id`, `reasoning`, `resources[]`, and
@@ -458,7 +480,7 @@ and run `next.clasify` unchanged when present.
 
 ---
 
-## 13. Core matrix runner (12 non-provider tools × 3 surfaces)
+## 13. Core matrix runner (13 non-provider tools × 3 surfaces)
 
 Run from the fixture cwd (§0.3) with the env from §0.2. Prints a pass grid;
 `ghCloneRepo` shows `reached-net(auth)` in credential-less sandboxes and is
@@ -470,6 +492,7 @@ const { spawnSync, spawn } = require("node:child_process");
 const FIX = process.env.FIXROOT;
 const tools = {
   localSearch:{reasoning:"x",searchText:"greet",path:"src"},
+  structureSearch:{reasoning:"x",operation:"files",path:".",extensions:["ts"]},
   astSearch:{reasoning:"x",operation:"match",path:"src",pattern:"greet($A)",langType:"typescript"},
   astTopology:{reasoning:"x",operation:"topology",analysis:"dependencies",path:".",file:"src/index.ts"},
   astRewrite:{reasoning:"x",path:"src/util.ts",langType:"typescript",ruleKind:"pattern",pattern:"greet($A)",rewrite:"greet2($A)"},
@@ -483,7 +506,7 @@ const tools = {
   ghCloneRepo:{reasoning:"x",owner:"octocat",repo:"Hello-World"},
 };
 const cl=t=>/outputContractViolation|violates its canonical output contract/.test(t)?"FAIL(contract)":/Invalid arguments|invalidInput|contract validation failed|unexpected argument/.test(t)?"FAIL(input)":/panicked|is not a function|Cannot find module/.test(t)?"FAIL(crash)":/could not read Username|terminal prompts disabled|git .*clone failed/.test(t)?"reached-net(auth)":"PASS";
-const cli=(bin,n,q)=>{const r=spawnSync(bin[0],[...bin.slice(1),n,JSON.stringify(q),"--compact"],{cwd:FIX,encoding:"utf8",timeout:60000,env:process.env});return cl((r.stdout||"")+(r.stderr||"")+(r.error?.message||""));};
+const cli=(bin,n,q)=>{const r=spawnSync(bin[0],[...bin.slice(1),n,JSON.stringify(q)],{cwd:FIX,encoding:"utf8",timeout:60000,env:process.env});return cl((r.stdout||"")+(r.stderr||"")+(r.error?.message||""));};
 const mcpAll=names=>new Promise(res=>{const c=spawn("node",[process.env.MCP],{stdio:["pipe","pipe","pipe"],cwd:FIX,env:process.env});let b="",i=0,id=100;const o={};const s=x=>c.stdin.write(JSON.stringify(x)+"\n");const nx=()=>{if(i>=names.length){c.kill();return res(o);}const n=names[i++];c._n=n;s({jsonrpc:"2.0",id:++id,method:"tools/call",params:{name:n,arguments:{queries:[tools[n]]}}});};c.stdout.on("data",d=>{b+=d;let ls=b.split("\n");b=ls.pop();for(const l of ls){if(!l.trim())continue;let m;try{m=JSON.parse(l)}catch{continue}if(m.id===1)nx();else if(m.id>100){o[c._n]=cl(JSON.stringify(m.result||m.error||""));nx();}}});c.stderr.on("data",()=>{});s({jsonrpc:"2.0",id:1,method:"initialize",params:{protocolVersion:"2025-06-18",capabilities:{},clientInfo:{name:"x",version:"0"}}});setTimeout(()=>{c.kill();res(o)},120000);});
 (async()=>{const names=Object.keys(tools);const mcp=await mcpAll(names);console.log("TOOL".padEnd(18),"NATIVE-CLI".padEnd(20),"NODE-CLI".padEnd(20),"MCP");console.log("-".repeat(78));for(const n of names)console.log(n.padEnd(18),cli([process.env.BIN],n,tools[n]).padEnd(20),cli(["node",process.env.NODECLI],n,tools[n]).padEnd(20),mcp[n]||"?");})();
 NODE
@@ -510,9 +533,10 @@ const V = {
   "localSearch regex=pcre2":["localSearch",{reasoning:"x",searchText:"gr(?=eet)",path:"src",regex:"pcre2"}],
   "localSearch regex=literal":["localSearch",{reasoning:"x",searchText:"greet(",path:"src",regex:"literal"}],
   "localSearch unique=count":["localSearch",{reasoning:"x",searchText:"greet",path:"src",unique:"count",resultView:"matchOnly"}],
-  "astSearch op=files":["astSearch",{reasoning:"x",operation:"files",path:".",extensions:["ts"]}],
+  "structureSearch op=files":["structureSearch",{reasoning:"x",operation:"files",path:".",extensions:["ts"]}],
+  "structureSearch op=tree":["structureSearch",{reasoning:"x",operation:"tree",path:".",maxDepth:1}],
   "astSearch op=symbols":["astSearch",{reasoning:"x",operation:"symbols",path:"src"}],
-  "astSearch tree=syntax":["astSearch",{reasoning:"x",operation:"tree",path:"src/util.ts",treeKind:"syntax"}],
+  "astSearch op=syntaxTree":["astSearch",{reasoning:"x",operation:"syntaxTree",path:"src/util.ts"}],
   "astSearch match/rule":["astSearch",{reasoning:"x",operation:"match",path:"src",langType:"typescript",rule:'{"pattern":"greet($A)"}'}],
   "astTopology analysis=cycles":["astTopology",{reasoning:"x",operation:"topology",path:".",analysis:"cycles"}],
   "astTopology analysis=dependencies":["astTopology",{reasoning:"x",operation:"topology",path:".",analysis:"dependencies",file:"src/index.ts"}],
@@ -532,7 +556,7 @@ const V = {
 };
 const ok=t=>!/outputContractViolation|invalidInput|Invalid arguments|panicked|contract validation failed/.test(t);
 for(const [label,[name,q]] of Object.entries(V)){
-  const r=spawnSync(BIN,[name,JSON.stringify(q),"--compact"],{cwd:FIX,encoding:"utf8",timeout:60000,env:process.env});
+  const r=spawnSync(BIN,[name,JSON.stringify(q)],{cwd:FIX,encoding:"utf8",timeout:60000,env:process.env});
   console.log((ok((r.stdout||"")+(r.stderr||""))?"✅":"❌")+" "+label);
 }
 NODE

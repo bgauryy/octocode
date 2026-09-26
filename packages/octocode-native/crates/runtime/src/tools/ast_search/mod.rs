@@ -1,4 +1,3 @@
-mod files;
 mod matches;
 #[cfg(test)]
 mod policy_tests;
@@ -168,7 +167,7 @@ pub(super) fn validate_file_language(
 
 /// Row path for a descendant of a directory scope: `{root_name}/{relative}`.
 /// The runtime attaches `base = parent(scope)`, so `base + path` resolves to
-/// the real file for every operation (files, match, symbols).
+/// the real file for every operation (match, symbols).
 pub(super) fn rooted_display(root: &std::path::Path, relative: &std::path::Path) -> String {
     let root_name = display_name(root);
     if relative.as_os_str().is_empty() {
@@ -202,7 +201,6 @@ pub fn execute_ast(
     let query: AstSearchQuery = serde_json::from_value(query)
         .map_err(|error| AstError::new("ast.input.invalid", error.to_string()))?;
     match &query {
-        AstSearchQuery::Files(query) => execute_files(query, paths, security, cancellation),
         AstSearchQuery::Symbols(query) => execute_symbols(query, paths, security, cancellation),
         AstSearchQuery::MatchPattern(query) => {
             execute_match(MatchQuery::Pattern(query), paths, security, cancellation)
@@ -210,11 +208,10 @@ pub fn execute_ast(
         AstSearchQuery::MatchRule(query) => {
             execute_match(MatchQuery::Rule(query), paths, security, cancellation)
         }
-        AstSearchQuery::Tree(query) => execute_syntax(query, paths, security, cancellation),
+        AstSearchQuery::SyntaxTree(query) => execute_syntax(query, paths, security, cancellation),
     }
 }
 
-pub use files::execute_files;
 pub use matches::execute_match;
 pub use symbols::execute_symbols;
 pub use syntax::execute_syntax;
@@ -260,7 +257,7 @@ mod tests {
         assert_eq!(missing.code, "ast.input.invalid");
 
         let unknown = execute_ast(
-            json!({"operation":"files","reasoning":"test","path":".","unknown":true}),
+            json!({"operation":"symbols","reasoning":"test","path":".","unknown":true}),
             &paths,
             &security,
             &Active,
@@ -269,7 +266,7 @@ mod tests {
         assert_eq!(unknown.code, "ast.input.invalid");
 
         let cancelled = execute_ast(
-            json!({"operation":"files","reasoning":"test","path":"."}),
+            json!({"operation":"symbols","reasoning":"test","path":"."}),
             &paths,
             &security,
             &Cancelled,
@@ -292,8 +289,7 @@ mod tests {
 
         let syntax = execute_ast(
             json!({
-                "operation":"tree","reasoning":"test",
-                "treeKind":"syntax",
+                "operation":"syntaxTree","reasoning":"test",
                 "path":source.to_string_lossy()
             }),
             &paths,
@@ -301,7 +297,8 @@ mod tests {
             &Active,
         )
         .expect("syntax tree");
-        assert_eq!(syntax["treeKind"], "syntax");
+        assert_eq!(syntax["operation"], "syntaxTree");
+        assert!(syntax.get("treeKind").is_none(), "{syntax}");
         // Line/column locate nodes; byte offsets are debug-only.
         let root_node = &syntax["nodes"][0];
         assert!(root_node.get("startLine").is_some(), "{root_node}");
@@ -309,8 +306,7 @@ mod tests {
         assert!(root_node.get("endByte").is_none(), "{root_node}");
         let debug = execute_ast(
             json!({
-                "operation":"tree","reasoning":"test","debug":true,
-                "treeKind":"syntax",
+                "operation":"syntaxTree","reasoning":"test","debug":true,
                 "path":source.to_string_lossy()
             }),
             &paths,
@@ -323,8 +319,10 @@ mod tests {
 
         for retired in [
             json!({"operation":"tree","reasoning":"test","treeKind":"filesystem","path":root.path().to_string_lossy()}),
-            json!({"operation":"tree","reasoning":"test","treeKind":"syntax","path":source.to_string_lossy(),"entryType":"f"}),
-            json!({"operation":"tree","reasoning":"test","treeKind":"syntax","path":source.to_string_lossy(),"sort":"size"}),
+            json!({"operation":"tree","reasoning":"test","treeKind":"syntax","path":source.to_string_lossy()}),
+            json!({"operation":"files","reasoning":"test","path":root.path().to_string_lossy()}),
+            json!({"operation":"syntaxTree","reasoning":"test","path":source.to_string_lossy(),"entryType":"f"}),
+            json!({"operation":"syntaxTree","reasoning":"test","path":source.to_string_lossy(),"sort":"size"}),
             json!({"operation":"topology","reasoning":"test","analysis":"dependencies","path":root.path().to_string_lossy(),"file":"fixture.ts"}),
         ] {
             let error = execute_ast(retired, &paths, &security, &Active)

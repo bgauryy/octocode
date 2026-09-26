@@ -9,7 +9,7 @@ A known file or path skips discovery. If the relevant lines or a useful literal 
 | Question | Tool and selection | Evidence |
 |---|---|---|
 | Names, strings, errors, configuration | `localSearch`, `searchText` | lexical candidates |
-| Paths or directory layout | `astSearch operation:"files"` (`maxDepth` for layout) | files inside the stated scope |
+| Paths or directory layout | `structureSearch operation:"files"` or `operation:"tree"` (`maxDepth` for layout) | files inside the stated scope |
 | Call/declaration/import shape | `astSearch operation:"match"`, exactly one `pattern` or `rule` | AST syntax, not resolved identity |
 | Exact behavior or quote | `localFetch`, `minify:"none"`, bounded lines or match | source text |
 | Symbol identity and use | `lspSearch` | server-resolved definitions/references/callers |
@@ -23,7 +23,7 @@ Use an absolute `path` for `localSearch`; it has no `operation` field. Text uses
 
 ## Unread local files: locate before broad reads
 
-1. Discover paths with metadata, `astSearch operation:"files"` or narrow `localSearch`; do not fetch whole files to prepare classifier context.
+1. Discover paths with metadata, `structureSearch operation:"files"` or narrow `localSearch`; do not fetch whole files to prepare classifier context.
 2. If exact text, a small file, an existing source span, or an AST/LSP answer decides the task, use it directly.
 3. Otherwise send `clasify` a resource `{context:{tool:"localFetch",query:{reasoning:"Locate before reading",path:"/absolute/file",fullContent:true}}}` and flat questions such as `{id:"retry",questionType:"locate",target:"The condition that permits retrying a failed request."}`. Each question is atomic. Batch independent same-file questions in one matrix, within 25 expanded cells.
 4. Read useful returned `source.path` / `answers.*.matches[0]` ranges together with `localFetch`; merge nearby ranges and reuse each verification read across questions. Widen only incomplete sentences or declarations.

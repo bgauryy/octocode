@@ -209,7 +209,7 @@ class Policy:
             return "non_local_tool_or_inventory"
         if args == ["--help"]:
             return None
-        output_flags = {"--compact", "--json-errors"}
+        output_flags = {"--json-errors"}
         if any(value.startswith("-") and value not in output_flags for value in args):
             return "unsupported_cli_flags"
         positionals = [value for value in args if not value.startswith("-")]
@@ -651,7 +651,6 @@ def runtime_manifest(root):
 def fingerprint(cli):
     packages = ["packages/octocode/src", "packages/octocode-native/crates/runtime/src",
                 "packages/octocode-native/crates/engine/src", "packages/octocode-config/src",
-                "packages/octocode-pi-extension/src/contracts",
                 "yarn.lock"]
     result = {"head": command(["git", "rev-parse", "HEAD"]).strip(),
               "sourceFiles": source_manifest(WORKSPACE, packages),

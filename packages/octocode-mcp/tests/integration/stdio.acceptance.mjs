@@ -163,7 +163,7 @@ const executeCliTool = (name, queries) => {
   const startedAt = performance.now();
   const child = spawnSync(
     values.node,
-    [path.resolve(values.cli), name, JSON.stringify({ queries }), '--compact'],
+    [path.resolve(values.cli), name, JSON.stringify({ queries })],
     { encoding: 'utf8', timeout: 120_000, maxBuffer: 8 * 1024 * 1024, cwd: acceptanceCwd, env: acceptanceEnv }
   );
   const durationMs = Number((performance.now() - startedAt).toFixed(2));

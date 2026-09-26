@@ -1,16 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import {
-  AstFilesQuerySchema,
-  AstFilesystemTreeQuerySchema,
   LOCAL_MAX_DEPTH,
   LOCAL_MAX_LIMIT,
   LspSearchQuerySchema,
+  StructureFilesQuerySchema,
+  StructureTreeQuerySchema,
 } from '@octocodeai/config/schema';
 
 describe.each([
-  ['files', AstFilesQuerySchema],
-  ['tree', AstFilesystemTreeQuerySchema],
-] as const)('astSearch %s limit bounds', (operation, schema) => {
+  ['files', StructureFilesQuerySchema],
+  ['tree', StructureTreeQuerySchema],
+] as const)('structureSearch %s limit bounds', (operation, schema) => {
   it.each([-5, LOCAL_MAX_LIMIT + 1])(
     'rejects out-of-range limit %s without clamping',
     limit => {
@@ -47,12 +47,12 @@ describe.each([
   });
 });
 
-describe('astSearch filesystem tree depth bounds', () => {
+describe('structureSearch tree depth bounds', () => {
   it.each([-1, LOCAL_MAX_DEPTH + 1])(
     'rejects out-of-range depth %s without clamping',
     maxDepth => {
       expect(
-        AstFilesystemTreeQuerySchema.safeParse({
+        StructureTreeQuerySchema.safeParse({
           reasoning: 'exercise depth bounds',
           operation: 'tree',
           path: '.',
@@ -65,7 +65,7 @@ describe('astSearch filesystem tree depth bounds', () => {
   it.each([0, LOCAL_MAX_DEPTH])(
     'accepts depth at the boundary %s',
     maxDepth => {
-      const result = AstFilesystemTreeQuerySchema.safeParse({
+      const result = StructureTreeQuerySchema.safeParse({
         reasoning: 'exercise depth bounds',
         operation: 'tree',
         path: '.',

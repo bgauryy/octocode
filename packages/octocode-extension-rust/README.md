@@ -1,7 +1,7 @@
 # Octocode extension native runtime
 
 `@octocodeai/octocode-extension-rust` is the native filesystem and line-diff
-boundary used by the Octocode Pi extension.
+boundary for agent hosts.
 
 It provides bounded snapshots, atomic file replacement, deletion receipts,
 private directory creation, line diffs, evidence fingerprints, and

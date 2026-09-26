@@ -16,7 +16,7 @@ const safeExtras = {
     include:empty,exclude:empty,excludeDir:empty,contextLines:any,matchContentLength:any,
     maxMatchesPerFile:any,pageSize:any,sort:any,
     resultView:values('paginated','discovery','detailed','content','matchOnly'),reverse:values(true,false)},
-  astSearch:{...paging,limit:any,detail:any,sort:any,entryType:values('f')},
+  structureSearch:{...paging,limit:any,detail:any,sort:any,entryType:values('f')},
   localFetch:{chunkSize:any,chunkType:values('lines','bytes'),offset:zero,minify:values('none')},
   lspSearch:{...paging,orderHint:zero,format:any,groupByFile:values(true,false),contextLines:any,includeDeclaration:values(true,false)},
 };

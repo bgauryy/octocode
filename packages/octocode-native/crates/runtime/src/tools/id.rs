@@ -33,6 +33,7 @@ pub enum ToolId {
     ArtifactSearch,
     LocalSearch,
     LocalFetch,
+    StructureSearch,
     AstSearch,
     AstTopology,
     AstRewrite,
@@ -42,7 +43,7 @@ pub enum ToolId {
 
 impl ToolId {
     /// All tool identities in declaration order.
-    pub const ALL: [ToolId; 13] = [
+    pub const ALL: [ToolId; 14] = [
         ToolId::GhSearch,
         ToolId::GhGetFileContent,
         ToolId::GhSearchHistory,
@@ -51,6 +52,7 @@ impl ToolId {
         ToolId::ArtifactSearch,
         ToolId::LocalSearch,
         ToolId::LocalFetch,
+        ToolId::StructureSearch,
         ToolId::AstSearch,
         ToolId::AstTopology,
         ToolId::AstRewrite,
@@ -71,6 +73,7 @@ impl ToolId {
             ToolId::ArtifactSearch => "artifactSearch",
             ToolId::LocalSearch => "localSearch",
             ToolId::LocalFetch => "localFetch",
+            ToolId::StructureSearch => "structureSearch",
             ToolId::AstSearch => "astSearch",
             ToolId::AstTopology => "astTopology",
             ToolId::AstRewrite => "astRewrite",
@@ -91,6 +94,7 @@ impl ToolId {
         match self {
             ToolId::LocalSearch
             | ToolId::LocalFetch
+            | ToolId::StructureSearch
             | ToolId::AstSearch
             | ToolId::AstTopology
             | ToolId::AstRewrite
@@ -149,9 +153,11 @@ impl ToolId {
             ToolId::GhCloneRepo => Some("OCTOCODE_STORAGE_MODE"),
             ToolId::Clasify => Some("OCTOCODE_CLASSIFICATION_API|OCTOCODE_JEV_KEY"),
             ToolId::AstRewrite | ToolId::AstTopology => Some("OCTOCODE_BETA"),
-            ToolId::LocalSearch | ToolId::LocalFetch | ToolId::AstSearch | ToolId::LspSearch => {
-                Some("ENABLE_LOCAL")
-            }
+            ToolId::LocalSearch
+            | ToolId::LocalFetch
+            | ToolId::StructureSearch
+            | ToolId::AstSearch
+            | ToolId::LspSearch => Some("ENABLE_LOCAL"),
             _ => None,
         }
     }
@@ -220,6 +226,7 @@ mod tests {
         for id in [
             ToolId::LocalSearch,
             ToolId::LocalFetch,
+            ToolId::StructureSearch,
             ToolId::AstSearch,
             ToolId::AstTopology,
             ToolId::AstRewrite,
@@ -258,6 +265,7 @@ mod tests {
         for id in [
             ToolId::LocalSearch,
             ToolId::LocalFetch,
+            ToolId::StructureSearch,
             ToolId::AstSearch,
             ToolId::LspSearch,
         ] {

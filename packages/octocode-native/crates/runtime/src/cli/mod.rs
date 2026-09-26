@@ -385,6 +385,9 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
     match command {
         Command::LocalSearch(args) => run_tool(runtime, "localSearch", args, json_errors).await,
         Command::LocalFetch(args) => run_tool(runtime, "localFetch", args, json_errors).await,
+        Command::StructureSearch(args) => {
+            run_tool(runtime, "structureSearch", args, json_errors).await
+        }
         Command::AstSearch(args) => run_tool(runtime, "astSearch", args, json_errors).await,
         Command::AstTopology(args) => run_tool(runtime, "astTopology", args, json_errors).await,
         Command::AstRewrite(args) => run_tool(runtime, "astRewrite", args, json_errors).await,

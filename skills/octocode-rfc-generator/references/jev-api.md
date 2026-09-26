@@ -8,7 +8,7 @@ Use the native Octocode CLI or discovered MCP tool. Inspect the live catalog and
 
 ```sh
 octocode scheme clasify --view query --compact
-octocode clasify --input /absolute/review/request.json --compact
+octocode clasify --input /absolute/review/request.json
 ```
 
 There is no public `jev` command or schema alias. MCP registers `clasify` only when `OCTOCODE_CLASSIFICATION_API` is configured in the Octocode process environment. The CLI command remains discoverable, but an invocation without the key must fail with an actionable missing-`OCTOCODE_CLASSIFICATION_API` message. Keep credentials out of requests and receipts. A missing tool/key, denied access, timeout, or invalid output means no usable judgment: continue the unjudged audit and report the actual reason. Catalog or schema discovery alone is not provider validation.

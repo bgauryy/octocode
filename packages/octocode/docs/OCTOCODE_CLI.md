@@ -17,14 +17,15 @@ wrappers or aliases: the tool name and the JSON query are the entire interface.
 
 ### Tools — one command per tool
 
-Each tool command takes one positional raw JSON query (or `--input <file>`),
-plus `--compact` for single-line JSON (default output is indented JSON).
+Each tool command takes one positional raw JSON query (or `--input <file>`)
+and prints single-line JSON (`--pretty` indents).
 
 | Command | Purpose |
 |---|---|
 | `localSearch` | Text/regex search across local files. |
 | `localFetch` | Read a local file: pagination, line ranges, match filtering, minification. |
-| `astSearch` | Structural (ast-grep) search, file discovery, declarations, and syntax trees. |
+| `structureSearch` | Directory outlines and file discovery by name or metadata. |
+| `astSearch` | Structural (ast-grep) search, declarations, and syntax trees. |
 | `astTopology` | Dependency graph analysis for paths, cycles, reachability, dead code, and drift. |
 | `astRewrite` | Structural find-and-replace; previews before writing. |
 | `lspSearch` | Definitions, references, hover, call/type hierarchy, diagnostics. |
@@ -61,7 +62,7 @@ npx octocode --help
 npx octocode auth --json
 npx octocode scheme --compact
 npx octocode scheme localSearch
-npx octocode astSearch '{"operation":"tree","path":"/ABS/repo/src","reasoning":"Map the source tree."}'
+npx octocode structureSearch '{"operation":"tree","path":"/ABS/repo/src","reasoning":"Map the source tree."}'
 npx octocode localSearch '{"path":"/ABS/repo/src","searchText":"createServer","resultView":"matchOnly","reasoning":"Locate the server entry."}'
 npx octocode localFetch '{"path":"./src/index.ts","fullContent":true,"reasoning":"Read the entry file."}'
 npx octocode skill list
@@ -86,7 +87,7 @@ resolve from the command cwd, which may differ from the repository root.
 | Category | Default enabled tools |
 |---|---|
 | GitHub | `ghSearch` · `ghGetFileContent` · `ghSearchHistory` · `ghGetHistoryItem` |
-| Local Code | `localSearch` · `astSearch` · `localFetch` · `lspSearch` |
+| Local Code | `localSearch` · `structureSearch` · `astSearch` · `localFetch` · `lspSearch` |
 | Package | `artifactSearch` |
 
 `ghCloneRepo` is available in the CLI with persistent storage. `astRewrite` and
@@ -103,14 +104,13 @@ map cheaply → search narrowly → read exact evidence → follow symbols or hi
 ```
 
 ```bash
-npx octocode astSearch '{"operation":"tree","path":"/ABS/repo/crates/runtime/src","reasoning":"Map the runtime crate."}'
+npx octocode structureSearch '{"operation":"tree","path":"/ABS/repo/crates/runtime/src","reasoning":"Map the runtime crate."}'
 npx octocode localSearch '{"path":"/ABS/repo/crates/runtime/src","searchText":"ToolRuntime","resultView":"discovery","reasoning":"Find the runtime type."}'
 npx octocode localFetch '{"path":"/ABS/repo/crates/runtime/src/runtime/engine.rs","matchString":"ToolRuntime","reasoning":"Read the definition site."}'
 npx octocode lspSearch '{"uri":"/ABS/repo/crates/runtime/src/runtime/engine.rs","operation":"references","symbolName":"ToolRuntime","lineHint":40,"reasoning":"Trace usages."}'
 ```
 
-`clasify` requires a nonblank `reasoning` string. Ordinary tools accept
-it as optional context and reject a supplied blank value. Queries accept a
+Every tool requires a nonblank `reasoning` string. Queries accept a
 single object or a JSON array for a batch (up to 5). Large queries avoid shell
 quoting with `--input <file>`.
 
@@ -242,7 +242,7 @@ the canonical command syntax.
 ### Orient in a local codebase
 
 ```bash
-npx octocode astSearch '{"operation":"tree","path":"/ABS/repo/src","reasoning":"Map the tree."}'
+npx octocode structureSearch '{"operation":"tree","path":"/ABS/repo/src","reasoning":"Map the tree."}'
 npx octocode localSearch '{"path":"/ABS/repo/src","searchText":"parseArgs","resultView":"discovery","reasoning":"Find the parser."}'
 npx octocode localFetch '{"path":"/ABS/repo/src/cli/parser.ts","matchString":"parseArgs","reasoning":"Read the parser."}'
 ```
@@ -288,7 +288,7 @@ npx octocode ghGetHistoryItem '{"operation":"compare","owner":"bgauryy","repo":"
 ```bash
 npx octocode scheme --compact
 npx octocode scheme localSearch --view query --compact
-npx octocode localSearch '{"path":"/ABS/repo/src","searchText":"runCLI","resultView":"matchOnly","reasoning":"Locate the entry."}' --compact
+npx octocode localSearch '{"path":"/ABS/repo/src","searchText":"runCLI","resultView":"matchOnly","reasoning":"Locate the entry."}'
 npx octocode clasify --input request.json
 ```
 
@@ -307,8 +307,8 @@ tool from discovery until the key is available.
 |---|---|
 | `--help` | Show command help. |
 | `--version` | Show CLI version. |
-| `--compact` | Single-line JSON (tool output is already single-line; `scheme` is compact when piped). |
-| `--pretty` | Indented JSON for tool output. |
+| `--compact` | `scheme` only: single-line JSON (`scheme` is already compact when piped). Tool commands print single-line JSON by default and reject `--compact`. |
+| `--pretty` | Indented JSON (tool output and `scheme`). |
 | `--input <file>` | Read a tool's JSON query from a file. |
 | `--json-errors` | Emit errors as `{"kind":"octocode.toolError","version":1,"error":"…"}` on stdout instead of stderr text — the same envelope as tool input-validation errors (`tool` and `details` when known). Covers argument/unknown-subcommand errors and `scheme`; exit codes are unchanged. |
 | `--no-color` | Disable ANSI color. `NO_COLOR=1` works too. |

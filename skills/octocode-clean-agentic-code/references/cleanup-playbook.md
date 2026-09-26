@@ -13,11 +13,11 @@ State the target paths, which smell classes are in scope, and what is explicitly
 | Shims / re-exports / aliases | `localSearch`, exact read, applicable `lspSearch` references, `astTopology` (beta) | discover candidates; trace symbol uses and configuration/entrypoint paths |
 | Duplicate logic | `astSearch` match (AST) | diff candidates; confirm consumers |
 | Config length / redundancy | `localFetch` minify:none | line count; key audit |
-| Hierarchy / misplacement | `astSearch` tree | file count per folder; layer mismatch |
+| Hierarchy / misplacement | `structureSearch` tree | file count per folder; layer mismatch |
 | Docs / comments | `localFetch` minify:none | apply `references/doc-hygiene.md` rules |
 | Schema / type redundancy | `astSearch` match + `lspSearch` references | compare shapes, semantic roles, consumers, and protocol compatibility |
 | Dependency junk | `localFetch` minify:none on each package.json | unused, duplicate, misaligned, phantom deps |
-| Test debt | `astSearch` with `operation:"files"` and a name/path filter on the candidate package + `localFetch` with `minify:"symbols"` on each hit | numbered/dated files, skip blocks, rigid mocks, redundant stubs, env-coupled setup |
+| Test debt | `structureSearch` with `operation:"files"` and a name/path filter on the candidate package + `localFetch` with `minify:"symbols"` on each hit | numbered/dated files, skip blocks, rigid mocks, redundant stubs, env-coupled setup |
 | Agent residue | `astTopology` dependents/deadCode (beta; else `lspSearch` references), then `localSearch` | zero-dependent new files, reinvented helpers, narration comments, masked failures |
 | Spaghetti | `astSearch` on the function body, then an exact read; `lspSearch` callers for flag or mode arguments | phase-crossing and deep nesting inside one function; apply `references/spaghetti.md` |
 

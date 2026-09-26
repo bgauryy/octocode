@@ -29,15 +29,11 @@ Load when choosing a library for a need or vetting a dependency already in `Carg
 | Iterator power tools | `itertools` | `chunk_by`, `dedup`, `cartesian_product`, … |
 
 ## Testing & bench canon
-- `criterion` — statistical microbenchmarks (`cargo bench`).
-- `insta` — snapshot tests (great for parsers/serializers/CLI output).
-- `proptest` / `quickcheck` — property-based testing.
-- `rstest` — parameterized fixtures/cases.
-- `mockall` — trait mocking, only when a real fake is impractical.
+Test/bench crates (insta, proptest, criterion, assert_cmd, trybuild…) are chosen per test kind in `references/testing.md`.
 
 ## Decision heuristics
 - **Library vs app is the top fork for errors:** libraries expose typed errors (`thiserror`) so callers can react; apps collapse to `anyhow`. A library that returns `anyhow::Error` forces the collapse on every consumer — avoid.
-- **Feature-gate heavy optionals** (`default-features = false`, opt in) to keep compile time and attack surface down — see `references/build-and-deps.md`.
+- **Feature-gate heavy optionals** (`default-features = false`, opt in) to keep compile time and attack surface down — see `references/workspace-manifest.md`.
 - **`rustls` over native TLS** for portability and static binaries where the platform allows.
 
-Next: for how the chosen error crate shapes function signatures, load `references/idioms.md`; for feature/version wiring, `references/build-and-deps.md`.
+Next: for how the chosen error crate shapes function signatures, load `references/idioms.md`; for feature/version wiring, `references/workspace-manifest.md`.

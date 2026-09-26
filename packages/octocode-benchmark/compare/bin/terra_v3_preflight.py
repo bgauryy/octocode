@@ -698,8 +698,11 @@ def _write_frozen(path: Path, value: dict[str, object]) -> None:
 def _catalog(workspace: Path) -> bytes:
     cli = workspace / "packages/octocode/out/octocode.js"
     calls = (
-        ["node", str(cli), "tools", "--json"],
-        ["node", str(cli), "tools", "localSearch", "astSearch", "localFetch", "lspSearch", "--scheme", "--json", "--compact"],
+        ["node", str(cli), "scheme", "--compact"],
+        *(
+            ["node", str(cli), "scheme", tool, "--view", "query", "--compact"]
+            for tool in ("localSearch", "structureSearch", "astSearch", "localFetch", "lspSearch")
+        ),
     )
     output = bytearray()
     for call in calls:

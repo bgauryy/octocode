@@ -4,7 +4,7 @@ Skills for working on this repository. They are not published and they are not p
 
 | Tree | Role |
 |---|---|
-| [`skills/`](../skills/) | Public skills. Shipped with the CLI and the Pi bundle. |
+| [`skills/`](../skills/) | Public skills. Shipped with the CLI. |
 | [`skills-beta/`](../skills-beta/) | Tested skills. In trial, not published. |
 | `skills-dev/` | Local development of this monorepo. |
 

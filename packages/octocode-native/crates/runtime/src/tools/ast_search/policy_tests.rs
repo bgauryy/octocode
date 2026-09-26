@@ -46,17 +46,6 @@ fn descendant_policy_precedes_discovery_totals_and_line_reads() {
     })
     .expect("policy");
     let security = ContentSecurity::new();
-    let files = execute_ast(
-        json!({"operation":"files","reasoning":"test","path":root.0,"detail":"full","sort":"lines","entryType":"f"}),
-        &paths,
-        &security,
-        &Active,
-    )
-    .expect("files");
-    assert_eq!(files["pagination"]["totalFiles"], 1);
-    assert_eq!(files["files"][0]["lineCount"], 2);
-    assert!(!files.to_string().contains("credentials"));
-    assert!(!files.to_string().contains("tfstate"));
     let symbols = execute_ast(
         json!({"operation":"symbols","reasoning":"test","path":root.0}),
         &paths,
@@ -117,7 +106,7 @@ fn structural_zero_is_empty_with_actionable_pattern_guidance() {
         .as_str()
         .expect("no-match guidance");
     assert!(guidance.contains("trailing semicolons"), "{guidance}");
-    assert!(guidance.contains("treeKind:\"syntax\""), "{guidance}");
+    assert!(guidance.contains("operation:\"syntaxTree\""), "{guidance}");
 
     let found = execute_ast(
         json!({"operation":"match","reasoning":"test","path":source,"pattern":"const $A = $B;"}),
@@ -170,29 +159,6 @@ fn directory_prefilter_skips_are_aggregated_once() {
     assert_eq!(result["status"], "empty", "{result}");
 }
 
-#[cfg(unix)]
-#[test]
-fn escaped_links_are_pruned_before_line_counting() {
-    let root = Fixture::new();
-    let outside = Fixture::new();
-    std::fs::write(outside.0.join("outside.rs"), "outside\n").expect("outside");
-    std::os::unix::fs::symlink(outside.0.join("outside.rs"), root.0.join("link.rs")).expect("link");
-    let paths = PathPolicy::new(PathPolicyConfig {
-        workspace_root: Some(root.0.clone()),
-        ..Default::default()
-    })
-    .expect("policy");
-    let security = ContentSecurity::new();
-    let files = execute_ast(
-        json!({"operation":"files","reasoning":"test","path":root.0,"detail":"full","entryType":"f"}),
-        &paths,
-        &security,
-        &Active,
-    )
-    .expect("files");
-    assert_eq!(files["pagination"]["totalFiles"], 0);
-}
-
 #[test]
 fn cancellation_interrupts_descendant_traversal() {
     struct AfterRoot(std::sync::atomic::AtomicUsize);
@@ -213,14 +179,6 @@ fn cancellation_interrupts_descendant_traversal() {
     })
     .expect("policy");
     let security = ContentSecurity::new();
-    let error = execute_ast(
-        json!({"operation":"files","reasoning":"test","path":root.0}),
-        &paths,
-        &security,
-        &AfterRoot(std::sync::atomic::AtomicUsize::new(0)),
-    )
-    .expect_err("cancel during walk");
-    assert_eq!(error.code, "ast.execution.cancelled");
     let error = execute_ast(
         json!({
             "operation":"match","reasoning":"test","path":root.0,"langType":"rust",
@@ -290,83 +248,6 @@ fn simple_policy(root: &std::path::Path) -> (PathPolicy, ContentSecurity) {
     .expect("policy");
     let security = ContentSecurity::new();
     (paths, security)
-}
-
-// Regression: `files` mode default sort must be deterministic. The scan
-// primitive never provides mtimes, so a `modified` default ties every row at
-// 0.0 and pages fall back to OS readdir order. The default order must instead
-// be lexicographic by path and stable across identical invocations.
-#[test]
-fn files_path_sort_is_lexicographic_and_stable() {
-    let root = Fixture::new();
-    for name in ["zebra.rs", "apple.rs", "mango.rs", "banana.rs"] {
-        std::fs::write(root.0.join(name), "x\n").expect("file");
-    }
-    let (paths, security) = simple_policy(&root.0);
-    let run = || {
-        let out = execute_ast(
-            json!({"operation":"files","reasoning":"test","path":root.0,"entryType":"f","sort":"path"}),
-            &paths,
-            &security,
-            &Active,
-        )
-        .expect("files");
-        out["files"]
-            .as_array()
-            .expect("files array")
-            .iter()
-            .map(|f| f["path"].as_str().expect("path").to_string())
-            .collect::<Vec<_>>()
-    };
-    let first = run();
-    let mut sorted = first.clone();
-    sorted.sort();
-    assert_eq!(first, sorted, "path sort must be lexicographic");
-    let second = run();
-    assert_eq!(first, second, "path sort must be stable across runs");
-}
-
-#[test]
-fn files_continuation_rejects_stale_snapshot() {
-    let root = Fixture::new();
-    for i in 0..6 {
-        std::fs::write(root.0.join(format!("f{i}.rs")), "x\n").expect("file");
-    }
-    let (paths, security) = simple_policy(&root.0);
-    let page1 = execute_ast(
-        json!({"operation":"files","reasoning":"test","path":root.0,"entryType":"f","pageSize":2}),
-        &paths,
-        &security,
-        &Active,
-    )
-    .expect("page1");
-    let snapshot = page1["snapshot"].as_str().expect("snapshot").to_string();
-    // Happy path: the freshly emitted snapshot must be accepted on page 2.
-    let good = execute_ast(
-        json!({"operation":"files","reasoning":"test","path":root.0,"entryType":"f","pageSize":2,"page":2,"snapshot":snapshot}),
-        &paths,
-        &security,
-        &Active,
-    )
-    .expect("good page2");
-    assert!(
-        good.get("errorCode").is_none(),
-        "valid continuation must not be rejected; got {good}"
-    );
-    assert_eq!(good["pagination"]["currentPage"], json!(2));
-    std::fs::write(root.0.join("newcomer.rs"), "x\n").expect("mutate corpus");
-    let page2 = execute_ast(
-        json!({"operation":"files","reasoning":"test","path":root.0,"entryType":"f","pageSize":2,"page":2,"snapshot":snapshot}),
-        &paths,
-        &security,
-        &Active,
-    )
-    .expect("page2");
-    assert_eq!(
-        page2["errorCode"],
-        json!("ast.snapshot.changed"),
-        "got {page2}"
-    );
 }
 
 #[test]
@@ -587,13 +468,13 @@ fn cpp_header_can_use_explicit_cpp_grammar_without_changing_h_default() {
 
     let tree = run(
         &root.0,
-        json!({"operation":"tree","reasoning":"test","treeKind":"syntax","path":header,"langType":"cpp"}),
+        json!({"operation":"syntaxTree","reasoning":"test","path":header,"langType":"cpp"}),
     )
     .expect("explicit C++ tree");
     assert_eq!(tree["isPartial"], false, "{tree}");
     let default_tree = run(
         &root.0,
-        json!({"operation":"tree","reasoning":"test","treeKind":"syntax","path":header}),
+        json!({"operation":"syntaxTree","reasoning":"test","path":header}),
     )
     .expect(".h defaults to C");
     assert_eq!(default_tree["isPartial"], true, "{default_tree}");
@@ -681,32 +562,6 @@ fn match_content_length_bounds_each_match_value() {
 }
 
 #[test]
-fn files_line_count_counts_lines_not_newlines_plus_one() {
-    let root = Fixture::new();
-    std::fs::write(root.0.join("two.rs"), "a\nb\n").expect("two");
-    std::fs::write(root.0.join("partial.rs"), "a\nb").expect("partial");
-    std::fs::write(root.0.join("empty.rs"), "").expect("empty");
-    let out = run(
-        &root.0,
-        json!({"operation":"files","reasoning":"test","path":root.0,"detail":"full","entryType":"f"}),
-    )
-    .expect("files");
-    let count = |name: &str| {
-        out["files"]
-            .as_array()
-            .expect("files")
-            .iter()
-            .find(|f| f["path"].as_str().is_some_and(|p| p.ends_with(name)))
-            .map(|f| f["lineCount"].clone())
-            .unwrap_or_else(|| panic!("{name} in {out}"))
-    };
-    assert_eq!(count("two.rs"), 2);
-    assert_eq!(count("partial.rs"), 2);
-    // Zero-line files omit lineCount rather than reporting an extra line.
-    assert!(count("empty.rs").is_null());
-}
-
-#[test]
 fn unknown_symbol_kinds_are_rejected_and_source_limits_are_errors() {
     let root = Fixture::new();
     let source = root.0.join("lib.rs");
@@ -728,7 +583,7 @@ fn unknown_symbol_kinds_are_rejected_and_source_limits_are_errors() {
     std::fs::write(&large, "// x\n".repeat(250_001)).expect("large");
     for query in [
         json!({"operation":"symbols","reasoning":"test","path":large}),
-        json!({"operation":"tree","reasoning":"test","treeKind":"syntax","path":large}),
+        json!({"operation":"syntaxTree","reasoning":"test","path":large}),
     ] {
         let out = run(&root.0, query).expect("limit row");
         assert_eq!(out["errorCode"], "ast.source.limit", "{out}");
@@ -845,30 +700,6 @@ fn match_rows_emit_captures_once_and_omit_single_line_end() {
         "{single}"
     );
     assert_eq!(matches[1]["endLine"], 4, "{}", matches[1]);
-}
-
-#[test]
-fn file_rows_omit_the_default_file_type() {
-    let root = Fixture::new();
-    std::fs::create_dir(root.0.join("dir")).expect("dir");
-    std::fs::write(root.0.join("dir/a.rs"), "fn a() {}\n").expect("a");
-    let out = run(
-        &root.0,
-        json!({"operation":"files","reasoning":"test","path":root.0,"sort":"path"}),
-    )
-    .expect("files");
-    let rows = out["files"].as_array().expect("files");
-    let file = rows
-        .iter()
-        .find(|r| r["path"].as_str().is_some_and(|p| p.ends_with("a.rs")))
-        .expect("file row");
-    assert!(file.get("type").is_none(), "{file}");
-    if let Some(dir) = rows
-        .iter()
-        .find(|r| r["path"].as_str().is_some_and(|p| p.ends_with("/dir")))
-    {
-        assert_eq!(dir["type"], "directory", "{dir}");
-    }
 }
 
 #[test]

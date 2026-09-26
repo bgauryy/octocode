@@ -1,0 +1,19 @@
+#!/bin/sh
+# One shell, one uname: inbox-hook and hooks/host-hook.sh source this file.
+set -eu
+case $0 in */*) base=${0%/*} ;; *) base=. ;; esac
+# hooks/host-hook.sh sources this launcher from one directory below.
+[ -d "$base/bin" ] || [ ! -d "$base/../bin" ] || base=$base/..
+case $(uname -sm) in
+  'Darwin arm64'|'Darwin aarch64') target=aarch64-apple-darwin ;;
+  'Darwin x86_64') target=x86_64-apple-darwin ;;
+  'Linux aarch64'|'Linux arm64') target=aarch64-unknown-linux-gnu ;;
+  'Linux x86_64') target=x86_64-unknown-linux-gnu ;;
+  *) echo 'Unsupported platform. On Windows, use agents-communication.ps1.' >&2; exit 1 ;;
+esac
+binary=$base/bin/$target/octocode-agents-communication
+if [ ! -x "$binary" ]; then
+  echo "This source-only skill has no binary for $target. Install a built skill bundle; maintainers can run src/build-skill.mjs in the package checkout." >&2
+  exit 1
+fi
+exec "$binary" "$@"

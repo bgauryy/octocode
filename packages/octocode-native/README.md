@@ -191,15 +191,16 @@ above elide required fields for brevity.
 
 ### Tools — one command per tool
 
-Each command takes one positional raw JSON query (or `--input <file>`), and
-`--compact` for single-line JSON output (default is indented). The JSON
+Each command takes one positional raw JSON query (or `--input <file>`) and
+prints single-line JSON (`--pretty` indents). The JSON
 contract is identical to the MCP server tool of the same name.
 
 | Command | What it does |
 |---|---|
 | `localSearch` | Text/regex search across local files. |
 | `localFetch` | Read a local file: pagination, ranges, match filtering, minification. |
-| `astSearch` | Structural search (ast-grep), file discovery, declarations, and syntax trees. |
+| `structureSearch` | Directory outlines and file discovery by name or metadata. |
+| `astSearch` | Structural search (ast-grep), declarations, and syntax trees. |
 | `astTopology` | Dependency graph analysis for paths, cycles, reachability, dead code, and drift. |
 | `astRewrite` | Structural find-and-replace; previews before writing. |
 | `lspSearch` | Definitions, references, hover, call/type hierarchy, diagnostics. |
@@ -249,7 +250,7 @@ Hidden maintenance commands (not part of the agent surface, still available):
 | **Startup (tool call)** | ~160 ms | ~330 ms |
 | **Binary size** | ~50 MB release | 1 KB entry + node_modules |
 | **Query interface** | Raw JSON per tool (`octocode <tool> '<json>'`), schemas via `scheme` | Delegates to the native binary |
-| **Output** | Structured JSON (indented; `--compact` for one line) | Same — the Node CLI is a launcher |
+| **Output** | Single-line JSON (`--pretty` indents) | Same — the Node CLI is a launcher |
 | **Environments without Node** | ✓ Standalone | ✗ Node required |
 | **Interactive UI** | Plain text | Menus, spinners, colored headers |
 | **Auth flow** | Native GitHub device flow with keychain storage | Native interactive OAuth with keychain |

@@ -2,7 +2,7 @@
 
 Octocode research connects a question to inspectable code evidence. The agent chooses scope and evaluates evidence; tools retrieve source, syntax, repository topology, language-server results, and provider records. A search locates a candidate — it does not establish identity, completeness, or behavior.
 
-This page covers choosing and combining the 12 public tools. See the [tool reference](OCTOCODE_TOOLS.md) for parameters, the [research skill](../skills/octocode-research/SKILL.md) for executable workflows, and the [contributor acceptance guide](MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md) for validation requirements.
+This page covers choosing and combining the 13 public tools. See the [tool reference](OCTOCODE_TOOLS.md) for parameters, the [research skill](../skills/octocode-research/SKILL.md) for executable workflows, and the [contributor acceptance guide](MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md) for validation requirements.
 
 ## Discover the contract before the query
 
@@ -16,7 +16,7 @@ node packages/octocode/out/octocode.js scheme ghGetHistoryItem --view query
 
 The catalog shows available tools and configuration gates; a compact schema shows fields, operation variants, and conditional relations. Read the full schema when a nested selector is abbreviated — for example, selected PR patches accept both file selection and added/deleted line ranges.
 
-Execute with `TOOL_NAME 'JSON' --compact` — one query object or a batch of up to five same-tool queries. Batch only independent work; sequence calls when a later query needs an identity, path, source line, snapshot, cursor, or continuation from an earlier one.
+Execute with `TOOL_NAME 'JSON'` — one query object or a batch of up to five same-tool queries. Batch only independent work; sequence calls when a later query needs an identity, path, source line, snapshot, cursor, or continuation from an earlier one.
 
 Optional `goal` and `reasoning` are short decision context, not ranking controls or proof. Result `index` maps to the zero-based input position, and one row can fail while siblings succeed; `hints` suggest recovery, not result data. Do not mix fields across operations or assume a former tool name still aliases. Follow executable `next.*` calls across collection, content, diagnostic, and whole-response pagination — a first page, bounded scan, empty result, or bare cursor is not a completeness claim. See [How every tool call works](OCTOCODE_TOOLS.md#how-every-tool-call-works) for the full shared envelope.
 
@@ -26,7 +26,8 @@ Optional `goal` and `reasoning` are short decision context, not ranking controls
 |---|---|---|
 | `localSearch` | Where is text, syntax, a path, or a directory entry? | Text proves occurrence; AST proves syntax within the searched scope. |
 | `localFetch` | What does a known local file contain? | `none` preserves selected source apart from security redaction; transformed views are lossy. |
-| `astSearch` | Which files, declarations, syntax trees, or structural matches are present? | Structural syntax evidence within the scanned scope. |
+| `structureSearch` | Which directories and files exist, by name or metadata? | Filesystem layout within the walked scope; no parsing. |
+| `astSearch` | Which declarations, syntax trees, or structural matches are present? | Structural syntax evidence within the scanned scope. |
 | `astTopology` | Which files depend on one another or form paths and cycles? | Syntactic file topology; unresolved imports and excluded files limit coverage. |
 | `lspSearch` | Which definition, references, callers, or types does the server resolve? | Server and project scope limit semantic evidence. |
 | `ghSearch` | Which indexed code, repositories, or tree paths are candidates? | Code search uses GitHub's indexed default branch; a tree query can select a ref. |
@@ -42,8 +43,8 @@ Tool availability, a recognized extension, a parser fixture, and a running langu
 
 Start at the cheapest step that resolves the missing evidence; a known path needs no repository-wide search.
 
-1. **Orient when the area is unfamiliar.** `astSearch` `operation:"tree"` for layout, `operation:"files"` for names and metadata. Supply an absolute `path`; use `names` for file patterns and `namePattern` for tree filtering.
-2. **Locate an anchor.** `localSearch` `searchText` for identifiers, messages, and literals (choose the regex mode explicitly). Use `astSearch(operation:"match")` with exactly one of `pattern` or `rule` for a syntax shape.
+1. **Orient when the area is unfamiliar.** `structureSearch` `operation:"tree"` for layout, `operation:"files"` for names and metadata. Supply an absolute `path`; use `names` for file patterns and `extensions`/`entryType` for tree filtering.
+2. **Locate an anchor.** `localSearch` `searchText` for identifiers, messages, and literals (choose the regex mode explicitly). Use `astSearch(operation:"match")` with exactly one of `pattern` or `rule` for a syntax shape; a `symbols` row's `name`+`line` (or an identifier capture's `text`+`line`) is `lspSearch` `symbolName`+`lineHint` as-is.
 3. **Read the relevant source.** `localFetch` with a returned line range or `matchString`; set `minify:"none"` when quoting or examining precise syntax. An outline helps find declarations before reading bodies.
 4. **Map topology when needed.** Graph `dependencies`, `dependents`, `path`, `cycles`, `reachability`, or `deadCode`; review diagnostics for skipped files, unresolved edges, and bounded results.
 5. **Resolve identity when needed.** `lspSearch` with a real `uri`, `symbolName`, and `lineHint` for anchored operations. `documentSymbols` and `diagnostic` are per-document; `workspaceSymbol` searches the server workspace without a symbol line.
@@ -84,7 +85,7 @@ For a PR, request only the surfaces the question needs; selected patches use `mo
 | `minify:"standard"` | Reduce content with a file- or surface-specific transformation. | Inspect the effective view; do not infer that removed text was absent in source. |
 | `minify:"symbols"` | Extract a file outline where supported. | Use line anchors to read bodies; it is not a complete source view. |
 | `concise` | Select a smaller discovery payload where the operation supports it. | Inspect the operation schema; it is not a universal minification flag. |
-| Default CLI output | Single-line JSON with repeated metadata hoisted (`--pretty` indents; `--compact` is a no-op kept for compatibility). | Resolve `base` and top-level `shared` values before interpreting rows. |
+| Default CLI output | Single-line JSON with repeated metadata hoisted (`--pretty` indents). | Resolve `base` and top-level `shared` values before interpreting rows. |
 | Character window | Bound the selected or transformed content. | Follow returned continuations; offsets are not source-line numbers. |
 
 File reads expose `none`, `standard`, and `symbols`. History is operation-specific: PR detail exposes `none`/`standard`; discovery, issue detail, and commit/compare accept no `minify`, and history has no `symbols` mode — do not send file-read modes to an operation that rejects them. See the [tool reference](OCTOCODE_TOOLS.md) for defaults, match preservation, fallback behavior, and window semantics. Equal field names do not imply local/remote equivalence, and a minification extension entry is not evidence of a structural grammar, outline extractor, graph resolver, or installed LSP server.

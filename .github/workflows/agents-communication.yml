@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'packages/octocode-agents-communication/**'
+      - 'skills/octocode-agents-communication/**'
       - 'docs/COMMUNICATION_RETIREMENT.md'
       - 'packages/octocode-config/rust/**'
       - '.cargo/**'
@@ -12,7 +12,7 @@ on:
       - '.github/workflows/agents-communication.yml'
   pull_request:
     paths:
-      - 'packages/octocode-agents-communication/**'
+      - 'skills/octocode-agents-communication/**'
       - 'docs/COMMUNICATION_RETIREMENT.md'
       - 'packages/octocode-config/rust/**'
       - '.cargo/**'
@@ -51,7 +51,7 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: packages/octocode-agents-communication
+        working-directory: skills/octocode-agents-communication
     env:
       COMMUNICATION_EXPECTED_TARGET: ${{ matrix.target }}
     steps:
@@ -68,7 +68,7 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
         with:
-          workspaces: packages/octocode-agents-communication -> target
+          workspaces: skills/octocode-agents-communication -> target
       - name: Rust format, lint and protocol tests
         run: |
           cargo fmt --all --check
@@ -76,8 +76,8 @@ jobs:
           cargo test --locked
       - name: Build release and test the extracted native archive
         run: |
-          node scripts/build-skill.mjs --release
-          node scripts/release-smoke.mjs --output out/release-smoke.json
+          node src/build-skill.mjs --release
+          node src/release-smoke.mjs --output out/release-smoke.json
           node --test tests/release-evidence.test.mjs
       # Product and tooling tests drive the release binary installed under
       # skills/.../scripts/bin/<host>. Every matrix runner is native (host ==
@@ -88,14 +88,14 @@ jobs:
         run: node --test --test-concurrency=1 tests/*.test.mjs tests/tooling/*.test.mjs
       - name: Markdown links resolve and are not gitignored
         if: matrix.target == 'x86_64-unknown-linux-gnu'
-        run: node scripts/check-links.mjs ../../docs/COMMUNICATION_RETIREMENT.md
+        run: node src/check-links.mjs ../../docs/COMMUNICATION_RETIREMENT.md
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: communication-${{ matrix.target }}
           path: |
-            packages/octocode-agents-communication/out/release-smoke.json
-            packages/octocode-agents-communication/out/*.tar.gz
+            skills/octocode-agents-communication/out/release-smoke.json
+            skills/octocode-agents-communication/out/*.tar.gz
           if-no-files-found: error
           retention-days: 14
 
@@ -111,7 +111,7 @@ jobs:
         with:
           toolchain: '1.89.0'
       - run: cargo check --locked
-        working-directory: packages/octocode-agents-communication
+        working-directory: skills/octocode-agents-communication
 
   dependency-audit:
     name: Rust dependency advisories
@@ -126,12 +126,12 @@ jobs:
           toolchain: '1.96.1'
       - run: cargo install cargo-audit --version 0.22.2 --locked
       - run: cargo audit --json > audit.json
-        working-directory: packages/octocode-agents-communication
+        working-directory: skills/octocode-agents-communication
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: communication-dependency-audit
-          path: packages/octocode-agents-communication/audit.json
+          path: skills/octocode-agents-communication/audit.json
           if-no-files-found: error
 
   release-evidence:
@@ -152,7 +152,7 @@ jobs:
           pattern: communication-*
           path: release-artifacts
       - name: Match tested revision, target receipts and archive hashes
-        run: node packages/octocode-agents-communication/scripts/verify-release-evidence.mjs release-artifacts "$GITHUB_SHA" > release-verification.json
+        run: node skills/octocode-agents-communication/src/verify-release-evidence.mjs release-artifacts "$GITHUB_SHA" > release-verification.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: communication-release-verification

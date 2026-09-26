@@ -7,9 +7,9 @@ import { SearchPullRequestsLocalSchema } from '@octocodeai/config/schema';
 import { GitHubViewRepoStructureQueryLocalSchema } from '@octocodeai/config/schema';
 import { ArtifactSearchQueryLocalSchema } from '@octocodeai/config/schema';
 import { LocalFetchContentQuerySchema } from '@octocodeai/config/schema';
-import { AstFilesQuerySchema } from '@octocodeai/config/schema';
+import { StructureFilesQuerySchema } from '@octocodeai/config/schema';
 import { LocalRipgrepQuerySchema } from '@octocodeai/config/schema';
-import { AstFilesystemTreeQuerySchema } from '@octocodeai/config/schema';
+import { StructureTreeQuerySchema } from '@octocodeai/config/schema';
 import { LspSearchQuerySchema } from '@octocodeai/config/schema';
 
 const SENTINEL = 9007199254740991;
@@ -22,9 +22,9 @@ const schemas: Record<string, z.ZodTypeAny> = {
   'viewRepoStructure(remote)': GitHubViewRepoStructureQueryLocalSchema,
   'artifactSearch(remote)': ArtifactSearchQueryLocalSchema,
   'fetchContent(local)': LocalFetchContentQuerySchema,
-  astFiles: AstFilesQuerySchema,
+  structureFiles: StructureFilesQuerySchema,
   ripgrep: LocalRipgrepQuerySchema,
-  astFilesystemTree: AstFilesystemTreeQuerySchema,
+  structureTree: StructureTreeQuerySchema,
   lspSemantic: LspSearchQuerySchema,
 };
 

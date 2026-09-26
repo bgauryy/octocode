@@ -154,7 +154,7 @@ fn fallback_hint(tool: ToolId, query: &Value) -> &'static str {
         ToolId::Clasify => "Inspect resources, typed questions, and OCTOCODE_CLASSIFICATION_API.",
         ToolId::GhCloneRepo => "Verify owner/repo/branch and sparsePath.",
         ToolId::LocalSearch => "Broaden searchText, path, or filters.",
-        ToolId::AstSearch if query["operation"] == "files" => "Broaden path or file filters.",
+        ToolId::StructureSearch => "Broaden path, depth, or file filters.",
         // A pattern must parse as a complete node: `const $A = $B` misses
         // statements that `const $A = $B;` matches.
         ToolId::AstSearch if query["operation"] == "match" && query["pattern"].is_string() => {
@@ -198,14 +198,18 @@ fn error_code_hint(tool: ToolId, code: &str) -> Option<&'static str> {
             | "clone.cache.lockTimeout"
             | "ast.rewrite.lock_timeout",
         ) => "Retry once; if it persists, narrow scope and verify provider availability.",
-        (_, "staleSnapshot" | "ast.snapshot.changed" | "lsp.snapshot.changed") => {
-            "Discard prior pages and restart without the stale snapshot."
-        }
+        (
+            _,
+            "staleSnapshot"
+            | "structure.snapshot.changed"
+            | "ast.snapshot.changed"
+            | "lsp.snapshot.changed",
+        ) => "Discard prior pages and restart without the stale snapshot.",
         (ToolId::LocalFetch, "fileAccessFailed") => {
-            "Verify the path with astSearch operation:\"files\", then retry the exact path."
+            "Verify the path with structureSearch operation:\"files\", then retry the exact path."
         }
         (ToolId::AstSearch, "structural.query.compileFailed" | "ast.query.invalidPattern") => {
-            "Make the pattern a complete node (add `;` or the body), or inspect its shape with treeKind:\"syntax\"."
+            "Make the pattern a complete node (add `;` or the body), or inspect its shape with operation:\"syntaxTree\"."
         }
         (ToolId::AstSearch, "ast.policy.inputTooLarge" | "ast.source.limit") => {
             "Target a smaller file or narrower directory scope."
@@ -536,8 +540,6 @@ pub fn result_row(
 fn evidence_kind<'a>(tool: &'a str, query: &Value, data: &Value) -> &'a str {
     match tool {
         "astSearch" => match query["operation"].as_str() {
-            Some("files") => "exact",
-            Some("tree") if query["treeKind"] != "syntax" => "exact",
             Some("match") => "structural",
             _ => "syntactic",
         },
@@ -638,7 +640,8 @@ fn pagination_codes(data: &Value) -> Vec<String> {
 
 /// Anchor the envelope `base` on the query's scan root so `join(base, path)`
 /// is the real file for every row and `base` is identical across pages:
-/// - astSearch rows lead with the root's own name, so `base` is its parent.
+/// - structureSearch and astSearch rows lead with the root's own name, so
+///   `base` is its parent.
 /// - astTopology row fields (`file`, entrypoints, diagnostics) are relative to
 ///   the scanned directory, so `base` is that directory and the row `path` is
 ///   `.` (a file root keeps its parent and file name).
@@ -648,7 +651,11 @@ pub fn attach_query_base(value: &mut Value, tool: &str, query: &Value) {
     let has_error = value["results"]
         .as_array()
         .is_some_and(|rows| rows.iter().any(|row| row["status"] == "error"));
-    if !matches!(tool, "astSearch" | "astTopology" | "localSearch") || has_error {
+    if !matches!(
+        tool,
+        "structureSearch" | "astSearch" | "astTopology" | "localSearch"
+    ) || has_error
+    {
         return;
     }
     let Some(path) = query.get("path").and_then(Value::as_str) else {
@@ -1395,7 +1402,7 @@ mod tests {
         assert!(
             missing_path["data"]["hints"][0]
                 .as_str()
-                .is_some_and(|hint| hint.contains("astSearch operation:\"files\"")),
+                .is_some_and(|hint| hint.contains("structureSearch operation:\"files\"")),
             "{missing_path}"
         );
     }
@@ -1405,7 +1412,7 @@ mod tests {
         let query = json!({"operation":"match","path":"/repo","pattern":"foo($A)"});
         for (code, expected) in [
             ("ast.policy.outsideAllowedRoots", "allowed root"),
-            ("structural.query.compileFailed", "treeKind"),
+            ("structural.query.compileFailed", "syntaxTree"),
             ("ast.policy.inputTooLarge", "smaller"),
             ("ast.language.required", "langType"),
             ("ast.language.unsupported", "langType"),

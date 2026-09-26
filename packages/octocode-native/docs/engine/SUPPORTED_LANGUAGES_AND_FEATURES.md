@@ -32,16 +32,16 @@ Tree-sitter-backed. Two query forms: `pattern` (code-shaped, `$X`/`$$$ARGS` meta
 | JavaScript | `js` `jsx` `mjs` `cjs` | Yes | ESM and binding-safe CommonJS | `typescript-language-server` |
 | TypeScript | `ts` `tsx` `mts` `cts` | Yes | ESM and binding-safe CommonJS | `typescript-language-server` |
 
-`astSearch operation:"files"` is language-agnostic. `astRewrite` and `astTopology` are beta-gated; the matrix lists their capabilities when enabled. Native AST availability does not install or guarantee an LSP server or every LSP operation. Tree-sitter owns JS/TS structural matching while OXC supplies richer JS/TS facts. C++ function patterns repair a narrow C++11 initializer-list ambiguity; C# member patterns use a synthetic class wrapper; Java method-call patterns receive statement context. Uppercase `.S` normalizes to `.s`.
+`structureSearch` (`tree`/`files`) is language-agnostic. `astRewrite` and `astTopology` are beta-gated; the matrix lists their capabilities when enabled. Native AST availability does not install or guarantee an LSP server or every LSP operation. Tree-sitter owns JS/TS structural matching while OXC supplies richer JS/TS facts. C++ function patterns repair a narrow C++11 initializer-list ambiguity; C# member patterns use a synthetic class wrapper; Java method-call patterns receive statement context. Uppercase `.S` normalizes to `.s`.
 
 ### Which operation to use
 
 | Agent needs | Operation | Evidence and limit |
 |---|---|---|
-| Paths or file metadata | `astSearch files` | Filesystem result; no grammar required |
+| Paths or file metadata | `structureSearch files` / `tree` | Filesystem result; no grammar required |
 | Syntax pattern or node kind | `astSearch match` | Native grammar; provide `langType` for a directory, or let a file extension select it |
-| Parsed node tree | `astSearch tree` | Syntax only; does not resolve symbol identity |
-| Declaration outline | `astSearch symbols` | Native declarations; read source for bodies and exact claims |
+| Parsed node tree | `astSearch syntaxTree` | Syntax only; does not resolve symbol identity |
+| Declaration outline | `astSearch symbols` | Native declarations; a row's `name`+`line` is `lspSearch` `symbolName`+`lineHint` as-is; read source for bodies and exact claims |
 | Structural edit | `astRewrite` | Beta-gated preview and hash-guarded apply |
 | File links, cycles, reachability | `astTopology` | Syntax-derived candidate graph; confirm delete claims with LSP references/callers |
 | Definition, references, types, hover, implementations | `lspSearch definition/references/typeDefinition/hover/implementation` | Requires an installed server and its advertised capability; use an observed symbol anchor |
@@ -190,4 +190,4 @@ yarn workspace @octocodeai/octocode-native test:node
 | `maxDepth`, `contextLines`, `matchWindow`, `matchPage`, `maxMatchesPerFile` | bounds/pagination |
 
 Read the live `localSearch` schema before scripting queries. It is lexical only;
-use `astSearch` for structural, file, syntax-tree, and symbol operations, and `astTopology` for file-graph analysis.
+use `structureSearch` for directory outlines and file metadata, `astSearch` for structural, syntax-tree, and symbol operations, and `astTopology` for file-graph analysis.

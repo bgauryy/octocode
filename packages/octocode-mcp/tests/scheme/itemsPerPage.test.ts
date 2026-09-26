@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { GitHubSearchBulkQuerySchema } from '@octocodeai/config/schema';
 import { LocalSearchBulkQuerySchema } from '@octocodeai/config/schema';
 import {
-  AstSearchBulkQuerySchema,
   AstTopologyBulkQuerySchema,
+  StructureSearchBulkQuerySchema,
 } from '@octocodeai/config/schema';
 import { ArtifactSearchBulkQueryLocalSchema } from '@octocodeai/config/schema';
 
@@ -46,8 +46,8 @@ describe('Unified public pagination fields', () => {
     ).toBe(false);
   });
 
-  it('astSearch files uses limit as the total cap and pageSize per page', () => {
-    const query = q0(AstSearchBulkQuerySchema, {
+  it('structureSearch files uses limit as the total cap and pageSize per page', () => {
+    const query = q0(StructureSearchBulkQuerySchema, {
       reasoning: 'exercise pagination fields',
       operation: 'files',
       path: '.',

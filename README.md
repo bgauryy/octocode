@@ -158,7 +158,7 @@ The toolkit has five layers:
 |------|------------------|
 | **Research** | One evidence flow across local code, GitHub, pull requests, issues, commits, and package registries. |
 | **Agent workflows** | Skills for research, architecture, documentation, evaluation, scraping, prompt design, and orchestration. |
-| **Interfaces and hosts** | CLI, MCP, VS Code setup, and a complete Pi extension. |
+| **Interfaces and hosts** | CLI, MCP, and VS Code setup. |
 | **Runtime and safety** | Shared contracts, configuration, tool execution, native code intelligence, secret redaction, and guarded file operations. |
 | **Coordination and evaluation** | A local multi-agent ledger, recoverable workspace history, and benchmark infrastructure. |
 
@@ -205,16 +205,16 @@ than `gh`+Headroom, and ~3.2× fewer than `gh`+RTK** in the local-build headline
 
 ## Tools
 
-**13 tools in the full discovery catalog.** By default MCP registers **9**.
+**14 tools in the full discovery catalog.** By default MCP registers **10**.
 `ghCloneRepo` is CLI-only; MCP never registers it. `clasify` needs
 `OCTOCODE_CLASSIFICATION_API` (or its `OCTOCODE_JEV_KEY` alias), while
-`astRewrite` and `astTopology` need `OCTOCODE_BETA`. The CLI keeps all 13
+`astRewrite` and `astTopology` need `OCTOCODE_BETA`. The CLI keeps all 14
 commands discoverable; cloning requires persistent storage.
 
 | Surface | Registers by default | Gated tools |
 |---|---:|---|
-| MCP, no flags | 9 of 13 | `ghCloneRepo` is always omitted; `clasify`, `astRewrite`, and `astTopology` can be enabled. |
-| CLI, no flags | 13 discoverable | Clone runs with persistent storage; other gated commands explain the gate to set. |
+| MCP, no flags | 10 of 14 | `ghCloneRepo` is always omitted; `clasify`, `astRewrite`, and `astTopology` can be enabled. |
+| CLI, no flags | 14 discoverable | Clone runs with persistent storage; other gated commands explain the gate to set. |
 
 Use `TOOLS_TO_RUN` for a strict allowlist or `DISABLE_TOOLS` to remove tools from
 the default set. `ENABLE_LOCAL=false` disables local, graph, and LSP tools.
@@ -240,7 +240,8 @@ or trees with its strict `operation` field.
 | Tool | What it does | Knob |
 |------|--------------|------|
 | `localSearch` | Lexical text and regex search over local files. | `searchText` |
-| `astSearch` | AST shape, file, syntax-tree, and symbol queries. | `operation` |
+| `structureSearch` | Directory outlines and file discovery by name or metadata; no parser. | `operation` |
+| `astSearch` | AST shape, syntax-tree, and symbol queries. | `operation` |
 | `astTopology` | Cross-file dependency graph analysis: dependencies, dependents, paths, cycles, reachability, dead code, and drift. | `analysis` |
 | `astRewrite` | Preview or apply snapshot-bound structural rewrites. Beta feature gated by `OCTOCODE_BETA` (the sole gate for both preview and apply). | `apply` |
 | `localFetch` | Read a local file or region: exact slice, match string, line range, or paginated chars. | `minify` |
@@ -319,7 +320,6 @@ Same research engine, no MCP client needed. Every tool is a plain command named 
 |---------|--------------|
 | `npx octocode <toolName> '<json>'` | Run a tool (same tools as MCP), single-line JSON output (`--pretty` to indent) |
 | `npx octocode <toolName> --input <file>` | Run a tool with the JSON query read from a file |
-| `npx octocode <toolName> '<json>' --compact` | Run a tool, one-line JSON output |
 | `npx octocode scheme <toolName>` | Show one tool's public input contract: fields, types, bounds, defaults |
 | `npx octocode scheme` | Compact catalog of every tool with availability |
 
@@ -557,12 +557,11 @@ Each workspace package owns one layer of the toolkit. Package architecture pages
 | Interface | [`packages/octocode`](https://github.com/bgauryy/octocode/tree/main/packages/octocode) · `octocode` | Agent-oriented CLI for raw tool calls, authentication, installation, configuration inspection, cache management, language servers, and Agent Skills. |
 | Interface | [`packages/octocode-mcp`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-mcp) · `octocode-mcp` | Thin stdio MCP server that publishes the enabled tool catalog and forwards validated calls to the shared runtime. |
 | Interface | [`packages/octocode-vscode`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-vscode) · `octocode-mcp-vscode` | VS Code extension for GitHub OAuth, token synchronization, and MCP installation across supported editors. |
-| Host | [`packages/octocode-pi-extension`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-pi-extension) · `@octocodeai/pi-extension` | Full Pi integration and canonical owner of Pi prompt, protocol, capability, discovery, path, and control-database contracts. |
 | Research runtime | [`packages/octocode-native`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-native) · `@octocodeai/octocode-native` | Consolidated distribution for the native CLI, runtime addon (`.`/`./runtime`), and engine primitive addon (`./engine`), backed by separate Rust crates. |
 | Native workspace | [`packages/octocode-extension-rust`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-extension-rust) · `@octocodeai/octocode-extension-rust` | Separate Rust/napi boundary for workspace snapshots, guarded mutations, durable history, and line-level diffs used by agent hosts. |
 | Configuration | [`packages/octocode-config`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-config) · `@octocodeai/config` | Zero-dependency loader for Octocode home resolution, environment propagation, `.env`, and `.octocoderc`; the single configuration source for the monorepo. |
 | Skill distribution | [`packages/octocode-skill-installer`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-skill-installer) · `@octocodeai/octocode-skill-installer` | Shared installer for durable skill materialization, platform-specific links or copies, upgrades, and conflict reporting. |
-| Coordination | [`packages/octocode-agents-communication`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-agents-communication) · `@octocodeai/octocode-agents-communication` | Private, unpublished Rust CLI distributed inside its communication skill. Coordinates session identity, advisory path leases, and direct messages. |
+| Coordination | [`skills/octocode-agents-communication`](https://github.com/bgauryy/octocode/tree/main/skills/octocode-agents-communication) · `@octocodeai/octocode-agents-communication` | Private, unpublished Rust CLI distributed inside its communication skill. Coordinates session identity, advisory path leases, and direct messages. |
 | Evaluation | [`packages/octocode-benchmark`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark) · `@octocodeai/octocode-benchmark` | Private benchmark and eval workspace for head-to-head research studies, routing regressions, graders, reports, and reproducible run artifacts. |
 | Evaluation | [`packages/octocode-jev-lab`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-jev-lab) · `@octocodeai/jev-lab` | Private probe that sends a semantic experiment to the classification API without the runtime adapter. |
 

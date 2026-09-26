@@ -7,7 +7,7 @@ tool when changing the response/pagination layer or shipping a release.
 Run a built tool directly from the repository root:
 
 ```bash
-node packages/octocode/out/octocode.js <toolName> '<query-or-queries-envelope-json>' --compact
+node packages/octocode/out/octocode.js <toolName> '<query-or-queries-envelope-json>'
 ```
 
 ## Automated coverage (NOT here — lives under `tests/`)

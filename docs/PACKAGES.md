@@ -10,7 +10,7 @@ MCP stdio registration ────┼──▶ octocode-native (Rust ToolRuntim
                            │          ├──▶ internal engine crate
                            │          ├──▶ octocode-core contracts (external)
                            │          └──▶ octocode-config
-Pi / VS Code integrations ─┘
+VS Code integration ───────┘
 ```
 
 Public tool validation, providers, security, bulk execution, pagination, response shaping, and cancellation have one owner: `octocode-native`. Node interfaces delegate or fail closed.
@@ -43,17 +43,13 @@ Thin stdio MCP server. It registers Standard Schema definitions and forwards exe
 
 VS Code extension for GitHub OAuth, token synchronization, and MCP installation across supported editors. It does not execute research tools.
 
-### [`packages/octocode-pi-extension`](../packages/octocode-pi-extension) — `@octocodeai/pi-extension`
-
-Pi integration, native workspace tools, host state, prompts, capability contracts, dynamic tools, and harness hooks.
-
 ## Support packages
 
 ### [`packages/octocode-skill-installer`](../packages/octocode-skill-installer) — `@octocodeai/octocode-skill-installer`
 
 Private shared implementation for durable canonical skill copies, platform links or copies, upgrades, conflict policy, and atomic replacement. Calling CLIs own argument parsing and presentation.
 
-### [`packages/octocode-agents-communication`](../packages/octocode-agents-communication) — `@octocodeai/octocode-agents-communication`
+### [`skills/octocode-agents-communication`](../skills/octocode-agents-communication) — `@octocodeai/octocode-agents-communication`
 
 Private Rust CLI and communication skill for shared session identity, path leases, messages, delivery, and handoff documents.
 

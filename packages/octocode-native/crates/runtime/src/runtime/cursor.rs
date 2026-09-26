@@ -230,8 +230,7 @@ impl CursorFields for UniversalCursor {
 }
 
 impl UniversalCursor {
-    /// Outputs no longer mint universal cursors (replaying `query` is
-    /// equivalent and ~1 KB smaller); decoding stays for tokens already issued.
+    /// Test-only: responses carry replayable `query` continuations, not tokens.
     #[cfg(test)]
     pub fn create(tool: &str, query: Value, scope: String) -> Result<String, CursorError> {
         encode_to_token(&Self {
@@ -309,8 +308,7 @@ fn now() -> Result<u64, CursorError> {
 }
 
 impl ReadCursor {
-    /// Outputs no longer mint read cursors (localFetch continuations carry
-    /// `snapshot`); decoding stays for tokens already issued.
+    /// Test-only: localFetch continuations carry `snapshot`, not tokens.
     #[cfg(test)]
     pub fn create(
         tool: &str,

@@ -49,11 +49,11 @@ class CampaignContext(unittest.TestCase):
         policy = pilot.Policy("octocode", self.cli, [self.corpus])
         query = {"reasoning": "Read the scoped fixture.", "path": str(self.source)}
         for payload in ({"queries": [query]}, [query], query):
-            command = f"node {self.cli} localFetch {shlex.quote(json.dumps(payload))} --compact"
+            command = f"node {self.cli} localFetch {shlex.quote(json.dumps(payload))}"
             self.assertIsNone(policy.audit(command))
         for payload in ({"queries": []}, {"queries": [query, {"reasoning": "Attempt an unscoped read.", "path": "/etc/passwd"}]},
                         {"queries": [query], "extra": True}):
-            command = f"node {self.cli} localFetch {shlex.quote(json.dumps(payload))} --compact"
+            command = f"node {self.cli} localFetch {shlex.quote(json.dumps(payload))}"
             self.assertIsNotNone(policy.audit(command))
 
     def test_response_continuation_envelope_preserves_scope_and_owns_no_schema_validation(self):
@@ -61,7 +61,7 @@ class CampaignContext(unittest.TestCase):
         payload = {"queries": [{"reasoning": "Read the scoped fixture.", "path": str(self.source)}], "responseCharLength": 1000,
                    "responseCharOffset": 1000, "responseSnapshot": "response-v1:fixture"}
         def audit(value):
-            return policy.audit(f"node {self.cli} localFetch {shlex.quote(json.dumps(value))} --compact")
+            return policy.audit(f"node {self.cli} localFetch {shlex.quote(json.dumps(value))}")
         self.assertIsNone(audit(payload))
         self.assertIsNone(audit({**payload, "responseCharLength": "invalid-runtime-schema-value"}))
         self.assertIsNotNone(audit({**payload, "extra": True}))
@@ -79,7 +79,7 @@ class CampaignContext(unittest.TestCase):
             policy = pilot.Policy("octocode", cli, [root])
             offsets, pages = [], []
             while True:
-                argv = ["node", str(cli), "localFetch", json.dumps(query), "--compact"]
+                argv = ["node", str(cli), "localFetch", json.dumps(query)]
                 self.assertIsNone(policy.audit(shlex.join(argv)))
                 result = subprocess.run(argv, capture_output=True, text=True, timeout=30)
                 self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
@@ -110,7 +110,7 @@ class CampaignContext(unittest.TestCase):
             source = Path(root) / "source.py"
             source.write_text("pass\n")
             payload = {"queries": [{"reasoning": "Read the bounded local fixture.", "path": str(source), "startLine": 1, "endLine": 1}]}
-            argv = ["node", str(cli), "localFetch", json.dumps(payload), "--compact"]
+            argv = ["node", str(cli), "localFetch", json.dumps(payload)]
             self.assertIsNone(pilot.Policy("octocode", cli, [root]).audit(shlex.join(argv)))
             result = subprocess.run(argv, capture_output=True, text=True, timeout=30)
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
@@ -142,7 +142,7 @@ class CampaignContext(unittest.TestCase):
         query = {"reasoning": "Read the pinned remote fixture.", "owner": "vercel", "repo": "next.js",
                  "path": "packages/next/src/server/config.ts", "branch": pilot.COMMITS["nextjs"]}
         def audit(tool, value):
-            return policy.audit(f"node {self.cli} {tool} {shlex.quote(json.dumps(value))} --compact")
+            return policy.audit(f"node {self.cli} {tool} {shlex.quote(json.dumps(value))}")
         self.assertIsNone(audit("ghGetFileContent", query))
         self.assertIsNotNone(audit("ghGetFileContent", {**query, "branch": "canary"}))
         self.assertIsNotNone(audit("ghGetFileContent", {**query, "owner": "other"}))

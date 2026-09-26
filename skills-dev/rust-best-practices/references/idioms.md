@@ -16,9 +16,7 @@ Load when shaping errors, ownership, conversions, control flow, or a public API.
 - Prefer moves and borrows over `Rc`/`Arc` until sharing is genuinely required; reach for `Arc<Mutex<T>>` only when a channel doesn't express the design better.
 
 ## Types that make bad states impossible
-- **Newtypes** for units/IDs: `struct UserId(u64)` beats a bare `u64` — no accidental mixups.
-- Model exclusive states as an `enum`, not a bag of `Option`/`bool` fields; then `match` is exhaustive and the compiler catches new variants.
-- Prefer `impl Trait` in argument and simple return position over boxing; box (`Box<dyn Trait>`) only for heterogeneous collections or to break type recursion.
+Newtypes for ids/units, enums over `Option`/`bool` bags, `impl Trait` over boxing — the full shape table and generics/`dyn` rules live in `references/types-and-structs.md`.
 
 ## Iterators & control flow
 - Prefer iterator chains (`.iter().filter().map().collect()`) over manual index loops — zero-cost, bounds-checks elided, intent-revealing.

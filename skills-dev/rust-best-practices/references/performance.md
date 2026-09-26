@@ -12,6 +12,7 @@ Load when a hot path is slow or allocation-heavy. Why: the common Rust performan
 - Reuse buffers across a loop instead of allocating per iteration (`buf.clear(); ...`).
 - Take `&str`/`&[T]`, return `Cow<'_, str>` for "usually borrow, sometimes own" so the common path never allocates.
 - `smallvec::SmallVec` / `arrayvec::ArrayVec` for small-N collections — stay on the stack, spill to heap only if they grow.
+- `mem::take`/`mem::replace` move a value out without cloning; `write!` into a pre-sized `String` beats repeated `format!`/`+`.
 - Avoid `.clone()` in hot loops; borrow, move, or index. `.collect()` into an intermediate `Vec` you immediately iterate again is often removable.
 
 ## Let the compiler do the work
@@ -25,13 +26,10 @@ Load when a hot path is slow or allocation-heavy. Why: the common Rust performan
 - For async I/O concurrency use `tokio` tasks; don't confuse it with CPU parallelism (offload CPU-heavy work with `spawn_blocking` or rayon). See `references/gotchas.md` for blocking-in-async.
 
 ## Large graphs & data structures
-- **Intern repeated strings**: paths/symbol names duplicated across thousands of nodes/edges dominate memory. Replace `Id(String)` with an interned `u32`/`Symbol` (via `lasso`/`string-interner`, or a `Vec<String>` + index) — cuts memory and makes clones/comparisons O(1).
-- **Avoid whole-structure clones**: transpose/condense/traversal that re-clones the entire graph per pass is a hidden cost — operate on indices/references or a shared `Arc`.
-- **Iterate, don't recurse**, on user-sized structures: convert deep DFS/traversal to an explicit `Vec`/`VecDeque` work-stack so a deep graph can't blow the call stack. Bound node/edge counts, not just input file size.
-- Deterministic output? `BTreeMap`/`BTreeSet` give ordering for free; use `HashMap` + explicit sort only when the hash speed matters. `petgraph` is worth it once you need real graph algorithms rather than hand-rolled adjacency.
+Intern repeated strings, store graphs as indices, avoid whole-structure clones, and iterate instead of recursing on user-sized data — detail in `references/memory.md`. Deterministic output: `BTreeMap`/`BTreeSet`, or `HashMap` + explicit sort when hash speed matters.
 
 ## Layout & last resorts
 - Struct field ordering / `#[repr(C)]` for cache behavior only after profiling shows a layout problem.
 - Consider PGO / target-cpu=native for shipped hot binaries; document the build so it's reproducible.
 
-Next: for the async-specific footguns behind slow "concurrent" code, load `references/gotchas.md`; for the profile flags that make release builds fast, `references/build-and-deps.md`.
+Next: for the async-specific footguns behind slow "concurrent" code, load `references/gotchas.md`; for the profile flags that make release builds fast, `references/build-profiles.md`.

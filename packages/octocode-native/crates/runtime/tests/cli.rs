@@ -90,7 +90,7 @@ fn clasify_missing_key_is_actionable() {
     });
     let output = workspace
         .cli()
-        .args(["clasify", &query.to_string(), "--compact"])
+        .args(["clasify", &query.to_string()])
         .output()
         .expect("missing-key execution");
     assert_eq!(exit_code(&output), Some(5));
@@ -126,12 +126,16 @@ fn tool_output_is_compact_by_default_and_pretty_on_request() {
         .output()
         .unwrap();
     assert!(stdout(&pretty).lines().count() > 1, "{}", stdout(&pretty));
-    let legacy = workspace
+    let retired = workspace
         .cli()
         .args(["clasify", &query, "--compact"])
         .output()
         .unwrap();
-    assert_eq!(stdout(&legacy), stdout(&compact));
+    assert_eq!(
+        retired.status.code(),
+        Some(2),
+        "tool commands reject --compact"
+    );
 }
 
 #[test]
@@ -582,11 +586,7 @@ fn tool_rejects_non_canonical_fields() {
     let workspace = Workspace::new();
     let output = workspace
         .cli()
-        .args([
-            "astSearch",
-            r#"{"operation":"syntax","path":"."}"#,
-            "--compact",
-        ])
+        .args(["astSearch", r#"{"operation":"syntax","path":"."}"#])
         .output()
         .expect("astSearch");
     assert_eq!(output.status.code(), Some(2));
@@ -614,7 +614,7 @@ fn localfetch_pages_expose_a_rerunnable_continuation() {
     .to_string();
     let first = workspace
         .cli()
-        .args(["localFetch", &query, "--compact"])
+        .args(["localFetch", &query])
         .output()
         .expect("first read");
     assert_eq!(first.status.code(), Some(6), "{}", stderr(&first));
@@ -631,7 +631,7 @@ fn localfetch_pages_expose_a_rerunnable_continuation() {
     let continuation = serde_json::to_string(&call["query"]).expect("continuation query");
     let second = workspace
         .cli()
-        .args(["localFetch", &continuation, "--compact"])
+        .args(["localFetch", &continuation])
         .output()
         .expect("continuation read");
     let value: serde_json::Value = serde_json::from_str(stdout(&second)).expect("page two JSON");
@@ -684,12 +684,7 @@ fn tool_reads_query_from_input_file() {
     let query_file = workspace.write("query.json", &query);
     let output = workspace
         .cli()
-        .args([
-            "localFetch",
-            "--input",
-            query_file.to_str().expect("utf8"),
-            "--compact",
-        ])
+        .args(["localFetch", "--input", query_file.to_str().expect("utf8")])
         .output()
         .expect("localFetch --input");
     assert!(output.status.success(), "{}", stderr(&output));
@@ -884,7 +879,7 @@ fn tool_accepts_bulk_queries() {
     .to_string();
     let output = workspace
         .cli()
-        .args(["localFetch", &query, "--compact"])
+        .args(["localFetch", &query])
         .output()
         .expect("bulk queries");
     assert!(output.status.success(), "{}", stderr(&output));
@@ -918,7 +913,7 @@ fn localsearch_emits_structured_results() {
     .to_string();
     let output = workspace
         .cli()
-        .args(["localSearch", &query, "--compact"])
+        .args(["localSearch", &query])
         .output()
         .expect("localSearch");
     assert!(output.status.success(), "{}", stderr(&output));
@@ -944,7 +939,7 @@ fn astrewrite_previews_then_applies_with_hash_guards() {
     let preview = workspace
         .cli()
         .env("OCTOCODE_BETA", "true")
-        .args(["astRewrite", &query.to_string(), "--compact"])
+        .args(["astRewrite", &query.to_string()])
         .output()
         .expect("astRewrite preview");
     assert!(
@@ -974,7 +969,7 @@ fn astrewrite_previews_then_applies_with_hash_guards() {
     let output = workspace
         .cli()
         .env("OCTOCODE_BETA", "true")
-        .args(["astRewrite", &query.to_string(), "--compact"])
+        .args(["astRewrite", &query.to_string()])
         .output()
         .expect("astRewrite apply");
     assert!(
@@ -1000,7 +995,7 @@ fn json_errors_do_not_leak_duplicate_stderr() {
     .to_string();
     let output = workspace
         .cli()
-        .args(["--json-errors", "localFetch", &query, "--compact"])
+        .args(["--json-errors", "localFetch", &query])
         .output()
         .expect("missing read");
     assert_eq!(exit_code(&output), Some(3));

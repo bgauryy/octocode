@@ -6,7 +6,6 @@ use serde_json::Value;
 const SELECTORS: &[&str] = &[
     "operation",
     "analysis",
-    "treeKind",
     "type",
     "questionType",
     "resultView",
@@ -211,7 +210,7 @@ fn score(issues: &[ValidationIssue], depth: usize) -> [usize; 4] {
     let count = group_unknown_fields(issues.to_vec()).len();
     [
         invalid(&["operation", "type", "questionType"]),
-        invalid(&["analysis", "treeKind", "resultView"]),
+        invalid(&["analysis", "resultView"]),
         rejected,
         count,
     ]

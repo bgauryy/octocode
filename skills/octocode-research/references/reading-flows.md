@@ -33,7 +33,7 @@ Byte context follows full-source redaction, keeps UTF-8 characters whole, and jo
 | Need | Starting tool and scope | Next evidence |
 |---|---|---|
 | Local text or literal | `localSearch`, narrow `path`; `regex:"literal"` for plain text; files/count views when snippets are unnecessary | Exact fetch or an observed semantic anchor |
-| Local file or directory discovery | `astSearch` files/tree | Read a known file; outline only when orientation is needed |
+| Local file or directory discovery | `structureSearch` files/tree | Read a known file; outline only when orientation is needed |
 | Local declaration or syntax | `astSearch` symbols/match; filter a known name | Exact source range; LSP for identity |
 | File dependencies | `astTopology` (beta), explicit analysis and root | Confirm relevant symbols and dynamic edges before deletion claims |
 | Local source | `localFetch`, range/match when known | Continue the same view or select a body from its outline |

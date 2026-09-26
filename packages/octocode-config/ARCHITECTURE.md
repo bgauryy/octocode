@@ -107,4 +107,4 @@ tightening a payload shape is a core schema change, never a hand-written type.
 
 ## Distribution
 
-The package is public and versioned independently. `octocode` and the Pi extension bundle it for self-contained delivery; build-only consumers must still declare it so workspace ordering and declaration generation are deterministic.
+The package is public and versioned independently. `octocode` bundles it for self-contained delivery; build-only consumers must still declare it so workspace ordering and declaration generation are deterministic.

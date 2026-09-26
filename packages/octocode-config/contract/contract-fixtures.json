@@ -1128,6 +1128,114 @@
     }
   },
   {
+    "id": "structureSearch.curated-1",
+    "tool": "structureSearch",
+    "input": {
+      "reasoning": "Use structureSearch for the directory outline example.",
+      "operation": "tree",
+      "path": "/ABS/repo",
+      "maxDepth": 1
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "goal": "Execute structureSearch via fixture",
+          "reasoning": "Use structureSearch for the directory outline example.",
+          "debug": false,
+          "operation": "tree",
+          "path": "/ABS/repo",
+          "maxDepth": 1,
+          "page": 1
+        }
+      ]
+    }
+  },
+  {
+    "id": "structureSearch.curated-2",
+    "tool": "structureSearch",
+    "input": {
+      "reasoning": "Use structureSearch for the file discovery example.",
+      "operation": "files",
+      "path": "/ABS/repo",
+      "names": [
+        "package.json"
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "goal": "Execute structureSearch via fixture",
+          "reasoning": "Use structureSearch for the file discovery example.",
+          "debug": false,
+          "operation": "files",
+          "path": "/ABS/repo",
+          "names": [
+            "package.json"
+          ],
+          "detail": "basic",
+          "sort": "modified",
+          "page": 1
+        }
+      ]
+    }
+  },
+  {
+    "id": "structureSearch.curated-3",
+    "tool": "structureSearch",
+    "input": {
+      "reasoning": "Use structureSearch for the tree variant.",
+      "operation": "tree",
+      "path": ".",
+      "maxDepth": 1
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "goal": "Execute structureSearch via fixture",
+          "reasoning": "Use structureSearch for the tree variant.",
+          "debug": false,
+          "operation": "tree",
+          "path": ".",
+          "maxDepth": 1,
+          "page": 1
+        }
+      ]
+    }
+  },
+  {
+    "id": "structureSearch.curated-4",
+    "tool": "structureSearch",
+    "input": {
+      "reasoning": "Use structureSearch for the files variant.",
+      "operation": "files",
+      "path": ".",
+      "names": [
+        "*.ts"
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "goal": "Execute structureSearch via fixture",
+          "reasoning": "Use structureSearch for the files variant.",
+          "debug": false,
+          "operation": "files",
+          "path": ".",
+          "names": [
+            "*.ts"
+          ],
+          "detail": "basic",
+          "sort": "modified",
+          "page": 1
+        }
+      ]
+    }
+  },
+  {
     "id": "astSearch.curated-1",
     "tool": "astSearch",
     "input": {
@@ -1187,36 +1295,6 @@
     "id": "astSearch.curated-3",
     "tool": "astSearch",
     "input": {
-      "reasoning": "Use astSearch for the file discovery example.",
-      "operation": "files",
-      "path": "/ABS/repo",
-      "names": [
-        "package.json"
-      ]
-    },
-    "accepted": true,
-    "normalized": {
-      "queries": [
-        {
-          "goal": "Execute astSearch via fixture",
-          "reasoning": "Use astSearch for the file discovery example.",
-          "debug": false,
-          "operation": "files",
-          "path": "/ABS/repo",
-          "names": [
-            "package.json"
-          ],
-          "detail": "basic",
-          "sort": "modified",
-          "page": 1
-        }
-      ]
-    }
-  },
-  {
-    "id": "astSearch.curated-4",
-    "tool": "astSearch",
-    "input": {
       "reasoning": "Use astSearch for the document symbols example.",
       "operation": "symbols",
       "path": "/ABS/repo/src/index.ts"
@@ -1238,7 +1316,7 @@
     }
   },
   {
-    "id": "astSearch.curated-5",
+    "id": "astSearch.curated-4",
     "tool": "astSearch",
     "input": {
       "reasoning": "Use astSearch for the match variant.",
@@ -1268,42 +1346,11 @@
     }
   },
   {
-    "id": "astSearch.curated-6",
+    "id": "astSearch.curated-5",
     "tool": "astSearch",
     "input": {
-      "reasoning": "Use astSearch for the files variant.",
-      "operation": "files",
-      "path": ".",
-      "names": [
-        "*.ts"
-      ]
-    },
-    "accepted": true,
-    "normalized": {
-      "queries": [
-        {
-          "goal": "Execute astSearch via fixture",
-          "reasoning": "Use astSearch for the files variant.",
-          "debug": false,
-          "operation": "files",
-          "path": ".",
-          "names": [
-            "*.ts"
-          ],
-          "detail": "basic",
-          "sort": "modified",
-          "page": 1
-        }
-      ]
-    }
-  },
-  {
-    "id": "astSearch.curated-7",
-    "tool": "astSearch",
-    "input": {
-      "reasoning": "Use astSearch for the tree:syntax variant.",
-      "operation": "tree",
-      "treeKind": "syntax",
+      "reasoning": "Use astSearch for the syntaxTree variant.",
+      "operation": "syntaxTree",
       "path": "/repo/src/index.ts",
       "nodeLimit": 100
     },
@@ -1312,10 +1359,9 @@
       "queries": [
         {
           "goal": "Execute astSearch via fixture",
-          "reasoning": "Use astSearch for the tree:syntax variant.",
+          "reasoning": "Use astSearch for the syntaxTree variant.",
           "debug": false,
-          "operation": "tree",
-          "treeKind": "syntax",
+          "operation": "syntaxTree",
           "path": "/repo/src/index.ts",
           "namedOnly": true,
           "nodeOffset": 0,
@@ -1325,7 +1371,7 @@
     }
   },
   {
-    "id": "astSearch.curated-8",
+    "id": "astSearch.curated-6",
     "tool": "astSearch",
     "input": {
       "reasoning": "Use astSearch for the symbols variant.",

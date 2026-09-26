@@ -109,11 +109,11 @@ describe('CLI Parser', () => {
       const result = parseArgs([
         'localSearch',
         '{"path":".","searchText":"runCLI"}',
-        '--compact',
+        '--pretty',
       ]);
       expect(result.command).toBe('localSearch');
       expect(result.args).toEqual(['{"path":".","searchText":"runCLI"}']);
-      expect(result.options).toEqual({ compact: true });
+      expect(result.options).toEqual({ pretty: true });
     });
 
     it('should parse boolean flags without swallowing following tokens', () => {
