@@ -11,13 +11,23 @@ export function verifyContributionReads(requests, recordsByAgent) {
     assert.equal(candidates.length, 1, `Request ${request.id} must reference exactly one document published by its sender`);
     const document = candidates[0];
     assert.ok(document.sha256, `Request ${request.id} needs a publication hash`);
-    const read = (recordsByAgent.get(request.recipient) ?? []).some(record => {
-      const value = record.value;
-      return record.name === 'read_document' && value?.document?.name === document.name
-        && value.document.author === request.sender && value.document.sha256 === document.sha256
-        && typeof value.content === 'string' && value.content.includes('COPPER');
-    });
-    assert.ok(read, `${request.recipient} must read ${document.name} for request ${request.id}`);
+    const pages = (recordsByAgent.get(request.recipient) ?? [])
+      .filter(record => record.name === 'read_document' && record.value?.document?.name === document.name
+        && record.value.document.author === request.sender && record.value.document.sha256 === document.sha256)
+      .map(record => record.value).sort((a, b) => a.offset - b.offset);
+    assert.ok(Number.isSafeInteger(document.bytes) && document.bytes >= 0, `Request ${request.id} needs publication bytes`);
+    let covered = 0, proof = '';
+    for (const page of pages) {
+      assert.ok(Number.isSafeInteger(page.offset) && page.offset >= 0 && typeof page.content === 'string', 'Invalid document page');
+      if (page.offset > covered) break;
+      const bytes = Buffer.from(page.content);
+      if (page.offset + bytes.length > covered) {
+        proof += bytes.subarray(covered - page.offset).toString();
+        covered = page.offset + bytes.length;
+      }
+    }
+    assert.ok(covered === document.bytes && pages.some(page => !page.next && page.offset + Buffer.byteLength(page.content) === document.bytes)
+      && proof.includes('COPPER'), `${request.recipient} must read all of ${document.name} for request ${request.id}`);
     return { request: request.id, author: request.sender, reader: request.recipient, name: document.name, sha256: document.sha256 };
   });
 }
@@ -41,6 +51,9 @@ export function nativeResults(agent) {
     const blocks = agent.process.events.flatMap(event => event.message?.content ?? []);
     const names = new Map(blocks.filter(block => block.type === 'tool_use').map(block => [block.id, block.name.split('__').at(-1)]));
     for (const block of blocks) if (block.type === 'tool_result' && !block.is_error && names.has(block.tool_use_id)) records.push({name: names.get(block.tool_use_id), value: decode(block)});
+  }
+  if (agent.vendor === 'pi') for (const event of agent.process.events) {
+    if (event.type === 'tool_execution_end' && !event.isError && !event.result?.isError) records.push({name: event.toolName, value: decode(event.result)});
   }
   return records;
 }

@@ -24,5 +24,13 @@ test('matched small groups retain every directed pair without inventing a second
 test('invalid, duplicate and implicit agent-originated selections fail before starting hosts', () => {
   for (const selection of ['', 'codex,codex', 'raw', 'unknown']) assert.throws(() => plan({COMMUNICATION_VENDORS: selection}));
   assert.throws(() => plan({COMMUNICATION_AGENT_ORIGINATED: '1'}));
-  for (const selection of ['codex', 'claude,codex,pi', 'claude,codex,grok,opencode']) assert.throws(() => plan({COMMUNICATION_VENDORS: selection, COMMUNICATION_AGENT_ORIGINATED: '1'}));
+  for (const selection of ['claude,codex,grok,opencode']) assert.throws(() => plan({COMMUNICATION_VENDORS: selection, COMMUNICATION_AGENT_ORIGINATED: '1'}));
+});
+
+test('agent-originated Pi and two same-vendor workers use supported native receipts', () => {
+  const all = plan({ COMMUNICATION_VENDORS: 'claude,codex,grok,pi', COMMUNICATION_AGENT_ORIGINATED: '1' });
+  assert.equal(all.peers, 8); assert.equal(all.requestEdges, 56);
+  const pair = plan({ COMMUNICATION_VENDORS: 'codex', COMMUNICATION_AGENT_ORIGINATED: '1' });
+  assert.equal(pair.peers, 2); assert.equal(pair.requestEdges, 2);
+  assert.throws(() => plan({ COMMUNICATION_VENDORS: 'codex', COMMUNICATION_AGENT_ORIGINATED: '1', COMMUNICATION_COPIES: '1' }));
 });

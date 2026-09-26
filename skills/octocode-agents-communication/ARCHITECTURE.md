@@ -14,7 +14,7 @@ only deliver. Add a layer only for a measured requirement these boundaries canno
 
 | Boundary | Owner | Contract |
 | --- | --- | --- |
-| Agent workflow | `SKILL.md` | One instruction file, at most 50 lines; when and why to coordinate |
+| Agent workflow | `SKILL.md` | One instruction file within a bounded context budget; when and why to coordinate |
 | Commands and tool schemas | `src/catalog.json`, `src/catalog.rs` | One command definition feeds CLI help and bound MCP/Pi tools |
 | CLI ingress | `src/cli.rs` | Arguments, bounded JSON input, command routing and output |
 | MCP ingress | `src/mcp.rs` | JSON-RPC framing and a restricted bound-tool surface |

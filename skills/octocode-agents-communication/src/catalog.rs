@@ -393,7 +393,7 @@ mod tests {
 
     #[test]
     fn skill_profiles_drop_what_the_reader_cannot_use() {
-        assert!(SKILL.lines().count() <= 50);
+        assert!(SKILL.len() <= 8_500, "skill {} bytes", SKILL.len());
         let claude = skill_instructions(Some("claude"));
         assert!(claude.starts_with("# ") && claude.contains("## Host setup"));
         assert_eq!(skill_instructions(None), SKILL);

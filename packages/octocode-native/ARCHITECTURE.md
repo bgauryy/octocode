@@ -137,7 +137,8 @@ Configuration policy is independently owned by `@octocodeai/config` in `config-c
 one Cargo invocation, so shared dependencies resolve with one feature set for the
 host artifacts. The engine addon resolves different engine features, so it builds
 concurrently in its own target dir. Measured on a 12-core M-series, a debug
-rebuild after an engine edit went from 51–56s (serial, one dir) to 41s.
+rebuild after an engine edit went from 51–56s (serial, one dir) to 41s, and a
+release rebuild from 151s to 98s (`build-native.cjs --serial` reproduces the old flow).
 
 - Binary builds select `octocode-cli` with `--no-default-features` and contain the full CLI/runtime.
 - Every build stages the host binaries into their platform package so the local CLI launcher executes the rebuilt runtime. Staging (binaries and addons) atomically replaces each inode — never an in-place overwrite, which can crash a running MCP server that has the addon mapped or leave a stale macOS code-signature cache.

@@ -22,7 +22,7 @@ const vendors = explicitVendors === undefined ? ['claude', 'codex', 'grok', 'pi'
 assert.ok(vendors.length && vendors.every(v => ['claude', 'codex', 'grok', 'pi', 'opencode'].includes(v)) && new Set(vendors).size === vendors.length, 'COMMUNICATION_VENDORS must contain distinct supported native vendors.');
 const rawPeer = explicitVendors === undefined;
 const agentOriginated = process.env.COMMUNICATION_AGENT_ORIGINATED === '1';
-assert.ok(!agentOriginated || (!rawPeer && [...vendors].sort().join(',') === 'claude,codex,grok'), 'Agent-originated collaboration requires exactly claude,codex,grok.');
+assert.ok(!agentOriginated || (!rawPeer && vendors.every(v => ['claude', 'codex', 'grok', 'pi'].includes(v))), 'Agent-originated collaboration requires explicit native vendors with tool receipts.');
 const copies = Number(process.env.COMMUNICATION_COPIES ?? 2);
 assert.ok([1, 2].includes(copies), 'COMMUNICATION_COPIES must be 1 or 2');
 const completionCheck = process.env.COMMUNICATION_COMPLETION_CHECK === '1';
@@ -30,6 +30,7 @@ const scopedSkill = process.env.COMMUNICATION_SCOPED_SKILL === '1';
 const taskFamily = process.env.COMMUNICATION_TASK_FAMILY ?? 'review';
 assert.ok(['review', 'handoff'].includes(taskFamily), 'Unknown task family');
 const peerCount = vendors.length * copies + Number(rawPeer);
+assert.ok(!agentOriginated || peerCount >= 2, 'Agent-originated collaboration requires at least two peers.');
 const plan = { vendors, rawPeer, agentOriginated, peers: peerCount, controllerIdentities: 1, requestEdges: peerCount * (peerCount - 1), routingModelCalls: 0 };
 if (process.argv.includes('--plan')) { console.log(JSON.stringify(plan)); process.exit(0); }
 if (vendors.includes('pi')) assert.ok(piModel, 'Set COMMUNICATION_PI_MODEL to an authenticated Pi model.');
@@ -157,12 +158,12 @@ Assigned group task: ${taskFamily === 'review' ? 'Review risks of concurrent sha
 Collaborators: ${agents.map(a => a.name).join(', ')}. mesh-controller is only the test coordinator.
 Initialize: respond READY to the host. Wait for START before contacting peers.
 On START, complete these steps before acknowledging it:
-1. Discover collaborator IDs with peers; copy them exactly. Refresh only after an unknown/expired-ID error.
+1. Use the delivered directory; call peers if it is incomplete. Copy exact collaborator IDs.
 2. Call read_document with name:"mesh-context.md"; use the returned content. This is a communication tool, not an MCP resource.
 3. Call share_document with reasoning explaining why peers need this evidence to publish <your-name>-coordination.md: under 300 characters containing an original risk, mitigation, verification word. Describe only tools actually exposed to this session, not every capability mentioned in the skill. Read the sources before publishing: documents are immutable.
-4. Send one QUESTION to each of the other ${agents.length - 1} collaborators. The body must begin QUESTION <your-name>: and request an improvement to your published document using its exact name. Use to:<discovered-ID>, key:question-<recipientID>, conversationId:mesh-<your-name>-<recipient-name>, wake:action and meaningful reasoning. These sends must be your own tool calls.
+4. Send one QUESTION to each of the other ${agents.length - 1} collaborators. The body must begin QUESTION <your-name>: and request an improvement to your published document using the exact document.name returned by share_document. Use to:<discovered-ID>, key:question-<recipientID>, conversationId:mesh-<your-name>-<recipient-name>, wake:action and meaningful reasoning. These sends must be your own tool calls.
 5. Call the ack tool for START only after all sends succeed; never send_message to mesh-controller.
-On each QUESTION: call read_document for that contributor's document once, then call send_message for exactly one useful ANSWER beginning ANSWER COPPER. Include an improvement and your exposed-tool description; use replyTo:<QUESTION-ID>, key:answer-<QUESTION-ID>, ackReply:true, wake:action, reasoning; omit to/topic.
+On each QUESTION: read the named contributor document completely, following next to the terminal page; reuse that verified revision for later questions. Then call send_message for exactly one useful ANSWER beginning ANSWER COPPER. Include an improvement and your exposed-tool description; use replyTo:<QUESTION-ID>, key:answer-<QUESTION-ID>, ackReply:true, wake:action, reasoning; omit to/topic.
 On each ANSWER/FYI: call ack with messages:[the delivered IDs], without replying. Before ending, check each delivered ID against successful tool results; incomplete work stays pending. Handle incoming work once and end the turn; native delivery triggers subsequent work. No polling, hook calls, subscriptions, leases, broadcasts, unsolicited messages or host nudges. Reuse already-read evidence and discovered IDs.`;
   call('share_document', { name: 'mesh-context.md', reasoning: 'Give collaborators shared evidence for the native delivery review', content: 'Shared service integration context. Verification word: COPPER. Native transport must preserve sender identity and reply correlation; raw fallback follows the same DB contract.\n' }, controller.id);
   report.completionCheck = completionCheck; report.scopedSkill = scopedSkill; report.taskFamily = taskFamily; report.toolSelection = selectedTools ?? 'all';
@@ -336,6 +337,33 @@ On each ANSWER/FYI: call ack with messages:[the delivered IDs], without replying
     report.agentOriginatedRequests = requests.length;
   }
   await drainUntil(() => requests.every(request => db.prepare('SELECT acknowledgedAt FROM deliveries WHERE message=? AND recipient=?').get(request.id, request.recipient)?.acknowledgedAt), 'all cross-vendor questions acknowledged by message-triggered turns');
+  report.replyFormatDeviations = [];
+  report.replyCountDeviations = [];
+  // Response quality remains a failing gate, evaluated after broadcast coverage.
+  for (const request of requests) {
+    const replies = db.prepare('SELECT * FROM messages WHERE sender=? AND replyTo=?').all(request.recipient, request.id);
+    if (replies.length !== 1) report.replyCountDeviations.push({replyTo:request.id,sender:request.recipient,count:replies.length});
+    for (const reply of replies) {
+      assert.equal(reply.target, request.sender);
+      assert.equal(reply.conversationId, request.conversationId);
+      if (!reply.body.startsWith('ANSWER') || !reply.body.includes('COPPER')) report.replyFormatDeviations.push({message:reply.id,replyTo:request.id,sender:request.recipient});
+    }
+  }
+  report.questionRoundMs = performance.now() - began;
+  // An explicit actionable broadcast closes the exchange for every recipient.
+  const notice = call('notify_all', { body: 'FYI: mesh complete; handle pending answers and acknowledge this notice without replying.', key: 'final-broadcast', reasoning: 'Close the interoperability exchange and confirm all recipients can receive fanout', wake: 'action' }, controller.id);
+  assert.equal(notice.recipients, agents.length);
+  assert.deepEqual(call('notify_all', { body: 'FYI: mesh complete; handle pending answers and acknowledge this notice without replying.', key: 'final-broadcast', reasoning: 'Close the interoperability exchange and confirm all recipients can receive fanout', wake: 'action' }, controller.id), notice);
+  await drainUntil(() => db.prepare('SELECT count(*) n FROM deliveries WHERE acknowledgedAt IS NULL').get().n === 0, 'all answers and broadcast acknowledged without host prompts');
+  await until(() => db.prepare("SELECT count(*) n FROM dispatches WHERE state<>'submitted'").get().n === 0, 'all native submission receipts completed');
+  report.handledRoundMs = performance.now() - began;
+  await until(() => agents.filter(a => a.vendor === 'grok').every(a => a.listener.events.some(e => e.messages?.includes(notice.id))), 'Grok final receipt and usage audit flushed');
+  await until(() => agents.filter(a => ['claude', 'codex'].includes(a.vendor)).every(a => nativeTurnFinished(a.vendor, a.vendor === 'claude' ? a.process.events : a.rpc.events, a.vendorSession)), 'native result/usage after the final handling ACK');
+  report.nativeTurnsFinished = true;
+  await delay(1000);
+  report.deliveryClosurePassed = true;
+  // Grade content only after native completion/ACK closure, so a bad answer cannot
+  // strand otherwise handled mail or truncate late native tool receipts.
   const hasDocument = result => {
     for (const block of Array.isArray(result?.content) ? result.content : []) {
       try { const value = JSON.parse(block.text); if (value.document?.name === 'mesh-context.md' && value.content?.includes('COPPER')) return true; } catch {}
@@ -374,36 +402,12 @@ On each ANSWER/FYI: call ack with messages:[the delivered IDs], without replying
       const records = recordsByAgent.get(agent.id), sentIds = new Set(records.filter(r => r.name === 'send_message').map(r => r.value?.id));
       const authored = requests.filter(r => r.sender === agent.id);
       assert.ok(authored.every(r => sentIds.has(r.id)), `${agent.name} requests need successful native tool receipts`);
-      assert.ok(records.some(r => r.name === 'peers' && agents.every(peer => r.value?.items?.some(item => item.id === peer.id))), `${agent.name} must observe all peer identities`);
+      assert.equal(new Set(authored.map(r => r.recipient)).size, agents.length - 1, `${agent.name} must address every collaborator by exact identity`);
       assert.ok(records.some(r => r.name === 'share_document'), `${agent.name} must publish its own contribution`);
       const readNames = new Set(records.filter(r => r.name === 'read_document').map(r => r.value?.document?.name));
       report.collaborators.push({name: agent.name, requestsAuthored: authored.length, nativeSendReceipts: authored.filter(r => sentIds.has(r.id)).length, peerDocumentsRead: [...readNames].filter(name => name !== 'mesh-context.md')});
     }
   }
-  report.replyFormatDeviations = [];
-  report.replyCountDeviations = [];
-  // Response quality remains a failing gate, evaluated after broadcast coverage.
-  for (const request of requests) {
-    const replies = db.prepare('SELECT * FROM messages WHERE sender=? AND replyTo=?').all(request.recipient, request.id);
-    if (replies.length !== 1) report.replyCountDeviations.push({replyTo:request.id,sender:request.recipient,count:replies.length});
-    for (const reply of replies) {
-      assert.equal(reply.target, request.sender);
-      assert.equal(reply.conversationId, request.conversationId);
-      if (!reply.body.startsWith('ANSWER') || !reply.body.includes('COPPER')) report.replyFormatDeviations.push({message:reply.id,replyTo:request.id,sender:request.recipient});
-    }
-  }
-  report.questionRoundMs = performance.now() - began;
-  // An explicit actionable broadcast closes the exchange for every recipient.
-  const notice = call('notify_all', { body: 'FYI: mesh complete; handle pending answers and acknowledge this notice without replying.', key: 'final-broadcast', reasoning: 'Close the interoperability exchange and confirm all recipients can receive fanout', wake: 'action' }, controller.id);
-  assert.equal(notice.recipients, agents.length);
-  assert.deepEqual(call('notify_all', { body: 'FYI: mesh complete; handle pending answers and acknowledge this notice without replying.', key: 'final-broadcast', reasoning: 'Close the interoperability exchange and confirm all recipients can receive fanout', wake: 'action' }, controller.id), notice);
-  await drainUntil(() => db.prepare('SELECT count(*) n FROM deliveries WHERE acknowledgedAt IS NULL').get().n === 0, 'all answers and broadcast acknowledged without host prompts');
-  await until(() => db.prepare("SELECT count(*) n FROM dispatches WHERE state<>'submitted'").get().n === 0, 'all native submission receipts completed');
-  report.handledRoundMs = performance.now() - began;
-  await until(() => agents.filter(a => a.vendor === 'grok').every(a => a.listener.events.some(e => e.messages?.includes(notice.id))), 'Grok final receipt and usage audit flushed');
-  await until(() => agents.filter(a => ['claude', 'codex'].includes(a.vendor)).every(a => nativeTurnFinished(a.vendor, a.vendor === 'claude' ? a.process.events : a.rpc.events, a.vendorSession)), 'native result/usage after the final handling ACK');
-  report.nativeTurnsFinished = true;
-  await delay(1000);
   report.messageCountPassed = db.prepare('SELECT count(*) n FROM messages').get().n === requests.length * 2 + passive.length + starts.length + 1;
   assert.equal(db.prepare("SELECT count(*) n FROM deliveries d LEFT JOIN dispatches x ON x.message=d.message AND x.recipient=d.recipient WHERE x.state IS NULL OR x.state<>'submitted'").get().n, 0, 'Every handled message went through a confirmed adapter');
   const nativeTools = [];
