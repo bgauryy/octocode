@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 // Per-tool call/error/size stats and clustered error signatures for Octocode tool
 // calls in Claude Code transcripts. Complements orangu, which redacts error text.
-// Reads ~/.claude/projects/<slug>*/**/*.jsonl; prints JSON (or a table with --table).
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+// Reads ~/.claude/projects/<slug>*/**/*.jsonl for sessions launched in --cwd or below it;
+// prints JSON (or a table with --table).
+import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 
 const args = process.argv.slice(2);
 const opt = (name, fallback) => {
@@ -16,7 +17,8 @@ if (args.includes('--help')) {
 
   node scripts/mine-transcripts.mjs [--cwd <repo>] [--since YYYY-MM-DD] [--tool-prefix <s>] [--top <n>] [--table]
 
-  --cwd          repository whose sessions to scan (default: current directory)
+  --cwd          repository whose sessions to scan; relative paths resolve against the
+                 current directory (default: current directory)
   --since        only calls at or after this date (ISO prefix compare)
   --tool-prefix  tool-name substring to keep (default: octocode)
   --top          error signatures to print (default: 30)
@@ -24,11 +26,15 @@ if (args.includes('--help')) {
   process.exit(0);
 }
 
-const cwd = opt('cwd', process.cwd());
+// Claude Code names a project dir after the physical launch path, so resolve relative,
+// trailing-slash, and symlinked spellings the same way before slugging.
+const physical = (p) => { try { return realpathSync(p); } catch { return p; } };
+const cwd = physical(resolve(opt('cwd', process.cwd())));
 const since = opt('since', '');
 const prefix = opt('tool-prefix', 'octocode');
 const top = Number(opt('top', '30'));
-const slug = cwd.replace(/[^A-Za-z0-9]/g, '-');
+const slugOf = (p) => p.replace(/[^A-Za-z0-9]/g, '-');
+const slug = slugOf(cwd);
 const root = join(homedir(), '.claude', 'projects');
 
 function* walk(dir) {
@@ -40,7 +46,24 @@ function* walk(dir) {
   }
 }
 
-const dirs = readdirSync(root).filter((d) => d === slug || d.startsWith(`${slug}-`));
+// Slugs are lossy ('/' and '-' both become '-'), so `<slug>-*` also names sibling repos
+// (octocode-mcp-host beside octocode). Keep such a dir only when its launch path, the
+// recorded session cwd that slugs to the dir name, is cwd or below it.
+const inside = (p) => p === cwd || p.startsWith(cwd.endsWith(sep) ? cwd : cwd + sep);
+function launchedInside(dir) {
+  for (const file of walk(join(root, dir))) {
+    for (const line of readFileSync(file, 'utf8').split('\n')) {
+      if (!line.includes('"cwd"')) continue;
+      let m;
+      try { m = JSON.parse(line); } catch { continue; }
+      if (typeof m?.cwd === 'string' && slugOf(m.cwd) === dir) return inside(m.cwd);
+    }
+  }
+  return false;
+}
+
+const dirs = readdirSync(root).filter((d) => d === slug || (d.startsWith(`${slug}-`) && launchedInside(d)));
+if (!dirs.length) console.error(`mine-transcripts: no Claude Code sessions recorded for ${cwd} under ${root}`);
 const uses = new Map();
 const rows = [];
 for (const d of dirs) {

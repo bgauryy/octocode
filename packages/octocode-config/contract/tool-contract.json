@@ -1,6 +1,6 @@
 {
   "contractFormatVersion": 2,
-  "fingerprint": "718bd1495574c4dbecc4a64495cc26bfdc42b967fc38aefe1b6b7d458f3e5135",
+  "fingerprint": "70781d6148f66db1c6727585a40d3b390e3347e4bccf0dcbb8f799131549c25d",
   "tools": [
     {
       "defaults": [
@@ -1160,11 +1160,6 @@
             "items": {
               "additionalProperties": false,
               "properties": {
-                "model": {
-                  "description": "Provider-resolved model for this matrix.",
-                  "minLength": 1,
-                  "type": "string"
-                },
                 "next": {
                   "additionalProperties": false,
                   "description": "Executable semantic continuation; run clasify unchanged. A capped partial resource may have no continuation and needs a smaller targeted query.",
@@ -2894,11 +2889,6 @@
                                 "source": {
                                   "additionalProperties": false,
                                   "properties": {
-                                    "evidenceHash": {
-                                      "description": "SHA-256 identity of the sanitized assessed capture; not original file bytes.",
-                                      "pattern": "^[a-f0-9]{64}$",
-                                      "type": "string"
-                                    },
                                     "modified": {
                                       "minLength": 1,
                                       "type": "string"
@@ -2913,36 +2903,7 @@
                                       "type": "string"
                                     }
                                   },
-                                  "required": [
-                                    "evidenceHash"
-                                  ],
                                   "type": "object"
-                                },
-                                "verificationRanges": {
-                                  "description": "Merged read plan across locate answers. Read once, at most five per call; answers.matches remain exact citation lines, so do not reread to pin them.",
-                                  "items": {
-                                    "additionalProperties": false,
-                                    "properties": {
-                                      "endLine": {
-                                        "maximum": 9007199254740991,
-                                        "minimum": 1,
-                                        "type": "integer"
-                                      },
-                                      "startLine": {
-                                        "maximum": 9007199254740991,
-                                        "minimum": 1,
-                                        "type": "integer"
-                                      }
-                                    },
-                                    "required": [
-                                      "startLine",
-                                      "endLine"
-                                    ],
-                                    "type": "object"
-                                  },
-                                  "maxItems": 75,
-                                  "minItems": 1,
-                                  "type": "array"
                                 },
                                 "view": {
                                   "additionalProperties": false,
@@ -3374,11 +3335,6 @@
                                 "source": {
                                   "additionalProperties": false,
                                   "properties": {
-                                    "evidenceHash": {
-                                      "description": "SHA-256 identity of the sanitized assessed capture; not original file bytes.",
-                                      "pattern": "^[a-f0-9]{64}$",
-                                      "type": "string"
-                                    },
                                     "modified": {
                                       "minLength": 1,
                                       "type": "string"
@@ -3393,36 +3349,7 @@
                                       "type": "string"
                                     }
                                   },
-                                  "required": [
-                                    "evidenceHash"
-                                  ],
                                   "type": "object"
-                                },
-                                "verificationRanges": {
-                                  "description": "Merged read plan across locate answers. Read once, at most five per call; answers.matches remain exact citation lines, so do not reread to pin them.",
-                                  "items": {
-                                    "additionalProperties": false,
-                                    "properties": {
-                                      "endLine": {
-                                        "maximum": 9007199254740991,
-                                        "minimum": 1,
-                                        "type": "integer"
-                                      },
-                                      "startLine": {
-                                        "maximum": 9007199254740991,
-                                        "minimum": 1,
-                                        "type": "integer"
-                                      }
-                                    },
-                                    "required": [
-                                      "startLine",
-                                      "endLine"
-                                    ],
-                                    "type": "object"
-                                  },
-                                  "maxItems": 75,
-                                  "minItems": 1,
-                                  "type": "array"
                                 },
                                 "view": {
                                   "additionalProperties": false,
@@ -3480,32 +3407,6 @@
                     "type": "object"
                   },
                   "type": "array"
-                },
-                "templateVersion": {
-                  "const": 1,
-                  "description": "Research-template revision; present only when questionType was selected. Custom questions pass through unchanged.",
-                  "type": "number"
-                },
-                "usage": {
-                  "additionalProperties": false,
-                  "description": "Provider tokens summed over this matrix.",
-                  "properties": {
-                    "input_tokens": {
-                      "maximum": 9007199254740991,
-                      "minimum": 0,
-                      "type": "integer"
-                    },
-                    "output_tokens": {
-                      "maximum": 9007199254740991,
-                      "minimum": 0,
-                      "type": "integer"
-                    }
-                  },
-                  "required": [
-                    "input_tokens",
-                    "output_tokens"
-                  ],
-                  "type": "object"
                 }
               },
               "required": [

@@ -90,7 +90,11 @@ pub struct ArtifactItem {
 }
 
 impl ArtifactItem {
-    pub(crate) fn new(artifact_type: ArtifactSearchQueryType, name: String, registry_url: String) -> Self {
+    pub(crate) fn new(
+        artifact_type: ArtifactSearchQueryType,
+        name: String,
+        registry_url: String,
+    ) -> Self {
         Self {
             artifact_type,
             name,

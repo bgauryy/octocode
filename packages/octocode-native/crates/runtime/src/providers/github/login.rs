@@ -1,7 +1,9 @@
 //! GitHub device-flow login (no TUI).
+#[cfg(test)]
+mod flow_tests;
 use super::{
-    OAuthToken, ProviderError, ProviderErrorKind, ResolvedCredential, StoredCredentials,
-    load_stored_credentials, store_platform_credential,
+    CredentialSource, CredentialStore, OAuthToken, ProviderError, ProviderErrorKind,
+    ResolvedCredential, StoredCredentials,
 };
 
 use reqwest::header::{ACCEPT, USER_AGENT};
@@ -14,6 +16,18 @@ use std::{
 use tokio_util::sync::CancellationToken;
 
 pub const GITHUB_APP_CLIENT_ID: &str = "178c6fc778ccc68e1d6a";
+
+pub(crate) fn client_id_for_host<'a>(host: &str, configured: Option<&'a str>) -> &'a str {
+    configured
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| {
+            if super::auth::normalize_host(host) == "github.com" {
+                GITHUB_APP_CLIENT_ID
+            } else {
+                ""
+            }
+        })
+}
 
 #[derive(Clone, Debug)]
 pub struct LoginEndpoints {
@@ -91,7 +105,7 @@ pub struct RefreshResult {
     pub error: Option<String>,
 }
 
-#[derive(Clone, Debug, serde::Serialize)]
+#[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TokenWithRefreshResult {
     pub token: Option<String>,
@@ -100,6 +114,17 @@ pub struct TokenWithRefreshResult {
     pub username: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub refresh_error: Option<String>,
+}
+
+impl std::fmt::Debug for TokenWithRefreshResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TokenWithRefreshResult")
+            .field("token", &self.token.as_ref().map(|_| "[REDACTED]"))
+            .field("source", &self.source)
+            .field("username", &self.username)
+            .field("refresh_error", &self.refresh_error)
+            .finish()
+    }
 }
 
 pub async fn login_device_flow_with_client_id(
@@ -210,6 +235,33 @@ pub async fn login_device_flow_cancellable(
     client_id: &str,
     cancellation: &CancellationToken,
 ) -> Result<StoredCredentials, ProviderError> {
+    login_device_flow_in_store(
+        endpoints,
+        client_id,
+        cancellation,
+        &CredentialStore::from_process()?,
+    )
+    .await
+}
+
+pub async fn login_device_flow_in_store(
+    endpoints: &LoginEndpoints,
+    client_id: &str,
+    cancellation: &CancellationToken,
+    store: &CredentialStore,
+) -> Result<StoredCredentials, ProviderError> {
+    login_device_flow_with_store(endpoints, client_id, cancellation, &|value| {
+        store.save(value)
+    })
+    .await
+}
+
+async fn login_device_flow_with_store(
+    endpoints: &LoginEndpoints,
+    client_id: &str,
+    cancellation: &CancellationToken,
+    store: &(dyn Fn(&StoredCredentials) -> Result<(), ProviderError> + Sync),
+) -> Result<StoredCredentials, ProviderError> {
     if client_id.trim().is_empty() {
         return Err(ProviderError::new(
             ProviderErrorKind::Configuration,
@@ -310,7 +362,7 @@ pub async fn login_device_flow_cancellable(
                 created_at: now.clone(),
                 updated_at: now,
             };
-            store_platform_credential(&stored)?;
+            store(&stored)?;
             return Ok(stored);
         }
         return Err(ProviderError::new(
@@ -491,21 +543,12 @@ fn mask_token_text(message: &str) -> String {
 const REFRESH_LOCK_WAIT: Duration = Duration::from_secs(45);
 
 /// Where stored credentials are read and written during a refresh, and the
-/// lock file that serializes refreshes across processes. The platform
-/// credential store is per user, so the lock lives under the user's home,
-/// not under a per-process `OCTOCODE_HOME`.
+/// lock file that serializes refreshes across processes. Platform credentials
+/// use the per-user lock; home credentials use the resolved Octocode home.
 struct RefreshStore<'a> {
     load: &'a (dyn Fn(&str) -> Result<Option<StoredCredentials>, ProviderError> + Sync),
-    store: &'a (dyn Fn(&StoredCredentials) -> Result<(), ProviderError> + Sync),
+    store: &'a (dyn Fn(&StoredCredentials, &StoredCredentials) -> Result<(), ProviderError> + Sync),
     lock_path: std::path::PathBuf,
-}
-
-fn platform_refresh_store(host: &str) -> RefreshStore<'static> {
-    RefreshStore {
-        load: &load_stored_credentials,
-        store: &store_platform_credential,
-        lock_path: refresh_lock_path(host),
-    }
 }
 
 fn refresh_lock_path(host: &str) -> std::path::PathBuf {
@@ -604,14 +647,62 @@ async fn refresh_locked(
     if refreshed_elsewhere {
         return Ok(Some(current));
     }
-    refresh_stored_credentials(current, endpoints, client_id, store.store)
+    let save = |updated: &StoredCredentials| (store.store)(&current, updated);
+    refresh_stored_credentials(current.clone(), endpoints, client_id, &save)
         .await
         .map(Some)
+}
+
+async fn refresh_selected(
+    endpoints: &LoginEndpoints,
+    client_id: &str,
+    mode: RefreshMode,
+    credentials: &CredentialStore,
+    source: CredentialSource,
+) -> Result<Option<StoredCredentials>, ProviderError> {
+    use sha2::{Digest, Sha256};
+    if client_id.trim().is_empty() {
+        return Err(ProviderError::new(
+            ProviderErrorKind::Authentication,
+            "Set OCTOCODE_GITHUB_CLIENT_ID to refresh credentials for this GitHub host",
+        ));
+    }
+    let load = |host: &str| credentials.load_from(host, source);
+    let save = |previous: &StoredCredentials, value: &StoredCredentials| {
+        credentials.save_to(previous, value, source)
+    };
+    let lock_path = if source == CredentialSource::Storage {
+        refresh_lock_path(&endpoints.host)
+    } else {
+        credentials.home().join("tmp/locks").join(format!(
+            "oauth-refresh-{}.lock",
+            hex::encode(Sha256::digest(endpoints.host.as_bytes()))
+        ))
+    };
+    refresh_locked(
+        endpoints,
+        client_id,
+        mode,
+        &RefreshStore {
+            load: &load,
+            store: &save,
+            lock_path,
+        },
+    )
+    .await
 }
 
 pub async fn refresh_auth_token(
     host: &str,
     client_id: &str,
+) -> Result<StoredCredentials, ProviderError> {
+    refresh_auth_token_in_store(host, client_id, &CredentialStore::from_process()?).await
+}
+
+pub async fn refresh_auth_token_in_store(
+    host: &str,
+    client_id: &str,
+    store: &CredentialStore,
 ) -> Result<StoredCredentials, ProviderError> {
     let endpoints = LoginEndpoints::from_host(host);
     let not_logged_in = || {
@@ -620,18 +711,13 @@ pub async fn refresh_auth_token(
             format!("Not logged in to {}", endpoints.host),
         )
     };
-    let stored = load_stored_credentials(&endpoints.host)?.ok_or_else(not_logged_in)?;
+    let (stored, source) = store.load(&endpoints.host)?.ok_or_else(not_logged_in)?;
     let mode = RefreshMode::Force {
         observed: stored.token.refresh_token,
     };
-    refresh_locked(
-        &endpoints,
-        client_id,
-        mode,
-        &platform_refresh_store(&endpoints.host),
-    )
-    .await?
-    .ok_or_else(not_logged_in)
+    refresh_selected(&endpoints, client_id, mode, store, source)
+        .await?
+        .ok_or_else(not_logged_in)
 }
 
 async fn refresh_stored_credentials(
@@ -762,8 +848,25 @@ pub async fn refresh_auth_token_result(
     client_id: Option<&str>,
 ) -> RefreshResult {
     let host = host.unwrap_or("github.com");
-    let client_id = client_id.unwrap_or(GITHUB_APP_CLIENT_ID);
-    match refresh_auth_token(host, client_id).await {
+    refresh_result(
+        host,
+        refresh_auth_token(host, client_id_for_host(host, client_id)).await,
+    )
+}
+
+pub async fn refresh_auth_token_result_in_store(
+    host: &str,
+    client_id: &str,
+    store: &CredentialStore,
+) -> RefreshResult {
+    refresh_result(
+        host,
+        refresh_auth_token_in_store(host, client_id, store).await,
+    )
+}
+
+fn refresh_result(host: &str, result: Result<StoredCredentials, ProviderError>) -> RefreshResult {
+    match result {
         Ok(stored) => RefreshResult {
             success: true,
             username: Some(stored.username),
@@ -783,15 +886,39 @@ pub async fn get_token_with_refresh(
     host: Option<&str>,
     client_id: Option<&str>,
 ) -> TokenWithRefreshResult {
+    match CredentialStore::from_process() {
+        Ok(store) => get_token_with_refresh_in_store(host, client_id, &store).await,
+        Err(error) => token_refresh_error(error),
+    }
+}
+
+fn token_refresh_error(error: ProviderError) -> TokenWithRefreshResult {
+    TokenWithRefreshResult {
+        token: None,
+        source: "none",
+        username: None,
+        refresh_error: Some(mask_token_text(&error.message)),
+    }
+}
+
+pub async fn get_token_with_refresh_in_store(
+    host: Option<&str>,
+    client_id: Option<&str>,
+    store: &CredentialStore,
+) -> TokenWithRefreshResult {
     let host = host.unwrap_or("github.com");
     let endpoints = LoginEndpoints::from_host(host);
-    let Ok(Some(stored)) = load_stored_credentials(&endpoints.host) else {
-        return TokenWithRefreshResult {
-            token: None,
-            source: "none",
-            username: None,
-            refresh_error: None,
-        };
+    let (stored, source) = match store.load(&endpoints.host) {
+        Ok(Some(value)) => value,
+        Ok(None) => {
+            return TokenWithRefreshResult {
+                token: None,
+                source: "none",
+                username: None,
+                refresh_error: None,
+            };
+        }
+        Err(error) => return token_refresh_error(error),
     };
     if !is_token_expired(&stored) {
         return TokenWithRefreshResult {
@@ -801,11 +928,12 @@ pub async fn get_token_with_refresh(
             refresh_error: None,
         };
     }
-    match refresh_locked(
+    match refresh_selected(
         &endpoints,
-        client_id.unwrap_or(GITHUB_APP_CLIENT_ID),
+        client_id_for_host(host, client_id),
         RefreshMode::IfExpired,
-        &platform_refresh_store(&endpoints.host),
+        store,
+        source,
     )
     .await
     {
@@ -821,12 +949,7 @@ pub async fn get_token_with_refresh(
             username: Some(updated.username),
             refresh_error: None,
         },
-        Err(error) => TokenWithRefreshResult {
-            token: None,
-            source: "none",
-            username: None,
-            refresh_error: Some(mask_token_text(&error.message)),
-        },
+        Err(error) => token_refresh_error(error),
     }
 }
 
@@ -834,15 +957,12 @@ pub async fn resolve_stored_with_refresh(
     host: &str,
     client_id: &str,
 ) -> Result<Option<ResolvedCredential>, ProviderError> {
-    let endpoints = LoginEndpoints::from_host(host);
-    let Some(stored) = load_stored_credentials(&endpoints.host)? else {
+    let store = CredentialStore::from_process()?;
+    let Some((stored, source)) = store.load(host)? else {
         return Ok(None);
     };
     if !is_token_expired(&stored) {
-        return Ok(Some(ResolvedCredential::new(
-            stored.token.token,
-            super::CredentialSource::Storage,
-        )));
+        return Ok(Some(ResolvedCredential::new(stored.token.token, source)));
     }
     if client_id.trim().is_empty() {
         return Err(ProviderError::new(
@@ -850,16 +970,25 @@ pub async fn resolve_stored_with_refresh(
             "OCTOCODE_GITHUB_CLIENT_ID is required to refresh GitHub Enterprise credentials",
         ));
     }
-    let updated = refresh_locked(
-        &endpoints,
+    Ok(refresh_stored_in_store(host, client_id, &store, source)
+        .await?
+        .map(|stored| ResolvedCredential::new(stored.token.token, source)))
+}
+
+pub(crate) async fn refresh_stored_in_store(
+    host: &str,
+    client_id: &str,
+    store: &CredentialStore,
+    source: CredentialSource,
+) -> Result<Option<StoredCredentials>, ProviderError> {
+    refresh_selected(
+        &LoginEndpoints::from_host(host),
         client_id,
         RefreshMode::IfExpired,
-        &platform_refresh_store(&endpoints.host),
+        store,
+        source,
     )
-    .await?;
-    Ok(updated.map(|updated| {
-        ResolvedCredential::new(updated.token.token, super::CredentialSource::Storage)
-    }))
+    .await
 }
 
 #[cfg(test)]
@@ -879,7 +1008,7 @@ mod tests {
     use wiremock::matchers::{body_string_contains, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
-    fn stored(expires_at: Option<&str>, refresh: Option<&str>) -> StoredCredentials {
+    pub(super) fn stored(expires_at: Option<&str>, refresh: Option<&str>) -> StoredCredentials {
         StoredCredentials {
             hostname: "github.com".into(),
             username: "octo".into(),
@@ -1061,7 +1190,9 @@ mod tests {
                     let load = |_: &str| -> Result<Option<StoredCredentials>, ProviderError> {
                         Ok(Some(shared.lock().expect("store").clone()))
                     };
-                    let save = |value: &StoredCredentials| -> Result<(), ProviderError> {
+                    let save = |_: &StoredCredentials,
+                                value: &StoredCredentials|
+                     -> Result<(), ProviderError> {
                         *shared.lock().expect("store") = value.clone();
                         Ok(())
                     };
@@ -1109,7 +1240,8 @@ mod tests {
         let load = move |_: &str| -> Result<Option<StoredCredentials>, ProviderError> {
             Ok(Some(rotated.clone()))
         };
-        let save = |_: &StoredCredentials| -> Result<(), ProviderError> { Ok(()) };
+        let save =
+            |_: &StoredCredentials, _: &StoredCredentials| -> Result<(), ProviderError> { Ok(()) };
         let store = RefreshStore {
             load: &load,
             store: &save,

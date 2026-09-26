@@ -1,14 +1,47 @@
 # Production readiness
 
-Review date: 2026-09-25. Scope: a local, same-user communication service for
+Review date: 2026-09-26. Scope: a local, same-user communication service for
 cooperating agents. This is not a multi-tenant broker or a filesystem security
 boundary. The package remains private and unpublished.
 
-September 26 follow-up: [context profiles and bounded recovery](CONTEXT_PROFILES.md)
-records the latest native six-agent pass, smaller instruction profiles and token
-measurement gates. The [unified adapter protocol](SERVICE_PROTOCOL.md#unified-adapter-protocol)
-centralizes native orchestration while retaining distinct receipt guarantees.
-These changes do not replace the distribution and host-compatibility gates below.
+Subsequent audit-intent change: document publication now requires `reasoning` in
+the shared CLI/MCP/Pi contract and retains it in the existing audit metadata. The
+skill also requires a purpose for every file/path audit. That revision used 39
+lines and 7,505 bytes; subsequent wording cleanup retains the workflow with fewer bytes.
+This change adds no delivery layer or read-audit stream; the live six-agent results
+below belong to the preceding frozen runtime, not this updated artifact.
+The updated artifact passes all 13 document tests, 33 Rust tests, formatting and
+Clippy. The full 269-test process run had 259 passes, eight SQL-environment skips
+and two macOS artifact-startup timeouts; the SQL checks and all five artifact tests
+passed separately on recheck. This does not resolve the intermittent loader issue.
+
+September 26 handling repair: two Claude, two Codex and two Grok agents passed
+both the review and handoff scenarios on the same runtime. Each run completed
+30 agent-authored requests, 30 correlated replies, all 30 contributor-document
+reads, six broadcast recipients and zero pending messages. Routing used no model
+and neither run needed host prompts after initialization. All child processes exited.
+
+The fix aligns Codex initialization with the other hosts, names the actual tools
+in the task, and puts ACK-only completion in the triggering message. The skill
+asks senders to state completion criteria and recipients to check each delivered
+ID against successful tool results. No automatic ACK, replay or new retry loop
+was added. That run used the 39-line, 7,366-byte skill.
+
+The document grader also had a defect: it demanded an old filename even when a
+peer requested and successfully read a corrected immutable revision. Verification
+now follows each request's document name and checks publisher, hash and successful
+read. Four new regression tests reject old/missing reads, wrong hashes/publishers,
+ambiguous references and failed MCP calls. The original 25/30 trial and subsequent
+failed candidates remain preserved; they were not relabeled as complete passes.
+
+Evidence: `.octocode/benchmarks/communication-handling-fix/verification.json` and
+its frozen runtime, harnesses, native events and SQLite snapshots. The final
+runtime passes the 263-test process/integration suite and 33 Rust tests; the
+updated harness passes its 12 focused checks. The extracted-bundle check first
+hit the known macOS startup timeout and passed on recheck. That distribution
+issue remains open. These small samples establish the tested flows, not universal
+model compliance or token savings. Earlier [context-cost gates](CONTEXT_PROFILES.md)
+remain unmet; [scoped discovery](CONTEXT_DISCOVERY.md) measures retrieval only.
 
 ## Decision
 
@@ -18,6 +51,14 @@ unattended editing and distribution across supported platform selectors have not
 met release gates. A passing messaging matrix does not prove either property.
 
 ## Repairs in this review
+
+- A larger live matrix exposed a 16-message staging / four-receipt confirmation
+  mismatch that stalled Pi. Staging now derives its cap from the receipt catalog;
+  Pi chunks accumulated confirmations using the same limit. Regression coverage
+  includes 35 buffered messages, durable flush, continued delivery and no replay.
+- The delivery prompt explicitly requires tool ACKs for handled answers/FYIs;
+  prose acknowledgements do not mutate the DB. This improves the instruction,
+  not the runtime's ability to guarantee model compliance.
 
 - Native delivery rechecks attachment identity inside staging; attachment changes
   cannot bypass an in-flight attempt through heartbeat/entity updates.
@@ -77,7 +118,7 @@ Ratings are engineering judgments about this scope, not probabilities of success
 | Messaging and native adapters | 8/10 | No routing model, explicit receipt/ACK distinction, guarded binding and deadlines; private API/version exposure remains |
 | Leases and edit coordination | 8/10 | Atomic leases, crash recovery and native-bound structured guards for Pi/Claude/OpenCode; ambiguous host paths fail closed; arbitrary shell writes remain advisory |
 | Hooks and fallback | 8/10 | One delivery owner, idle fast path, generic CLI/SQL; no universal idle wake |
-| Instructions and context | 8/10 | 37-line skill, selected tools, documents, atomic completion; model response compliance is not guaranteed |
+| Instructions and context | 7/10 | One short skill, selected tools, scoped document discovery, atomic completion; model response compliance and total-token savings are not guaranteed |
 | Release and operations | 7/10 | Read-only operational diagnostics, extracted upgrade/restore checks and strict six-target CI receipts; loader, signing and unexecuted platform gates remain |
 
 Overall: **8/10 for the controlled local communication scope; 7/10 for a general

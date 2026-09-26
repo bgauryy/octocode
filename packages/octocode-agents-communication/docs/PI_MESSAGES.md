@@ -2,6 +2,14 @@
 
 Verified September 24, 2026 against installed Pi 0.87.1 and upstream API declarations.
 
+September 26 repair: delayed ledger flushes can accumulate receipts from several
+delivery batches. Pi now discovers `confirm_delivery`'s limit from the CLI catalog
+and confirms in bounded chunks, removing only successfully confirmed receipts.
+Native staging derives its row cap from that same contract (16), preventing the
+previous mismatch with a four-receipt limit. A 35-message regression covers delayed
+disk persistence, continued delivery and no replay. Confirmation still proves
+native persistence, not recipient handling.
+
 Pi extensions expose `pi.sendMessage(message, options)`. The SDK equivalent is
 `await session.sendCustomMessage(message, options)`. Both create a custom message
 in the target Pi session; neither provides cross-process recipient lookup or transport.

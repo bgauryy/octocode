@@ -861,7 +861,7 @@
           "items": {
             "type": "array",
             "minItems": 1,
-            "maxItems": 4,
+            "maxItems": 16,
             "items": {
               "type": "object",
               "properties": {
@@ -960,7 +960,7 @@
     },
     {
       "name": "share_document",
-      "description": "Publish immutable context in .octocode/communication/<name>. Identical retries reuse the audited document. Send peers its name and the decision/question, not the contents. CLI - reads JSON from stdin.",
+      "description": "Publish immutable context in .octocode/communication/<name>. Identical retries reuse the audited document. Send peers its name and the decision/question, not the contents. CLI - reads JSON from stdin. Optional context metadata makes a short gotcha discoverable by path/branch until expiry; no notification is sent.",
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -975,11 +975,62 @@
             "type": "string",
             "maxLength": 1048576,
             "description": "Document text; at most 1 MiB of UTF-8 bytes."
+          },
+          "context": {
+            "type": "object",
+            "properties": {
+              "summary": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 320,
+                "description": "One useful fact and why it matters; evidence belongs in content."
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096,
+                "default": ".",
+                "description": "Workspace-relative file/tree; default workspace. Canonicalized; must remain inside workspace."
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "file",
+                  "tree"
+                ],
+                "default": "tree"
+              },
+              "branch": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 255,
+                "description": "Exact branch label; caller must supply this branch to discover it. Omit for branch-independent facts."
+              },
+              "ttlMs": {
+                "type": "integer",
+                "minimum": 1000,
+                "maximum": 604800000,
+                "default": 86400000,
+                "description": "Discovery lifetime, default one day, max seven. Retries do not extend expiry."
+              }
+            },
+            "required": [
+              "summary"
+            ],
+            "additionalProperties": false
+          },
+          "reasoning": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "pattern": "\\S",
+            "description": "Why this action is needed: concrete intent, not a transcript or repeated body; at most 512 UTF-8 bytes."
           }
         },
         "required": [
           "name",
-          "content"
+          "content",
+          "reasoning"
         ],
         "additionalProperties": false
       },
@@ -1028,6 +1079,50 @@
         "openWorldHint": false
       },
       "usage": "read_document <json|-> --session <id> --workspace <path> [--database <file>]"
+    },
+    {
+      "name": "context",
+      "description": "Discover short, unexpired document notes relevant to one workspace path and optional exact branch. Pull at task/path boundaries, never on every message. Returns summaries/provenance only; read_document verifies evidence. Scans at most 200 audit rows; follow next unchanged even on empty pages before claiming absence. Reuse cursor as after only for the same filters; omit through to see later publications. No injection, model, ACK or automatic supersession.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "default": "."
+          },
+          "branch": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "after": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "through": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "Snapshot ceiling from next; omit for fresh/incremental lookup."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20,
+            "default": 10
+          }
+        },
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "usage": "context [json] --session <id> --workspace <path> [--database <file>]"
     },
     {
       "name": "activity",
@@ -1438,6 +1533,14 @@
     },
     {
       "name": "activity",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "context",
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,

@@ -2,6 +2,10 @@
 
 Load when deciding between search, a compact overview, exact source, or a complete file. Choose by the evidence needed; a file extension alone does not determine the view.
 
+## Semantic targets in unread files
+
+Before loading a large body, decide whether a useful literal or known small range answers the task. If so, read directly. Otherwise use `clasify` with an unread file-reader request and atomic `questionType:"locate"` questions; batch independent same-file targets. Verify the returned source windows together. This route applies to local source, docs, logs, saved scrape text and browser artifacts. Preserve provenance and coverage; hints do not replace source proof.
+
 ## Markdown
 
 - Known phrase or source range: fetch it directly with exact content. Skip an outline when it cannot change the selected region.

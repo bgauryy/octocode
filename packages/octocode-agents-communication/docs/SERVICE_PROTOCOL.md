@@ -267,6 +267,12 @@ size and hash. Reads verify integrity and page by UTF-8 byte boundary. Publicati
 and metadata have separate durability domains; preserve unregistered crash files
 rather than adopting or deleting them automatically.
 
+Optional scoped document summaries use this same audit record. `context` performs
+a bounded, read-only path/branch/expiry lookup with explicit pagination and an
+incremental cursor. It creates no message, dispatch or ACK and never reads bodies
+for the host. See [the discovery contract](CONTEXT_DISCOVERY.md); persistent notes
+do not replace active questions or handoffs.
+
 Keep prompts/tools stable for a session, and deliver only new peer IDs, attribution,
 intent and content. Request only needed catalog entries and document pages. Native
 injection preserves the vendor's conversation; avoiding transport replay does not

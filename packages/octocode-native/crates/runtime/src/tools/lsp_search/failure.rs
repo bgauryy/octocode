@@ -126,7 +126,9 @@ impl From<EngineError> for LspFailure {
 
 pub(super) fn failure_hint(query: &LspSearchQuery, code: &str) -> &'static str {
     match code {
-        "lsp.serverUnavailable" if query.operation() == "workspaceSymbol" && query.uri().is_none() => {
+        "lsp.serverUnavailable"
+            if query.operation() == "workspaceSymbol" && query.uri().is_none() =>
+        {
             "Provide uri for a representative workspace source file so Octocode can select its language server."
         }
         "lsp.serverUnavailable" => {
@@ -321,10 +323,7 @@ pub(super) fn attach_recovery_next(value: &mut Value, query: &LspSearchQuery) {
         "path": path,
         "reasoning": "Read the source directly because semantic navigation is unavailable."
     });
-    if let Some(symbol) = query
-        .symbol_name()
-        .filter(|name| !name.trim().is_empty())
-    {
+    if let Some(symbol) = query.symbol_name().filter(|name| !name.trim().is_empty()) {
         read["matchString"] = json!(symbol);
         read["matchStringCaseSensitive"] = json!(true);
         read["contextLines"] = json!(3);

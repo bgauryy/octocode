@@ -48,7 +48,7 @@ pub(super) enum AuthCommand {
         /// GitHub API hostname (override for GitHub Enterprise device login).
         #[arg(long)]
         hostname: Option<String>,
-        /// Re-authenticate even when credentials are already stored (signs out first).
+        /// Re-authenticate and replace stored credentials only after a successful login.
         #[arg(long)]
         force: bool,
         /// Refresh the stored token using its refresh token instead of a new device flow.
@@ -58,7 +58,7 @@ pub(super) enum AuthCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Remove stored GitHub credentials from the native keychain.
+    /// Remove stored GitHub credentials from Octocode home and the OS store.
     Logout,
 }
 

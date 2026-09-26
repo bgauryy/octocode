@@ -211,7 +211,11 @@ mod tests {
                 .expect("test fixture operation should succeed"),
             "x"
         );
-        assert_eq!(r.skipped_protected, vec!["OCTOCODE_TOKEN", "PATH"]);
+        assert_eq!(r.skipped_protected, vec!["PATH"]);
+        assert_eq!(
+            target.get("OCTOCODE_TOKEN").map(String::as_str),
+            Some("file")
+        );
         map.clear()
     }
     #[test]
@@ -350,7 +354,7 @@ mod tests {
         );
         i.global_env = FileInput::Read {
             path: "/synthetic/home/.env".into(),
-            text: "GH_TOKEN=private-token-value".into(),
+            text: "NODE_OPTIONS=private-option-value".into(),
         };
         i.project_env = FileInput::Read {
             path: "/synthetic/cwd/.octocode/.env".into(),
@@ -362,7 +366,7 @@ mod tests {
         assert_eq!(
             view.skipped_protected,
             vec![EnvSkip {
-                key: "GH_TOKEN".into(),
+                key: "NODE_OPTIONS".into(),
                 source_path: "/synthetic/home/.env".into()
             }]
         );
@@ -431,34 +435,215 @@ mod tests {
         assert!(validate_config(&json!({"classification": {"api": "x"}})).valid);
     }
     #[test]
-    fn classification_key_is_honored_from_the_home_env_file_but_not_the_project_env() {
-        let mut i = input(BTreeMap::new(), None);
-        i.global_env = FileInput::Read {
-            path: "/synthetic/home/.env".into(),
-            text: "OCTOCODE_CLASSIFICATION_API=jev-secret-from-home-env\nGH_TOKEN=still-protected"
-                .into(),
+    fn trusted_dotenv_credentials_use_process_then_project_then_home() {
+        for key in [
+            "OCTOCODE_TOKEN",
+            "GH_TOKEN",
+            "GITHUB_TOKEN",
+            "GITHUB_PERSONAL_ACCESS_TOKEN",
+            "OCTOCODE_CLASSIFICATION_API",
+            "OCTOCODE_JEV_KEY",
+            "OCTOCODE_CLASSIFICATION_TYPE",
+            "OCTOCODE_CLASSIFICATION_API_HOST",
+        ] {
+            for (trusted, explicit, expected) in [
+                (false, None, "project-secret"),
+                (true, None, "project-secret"),
+                (true, Some("process-secret"), "process-secret"),
+            ] {
+                let env = explicit
+                    .map(|value| BTreeMap::from([(key.into(), value.into())]))
+                    .unwrap_or_default();
+                let mut i = input(env, None);
+                i.trusted_project = trusted;
+                i.global_env = FileInput::Read {
+                    path: "/synthetic/home/.env".into(),
+                    text: format!("{key}=home-secret\nHOME_ONLY=home"),
+                };
+                i.project_env = FileInput::Read {
+                    path: "/synthetic/cwd/.octocode/.env".into(),
+                    text: format!("{key}=project-secret"),
+                };
+                let out = resolve_config(&i);
+                assert_eq!(
+                    out.env_value(key),
+                    Some(expected),
+                    "{key}, trusted={trusted}"
+                );
+                assert_eq!(out.env_value("HOME_ONLY"), Some("home"));
+                if ENV_TOKEN_VARS.contains(&key) {
+                    assert_eq!(
+                        out.token.as_ref().map(|token| token.token()),
+                        Some(expected)
+                    );
+                }
+                if ENV_TOKEN_VARS.contains(&key)
+                    || matches!(key, "OCTOCODE_CLASSIFICATION_API" | "OCTOCODE_JEV_KEY")
+                {
+                    assert!(!format!("{out:?}").contains("-secret"));
+                }
+                let view = inspector_data(&i, &out);
+                assert!(!serde_json::to_string(&view).unwrap().contains("-secret"));
+            }
+        }
+    }
+
+    #[test]
+    fn every_config_binding_loads_workspace_before_home_without_lsp_trust() {
+        for field in CONFIG_FIELDS {
+            for binding in field.env {
+                let key = binding.name;
+                for explicit in [false, true] {
+                    let mut i = input(BTreeMap::new(), None);
+                    assert!(!i.trusted_project);
+                    if explicit {
+                        i.env.insert(key.into(), "process-value".into());
+                    }
+                    i.global_env = FileInput::Read {
+                        path: "/home/.env".into(),
+                        text: format!("{key}=home-value\nHOME_ONLY=home"),
+                    };
+                    i.project_env = FileInput::Read {
+                        path: "/workspace/.octocode/.env".into(),
+                        text: format!("{key}=workspace-value"),
+                    };
+                    let out = resolve_config(&i);
+                    assert_eq!(
+                        out.env_value(key),
+                        Some(if explicit {
+                            "process-value"
+                        } else {
+                            "workspace-value"
+                        }),
+                        "{key}"
+                    );
+                    assert_eq!(out.env_value("HOME_ONLY"), Some("home"));
+                    i.env.clear();
+                    i.project_env = FileInput::Read {
+                        path: "/workspace/.octocode/.env".into(),
+                        text: format!("{key}=   "),
+                    };
+                    assert_eq!(
+                        resolve_config(&i).env_value(key),
+                        Some("home-value"),
+                        "blank workspace {key}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn token_aliases_obey_source_precedence_before_alias_priority() {
+        let groups = std::iter::once(ENV_TOKEN_VARS.to_vec()).chain(
+            CONFIG_FIELDS
+                .iter()
+                .filter(|field| field.credential && field.env.len() > 1)
+                .map(|field| field.env.iter().map(|binding| binding.name).collect()),
+        );
+        for group in groups {
+            for higher_alias in &group {
+                for lower_alias in &group {
+                    for process in [false, true] {
+                        let mut i = input(BTreeMap::new(), None);
+                        if process {
+                            i.env
+                                .insert((*higher_alias).into(), "process-secret".into());
+                        }
+                        i.global_env = FileInput::Read {
+                            path: "/home/.env".into(),
+                            text: format!("{lower_alias}=home-secret"),
+                        };
+                        let project_alias = if process { lower_alias } else { higher_alias };
+                        i.project_env = FileInput::Read {
+                            path: "/workspace/.octocode/.env".into(),
+                            text: format!("{project_alias}=workspace-secret"),
+                        };
+                        let out = resolve_config(&i);
+                        let selected = group
+                            .iter()
+                            .filter_map(|key| out.env_value(key))
+                            .find(|value| !value.trim().is_empty());
+                        assert_eq!(
+                            selected,
+                            Some(if process {
+                                "process-secret"
+                            } else {
+                                "workspace-secret"
+                            }),
+                            "{higher_alias} vs {lower_alias}"
+                        );
+                        if group == ENV_TOKEN_VARS {
+                            assert_eq!(out.token.as_ref().map(|token| token.token()), selected);
+                        }
+                        assert!(!format!("{out:?}").contains("-secret"));
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn classification_alias_from_dotenv_beats_config_file_canonical_key() {
+        let mut i = input(
+            BTreeMap::new(),
+            Some(r#"{"classification":{"api":"config-secret"}}"#),
+        );
+        i.project_env = FileInput::Read {
+            path: "/workspace/.octocode/.env".into(),
+            text: "OCTOCODE_JEV_KEY=workspace-secret".into(),
         };
         let out = resolve_config(&i);
-        assert_eq!(
-            out.env_value("OCTOCODE_CLASSIFICATION_API"),
-            Some("jev-secret-from-home-env")
-        );
-        // Other protected keys keep the uniform block even from the home file.
-        assert_eq!(out.env_value("GH_TOKEN"), None);
-        assert!(!format!("{out:?}").contains("jev-secret-from-home-env"));
+        assert_eq!(out.env_value("OCTOCODE_CLASSIFICATION_API"), None);
+        assert_eq!(out.env_value("OCTOCODE_JEV_KEY"), Some("workspace-secret"));
+    }
 
-        // A (trusted) project `.env` may never supply classification configuration.
-        let mut p = input(BTreeMap::new(), None);
-        p.project_env = FileInput::Read {
-            path: "/synthetic/cwd/.octocode/.env".into(),
-            text: "OCTOCODE_CLASSIFICATION_API=jev-secret-from-project".into(),
+    #[test]
+    fn whitespace_token_values_fall_back_without_leaking() {
+        for key in [
+            "GH_TOKEN",
+            "OCTOCODE_JEV_KEY",
+            "TAVILY_API_KEY",
+            "SERPER_API_KEY",
+            "EXA_API_KEY",
+            "CUSTOM_SERVICE_TOKEN",
+        ] {
+            let mut i = input(BTreeMap::from([(key.into(), "   ".into())]), None);
+            i.global_env = FileInput::Read {
+                path: "/home/.env".into(),
+                text: format!("{key}=home-secret"),
+            };
+            i.project_env = FileInput::Read {
+                path: "/workspace/.octocode/.env".into(),
+                text: format!("{key}=   "),
+            };
+            let out = resolve_config(&i);
+            assert_eq!(out.env_value(key), Some("home-secret"));
+            assert!(!format!("{out:?}").contains("home-secret"));
+        }
+    }
+
+    #[test]
+    fn trusted_dotenv_preserves_classification_opt_out() {
+        let mut i = input(
+            BTreeMap::from([("OCTOCODE_CLASSIFICATION_API".into(), String::new())]),
+            Some(r#"{"classification":{"api":"file-secret"}}"#),
+        );
+        i.trusted_project = true;
+        i.global_env = FileInput::Read {
+            path: "/synthetic/home/.env".into(),
+            text: "OCTOCODE_CLASSIFICATION_API=home-secret".into(),
         };
-        p.trusted_project = true;
+        i.project_env = FileInput::Read {
+            path: "/synthetic/cwd/.octocode/.env".into(),
+            text: "OCTOCODE_CLASSIFICATION_API=project-secret".into(),
+        };
         assert_eq!(
-            resolve_config(&p).env_value("OCTOCODE_CLASSIFICATION_API"),
-            None
+            resolve_config(&i).env_value("OCTOCODE_CLASSIFICATION_API"),
+            Some("")
         );
     }
+
     #[test]
     fn unreadable_config_is_invalid_with_a_stable_diagnostic() {
         let mut i = input(BTreeMap::new(), None);

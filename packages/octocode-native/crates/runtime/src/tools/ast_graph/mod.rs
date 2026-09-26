@@ -7,7 +7,7 @@ use crate::{
     policy::path::PathPolicy, security::ContentSecurity, tools::local_fetch::CancellationCheck,
 };
 
-pub use types::{AstGraphError, AstTopologyQuery, AstGraphResult, GraphAnalysis};
+pub use types::{AstGraphError, AstGraphResult, AstTopologyQuery, GraphAnalysis};
 
 /// Execute public `astTopology` through the portable native
 /// fact scanner and Rust-owned graph algorithms.

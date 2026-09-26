@@ -16,7 +16,7 @@ Clasify is the only semantic tool. Jev is its provider, not another tool. The tw
 
 ## Admission
 
-Use Clasify for an explicit classification request or for `questionType:"locate"` over unread known files when the target is semantic rather than a useful literal. Locate is the only research flow currently shown to reduce the complete host-visible result: in the held-out external-doc run it returned verification windows with 20.4% fewer response bytes than search-first. This is a wire-byte result, not measured host-token proof. Direct search remains the default for literals and already-known anchors.
+Use Clasify for an explicit classification request, or before reading a large known file when a semantic target cannot be expressed as a useful literal and locating it can avoid broad host reads. Pass the unread read request, not a body the host has already fetched. Local code, docs, logs, saved scrape text and Chrome captures use the same `localFetch` route. Unread GitHub files use `ghGetFileContent` with owner/repo/path and a known ref; no clone or host body read is needed. Direct search remains the default for literals and known anchors. Smaller responses are an intermediate result, not proof of complete-task token savings.
 
 The optimization target is host-model context at acceptable quality. Jev/provider tokens are a separate, cheaper budget: spending more of them is useful when it prevents larger host-visible body reads. Record provider usage and latency, but do not reject a flow merely because provider tokens rise.
 
@@ -26,10 +26,10 @@ Skip it when an exact check, current evidence, direct reasoning, or a cheap boun
 
 1. State the unresolved decision and what each outcome changes.
 2. Repair scope, spelling, filters, and synonyms before classifying search results. On large repositories, narrow the local root/include/exclude filters or GitHub owner/repo/filename/language first. A miss does not prove absence.
-3. For unread `localSearch` or GitHub code-search results, send the search request as one resource. Omit `candidateEvidence` (or set `"search"`) to judge only returned paths, snippets, and metadata. Set `candidateEvidence:"fileChunks"` only for an explicit experiment when snippets cannot route the next read; the five-bug agent A/B did not save host tokens. For known `localFetch` or `ghGetFileContent` files, including retained scrape text and Chrome snapshots, use one resource per file and `questionType:"locate"`: the runtime tags source passages, asks one Choice plus one Noul per target, and returns the strongest bounded verification window plus `exists`. Ask one atomic target per question. Put all independent targets that use the same files in this matrix so each body is captured once. Expanded pages count toward the 25-cell limit.
+3. For unread `localSearch` or GitHub code-search results, send the search request as one resource. Omit `candidateEvidence` (or set `"search"`) to judge only returned paths, snippets, and metadata. Set `candidateEvidence:"fileChunks"` only when snippets cannot route the next read and screening can avoid larger body reads; tiny-file hydration can cost more than direct search. For unread known `localFetch` or `ghGetFileContent` files, including retained scrape text and Chrome snapshots, use one resource per file and `questionType:"locate"`: the runtime tags source passages, asks one Choice plus one Noul per target, and returns the strongest bounded verification window plus `exists`. Ask one atomic target per question. Put all independent targets that use the same files in this matrix so each body is captured once. Expanded pages count toward the 25-cell limit.
 4. Use Scout only when the visible paths, metadata, snippets, and direct reasoning cannot choose the next read. Use complete, bounded sections; do not submit arbitrary prefixes or huge files.
 5. Use Judge when held evidence remains ambiguous and its disposition changes the next read, test, or edit. Include only the smallest sufficient observations, constraints, counterevidence, and uncertainty.
-6. Read the deciding source after a routing judgment. For locate, use `source.path` with `matches[0].startLine/endLine`; widen the verification read slightly if a record or sentence crosses that window. Treat a high-ranked window with low `exists` as “closest passage,” not an answer. Reuse a judgment only for the same question, evidence, and model identity. Do not automatically chain Scout → Judge.
+6. Read the deciding source after a routing judgment. For local locate, use `source.path` with `matches[0].startLine/endLine` in `localFetch`. For GitHub, retain the resource query’s owner/repo/repository-relative path and use `ghGetFileContent` at those lines, pinning `branch` to returned `source.ref` when available. The remote `source.path` includes owner/repo; do not pass that combined string as the repository-relative path. Widen only to complete a deciding record or branch. Treat a high-ranked window with low `exists` as “closest passage,” not an answer. Batch nearby windows into at most five read ranges per call; reuse verified spans across questions. Reuse a judgment only for unchanged evidence and questions. Do not automatically chain Scout → Judge.
 
 Use one matrix for the cross-product only when every question applies to every resource. Use root `queries[]` for independent matrices with different evidence sets. Dependent questions belong in a later call after the first answer changes the evidence or available options.
 
@@ -48,16 +48,28 @@ Measure leverage as final quality plus actual host tokens. A useful intermediate
 
 For unread evidence, use `context.tool` beside one direct `context.query`; do not copy the body into `context.value` and do not nest `queries[]`. Use an absolute local path or GitHub `owner`, `repo`, `path`, and optional `branch`. For held evidence, use `context.value`. This executable form was verified against retained scrape text; replace `ARTIFACT` with your file:
 
-```bash
-ARTIFACT="$PWD/.octocode/tmp/scrape/<session>/text/page-001.clean.part-001.md"
-octocode clasify "{\"id\":\"artifact-locate\",\"reasoning\":\"Locate two answers before reading the retained artifact.\",\"resources\":[{\"id\":\"saved-page\",\"context\":{\"tool\":\"localFetch\",\"query\":{\"reasoning\":\"Assess the retained artifact without returning its body.\",\"path\":\"$ARTIFACT\",\"fullContent\":true}}}],\"questions\":[{\"id\":\"choice-output\",\"question\":{\"questionType\":\"locate\",\"target\":\"What does the Choice primitive return?\"}},{\"id\":\"score-output\",\"question\":{\"questionType\":\"locate\",\"target\":\"What does the Score primitive return?\"}}]}"
+```json
+{
+  "reasoning": "Locate independent facts before reading the file.",
+  "resources": [{"context": {"tool": "localFetch", "query": {
+    "reasoning": "Assess unread source privately.",
+    "path": "/absolute/path/to/source-or-saved-artifact",
+    "fullContent": true
+  }}}],
+  "questions": [
+    {"id": "retry", "questionType": "locate", "target": "The condition that permits retrying a failed request."},
+    {"id": "limit", "questionType": "locate", "target": "The maximum permitted retry count."}
+  ]
+}
 ```
+
+Save the request under `.octocode/`, then run `octocode clasify --input .octocode/clasify-request.json`, or send the same JSON to MCP `clasify`. Replace the path and targets with the actual task. Questions are flat; there is no nested `question` field.
 
 Use `scheme clasify --view query --compact` for the live schema and executable form. The current CLI is `octocode clasify '<json>'`; in this repository use `node packages/octocode/out/octocode.js clasify '<json>'`.
 
 ## Results and verification
 
-Pages carry answers keyed by question ID plus coverage and source/scope/view receipts. Preserve resource IDs and disjoint source ranges. A transformed view is not a source line range; verify citations against the original source. `source.evidenceHash` identifies the assessed capture, not immutable file bytes.
+Pages carry answers keyed by question ID plus coverage and source/scope/view receipts. Preserve resource IDs and disjoint source ranges. A transformed view is not a source line range; verify citations against the original source. Verify mutable sources before asserting.
 
 A locate answer is `{exists,matches:[{startLine,endLine,probability}]}`. The Choice probability ranks the generated passage within that page; `exists` independently estimates whether the page answers the target. The match is a small verification window around the ranked passage, not a parsed syntax boundary. Compare `exists` and match probability across candidate resources, then read the deciding windows. Partial page coverage cannot prove file-wide absence.
 

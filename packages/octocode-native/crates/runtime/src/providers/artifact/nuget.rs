@@ -92,7 +92,10 @@ async fn exact(
         base.as_str().trim_end_matches('/'),
         super::util::encode_component(&package_name.to_ascii_lowercase())
     ))?;
-    let Some(response) = client.json(ArtifactSearchQueryType::Nuget, url, true, None).await? else {
+    let Some(response) = client
+        .json(ArtifactSearchQueryType::Nuget, url, true, None)
+        .await?
+    else {
         return Ok(ArtifactProviderPage::empty(Some(0)));
     };
     let pages = rows(

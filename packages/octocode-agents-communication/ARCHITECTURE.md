@@ -5,6 +5,11 @@ owns coordination decisions; the runtime owns validation, state transitions and
 delivery. Shell/PowerShell launchers select a bundled executable without downloads
 or compilation. Node and Cargo are maintainer dependencies, not raw CLI requirements.
 
+The minimum path is skill → CLI/tools → SQLite → one recipient adapter. Optional
+topics, notes, guards and managed workers do not add another routing authority.
+Keep command rules in the catalog and state transitions in the Store; adapters
+only deliver. Add a layer only for a measured requirement these boundaries cannot meet.
+
 ## Boundaries and ownership
 
 | Boundary | Owner | Contract |
@@ -95,6 +100,9 @@ second native delivery owner. See the [internal protocol](docs/SERVICE_PROTOCOL.
 - Automatic delivery stages a unique attempt token before I/O. The transaction
   rechecks eligibility; competing consumers cannot offer the same eligible delivery.
   Empty polling avoids a writer transaction.
+- The receipt catalog owns the delivery row limit. Native staging derives it from
+  `confirm_delivery`; Pi discovers it once and chunks accumulated durable receipts.
+  A ledger flush spanning multiple batches cannot stall on a stale adapter cap.
 - A transport receipt records submission, not handling. The recipient persists any
   required reply before `ack`, or uses explicit `ackReply:true` to commit a final
   direct reply and ACK together. Uncertain attempts require inspection; explicit retry
@@ -108,6 +116,9 @@ second native delivery owner. See the [internal protocol](docs/SERVICE_PROTOCOL.
   absolute socket I/O deadlines, including fragmented frames.
 - Heartbeats renew presence, not leases. Multi-path reservations are atomic. Expired
   owners must stop writing; reservations do not prevent uncooperative OS writes.
+- Document publication requires bounded intent in the shared command/Store contract.
+  Existing `document.created` audit metadata owns it; retries preserve it alongside
+  content and scope. No second document log or per-read audit stream is created.
 - Peer messages, documents and hook output are data, not user/developer authority.
   Host permissions remain in force. Prompt instructions are not a capability firewall.
 
@@ -145,6 +156,12 @@ instructions do not promise cache hits. Usage audits preserve available request,
 turn or cumulative scopes; unknown counters are not zero and overlapping reports
 cannot be added. Vendor discovery controls reduce incidental context but do not
 isolate arbitrary administrator policy or installed plugins.
+
+Optional document `context` metadata records a short summary, canonical path,
+file/tree scope, exact branch and expiry in the existing publication audit record.
+The read-only `context` command scans bounded audit windows and returns matching
+summaries with explicit continuation and incremental cursors. It reads no bodies,
+injects no context and owns no delivery state. See [scoped context](docs/CONTEXT_DISCOVERY.md).
 
 ## Validation and distribution
 

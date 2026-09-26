@@ -14,7 +14,7 @@ Start with a Surface Plan: local, GitHub, packages, PR/history, web, and reasons
 
 ## Classification capability
 
-`octocode-clasify` owns the decision gate and question design. Ordinary Map/Validate/Investigate/Plan work searches and reads directly. Use classification examples only for a request or experiment admitted by that skill; ambiguity alone does not authorize a call.
+Use `clasify` when a semantic target inside an unread known file would otherwise require broad host reads. Pass the read-tool request directly; batch independent same-evidence questions, then verify the returned windows. This includes local code, docs, logs and saved scrape/Chrome artifacts. Search literals and read small known ranges directly. For uncertain search candidates, screen snippets first; hydrate only when avoided reads can cover the extra work. See `workflow-local.md` for the sequence and `octocode-clasify` for question design.
 
 For package comparisons, gather decision-relevant version, maintenance, license, and integration evidence when available. Popularity and activity alone do not establish suitability. Apply the authorization rule in `SKILL.md`.
 

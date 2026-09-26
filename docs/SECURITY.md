@@ -83,16 +83,16 @@ Language-server provisioning accepts only pinned assets from allowed HTTPS hosts
 
 ## GitHub credentials
 
-Resolution order is:
+Credentials first choose the highest-priority source: process environment → workspace `.octocode/.env` → global Octocode `.env`. Within that source, alias order is:
 
 1. `OCTOCODE_TOKEN`
 2. `GH_TOKEN`
 3. `GITHUB_TOKEN`
 4. `GITHUB_PERSONAL_ACCESS_TOKEN`
-5. the operating-system credential store
-6. `gh auth token`
 
-Protected token keys are read only from the process environment, never from repository `.env` or `.octocoderc` files. Native login stores OAuth credentials in the operating-system credential store. The removed JavaScript encrypted-file format is not read.
+If no environment credential is available, resolution continues through encrypted credentials in `OCTOCODE_HOME`, the operating-system credential store (existing native logins), then host-scoped `gh auth token`.
+
+CLI and MCP load both `.env` files. A workspace alias overrides a global canonical key; `.octocoderc` does not supply GitHub tokens. Missing or blank file values allow fallback. Bootstrap variables such as `PATH`, `HOME`, and `NODE_OPTIONS` remain blocked in both files; product settings such as `GITHUB_API_URL` follow the shared precedence. See [configuration rules](CONFIGURATION.md#env--environment-fallback). Native login stores OAuth credentials in `<OCTOCODE_HOME>/credentials.json` using main’s AES-256-GCM format (16-byte IV, authentication tag, ciphertext), with the key in `.key`. The files use mode `0600` on Unix; newly created home directories use `0700`. Writes are locked and atomically replaced; corrupt or unauthenticated files are rejected without overwriting them. Symlink credential files and Unix hard links are rejected. The adjacent key means this does not protect against someone who can read both files. Existing OS-store credentials remain readable. Logout deletes the selected host from both Octocode stores; it does not change environment variables or GitHub CLI login.
 
 GitHub endpoint, credential, session, and cache identities are partitioned. Pagination redirects must remain same-origin. Retries and rate-limit delays are bounded, response bodies are capped, and GraphQL partial failures remain explicit.
 

@@ -71,11 +71,11 @@ Delegated reads share a limit of four concurrent reads per call and sixteen per 
 
 - Credential: `OCTOCODE_CLASSIFICATION_API`
 - Optional HTTPS host override: `OCTOCODE_CLASSIFICATION_API_HOST`
-- Provider/model family: Jev; results report the resolved model, such as `jev-1.13.0`
+- Provider/model family: Jev; resolved model and usage remain internal telemetry
 - MCP registers `clasify` only when the credential is nonblank at process start.
 - CLI remains callable without a credential and returns an actionable configuration error.
 
-Store credentials in an Octocode `.env` file or the process environment. Never put them in requests, logs, benchmark artifacts, or committed configuration.
+Credential resolution is process environment → workspace `.octocode/.env` → global Octocode `.env` (`~/.octocode/.env`, or `$OCTOCODE_HOME/.env`) → private `.octocoderc` `classification.api`. CLI and MCP load both files; no project-trust flag is needed for dotenv. Missing or blank file values fall back to the next source. An explicitly empty or whitespace process `OCTOCODE_CLASSIFICATION_API` disables Clasify even when file/vendor-key fallbacks exist. Restart MCP after changing configuration so clients refresh their catalog. Never put credentials in requests, logs, benchmark artifacts, or committed configuration.
 
 ```bash
 npx octocode config --json
@@ -133,7 +133,7 @@ Research presets are `locate`, `contribution`, `addsEvidence`, and `supportsClai
 
 `locate` accepts only `target` and applies to a contiguous original-source `localFetch` or `ghGetFileContent` page. The runtime tags small source passages, asks Jev a Choice question to rank them and a Noul question to estimate whether an answer exists, then projects the best passage back to original line numbers. The answer is `{exists,matches:[{startLine,endLine,probability}]}` with one match. A ranking always has a winner; low `exists` means the returned range is merely the closest passage.
 
-The page also returns `verificationRanges`, a merged read plan across all locate answers. Read those original-source ranges once, with at most five ranges per read call. `answers.matches` retains the per-question citation coordinates; question IDs are not repeated in the plan. A second read to pin line numbers is redundant.
+`answers.matches` provides each question’s source coordinates once. Batch nearby windows into at most five ranges per read call and verify the source before asserting. Results contain hints, never captured bodies. MCP returns a single structured payload with empty text content.
 
 Each question must describe one source-local fact. Split lists, conjunctions, and
 facts expected in distant sections into separate questions over the same capture.
@@ -288,9 +288,9 @@ Search fan-out is included in the 25-cell limit. Calls that exceed the dynamic e
 
 ## Output and verification
 
-Results are ordered as `queries[] → resources[] → pages[] → answers[questionId]`. Each query reports the resolved model and summed provider usage. Each page carries:
+Results are ordered as `queries[] → resources[] → pages[] → answers[questionId]`. Provider telemetry stays outside the agent response. Each page carries:
 
-- source identity and `evidenceHash`
+- source location and observed version when available
 - assessed source scope or transformed view
 - typed answers or a typed error
 - limitations
@@ -304,7 +304,7 @@ Rules:
 - Execute a deciding `next.read` unchanged and cite the original source, not the score.
 - Treat `partial`, `error`, `insufficient`, content-firewall rejection, and mid-band scores as unresolved.
 - Preserve disjoint ranges; transformed-view positions are not source coordinates.
-- `evidenceHash` identifies the sanitized assessed capture, not immutable current file bytes.
+- Source versions are observations; verify mutable source before asserting.
 - Do not average page scores or synthesize a global verdict unless the caller explicitly owns that policy.
 
 ## CLI

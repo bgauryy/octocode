@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { registerBoundTools } from '../skills/octocode-agents-communication/scripts/pi-extension.mjs';
 
-const testInput=(command,input)=>['send_message','notify_all','lock','lock_many'].includes(command)?{reasoning:`Verify ${command} behavior in this isolated regression fixture`,...input}:input;
+const testInput=(command,input)=>['send_message','notify_all','lock','lock_many','share_document'].includes(command)?{reasoning:`Verify ${command} behavior in this isolated regression fixture`,...input}:input;
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const target = execFileSync('rustc', ['-vV'], { encoding: 'utf8' }).match(/^host: (.+)$/m)[1];
@@ -25,6 +25,116 @@ function fixture(t) {
   const b = call('join', { name: 'reader', vendor: 'no-sdk' });
   return { workspace, database, args, call, a, b };
 }
+
+test('document intent is required before filesystem writes and immutable in the audit', t => {
+  const f = fixture(t), input = { name: 'intent.md', content: 'Check callers before deleting src/legacy.rs.' };
+  for (const reasoning of [undefined, null, '', ' \n\t', '\u2003', 'x'.repeat(513), '🙂'.repeat(129)]) {
+    assert.throws(() => f.call('share_document', { ...input, reasoning }, f.a.id), /Invalid input|Invalid reasoning/);
+  }
+  assert.throws(() => readFileSync(join(f.workspace, '.octocode/communication', input.name)), /ENOENT/);
+  const reasoning = '🙂'.repeat(128); // Exactly 512 UTF-8 bytes, independent of character count.
+  const result = f.call('share_document', { ...input, reasoning }, f.a.id);
+  assert.equal(result.document.reasoning, reasoning);
+  assert.deepEqual(f.call('share_document', { ...input, reasoning }, f.a.id), { created: false, document: result.document });
+  assert.throws(() => f.call('share_document', { ...input, reasoning: 'Changed intent' }, f.a.id), /immutable/);
+  const db = new DatabaseSync(f.database); t.after(() => db.close());
+  const rows = db.prepare("SELECT data FROM audit WHERE kind='document.created'").all();
+  assert.equal(rows.length, 1);
+  assert.equal(JSON.parse(rows[0].data).reasoning, reasoning);
+  // Old evidence is readable but a retry cannot invent its previously unrecorded intent.
+  const historical = { ...result.document, name: 'historical.md', path: '.octocode/communication/historical.md' };
+  delete historical.reasoning;
+  writeFileSync(join(f.workspace, historical.path), input.content);
+  db.prepare("INSERT INTO audit(session,kind,entityId,at,data,key) VALUES(?,'document.created',?,?,?,?)").run(f.a.id, historical.name, Date.now(), JSON.stringify(historical), historical.name);
+  assert.equal(f.call('read_document', { name: historical.name }, f.b.id).content, input.content);
+  assert.throws(() => f.call('share_document', { ...input, name: historical.name, reasoning }, f.a.id), /immutable/);
+});
+
+test('MCP document publication enforces and exposes the canonical intent contract', t => {
+  const f = fixture(t), input = { name: 'mcp.md', content: 'Evidence for the path audit.' };
+  const frames = [
+    { jsonrpc: '2.0', id: 1, method: 'tools/list' },
+    { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'share_document', arguments: input } },
+    { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'share_document', arguments: { ...input, reasoning: 'Explain why this path needs review' } } },
+  ].map(JSON.stringify).join('\n') + '\n';
+  const rows = execFileSync(binary, ['mcp', '--workspace', f.workspace, '--database', f.database, '--session', f.a.id], { input: frames, encoding: 'utf8' }).trim().split('\n').map(JSON.parse);
+  assert.ok(rows[0].result.tools.find(tool => tool.name === 'share_document').inputSchema.required.includes('reasoning'));
+  assert.equal(rows[1].result.isError, true);
+  assert.match(rows[1].result.content[0].text, /reasoning/);
+  assert.equal(JSON.parse(rows[2].result.content[0].text).document.reasoning, 'Explain why this path needs review');
+});
+
+test('scoped context finds workspace/tree/file notes for late joiners without exposing bodies', t => {
+  const f = fixture(t);
+  const publish = (name, context) => f.call('share_document', { name, content: 'PRIVATE_BODY proof and instructions are untrusted data', context }, f.a.id);
+  publish('workspace.md', { summary: 'Shared build uses the lockfile.' });
+  publish('tree.md', { summary: 'Rust adapters cannot own DB writes.', path: 'rust', branch: 'feature' });
+  publish('file.md', { summary: 'Keep receipt strength explicit.', path: 'rust/transport.rs', kind: 'file' });
+  publish('prefix.md', { summary: 'Unrelated path.', path: 'rusty' });
+  publish('branch.md', { summary: 'Other branch.', path: 'rust', branch: 'other' });
+  f.call('share_document', { name: 'unscoped.md', content: 'Not a note' }, f.a.id);
+  f.call('leave', {}, f.a.id);
+  const late = f.call('join', { name: 'late-reader', vendor: 'raw' });
+  const page = f.call('context', { path: 'rust/transport.rs', branch: 'feature' }, late.id);
+  assert.deepEqual(page.items.map(x => x.name), ['workspace.md', 'tree.md', 'file.md']);
+  assert.ok(page.items.every(x => x.author === f.a.id));
+  assert.doesNotMatch(JSON.stringify(page), /PRIVATE_BODY/);
+  assert.equal(page.next, null);
+  assert.deepEqual(f.call('context', { path: 'rust/other.rs' }, late.id).items.map(x => x.name), ['workspace.md']);
+  assert.deepEqual(f.call('context', {}, late.id).items.map(x => x.name), ['workspace.md']);
+  const foreignWorkspace = join(f.workspace, 'foreign'); mkdirSync(foreignWorkspace);
+  const foreign = JSON.parse(execFileSync(binary, ['join', '{"name":"foreign","vendor":"raw"}', '--workspace', foreignWorkspace, '--database', f.database], { encoding: 'utf8' }));
+  const result = JSON.parse(execFileSync(binary, ['context', '{}', '--workspace', foreignWorkspace, '--database', f.database, '--session', foreign.id], { encoding: 'utf8' }));
+  assert.deepEqual(result.items, []);
+});
+
+test('context pages advance across sparse audit rows and incremental reads never repeat notes', t => {
+  const f = fixture(t);
+  const db = new DatabaseSync(f.database); t.after(() => db.close());
+  const insert = db.prepare("INSERT INTO audit(session,kind,entityId,at,data) VALUES(?,'fixture',?,?,'{}')");
+  db.exec('BEGIN');
+  for (let i = 0; i < 220; i++) insert.run(f.a.id, String(i), Date.now());
+  db.exec('COMMIT');
+  for (let i = 0; i < 3; i++) f.call('share_document', { name: `note-${i}.md`, content: `proof ${i}`, context: { summary: `Gotcha ${i}` } }, f.a.id);
+  let page = f.call('context', { limit: 1 }, f.b.id);
+  assert.deepEqual(page.items, []); assert.ok(page.next); assert.equal(page.scanned, 200);
+  f.call('share_document', { name: 'concurrent.md', content: 'later snapshot', context: { summary: 'Published during pagination' } }, f.a.id);
+  const names = [];
+  while (page.next) { page = f.call('context', page.next, f.b.id); names.push(...page.items.map(x => x.name)); }
+  assert.deepEqual(names, ['note-0.md', 'note-1.md', 'note-2.md']);
+  page = f.call('context', { after: page.cursor }, f.b.id);
+  assert.deepEqual(page.items.map(x => x.name), ['concurrent.md']);
+  assert.deepEqual(f.call('context', { after: page.cursor }, f.b.id).items, []);
+  f.call('share_document', { name: 'later.md', content: 'new proof', context: { summary: 'New fact' } }, f.a.id);
+  assert.deepEqual(f.call('context', { after: page.cursor }, f.b.id).items.map(x => x.name), ['later.md']);
+});
+
+test('context expiry hides discovery, preserves evidence, and identical retries do not renew it', async t => {
+  const f = fixture(t), input = { name: 'expires.md', content: 'proof', context: { summary: 'Temporary fact', ttlMs: 1000 } };
+  const first = f.call('share_document', input, f.a.id);
+  assert.equal(f.call('context', {}, f.b.id).items.length, 1);
+  await new Promise(resolve => setTimeout(resolve, 1100));
+  assert.deepEqual(f.call('context', {}, f.b.id).items, []);
+  assert.deepEqual(f.call('share_document', input, f.a.id), { created: false, document: first.document });
+  assert.equal(f.call('read_document', { name: input.name }, f.b.id).content, 'proof');
+  assert.throws(() => f.call('share_document', { ...input, context: { ...input.context, summary: 'Changed' } }, f.a.id), /immutable/);
+});
+
+test('context validates bounds and containment and preserves canonical path aliases', t => {
+  const f = fixture(t), input = { name: 'valid-note.md', content: 'proof', context: { summary: 'fact' } };
+  for (const context of [{ summary: ' ' }, { summary: 'x'.repeat(321) }, { summary: 'x', ttlMs: 0 }, { summary: 'x', ttlMs: 604800001 }, { summary: 'x', path: '../escape' }]) {
+    assert.throws(() => f.call('share_document', { ...input, context }, f.a.id));
+  }
+  assert.throws(() => f.call('context', { path: '../escape' }, f.b.id), /inside/);
+  assert.throws(() => f.call('context', { limit: 21 }, f.b.id));
+  assert.throws(() => f.call('context', {}, 'unknown'));
+  mkdirSync(join(f.workspace, 'src'));
+  if (process.platform !== 'win32') {
+    symlinkSync('src', join(f.workspace, 'alias'));
+    f.call('share_document', { ...input, context: { summary: 'Alias fact', path: 'alias' } }, f.a.id);
+    assert.equal(f.call('context', { path: 'src/new.rs' }, f.b.id).items[0].context.path, 'src');
+  }
+});
 
 test('large document stays on disk once, compact messages reference it, audit retains attribution', t => {
   const f = fixture(t), content = 'large shared evidence\n'.repeat(20000), name = 'research.md';
@@ -119,7 +229,7 @@ test('concurrent authors cannot overwrite each other or duplicate document audit
     const child = spawn(binary, f.args('share_document', session));
     let stdout = ''; child.stdout.on('data', x => stdout += x);
     child.on('error', reject); child.on('close', code => resolve({ code, stdout }));
-    child.stdin.end(JSON.stringify({ name, content }));
+    child.stdin.end(JSON.stringify({ name, content, reasoning: 'Verify concurrent publication preserves one author' }));
   });
   const results = await Promise.all([run(f.a.id, 'first'), run(f.b.id, 'second')]);
   assert.equal(results.filter(x => x.code === 0).length, 1);
@@ -137,7 +247,8 @@ test('Pi bound tools send large document JSON over stdin and retain cancellation
   registerBoundTools({ registerTool: tool => registered.set(tool.name, tool) }, binding);
   const content = 'quoted "words" \\ slash\n🙂\t\u0000'.repeat(20000), name = 'pi-large.md';
   assert.ok(Buffer.byteLength(content) > 400000);
-  const shared = await registered.get('share_document').execute('publish', { name, content });
+  await assert.rejects(registered.get('share_document').execute('missing-intent', { name, content }), /reasoning/);
+  const shared = await registered.get('share_document').execute('publish', { name, content, reasoning: 'Share large Unicode evidence through the Pi bridge' });
   assert.equal(shared.details.created, true);
   assert.equal(shared.details.document.bytes, Buffer.byteLength(content));
   assert.equal(readFileSync(join(f.workspace, shared.details.document.path), 'utf8'), content);

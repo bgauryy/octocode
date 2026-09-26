@@ -11,10 +11,6 @@ fn templates() -> Result<&'static Value, ClassificationError> {
         .ok_or_else(|| request_error("The embedded research question templates are unavailable."))
 }
 
-pub(crate) fn version() -> Result<Value, ClassificationError> {
-    Ok(templates()?["version"].clone())
-}
-
 pub(crate) fn expand(question: &Value) -> Result<Value, ClassificationError> {
     let Some(kind) = question.get("questionType") else {
         return Ok(question.clone());
@@ -116,7 +112,7 @@ mod tests {
         let locate = json!({"questionType":"locate","target":"shutdown ordering"});
         assert_eq!(expand(&locate).unwrap(), locate);
         assert!(is_locate(&locate));
-        assert_eq!(version().unwrap(), 1);
+        assert_eq!(templates().unwrap()["version"], 1);
     }
 
     #[test]

@@ -2,7 +2,7 @@
 
 Give agents from different vendors a shared way to discover teammates, coordinate edits, and hand off work.
 
-`@octocodeai/octocode-agents-communication` combines a [38-line skill](skills/octocode-agents-communication/SKILL.md) with a bundled Rust CLI and a local SQLite database. The skill teaches agents **when and why to coordinate**. The CLI handles identities, messages, path reservations, delivery, and audit history.
+`@octocodeai/octocode-agents-communication` combines a [single-file skill](skills/octocode-agents-communication/SKILL.md) with a bundled Rust CLI and a local SQLite database. The skill teaches agents **when and why to coordinate**. The CLI handles identities, messages, path reservations, delivery, and audit history.
 
 Use Claude Code, Codex, Grok Build, Pi, OpenCode, Cursor, or another agent in the same workspace. Message routing requires **no proxy agent or extra model call**. Recipient work still uses its own model and context.
 
@@ -10,11 +10,7 @@ Use Claude Code, Codex, Grok Build, Pi, OpenCode, Cursor, or another agent in th
 
 ## Why use the skill?
 
-Use this skill when several agents work in the same repository and need to coordinate, even when they come from different vendors. It gives them shared identities, messages, file reservations, and a record of what happened.
-
-The CLI supplies the capabilities. **The skill teaches agents when to use them:** discover peers before planning, explain intent, reserve paths before editing, avoid reply loops, acknowledge completed work, and share documents instead of repeating history.
-
-Routing, storage, broadcasts, and locks require no extra model calls. Recipient work still uses its own model. The skill helps cooperating agents share a workspace; a single isolated agent gains less. It guides coordination without automatically assigning the team's tasks.
+Agents need a shared working routine as well as a mailbox: discover peers before planning, explain intent, reserve paths before edits, and acknowledge completed work. The skill supplies that routine across vendors. You assign jobs and permissions; the service records and delivers their coordination.
 
 ## Features
 
@@ -33,10 +29,11 @@ Routing, storage, broadcasts, and locks require no extra model calls. Recipient 
 | Expiry and recovery | Renew leases; let abandoned reservations expire | Recover when an agent crashes or closes |
 | Optional edit guards | Check ownership before supported Claude, Pi, and OpenCode edits | Block some accidental unreserved writes |
 | Shared documents | Publish immutable documents and read selected portions | Share large context without repeatedly pasting it |
+| Scoped gotchas | Publish short document summaries; discover by workspace/path/branch with expiry and incremental cursors | Help later collaborators find relevant facts without replaying messages; [workflow and measured limits](docs/CONTEXT_DISCOVERY.md) |
 | Recent activity | Inspect bounded file/Git activity with time and path filters | Understand recent repository changes; this is not a shell-command log |
 | Native delivery | Deliver into existing supported vendor sessions | Avoid creating a proxy agent for routing |
 | No-API operation | Communicate through context hooks, manual CLI reads, or compatible SQLite clients | Include agents without messaging SDKs |
-| Context control | Load `skill --vendor <host>` once, expose needed tools, and batch ready messages | Derived instructions are 15–21% smaller in bytes; receiver history still consumes context |
+| Context control | Load `skill --vendor <host>` once, expose needed tools, and batch ready messages | Hide unrelated setup; receiver history still consumes context |
 | Bounded completion recovery | Optionally check Claude's submitted pending IDs at Stop; retrieve only missing bodies | Recover overlooked work without replaying the inbox or creating a second delivery owner |
 | Audit and usage | Inspect messages, delivery attempts, acknowledgements, and reported usage | Diagnose problems and inspect available usage; missing counters remain unknown |
 | Health and storage | Inspect stalled deliveries, export snapshots, migrate storage, and compact the DB | Operate and recover the service |
@@ -44,7 +41,7 @@ Routing, storage, broadcasts, and locks require no extra model calls. Recipient 
 
 Message and broadcast recipients are snapshots: late joiners do not receive earlier fanout automatically. Delivery receipts and acknowledgements have different meanings, and ambiguous external delivery does not promise exactly-once effects. See the [service protocol](docs/SERVICE_PROTOCOL.md) for those boundaries.
 
-The [six-agent recovery test](docs/CONTEXT_PROFILES.md) passed all 30 questions, 30 replies and six broadcast recipients with no pending messages. It follows two preserved failed trials that exposed handling and identity-recovery gaps. CLI replay proves smaller delivery overhead. All eight [matched context trials](docs/CONTEXT_PROFILES.md#result-narrower-context-cost-target-missed) completed, but **the token-reduction and latency targets failed**. Scoped instructions remain an explicit option; managed workers keep the full skill.
+The [six-agent recovery test](docs/CONTEXT_PROFILES.md) passed all 30 questions, 30 replies and six broadcast recipients with no pending messages. It follows two preserved failed trials that exposed handling and identity-recovery gaps. CLI replay proves smaller delivery overhead. All eight [matched context trials](docs/CONTEXT_PROFILES.md#result-narrower-context-cost-target-missed) completed, but **the token-reduction and latency targets failed**. Scoped instructions remain an explicit option; managed workers keep the full skill. The [latest handling repair](docs/PRODUCTION_READINESS.md) passes both review and handoff with six agents and no pending messages; it also corrects a grader that demanded an obsolete document revision. Earlier failed trials remain recorded.
 
 ## What a team can accomplish
 
@@ -92,11 +89,9 @@ flowchart LR
     G --> B
 ```
 
-Every participant shares one database and canonical workspace. Each has its own registered identity and one delivery owner. Vendor names describe agents; an explicit attachment selects their delivery mechanism. Separate Git worktrees have separate workspace identities.
+Start with one shared DB, the skill, and one delivery path per agent. APIs, hooks and manual reads are alternatives; they do not run as competing receivers. Topics, scoped notes, activity and edit guards are optional. Separate Git worktrees use separate workspace identities.
 
-The working routine is **discover → coordinate → reserve → verify → hand off**. Agents send short requests with stable message keys, reply to message IDs, and acknowledge completed handling. A final direct reply can store the reply and acknowledgement together with `ackReply:true`.
-
-Context stays focused: load the skill once, expose only the needed tools, and share large material through immutable documents in `.octocode/communication/`. Passive updates avoid requesting a new turn where the host supports that distinction. Agents do not need to poll in a model loop. An uncertain delivery requires inspection before retry, because blindly resending can repeat context.
+The routine is **discover → coordinate → reserve → verify → hand off**. Every file/path audit states what is checked and why. Messages, leases and document publication require short `reasoning`; document intent is stored once with its path and checksum in the audit. Use documents for large evidence and inspect uncertain deliveries before retrying. The protocol needs no proxy model, background summarizer or second memory store.
 
 ## Get started
 

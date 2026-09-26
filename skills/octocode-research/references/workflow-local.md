@@ -5,7 +5,7 @@ Load when a checkout, local artifact, or resolved dependency is the evidence sou
 ## Choose the missing evidence
 For Markdown headings, code signatures, complete declaration bodies, and full-file requests, use [reading flows](reading-flows.md). Outline first only when orientation is unresolved; a known phrase or range skips that step.
 
-A known file or path can skip discovery and orientation: read the relevant lines directly. Otherwise choose one starting point:
+A known file or path skips discovery. If the relevant lines or a useful literal are known, read/search directly. For a semantic target in a large unread file, use the private-read route below before loading its body. Otherwise choose one starting point:
 | Question | Tool and selection | Evidence |
 |---|---|---|
 | Names, strings, errors, configuration | `localSearch`, `searchText` | lexical candidates |
@@ -20,6 +20,18 @@ Use an absolute `path` for `localSearch`; it has no `operation` field. Text uses
 `localFetch` selects source first, applies the explicit `minify` view and redaction, then paginates. Use `chunkType:"lines"` (default), `offset:0`, and `chunkSize:100` for line chunks; use `chunkType:"bytes"` for UTF-8 byte chunks (default 16384 bytes). A line page also has a 16384-byte budget; oversized lines switch to byte chunks. Copy `next.continue.tool` and its entire `query`, including selectors and units. Do not infer offsets from source lines, string length, or requested limits. Pages stop at the end of the selected range/matched view. `totalLines` and `sourceBytes` describe the original file; `pagination.totalLines/totalBytes` describe the transformed, redacted view. `returnedBytes` is the actual chunk size. These view offsets are never LSP positions.
 
 `matchString` uses source text; byte-context matching follows full-source redaction. Context defaults to five lines for line chunks or 256 UTF-8 bytes for byte chunks. Explicit `contextLines` or `contextBytes` overrides the context unit; never combine them. Copy continuations unchanged to preserve the selected context. Matches force `minify:"none"`; `minifyFallback` reports an ignored compact request or unavailable outline. `fullContent:true` requests an unpaged view within resource/security limits and cannot accompany chunk controls. A limit response provides a bounded recovery or an explicit terminal limit.
+
+## Unread local files: locate before broad reads
+
+1. Discover paths with metadata, `astSearch operation:"files"` or narrow `localSearch`; do not fetch whole files to prepare classifier context.
+2. If exact text, a small file, an existing source span, or an AST/LSP answer decides the task, use it directly.
+3. Otherwise send `clasify` a resource `{context:{tool:"localFetch",query:{reasoning:"Locate before reading",path:"/absolute/file",fullContent:true}}}` and flat questions such as `{id:"retry",questionType:"locate",target:"The condition that permits retrying a failed request."}`. Each question is atomic. Batch independent same-file questions in one matrix, within 25 expanded cells.
+4. Read useful returned `source.path` / `answers.*.matches[0]` ranges together with `localFetch`; merge nearby ranges and reuse each verification read across questions. Widen only incomplete sentences or declarations.
+5. Keep uncertain, low-exists, partial and error results unresolved. Follow `next.clasify` unchanged only when more relevant coverage is needed; it preserves question IDs. Scores never prove absence, reachability or safe edits.
+
+Use the same route for retained scrape text, Chrome snapshots, logs and generated reports. Preserve original URL/capture metadata and distinguish saved-file coordinates from live page state. A pretty-printed artifact has its own line coordinates. For multiple candidate files, default to snippet screening; use `candidateEvidence:"fileChunks"` only if it can prevent larger body reads. Small-file hydration can cost more than direct search.
+
+Prefer MCP `clasify`; if unavailable use `octocode clasify --input .octocode/clasify-request.json` (in-repo: `node packages/octocode/out/octocode.js`). Pass the unread file path, not its body. Full contracts and examples live in the classification skill and live tool schema.
 
 ## AST and LSP
 - AST: inspect diagnostics before relaxing a zero-match pattern. Incomplete or partial execution cannot prove absence. A `terminalLimit` requires narrowing/simplifying, while a returned continuation can recover a scan or display bound.

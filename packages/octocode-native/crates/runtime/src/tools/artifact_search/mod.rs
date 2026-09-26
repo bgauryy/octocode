@@ -1,7 +1,8 @@
 //! Typed artifact registry discovery and exact metadata lookup.
 use crate::providers::RequestBudget;
 use crate::providers::artifact::{
-    ArtifactError, ArtifactProviderContext, ArtifactSearchQuery, SystemArtifactHttp, execute_artifact,
+    ArtifactError, ArtifactProviderContext, ArtifactSearchQuery, SystemArtifactHttp,
+    execute_artifact,
 };
 use serde_json::{Value, json};
 use std::time::Instant;

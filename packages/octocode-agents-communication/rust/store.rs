@@ -306,6 +306,7 @@ impl Store {
             "send_message" => self.send(session, input, false),
             "share_document" => self.share_document(session, input),
             "read_document" => self.read_document(session, input),
+            "context" => self.context(session, input),
             "notify_all" => self.send(session, input, true),
             "ack" => transaction(&self.db, |db| {
                 self.known(session, true)?;

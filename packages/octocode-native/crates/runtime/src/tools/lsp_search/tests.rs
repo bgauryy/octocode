@@ -638,7 +638,9 @@ fn requery(query: &LspSearchQuery, fields: serde_json::Value) -> LspSearchQuery 
 
 #[test]
 fn diagnostic_reports_are_listed_as_individual_diagnostics() {
-    let q = query(serde_json::json!({"operation": "diagnostic", "reasoning": "test", "uri": "file:///repo/a.ts"}));
+    let q = query(
+        serde_json::json!({"operation": "diagnostic", "reasoning": "test", "uri": "file:///repo/a.ts"}),
+    );
     let report = serde_json::json!({
         "kind": "full",
         "items": [
@@ -1631,7 +1633,9 @@ fn workspace_symbols_are_flat_named_and_one_based() {
 
 #[test]
 fn empty_diagnostics_carry_no_read_recovery_and_symbol_reads_are_matched() {
-    let q = query(serde_json::json!({"operation": "diagnostic", "reasoning": "test", "uri": "/repo/a.ts"}));
+    let q = query(
+        serde_json::json!({"operation": "diagnostic", "reasoning": "test", "uri": "/repo/a.ts"}),
+    );
     let row = with_next(&q, items_payload(&q, "diagnostics", serde_json::json!([])));
     assert_eq!(row["payload"]["category"], "noDiagnostics");
     assert!(row.get("next").is_none(), "{row}");

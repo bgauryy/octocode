@@ -887,7 +887,10 @@ mod tests {
                 None,
             )
         };
-        let body = search_fixture(&[("a.txt", &file)], make(LocalSearchQueryResultView::MatchOnly));
+        let body = search_fixture(
+            &[("a.txt", &file)],
+            make(LocalSearchQueryResultView::MatchOnly),
+        );
         let next = &body["next"]["nextMatchPage"]["query"];
         assert!(next.get("contextLines").is_none(), "{next}");
 

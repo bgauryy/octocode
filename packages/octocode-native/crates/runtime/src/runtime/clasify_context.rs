@@ -494,7 +494,17 @@ fn receipt_with_evaluation(tool: &str, state: &Value, evaluation_completed: bool
     let mut next = Map::new();
     let mut terminal = false;
     let mut partial = response::is_partial(state);
-    inspect(state, tool, &mut next, &mut partial, &mut terminal);
+    let operation = state
+        .pointer("/results/0/data/operation")
+        .and_then(Value::as_str);
+    inspect(
+        state,
+        tool,
+        operation,
+        &mut next,
+        &mut partial,
+        &mut terminal,
+    );
     let evidence_hash = hex::encode(Sha256::digest(state.to_string().as_bytes()));
     let mut receipt = json!({"source":page_source(tool, state, &evidence_hash),"tool":tool,"resultHash":evidence_hash,"coverage":if partial {"partial"}else{"bounded"}});
     if let Some(scope) = page_scope(state) {
@@ -603,6 +613,7 @@ pub(super) fn exact_continuation(receipt: &Value) -> Option<Value> {
 fn inspect(
     value: &Value,
     source_tool: &str,
+    source_operation: Option<&str>,
     next: &mut Map<String, Value>,
     partial: &mut bool,
     terminal: &mut bool,
@@ -631,7 +642,15 @@ fn inspect(
                     let Some(query) = candidate.get("query") else {
                         continue;
                     };
-                    if is_history_expansion(name, tool, query) {
+                    // A discovery handoff (code search → repository tree) is not
+                    // another page of the same evidence.
+                    if source_operation.is_some_and(|operation| {
+                        query
+                            .get("operation")
+                            .and_then(Value::as_str)
+                            .is_some_and(|next| next != operation)
+                    }) || is_history_expansion(name, tool, query)
+                    {
                         continue;
                     }
                     if prepare(tool, query).is_err() {
@@ -656,13 +675,27 @@ fn inspect(
             }
             for (key, value) in object {
                 if key != "next" {
-                    inspect(value, source_tool, next, partial, terminal);
+                    inspect(
+                        value,
+                        source_tool,
+                        source_operation,
+                        next,
+                        partial,
+                        terminal,
+                    );
                 }
             }
         }
         Value::Array(values) => {
             for value in values {
-                inspect(value, source_tool, next, partial, terminal);
+                inspect(
+                    value,
+                    source_tool,
+                    source_operation,
+                    next,
+                    partial,
+                    terminal,
+                );
             }
         }
         _ => {}
@@ -942,6 +975,18 @@ mod tests {
             );
         }
         Value::Object(next)
+    }
+
+    #[test]
+    fn empty_code_search_does_not_replay_tree_discovery_as_a_continuation() {
+        let state = json!({"results":[{"status":"empty","data":{"operation":"code","next":{
+            "viewStructure":{"tool":"ghSearch","confidence":"exact","query":{
+                "reasoning":"Verify the repository scope","operation":"tree","owner":"fastify",
+                "repo":"fastify","path":"","pageSize":30
+            }}
+        }}}]});
+        let receipt = receipt("ghSearch", &state);
+        assert!(continuation(&receipt).is_none(), "{receipt}");
     }
 
     #[test]

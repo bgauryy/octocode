@@ -1,3 +1,4 @@
+pub use crate::contracts::tool_types::{AstSearchQueryMatchPattern, AstSearchQueryMatchRule};
 use crate::{
     policy::path::PathPolicy, security::ContentSecurity, tools::local_fetch::CancellationCheck,
 };
@@ -5,7 +6,6 @@ use octocode_engine::structural::{
     StructuralDetailedMatch, StructuralDiagnostic, StructuralSearchFilesOptions,
 };
 use serde_json::{Value, json};
-pub use crate::contracts::tool_types::{AstSearchQueryMatchPattern, AstSearchQueryMatchRule};
 
 /// A `match` query in either of its generated forms (pattern or rule).
 #[derive(Clone, Copy, Debug)]

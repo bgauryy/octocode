@@ -1,10 +1,10 @@
+pub use crate::contracts::tool_types::AstSearchQuerySymbols;
 use crate::{
     policy::path::PathPolicy, security::ContentSecurity, tools::local_fetch::CancellationCheck,
 };
 use octocode_engine::types::{GraphFactsScanOptions, GraphLanguageGlob};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
-pub use crate::contracts::tool_types::AstSearchQuerySymbols;
 
 fn u32_of(value: std::num::NonZeroU64) -> u32 {
     u32::try_from(value.get()).unwrap_or(u32::MAX)
@@ -82,7 +82,9 @@ pub fn execute_symbols(
             ),
         ));
     }
-    let p = paths.validate(q.path.as_str()).map_err(super::AstError::from)?;
+    let p = paths
+        .validate(q.path.as_str())
+        .map_err(super::AstError::from)?;
     let meta = std::fs::metadata(&p.canonical).map_err(super::io_error)?;
     if meta.is_file() && q.language_globs().is_some() {
         return Err(super::AstError::new(
@@ -200,8 +202,7 @@ pub fn execute_symbols(
             let name = d["name"].as_str().unwrap_or("");
             let kind = d["kind"].as_str().unwrap_or("");
             if q.name.as_ref().is_none_or(|n| name.contains(n))
-                && q.kinds()
-                    .is_none_or(|ks| ks.iter().any(|k| k == kind))
+                && q.kinds().is_none_or(|ks| ks.iter().any(|k| k == kind))
             {
                 if per_row_path {
                     row["path"] = json!(path);

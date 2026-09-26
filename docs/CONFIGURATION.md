@@ -15,7 +15,7 @@ Configures credentials, registries, feature gates, storage, timeouts, and enviro
   - [Where everything lives](#where-everything-lives)
   - [Cache storage and lifecycle](#cache-storage-and-lifecycle)
   - [npm registries and authentication](#npm-registries-and-authentication)
-  - [`.env` — third-party API keys](#env--third-party-api-keys)
+  - [`.env` — environment fallback](#env--environment-fallback)
   - [`.octocoderc` — Octocode settings](#octocoderc--octocode-settings)
   - [How settings override each other](#how-settings-override-each-other)
 - [MCP client `env` block](#mcp-client-env-block)
@@ -33,7 +33,7 @@ Configures credentials, registries, feature gates, storage, timeouts, and enviro
 ## Quick setup
 
 ```bash
-npx octocode auth login                          # authenticate (browser, encrypted token)
+npx octocode auth login                          # authenticate (browser, encrypted Octocode home)
 echo 'TAVILY_API_KEY=tvly-...' >> ~/.octocode/.env  # optional: add web search
 npx octocode auth --json                         # verify
 ```
@@ -51,7 +51,7 @@ Octocode needs a GitHub token to search code, read files, and call the GitHub AP
 Best for local use whenever a browser is available.
 
 ```bash
-npx octocode auth login          # OAuth device flow; token saved to the OS credential store
+npx octocode auth login          # OAuth device flow; token saved under OCTOCODE_HOME
 npx octocode auth login --force  # replace an existing stored token
 npx octocode auth logout         # delete the stored token
 ```
@@ -79,7 +79,7 @@ export GITHUB_TOKEN=ghp_...     # or any of the standard vars
 }
 ```
 
-Changes take effect on the next request — no restart needed. Token vars **cannot** go in `~/.octocode/.env`; they are [protected keys](#protected-keys--never-sourced-from-env) and the loader skips them. Use your shell, shell profile, or the MCP `env` block.
+Token variables can also use the [`.env` fallback](#env--environment-fallback). Nonblank process credentials win across aliases. Start a new CLI invocation or restart the MCP server after changing environment files or the client environment.
 
 ### Method 3 — gh CLI passthrough
 
@@ -95,8 +95,11 @@ Octocode checks these in order and stops at the first non-empty value. **Env var
 | 2 | Env var | `GH_TOKEN` | `export GH_TOKEN=ghp_...` |
 | 3 | Env var | `GITHUB_TOKEN` | `export GITHUB_TOKEN=ghp_...` · auto-set in GitHub Actions |
 | 4 | Env var | `GITHUB_PERSONAL_ACCESS_TOKEN` | `export GITHUB_PERSONAL_ACCESS_TOKEN=ghp_...` |
-| 5 | Octocode OAuth | encrypted storage | `npx octocode auth login` |
-| 6 | gh CLI | `gh auth token` | `gh auth login` |
+| 5 | Octocode OAuth | encrypted `<OCTOCODE_HOME>/credentials.json` | `npx octocode auth login` |
+| 6 | Existing native login | OS credential store | Previous native versions |
+| 7 | gh CLI | `gh auth token --hostname <host>` | `gh auth login` |
+
+New logins use `credentials.json` and `.key` under `OCTOCODE_HOME` (default `~/.octocode`), compatible with main’s encrypted format. Existing OS-store logins remain a fallback. Refresh writes back to the selected store. Forced login keeps the previous credential until a replacement is saved; logout removes that host from both Octocode stores, leaving environment and `gh` credentials unchanged.
 
 ### Auth commands
 
@@ -118,7 +121,7 @@ All Octocode config, credentials, cache, and session data live under the **Octoc
 
 | Path | What it does |
 |------|-------------|
-| `.env` | Third-party API keys (Tavily, Serper, …). Loaded by agents and skills, not the MCP server/CLI. |
+| `.env` | Environment fallbacks, including GitHub/classification credentials and third-party API keys. Native CLI/MCP and Node config consumers load the home file. |
 | `.octocoderc` | Octocode behavior settings (tools, network, paths, output, storage). Read by the MCP server and CLI. |
 | `stats.json` | Usage counters. Written only when `OCTOCODE_ENABLE_STATS=1`. |
 | `session.json` | Session identity. |
@@ -162,23 +165,31 @@ Conditional file/structure requests keep a stale body and ETag for up to 24 hour
 
 Keep credentials in registry-scoped npm configuration — a token variable alone (e.g. `${NPM_TOKEN}`) is not associated with a registry. Do not put tokens in tool arguments or registry URLs. Results cached under one configuration identity are not reused under another.
 
-### `.env` — third-party API keys
+### `.env` — environment fallback
 
-A plain `KEY=VALUE` file for third-party API keys used by web search and installed skills — **not** for Octocode's own settings.
+A plain `KEY=VALUE` file for environment fallbacks, including Octocode settings, GitHub and classification credentials, and third-party API keys used by installed skills.
 
-**Where:** `~/.octocode/.env` (global) · `<project>/.octocode/.env` (project, overrides global, trusted projects only)
+**Where:** `~/.octocode/.env` (global) · `<project>/.octocode/.env` (workspace, overrides global)
 
 ```bash
 # ~/.octocode/.env
+GH_TOKEN=ghp_example
+OCTOCODE_CLASSIFICATION_API=classification_key_example
 TAVILY_API_KEY=tvly-...   # curated, deeper research — https://app.tavily.com/
 SERPER_API_KEY=...        # broad Google SERP results — https://serper.dev/
 EXA_API_KEY=...           # neural/category-filtered search — https://dashboard.exa.ai/
 ```
 
 Rules:
-- A key set in your shell wins over this file.
-- **Agent sessions and skill scripts load this file automatically; the MCP server and CLI do not** — pass those keys via your shell or the MCP `env` block.
-- GitHub token vars are blocked here (see [protected keys](#protected-keys--never-sourced-from-env)).
+
+- A non-empty key in your shell or MCP client environment wins over both files.
+- The workspace file wins over the global file for the same key. Missing or blank workspace values fall back to global.
+- CLI and MCP load both files automatically. Node helpers load the supplied workspace by default; an embedding host can explicitly opt out with `trusted: false`. Native `trustedProject` controls executable language-server configuration, not dotenv loading.
+- All declared product configuration keys, including GitHub and classification credentials, are accepted from either source. Keep credential files out of version control.
+- Empty environment values normally allow fallback. A present-but-blank `OCTOCODE_CLASSIFICATION_API` disables classification and prevents file fallback.
+- [Protected infrastructure keys](#protected-keys--never-sourced-from-env) remain blocked in both files.
+
+For credential aliases, source precedence wins first: any nonblank process token beats file tokens, and a workspace token beats a global token even when they use different alias names. Within the winning source, GitHub aliases use `OCTOCODE_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`, then `GITHUB_PERSONAL_ACCESS_TOKEN`; classification uses `OCTOCODE_CLASSIFICATION_API` before `OCTOCODE_JEV_KEY`. A classification alias from either `.env` also beats `.octocoderc`. Metadata exposes names and source files, never credential values.
 
 Skills query every web-search engine whose key is set and validated, then fuse results (Serper, Tavily, and Exa are not interchangeable). With no key set, skills fall back to keyless DuckDuckGo.
 
@@ -194,14 +205,15 @@ Unknown keys emit a warning with their full path, so a misspelling like `local.e
 
 ```
 Shell env vars / MCP client env block       ← always win, highest priority
-<project>/.octocode/.env → ~/.octocode/.env ← API keys (agent/skills only)
+<workspace>/.octocode/.env                  ← first file fallback
+~/.octocode/.env                            ← trusted home fallback
 ~/.octocode/.octocoderc                     ← Octocode settings (MCP server + CLI)
 Built-in defaults                           ← lowest
 ```
 
 - **Env vars always beat file config.**
-- **`.env` is only for agent/skill sessions** — the MCP server and CLI don't load it.
-- **GitHub tokens never come from `.env`** — blocked there regardless of priority.
+- **Workspace `.env` wins over home `.env` for the same key**; missing or blank values fall back to home.
+- **GitHub/classification credentials follow this fallback order.** Token discovery and OAuth refresh remain in native.
 
 ---
 
@@ -233,7 +245,7 @@ Run `npx octocode install --ide cursor` to write this automatically (`--ide` als
 
 ### Third-party keys
 
-Set in `~/.octocode/.env` or your shell. Skills read them; the MCP server and CLI do not.
+Set in `~/.octocode/.env`, a workspace `.octocode/.env`, or your shell. Skills use these keys for web search.
 
 | Key | Default | Notes |
 |-----|---------|-------|
@@ -253,11 +265,10 @@ Response-cache entry counts/sizes and per-surface tool-call timeouts are bounded
 
 ### Protected keys — never sourced from `.env`
 
-Octocode always ignores these when loading any `.env`, whatever their values. Set them in your shell, CI, or the MCP `env` block.
+Both home and project `.env` files block these infrastructure and security controls. Set them in your shell, CI, or the MCP `env` block.
 
 | Key | Why protected |
 |-----|---------------|
-| `OCTOCODE_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`, `GITHUB_PERSONAL_ACCESS_TOKEN` | GitHub auth — must be explicit |
 | `PATH` | OS binary resolution — `.env` must not hijack it |
 | `HOME` | OS home directory |
 | `SHELL` | Login shell |
@@ -266,10 +277,10 @@ Octocode always ignores these when loading any `.env`, whatever their values. Se
 | `TMPDIR` | System temp directory |
 | `NODE_OPTIONS` | Node runtime flags — a security risk if `.env` could set them |
 | `PYTHON` | Python interpreter path |
-| `GITHUB_API_URL` | GitHub API root — set via shell or `.octocoderc` (`github.apiUrl`), never `.env`, so an untrusted project can't redirect API traffic |
-| `OCTOCODE_CLASSIFICATION_API` (jev alias `OCTOCODE_JEV_KEY`) | Classification credential — shell, `.octocoderc` (`classification.api`), or the trusted home `.env`; never a project `.env`. Excluded from resolved config. Set it to an empty string in the process env (`OCTOCODE_CLASSIFICATION_API=`) to disable `clasify` for that process; no file or vendor-key fallback applies |
-| `OCTOCODE_CLASSIFICATION_API_HOST` | Vendor API-root override — controls where the key is sent; same placement rules as the key |
-| `OCTOCODE_CLASSIFICATION_TYPE` | Vendor selector (`classification.type`, default `jev`) |
+| `GH_HOST` | GitHub CLI host selection |
+| `OCTOCODE_HOME` | Configuration home selection |
+
+Classification credentials (`OCTOCODE_CLASSIFICATION_API`, alias `OCTOCODE_JEV_KEY`), provider type, and API host follow the `.env` fallback order. The credential stays out of resolved configuration output. Set `OCTOCODE_CLASSIFICATION_API=` in the process environment to disable classification for that process.
 
 ---
 
@@ -308,7 +319,7 @@ Always start with `npx octocode auth --json` (token source + identity), `npx oct
 | A skill's external search is unavailable | Follow that skill's provider/credential instructions; the catalog exposes no general web-search tool. |
 | `stats.json` never written | Set `OCTOCODE_ENABLE_STATS=1` (off by default) |
 | `.env` key ignored | Token vars are blocked in `.env` — use your shell or the MCP `env` block |
-| `.env` key not loading | Confirm the agent session restarted and the project is trusted |
+| `.env` key not loading | Confirm the process uses the intended workspace cwd and restart after editing .env |
 | Enterprise hitting github.com | Set `GITHUB_API_URL` in both shell and `.octocoderc` |
 | Enterprise device login/refresh rejected | Set `OCTOCODE_GITHUB_CLIENT_ID` to an OAuth app client ID registered on that GHE host |
 | Settings not taking effect | Restart the MCP server or start a new agent session after editing `.octocoderc` |

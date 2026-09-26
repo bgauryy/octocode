@@ -34,6 +34,16 @@ pub fn skill() -> Value {
 pub fn catalog() -> Result<Value> {
     Ok(cached_catalog()?.clone())
 }
+/// A deferred delivery batch must fit its public receipt command.
+pub fn delivery_batch_limit() -> Result<usize> {
+    cached_catalog()?["commands"]
+        .as_array()
+        .and_then(|commands| commands.iter().find(|c| c["name"] == "confirm_delivery"))
+        .and_then(|c| c["inputSchema"]["properties"]["items"]["maxItems"].as_u64())
+        .and_then(|limit| usize::try_from(limit).ok())
+        .filter(|limit| *limit > 0)
+        .ok_or_else(|| anyhow!("Invalid confirmation batch limit in command catalog"))
+}
 /// Keep one immutable discovery surface for the lifetime of each worker/server.
 pub fn selected_tools(selection: Option<&str>) -> Result<Vec<Value>> {
     let tools = cached_catalog()?["tools"]

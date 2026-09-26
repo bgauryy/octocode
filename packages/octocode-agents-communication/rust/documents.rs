@@ -1,5 +1,7 @@
 use crate::{
+    catalog::text,
     database::{execute, query, transaction},
+    paths::{overlap, resolve_path},
     store::{Store, now},
 };
 use anyhow::{Result, anyhow, bail};
@@ -12,6 +14,40 @@ use std::{
 };
 
 const MAX_BYTES: usize = 1024 * 1024;
+
+fn scope_path(workspace: &str, path: &str) -> Result<String> {
+    let resolved = resolve_path(Path::new(workspace), path)?;
+    let relative = resolved
+        .strip_prefix(workspace)
+        .map_err(|_| anyhow!("Context path must stay inside this workspace"))?;
+    let relative = relative
+        .to_str()
+        .ok_or_else(|| anyhow!("Context path must be UTF-8"))?;
+    #[cfg(windows)]
+    let relative = relative.replace('\\', "/");
+    Ok(if relative.is_empty() {
+        ".".into()
+    } else {
+        relative.to_string()
+    })
+}
+
+fn context_metadata(workspace: &str, input: &Value) -> Result<Value> {
+    let Some(context) = input.get("context") else {
+        return Ok(Value::Null);
+    };
+    let mut context = context.clone();
+    if context["summary"].as_str().unwrap_or("").trim().is_empty() {
+        bail!("Context summary must explain a useful fact or gotcha");
+    }
+    context["path"] = json!(scope_path(
+        workspace,
+        context["path"].as_str().unwrap_or(".")
+    )?);
+    context["kind"] = json!(context["kind"].as_str().unwrap_or("tree"));
+    context["ttlMs"] = json!(context["ttlMs"].as_u64().unwrap_or(86_400_000));
+    Ok(context)
+}
 
 fn name(input: &Value) -> Result<&str> {
     let name = input["name"]
@@ -87,18 +123,28 @@ impl Store {
     }
     pub(crate) fn share_document(&self, session: &str, input: &Value) -> Result<Value> {
         let name = name(input)?;
+        let reasoning = text(input, "reasoning")?;
         let content = input["content"]
             .as_str()
             .ok_or_else(|| anyhow!("Document content required"))?;
         if content.len() > MAX_BYTES {
             bail!("Document exceeds 1 MiB");
         }
+        let metadata = context_metadata(&self.workspace, input)?;
         transaction(&self.db, |db| {
             self.known(session, true)?;
             let directory = directory(&self.workspace, true)?;
             let path = directory.join(name);
             if let Some(record) = self.document_record(name)? {
-                if record["sha256"] != digest(content) || read(&path)? != content {
+                let mut stored = record["context"].clone();
+                if let Some(object) = stored.as_object_mut() {
+                    object.remove("expiresAt");
+                }
+                if record["sha256"] != digest(content)
+                    || read(&path)? != content
+                    || stored != metadata
+                    || record["reasoning"] != reasoning
+                {
                     bail!("Document is immutable or has changed on disk; publish a new name");
                 }
                 return Ok(json!({"created":false,"document":record}));
@@ -111,7 +157,12 @@ impl Store {
             temporary.as_file().sync_all()?;
             // No partially written document is visible and existing names are never overwritten.
             temporary.persist_noclobber(&path)?;
-            let record = json!({"name":name,"path":format!(".octocode/communication/{name}"),"author":session,"bytes":content.len(),"sha256":digest(content)});
+            let mut record = json!({"name":name,"path":format!(".octocode/communication/{name}"),"author":session,"reasoning":reasoning,"bytes":content.len(),"sha256":digest(content)});
+            if !metadata.is_null() {
+                record["context"] = metadata.clone();
+                record["context"]["expiresAt"] =
+                    json!(now() + metadata["ttlMs"].as_i64().unwrap_or(86_400_000));
+            }
             execute(
                 db,
                 "INSERT INTO audit(session,kind,entityId,at,data,key) VALUES(?,'document.created',?,?,?,?)",
@@ -126,6 +177,75 @@ impl Store {
             // A crash before commit can leave an unregistered file; never silently adopt it.
             Ok(json!({"created":true,"document":record}))
         })
+    }
+    /// Pull scoped summaries, never bodies or host history. Scan a bounded audit
+    /// window so sparse matches also return a resumable continuation.
+    pub(crate) fn context(&self, session: &str, input: &Value) -> Result<Value> {
+        self.known(session, true)?;
+        let path = scope_path(&self.workspace, input["path"].as_str().unwrap_or("."))?;
+        let after = input["after"].as_i64().unwrap_or(0);
+        let through = match input["through"].as_i64() {
+            Some(value) => value,
+            None => query(&self.db, "SELECT coalesce(max(id),0) AS id FROM audit", &[])?[0]["id"]
+                .as_i64()
+                .unwrap_or(0),
+        };
+        if through < after {
+            bail!("Context through must be at least after");
+        }
+        let limit = input["limit"].as_u64().unwrap_or(10) as usize;
+        let rows = query(
+            &self.db,
+            "SELECT a.id,CASE WHEN a.kind='document.created' AND s.workspace=? THEN a.data END AS data FROM (SELECT id,session,kind,data FROM audit WHERE id>? AND id<=? ORDER BY id LIMIT 200) a LEFT JOIN sessions s ON s.id=a.session ORDER BY a.id",
+            &[json!(self.workspace), json!(after), json!(through)],
+        )?;
+        let mut items = Vec::new();
+        let mut cursor = after;
+        let mut scanned = 0;
+        let at = now();
+        for row in &rows {
+            cursor = row["id"]
+                .as_i64()
+                .ok_or_else(|| anyhow!("Invalid audit ID"))?;
+            scanned += 1;
+            let Some(data) = row["data"].as_str() else {
+                continue;
+            };
+            let record: Value = serde_json::from_str(data)?;
+            let context = &record["context"];
+            let Some(scope) = context["path"].as_str() else {
+                continue;
+            };
+            if context["expiresAt"].as_i64().unwrap_or(0) <= at
+                || (!context["branch"].is_null() && context["branch"] != input["branch"])
+                || !(scope == "." && context["kind"] == "tree"
+                    || overlap(
+                        scope,
+                        context["kind"].as_str().unwrap_or("tree"),
+                        &path,
+                        "file",
+                    ))
+            {
+                continue;
+            }
+            items.push(json!({"id":cursor,"name":record["name"],"author":record["author"],"context":context}));
+            if items.len() == limit {
+                break;
+            }
+        }
+        // Gaps (or a cursor beyond current history) are terminal, not a poll loop.
+        if scanned == rows.len() && rows.len() < 200 {
+            cursor = through;
+        }
+        let next = if cursor < through {
+            let mut next = input.clone();
+            next["after"] = json!(cursor);
+            next["through"] = json!(through);
+            Some(next)
+        } else {
+            None
+        };
+        Ok(json!({"items":items,"cursor":cursor,"scanned":scanned,"next":next}))
     }
     pub(crate) fn read_document(&self, session: &str, input: &Value) -> Result<Value> {
         self.known(session, true)?;

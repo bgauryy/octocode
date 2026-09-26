@@ -114,7 +114,7 @@ async fn public_identity_is_a_hard_cutover_and_missing_key_is_actionable() {
 }
 
 #[tokio::test]
-async fn matrix_is_resource_major_and_reports_requested_and_resolved_models() {
+async fn matrix_is_resource_major_without_agent_telemetry_or_duplicate_text() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
@@ -141,14 +141,15 @@ async fn matrix_is_resource_major_and_reports_requested_and_resolved_models() {
         .unwrap();
     octocode_native::contracts::validate_output("clasify", &outcome.structured_content)
         .expect("nested output contract");
+    assert!(
+        outcome.content.is_empty(),
+        "clasify must not duplicate structured hints as text"
+    );
     let queries = outcome.structured_content["queries"].as_array().unwrap();
     assert_eq!(queries.len(), 1);
     assert_eq!(queries[0]["queryId"], "decision");
-    assert_eq!(queries[0]["model"], "provider-resolved");
-    assert_eq!(
-        queries[0]["usage"],
-        json!({"input_tokens":12,"output_tokens":3})
-    );
+    assert!(queries[0].get("model").is_none());
+    assert!(queries[0].get("usage").is_none());
     let resources = queries[0]["resources"].as_array().unwrap();
     assert_eq!(resources.len(), 1);
     assert_eq!(resources[0]["resourceId"], "observed");
@@ -483,7 +484,7 @@ async fn scout_expands_explicit_question_type_and_preserves_source_identity() {
         .await
         .unwrap();
     let output = &result.structured_content["queries"][0];
-    assert_eq!(output["templateVersion"], 1);
+    assert!(output.get("templateVersion").is_none());
     let page = &output["resources"][0]["pages"][0];
     assert_eq!(page["answers"]["new"]["noul"], 0.82);
     assert_eq!(page["source"]["path"], file.to_str().unwrap());
@@ -555,6 +556,10 @@ async fn page_budget_continuation_round_trips_through_the_public_contract() {
         .unwrap();
     let assess = outcome.structured_content["queries"][0]["next"]["clasify"].clone();
     assert!(assess.is_object(), "{}", outcome.structured_content);
+    assert_eq!(
+        assess["questions"][0]["id"], "relevant",
+        "Continuation must preserve question identity"
+    );
     let context = &assess["resources"][0]["context"];
     assert_eq!(context.as_object().unwrap().len(), 2);
     assert!(context.get("tool").is_some());
@@ -585,7 +590,7 @@ async fn page_budget_continuation_round_trips_through_the_public_contract() {
             .await
             .unwrap();
         let row = &page.structured_content["queries"][0];
-        assert_eq!(row["templateVersion"], 1);
+        assert!(row.get("templateVersion").is_none());
         for page in row["resources"][0]["pages"].as_array().unwrap() {
             assert_eq!(page["scope"]["startLine"].as_u64().unwrap(), last_end + 1);
             last_end = page["scope"]["endLine"].as_u64().unwrap();
@@ -955,6 +960,10 @@ async fn empty_file_is_reported_without_a_provider_call() {
         .unwrap();
     let resource = &outcome.structured_content["queries"][0]["resources"][0];
     assert_eq!(resource["coverage"], "error", "{resource}");
+    assert!(
+        outcome.all_failed,
+        "MCP must expose failed evidence as a tool error"
+    );
     assert_eq!(
         resource["pages"][0]["error"]["code"],
         "classificationContextEmpty"
@@ -992,6 +1001,10 @@ async fn empty_search_page_is_not_sent_to_the_provider() {
         .unwrap();
     let resource = &outcome.structured_content["queries"][0]["resources"][0];
     assert_eq!(resource["coverage"], "error", "{resource}");
+    assert!(
+        outcome.all_failed,
+        "MCP must expose failed evidence as a tool error"
+    );
     assert_eq!(
         resource["pages"][0]["error"]["code"],
         "classificationContextEmpty"
@@ -1110,7 +1123,7 @@ async fn long_positive_scout_sends_only_authored_questions_and_preserves_probabi
         page["source"]["path"],
         expected_source_path.to_string_lossy().as_ref()
     );
-    assert!(page["source"]["evidenceHash"].as_str().is_some());
+    assert!(page["source"].get("evidenceHash").is_none());
     let requests = server.received_requests().await.expect("mock requests");
     assert_eq!(requests.len(), 1, "Clasify must not add a focus call");
     let sent: serde_json::Value = serde_json::from_slice(&requests[0].body).unwrap();

@@ -54,8 +54,8 @@ const DIDOPEN_READY_TIMEOUT_MS: u32 = 15_000;
 /// How often a long language-server await re-checks cancellation.
 const CANCEL_POLL_MS: u64 = 50;
 
-pub use crate::contracts::tool_types::LspSearchQuery;
 use crate::contracts::tool_types as wire;
+pub use crate::contracts::tool_types::LspSearchQuery;
 
 /// Binds `$field` from whichever anchor shape `$query` is. The shapes type
 /// shared fields differently, so each gets its own arm.

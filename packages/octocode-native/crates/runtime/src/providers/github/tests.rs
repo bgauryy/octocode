@@ -1,5 +1,4 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use secrecy::ExposeSecret;
 use std::{
     sync::{
         Arc, Mutex,
@@ -36,22 +35,6 @@ impl CredentialResolver for RotatingResolver {
         })
     }
 }
-struct FailingSource;
-impl CredentialSourceProvider for FailingSource {
-    fn load_blocking(&self, _: &str) -> Result<Option<secrecy::SecretString>, ProviderError> {
-        Err(ProviderError::new(
-            ProviderErrorKind::CredentialStoreUnavailable,
-            "headless",
-        ))
-    }
-}
-struct FixtureSource;
-impl CredentialSourceProvider for FixtureSource {
-    fn load_blocking(&self, _: &str) -> Result<Option<secrecy::SecretString>, ProviderError> {
-        Ok(Some(secrecy::SecretString::from("fallback")))
-    }
-}
-
 #[derive(Default)]
 struct MemoryCache(Mutex<Option<CachedContent>>);
 #[derive(Clone)]
@@ -138,19 +121,6 @@ impl ConditionalCache for MemoryCache {
             }
         })
     }
-}
-
-#[test]
-fn credential_resolution_handle_joins_on_drop() {
-    let finished = Arc::new(AtomicUsize::new(0));
-    let marker = finished.clone();
-    let handle = CredentialResolutionHandle::from_join(std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(10));
-        marker.store(1, Ordering::SeqCst);
-        Ok(None)
-    }));
-    drop(handle);
-    assert_eq!(finished.load(Ordering::SeqCst), 1);
 }
 
 async fn provider(server: &MockServer) -> GitHubProvider<StaticCredentialResolver, MemoryCache> {
@@ -727,16 +697,6 @@ async fn pins_one_credential_across_partition_and_request() {
         .await
         .expect("request");
     assert_eq!(calls.load(Ordering::SeqCst), 1);
-}
-
-#[tokio::test]
-async fn chained_source_falls_back_when_primary_store_is_unavailable() {
-    let source = ChainedCredentialSource::new(FailingSource, FixtureSource);
-    let value = source
-        .load_blocking("github.com")
-        .expect("fallback")
-        .expect("token");
-    assert_eq!(value.expose_secret(), "fallback");
 }
 
 #[test]

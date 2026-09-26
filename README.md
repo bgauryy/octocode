@@ -363,14 +363,14 @@ Most-used settings (both CLI and MCP unless noted):
 
 | Env var | `.octocoderc` key | Default | What it does |
 |---------|-------------------|---------|--------------|
-| `OCTOCODE_TOKEN` / `GH_TOKEN` / `GITHUB_TOKEN` | env only | unset | GitHub token, in priority order. Never in `.octocoderc`. |
+| `OCTOCODE_TOKEN` / `GH_TOKEN` / `GITHUB_TOKEN` / `GITHUB_PERSONAL_ACCESS_TOKEN` | — | unset | GitHub token aliases; process → workspace `.env` → global `.env`. No `.octocoderc` token field. |
 | `ENABLE_LOCAL` | `local.enabled` | `true` | Local filesystem and LSP tools on or off. Set `false` to disable them. |
 | `WORKSPACE_ROOT` | `local.workspaceRoot` | `cwd` | Root for resolving relative local paths. |
 | `ALLOWED_PATHS` | `local.allowedPaths` | `[]` | Extra path allowlist for local access. |
 | `OCTOCODE_OUTPUT_FORMAT` | `output.format` | `yaml` | Response format: `yaml` or `json`. |
 | `OCTOCODE_STORAGE_MODE` | `storage.mode` | `persistent` | Set `memory` to prevent persistent runtime state and materialization. |
 | `OCTOCODE_BETA` | `local.beta` | `false` | Enable beta features — the sole gate for the `astRewrite` tool (both preview and apply). |
-| `OCTOCODE_CLASSIFICATION_API` | env only | unset | Classification provider API key (`OCTOCODE_JEV_KEY` is the Jev-vendor alias). A nonblank value exposes only `clasify` through MCP. Never commit it. |
+| `OCTOCODE_CLASSIFICATION_API` | `classification.api` | unset | Classification provider API key (`OCTOCODE_JEV_KEY` is the Jev-vendor alias). A nonblank value exposes only `clasify` through MCP. Never commit it. |
 | `OCTOCODE_CLASSIFICATION_API_HOST` | `classification.apiHost` | vendor default | Optional classification provider API-root override. It does not enable classification without a nonblank API key. Use HTTPS except for loopback development. |
 
 `OCTOCODE_HOME`, GitHub Enterprise (`GITHUB_API_URL`), MCP tool filtering (`TOOLS_TO_RUN`/`DISABLE_TOOLS`), and network timeouts/retries: see the [Configuration Reference](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md).

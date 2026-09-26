@@ -663,7 +663,8 @@ fn match_content_length_bounds_each_match_value() {
         .join(", ");
     std::fs::write(&source, format!("fn m() {{ call({args}); }}\n")).expect("source");
     let value_len = |length: Option<u32>| {
-        let mut query = json!({"operation":"match","reasoning":"test","path":source,"pattern":"call($$$A)"});
+        let mut query =
+            json!({"operation":"match","reasoning":"test","path":source,"pattern":"call($$$A)"});
         if let Some(length) = length {
             query["matchContentLength"] = json!(length);
         }
@@ -744,7 +745,11 @@ fn single_file_symbols_are_compact_and_path_free() {
         "struct A;\nimpl A {\n    fn run() {}\n}\nstruct B; impl B { fn run() {} }\n",
     )
     .expect("source");
-    let out = run(&root.0, json!({"operation":"symbols","reasoning":"test","path":source})).expect("symbols");
+    let out = run(
+        &root.0,
+        json!({"operation":"symbols","reasoning":"test","path":source}),
+    )
+    .expect("symbols");
     let text = out.to_string();
     let root_text = root.0.to_string_lossy();
     assert!(
@@ -804,7 +809,11 @@ fn directory_symbols_keep_row_paths_and_emit_the_syntax_note_once() {
     let root = Fixture::new();
     std::fs::write(root.0.join("a.rs"), "fn a() {}\n").expect("a");
     std::fs::write(root.0.join("b.rs"), "fn b() {}\n").expect("b");
-    let out = run(&root.0, json!({"operation":"symbols","reasoning":"test","path":root.0})).expect("symbols");
+    let out = run(
+        &root.0,
+        json!({"operation":"symbols","reasoning":"test","path":root.0}),
+    )
+    .expect("symbols");
     let rows = out["declarations"].as_array().expect("declarations");
     assert_eq!(rows.len(), 2, "{out}");
     assert!(rows.iter().all(|r| r["path"].is_string()), "{out}");

@@ -13,4 +13,3 @@
 )]
 
 include!("../../../../../octocode-config/contract/tool_types.rs");
-

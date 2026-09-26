@@ -38,6 +38,7 @@ base64 = "0.23"
 sha2 = { workspace = true }
 hmac = "0.13"
 getrandom = "0.3"
+aes-gcm = { version = "0.11.1", default-features = false, features = ["aes", "alloc", "zeroize"] }
 flate2 = "1"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 # http2 is intentionally omitted: it links the `h2` stack (HPACK tables, ~0.2 MB)
@@ -50,7 +51,7 @@ secrecy = "0.10"
 keyring-core = "1"
 hex = { workspace = true }
 octocode-engine = { path = "../engine", default-features = false, features = ["portable-default", "embedded-ast-grep-rewrite"] }
-tokio = { workspace = true, features = ["fs", "rt-multi-thread", "macros", "sync", "time", "signal"] }
+tokio = { workspace = true, features = ["fs", "rt-multi-thread", "macros", "sync", "time", "signal", "process", "io-util"] }
 tokio-util = { version = "0.7", default-features = false }
 napi = { workspace = true, optional = true }
 napi-derive = { workspace = true, optional = true }

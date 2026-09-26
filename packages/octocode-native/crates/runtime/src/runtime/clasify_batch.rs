@@ -1373,7 +1373,6 @@ fn execute_query(
     let mut rendered = Vec::with_capacity(resources.len());
     let mut continuation_resources = Vec::new();
     let mut usage_records = Vec::new();
-    let mut resolved_model = None;
 
     for (resource_index, captured_resource) in captured.into_iter().enumerate() {
         let CapturedResource {
@@ -1406,12 +1405,6 @@ fn execute_query(
                             usage_records.push(usage);
                         }
                     }
-                    if resolved_model.is_none() {
-                        resolved_model = answers
-                            .iter()
-                            .flatten()
-                            .find_map(|data| data["resolvedModel"].as_str().map(str::to_owned));
-                    }
                     outcomes.push(PageOutcome::Assessed {
                         receipt: context,
                         answers,
@@ -1421,7 +1414,12 @@ fn execute_query(
         }
 
         let has_continuation = continuation.is_some();
-        if let Some(context) = continuation {
+        if let Some(mut context) = continuation {
+            if let Some(tool) = context["tool"].as_str().map(str::to_owned)
+                && let Some(query) = context.get_mut("query")
+            {
+                super::continuations::compact_input(&tool, query);
+            }
             let mut pending = resource.clone();
             pending["context"] = context;
             continuation_resources.push(pending);
@@ -1438,23 +1436,17 @@ fn execute_query(
     }
 
     let mut output = json!({"queryId":query["id"]});
-    if questions.iter().any(|question| {
-        let question = &question["question"];
-        question.get("questionType").is_some() && !clasify::questions::is_locate(question)
-    }) {
-        output["templateVersion"] =
-            clasify::questions::version().map_err(|_| ExecutionError::WorkerFailed)?;
-    }
-    for (key, value) in clasify_output::query_meta(&usage_records, resolved_model.as_deref()) {
-        output[key.as_str()] = value;
-    }
     output["resources"] = Value::Array(rendered);
     if !continuation_resources.is_empty() {
         let public_questions = query["questions"]
             .as_array()
             .into_iter()
             .flatten()
-            .map(|question| question["question"].clone())
+            .map(|question| {
+                let mut public = question["question"].clone();
+                public["id"] = question["id"].clone();
+                public
+            })
             .collect::<Vec<_>>();
         output["next"] = json!({"clasify":{
             "id":query["id"],

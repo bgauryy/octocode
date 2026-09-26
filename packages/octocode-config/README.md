@@ -16,6 +16,28 @@ It is the only owner of Octocode home-directory resolution and `.env` or
 
 Do not reimplement these rules in a consuming package.
 
+## Environment fallback
+
+For each key, non-empty process values win over workspace
+`.octocode/.env`, which wins over the home `.env` (default `~/.octocode/.env`).
+GitHub and classification credentials can use both files. Protected infrastructure
+keys remain blocked; a present-but-blank `OCTOCODE_CLASSIFICATION_API` disables
+classification without taking a file fallback.
+
+```ts
+import { getOctocodeHome, propagateOctocodeEnv } from '@octocodeai/config';
+
+const env = { ...process.env };
+propagateOctocodeEnv({
+  home: getOctocodeHome(env),
+  cwd: process.cwd(),
+  env,
+});
+```
+
+Workspace loading defaults to on when `cwd` is supplied. Node embedders may explicitly opt out with `trusted: false`. Standalone CLI and MCP load workspace and global files; native `trustedProject` controls executable LSP configuration separately. Diagnostics report
+key names and source files without credential values. Credential aliases first choose the highest-priority source, then their declared alias order within that source. A workspace alias can override a global canonical key.
+
 ## CLI
 
 The package also exposes `octocode-config`:

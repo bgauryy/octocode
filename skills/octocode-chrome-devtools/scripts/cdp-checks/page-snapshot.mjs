@@ -12,6 +12,7 @@ const { waitForPageReady } = await import(pathToFileURL(resolve(process.cwd(), '
 // Env:
 //   SNAPSHOT_DEPTH  max AX tree depth to request (default: unlimited -> -1)
 //   SNAPSHOT_MAX    max refs to keep, highest-signal first (default: 60)
+//   SNAPSHOT_STDOUT summary keeps refs on disk; default prints refs for direct interaction
 
 const DEPTH = Number.parseInt(process.env.SNAPSHOT_DEPTH ?? '-1', 10);
 const MAX_REFS = Math.max(1, Math.min(300, Number.parseInt(process.env.SNAPSHOT_MAX ?? '60', 10)));
@@ -91,7 +92,9 @@ export async function run(cdp) {
   });
 
   console.log(`[METRIC] SNAPSHOT refs=${trimmed.length} totalAxNodes=${nodes.length}${duplicatesDropped ? ` duplicatesDropped=${duplicatesDropped}` : ''}`);
-  for (const line of lines) console.log(`[SNAPSHOT] ${line}`);
+  if (process.env.SNAPSHOT_STDOUT !== 'summary') {
+    for (const line of lines) console.log(`[SNAPSHOT] ${line}`);
+  }
   console.log(`[ARTIFACT] PAGE_SNAPSHOT ${artifactPath}`);
-  console.log('[REASON] Act on a ref with dom-operations-check.mjs: DOM_REF=e3 DOM_ACTION=click');
+  if (process.env.SNAPSHOT_STDOUT !== 'summary') console.log('[REASON] Use a verified ref from this snapshot with dom-operations-check.mjs; confirm current state before acting.');
 }

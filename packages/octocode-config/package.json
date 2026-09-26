@@ -71,6 +71,7 @@
     "lint": "node scripts/generate-config-contract.ts --check && node scripts/generate-tool-contract.ts --check && node ../../node_modules/typescript/bin/tsc --noEmit -p tsconfig.json",
     "prepublishOnly": "node ../octocode/scripts/check-no-workspace-protocol.mjs",
     "test": "node ../../node_modules/vitest/vitest.mjs run --coverage",
+    "test:tokens:acceptance": "cd ../.. && node packages/octocode-config/tests/token-precedence.acceptance.mjs",
     "test:quiet": "node ../../node_modules/vitest/vitest.mjs run --reporter=dot --silent",
     "typecheck": "yarn lint",
     "verify": "yarn lint && yarn test && yarn build"

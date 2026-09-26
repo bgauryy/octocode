@@ -17,9 +17,7 @@ mod output;
 
 use journal::{commit_transaction, recover_transactions};
 use lock::RootLock;
-use output::{
-    attach_receipts, continuation_query, portable_relative, success_value,
-};
+use output::{attach_receipts, continuation_query, portable_relative, success_value};
 mod raw;
 mod staged;
 use raw::{RawByteRange, RawCapture, RawMatch, RawMetaVariables, RawPosition, RawRange};
@@ -66,7 +64,7 @@ struct PrepareContext<'a> {
     analyzer: &'a StagedAnalyzer,
 }
 
-pub use crate::contracts::tool_types::{AstRewriteQuery, ArPostconditionsItem};
+pub use crate::contracts::tool_types::{ArPostconditionsItem, AstRewriteQuery};
 
 /// Binds `$field` from either rule kind of `$query`.
 macro_rules! either_kind {

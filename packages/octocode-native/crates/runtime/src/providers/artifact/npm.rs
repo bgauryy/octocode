@@ -399,8 +399,8 @@ mod tests {
     use super::super::types::artifact_query;
     use super::normalize_repository;
     use super::{
-        ArtifactSearchQuery, ArtifactSearchQueryType, ResolvedNpmRegistry, is_blocked_v4, is_blocked_v6,
-        validate_registry, validate_resolved_addresses,
+        ArtifactSearchQuery, ArtifactSearchQueryType, ResolvedNpmRegistry, is_blocked_v4,
+        is_blocked_v6, validate_registry, validate_resolved_addresses,
     };
     use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
     use url::Url;

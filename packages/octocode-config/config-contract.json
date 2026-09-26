@@ -16,10 +16,10 @@
     "NODE_OPTIONS": { "dotenv": "never", "description": "Node process options" },
     "PYTHON": { "dotenv": "never", "description": "Python executable override" },
     "GH_HOST": { "dotenv": "never", "description": "GitHub CLI host" },
-    "OCTOCODE_TOKEN": { "dotenv": "never", "tokenPriority": 0, "description": "Octocode token override" },
-    "GH_TOKEN": { "dotenv": "never", "tokenPriority": 1, "description": "GitHub CLI token" },
-    "GITHUB_TOKEN": { "dotenv": "never", "tokenPriority": 2, "description": "GitHub Actions token" },
-    "GITHUB_PERSONAL_ACCESS_TOKEN": { "dotenv": "never", "tokenPriority": 3, "description": "GitHub personal access token" },
+    "OCTOCODE_TOKEN": { "dotenv": "all", "tokenPriority": 0, "description": "Octocode token override" },
+    "GH_TOKEN": { "dotenv": "all", "tokenPriority": 1, "description": "GitHub CLI token" },
+    "GITHUB_TOKEN": { "dotenv": "all", "tokenPriority": 2, "description": "GitHub Actions token" },
+    "GITHUB_PERSONAL_ACCESS_TOKEN": { "dotenv": "all", "tokenPriority": 3, "description": "GitHub personal access token" },
     "OCTOCODE_GITHUB_CLIENT_ID": { "configSource": true, "description": "GitHub OAuth client override" },
     "OCTOCODE_HOME": { "documentation": true, "dotenv": "never", "description": "Overrides the Octocode configuration directory (default: <os-home>/.octocode)" },
     "OCTOCODE_TS_SERVER_PATH": { "documentation": true, "description": "Override the TypeScript/JavaScript LSP server binary (e.g. tsgo)." },
@@ -60,7 +60,7 @@
           "default": "https://api.github.com",
           "description": "GitHub REST API root. GitHub Enterprise commonly uses /api/v3.",
           "env": {
-            "GITHUB_API_URL": { "priority": 0, "dotenv": "never", "normalize": "trim", "invalid": "skip" }
+            "GITHUB_API_URL": { "priority": 0, "dotenv": "all", "normalize": "trim", "invalid": "skip" }
           }
         },
         "graphqlEnabled": {
@@ -174,7 +174,7 @@
           "default": false,
           "description": "Allow private, loopback, or link-local artifact registries.",
           "env": {
-            "OCTOCODE_ALLOW_PRIVATE_REGISTRY": { "priority": 0, "dotenv": "never" }
+            "OCTOCODE_ALLOW_PRIVATE_REGISTRY": { "priority": 0, "dotenv": "all" }
           },
           "notes": "Security-sensitive SSRF escape hatch; opt in only for trusted enterprise registries."
         }
@@ -339,7 +339,7 @@
           "values": ["jev"],
           "description": "Classification vendor. Per-vendor defaults (host, model, endpoint) are built in.",
           "env": {
-            "OCTOCODE_CLASSIFICATION_TYPE": { "priority": 0, "dotenv": "home", "normalize": "trim", "invalid": "skip" }
+            "OCTOCODE_CLASSIFICATION_TYPE": { "priority": 0, "dotenv": "all", "normalize": "trim", "invalid": "skip" }
           },
           "displayDefault": "jev"
         },
@@ -349,8 +349,8 @@
           "credential": true,
           "description": "Classification provider API key (bearer credential).",
           "env": {
-            "OCTOCODE_CLASSIFICATION_API": { "priority": 0, "dotenv": "home", "normalize": "trim" },
-            "OCTOCODE_JEV_KEY": { "priority": 1, "dotenv": "home", "normalize": "trim" }
+            "OCTOCODE_CLASSIFICATION_API": { "priority": 0, "dotenv": "all", "normalize": "trim" },
+            "OCTOCODE_JEV_KEY": { "priority": 1, "dotenv": "all", "normalize": "trim" }
           },
           "displayDefault": "unset",
           "notes": "Never appears in ResolvedConfig; shell environment wins over the trusted home config file. OCTOCODE_JEV_KEY is the vendor-native alias for the jev provider."
@@ -361,7 +361,7 @@
           "credential": true,
           "description": "Optional override of the selected vendor's default API root.",
           "env": {
-            "OCTOCODE_CLASSIFICATION_API_HOST": { "priority": 0, "dotenv": "home", "normalize": "trim" }
+            "OCTOCODE_CLASSIFICATION_API_HOST": { "priority": 0, "dotenv": "all", "normalize": "trim" }
           },
           "displayDefault": "vendor default (jev: https://api.typesafe.ai)",
           "notes": "Requires HTTP or HTTPS at config validation; provider policy may require HTTPS except loopback."

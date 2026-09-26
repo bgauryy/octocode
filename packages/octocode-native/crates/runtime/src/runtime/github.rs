@@ -15,13 +15,7 @@ use crate::{
     },
 };
 use serde_json::{Value, json};
-use std::{
-    path::PathBuf,
-    sync::Arc,
-    time::{Duration, Instant},
-};
-
-type Store = ChainedCredentialSource<PlatformCredentialStore, GhCliCredentialSource>;
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 fn provider_recovery_hint(kind: ProviderErrorKind) -> &'static str {
     match kind {
@@ -87,16 +81,14 @@ fn apply_provider_error_metadata(data: &mut Value, error: &ProviderError) {
 }
 
 pub(super) struct GitHubServices {
-    credentials: Arc<ConfigCredentialResolver<Store>>,
+    credentials: Authentication,
     provider: GitHubProvider<StaticCredentialResolver, GitHubContentCache>,
     timeout: Duration,
     home: PathBuf,
-    oauth_client_id: Option<String>,
     /// Resolved `cloneCache.*` limits for ghCloneRepo.
     clone_limits: crate::config::CloneCacheConfig,
     /// `output.pagination.defaultCharLength`: patch pages are sized to fit it.
     auto_page_chars: usize,
-    refresh_lock: std::sync::Mutex<()>,
     /// Sanitized full views of recently paged files (scoped to this runtime's
     /// single security policy), so each `next.continue` skips a full rescan.
     sanitized_views: gh_get_file_content::SanitizedViewMemo,
@@ -130,24 +122,14 @@ impl GitHubServices {
         let timeout = Duration::from_secs_f64(config.resolved.network.timeout / 1000.0);
         let clone_limits = config.resolved.clone_cache.clone();
         let auto_page_chars = config.resolved.output.pagination.default_char_length as usize;
-        let oauth_client_id = config
-            .env_value("OCTOCODE_GITHUB_CLIENT_ID")
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_owned);
-        let credentials = Arc::new(ConfigCredentialResolver::new(
-            config,
-            ChainedCredentialSource::new(PlatformCredentialStore, GhCliCredentialSource),
-        ));
+        let credentials = Authentication::new(config);
         Ok(Self {
             credentials,
             provider: GitHubProvider { transport, cache },
             timeout,
             home,
-            oauth_client_id,
             clone_limits,
             auto_page_chars,
-            refresh_lock: std::sync::Mutex::new(()),
             sanitized_views: gh_get_file_content::SanitizedViewMemo::new(),
         })
     }
@@ -201,64 +183,19 @@ impl GitHubServices {
             .endpoint()
             .credential_host()
             .to_owned();
-        let credential = self
-            .credentials
-            .clone()
-            .start_resolve(OwnedCredentialRequest {
-                host: host.clone(),
-                override_token: None,
-            })
-            .finish();
-        let credential = credential?;
-        context.check().map_err(|error| {
-            ProviderError::new(
-                if error == ExecutionError::Timeout {
-                    ProviderErrorKind::Timeout
-                } else {
-                    ProviderErrorKind::Cancelled
-                },
-                "GitHub credential resolution exceeded the request budget",
-            )
-        })?;
-        let credential = if credential
-            .as_ref()
-            .is_some_and(|value| value.source == CredentialSource::Storage)
-        {
-            // Re-read stored metadata while holding one process-wide refresh
-            // section so concurrent calls cannot exchange the same refresh
-            // token more than once. The second waiter observes the fresh token.
-            let _refresh_guard = self
-                .refresh_lock
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            let client_id = self.oauth_client_id.as_deref().unwrap_or_else(|| {
-                if host == "github.com" {
-                    crate::providers::github::login::GITHUB_APP_CLIENT_ID
-                } else {
-                    ""
-                }
-            });
-            match handle.block_on(
-                crate::providers::github::login::resolve_stored_with_refresh(&host, client_id),
-            ) {
-                Ok(Some(refreshed)) => Some(refreshed),
-                Ok(None) => credential,
-                Err(refresh_error) => match GhCliCredentialSource.load_blocking(&host) {
-                    Ok(Some(token)) => {
-                        Some(ResolvedCredential::new(token, CredentialSource::Storage))
-                    }
-                    _ => {
-                        return Err(refresh_error);
-                    }
-                },
-            }
-        } else {
-            credential
-        };
-        let mut request_context =
-            RequestContext::with_resolved_credential(self.timeout, 16 * 1024 * 1024, credential);
-        request_context.deadline = context.deadline.min(Instant::now() + self.timeout);
-        request_context.cancellation = context.cancellation.clone();
+        let mut budget = RequestContext::with_timeout(self.timeout, 16 * 1024 * 1024);
+        budget.deadline = context.deadline.min(budget.deadline);
+        budget.cancellation = context.cancellation.clone();
+        let credential = handle
+            .block_on(self.credentials.resolve(&host, AuthMode::Request, &budget))?
+            .map(|selection| selection.credential);
+        let mut request_context = RequestContext::with_resolved_credential(
+            self.timeout,
+            budget.max_body_bytes,
+            credential,
+        );
+        request_context.deadline = budget.deadline;
+        request_context.cancellation = budget.cancellation;
         Ok(request_context)
     }
 

@@ -83,9 +83,10 @@ export function registerPiInbox(pi, options = {}) {
     const seen = diskReceipts();
     if (!seen) return; // Fresh Pi sessions may buffer entries until the first assistant message.
     const items = [...pending.values()].filter(r => seen.has(`${r.id}:${r.dispatchToken}`));
-    if (items.length) {
-      await call('confirm_delivery', { items });
-      for (const item of items) pending.delete(`${item.id}:${item.dispatchToken}`);
+    for (let offset = 0; offset < items.length; offset += confirmationLimit) {
+      const batch = items.slice(offset, offset + confirmationLimit);
+      await call('confirm_delivery', { items: batch });
+      for (const item of batch) pending.delete(`${item.id}:${item.dispatchToken}`);
     }
   };
   const recover = async () => {
@@ -134,7 +135,10 @@ export function registerPiInbox(pi, options = {}) {
     return polling;
   };
   if (options.tools !== undefined && typeof options.tools !== 'string') throw new Error('Communication tools must be comma-separated catalog names');
-  const tools = JSON.parse(execFileSync(binary, ['schema', 'tools', ...(options.tools === undefined ? [] : ['--tools', options.tools])], { encoding: 'utf8', timeout: 10000, maxBuffer: 1024 * 1024 }));
+  const schema = args => JSON.parse(execFileSync(binary, ['schema', ...args], { encoding: 'utf8', timeout: 10000, maxBuffer: 1024 * 1024 }));
+  const tools = schema(['tools', ...(options.tools === undefined ? [] : ['--tools', options.tools])]);
+  const confirmationLimit = schema(['confirm_delivery']).inputSchema?.properties?.items?.maxItems;
+  if (!Number.isSafeInteger(confirmationLimit) || confirmationLimit < 1) throw new Error('Invalid confirmation batch limit in communication catalog');
   registerBoundTools(pi, { tools, getBinding: currentBinding });
   if (options.requireLeases !== undefined && typeof options.requireLeases !== 'boolean') throw new Error('requireLeases must be boolean');
   if (options.requireLeases) pi.on('tool_call', async (event, ctx) => {

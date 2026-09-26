@@ -77,7 +77,9 @@ pub fn execute_files(
     cancel: &dyn CancellationCheck,
 ) -> super::AstResult {
     cancel.check().map_err(super::cancelled)?;
-    let validated = paths.validate(q.path.as_str()).map_err(super::AstError::from)?;
+    let validated = paths
+        .validate(q.path.as_str())
+        .map_err(super::AstError::from)?;
     let (time, mut warnings) = valid_time(q.time.clone());
     let access = q.access();
     let access = access.as_deref();
@@ -116,8 +118,7 @@ pub fn execute_files(
     let full = q.detail() == "full";
     // Modification times are collected for the `modified` sort (the schema
     // default, newest first; ties keep walk order) and `detail` modified/full.
-    let collect_modified =
-        full || q.detail() == "modified" || q.sort() == "modified";
+    let collect_modified = full || q.detail() == "modified" || q.sort() == "modified";
     let count_lines = (full || q.sort() == "lines") && native.entries.len() <= 2_000;
     let mut rows = native
         .entries
@@ -134,11 +135,7 @@ pub fn execute_files(
             )
         })
         .collect::<Result<Vec<_>, super::AstError>>()?;
-    sort_rows(
-        &mut rows,
-        &q.sort(),
-        collect_modified,
-    );
+    sort_rows(&mut rows, &q.sort(), collect_modified);
     let available = rows.len();
     let requested = q.limit().unwrap_or(MAX_WALK).min(MAX_WALK) as usize;
     rows.truncate(requested);

@@ -70,11 +70,12 @@ pub(super) fn finish(
         super::continuations::compact_continuations(&mut structured);
     }
     context.check()?;
-    let render = options.render_text.unwrap_or(mcp)
-        || failure.is_some()
-        || options.response_char_length.is_some()
-        || options.response_char_offset.is_some()
-        || options.response_snapshot.is_some();
+    let render = !is_clasify
+        && (options.render_text.unwrap_or(mcp)
+            || failure.is_some()
+            || options.response_char_length.is_some()
+            || options.response_char_offset.is_some()
+            || options.response_snapshot.is_some());
     let rendered_text = render
         .then(|| super::render::render_tool(&tool, &structured, &response_query, text_format));
     context.check()?;
@@ -134,13 +135,26 @@ pub(super) fn isolate_output_rows(
 }
 
 pub(super) fn response_all_failed(structured: &Value) -> bool {
+    if let Some(rows) = structured.get("results").and_then(Value::as_array) {
+        return rows.iter().all(|row| row["status"] == "error");
+    }
     structured
-        .get("results")
-        .or_else(|| structured.get("queries"))
+        .get("queries")
         .and_then(Value::as_array)
-        .is_some_and(|rows| {
-            rows.iter()
-                .all(|row| row.get("status").and_then(Value::as_str) == Some("error"))
+        .is_some_and(|queries| {
+            !queries.is_empty()
+                && queries.iter().all(|query| {
+                    query["status"] == "error"
+                        || query
+                            .get("resources")
+                            .and_then(Value::as_array)
+                            .is_some_and(|resources| {
+                                !resources.is_empty()
+                                    && resources
+                                        .iter()
+                                        .all(|resource| resource["coverage"] == "error")
+                            })
+                })
         })
 }
 
@@ -253,6 +267,27 @@ mod tests {
         json!({"index":index,"data":{"path":"a.txt","content":"one\n","totalLines":1,
             "next":{"continue":{"tool":"localFetch","confidence":"exact",
                 "query":{"path":"/tmp/a.txt","reasoning":"r","debug":false,"offset":1}}}}})
+    }
+
+    #[test]
+    fn semantic_error_flag_uses_resource_coverage_without_hiding_partial_success() {
+        for (coverage, expected) in [
+            (vec!["error"], true),
+            (vec!["error", "error"], true),
+            (vec!["error", "partial"], false),
+            (vec!["error", "complete"], false),
+            (vec![], false),
+        ] {
+            let resources = coverage
+                .into_iter()
+                .map(|coverage| json!({"coverage":coverage}))
+                .collect::<Vec<_>>();
+            assert_eq!(
+                response_all_failed(&json!({"queries":[{"resources":resources}]})),
+                expected
+            );
+        }
+        assert!(!response_all_failed(&json!({"queries":[]})));
     }
 
     #[test]

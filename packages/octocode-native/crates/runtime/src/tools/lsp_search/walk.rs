@@ -11,9 +11,7 @@
 //! capped in code; each level's requests run concurrently under a small
 //! bound; per-node failures are collected as data.
 
-use super::failure::{
-    LspFailure, continuation, mark_partial, mark_terminal_limit, push_reason,
-};
+use super::failure::{LspFailure, continuation, mark_partial, mark_terminal_limit, push_reason};
 use super::locations::{items_payload, public_range};
 use super::render::{as_array, decode_uri_path, symbol_kind_name, uri_to_path};
 use super::source::item_uri_is_authorized;
@@ -556,7 +554,10 @@ fn resume_query(query: &LspSearchQuery, resume: &Resume, operation: Option<&str>
         object.insert("operation".into(), json!(operation));
     }
     object.insert("uri".into(), json!(uri_to_path(uri)));
-    object.insert("position".into(), json!({"line": line, "character": character}));
+    object.insert(
+        "position".into(),
+        json!({"line": line, "character": character}),
+    );
     for field in ["symbolName", "lineHint", "orderHint", "page", "snapshot"] {
         object.remove(field);
     }

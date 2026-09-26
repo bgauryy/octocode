@@ -10,8 +10,24 @@ Load for a remote repository, package, upstream change, or external implementati
 | Repository concept | `ghSearch operation:"repositories"`; combine intended filters, separate alternatives |
 | Known repository | `ghSearch operation:"tree"` only if orientation is needed |
 | Code term in a repository | `ghSearch operation:"code"`, then exact-read decisive hits |
-| Known file/ref | `ghGetFileContent` directly; no prerequisite search |
+| Known file/ref | Exact `ghGetFileContent` for known lines; unread semantic localization below when broad reads would otherwise be needed |
 | Known history identity | `ghGetHistoryItem` directly; no prerequisite history search |
+
+## Unread GitHub files: locate before broad reads
+
+Use the same private-read flow as local files, with remote identity preserved. Skip Clasify for a useful literal, a small exact range, or a cheap outline that already identifies the section.
+
+1. Discover owner/repo/path without loading the file body. Use a known tag/commit in `branch`; keep arbitrary-ref work out of default-branch code search.
+2. Pass that unread `ghGetFileContent` request as context. Batch atomic questions about the same file; use separate matrices for different question sets. Do not ask one window to cover “all limitations” or several dispersed conditions.
+3. Verify returned windows with `ghGetFileContent`, preserving owner/repo and the original repository-relative path. Use the returned `source.ref` as `branch` when present. The receipt’s `source.path` includes owner/repo and is not a ready-to-use repository-relative path.
+4. Merge overlapping windows. Read only missing boundary lines when a branch or record is incomplete. A scope marked complete means captured coverage, not that one ranked window fully answers every question.
+5. Keep errors/partial coverage unresolved; follow `next.clasify` when needed. If file identity changes, relocate before citing. Count request, hint, schema and all verification costs; a smaller hint alone proves no total saving.
+
+This request was exercised through local MCP; both targets share one unread capture:
+
+```json
+{"reasoning":"Locate facts before reading remote source.","resources":[{"context":{"tool":"ghGetFileContent","query":{"reasoning":"Assess unread tagged source.","owner":"psf","repo":"requests","path":"src/requests/sessions.py","branch":"v2.32.3","fullContent":true}}}],"questions":[{"id":"auth","questionType":"locate","target":"The condition for removing authorization when a redirect changes hostname."},{"id":"rewind","questionType":"locate","target":"The condition under which a request body is rewound during redirection."}]}
+```
 
 ## Code and package provenance
 - GitHub code search covers the indexed default branch, not an arbitrary branch; use tree/file reads or materialization for another ref. GitHub search has a 1,000-result cap and can return incomplete results. Narrow the query or record the limit; a search zero never proves repository-wide absence.

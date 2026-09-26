@@ -161,6 +161,7 @@ impl fmt::Debug for PrivateTokenSelection {
 
 #[derive(Clone)]
 pub struct ConfigOutput {
+    pub home: PathBuf,
     pub resolved: ResolvedConfig,
     pub(crate) effective_env: BTreeMap<String, String>,
     pub dotenv: EnvApplyReport,

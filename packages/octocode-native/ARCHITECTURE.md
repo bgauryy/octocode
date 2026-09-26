@@ -57,6 +57,47 @@ Nested context supports ten read tools; recursive semantic assessment, astRewrit
 
 `crates/engine` is consumed as a Rust library with default features disabled. It exposes reusable algorithms, not public policy. Its N-API bindings are published at `@octocodeai/octocode-native/engine` but are not an alternate Octocode tool runtime.
 
+## GitHub authentication
+
+`providers/github/auth` owns one lazy credential-selection flow shared by tool
+requests and CLI auth inspection. Config owns environment-token precedence and
+protected keys through `config-contract.json`; Node interfaces pass their
+environment through without discovering or injecting credentials.
+
+The resolver checks an explicit override, then the configured host's environment
+token, encrypted home credentials, existing OS credentials, and finally host-scoped
+`gh auth token`. Stored
+credentials retain their username and expiry metadata. Request mode refreshes
+expired stored credentials under the existing cross-process lock and rereads
+storage after acquiring it; inspection mode never refreshes. A deleted credential
+is not reused. A usable `gh` fallback keeps its own source identity and never
+enters the stored-token refresh path. CLI source labels remain `env`, `platform`,
+`gh-cli`, and `none`; home credentials add `octocode-storage`.
+
+Discovery uses the runtime's explicit environment and adds common Homebrew paths
+after the supplied PATH. Environment tokens are removed from the `gh` subprocess
+because the resolver has already applied their host scope. Its output is bounded,
+and timeout/cancellation paths kill and reap the child. Discovery and refresh
+share the request deadline; cancellation and timeout do not start another fallback.
+OS keychain calls run on blocking workers and are awaited before checking the
+budget again: an OS keychain prompt cannot be forcibly cancelled by the resolver.
+The selected credential is pinned before transport/cache work begins. Local
+tools and catalog inspection perform no credential discovery.
+
+`CredentialStore` takes the resolved Octocode home from config. New logins and
+N-API credential saves use main-compatible AES-256-GCM home files; existing native
+OS-store credentials remain a fallback. Refresh persists to its original source.
+Home updates lock the document and atomically replace it, preserving other hosts.
+A refresh cannot overwrite a newer home login or recreate a deleted credential.
+Forced login replaces credentials only after successful authorization and saving.
+Logout removes the host from both stores and leaves environment and gh auth alone.
+
+Keep discovery and OAuth in native: both the standalone binary and N-API runtime
+need the same lazy, host-scoped selection, refresh locks, deadlines, and provenance.
+Moving those effects into Node config would duplicate the standalone path and
+flatten credentials into environment tokens, losing refresh metadata and source.
+Config remains the shared home/dotenv policy owner; core contracts are unchanged.
+
 ## Language capability ownership
 
 `crates/engine/src/signatures/languages.rs` is the sole native grammar inventory. The default release registers 11 first-class families and 28 extensions. Structural search/rewrite, signatures, graph facts, syntax inspection, directory language filters, and LSP grammar adapters derive from that registry. CUDA is an optional grammar (`tree-sitter-cuda`), excluded from the default build because its parse tables cost ~6.8 MiB; only its native tree-sitter capabilities are gated off. Built-in semantic-server routing is a narrower, separately tested capability derived from an independent server table: 11 families and 27 extensions because generic Assembly requires trusted custom server configuration, while CUDA still routes `.cu`/`.cuh` to `clangd`. YAML rule parsing is configuration syntax, not YAML source support.

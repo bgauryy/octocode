@@ -49,7 +49,7 @@ describe('generated config contract', () => {
       'GITHUB_PERSONAL_ACCESS_TOKEN',
     ]);
     expect(
-      ENV_TOKEN_VARS.every(name => PROTECTED_KEY_NAMES.some(key => key === name))
+      ENV_TOKEN_VARS.every(name => !new Set<string>(PROTECTED_KEY_NAMES).has(name))
     ).toBe(true);
   });
 

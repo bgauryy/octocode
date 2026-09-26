@@ -13,11 +13,10 @@ mod transport;
 mod tree;
 
 pub use auth::{
-    ChainedCredentialSource, ConfigCredentialResolver, CredentialRequest,
-    CredentialResolutionHandle, CredentialResolver, CredentialSource, CredentialSourceProvider,
-    GhCliCredentialSource, OAuthToken, OwnedCredentialRequest, PlatformCredentialStore,
-    ResolvedCredential, StaticCredentialResolver, StoredCredentials, delete_platform_credential,
-    load_stored_credentials, store_platform_credential, token_from_stored_blob,
+    AuthMode, AuthSelection, Authentication, CredentialRequest, CredentialResolver,
+    CredentialSource, CredentialStore, OAuthToken, ResolvedCredential, StaticCredentialResolver,
+    StoredCredentials, delete_platform_credential, load_stored_credentials,
+    store_platform_credential, token_from_stored_blob,
 };
 pub use budget::{ExecutorConfig, GitHubBudget, GitHubResource, LimiterKey, session_snapshot};
 pub use content::{

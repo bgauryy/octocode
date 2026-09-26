@@ -29,7 +29,7 @@ Usage:
 
 Env files loaded (in precedence order):
   <home>/.env                             Global keys (OCTOCODE_HOME or ~/.octocode)
-  <cwd>/.octocode/.env                    Project keys (trusted mode only)
+  <cwd>/.octocode/.env                    Workspace keys (override global)
 `);
   process.exit(0);
 }

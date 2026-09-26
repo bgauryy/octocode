@@ -494,7 +494,9 @@ mod tests {
             .await;
         assert_eq!(calls.load(Ordering::Relaxed), 1, "first call must hit HTTP");
         // Second call with the same URL — must hit HTTP again (nothing written to cache).
-        let _ = client.json(ArtifactSearchQueryType::Npm, url, false, None).await;
+        let _ = client
+            .json(ArtifactSearchQueryType::Npm, url, false, None)
+            .await;
         assert_eq!(
             calls.load(Ordering::Relaxed),
             2,
@@ -553,7 +555,9 @@ mod tests {
             cache_revision: 2,
             cache_enabled: true,
         };
-        let _ = client_rev2.json(ArtifactSearchQueryType::Npm, url, false, None).await;
+        let _ = client_rev2
+            .json(ArtifactSearchQueryType::Npm, url, false, None)
+            .await;
         assert_eq!(
             calls.load(Ordering::Relaxed),
             2,

@@ -7,12 +7,7 @@ use super::write_json;
 use octocode_native::runtime::ToolRuntime;
 use serde_json::json;
 
-/// Resolve authentication: checks environment variables, the OS credential
-/// store, and then the GitHub CLI.
-/// Returns `(authenticated, username, source, raw_token)`.
-/// - `username` is populated natively only for the platform-keychain source.
-/// - `raw_token` is the credential secret when we can expose it (env / file / gh-cli);
-///   callers may use it for a live GH API call to resolve `username`.
+/// Use the same credential hostname for status, login, and logout.
 fn configured_github_host(runtime: &ToolRuntime) -> String {
     runtime
         .config()
@@ -42,37 +37,17 @@ fn oauth_client_id<'a>(runtime: &'a ToolRuntime, host: &str) -> Option<&'a str> 
             .then_some(octocode_native::providers::github::login::GITHUB_APP_CLIENT_ID))
 }
 
-fn resolve_auth(
+async fn resolve_auth(
     runtime: &ToolRuntime,
     host: &str,
-) -> (bool, Option<String>, &'static str, Option<String>) {
-    use octocode_native::providers::github::{
-        CredentialSourceProvider, GhCliCredentialSource, PlatformCredentialStore,
-        load_stored_credentials,
-    };
-    use secrecy::ExposeSecret;
-    // 1. Environment token — reuse the single selection the request path
-    // resolves (`config.token` = `resolve_env_token` over the contract-generated
-    // ENV_TOKEN_VARS, already trimmed and priority-ordered). Sharing it keeps
-    // this diagnostic and the actual credential used on requests from drifting.
-    if let Some(selection) = runtime.config().token.as_ref() {
-        return (true, None, "env", Some(selection.token().to_owned()));
-    }
-    // 2. OS platform keychain — username comes from keychain metadata directly
-    if matches!(PlatformCredentialStore.load_blocking(host), Ok(Some(_))) {
-        let username = load_stored_credentials(host)
-            .ok()
-            .flatten()
-            .map(|c| c.username)
-            .filter(|u| !u.is_empty());
-        return (true, username, "platform", None);
-    }
-    // 3. gh CLI token
-    if let Ok(Some(secret)) = GhCliCredentialSource.load_blocking(host) {
-        let token = secret.expose_secret().to_owned();
-        return (true, None, "gh-cli", Some(token));
-    }
-    (false, None, "none", None)
+) -> Option<octocode_native::providers::github::AuthSelection> {
+    use octocode_native::providers::github::{AuthMode, Authentication, RequestContext};
+    let auth = Authentication::new(std::sync::Arc::new(runtime.config().clone()));
+    let budget = RequestContext::with_timeout(std::time::Duration::from_secs(5), 0);
+    auth.resolve(host, AuthMode::Inspect, &budget)
+        .await
+        .ok()
+        .flatten()
 }
 
 /// Call `GET /user` on the GitHub API with the given token and return the
@@ -90,15 +65,15 @@ async fn fetch_github_username(token: &str, api_base: &str) -> Option<String> {
 pub async fn auth_status(runtime: &ToolRuntime, json_out: bool) -> u8 {
     let api_base = &runtime.config().resolved.github.api_url;
     let hostname = configured_github_host(runtime);
-    let (authenticated, username, source, token) = resolve_auth(runtime, &hostname);
-    // Resolve username via GH API when the credential source doesn't carry it
-    let username = if authenticated && username.is_none() {
-        match &token {
-            Some(tok) => fetch_github_username(tok, api_base).await,
-            None => None,
-        }
-    } else {
-        username
+    let selection = resolve_auth(runtime, &hostname).await;
+    let authenticated = selection.is_some();
+    let source = selection.as_ref().map_or("none", |s| s.source_label());
+    let username = match selection.as_ref() {
+        Some(selected) => match &selected.username {
+            Some(username) => Some(username.clone()),
+            None => fetch_github_username(selected.token(), api_base).await,
+        },
+        None => None,
     };
     if json_out {
         return write_json(
@@ -154,11 +129,15 @@ pub async fn login(
         return 1;
     }
 
+    let credential_store =
+        octocode_native::providers::github::CredentialStore::new(&runtime.config().home);
+
     // Refresh path: exchange the stored refresh token; no device flow, no TTY.
     if refresh {
-        let result = octocode_native::providers::github::login::refresh_auth_token_result(
-            Some(&host),
-            client_id,
+        let result = octocode_native::providers::github::login::refresh_auth_token_result_in_store(
+            &host,
+            client_id.unwrap_or(octocode_native::providers::github::login::GITHUB_APP_CLIENT_ID),
+            &credential_store,
         )
         .await;
         if result.success {
@@ -191,10 +170,14 @@ pub async fn login(
 
     // Already-authenticated short-circuit: a stored OAuth credential for this
     // host is left in place unless `--force` re-authenticates.
-    let stored = octocode_native::providers::github::load_stored_credentials(&host)
+    let stored = credential_store
+        .load(&host)
         .ok()
-        .flatten();
-    if let Some(existing) = stored.as_ref().filter(|_| !force) {
+        .flatten()
+        .map(|(stored, _)| stored);
+    if let Some(existing) = stored.as_ref().filter(|stored| {
+        !force && !octocode_native::providers::github::login::is_token_expired(stored)
+    }) {
         let user = if existing.username.is_empty() {
             host.clone()
         } else {
@@ -243,24 +226,16 @@ pub async fn login(
         return 1;
     }
 
-    // `--force`: remove the stored credential before re-authenticating.
-    if force
-        && stored.is_some()
-        && let Err(error) = octocode_native::providers::github::delete_platform_credential(&host)
-    {
-        if json_out {
-            return write_json(&json!({ "success": false, "error": error.message }), true);
-        }
-        eprintln!("{}", error.message);
-        return 1;
-    }
-
+    // Preserve the old login until the replacement has been authenticated and saved.
     let endpoints = octocode_native::providers::github::login::LoginEndpoints::from_host(&host);
     // The guard above returns before this point unless a client ID was resolved.
     #[allow(clippy::expect_used)]
     let client_id = client_id.expect("public GitHub or validated enterprise client ID");
-    match octocode_native::providers::github::login::login_device_flow_with_client_id(
-        &endpoints, client_id,
+    match octocode_native::providers::github::login::login_device_flow_in_store(
+        &endpoints,
+        client_id,
+        &tokio_util::sync::CancellationToken::new(),
+        &credential_store,
     )
     .await
     {
@@ -294,14 +269,22 @@ pub async fn login(
 }
 
 pub fn logout(runtime: &ToolRuntime) -> u8 {
+    let store = octocode_native::providers::github::CredentialStore::new(&runtime.config().home);
+    logout_with(runtime, &|host| store.delete(host))
+}
+
+fn logout_with(
+    runtime: &ToolRuntime,
+    delete: &dyn Fn(&str) -> Result<(), octocode_native::providers::github::ProviderError>,
+) -> u8 {
     let view = runtime.inspect_config();
     // Same host derivation as auth status / login so all three target the
     // identical credential-store host (api.github.com → github.com).
     let host = configured_github_host(runtime);
-    match octocode_native::providers::github::delete_platform_credential(&host) {
+    match delete(&host) {
         Ok(()) => {
             eprintln!(
-                "Removed native keychain credentials for {host}. Environment tokens are unchanged. Stored files under {} were not printed.",
+                "Removed Octocode credentials for {host} from {} and the OS store. Environment and gh credentials are unchanged.",
                 view.home.display()
             );
             0
@@ -378,6 +361,56 @@ pub fn skill(args: &[String]) -> u8 {
         Err(error) => {
             eprintln!("failed to spawn octocode skill: {error}");
             1
+        }
+    }
+}
+
+#[cfg(test)]
+mod auth_tests {
+    use super::*;
+    use octocode_native::providers::github::{ProviderError, ProviderErrorKind};
+    use octocode_native::runtime::HostOptions;
+    use std::{collections::BTreeMap, sync::Mutex};
+
+    #[test]
+    fn logout_targets_configured_host_preserves_environment_and_reports_delete_failure() {
+        for (api, expected_host) in [
+            ("https://api.github.com", "github.com"),
+            ("https://enterprise.example/api/v3", "enterprise.example"),
+        ] {
+            let dir = tempfile::tempdir().expect("fixture home");
+            let runtime = ToolRuntime::from_host(HostOptions {
+                cwd: Some(dir.path().into()),
+                env: Some(BTreeMap::from([
+                    (
+                        "OCTOCODE_HOME".into(),
+                        dir.path().to_string_lossy().into_owned(),
+                    ),
+                    ("GITHUB_API_URL".into(), api.into()),
+                    ("GH_TOKEN".into(), "synthetic-env-token".into()),
+                    ("OCTOCODE_ENABLE_STATS".into(), "false".into()),
+                ])),
+                ..HostOptions::default()
+            })
+            .expect("fixture runtime");
+            let calls = Mutex::new(Vec::new());
+            let delete = |host: &str| {
+                calls.lock().expect("calls").push(host.to_owned());
+                Ok(())
+            };
+            assert_eq!(logout_with(&runtime, &delete), 0);
+            assert_eq!(*calls.lock().expect("calls"), [expected_host]);
+            assert_eq!(
+                runtime.config().env_value("GH_TOKEN"),
+                Some("synthetic-env-token")
+            );
+            let failure = |_: &str| {
+                Err(ProviderError::new(
+                    ProviderErrorKind::CredentialStoreUnavailable,
+                    "fixture delete failed",
+                ))
+            };
+            assert_eq!(logout_with(&runtime, &failure), 1);
         }
     }
 }

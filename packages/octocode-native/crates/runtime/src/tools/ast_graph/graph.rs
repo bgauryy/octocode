@@ -117,23 +117,24 @@ pub(crate) fn build_graph(
             message: "Cargo metadata cargo-manifest-missing: No Cargo.toml was found at the scan root or known Rust-file ancestors. Point astTopology at the crate root that contains Cargo.toml (not a nested src/ directory); crate:: imports cannot be resolved otherwise.".into(),
         });
     }
-    let cargo_crates =
-        if q.rust_workspace() == Some(AstTopologyQueryRustWorkspace::Cargo) && !rust_cargo_unavailable {
-            match load_cargo_crates(&built.root) {
-                Ok(map) => map,
-                Err(message) => {
-                    built.diagnostics.push(Diagnostic {
-                        file: ".".into(),
-                        line: None,
-                        code: "unsupported-linking".into(),
-                        message: format!("Cargo metadata failed: {message}"),
-                    });
-                    BTreeMap::new()
-                }
+    let cargo_crates = if q.rust_workspace() == Some(AstTopologyQueryRustWorkspace::Cargo)
+        && !rust_cargo_unavailable
+    {
+        match load_cargo_crates(&built.root) {
+            Ok(map) => map,
+            Err(message) => {
+                built.diagnostics.push(Diagnostic {
+                    file: ".".into(),
+                    line: None,
+                    code: "unsupported-linking".into(),
+                    message: format!("Cargo metadata failed: {message}"),
+                });
+                BTreeMap::new()
             }
-        } else {
-            BTreeMap::new()
-        };
+        }
+    } else {
+        BTreeMap::new()
+    };
     let workspace_packages = load_workspace_packages(&built.root, &known, paths, security);
     for skipped in scan.skipped {
         built.diagnostics.push(Diagnostic {

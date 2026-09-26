@@ -220,10 +220,11 @@ fn apply_credential_file_fallbacks(file: Option<&Value>, effective: &mut BTreeMa
         let Some(binding) = field.env.first() else {
             continue;
         };
-        if effective
-            .get(binding.name)
-            .is_some_and(|value| !value.trim().is_empty())
-            || effective_disables_classification(effective, binding.name)
+        if field.env.iter().any(|alias| {
+            effective
+                .get(alias.name)
+                .is_some_and(|value| !value.trim().is_empty())
+        }) || effective_disables_classification(effective, binding.name)
         {
             continue;
         }
@@ -245,7 +246,9 @@ pub fn resolve_config(input: &ConfigInput) -> ConfigOutput {
         FileInput::Read { text, .. } => Some(text.as_str()),
         _ => None,
     };
-    let (map, sources) = merged_env(gt, pt, input.trusted_project);
+    // Workspace dotenv is configuration, independent of permission to execute
+    // project-local language-server definitions (trusted_project).
+    let (map, sources) = merged_env(gt, pt, true);
     let mut effective = input.env.clone();
     let dotenv = apply_env(&map, sources, &mut effective);
     let load = load_config(&input.config_file);
@@ -318,6 +321,7 @@ pub fn resolve_config(input: &ConfigInput) -> ConfigOutput {
         set: effective.clone(),
     };
     ConfigOutput {
+        home: super::octocode_home(&input.env, &input.cwd, &input.os_home),
         resolved,
         effective_env: effective,
         dotenv,

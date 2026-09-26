@@ -39,25 +39,25 @@ Do not edit generated files. Do not add a setting directly to `types.ts`, `defau
 
 `@octocodeai/config` owns this policy and keeps zero installed runtime dependencies. Ajv is a build/test dependency. The package must not depend on or re-export `@octocodeai/octocode-core`; core owns tool contracts, while config owns configuration and environment policy.
 
-## Precedence and trust tiers
+## Source precedence and file policy
 
 For ordinary settings, highest priority wins:
 
 ```text
 process environment / MCP client env block
-  → trusted project .octocode/.env
+  → workspace .octocode/.env
   → home .octocode/.env
-  → home .octocoderc
+  → home .octocode/.octocoderc
   → generated default
 ```
 
-Project and home `.env` files are propagated only by hosts that use that flow; the native CLI/MCP process normally receives settings through its process environment and `.octocoderc`.
+CLI and MCP load both `.env` files. Node helpers load the supplied workspace by default; an explicit `trusted:false` opts out. Native executable LSP-project trust is separate. Missing or blank file values fall back to the next source.
 
 The contract's dotenv policy controls file propagation:
 
 | Policy | Meaning |
 |---|---|
-| omitted or `all` | May be loaded from a trusted project or home `.env`. |
+| omitted or `all` | Loads from workspace or global Octocode `.env`. |
 | `home` | May be loaded from the trusted home `.env`, never a project `.env`. |
 | `never` | Shell/CI/MCP environment only; never loaded from either `.env` file. |
 
@@ -183,20 +183,20 @@ Nested sections use dotted names such as `output.pagination`. Parent sections mu
 
 Credential values must never appear in `ResolvedConfig`, logs, inspection output, or generated diagnostics. They are read from `effective_env` in Rust or `process.env` in TypeScript consumers.
 
-### Pattern A: environment-only credential
+### Pattern A: credential without a `.octocoderc` field
 
-Declare an environment-only policy entry, not a config field:
+Declare an environment entry, not a resolved config field:
 
 ```json
 "environment": {
   "MY_SERVICE_API_KEY": {
-    "dotenv": "never",
+    "dotenv": "all",
     "description": "My Service API credential"
   }
 }
 ```
 
-`dotenv: "never"` adds the name to the generated protected-key sets in both languages. The value may come from a shell, CI secret, or MCP client `env` block, but not a home or project `.env`.
+`dotenv: "all"` accepts process, workspace and global values through the shared loader. Use `never` only for a deliberate process-only policy, such as bootstrap settings; it adds the name to the generated protected-key sets.
 
 Read it without copying it into a loggable structure:
 
@@ -216,15 +216,15 @@ If the variable changes resolved configuration source labeling, add `configSourc
 GitHub tokens are Pattern A entries with `tokenPriority`. Lower numbers win. The generator derives `ENV_TOKEN_VARS`, token-source types, and protected-key sets from these declarations:
 
 ```json
-"OCTOCODE_TOKEN": { "dotenv": "never", "tokenPriority": 0 },
-"GH_TOKEN": { "dotenv": "never", "tokenPriority": 1 }
+"OCTOCODE_TOKEN": { "dotenv": "all", "tokenPriority": 0 },
+"GH_TOKEN": { "dotenv": "all", "tokenPriority": 1 }
 ```
 
-Do not add a token array elsewhere.
+Choose the credential source before alias order: process → workspace `.octocode/.env` → global `.env`. A workspace alias must beat a global canonical key. Declared alias order breaks ties within the same source. Do not add a token array elsewhere.
 
 ### Pattern B: environment preferred, trusted `.octocoderc` fallback
 
-Jev uses this pattern. Declare fields in a section with `resolved: false`, mark each field `credential: true`, and give its environment binding `dotenv: "home"` or `never`:
+Classification uses this pattern with `dotenv: "all"` for trusted home/project fallback. Declare fields in a section with `resolved: false`, mark each field `credential: true`, and choose the binding policy: `all` for both trusted files, `home` for home only, or `never` for process environment only:
 
 ```json
 "myService": {
@@ -240,7 +240,7 @@ Jev uses this pattern. Declare fields in a section with `resolved: false`, mark 
       "env": {
         "MY_SERVICE_API_KEY": {
           "priority": 0,
-          "dotenv": "home",
+          "dotenv": "all",
           "normalize": "trim"
         }
       }
@@ -249,17 +249,19 @@ Jev uses this pattern. Declare fields in a section with `resolved: false`, mark 
 }
 ```
 
-The generic Rust credential adapter applies environment-first file fallback into `effective_env`. The generated input type and generic validators recognize the `.octocoderc` section, but generated resolved types exclude it. `dotenv: "home"` permits the trusted home `.env` and blocks a cloned project's `.env`.
+The generic Rust credential adapter applies environment-first file fallback into `effective_env`. The generated input type and generic validators recognize the `.octocoderc` section, but generated resolved types exclude it. `dotenv: "all"` uses both files. An existing credential alias from either file prevents the canonical `.octocoderc` fallback from replacing it.
 
-Jev remains the reference: `jev.key`, `jev.model`, and `jev.baseUrl` never enter `ResolvedConfig`.
+Classification is the reference: `classification.api` and `classification.apiHost` never enter `ResolvedConfig`.
 
 Tests for Pattern B must prove:
 
 1. process environment wins over `.octocoderc`;
 2. `.octocoderc` fills an absent value;
-3. trusted home `.env` is accepted when policy is `home`;
-4. project `.env` is blocked;
+3. workspace `.env` wins over global, including across different aliases;
+4. missing/blank file values fall back, while the explicit process classification opt-out remains disabled;
 5. `Debug`, inspection JSON, and `get_config_value` do not contain the secret.
+
+Run `yarn workspace @octocodeai/config test:tokens:acceptance` after building CLI/MCP to verify outgoing credential selection with synthetic keys and a loopback provider.
 
 ## Read resolved configuration
 

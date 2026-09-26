@@ -42,7 +42,7 @@ const documentName=`handoff-${nonce}.md`;
 const documentPrefix='Large evidence stays in this shared document. Read only the requested section.\n'.repeat(600);
 const documentMarker=`DOC_PROOF ${nonce}`;
 const documentOffset=Buffer.byteLength(documentPrefix);
-const sharedDocument=invoke('share_document',{name:documentName,content:documentPrefix+documentMarker+'\n'},controller.id);
+const sharedDocument=invoke('share_document',{name:documentName,reasoning:"Verify cross-vendor document handoff and bounded reads",content:documentPrefix+documentMarker+'\n'},controller.id);
 const heartbeat=setInterval(()=>{try{invoke('heartbeat',{},controller.id);py('heartbeat',{session:generic.id});}catch(e){heartbeatError=e;}},10000);
 const rows=()=>db.prepare('SELECT * FROM messages ORDER BY id').all();
 const find=(sender,target,body)=>db.prepare('SELECT * FROM messages WHERE sender=? AND target=? AND body=?').get(sender,target,body);

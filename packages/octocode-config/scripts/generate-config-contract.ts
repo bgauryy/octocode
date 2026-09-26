@@ -569,7 +569,7 @@ ${rows.join('\n')}
 
 ## GitHub token priority
 
-Tokens are environment-only and are never loaded from a project or home \`.env\` file.
+Tokens first choose the highest-priority source: process environment → workspace \`.octocode/.env\` → global Octocode \`.env\`. CLI and MCP load both files. Missing or blank file values fall back; credential alias priority below breaks ties only within the winning source. A workspace alias overrides a global canonical key. Explicitly blank process \`OCTOCODE_CLASSIFICATION_API\` disables classification. See [configuration precedence](../CONFIGURATION.md#how-settings-override-each-other).
 
 | Environment variable | Priority | Description |
 |---|---:|---|

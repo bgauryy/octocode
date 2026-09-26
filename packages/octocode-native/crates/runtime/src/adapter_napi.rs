@@ -1,8 +1,7 @@
-use crate::providers::github::login::{get_token_with_refresh, refresh_auth_token_result};
-use crate::providers::github::{
-    StoredCredentials, delete_platform_credential, load_stored_credentials,
-    store_platform_credential,
+use crate::providers::github::login::{
+    client_id_for_host, get_token_with_refresh_in_store, refresh_auth_token_result_in_store,
 };
+use crate::providers::github::{CredentialStore, StoredCredentials};
 use crate::runtime::{HostOptions, RuntimeError, ToolRuntime};
 use napi::{Env, bindgen_prelude::PromiseRaw};
 use napi_derive::napi;
@@ -160,7 +159,9 @@ impl NativeRuntime {
             let credentials: StoredCredentials = serde_json::from_value(value).map_err(|_| {
                 napi::Error::new(napi::Status::InvalidArg, "Invalid stored credentials")
             })?;
-            store_platform_credential(&credentials).map_err(credential_error)?;
+            CredentialStore::new(&self.runtime.config().home)
+                .save(&credentials)
+                .map_err(credential_error)?;
             Ok(json!({ "success": true }))
         })
     }
@@ -168,8 +169,11 @@ impl NativeRuntime {
     #[napi]
     pub fn get_credentials(&self, hostname: Option<String>) -> napi::Result<Value> {
         boundary_guard("get_credentials", || {
-            match load_stored_credentials(&default_hostname(hostname)).map_err(credential_error)? {
-                Some(credentials) => serde_json::to_value(credentials).map_err(|_| {
+            match CredentialStore::new(&self.runtime.config().home)
+                .load(&default_hostname(hostname))
+                .map_err(credential_error)?
+            {
+                Some((credentials, _)) => serde_json::to_value(credentials).map_err(|_| {
                     napi::Error::new(
                         napi::Status::GenericFailure,
                         "Failed to serialize stored credentials",
@@ -183,14 +187,22 @@ impl NativeRuntime {
     #[napi]
     pub fn delete_credentials(&self, hostname: Option<String>) -> napi::Result<Value> {
         boundary_guard("delete_credentials", || {
-            delete_platform_credential(&default_hostname(hostname)).map_err(credential_error)?;
+            CredentialStore::new(&self.runtime.config().home)
+                .delete(&default_hostname(hostname))
+                .map_err(credential_error)?;
             Ok(json!({ "success": true }))
         })
     }
 
     #[napi]
     pub async fn refresh_auth_token(&self, hostname: Option<String>) -> napi::Result<Value> {
-        let result = refresh_auth_token_result(hostname.as_deref(), None).await;
+        let store = CredentialStore::new(&self.runtime.config().home);
+        let host = default_hostname(hostname);
+        let client = client_id_for_host(
+            &host,
+            self.runtime.config().env_value("OCTOCODE_GITHUB_CLIENT_ID"),
+        );
+        let result = refresh_auth_token_result_in_store(&host, client, &store).await;
         serde_json::to_value(result).map_err(|_| {
             napi::Error::new(
                 napi::Status::GenericFailure,
@@ -201,7 +213,9 @@ impl NativeRuntime {
 
     #[napi]
     pub async fn get_token_with_refresh(&self, hostname: Option<String>) -> napi::Result<Value> {
-        let result = get_token_with_refresh(hostname.as_deref(), None).await;
+        let store = CredentialStore::new(&self.runtime.config().home);
+        let client = self.runtime.config().env_value("OCTOCODE_GITHUB_CLIENT_ID");
+        let result = get_token_with_refresh_in_store(hostname.as_deref(), client, &store).await;
         serde_json::to_value(result).map_err(|_| {
             napi::Error::new(
                 napi::Status::GenericFailure,

@@ -82,7 +82,7 @@ try {
   const skill = JSON.parse(execFileSync(binary, ['skill'], {encoding: 'utf8'})).instructions;
   report.skillSha256 = digest(skill); report.skillBytes = Buffer.byteLength(skill);
   const task = `${skill}\n\nAssigned interoperability task: Initially respond READY to the host only. For each incoming peer QUESTION, discover your peers and read handoff.md once per session, then reply exactly once with ANSWER, the document verification word, and your available communication capabilities. Use replyTo only; omit to/topic. Use key answer-ID with the incoming ID, reasoning and wake action. Acknowledge after the reply succeeds. Other messages are informational: acknowledge without replying. Native delivery is under test: do not call inbox or hook, poll, send readiness to peers, or start unrelated work. End your turn after handling delivered messages.`;
-  call('share_document', {name: 'handoff.md', content: 'Coordination test. Verification word: SAFFRON. Discover collaborators and preserve reply correlation.\n'}, controller.id);
+  call('share_document', {name: 'handoff.md', reasoning: 'Verify OpenCode can consume shared coordination evidence', content: 'Coordination test. Verification word: SAFFRON. Discover collaborators and preserve reply correlation.\n'}, controller.id);
   for (const agent of agents.filter(a => a.vendor === 'opencode')) {
     agent.endpoint = `http://127.0.0.1:${await port()}`;
     const password = randomBytes(24).toString('hex');

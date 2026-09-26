@@ -29,7 +29,8 @@ describe('storage policy', () => {
   afterEach(() => {
     if (previousMode === undefined) delete process.env['OCTOCODE_STORAGE_MODE'];
     else process.env['OCTOCODE_STORAGE_MODE'] = previousMode;
-    if (previousStats === undefined) delete process.env['OCTOCODE_ENABLE_STATS'];
+    if (previousStats === undefined)
+      delete process.env['OCTOCODE_ENABLE_STATS'];
     else process.env['OCTOCODE_ENABLE_STATS'] = previousStats;
     if (previousHome === undefined) delete process.env['OCTOCODE_HOME'];
     else process.env['OCTOCODE_HOME'] = previousHome;
@@ -49,16 +50,25 @@ describe('storage policy', () => {
 
   it('reads storage.mode from .octocoderc when env var is absent', () => {
     delete process.env['OCTOCODE_STORAGE_MODE'];
-    writeFileSync(join(tmpDir, '.octocoderc'), JSON.stringify({ storage: { mode: 'memory' } }));
+    writeFileSync(
+      join(tmpDir, '.octocoderc'),
+      JSON.stringify({ storage: { mode: 'memory' } })
+    );
     expect(isPersistentStorageEnabled()).toBe(false);
 
-    writeFileSync(join(tmpDir, '.octocoderc'), JSON.stringify({ storage: { mode: 'persistent' } }));
+    writeFileSync(
+      join(tmpDir, '.octocoderc'),
+      JSON.stringify({ storage: { mode: 'persistent' } })
+    );
     expect(isPersistentStorageEnabled()).toBe(true);
   });
 
   it('env var wins over .octocoderc storage.mode', () => {
     process.env['OCTOCODE_STORAGE_MODE'] = 'memory';
-    writeFileSync(join(tmpDir, '.octocoderc'), JSON.stringify({ storage: { mode: 'persistent' } }));
+    writeFileSync(
+      join(tmpDir, '.octocoderc'),
+      JSON.stringify({ storage: { mode: 'persistent' } })
+    );
     expect(isPersistentStorageEnabled()).toBe(false);
   });
 });
@@ -127,36 +137,21 @@ describe('PROTECTED_KEYS', () => {
     }
   });
 
-  it('covers all four auth token vars', () => {
+  it('allows all four auth token vars as trusted file fallbacks', () => {
     for (const k of [
       'OCTOCODE_TOKEN',
       'GH_TOKEN',
       'GITHUB_TOKEN',
       'GITHUB_PERSONAL_ACCESS_TOKEN',
     ]) {
-      expect(PROTECTED_KEYS.has(k), `${k} should be protected`).toBe(true);
+      expect(PROTECTED_KEYS.has(k)).toBe(false);
     }
   });
 
-  it('covers the GitHub API URL and classification provider vars (env-only, mirrors native)', () => {
-    for (const k of [
-      'GITHUB_API_URL',
-      'OCTOCODE_CLASSIFICATION_API',
-      'OCTOCODE_CLASSIFICATION_API_HOST',
-      'OCTOCODE_CLASSIFICATION_TYPE',
-      'OCTOCODE_JEV_KEY',
-    ]) {
-      expect(PROTECTED_KEYS.has(k), `${k} should be protected`).toBe(true);
-    }
-  });
-
-  it('covers the host/registry redirect guards (mirrors native)', () => {
-    // GH_HOST could redirect API traffic (token exfiltration);
-    // OCTOCODE_ALLOW_PRIVATE_REGISTRY is the SSRF opt-in. An untrusted `.env`
-    // must not be able to set either — matching the Rust runtime.
-    for (const k of ['GH_HOST', 'OCTOCODE_ALLOW_PRIVATE_REGISTRY']) {
-      expect(PROTECTED_KEYS.has(k), `${k} should be protected`).toBe(true);
-    }
+  it('allows product settings from both dotenv sources while protecting process infrastructure', () => {
+    expect(PROTECTED_KEYS.has('GITHUB_API_URL')).toBe(false);
+    expect(PROTECTED_KEYS.has('OCTOCODE_ALLOW_PRIVATE_REGISTRY')).toBe(false);
+    expect(PROTECTED_KEYS.has('GH_HOST')).toBe(true);
   });
 
   it('does not protect tool API keys (they go in .env)', () => {
@@ -178,18 +173,8 @@ describe('PROTECTED_KEYS', () => {
       'PWD',
       'TMPDIR',
       'NODE_OPTIONS',
-      'OCTOCODE_TOKEN',
-      'GH_TOKEN',
-      'GITHUB_TOKEN',
-      'GITHUB_PERSONAL_ACCESS_TOKEN',
       'PYTHON',
-      'GITHUB_API_URL',
       'GH_HOST',
-      'OCTOCODE_ALLOW_PRIVATE_REGISTRY',
-      'OCTOCODE_CLASSIFICATION_API',
-      'OCTOCODE_CLASSIFICATION_API_HOST',
-      'OCTOCODE_CLASSIFICATION_TYPE',
-      'OCTOCODE_JEV_KEY',
       // A trusted-project .env must not relocate a child's config home.
       'OCTOCODE_HOME',
     ];
@@ -266,25 +251,15 @@ describe('applyOctocodeEnv', () => {
   it('skips protected keys and reports them', () => {
     const env: Record<string, string | undefined> = {};
     const res = applyOctocodeEnv(
-      {
-        PATH: '/evil',
-        OCTOCODE_TOKEN: 'tok',
-        GH_TOKEN: 'gh',
-        GITHUB_TOKEN: 'git',
-        GITHUB_PERSONAL_ACCESS_TOKEN: 'pat',
-      },
+      { PATH: '/evil', NODE_OPTIONS: '--bad', OCTOCODE_HOME: '/evil' },
       { env }
     );
-    expect(Object.keys(env)).toHaveLength(0);
-    expect(res.skippedProtected).toEqual(
-      expect.arrayContaining([
-        'PATH',
-        'OCTOCODE_TOKEN',
-        'GH_TOKEN',
-        'GITHUB_TOKEN',
-        'GITHUB_PERSONAL_ACCESS_TOKEN',
-      ])
-    );
+    expect(env).toEqual({});
+    expect(res.skippedProtected).toEqual([
+      'PATH',
+      'NODE_OPTIONS',
+      'OCTOCODE_HOME',
+    ]);
   });
 
   it('skips already-set (non-empty) keys and reports them', () => {
@@ -644,7 +619,9 @@ describe('validateConfig', () => {
     expect(validateConfig({ storage: { mode: 'memory' } }).valid).toBe(true);
     const invalid = validateConfig({ storage: { mode: 'disk' } });
     expect(invalid.valid).toBe(false);
-    expect(invalid.errors).toContain('storage.mode: Must be "persistent" or "memory"');
+    expect(invalid.errors).toContain(
+      'storage.mode: Must be "persistent" or "memory"'
+    );
 
     const invalidShape = validateConfig({ storage: 'memory' });
     expect(invalidShape.valid).toBe(false);
@@ -1159,7 +1136,9 @@ describe('resolveLocal', () => {
   it('the removed local.enableClone key is an unknown-key warning, not an error', () => {
     const r = validateConfig({ local: { enableClone: true } });
     expect(r.errors).toEqual([]);
-    expect(r.warnings).toContain('Unknown configuration key: local.enableClone');
+    expect(r.warnings).toContain(
+      'Unknown configuration key: local.enableClone'
+    );
     expect('enableClone' in resolveLocal()).toBe(false);
   });
 
@@ -1262,11 +1241,7 @@ describe('resolveNetwork', () => {
   const savedEnv: Record<string, string | undefined> = {};
 
   beforeEach(() => {
-    for (const key of [
-      'REQUEST_TIMEOUT',
-      'MAX_RETRIES',
-      'OCTOCODE_ALLOW_PRIVATE_REGISTRY',
-    ]) {
+    for (const key of ['REQUEST_TIMEOUT', 'MAX_RETRIES']) {
       savedEnv[key] = process.env[key];
       delete process.env[key];
     }
@@ -1419,12 +1394,25 @@ describe('resolveSession', () => {
 // ─── isStatsEnabled ───────────────────────────────────────────────────────────
 
 describe('isStatsEnabled', () => {
-  it.each(['TRUE', ' true ', ' 1 '])('uses the shared Boolean parser for %s', value => {
-    expect(isStatsEnabled({ OCTOCODE_ENABLE_STATS: value, OCTOCODE_STORAGE_MODE: 'persistent' })).toBe(true);
-  });
+  it.each(['TRUE', ' true ', ' 1 '])(
+    'uses the shared Boolean parser for %s',
+    value => {
+      expect(
+        isStatsEnabled({
+          OCTOCODE_ENABLE_STATS: value,
+          OCTOCODE_STORAGE_MODE: 'persistent',
+        })
+      ).toBe(true);
+    }
+  );
 
   it('normalizes the memory storage gate before allowing stats writes', () => {
-    expect(isStatsEnabled({ OCTOCODE_ENABLE_STATS: 'true', OCTOCODE_STORAGE_MODE: ' MEMORY ' })).toBe(false);
+    expect(
+      isStatsEnabled({
+        OCTOCODE_ENABLE_STATS: 'true',
+        OCTOCODE_STORAGE_MODE: ' MEMORY ',
+      })
+    ).toBe(false);
   });
 
   it('returns false when env var is unset', () => {
@@ -1474,7 +1462,9 @@ describe('validateConfig extension section', () => {
     expect(badShape.valid).toBe(false);
     expect(badShape.errors).toContain('extension.storage: Must be an object');
 
-    const badMode = validateConfig({ extension: { storage: { mode: 'disk' } } });
+    const badMode = validateConfig({
+      extension: { storage: { mode: 'disk' } },
+    });
     expect(badMode.valid).toBe(false);
     expect(badMode.errors).toContain(
       'extension.storage.mode: Must be "persistent" or "memory"'
@@ -1525,7 +1515,9 @@ describe('resolveExtensionStorage', () => {
 
     process.env['OCTOCODE_EXTENSION_STORAGE_MODE'] = 'memory';
     expect(
-      resolveExtensionStorage({ extension: { storage: { mode: 'persistent' } } })
+      resolveExtensionStorage({
+        extension: { storage: { mode: 'persistent' } },
+      })
     ).toEqual({ storage: { mode: 'memory' } });
   });
 
@@ -1533,7 +1525,9 @@ describe('resolveExtensionStorage', () => {
     delete process.env['OCTOCODE_EXTENSION_STORAGE_MODE'];
     delete process.env['OCTOCODE_STORAGE_MODE'];
     expect(
-      resolveExtensionStorage({ extension: { storage: { mode: 'persistent' } } })
+      resolveExtensionStorage({
+        extension: { storage: { mode: 'persistent' } },
+      })
     ).toEqual({ storage: { mode: 'persistent' } });
     expect(
       resolveExtensionStorage({ extension: { storage: { mode: 'memory' } } })
@@ -1644,9 +1638,8 @@ describe('loadConfigSync non-Error throw', () => {
       },
     }));
 
-    const { loadConfigSync: mockedLoad } = await import(
-      '../src/config/loader.js'
-    );
+    const { loadConfigSync: mockedLoad } =
+      await import('../src/config/loader.js');
     const r = mockedLoad('/nonexistent-home');
     expect(r.success).toBe(false);
     expect(r.error).toBe('Failed to parse config file: raw-string-failure');

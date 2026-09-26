@@ -24,7 +24,10 @@ pub(crate) async fn pypi(
         "https://pypi.org/pypi/{}/json",
         super::util::encode_component(package_name)
     ))?;
-    let Some(response) = client.json(ArtifactSearchQueryType::Pypi, url, true, None).await? else {
+    let Some(response) = client
+        .json(ArtifactSearchQueryType::Pypi, url, true, None)
+        .await?
+    else {
         return Ok(ArtifactProviderPage::empty(Some(0)));
     };
     let info = object_for(
@@ -94,7 +97,10 @@ pub(crate) async fn crates(
             "https://crates.io/api/v1/crates/{}",
             super::util::encode_component(name)
         ))?;
-        let Some(response) = client.json(ArtifactSearchQueryType::Crates, url, true, None).await? else {
+        let Some(response) = client
+            .json(ArtifactSearchQueryType::Crates, url, true, None)
+            .await?
+        else {
             return Ok(ArtifactProviderPage::empty(Some(0)));
         };
         let row = object_for(
@@ -132,7 +138,13 @@ pub(crate) async fn crates(
         .get("meta")
         .and_then(Value::as_object)
         .and_then(|meta| total(meta.get("total")));
-    paged(artifacts, count, page, size, ArtifactSearchQueryType::Crates)
+    paged(
+        artifacts,
+        count,
+        page,
+        size,
+        ArtifactSearchQueryType::Crates,
+    )
 }
 
 pub(crate) async fn go(
@@ -359,10 +371,16 @@ pub(crate) async fn rubygems(
             "https://rubygems.org/api/v1/gems/{}.json",
             super::util::encode_component(name)
         ))?;
-        let Some(response) = client.json(ArtifactSearchQueryType::Rubygems, url, true, None).await? else {
+        let Some(response) = client
+            .json(ArtifactSearchQueryType::Rubygems, url, true, None)
+            .await?
+        else {
             return Ok(ArtifactProviderPage::empty(Some(0)));
         };
-        return Ok(single(gem(object_for(&response, ArtifactSearchQueryType::Rubygems)?)?));
+        return Ok(single(gem(object_for(
+            &response,
+            ArtifactSearchQueryType::Rubygems,
+        )?)?));
     }
     let page = state.page.unwrap_or(1);
     let url = endpoint(

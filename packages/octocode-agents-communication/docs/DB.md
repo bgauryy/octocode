@@ -172,13 +172,19 @@ unrenewed leases. `prune` removes expired leases or leases of expired owners.
 
 ## Shared handoff documents
 
-`share_document {name,content}` publishes up to 1 MiB UTF-8 under the canonical
+`share_document {name,content,reasoning}` publishes up to 1 MiB UTF-8 under the canonical
 workspace's `.octocode/communication/<name>`. Use lowercase filenames with digits,
 dots, dashes or underscores; no directories, traversal or symlink components.
 CLI JSON `-` reads bounded stdin for content too large for command arguments.
 The file is immutable through this API; identical retries return the original
-metadata. Different content requires a new name. `document.created` audit data
-stores name, path, author, byte count and SHA-256; content stays once on disk.
+metadata. Different content, reasoning or context metadata requires a new name. `document.created` audit data
+stores name, path, author, reasoning, byte count and SHA-256; content stays once on disk.
+Reasoning is concrete intent (nonblank, at most 512 UTF-8 bytes), validated by the
+shared runtime for CLI/MCP/Pi. DB-only publishers must implement the same contract;
+the generic audit table does not enforce document-specific fields. Historical records
+remain readable without invented intent; republish under a new name to add intent.
+Update publishers to supply intent and restart resident MCP/worker processes to
+load the rebuilt catalog. This changes the unpublished command contract, not the DB schema.
 
 `read_document {name,offset?,limit?}` verifies the registered hash and returns
 UTF-8-aligned byte pages (default 8192 bytes, limit 4–16384), with a `next` input

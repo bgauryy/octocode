@@ -1,5 +1,7 @@
-use super::types::{EnvApplyReport, HOME_TRUSTED_ENV_KEYS, PROTECTED_KEYS};
-use std::collections::BTreeMap;
+use super::types::{
+    CONFIG_FIELDS, ENV_TOKEN_VARS, EnvApplyReport, HOME_TRUSTED_ENV_KEYS, PROTECTED_KEYS,
+};
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Present-but-blank in the process env disables clasify and every
 /// classification feature: no home `.env`, config-file, or vendor-key fallback
@@ -51,6 +53,35 @@ pub fn apply_env(
         keys: map.keys().cloned().collect(),
         ..Default::default()
     };
+    // Capture source decisions before mutating target: same-source aliases
+    // retain their declared priority; lower-source aliases cannot mask them.
+    let groups = std::iter::once(ENV_TOKEN_VARS.to_vec()).chain(
+        CONFIG_FIELDS
+            .iter()
+            .filter(|field| field.credential && field.env.len() > 1)
+            .map(|field| field.env.iter().map(|binding| binding.name).collect()),
+    );
+    let mut shadowed = BTreeSet::new();
+    for group in groups {
+        let process_selected = group.iter().any(|key| {
+            target
+                .get(*key)
+                .is_some_and(|value| !value.trim().is_empty())
+                || (*key == CLASSIFICATION_KILL_SWITCH && target.contains_key(*key))
+        });
+        let workspace_selected = group.iter().any(|key| {
+            report.sources.get(*key).map(String::as_str) == Some("project")
+                && map.get(*key).is_some_and(|value| !value.trim().is_empty())
+        });
+        for key in group {
+            if process_selected
+                || (workspace_selected
+                    && report.sources.get(key).map(String::as_str) != Some("project"))
+            {
+                shadowed.insert(key);
+            }
+        }
+    }
     for (key, value) in map {
         let home_trusted = HOME_TRUSTED_ENV_KEYS.contains(&key.as_str())
             && report.sources.get(key).map(String::as_str) == Some("global");
@@ -64,7 +95,8 @@ pub fn apply_env(
                     .any(|protected| protected.eq_ignore_ascii_case(key)));
         if protected_key && !home_trusted {
             report.skipped_protected.push(key.clone());
-        } else if target.get(key).is_some_and(|v| !v.is_empty())
+        } else if target.get(key).is_some_and(|v| !v.trim().is_empty())
+            || shadowed.contains(key.as_str())
             || (key == CLASSIFICATION_KILL_SWITCH && target.contains_key(key))
         {
             report.skipped_existing.push(key.clone());
@@ -83,12 +115,18 @@ pub fn merged_env(
 ) -> (BTreeMap<String, String>, BTreeMap<String, String>) {
     let mut map = BTreeMap::new();
     let mut sources = BTreeMap::new();
-    for (k, v) in parse_env(global) {
+    for (k, v) in parse_env(global)
+        .into_iter()
+        .filter(|(_, v)| !v.trim().is_empty())
+    {
         sources.insert(k.clone(), "global".into());
         map.insert(k, v);
     }
     if trusted {
-        for (k, v) in parse_env(project) {
+        for (k, v) in parse_env(project)
+            .into_iter()
+            .filter(|(_, v)| !v.trim().is_empty())
+        {
             sources.insert(k.clone(), "project".into());
             map.insert(k, v);
         }

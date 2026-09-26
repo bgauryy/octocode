@@ -120,8 +120,7 @@ pub(super) fn pr_next_menu(
     if !content_flag(content, "body") && !body_in_preview {
         next.insert("getBody".into(), call(json!({"body":true})));
     }
-    if !content_flag(content, "changedFiles") && patch_mode == "none" && has_files && !small_diff
-    {
+    if !content_flag(content, "changedFiles") && patch_mode == "none" && has_files && !small_diff {
         next.insert("getChangedFiles".into(), call(json!({"changedFiles":true})));
     }
     if patch_mode == "none" && has_files {
@@ -645,7 +644,14 @@ mod tests {
             "additions":900,"deletions":50,"comments":0});
         assert_eq!(
             names(&pr_next_menu(&query, None, "none", None, &large)),
-            ["getBody", "getChangedFiles", "getAllPatches", "getComments", "getReviews", "getCommits"]
+            [
+                "getBody",
+                "getChangedFiles",
+                "getAllPatches",
+                "getComments",
+                "getReviews",
+                "getCommits"
+            ]
         );
         // No changed files and provably no comments: nothing to fetch there.
         let empty = json!({"body":null,"changed_files":0,"comments":0,"review_comments":0});

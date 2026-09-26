@@ -81,6 +81,24 @@ test('Pi memory-only context never confirms until the matching session file is w
  await f.fire('session_shutdown');
 });
 
+test('Pi confirms accumulated durable batches and continues draining without replay',async t=>{
+ const f=fixture(t);f.setDisk(false);const controller=registerPiInbox(f.pi,{binary,database:f.database});
+ try {
+ await f.fire('session_start');const session=controller.getBinding().session,sender=f.run('join',{vendor:'raw',name:'sender'}).id;
+ const ids=[];
+ for(let i=0;i<35;i++) ids.push(f.run('send_message',{to:session,body:`pending-${i}`,key:`pending-${i}`,reasoning:'Verify delayed ledger flush across several native batches'},sender).id);
+ for(let i=0;i<4;i++) await controller.drain();
+ const receipts=()=>f.sent.filter(s=>s.message.customType==='octocode-peer').flatMap(s=>s.message.details.receipts).map(r=>r.id);
+ assert.deepEqual(receipts(),ids);
+ f.setDisk(true);f.flush();await controller.drain();
+ const dispatches=JSON.parse(execFileSync(binary,['entity','list','dispatch','{}','--workspace',f.workspace,'--database',f.database,'--session',session],{encoding:'utf8'})).items;
+ assert.equal(dispatches.length,35);assert.ok(dispatches.every(d=>d.state==='submitted'));
+ assert.deepEqual(receipts(),ids,'confirmation must not replay context');
+ const later=f.run('send_message',{to:session,body:'after confirmation',reasoning:'Verify polling was not stalled'},sender);
+ await controller.drain();assert.deepEqual(receipts(),[...ids,later.id]);
+ } finally { await f.fire('session_shutdown'); }
+});
+
 test('shutdown fences an in-flight inbox poll before it can inject peer context',async t=>{
  const f=fixture(t),controller=registerPiInbox(f.pi,{binary,database:f.database});await f.fire('session_start');
  const session=controller.getBinding().session,sender=f.run('join',{vendor:'raw',name:'sender'}).id;

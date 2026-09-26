@@ -1,9 +1,8 @@
 //! Compact, resource-major clasify output and provider-page coalescing.
 //!
 //! Output is `queries[] → resources[] → pages[] → answers[questionId]`: the
-//! resolved model and summed usage appear once per query, page receipts appear
-//! once per page (not once per question), and answers carry only the typed
-//! verdict. Receipts stay internal; the caller sees `scope` and limitations.
+//! source coordinates appear once per page and answers carry typed hints only.
+//! Provider telemetry and capture hashes stay internal.
 use super::clasify_context::PAGE_ONLY_LIMITATION;
 use crate::tools::clasify::transport::ClassificationError;
 use serde_json::{Map, Value, json};
@@ -15,11 +14,6 @@ use sha2::{Digest, Sha256};
 /// scoped verdicts instead of one whole-file scope (48 KiB judged a 1,079-line
 /// README as a single page in the GitHub eval).
 pub(super) const COALESCE_BYTES: usize = 24 * 1024;
-
-/// Nearby locate windows usually belong to one useful verification excerpt.
-/// Coalescing them here prevents every host from independently expanding the
-/// same matches into too many read calls.
-const VERIFY_MERGE_GAP_LINES: u64 = 32;
 
 /// Outcome of one assessed (or failed) page, before rendering.
 pub(super) enum PageOutcome {
@@ -79,7 +73,13 @@ fn limitations(receipt: &Value) -> Option<Value> {
 fn page_base(receipt: &Value) -> Map<String, Value> {
     let mut page = Map::new();
     if receipt.get("source").is_some_and(Value::is_object) {
-        page.insert("source".into(), receipt["source"].clone());
+        let mut source = receipt["source"].clone();
+        source
+            .as_object_mut()
+            .map(|source| source.remove("evidenceHash"));
+        if source.as_object().is_some_and(|source| !source.is_empty()) {
+            page.insert("source".into(), source);
+        }
     }
     if let Some(scope) = receipt.get("scope") {
         page.insert("scope".into(), scope.clone());
@@ -94,47 +94,6 @@ fn page_base(receipt: &Value) -> Map<String, Value> {
         page.insert("next".into(), json!({"read":read}));
     }
     page
-}
-
-fn verification_ranges(answers: &Map<String, Value>) -> Option<Value> {
-    let mut ranges = answers
-        .values()
-        .flat_map(|answer| {
-            answer
-                .get("matches")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter_map(|matched| {
-                    Some((
-                        matched.get("startLine")?.as_u64()?,
-                        matched.get("endLine")?.as_u64()?,
-                    ))
-                })
-        })
-        .collect::<Vec<_>>();
-    ranges.sort_by_key(|(start, end)| (*start, *end));
-
-    let mut merged: Vec<(u64, u64)> = Vec::new();
-    for (start, end) in ranges {
-        if let Some((_, merged_end)) = merged.last_mut()
-            && start <= merged_end.saturating_add(VERIFY_MERGE_GAP_LINES + 1)
-        {
-            *merged_end = (*merged_end).max(end);
-        } else {
-            merged.push((start, end));
-        }
-    }
-    (!merged.is_empty()).then(|| {
-        Value::Array(
-            merged
-                .into_iter()
-                .map(|(start_line, end_line)| {
-                    json!({"startLine":start_line,"endLine":end_line})
-                })
-                .collect(),
-        )
-    })
 }
 
 /// Render one resource. `question_ids` orders the per-page answer map.
@@ -174,9 +133,6 @@ pub(super) fn resource(
                         }
                     };
                     by_question.insert(key, value);
-                }
-                if let Some(ranges) = verification_ranges(&by_question) {
-                    page.insert("verificationRanges".into(), ranges);
                 }
                 page.insert("answers".into(), Value::Object(by_question));
                 Value::Object(page)
@@ -348,30 +304,6 @@ pub(super) fn coalesce(pages: Vec<(Value, Value)>, max_bytes: usize) -> Vec<(Val
     output
 }
 
-/// Sum provider usage records and pick the resolved model for the query.
-pub(super) fn query_meta(
-    usage_records: &[Value],
-    resolved_model: Option<&str>,
-) -> Map<String, Value> {
-    let mut meta = Map::new();
-    if let Some(model) = resolved_model {
-        meta.insert("model".into(), json!(model));
-    }
-    if !usage_records.is_empty() {
-        let sum = |field: &str| {
-            usage_records
-                .iter()
-                .filter_map(|record| record[field].as_u64())
-                .sum::<u64>()
-        };
-        meta.insert(
-            "usage".into(),
-            json!({"input_tokens":sum("input_tokens"),"output_tokens":sum("output_tokens")}),
-        );
-    }
-    meta
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -414,37 +346,6 @@ mod tests {
             json!({"exists":0.98,"matches":[{
                 "startLine":41,"endLine":44,"probability":0.91
             }]})
-        );
-    }
-
-    #[test]
-    fn nearby_locate_matches_become_one_host_verification_plan() {
-        let answers = Map::from_iter([
-            (
-                "completion".into(),
-                json!({"exists":0.9,"matches":[
-                    {"startLine":35,"endLine":42,"probability":0.6}
-                ]}),
-            ),
-            (
-                "deferred".into(),
-                json!({"exists":0.9,"matches":[
-                    {"startLine":339,"endLine":350,"probability":0.5}
-                ]}),
-            ),
-            (
-                "failure".into(),
-                json!({"exists":0.9,"matches":[
-                    {"startLine":363,"endLine":370,"probability":0.4}
-                ]}),
-            ),
-        ]);
-        assert_eq!(
-            verification_ranges(&answers),
-            Some(json!([
-                {"startLine":35,"endLine":42},
-                {"startLine":339,"endLine":370}
-            ]))
         );
     }
 
@@ -607,20 +508,5 @@ mod tests {
         let small = (json!("z"), json!({"coverage":"bounded"}));
         let merged = coalesce(vec![small.clone(), big, small], 100);
         assert_eq!(merged.len(), 3);
-    }
-
-    #[test]
-    fn query_meta_sums_usage_and_reports_one_model() {
-        let meta = query_meta(
-            &[
-                json!({"input_tokens":10,"output_tokens":2}),
-                json!({"input_tokens":5,"output_tokens":1}),
-            ],
-            Some("jev-1.13.0"),
-        );
-        assert_eq!(
-            Value::Object(meta),
-            json!({"model":"jev-1.13.0","usage":{"input_tokens":15,"output_tokens":3}})
-        );
     }
 }

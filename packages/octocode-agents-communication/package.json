@@ -36,6 +36,7 @@
     "poc:opencode": "node scripts/opencode-poc.mjs",
     "poc:acp": "node scripts/acp-probe.mjs",
     "benchmark:hooks": "node scripts/hook-benchmark.mjs",
+    "benchmark:context": "node scripts/context-discovery-benchmark.mjs",
     "poc:recovery": "node scripts/recovery-soak.mjs",
     "eval:collaboration": "node scripts/collaboration-eval.mjs"
   }

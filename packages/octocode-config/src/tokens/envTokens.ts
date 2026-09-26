@@ -1,9 +1,11 @@
 /**
  * Token resolution from environment variables.
  *
- * Priority is the canonical order in `ENV_TOKEN_VARS`. Every entry is also a
- * protected key and must never come from .env files.
- * They are read directly from process.env (set by the shell or MCP client).
+ * Priority is the canonical order in `ENV_TOKEN_VARS`. Callers can pass an
+ * effective environment populated by propagateOctocodeEnv: explicit values
+ * win across credential aliases, then workspace .env, then home .env.
+ * Alias priority here breaks ties within the winning source.
+ * These helpers do not load files or mutate the environment.
  */
 import type { TokenSource } from './types.js';
 import {

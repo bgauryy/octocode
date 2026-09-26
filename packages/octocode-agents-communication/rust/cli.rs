@@ -246,6 +246,7 @@ pub fn run() -> Result<()> {
             "peers"
                 | "inbox"
                 | "read_document"
+                | "context"
                 | "check_paths"
                 | "check_write"
                 | "health"

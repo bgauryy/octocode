@@ -187,9 +187,12 @@ pub(super) fn drop_same_uri(value: &mut Value, canonical_uri: &str) {
     let Some(object) = value.as_object_mut() else {
         return;
     };
-    let same = object.get("uri").and_then(Value::as_str).is_some_and(|uri| {
-        uri == canonical_uri || file(uri).is_some_and(|path| Some(path) == file(canonical_uri))
-    });
+    let same = object
+        .get("uri")
+        .and_then(Value::as_str)
+        .is_some_and(|uri| {
+            uri == canonical_uri || file(uri).is_some_and(|path| Some(path) == file(canonical_uri))
+        });
     if same {
         object.shift_remove("uri");
     }

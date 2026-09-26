@@ -141,7 +141,10 @@ async fn exact(
         "https://repo.maven.apache.org/maven2/{group_path}/{}/maven-metadata.xml",
         super::util::encode_component(name)
     ))?;
-    let Some(xml) = client.text(ArtifactSearchQueryType::Maven, url, true).await? else {
+    let Some(xml) = client
+        .text(ArtifactSearchQueryType::Maven, url, true)
+        .await?
+    else {
         return Ok(ArtifactProviderPage::empty(Some(0)));
     };
     if patterns::doctype().is_match(&xml) {
@@ -196,7 +199,10 @@ async fn repository_from_pom(
     let url = parse_url(&format!(
         "https://repo1.maven.org/maven2/{group_path}/{encoded_name}/{encoded_version}/{encoded_name}-{encoded_version}.pom"
     ))?;
-    let Some(xml) = client.text(ArtifactSearchQueryType::Maven, url, true).await? else {
+    let Some(xml) = client
+        .text(ArtifactSearchQueryType::Maven, url, true)
+        .await?
+    else {
         return Ok(None);
     };
     if patterns::doctype().is_match(&xml) {

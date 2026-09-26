@@ -10,6 +10,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { nativeTurnFinished, nativeTurnFailure } from './native-turns.mjs';
+import { nativeResults, verifyContributionReads } from './collaboration-evidence.mjs';
 
 const opencodeCommand = process.env.COMMUNICATION_OPENCODE_COMMAND?.trim();
 const opencodeModel = process.env.COMMUNICATION_OPENCODE_MODEL ?? 'opencode/mimo-v2.6-flash-free';
@@ -45,6 +46,7 @@ const digest = value => createHash('sha256').update(value).digest('hex');
 const children = [], sockets = [], agents = [];
 writeFileSync(join(output, 'harness.mjs'), readFileSync(fileURLToPath(import.meta.url)));
 writeFileSync(join(output, 'native-turns.mjs'), readFileSync(new URL('./native-turns.mjs', import.meta.url)));
+writeFileSync(join(output, 'collaboration-evidence.mjs'), readFileSync(new URL('./collaboration-evidence.mjs', import.meta.url)));
 const report = { plan, passed: false, routingModelCalls: 0, receiverModelCalls: null, workspace, database, startedAt: new Date().toISOString(), binarySha256: digest(readFileSync(binary)), harnessSha256: digest(readFileSync(fileURLToPath(import.meta.url))), models: { claude: 'haiku', codex: 'gpt-6-luna', grok: 'grok-4.7-build-fast', pi: piModel }, evidence: 'Integration test, not a provider performance comparison or coding-quality evaluation. Receiver inference is real; routing creates no sender or relay model.' };
 const binding = ['--workspace', workspace, '--database', database];
 const call = (command, input = {}, session) => JSON.parse(execFileSync(binary, [command, JSON.stringify(input), ...binding, ...(session ? ['--session', session] : [])], { encoding: 'utf8', timeout: 15000, stdio: ['pipe', 'pipe', 'pipe'] }));
@@ -132,28 +134,7 @@ async function watchOpenCode(agent) {
     }
   })().catch(error => { if (!abort.signal.aborted) agent.streamError = error.message; });
 }
-function nativeResults(agent) {
-  const records = [];
-  const decode = result => {
-    for (const block of result?.content ?? []) { try { return JSON.parse(block.text); } catch {} }
-  };
-  if (agent.vendor === 'codex') for (const event of agent.rpc.events) {
-    const item = event.params?.item;
-    if (event.method === 'item/completed' && item?.type === 'mcpToolCall' && item.status === 'completed' && !item.error) records.push({name: item.tool, value: decode(item.result)});
-  }
-  if (agent.vendor === 'grok') for (const event of agent.rpc.events) {
-    const update = event.params?.update, result = update?.rawOutput;
-    if (update?.status === 'completed' && result?.type === 'MCP' && result.server_name === 'communication') {
-      try { records.push({name: result.tool_name, value: JSON.parse(result.output.OkayOutput)}); } catch {}
-    }
-  }
-  if (agent.vendor === 'claude') {
-    const blocks = agent.process.events.flatMap(event => event.message?.content ?? []);
-    const names = new Map(blocks.filter(block => block.type === 'tool_use').map(block => [block.id, block.name.split('__').at(-1)]));
-    for (const block of blocks) if (block.type === 'tool_result' && !block.is_error && names.has(block.tool_use_id)) records.push({name: names.get(block.tool_use_id), value: decode(block)});
-  }
-  return records;
-}
+
 let db, timer, controller;
 try {
   if (process.env.COMMUNICATION_EXPECTED_BINARY_SHA256) assert.equal(report.binarySha256, process.env.COMMUNICATION_EXPECTED_BINARY_SHA256, 'Use the approved frozen runtime');
@@ -169,8 +150,20 @@ try {
   const skill = JSON.parse(execFileSync(binary, ['skill'], { encoding: 'utf8' })).instructions;
   report.skillSha256 = digest(skill); report.skillBytes = Buffer.byteLength(skill);
   const task = `${skill}\n\nAssigned interoperability task: Initially respond READY to the host only. For each peer message whose body starts QUESTION, use peers once to discover the workspace collaborators and read shared handoff document mesh-context.md once per session, then send exactly one reply using replyTo only; omit to/topic so the service resolves the recipient. Reply body must begin ANSWER and contain the document's verification word plus a brief truthful description of your available communication tools. Set replyTo to the QUESTION message ID, use key answer-ID with that ID, reasoning explaining the answer, and wake action because the answer unblocks its requester. Set ackReply:true on these final answers so reply and handling ACK commit together; failed replies remain pending. All other peer messages are informational: acknowledge without replying. Wake and reasoning do not turn an answer into a question. Automatic native delivery is under test: do not call inbox or hook, send readiness messages to peers, subscribe, broadcast, acquire leases, poll, or initiate other work. End each turn once its delivered messages are handled.`;
-  const collaborationTask = `${skill}\n\nAssigned group task: ${taskFamily === 'review' ? 'Review risks of concurrent shared-repository edits' : 'Plan dependency handoffs between implementation, review and validation owners'} using only the communication tools. Initially respond READY to the host; do not contact peers before a START message. Your ${agents.length} collaborators are ${agents.map(a => a.name).join(', ')}; the separate mesh-controller is only the test coordinator. Use peers to discover IDs and read mesh-context.md once. Copy IDs exactly from tool results; refresh peers after an unknown/expired-recipient error rather than guessing IDs. Otherwise reuse discovered peers. On START, publish <your-name>-coordination.md with a concise original coordination risk, mitigation and your available tools (under 300 characters, include COPPER). Then send exactly one QUESTION to each of the other ${agents.length - 1} collaborators. Use body QUESTION <your-name>: review <your-name>-coordination.md and recommend one improvement; to their discovered ID, key question-<recipientID>, conversationId mesh-<your-name>-<recipient-name>, wake action, and meaningful reasoning. These requests must be your own send_message calls. Acknowledge START with ack only after all ${agents.length - 1} sends succeed. On each QUESTION, read the named contributor document, then send exactly one ANSWER beginning ANSWER COPPER with a useful improvement and truthful available-tool description; use replyTo:QUESTION_ID, key answer-QUESTION_ID, ackReply:true, wake action and reasoning. Omit to/topic on replies so the service resolves the sender. Read each referenced contributor document once. Answers and FYIs require only ack, never another reply. Do not send acknowledgement messages, poll inbox, invoke hook, subscribe, acquire leases, or broadcast. Handle delivered messages once and end the turn after their required tools succeed. Native message triggering is under test; no host will prompt you again.`;
-  call('share_document', { name: 'mesh-context.md', content: 'Shared service integration context. Verification word: COPPER. Native transport must preserve sender identity and reply correlation; raw fallback follows the same DB contract.\n' }, controller.id);
+  const collaborationTask = `${skill}
+
+Assigned group task: ${taskFamily === 'review' ? 'Review risks of concurrent shared-repository edits' : 'Plan handoffs between implementation, review and validation owners'} using the exposed communication tools.
+Collaborators: ${agents.map(a => a.name).join(', ')}. mesh-controller is only the test coordinator.
+Initialize: respond READY to the host. Wait for START before contacting peers.
+On START, complete these steps before acknowledging it:
+1. Discover collaborator IDs with peers; copy them exactly. Refresh only after an unknown/expired-ID error.
+2. Call read_document with name:"mesh-context.md"; use the returned content. This is a communication tool, not an MCP resource.
+3. Call share_document with reasoning explaining why peers need this evidence to publish <your-name>-coordination.md: under 300 characters containing an original risk, mitigation, verification word. Describe only tools actually exposed to this session, not every capability mentioned in the skill. Read the sources before publishing: documents are immutable.
+4. Send one QUESTION to each of the other ${agents.length - 1} collaborators. The body must begin QUESTION <your-name>: and request an improvement to your published document using its exact name. Use to:<discovered-ID>, key:question-<recipientID>, conversationId:mesh-<your-name>-<recipient-name>, wake:action and meaningful reasoning. These sends must be your own tool calls.
+5. Call the ack tool for START only after all sends succeed; never send_message to mesh-controller.
+On each QUESTION: call read_document for that contributor's document once, then call send_message for exactly one useful ANSWER beginning ANSWER COPPER. Include an improvement and your exposed-tool description; use replyTo:<QUESTION-ID>, key:answer-<QUESTION-ID>, ackReply:true, wake:action, reasoning; omit to/topic.
+On each ANSWER/FYI: call ack with messages:[the delivered IDs], without replying. Before ending, check each delivered ID against successful tool results; incomplete work stays pending. Handle incoming work once and end the turn; native delivery triggers subsequent work. No polling, hook calls, subscriptions, leases, broadcasts, unsolicited messages or host nudges. Reuse already-read evidence and discovered IDs.`;
+  call('share_document', { name: 'mesh-context.md', reasoning: 'Give collaborators shared evidence for the native delivery review', content: 'Shared service integration context. Verification word: COPPER. Native transport must preserve sender identity and reply correlation; raw fallback follows the same DB contract.\n' }, controller.id);
   report.completionCheck = completionCheck; report.scopedSkill = scopedSkill; report.taskFamily = taskFamily; report.toolSelection = selectedTools ?? 'all';
   const descriptors = JSON.parse(execFileSync(binary, ['schema', 'tools', ...(selectedTools ? ['--tools', selectedTools] : [])], {encoding:'utf8'}));
   report.communicationToolCount = descriptors.length;
@@ -221,6 +214,13 @@ try {
       }, `${agent.name} tool inventory`);
       agent.toolInventory = Object.values(inventory.tools).map(tool => tool.name);
       for (const name of ['peers', 'read_document', 'send_message', 'ack']) assert.ok(agent.toolInventory.includes(name), `${agent.name} missing ${name}`);
+      await cx.request('turn/start', {threadId: thread.id, input: [{type: 'text', text: 'Initialize; respond READY to this host, without sending peer messages.'}]});
+      await until(() => {
+        const failure = nativeTurnFailure('codex', cx.events, thread.id);
+        if (failure) throw Error(`${agent.name}: ${failure}`);
+        return nativeTurnFinished('codex', cx.events, thread.id);
+      }, `${agent.name} initialization`);
+      assert.ok(cx.events.some(e => e.method === 'item/completed' && e.params?.threadId === thread.id && e.params.item?.type === 'agentMessage' && e.params.item.text.includes('READY')), `${agent.name} initialization response`);
       call('attach', { transport: 'codex', endpoint: `ws://127.0.0.1:${port}`, vendorSession: thread.id }, agent.id);
     } else if (agent.vendor === 'grok') {
       const endpoint = join(workspace, `${agent.name}.sock`);
@@ -230,7 +230,7 @@ try {
       const initialized = await gx.request('initialize', {protocolVersion: 1, clientInfo: {name: 'octocode-mesh-owner', version: '1'}, clientCapabilities: {}});
       agent.vendorInfo = initialized.agentInfo;
       const created = await gx.request('session/new', {cwd: workspace, mcpServers: [{name: 'communication', ...mcp(agent.id), env: []}], _meta: {
-        modelId: 'grok-4.7-build-fast', yoloMode: true, systemPromptOverride: `${ownTask}\n\nGrok tool bridge: call use_tool with tool_name communication__<command> and tool_input containing that command's JSON. Use only the selected communication tools: peers, read_document, share_document, send_message and ack, respecting their schemas. send_message supports to for new requests, replyTo and ackReply for final replies. These tools are bound to your identity; no session argument is needed.`,
+        modelId: 'grok-4.7-build-fast', yoloMode: true, systemPromptOverride: `${ownTask}\n\nGrok tool bridge: call use_tool with tool_name communication__<command> and tool_input containing that command's JSON. Use only the selected communication tools${selectedTools ? ': ' + selectedTools : ''}, respecting their schemas. send_message supports to for new requests, replyTo and ackReply for final replies. These tools are bound to your identity; no session argument is needed.`,
         agentProfile: {name: 'communication', description: 'Bound communication receiver', tools: ['use_tool'], disallowedTools: ['Agent(*)'], skills: [], discoverSkills: false, agentsMd: false, injectDefaultTools: false},
       }});
       agent.vendorSession = created.sessionId;
@@ -297,7 +297,7 @@ try {
     assert.deepEqual(call('send_message', input, sender.id), sent);
     requests.push({ ...sent, sender: sender.id, recipient: recipient.id, conversationId: input.conversationId });
   }
-  const starts = agentOriginated ? agents.map(agent => call('send_message', {to: agent.id, body: `START: discover collaborators, publish your contribution and originate the ${agents.length - 1} requested peer questions.`, key: `start-${agent.id}`, wake: 'action', reasoning: `Start the authorized ${agents.length}-agent ${taskFamily} and capability exchange`}, controller.id)) : [];
+  const starts = agentOriginated ? agents.map(agent => call('send_message', {to: agent.id, body: `START: discover collaborators, publish your contribution and originate the ${agents.length - 1} requested peer questions. When all sends succeed, call ack for this START ID only. This message requires no reply; do not send a completion/status message.`, key: `start-${agent.id}`, wake: 'action', reasoning: `Start the authorized ${agents.length}-agent ${taskFamily} and capability exchange`}, controller.id)) : [];
   const raw = agents.find(agent => agent.vendor === 'raw');
   async function rawDrain() {
     if (!raw) return;
@@ -328,7 +328,7 @@ try {
   const began = performance.now();
   if (agentOriginated) {
     await drainUntil(() => db.prepare("SELECT count(*) n FROM messages WHERE body LIKE 'QUESTION%'").get().n >= plan.requestEdges, 'all native agents originate their own directed questions');
-    requests.push(...db.prepare("SELECT id,sender,target AS recipient,conversationId FROM messages WHERE body LIKE 'QUESTION%' ORDER BY id").all());
+    requests.push(...db.prepare("SELECT id,sender,target AS recipient,conversationId,body FROM messages WHERE body LIKE 'QUESTION%' ORDER BY id").all());
     assert.equal(requests.length, plan.requestEdges);
     const edges = new Set(requests.map(r => `${r.sender}:${r.recipient}`));
     for (const sender of agents) for (const recipient of agents.filter(a => a.id !== sender.id)) assert.ok(edges.has(`${sender.id}:${recipient.id}`), `Missing native-originated edge ${sender.name} -> ${recipient.name}`);
@@ -367,15 +367,15 @@ try {
   }
   if (agentOriginated) {
     report.collaborators = [];
+    const recordsByAgent = new Map(agents.map(agent => [agent.id, nativeResults(agent)]));
+    report.contributionReads = verifyContributionReads(requests, recordsByAgent);
     for (const agent of agents) {
-      const records = nativeResults(agent), sentIds = new Set(records.filter(r => r.name === 'send_message').map(r => r.value?.id));
+      const records = recordsByAgent.get(agent.id), sentIds = new Set(records.filter(r => r.name === 'send_message').map(r => r.value?.id));
       const authored = requests.filter(r => r.sender === agent.id);
       assert.ok(authored.every(r => sentIds.has(r.id)), `${agent.name} requests need successful native tool receipts`);
       assert.ok(records.some(r => r.name === 'peers' && agents.every(peer => r.value?.items?.some(item => item.id === peer.id))), `${agent.name} must observe all peer identities`);
       assert.ok(records.some(r => r.name === 'share_document'), `${agent.name} must publish its own contribution`);
-      assert.ok(readFileSync(join(workspace, '.octocode/communication', `${agent.name}-coordination.md`), 'utf8').includes('COPPER'));
       const readNames = new Set(records.filter(r => r.name === 'read_document').map(r => r.value?.document?.name));
-      for (const peer of agents.filter(p => p.id !== agent.id)) assert.ok(readNames.has(`${peer.name}-coordination.md`), `${agent.name} must read ${peer.name}'s contribution`);
       report.collaborators.push({name: agent.name, requestsAuthored: authored.length, nativeSendReceipts: authored.filter(r => sentIds.has(r.id)).length, peerDocumentsRead: [...readNames].filter(name => name !== 'mesh-context.md')});
     }
   }

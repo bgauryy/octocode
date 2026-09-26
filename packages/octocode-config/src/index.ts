@@ -13,6 +13,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parseBooleanEnv } from './config/resolverSections.js';
 import {
+  CONFIG_FIELDS,
+  ENV_TOKEN_VARS,
   HOME_TRUSTED_ENV_KEYS,
   PROTECTED_KEY_NAMES,
   DEFAULT_STORAGE_MODE,
@@ -113,7 +115,7 @@ export {
 
 import { loadConfigSync } from './config/loader.js';
 
-/** Keys a project/global .env must never override — infrastructure + all auth tokens. */
+/** Keys restricted by the shared dotenv policy (infrastructure and security controls). */
 export const PROTECTED_KEYS: ReadonlySet<string> = new Set(PROTECTED_KEY_NAMES);
 
 /** Upper-cased protected keys for case-insensitive matching on Windows. */
@@ -123,13 +125,14 @@ const PROTECTED_KEYS_CI: ReadonlySet<string> = new Set(
 
 /**
  * Windows environment variables are case-insensitive, so a `.env` line like
- * `Gh_Token=…` would dodge an exact-case protected check and then fold into
- * `GH_TOKEN`. Match case-insensitively on win32 to keep the "auth tokens never
- * come from .env" guarantee; POSIX keeps exact-case semantics.
+ * `Path=…` would dodge an exact-case protected check and then fold into
+ * `PATH`. Match case-insensitively on win32; POSIX keeps exact-case semantics.
  */
 export function isProtectedKey(key: string): boolean {
   if (PROTECTED_KEYS.has(key)) return true;
-  return process.platform === 'win32' && PROTECTED_KEYS_CI.has(key.toUpperCase());
+  return (
+    process.platform === 'win32' && PROTECTED_KEYS_CI.has(key.toUpperCase())
+  );
 }
 
 /**
@@ -181,12 +184,12 @@ export interface LoadOctocodeEnvResult {
 /**
  * Load merged Octocode env from global then project (project wins).
  * Returns { map, sources } where sources[key] = 'global' | 'project' (names only, no values).
- * The project file is included only when trusted.
+ * The workspace file is loaded by default; hosts can explicitly opt out with trusted:false.
  */
 export function loadOctocodeEnv({
   home,
   cwd,
-  trusted = false,
+  trusted = true,
 }: LoadOctocodeEnvOptions = {}): LoadOctocodeEnvResult {
   const map: Record<string, string> = {};
   const sources: Record<string, 'global' | 'project'> = {};
@@ -195,6 +198,7 @@ export function loadOctocodeEnv({
     for (const [k, v] of Object.entries(
       parseEnv(readTextIfExists(path.join(home, '.env')))
     )) {
+      if (!v.trim()) continue;
       map[k] = v;
       sources[k] = 'global';
     }
@@ -203,6 +207,7 @@ export function loadOctocodeEnv({
     for (const [k, v] of Object.entries(
       parseEnv(readTextIfExists(path.join(cwd, '.octocode', '.env')))
     )) {
+      if (!v.trim()) continue;
       map[k] = v;
       sources[k] = 'project';
     }
@@ -236,10 +241,34 @@ export function applyOctocodeEnv(
   const skippedProtected: string[] = [];
   const skippedExisting: string[] = [];
 
+  // Resolve source precedence before alias preference. Otherwise a home
+  // canonical key can hide a workspace alias for the same credential.
+  const shadowed = new Set<string>();
+  const groups: readonly (readonly string[])[] = [
+    ENV_TOKEN_VARS,
+    ...CONFIG_FIELDS.filter(
+      field => field.credential && field.env.length > 1
+    ).map(field => field.env.map(binding => binding.name)),
+  ];
+  for (const group of groups) {
+    const processSelected = group.some(
+      key =>
+        Boolean(env[key]?.trim()) ||
+        (key === CLASSIFICATION_KILL_SWITCH && env[key] !== undefined)
+    );
+    const workspaceSelected = group.some(
+      key => sources[key] === 'project' && Boolean(map?.[key]?.trim())
+    );
+    for (const key of group) {
+      if (processSelected || (workspaceSelected && sources[key] !== 'project'))
+        shadowed.add(key);
+    }
+  }
+
   for (const [key, value] of Object.entries(map ?? {})) {
     const trustedHomeKey =
       sources[key] === 'global' &&
-      HOME_TRUSTED_ENV_KEYS.some(name => name === key);
+      (HOME_TRUSTED_ENV_KEYS as readonly string[]).includes(key);
     if (isProtectedKey(key) && !trustedHomeKey) {
       skippedProtected.push(key);
       continue;
@@ -247,7 +276,8 @@ export function applyOctocodeEnv(
     const existing = env[key];
     // A present-but-blank classification key is an explicit opt-out.
     if (
-      (existing !== undefined && existing !== '') ||
+      Boolean(existing?.trim()) ||
+      shadowed.has(key) ||
       (key === CLASSIFICATION_KILL_SWITCH && existing !== undefined)
     ) {
       skippedExisting.push(key);
@@ -275,7 +305,7 @@ export interface PropagateOctocodeEnvResult extends ApplyOctocodeEnvResult {
 export function propagateOctocodeEnv({
   home = getOctocodeHome(),
   cwd,
-  trusted = false,
+  trusted = true,
   env = process.env,
 }: PropagateOctocodeEnvOptions = {}): PropagateOctocodeEnvResult {
   const { map, sources } = loadOctocodeEnv({ home, cwd, trusted });
@@ -325,18 +355,22 @@ export function isPersistentStorageEnabled(
 export function isPersistentStorageEnabledForExtension(): boolean {
   const env = process.env;
   const extVar = env['OCTOCODE_EXTENSION_STORAGE_MODE']?.trim().toLowerCase();
-  if (extVar === 'persistent' || extVar === 'memory') return extVar === 'persistent';
+  if (extVar === 'persistent' || extVar === 'memory')
+    return extVar === 'persistent';
   const storageVar = env['OCTOCODE_STORAGE_MODE']?.trim().toLowerCase();
-  if (storageVar === 'persistent' || storageVar === 'memory') return storageVar === 'persistent';
+  if (storageVar === 'persistent' || storageVar === 'memory')
+    return storageVar === 'persistent';
   // Read rc once for both extension and storage fallback.
   const rc = loadOctocoderc() as {
     storage?: { mode?: unknown };
     extension?: { storage?: { mode?: unknown } };
   };
   const extMode = rc.extension?.storage?.mode;
-  if (extMode === 'persistent' || extMode === 'memory') return extMode === 'persistent';
+  if (extMode === 'persistent' || extMode === 'memory')
+    return extMode === 'persistent';
   const storageMode = rc.storage?.mode;
-  if (storageMode === 'persistent' || storageMode === 'memory') return storageMode === 'persistent';
+  if (storageMode === 'persistent' || storageMode === 'memory')
+    return storageMode === 'persistent';
   return DEFAULT_STORAGE_MODE === 'persistent';
 }
 

@@ -7,7 +7,7 @@
 ```text
 process environment
       ├── home .env / .octocoderc
-      └── trusted project .octocode/.env
+      └── workspace .octocode/.env
                  │
                  ▼
       parse → trust policy → resolved config
@@ -97,7 +97,10 @@ tightening a payload shape is a core schema change, never a hand-written type.
 ## Invariants
 
 - Importing the library performs no environment mutation.
-- Project configuration cannot replace protected credentials or security controls.
+- For each environment key: non-empty process value → workspace `.octocode/.env` → home `.env`. GitHub and classification credentials follow this order.
+- Workspace dotenv loads by default. Node hosts may explicitly opt out with `trusted:false`; native `trustedProject` remains separate permission for executable LSP configuration.
+- Process bootstrap keys remain blocked in both files; every declared product setting accepts both files. A present-but-blank process `OCTOCODE_CLASSIFICATION_API` remains an explicit opt-out.
+- Credential source priority applies across aliases before alias priority within the same source; token discovery, refresh, and storage remain native responsibilities.
 - Parsing is deterministic and does not execute shell syntax.
 - Consumers receive explicit environment objects where isolation matters.
 - The published package remains zero-runtime-dependency so it can be bundled into public packages and standalone skills without importing another policy owner. Ajv is build/test-only and is absent from `dist`.

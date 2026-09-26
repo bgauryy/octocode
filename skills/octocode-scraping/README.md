@@ -10,7 +10,7 @@ Fetch public web pages into a local corpus, search targeted spans, and cite insp
 |---|---|
 | Scrape or crawl public URLs, docs, tables, pricing pages | ✅ This skill |
 | Extract structured data (links, forms, headings, JSON-LD) from a static page | ✅ This skill |
-| Supply saved pages for an explicit classification request | → `octocode-clasify` owns admission |
+| Locate semantic answers in unread saved pages | → `octocode-clasify`, then verify source windows; skip cheap exact reads |
 | Page renders in the browser but has no content when fetched statically | ❌ → `octocode-chrome-devtools` |
 | You need to click, fill, log in, or interact with a live page | ❌ → `octocode-chrome-devtools` |
 | You want network HAR, console errors, or live DOM state | ❌ → `octocode-chrome-devtools` |
