@@ -199,7 +199,9 @@ pub(crate) fn build_graph(
             &mut graph_builder,
         )?;
     }
-    built.code_graph = graph_builder.finish();
+    // astTopology identifies results by their own digest (analysis
+    // `resultId`); the whole-graph digest is never read here.
+    built.code_graph = graph_builder.finish_without_digest();
     built.diagnostics.sort();
     built.diagnostics.dedup();
     Ok(built)

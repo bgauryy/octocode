@@ -725,14 +725,22 @@ impl CodeGraphBuilder {
         self.graph.completeness.reasons.insert(reason.into());
     }
 
-    pub fn finish(mut self) -> CodeGraphSnapshot {
+    pub fn finish(self) -> CodeGraphSnapshot {
+        let mut graph = self.finish_without_digest();
+        let encoded = serde_json::to_vec(&graph).unwrap_or_default();
+        graph.snapshot.digest = content_digest(&encoded);
+        graph
+    }
+
+    /// The finished graph with an empty `snapshot.digest`: for callers that
+    /// never read it, skipping the whole-graph serialization and hash (the
+    /// dominant cost of finishing a large graph).
+    pub fn finish_without_digest(mut self) -> CodeGraphSnapshot {
         self.refresh_generation();
         self.graph.diagnostics.sort();
         self.graph.diagnostics.dedup();
         self.refresh_counts();
         self.graph.snapshot.digest.clear();
-        let encoded = serde_json::to_vec(&self.graph).unwrap_or_default();
-        self.graph.snapshot.digest = content_digest(&encoded);
         self.graph
     }
 

@@ -147,7 +147,7 @@ async fn exact(
                 .ok_or_else(|| super::util::invalid(ArtifactSearchQueryType::Nuget))?
         };
         for leaf in rows(items, ArtifactSearchQueryType::Nuget)? {
-            let candidate = catalog(&leaf)?;
+            let candidate = catalog(leaf)?;
             if candidate.get("listed") == Some(&Value::Bool(false)) {
                 continue;
             }

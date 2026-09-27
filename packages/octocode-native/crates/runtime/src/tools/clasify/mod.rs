@@ -71,7 +71,10 @@ pub(crate) fn preflight(query: &Value) -> Result<Vec<Value>, ClassificationError
     let query = query
         .as_object()
         .ok_or_else(|| request_error("Query must be an object."))?;
-    if query.len() != 4
+    // `carry` (the running locate ranking from next.clasify) is optional.
+    let expected_keys = if query.contains_key("carry") { 5 } else { 4 };
+    if query.len() != expected_keys
+        || query.get("carry").is_some_and(|carry| !carry.is_object())
         || !query.get("id").is_some_and(valid_matrix_id)
         || !query.get("resources").is_some_and(Value::is_array)
         || !query.get("questions").is_some_and(Value::is_array)
@@ -339,6 +342,18 @@ mod tests {
             "questions":[{"id":"relevance.v1","question":question}]
         })
     }
+    #[test]
+    fn preflight_accepts_a_continuation_that_carries_the_running_best() {
+        let mut query = semantic_query(json!({"value":"x"}), question());
+        query["carry"] = json!({"t":[{"resourceId":"resource-1","exists":0.9,"startLine":1,"endLine":8,"probability":0.5}]});
+        assert!(preflight(&query).is_ok());
+        query["carry"] = json!("not a map");
+        assert!(preflight(&query).is_err());
+        query.as_object_mut().unwrap().remove("carry");
+        query["unexpected"] = json!(1);
+        assert!(preflight(&query).is_err());
+    }
+
     fn budget() -> RequestBudget {
         super::transport::budget(
             Instant::now() + Duration::from_secs(30),

@@ -368,6 +368,8 @@ fn signature_outline_descends_into_top_level_iifes() {
         "(() => {\n%\n})();\n",
         "!function(){\n%\n}();\n",
         "(function(){\n%\n}).call(this);\n",
+        // Nested wrappers (firebug-lite: an IIFE inside the file's IIFE).
+        "(function(){\nvar outer = 1;\n(function(){\n%\n})();\n})();\n",
     ] {
         let source = wrapper.replace(
             '%',

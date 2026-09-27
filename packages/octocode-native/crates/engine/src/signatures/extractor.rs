@@ -124,7 +124,7 @@ fn skip_parens<'t>(mut node: tree_sitter::Node<'t>) -> tree_sitter::Node<'t> {
 }
 
 /// Whether `body` is the body of a function expression invoked immediately
-/// by a top-level statement: `(function(){…})()`, `(() => {…})()`,
+/// by a top-level statement (or one nested in such a body): `(function(){…})()`, `(() => {…})()`,
 /// `!function(){…}()`, or `(function(){…}).call(this)`.
 fn is_top_level_iife_body(body: tree_sitter::Node<'_>) -> bool {
     let Some(function) = body.parent() else {
@@ -164,11 +164,16 @@ fn is_top_level_iife_body(body: tree_sitter::Node<'_>) -> bool {
     {
         statement = skip_parens(parent);
     }
+    // At file level, or directly inside another such IIFE body (legacy bundles
+    // nest wrappers: `(function(){ (function(){ function api(){} })(); })()`).
     statement
         .parent()
         .filter(|parent| parent.kind() == "expression_statement")
         .and_then(|expression| expression.parent())
-        .is_some_and(|program| program.kind() == "program")
+        .is_some_and(|scope| {
+            scope.kind() == "program"
+                || (scope.kind() == "statement_block" && is_top_level_iife_body(scope))
+        })
 }
 
 /// [`parse_with_deadline`] for callers that treat every failure alike.
