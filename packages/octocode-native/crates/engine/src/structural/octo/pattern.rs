@@ -92,6 +92,33 @@ impl CompiledPattern {
         }
         let mut source = lang.preprocess_pattern(pattern).into_owned();
         let mut tree = parse_tree(&language, &source).map_err(|err| err.to_string())?;
+        // The C# class wrap gives member patterns (methods, properties) real
+        // body context, but an expression or statement (`Helper($A)`,
+        // `Log($A);`) is not a class member and fails there. Fall back to the
+        // plain snippet, whose top-level `global_statement` wrapper
+        // `effective_pattern_root` unwraps.
+        if lang.class_wraps() {
+            let mut plain = lang.preprocess_rewrite_pattern(pattern).into_owned();
+            let mut plain_tree = parse_tree(&language, &plain).map_err(|err| err.to_string())?;
+            if !plain.trim_end().ends_with([';', '}']) {
+                // A bare call needs a terminator to be a statement.
+                let terminated = format!("{plain};");
+                let terminated_tree =
+                    parse_tree(&language, &terminated).map_err(|err| err.to_string())?;
+                if !effective_pattern_root(terminated_tree.root_node(), &terminated).has_error() {
+                    plain = terminated;
+                    plain_tree = terminated_tree;
+                }
+            }
+            let plain_root = effective_pattern_root(plain_tree.root_node(), &plain);
+            // `local_function_statement` is the top-level artifact of a
+            // member-shaped snippet (`public int $NAME(...) { ... }`): keep
+            // the class context for it and whenever the plain parse fails.
+            if !plain_root.has_error() && plain_root.kind() != "local_function_statement" {
+                source = plain;
+                tree = plain_tree;
+            }
+        }
         // Parse fragments once, at compilation, for both direct patterns and
         // every nested YAML pattern. A grammar-checked terminator supplies
         // statement/declaration context without depending on source matches.
@@ -566,6 +593,8 @@ fn is_pattern_wrapper(kind: &str) -> bool {
             | "fragment"
             | "document"
             | "expression_statement"
+            // C# wraps every top-level statement of a snippet in one.
+            | "global_statement"
             | "config_file"
             | "body"
     )

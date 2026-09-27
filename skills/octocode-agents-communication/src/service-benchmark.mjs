@@ -32,7 +32,7 @@ const manifest = {
   platform: `${process.platform}/${process.arch}`, node: process.version,
 };
 writeFileSync(join(dirname(output), 'manifest.json'), JSON.stringify(manifest, null, 2));
-const timings = { cliSend: [], mcpSend: [], mcpRetry: [], mcpInbox: [], mcpAck: [] };
+const timings = { cliSend: [], mcpSend: [], mcpRetry: [], mcpInbox: [], mcpComplete: [] };
 const pending = new Map();
 let child, childClosed, db, seq = 0, stderr = '', result, sender, receiver;
 function request(method, params = {}) {
@@ -81,12 +81,12 @@ try {
     const keep = i >= 0;
     for (const mode of i % 2 === 0 ? ['cli', 'mcp'] : ['mcp', 'cli']) {
       // Send to self to measure the same bound receive and acknowledgement APIs.
-      const args = { to: sender, key: `${mode}-${i}`, body: `Review change ${i}.`, reasoning: 'Request review of the completed change', wake: 'passive' };
+      const args = { replyRequired: false, to: sender, key: `${mode}-${i}`, body: `Review change ${i}.`, reasoning: 'Request review of the completed change', wake: 'passive' };
       const sent = await measure(`${mode}Send`, () => mode === 'cli' ? call('send_message', args, sender) : tool('send_message', args), keep);
       assert.deepEqual(await measure('mcpRetry', () => tool('send_message', args), keep), sent);
       const inbox = await measure('mcpInbox', () => tool('inbox', {}), keep);
       assert.deepEqual(inbox.items.map(item => item.id), [sent.id]);
-      assert.equal((await measure('mcpAck', () => tool('ack', { message: sent.id }), keep)).acknowledged, true);
+      assert.equal((await measure('mcpComplete', () => tool('complete', { message: sent.id }), keep)).completed, true);
     }
     if (i % 10 === 0) for (const id of [sender, receiver]) call('heartbeat', {}, id);
   }

@@ -11,7 +11,7 @@ use std::{
 };
 
 pub(crate) fn analyze(
-    mut b: BuiltGraph,
+    b: &mut BuiltGraph,
     q: &AstTopologyQuery,
     security: &ContentSecurity,
     cancel: &dyn CancellationCheck,
@@ -35,11 +35,11 @@ pub(crate) fn analyze(
     base.insert("filesScanned".into(), json!(b.facts.len()));
     base.insert("filesSkipped".into(), json!(b.files_skipped));
     let (items, mut summary, extra_warnings, mut low) = match q.analysis() {
-        GraphAnalysis::Dependencies | GraphAnalysis::Dependents => traversal(&b, q)?,
-        GraphAnalysis::Path => path_analysis(&b, q)?,
-        GraphAnalysis::Cycles => cycles(&b),
-        GraphAnalysis::Reachability => reachability(&b, q, security),
-        GraphAnalysis::DeadCode => dead_code(&b, q, security),
+        GraphAnalysis::Dependencies | GraphAnalysis::Dependents => traversal(b, q)?,
+        GraphAnalysis::Path => path_analysis(b, q)?,
+        GraphAnalysis::Cycles => cycles(b),
+        GraphAnalysis::Reachability => reachability(b, q, security),
+        GraphAnalysis::DeadCode => dead_code(b, q, security),
         GraphAnalysis::Drift => {
             return Err(AstGraphError::new(
                 "invalidGraphQuery",
@@ -118,7 +118,7 @@ pub(crate) fn analyze(
     .into_iter()
     .filter_map(|(present, reason)| present.then_some(reason))
     .collect::<Vec<_>>();
-    let diagnostics_changed = add_coverage(&mut base, &mut b, q, &results_digest);
+    let diagnostics_changed = add_coverage(&mut base, b, q, &results_digest);
     if !reasons.is_empty() {
         base.insert("truncated".into(), json!(true));
         base.insert("partialReasons".into(), json!(reasons));

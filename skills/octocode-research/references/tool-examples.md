@@ -41,7 +41,7 @@ Select the smallest example that answers the question.
 ]
 ```
 
-`astRewrite` previews by default. Inspect its exact patch and retain every returned `beforeHash`; apply only with `apply:true`, the complete `expectedHashes` map, and the explicit mutation gate enabled.
+`astRewrite` is CLI-only (`octocode astRewrite`) and previews by default. Inspect its exact patch and retain every returned `beforeHash`; apply only with `apply:true`, the complete `expectedHashes` map, and the explicit mutation gate enabled.
 
 `localSearch` takes `searchText` and has no `operation`; choose `regex:"literal"`, `"rust"`, or `"pcre2"`. `localFetch` also accepts `{path:"/ABS/repo/src/example.ts"}` with no selector; omitted `minify` is exact content. For LSP, anchored operations use either `symbolName` plus 1-based `lineHint` or a 0-based UTF-16 `position`; `documentSymbols`/`diagnostic` use only `uri`, and `workspaceSymbol` uses `symbolName` plus `uri` or `workspaceRoot`. Inspect `lsp.source` because native fallback evidence is syntactic. Local line numbers and symbols above are placeholders, not claimed evidence. Search or read them before an anchored LSP call. GitHub examples use public identities but their live content can change; record the returned ref and fetch date. Clone needs persistent local storage and git. Do not use the sparse clone as proof about omitted files.
 

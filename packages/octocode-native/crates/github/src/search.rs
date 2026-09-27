@@ -174,10 +174,17 @@ impl<R: CredentialResolver> GitHubTransport<R> {
                 "application/vnd.github+json"
             }),
         );
-        decode(
+        let key = format!("{}\u{0}{}", spec.url, request.include_fragments);
+        if let Some(page) = self.search_results.get(&key) {
+            return Ok((*page).clone());
+        }
+        let page: CodeSearchPage = decode(
             self.execute(spec, context).await?.body.as_ref(),
             "invalid GitHub code search response",
-        )
+        )?;
+        self.search_results
+            .insert(key, std::sync::Arc::new(page.clone()));
+        Ok(page)
     }
     pub async fn search_repositories(
         &self,

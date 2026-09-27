@@ -33,7 +33,7 @@ test('lock, check_paths, context and documents stay indexed with 10^4 leases and
   const lease = db.prepare("INSERT INTO leases(workspace,path,kind,owner,expiresAt,reasoning,pathKey) VALUES(?,?,'file',?,?,'r',?)");
   for (let i = 0; i < 10000; i++) {
     const path = join(workspace, `d${i % 16}`, `f${i}.txt`);
-    lease.run(workspace, path, owner, Date.now() + 3600000, path.toLowerCase());
+    lease.run(workspace, path, owner, Date.now() + 600000, path.toLowerCase());
   }
   db.exec('COMMIT');
   assert.ok(db.prepare('SELECT count(*) n FROM audit').get().n >= 100000);

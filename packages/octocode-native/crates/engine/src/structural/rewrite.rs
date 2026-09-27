@@ -23,7 +23,7 @@ use super::kinds::named_kind_id;
 use super::language::{AgLanguage, primary_expando_for_ext};
 use super::octo::parse_tree_with_deadline;
 
-pub const MAX_REWRITE_CONTENT_BYTES: usize = 1_000_000;
+pub const MAX_REWRITE_CONTENT_BYTES: usize = crate::signatures::MAX_PARSE_SIZE;
 const MAX_REWRITE_MATCHES: usize = 100_000;
 
 /// The ast-grep rewrite adapter uses Octocode's canonical grammar registry

@@ -184,6 +184,13 @@ pub fn extract_graph_facts(content: &str, file_path: &str) -> Option<String> {
     crate::signatures::extract_graph_facts_inner(content, file_path)
 }
 
+/// [`extract_graph_facts`] reduced to declarations, imports, exports, and
+/// containment edges (no calls or reference counts): the outline shape.
+#[must_use]
+pub fn extract_declarations(content: &str, file_path: &str) -> Option<String> {
+    crate::signatures::extract_declarations_inner(content, file_path)
+}
+
 #[must_use]
 pub fn extract_graph_facts_with_extension(
     content: &str,

@@ -43,7 +43,7 @@
         ],
         "additionalProperties": false
       },
-      "description": "Register a session; reuse a supplied identity instead. Keep the returned ID; presence lasts 60s (listen, or heartbeat every 15s).",
+      "description": "Register identity; reuse supplied ID. Presence lasts 60s: listen or heartbeat every 15s.",
       "usage": "join [json] --workspace <path> [--database <file>]"
     },
     {
@@ -72,8 +72,32 @@
         },
         "additionalProperties": false
       },
-      "description": "Renew live presence for 60s; update task/status. It cannot revive expiry or renew leases.",
+      "description": "Renew live presence 60s; optionally update task/status. No revival or lease renewal.",
       "usage": "heartbeat [json] --session <id>"
+    },
+    {
+      "name": "set_status",
+      "description": "Update your task/status only; never renew presence or leases.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "task": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "status": {
+            "enum": [
+              "available",
+              "busy",
+              "blocked",
+              "unknown"
+            ]
+          }
+        },
+        "minProperties": 1,
+        "additionalProperties": false
+      },
+      "usage": "set_status [json] --session <id>"
     },
     {
       "name": "resume",
@@ -91,7 +115,7 @@
         ],
         "additionalProperties": false
       },
-      "description": "Host/CLI: resume an expired same-vendor session; it deletes old leases. Lock fresh before writing. Live sessions cannot be taken over.",
+      "description": "Resume expired same-vendor identity, deleting old leases; lock fresh before edits. Live sessions cannot be taken over.",
       "usage": "resume [json] --session <id>"
     },
     {
@@ -116,7 +140,7 @@
     },
     {
       "name": "peers",
-      "description": "Active peers with exact IDs and declared task/status. Pass next as after; verify capabilities.",
+      "description": "Active peers with exact IDs and declared task/status. Run next.command with next.input; verify capabilities.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -135,7 +159,7 @@
     },
     {
       "name": "send_message",
-      "description": "Send direct/topic, or replyTo's sender. Key reuse rejects changed stored fields; ackReply may complete an identical reply.",
+      "description": "Send a new request or FYI; never completes work. Final replies use complete. Progress: replyRequired:false plus conversationId.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -143,7 +167,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 256,
-            "description": "Exact recipient ID; omit for replies."
+            "description": "Exact recipient agent ID."
           },
           "topic": {
             "type": "string",
@@ -154,7 +178,8 @@
             "$ref": "#/$defs/body"
           },
           "key": {
-            "$ref": "#/$defs/key"
+            "$ref": "#/$defs/key",
+            "description": "Optional retry key; complete: prefix is reserved."
           },
           "ttlMs": {
             "$ref": "#/$defs/ttlMs"
@@ -168,14 +193,9 @@
           "conversationId": {
             "$ref": "#/$defs/conversationId"
           },
-          "replyTo": {
-            "type": "integer",
-            "minimum": 1,
-            "description": "Parent message ID; without to/topic replies to its sender."
-          },
-          "ackReply": {
+          "replyRequired": {
             "type": "boolean",
-            "description": "Final reply only: also acknowledge replyTo atomically. Omit for clarification or partial replies."
+            "description": "Answer required; direct default true, fanout false."
           }
         },
         "required": [
@@ -193,7 +213,7 @@
     },
     {
       "name": "notify_all",
-      "description": "Broadcast to other active peers at send time. Stored does not mean handled.",
+      "description": "Broadcast a new request or FYI to active peers. Final replies use complete. Stored does not mean handled.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -215,10 +235,9 @@
           "conversationId": {
             "$ref": "#/$defs/conversationId"
           },
-          "replyTo": {
-            "type": "integer",
-            "minimum": 1,
-            "description": "Optional parent message ID for correlation; does not acknowledge it."
+          "replyRequired": {
+            "type": "boolean",
+            "description": "Answer required; broadcast default false."
           }
         },
         "required": [
@@ -236,7 +255,7 @@
     },
     {
       "name": "inbox",
-      "description": "Recover unacknowledged messages without claiming or acknowledging them; never poll under automatic delivery. message reads one pending ID; follow next as after.",
+      "description": "Recover unacknowledged messages without claiming or acknowledging them; never poll under automatic delivery. message reads one pending ID; run next.command with next.input.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -265,8 +284,8 @@
       "usage": "inbox [json] --session <id>"
     },
     {
-      "name": "ack",
-      "description": "Record handling of received answers, FYIs, or completed no-reply messages; all must be yours. Final request reply: replyTo+ackReply. Never ACK unfinished work.",
+      "name": "complete",
+      "description": "Finish handled work: request = message+reply; FYI = ONLY message/messages, no reply/reasoning. Never finish unread work. Identical retries reuse replies.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -283,6 +302,13 @@
             "minItems": 1,
             "maxItems": 100,
             "uniqueItems": true
+          },
+          "reply": {
+            "$ref": "#/$defs/body"
+          },
+          "reasoning": {
+            "$ref": "#/$defs/reasoning",
+            "description": "For a reply only; normally omit. Forbidden for silent completion."
           }
         },
         "additionalProperties": false,
@@ -297,14 +323,22 @@
               "messages"
             ]
           }
-        ]
+        ],
+        "dependentRequired": {
+          "reply": [
+            "message"
+          ],
+          "reasoning": [
+            "reply"
+          ]
+        }
       },
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
         "openWorldHint": false
       },
-      "usage": "ack [json] --session <id>"
+      "usage": "complete <json> --session <id>"
     },
     {
       "name": "subscribe",
@@ -336,7 +370,7 @@
     },
     {
       "name": "lock",
-      "description": "Reserve one advisory file/tree lease; use lock_many for a set. Only ok:true grants a lease. On conflict, inspect owner intent and keyed handoff guidance. A lease does not authorize edits or fence filesystem writes.",
+      "description": "Required before any edit: reserve a file/tree with reasoning. Only ok:true grants ownership. On conflict, message owner via next or wait, then retry. Advisory, not an OS fence.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -355,15 +389,15 @@
           "ttlMs": {
             "type": "integer",
             "minimum": 1000,
-            "maximum": 86400000,
-            "description": "Lease duration in milliseconds; default 60000. Presence may expire earlier."
+            "maximum": 600000,
+            "description": "Milliseconds; default 60000, max 600000 per acquisition/renewal."
           },
           "reasoning": {
             "type": "string",
             "minLength": 1,
             "maxLength": 512,
             "pattern": "\\S",
-            "description": "Why, briefly; \u2264512 UTF-8 bytes."
+            "description": "Why, briefly; ≤512 UTF-8 bytes."
           }
         },
         "required": [
@@ -381,7 +415,7 @@
     },
     {
       "name": "renew",
-      "description": "Renew a live owned lease while working. Known expiry: stop, do not renew; acquire fresh lock. renewed:false/error: stop and fresh lock. Expired identity: host/CLI resume first. Heartbeats never renew.",
+      "description": "Renew a live owned lease. On failure/expiry stop and acquire fresh; resume expired identity first. Heartbeats never renew.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -393,7 +427,7 @@
           "ttlMs": {
             "type": "integer",
             "minimum": 1000,
-            "maximum": 86400000
+            "maximum": 600000
           }
         },
         "required": [
@@ -498,7 +532,7 @@
         ],
         "additionalProperties": false
       },
-      "description": "Inspect visible entities with optional filter JSON. Discover filters using schema entity <name>; pass next as after with the same filters.",
+      "description": "List visible entities. Filters: schema entity <name>. Run next.command with next.input.",
       "usage": "entity list <entity> [filter-json] --session <id>"
     },
     {
@@ -558,8 +592,8 @@
         "properties": {},
         "additionalProperties": false
       },
-      "description": "Serve identity-bound tools over stdio. --tools limits discovery and calls to the named tools, not OS permissions.",
-      "usage": "mcp --session <id> --workspace <path> [--database <file>] [--tools <comma-separated-tool-names>]"
+      "description": "Bound stdio tools. --managed owns raw presence/cleanup; plain mode uses host lifecycle. --tools limits exposed tools.",
+      "usage": "mcp --workspace <path> [--database <file>] [--tools <names>] [--managed --vendor <host>] [--name <name> | --session <id>]"
     },
     {
       "name": "run",
@@ -604,7 +638,7 @@
         ],
         "additionalProperties": false
       },
-      "description": "Start a managed Codex/Claude/Pi worker when requested; the host binds tools, keeps presence and delivers at idle turns. Use attach for an existing conversation. --session resumes an expired identity; Pi needs Node and a model from pi --list-models; --tools limits exposed tools.",
+      "description": "Start managed Codex/Claude/Pi on request; host owns presence/delivery. --session resumes same-vendor expiry unless delivery is staged. Existing conversations: attach. Pi needs Node/model. --tools selects tools.",
       "usage": "run --vendor codex|claude|pi --model <model> --prompt <task> [--name <name>] [--duration-ms <ms>] [--trace] --workspace <path> [--database <file>] [--session <expired-id>] [--tools <comma-separated-tool-names>]"
     },
     {
@@ -614,12 +648,12 @@
     },
     {
       "name": "schema",
-      "description": "schema <command>, schema entities or schema entity <name>; bare schema returns the full protocol with SQL.",
+      "description": "Inspect one command or entity; bare schema includes the full protocol and SQL.",
       "usage": "schema [<command> | entities | entity <name>]"
     },
     {
       "name": "attach",
-      "description": "Bind your identity to one existing receiver. raw: CLI/hooks, any vendor. claude: same-user inbox socket. codex: owning app-server loopback WebSocket or Unix socket. opencode: idle workspace session on literal-loopback HTTP; auth stays in the listener environment (OPENCODE_SERVER_PASSWORD, optional OPENCODE_SERVER_USERNAME, exact OCTOCODE_OPENCODE_AUTH_ENDPOINT). grok: same-user leader socket and installed ACP bridge.",
+      "description": "Bind existing receiver: raw; claude/grok same-user socket; codex owning loopback WebSocket/Unix socket; opencode idle workspace and loopback HTTP. OpenCode auth: listener env OPENCODE_SERVER_PASSWORD, OPENCODE_SERVER_USERNAME, OCTOCODE_OPENCODE_AUTH_ENDPOINT. Grok needs ACP bridge.",
       "usage": "attach [json] --session <id>",
       "inputSchema": {
         "type": "object",
@@ -663,7 +697,7 @@
     },
     {
       "name": "hook",
-      "description": "Offer unoffered messages for host injection and refresh presence. text (empty when idle), json (SDKs) or claude (UserPromptSubmit context). Ack handled IDs; inspect failures before retry_delivery.",
+      "description": "Offer new host context; refresh presence. Formats: text (empty if idle), json (SDK), claude (UserPromptSubmit). Complete handled IDs; inspect failed delivery before retry.",
       "usage": "hook [json] --session <id>",
       "inputSchema": {
         "type": "object",
@@ -715,7 +749,7 @@
     },
     {
       "name": "listen",
-      "description": "Keep an attached session present and dispatch native deliveries (raw leaves consumption to hooks). Runs no model; does not renew leases.",
+      "description": "Maintain presence and dispatch native mail; raw uses hooks. No model calls or lease renewal.",
       "usage": "listen --session <id> --workspace <path> [--database <file>] [--duration-ms <ms>]",
       "inputSchema": {
         "type": "object",
@@ -802,7 +836,7 @@
     },
     {
       "name": "confirm_delivery",
-      "description": "SDK receipt after a deferred hook batch enters host context: confirm exact IDs and dispatch tokens. Not an ACK; stale tokens fail.",
+      "description": "SDK context receipt: exact IDs and dispatch tokens required. Rejects stale tokens; work stays pending.",
       "usage": "confirm_delivery [json] --session <id>",
       "inputSchema": {
         "type": "object",
@@ -839,7 +873,7 @@
     },
     {
       "name": "host-hook",
-      "description": "Cursor/Grok lifecycle JSON on stdin; offers messages only on postToolUse/PostToolUseFailure. Fails open, never blocks a tool; host config must set a timeout.",
+      "description": "Cursor/Grok stdin lifecycle JSON; offer mail only on postToolUse/PostToolUseFailure. Fails open; configure a timeout.",
       "usage": "host-hook --vendor cursor|grok --workspace <path> [--database <file>]"
     },
     {
@@ -849,7 +883,7 @@
     },
     {
       "name": "lock_many",
-      "description": "Reserve advisory file/tree leases atomically, or none (renames, multi-file work). Only ok:true grants; keep each lease ID for renew/unlock. Does not authorize edits or fence filesystem writes.",
+      "description": "Acquire all advisory leases or none. Only ok:true grants; save IDs for renew/unlock. No OS write fencing.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -882,15 +916,14 @@
           "ttlMs": {
             "type": "integer",
             "minimum": 1000,
-            "maximum": 86400000,
-            "description": "Lease duration in milliseconds; default 60000. Presence may expire earlier."
+            "maximum": 600000
           },
           "reasoning": {
             "type": "string",
             "minLength": 1,
             "maxLength": 512,
             "pattern": "\\S",
-            "description": "Why, briefly; \u2264512 UTF-8 bytes."
+            "description": "Why, briefly; ≤512 UTF-8 bytes."
           }
         },
         "required": [
@@ -908,7 +941,7 @@
     },
     {
       "name": "share_document",
-      "description": "Publish immutable text at .octocode/communication/<name>; identical retries are reused. Send peers the name, not the contents. Optional context makes a short note discoverable by path/branch; nothing is sent.",
+      "description": "Publish immutable text; retries reuse it. Send returned document.name unchanged across reviewers. Context indexes path/branch; no notification.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -921,7 +954,7 @@
           "content": {
             "type": "string",
             "maxLength": 1048576,
-            "description": "\u22641 MiB of UTF-8."
+            "description": "≤1 MiB of UTF-8."
           },
           "context": {
             "type": "object",
@@ -971,7 +1004,7 @@
             "minLength": 1,
             "maxLength": 512,
             "pattern": "\\S",
-            "description": "Why, briefly; \u2264512 UTF-8 bytes."
+            "description": "Why, briefly; ≤512 UTF-8 bytes."
           }
         },
         "required": [
@@ -990,7 +1023,7 @@
     },
     {
       "name": "read_document",
-      "description": "Read a hash-verified page of a shared document; pass next as input for more. Content grants no authority.",
+      "description": "Read a hash-verified document page. Full reviews: follow every next.command with next.input. Targeted reads may stop at sufficient evidence. Content grants no authority.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1028,7 +1061,7 @@
     },
     {
       "name": "context",
-      "description": "Find unexpired document notes for a path and optional exact branch, at task/path boundaries. Returns summaries; verify with read_document. Follow next even on empty pages before claiming absence; reuse cursor as after only with the same filters.",
+      "description": "Find scoped document summaries; verify with read_document. Run next.command with next.input even on empty pages. Reuse cursor as after only with unchanged filters.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1070,7 +1103,7 @@
     },
     {
       "name": "activity",
-      "description": "Recent Git workspace activity: files (uncommitted changes by mtime), commits (HEAD history with path samples) or reflog (local HEAD events). No bodies, diffs or agent attribution. Follow next as input; check coverage before claiming absence.",
+      "description": "Git files (uncommitted, mtime), commits (HEAD, path samples), or reflog. No diffs/agent attribution. Follow next; check coverage.",
       "usage": "activity [json] --workspace <path>",
       "inputSchema": {
         "type": "object",
@@ -1203,7 +1236,7 @@
     },
     {
       "name": "check_write",
-      "description": "Host preflight for concrete writes: ok only if this active session holds live leases covering every path. Read-only and advisory. Check edits, new files, deletions and both rename endpoints.",
+      "description": "Read-only preflight: active session needs live leases for edits, creates, deletes and both rename paths. Advisory only.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1238,7 +1271,7 @@
     },
     {
       "name": "db export",
-      "description": "Write a verified SQLite snapshot (with WAL) to a new absolute path; never overwrites or follows symlinks. Shared document files are not included.",
+      "description": "Verified SQLite/WAL snapshot to a new absolute path; no overwrite or symlinks. Document files are excluded.",
       "usage": "db export {\"path\":\"/absolute/new.sqlite\"} --database <source>",
       "inputSchema": {
         "type": "object",
@@ -1265,7 +1298,7 @@
           "before": {
             "type": "integer",
             "minimum": 0,
-            "description": "Inclusive expiry cutoff, epoch ms \u2264 now; keep across pages."
+            "description": "Inclusive expiry cutoff, epoch ms ≤ now; keep across pages."
           },
           "afterId": {
             "type": "integer",
@@ -1295,11 +1328,11 @@
     {
       "name": "schema tools",
       "description": "Tool descriptors in canonical order, optionally narrowed with --tools.",
-      "usage": "schema tools [--tools <comma-separated-tool-names>]"
+      "usage": "schema tools [--tools messaging|review|editing|<names>]"
     },
     {
       "name": "health",
-      "description": "Read-only delivery diagnostics: uncertain, overdue, expired-action and offline-recipient work; never retries or acknowledges. Clear means no observed queue issue. For operators, not model polling; follow next.",
+      "description": "Read-only delivery diagnostics; no retries/completion. Clear means no observed issue. Operator use; follow next.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1344,7 +1377,7 @@
     },
     {
       "name": "completion-check",
-      "description": "Opt-in Claude Stop hook: read-only check of submitted, unacknowledged IDs; one recovery turn. Pass --session/--workspace/--database explicitly; stdin is hook JSON.",
+      "description": "Opt-in Claude/Pi completion check: read-only check of submitted, unacknowledged IDs; one recovery turn. Pass --session/--workspace/--database explicitly; stdin is hook JSON.",
       "usage": "completion-check - --session <id> --workspace <repo> --database <db>",
       "inputSchema": {
         "type": "object",
@@ -1371,6 +1404,41 @@
         ],
         "additionalProperties": true
       }
+    },
+    {
+      "name": "locks",
+      "description": "List active workspace locks: owner ID, reasoning and epoch-ms timestamps. Excludes expired locks/owners. Follow next for all pages.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "after": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "usage": "locks [json] --session <id>"
+    },
+    {
+      "name": "view",
+      "usage": "view [json]",
+      "description": "Read-only dashboard; no session. Use --workspace/--database. Stop: Ctrl+C.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "port": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 65535,
+            "description": "Loopback port; 0 (default) selects a free port."
+          },
+          "open": {
+            "type": "boolean",
+            "description": "Open browser (default true); false prints URL."
+          }
+        },
+        "additionalProperties": false
+      }
     }
   ],
   "tools": [
@@ -1378,6 +1446,14 @@
       "name": "peers",
       "annotations": {
         "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "set_status",
+      "annotations": {
+        "readOnlyHint": false,
         "destructiveHint": false,
         "openWorldHint": false
       }
@@ -1407,7 +1483,7 @@
       }
     },
     {
-      "name": "ack",
+      "name": "complete",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
@@ -1485,6 +1561,14 @@
         "destructiveHint": false,
         "openWorldHint": false
       }
+    },
+    {
+      "name": "locks",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
     }
   ],
   "entities": [
@@ -1510,19 +1594,20 @@
           "after": {
             "type": "string"
           },
-          "status": {
+          "vendor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "presence": {
             "default": "active",
             "type": "string",
             "enum": [
               "active",
               "expired",
               "all"
-            ]
-          },
-          "vendor": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 256
+            ],
+            "description": "Filter expiry, independently of declared availability; lease activity also requires live owner presence."
           }
         },
         "required": [],
@@ -1571,7 +1656,8 @@
         "heartbeat",
         "resume",
         "leave"
-      ]
+      ],
+      "agentIdField": "id"
     },
     {
       "name": "lease",
@@ -1584,24 +1670,17 @@
         "owner": "session ID",
         "expiresAt": "epoch milliseconds",
         "active": "0|1, includes owner presence (computed)",
-        "reasoning": "Required intent for new records (1\u2013512 UTF-8 bytes)"
+        "reasoning": "Required intent for new records (1–512 UTF-8 bytes)",
+        "acquiredAt": "Acquisition timestamp, epoch milliseconds",
+        "refreshedAt": "Last acquisition/renewal timestamp, epoch milliseconds"
       },
-      "visibility": "Bound workspace, including expired sessions for get; list defaults to active sessions/leases.",
+      "visibility": "Bound workspace. entity list lease {} lists all live locks; follow next. Stale locks expire within 10 minutes of refresh.",
       "id": "<id>",
       "list": {
         "type": "object",
         "properties": {
           "after": {
             "type": "string"
-          },
-          "status": {
-            "default": "active",
-            "type": "string",
-            "enum": [
-              "active",
-              "expired",
-              "all"
-            ]
           },
           "owner": {
             "type": "string",
@@ -1619,6 +1698,16 @@
               "file",
               "tree"
             ]
+          },
+          "presence": {
+            "default": "active",
+            "type": "string",
+            "enum": [
+              "active",
+              "expired",
+              "all"
+            ],
+            "description": "Filter expiry, independently of declared availability; lease activity also requires live owner presence."
           }
         },
         "required": [],
@@ -1629,7 +1718,8 @@
         "lock",
         "renew",
         "unlock"
-      ]
+      ],
+      "agentIdField": "owner"
     },
     {
       "name": "message",
@@ -1642,10 +1732,11 @@
         "body": "string",
         "key": "sender-scoped retry key",
         "expiresAt": "epoch milliseconds",
-        "reasoning": "Required intent for new records (1\u2013512 UTF-8 bytes)",
+        "reasoning": "Required intent for new records (1–512 UTF-8 bytes)",
         "wake": "action|passive; host scheduling intent, never authority",
-        "conversationId": "optional ASCII token, 1\u2013128 characters; string|null",
-        "replyTo": "visible parent message ID|null; does not imply acknowledgement"
+        "conversationId": "optional ASCII token, 1–128 characters; string|null",
+        "replyTo": "visible parent message ID|null; does not imply acknowledgement",
+        "replyRequired": "boolean; true requires a final answer, false forbids replies"
       },
       "visibility": "Sender or recipient in the bound workspace, including expired history.",
       "id": "<id>",
@@ -1688,7 +1779,8 @@
       "set": null,
       "transitions": [
         "send_message"
-      ]
+      ],
+      "agentIdField": "sender"
     },
     {
       "name": "delivery",
@@ -1721,8 +1813,9 @@
       },
       "set": null,
       "transitions": [
-        "ack"
-      ]
+        "complete"
+      ],
+      "agentIdField": "recipient"
     },
     {
       "name": "subscriptions",
@@ -1732,7 +1825,7 @@
         "session": "session ID",
         "topics": "string[] (aggregated)"
       },
-      "visibility": "Bound workspace, including expired sessions for get; list defaults to active sessions/leases.",
+      "visibility": "Bound workspace, including expired sessions.",
       "id": "<session>",
       "list": {
         "type": "object",
@@ -1768,20 +1861,21 @@
       },
       "transitions": [
         "subscribe"
-      ]
+      ],
+      "agentIdField": "session"
     },
     {
       "name": "attachment",
       "table": "attachments",
       "fields": {
-        "id": "string|integer",
+        "id": "session ID (computed)",
         "session": "UUID",
         "transport": "raw|claude|codex|opencode|grok",
         "endpoint": "string|null",
         "updatedAt": "epoch milliseconds"
       },
-      "visibility": "Bound workspace; dispatch requires sender or recipient identity.",
-      "id": "<id>",
+      "visibility": "Bound workspace, including expired sessions.",
+      "id": "<session>",
       "list": {
         "type": "object",
         "properties": {
@@ -1793,13 +1887,16 @@
         "additionalProperties": false
       },
       "set": null,
-      "transitions": []
+      "transitions": [
+        "attach"
+      ],
+      "agentIdField": "session"
     },
     {
       "name": "dispatch",
       "table": "dispatches",
       "fields": {
-        "id": "string|integer",
+        "id": "message:recipient (computed)",
         "message": "integer",
         "recipient": "UUID",
         "token": "UUID",
@@ -1809,8 +1906,8 @@
         "submittedAt": "epoch milliseconds|null",
         "error": "string|null"
       },
-      "visibility": "Bound workspace; dispatch requires sender or recipient identity.",
-      "id": "<id>",
+      "visibility": "Sender or recipient in the bound workspace, including expired history.",
+      "id": "<message>:<recipient>",
       "list": {
         "type": "object",
         "properties": {
@@ -1822,13 +1919,19 @@
         "additionalProperties": false
       },
       "set": null,
-      "transitions": []
+      "transitions": [
+        "dispatch",
+        "hook",
+        "confirm_delivery",
+        "retry_delivery"
+      ],
+      "agentIdField": "recipient"
     },
     {
       "name": "audit",
       "table": "audit",
       "fields": {
-        "id": "string|integer",
+        "id": "positive integer",
         "session": "UUID",
         "kind": "string",
         "entityId": "string|null",
@@ -1836,7 +1939,7 @@
         "data": "JSON object",
         "key": "string|null"
       },
-      "visibility": "Bound workspace; dispatch requires sender or recipient identity.",
+      "visibility": "Bound workspace, including expired sessions; append-only.",
       "id": "<id>",
       "list": {
         "type": "object",
@@ -1849,7 +1952,8 @@
         "additionalProperties": false
       },
       "set": null,
-      "transitions": []
+      "transitions": [],
+      "agentIdField": "session"
     }
   ],
   "$defs": {

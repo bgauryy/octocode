@@ -12,7 +12,7 @@ use std::{
 };
 
 const MAX_BYTES: u64 = 8 * 1024 * 1024;
-const PAGE_BYTES: usize = 128 * 1024;
+use crate::store::PAGE_BYTES;
 
 struct Git {
     deadline: Instant,
@@ -463,7 +463,7 @@ pub(crate) fn read(workspace: &Path, input: &Value) -> Result<Value> {
         }
         next["after"] = json!(end);
         next["snapshot"] = json!(digest);
-        next
+        json!({"command":"activity","input":next})
     } else {
         Value::Null
     };
@@ -482,7 +482,10 @@ pub(crate) fn read(workspace: &Path, input: &Value) -> Result<Value> {
     } else {
         Value::Null
     };
-    let result = json!({"view":view,"workspace":workspace,"observedAt":now,"items":rows.drain(after..end).collect::<Vec<_>>(),"totalMatched":total,"next":next,"coverage":{"scanned":scanned,"scanLimit":if view=="files" {Value::Null}else{json!(cap)},"truncated":truncated,"limitReason":if truncated {json!("History scan limit reached; increase scanLimit (max 2000). This is not complete history.")}else{Value::Null},"unknownFileTimes":unknown,"unknownTimeQuery":unknown_time_query},"timeBasis":match view {"files"=>"Current filesystem mtime; not an edit/staging timestamp. Deletions may have unknown time and are excluded by time filters.","commits"=>"Committer time on current HEAD history; not command execution time.",_=>"Local HEAD reflog time; reference updates only, not complete Git command history."},"attribution":"Observed Git/filesystem state does not identify the acting agent."});
+    let mut result = json!({"view":view,"workspace":workspace,"observedAt":now,"items":rows.drain(after..end).collect::<Vec<_>>(),"totalMatched":total,"next":next,"coverage":{"scanned":scanned,"scanLimit":if view=="files" {Value::Null}else{json!(cap)},"truncated":truncated,"limitReason":if truncated {json!("History scan limit reached; increase scanLimit (max 2000). This is not complete history.")}else{Value::Null},"unknownFileTimes":unknown,"unknownTimeQuery":unknown_time_query},"timeBasis":match view {"files"=>"Current filesystem mtime; not an edit/staging timestamp. Deletions may have unknown time and are excluded by time filters.","commits"=>"Committer time on current HEAD history; not command execution time.",_=>"Local HEAD reflog time; reference updates only, not complete Git command history."},"attribution":"Observed Git/filesystem state does not identify the acting agent."});
+    if bytes > PAGE_BYTES {
+        result["budget"] = json!({"targetBytes":PAGE_BYTES,"reason":"Single oversized row returned intact to preserve evidence and cursor progress"});
+    }
     Ok(result)
 }
 

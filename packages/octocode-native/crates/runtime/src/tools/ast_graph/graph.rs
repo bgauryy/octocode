@@ -1,3 +1,4 @@
+use super::packages::{PackageIndex, PackageLink};
 use super::types::*;
 use crate::{
     policy::path::PathPolicy, security::ContentSecurity, tools::local_fetch::CancellationCheck,
@@ -136,6 +137,7 @@ pub(crate) fn build_graph(
         BTreeMap::new()
     };
     let workspace_packages = load_workspace_packages(&built.root, &known, paths, security);
+    let packages = PackageIndex::build(&built.root, &known);
     for skipped in scan.skipped {
         built.diagnostics.push(Diagnostic {
             file: normalize(&skipped.relative_path),
@@ -193,6 +195,7 @@ pub(crate) fn build_graph(
             rust_cargo_unavailable,
             &cargo_crates,
             &workspace_packages,
+            &packages,
             &mut graph_builder,
         )?;
     }
@@ -279,6 +282,10 @@ fn is_javascript_extension(ext: &str) -> bool {
 fn linking(ext: &str) -> &'static str {
     if is_javascript_extension(ext) {
         "javascript-relative"
+    } else if ext == "go" {
+        "go-packages"
+    } else if ext == "java" {
+        "java-imports"
     } else if ext == "rs" {
         "rust-modules"
     } else if matches!(ext, "py" | "pyi") {
@@ -298,6 +305,10 @@ fn edge_kind(ext: &str, kind: &str) -> &'static str {
         }
     } else if kind == "type" {
         "type-import"
+    } else if ext == "go" {
+        "go-import"
+    } else if ext == "java" {
+        "java-import"
     } else if matches!(ext, "py" | "pyi") {
         "python-import"
     } else if is_c_family_extension(ext) {
@@ -321,6 +332,7 @@ fn link_file(
     rust_cargo_unavailable: bool,
     cargo_crates: &BTreeMap<String, String>,
     workspace_packages: &BTreeMap<String, String>,
+    packages: &PackageIndex,
     graph_builder: &mut octocode_engine::graph::CodeGraphBuilder,
 ) -> Result<(), AstGraphError> {
     let ext = extension(&file).to_owned();
@@ -393,6 +405,66 @@ fn link_file(
         });
     }
     for i in p.imports {
+        if matches!(ext.as_str(), "go" | "java") {
+            let targets = match packages.resolve(&ext, &i.specifier, &file) {
+                PackageLink::Files(files) => files,
+                PackageLink::UnresolvedInternal => {
+                    b.imports[2] += 1;
+                    b.diagnostics.push(Diagnostic {
+                        file: file.clone(),
+                        line: Some(i.line),
+                        code: "unresolved-internal".into(),
+                        message: sanitize(
+                            security,
+                            &format!("Cannot link import {:?} (unresolvedInternal).", i.specifier),
+                        ),
+                    });
+                    Vec::new()
+                }
+                PackageLink::External => {
+                    b.imports[1] += 1;
+                    Vec::new()
+                }
+            };
+            if !targets.is_empty() {
+                b.imports[0] += 1;
+            }
+            for target in &targets {
+                if target != &file {
+                    add_edge(
+                        b,
+                        graph_builder,
+                        &file,
+                        &mut node,
+                        target,
+                        edge_kind(&ext, "value"),
+                        i.line,
+                    )?;
+                }
+            }
+            if targets.len() > 1 {
+                b.namespace_targets.extend(targets.iter().cloned());
+            }
+            // One import fact per linked file, so every package edge keeps
+            // its import line (topology reports it as `importLine`).
+            let imported_name = i.imported_name.unwrap_or_default();
+            if targets.is_empty() {
+                facts.imports.push(Import {
+                    imported_name,
+                    line: i.line,
+                    target: None,
+                });
+            } else {
+                for target in targets {
+                    facts.imports.push(Import {
+                        imported_name: imported_name.clone(),
+                        line: i.line,
+                        target: Some(target),
+                    });
+                }
+            }
+            continue;
+        }
         let target = if ext == "rs" && rust_cargo_unavailable {
             None
         } else {
@@ -1108,7 +1180,41 @@ pub(crate) fn normalize(p: &str) -> String {
     parts.join("/")
 }
 
+/// `cargo metadata` output per workspace root, reused while the root
+/// manifest and lockfile are unchanged (size + mtime). The TTL bounds staleness
+/// from glob-added members, which do not touch the root manifest.
 fn load_cargo_crates(root: &Path) -> Result<BTreeMap<String, String>, String> {
+    use std::sync::{LazyLock, Mutex};
+    use std::time::{Duration, Instant, SystemTime};
+    type Stamp = [(u64, Option<SystemTime>); 2];
+    type Entry = (Stamp, Instant, BTreeMap<String, String>);
+    static CACHE: LazyLock<Mutex<BTreeMap<std::path::PathBuf, Entry>>> =
+        LazyLock::new(|| Mutex::new(BTreeMap::new()));
+    const TTL: Duration = Duration::from_secs(300);
+    let stamp = |name: &str| {
+        std::fs::metadata(root.join(name))
+            .map(|m| (m.len(), m.modified().ok()))
+            .unwrap_or((0, None))
+    };
+    let current: Stamp = [stamp("Cargo.toml"), stamp("Cargo.lock")];
+    if let Ok(cache) = CACHE.lock()
+        && let Some((cached, at, crates)) = cache.get(root)
+        && *cached == current
+        && at.elapsed() < TTL
+    {
+        return Ok(crates.clone());
+    }
+    let crates = run_cargo_metadata(root)?;
+    if let Ok(mut cache) = CACHE.lock() {
+        cache.insert(
+            root.to_path_buf(),
+            (current, Instant::now(), crates.clone()),
+        );
+    }
+    Ok(crates)
+}
+
+fn run_cargo_metadata(root: &Path) -> Result<BTreeMap<String, String>, String> {
     const MAX_METADATA_BYTES: usize = 32 * 1024 * 1024;
     // Resolve cargo from an explicit env-provided path when available rather than
     // trusting the ambient PATH against an untrusted working directory. `--no-deps`

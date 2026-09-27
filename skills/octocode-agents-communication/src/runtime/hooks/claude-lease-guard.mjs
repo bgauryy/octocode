@@ -30,6 +30,9 @@ function configuration(values) {
   if (process.platform === 'win32') throw Error('This config preview requires a POSIX command shell');
   const quote = value => `'${value.replaceAll("'", "'\\''")}'`;
   const command = [process.execPath, fileURLToPath(import.meta.url), ...Object.keys(options).flatMap(key => [`--${key}`, values[key]])].map(quote).join(' ');
+  process.stderr.write(JSON.stringify({type: 'leaseGuard', vendor: 'claude', configured: false,
+    supportedOperations: ['Write', 'Edit'], advisory: true,
+    reason: 'Preview only: merge these synchronous hooks into the intended session. Bash/MCP/custom tools and OS writes are not fenced.'}) + '\n');
   return {hooks: {PreToolUse: [{matcher: '^(Write|Edit)$', hooks: [{type: 'command', command, timeout: 10}]}]}};
 }
 async function guard(values) {

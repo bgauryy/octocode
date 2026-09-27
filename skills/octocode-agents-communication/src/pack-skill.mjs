@@ -2,9 +2,10 @@ import { execFileSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { checkSkill, checkStartup, digest, executableName, rustHostTarget, verifyExecutable } from './artifact-checks.mjs';
+import { checkSkill, verifyStartup, digest, executableName, rustHostTarget, verifyExecutable } from './artifact-checks.mjs';
 
 export function packSkill(root, { hostTarget, target = process.env.CARGO_BUILD_TARGET ?? hostTarget, timeoutMs = 10000 }) {
+  if (target !== hostTarget) throw new Error('Packaging requires native validation on the target platform; cross-builds are not release-ready archives.');
   const skill = root;
   const bin = join(skill, 'scripts');
   if (!existsSync(bin)) throw new Error('Build the skill before packaging it.');
@@ -44,15 +45,13 @@ export function packSkill(root, { hostTarget, target = process.env.CARGO_BUILD_T
     checkHashes(extractedBin);
     const verification = Object.fromEntries(targets.map(target => {
       const executable = join(extractedBin, executableName(target));
-      const checks = verifyExecutable(executable, { target, hostTarget, timeoutMs });
-      checks.skill = target === hostTarget
-        ? checkSkill(executable, join(extractedSkill, 'SKILL.md'), timeoutMs)
-        : { passed: null, reason: 'foreign-target-needs-native-CI' };
+      const checks = verifyExecutable(executable, { target, hostTarget, timeoutMs, coldStart: true });
+      checks.skill = checkSkill(executable, join(extractedSkill, 'SKILL.md'), timeoutMs);
       return [target, checks];
     }));
-    const launcher = process.platform !== 'win32' && targets.includes(hostTarget)
-      ? checkStartup(join(extractedSkill, 'scripts/agents-communication'), timeoutMs)
-      : { passed: null, reason: 'launcher-needs-native-CI' };
+    const launcher = process.platform === 'win32'
+      ? verifyStartup('powershell.exe', { timeoutMs, coldStart: true }, ['-NoProfile', '-NonInteractive', '-File', join(extractedSkill, 'scripts/agents-communication.ps1'), '--help'])
+      : verifyStartup(join(extractedSkill, 'scripts/agents-communication'), { timeoutMs, coldStart: true });
     renameSync(candidate, archive);
     return { archive, sha256: digest(archive), targets, verification, launcher };
   } finally { rmSync(staging, { recursive: true, force: true }); }

@@ -372,8 +372,18 @@ async fn host_options_environment_controls_embedded_tool_availability() {
         ..HostOptions::default()
     })
     .expect("embedded runtime with explicit environment");
-    assert!(runtime.is_available("astRewrite"));
+    // Beta enables astTopology on MCP; astRewrite mutates files and is CLI-only.
     assert!(runtime.is_available("astTopology"));
+    assert!(!runtime.is_available("astRewrite"));
+    let catalog = runtime.catalog().expect("catalog");
+    let rewrite = catalog["tools"]
+        .as_array()
+        .expect("tools")
+        .iter()
+        .find(|tool| tool["name"] == "astRewrite")
+        .expect("astRewrite entry");
+    assert_eq!(rewrite["available"], false);
+    assert_eq!(rewrite["unavailableReason"], "cliOnly");
     runtime.close().await;
 }
 

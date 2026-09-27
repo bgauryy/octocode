@@ -332,6 +332,9 @@ fn pr_metadata(raw: &Value, query: &HistoryItemRequest, body_requested: bool) ->
         "updatedAt": string(raw.get("updated_at")),
         "closedAt": raw.get("closed_at").filter(|v|!v.is_null()),
         "mergedAt": raw.get("merged_at").filter(|v|!v.is_null()),
+        // Only a merged PR has a real merge commit (open PRs expose GitHub's
+        // test-merge SHA, which is not on the base branch).
+        "mergeCommitSha": merged.then(|| str_at(raw,"/merge_commit_sha")).flatten().filter(|v|!v.is_empty()),
         "commentsCount": nonzero(raw.get("comments")),
         "changedFilesCount": nonzero(raw.get("changed_files")),
         "additions": nonzero(raw.get("additions")),

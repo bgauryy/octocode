@@ -47,14 +47,14 @@ try {
   db = new DatabaseSync(database, { readOnly: true });
   let injectedBytes = 0;
   for (let i = 0; i < samples; i++) {
-    const input = { to: receiver, body: `Change ${i} is ready for review.`, key: `sample-${i}`, wake: 'passive', reasoning: 'Hand off the completed change for review' };
+    const input = { replyRequired: false, to: receiver, body: `Change ${i} is ready for review.`, key: `sample-${i}`, wake: 'passive', reasoning: 'Hand off the completed change for review' };
     const sent = measured('send', () => json('send_message', input, sender));
     assert.deepEqual(measured('sendRetry', () => json('send_message', input, sender)), sent);
     const offered = measured('hookDelivery', () => call('hook', { format: 'json' }, receiver));
     injectedBytes += Buffer.byteLength(offered);
     assert.deepEqual(JSON.parse(offered).items.map(item => item.id), [sent.id]);
     assert.equal(measured('hookIdle', () => call('hook', { format: 'text' }, receiver)), '');
-    measured('ack', () => json('ack', { message: sent.id }, receiver));
+    measured('complete', () => json('complete', { message: sent.id }, receiver));
     const lease = measured('lock', () => json('lock', { path: `file-${i}`, reasoning: 'Reserve the file for a targeted change' }, sender));
     assert.equal(lease.ok, true);
     const conflict = measured('lockConflict', () => json('check_paths', { paths: [{ path: `file-${i}` }] }, receiver));

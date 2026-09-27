@@ -37,6 +37,8 @@ const acceptanceEnv = {
 };
 const { DIRECT_TOOL_DEFINITIONS, TOOL_NAMES, getDirectToolDefinitionsWithAddons } = await import('@octocodeai/config/schema');
 const canonicalTools = DIRECT_TOOL_DEFINITIONS.map(tool => tool.name);
+// Mutating tools run only from the CLI; MCP never lists or executes them.
+const CLI_ONLY_TOOLS = new Set(['ghCloneRepo', 'astRewrite']);
 let expectedTools = [];
 const receipt = {
   server: path.resolve(values.server),
@@ -227,7 +229,7 @@ try {
   await check('initialize and list every available canonical direct tool', () =>
     assert.deepEqual(
       expectedTools.filter(name => name !== TOOL_NAMES.CLASIFY).sort(),
-      canonicalTools.filter(name => name !== TOOL_NAMES.CLASIFY && name !== 'ghCloneRepo').sort()
+      canonicalTools.filter(name => name !== TOOL_NAMES.CLASIFY && !CLI_ONLY_TOOLS.has(name)).sort()
     )
   );
   await check('MCP tool catalog stays below the production transport budget', () =>
@@ -425,35 +427,32 @@ try {
     assert.equal(data.declarations[0].line, 2);
     assert.equal(data.declarations[0].exported, true);
   });
-  await check('astRewrite previews and guarded apply mutate only an isolated fixture', async () => {
-    const directory = await mkdtemp(path.join(path.resolve('.octocode/tmp'), 'mcp-rewrite-'));
+  await check('astRewrite is CLI-only: MCP rejects it, the CLI previews and applies on an isolated fixture', async () => {
+    assert.ok(!expectedTools.includes('astRewrite'), 'MCP must not list astRewrite');
+    // An unlisted tool is a protocol error (-32602) or an error result, never a rewrite.
+    const rejected = await client
+      .callTool({ name: 'astRewrite', arguments: { queries: [{ reasoning: 'Verify MCP never rewrites.', path: fixture, langType: 'typescript', ruleKind: 'pattern', pattern: 'oldCall($A)', rewrite: 'newCall($A)' }] } })
+      .then(result => result.isError === true, error => /not found|not available/i.test(String(error?.message)));
+    assert.ok(rejected, 'MCP must reject astRewrite');
+    const directory = await mkdtemp(path.join(path.resolve('.octocode/tmp'), 'cli-rewrite-'));
     const file = path.join(directory, 'source.ts');
     try {
       await writeFile(file, 'oldCall(1);\noldCall(2);\n');
-      const preview = await call('astRewrite', {
-        path: directory, langType: 'typescript', ruleKind: 'pattern',
-        pattern: 'oldCall($A)', rewrite: 'newCall($A)', pageSize: 10,
-      });
+      const rule = { reasoning: 'Verify CLI rewrite.', path: directory, langType: 'typescript', ruleKind: 'pattern', pattern: 'oldCall($A)', rewrite: 'newCall($A)', pageSize: 10 };
+      const preview = executeCliTool('astRewrite', [rule]).results[0].data;
       assert.equal(preview.mode, 'preview');
       assert.equal(preview.totalMatches, 2);
-      if (values['cli-mcp-parity']) {
-        const selected = receipt.calls.at(-1);
-        const cliResponse = executeCliTool('astRewrite', selected.arguments.queries);
-        cliMcpParitySamples.set('astRewrite', { selected, cliResponse, cliResults: cliResponse.results });
-      }
-      const applied = await call('astRewrite', {
-        path: directory, langType: 'typescript', ruleKind: 'pattern',
-        pattern: 'oldCall($A)', rewrite: 'newCall($A)', apply: true,
-        pageSize: 10,
+      const applied = executeCliTool('astRewrite', [{
+        ...rule,
+        apply: true,
         snapshot: preview.snapshot,
         expectedHashes: Object.fromEntries(
           preview.files.map(item => [path.join(directory, item.path), item.beforeHash])
         ),
-      });
+      }]).results[0].data;
       assert.equal(applied.mode, 'apply');
       assert.equal(applied.transaction.committed, true);
       assert.equal(await readFile(file, 'utf8'), 'newCall(1);\nnewCall(2);\n');
-      assert.equal(await readFile(path.join(fixture, 'math.ts'), 'utf8'), '// Arithmetic fixture.\nexport function add(left: number, right: number) { return left + right; }\n');
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -906,7 +905,6 @@ try {
           && call.response.isError === false
           && call.response.structuredContent?.results?.[0]?.status !== 'error'
           && call.response.structuredContent?.results?.[0]?.status !== 'empty'
-          && (name !== 'astRewrite' || call.arguments.queries[0].apply !== true)
         );
         if (
           !selected

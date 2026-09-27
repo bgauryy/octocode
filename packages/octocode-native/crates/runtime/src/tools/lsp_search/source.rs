@@ -19,10 +19,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// Upper bound on a source file synced to the language server via `didOpen`.
-/// Mirrors the engine's `MAX_SAFE_READ_FILE_BYTES`/snippet/position caps (1 MiB
-/// decimal): a document above this is oversize-diagnosed rather than read
+/// The engine's single LSP source bound: a document above this is oversize-diagnosed rather than read
 /// uncapped and streamed to the server.
-pub(super) const MAX_LSP_DIDOPEN_BYTES: u64 = 1_000_000;
+pub(super) const MAX_LSP_DIDOPEN_BYTES: u64 = octocode_engine::lsp::MAX_LSP_SOURCE_BYTES;
 
 /// Whether a source of `len` bytes exceeds the didOpen sync cap. Extracted as a
 /// pure seam so the cap decision is unit-testable without touching the fs.

@@ -41,7 +41,7 @@ describe('MCP validation messages are actionable (CLI parity)', () => {
       ],
     });
     expect(message).toContain(
-      'queries.0.operation: Value "matches" is outside the allowed enum; allowed: match, files, tree, symbols'
+      'queries.0.operation: Value "matches" is outside the allowed enum; allowed: match, syntaxTree, symbols'
     );
     expect(message).toContain("did you mean 'match'?");
     expect(message).not.toContain('Invalid input');
@@ -87,7 +87,7 @@ describe('MCP validation messages are actionable (CLI parity)', () => {
 
   it('reports the missing field of the selected union branch', async () => {
     const message = await sdkMessage('astSearch', {
-      operation: 'files',
+      operation: 'symbols',
       reasoning: 'r',
     });
     expect(message).toBe('queries.0.path: Missing required field: path');

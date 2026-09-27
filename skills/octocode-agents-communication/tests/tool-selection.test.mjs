@@ -20,15 +20,18 @@ test('MCP explicit tool selection reduces discovery and refuses hidden tools', t
     { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'peers', arguments: {} } },
     { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'lock', arguments: { path: 'blocked', reasoning: 'This tool was not selected' } } },
   ].map(JSON.stringify).join('\n') + '\n';
-  const run = f.run(['mcp', '--tools', 'ack,send_message,peers', '--session', session], frames);
+  const run = f.run(['mcp', '--tools', 'complete,send_message,peers', '--session', session], frames);
   assert.equal(run.status, 0, run.stderr);
   const rows = run.stdout.trim().split('\n').map(JSON.parse);
-  assert.deepEqual(rows[0].result.tools.map(t => t.name), ['peers', 'send_message', 'ack'], 'catalog order is stable independent of selection order');
+  assert.deepEqual(rows[0].result.tools.map(t => t.name), ['peers', 'send_message', 'complete'], 'catalog order is stable independent of selection order');
   assert.equal(rows[1].result.isError, undefined);
   assert.doesNotMatch(rows[1].result.content[0].text, /null/, 'tool results omit null fields');
   assert.equal(rows[2].result.isError, true);
+  const completion = rows[0].result.tools.find(tool => tool.name === 'complete');
+  assert.match(completion.inputSchema.properties.reasoning.description, /reply only/);
+  assert.match(completion.inputSchema.properties.reasoning.description, /Forbidden for silent completion/);
   const full = JSON.parse(f.run(['schema']).stdout).tools;
-  assert.deepEqual(JSON.parse(f.run(['schema', 'tools', '--tools', 'ack,send_message,peers']).stdout), rows[0].result.tools);
+  assert.deepEqual(JSON.parse(f.run(['schema', 'tools', '--tools', 'complete,send_message,peers']).stdout), rows[0].result.tools);
   assert.ok(Buffer.byteLength(JSON.stringify(rows[0].result.tools)) < Buffer.byteLength(JSON.stringify(full)) / 2);
   assert.ok(Buffer.byteLength(JSON.stringify(full)) <= 12000, 'default tools/list stays within its token budget');
   const leases = JSON.parse(f.run(['entity', 'list', 'lease', '--session', session]).stdout);

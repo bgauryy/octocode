@@ -23,7 +23,7 @@ Start from real expertise: completed task sequences, user corrections, I/O examp
 
 ## Lobby convention
 
-Below the H1, declare `tools: npx octocode / octocode-mcp`, one `related-skill: <skill-name>`, and `output: <workspace>/.octocode/ for workspace work | <home>/.octocode/ when no workspace applies`. Keep short shared decisions in the lobby. Add a reference, doc, script, or scheme only for a coherent conditional job that changes the next action more effectively than inline guidance.
+Below the H1, declare actual commands/host tools with `tools:`, artifact/state destinations (or none) with `output:`, and actionable supporting-file navigation with `routes:`. Add `related-skill: <skill-name>` only when useful. Standalone runtimes name their bundled scripts and database/output locations; research tools use their own CLI/MCP entry points. Keep short shared decisions in the lobby. Add a reference, doc, script, or scheme only for a coherent conditional job that changes the next action more effectively than inline guidance.
 
 ## Workspace outputs
 
@@ -31,7 +31,7 @@ Every lobby states where generated artifacts go. Use `<workspace>/.octocode/` fo
 
 ## Machine-readable contracts
 
-Add `scheme/` only when a tool, host, script, or evaluator needs a contract it can parse. Store one contract per `scheme/<contract-name>.json`; each file is valid JSON with one top-level object. Keep explanatory prose in the lobby or references, route the scheme from its consumer, and delete schemes that merely restate prose.
+Add a scheme directory only when a tool, host, script, or evaluator needs a contract it can parse. Store one contract per `scheme/<contract-name>.json`; each file is valid JSON with one top-level object. Keep explanatory prose in the lobby or references, route the scheme from its consumer, and delete schemes that merely restate prose.
 
 ## Optimize and rank handoffs
 

@@ -164,6 +164,11 @@ pub struct GitHubTransport<R> {
     budget: Arc<GitHubBudget>,
     state_dir: Option<PathBuf>,
     pub graphql_enabled: bool,
+    /// Code-search pages by request URL and accept mode for 60 s: a repeated
+    /// search (re-page, retry, follow-up) spends none of the 10/min budget.
+    /// One transport serves one credential resolver, so results never cross
+    /// identities; clones share it.
+    pub(crate) search_results: moka::sync::Cache<String, Arc<super::search::CodeSearchPage>>,
 }
 impl<R> Clone for GitHubTransport<R> {
     fn clone(&self) -> Self {
@@ -175,6 +180,7 @@ impl<R> Clone for GitHubTransport<R> {
             budget: self.budget.clone(),
             state_dir: self.state_dir.clone(),
             graphql_enabled: self.graphql_enabled,
+            search_results: self.search_results.clone(),
         }
     }
 }
@@ -230,6 +236,10 @@ impl<R: CredentialResolver> GitHubTransport<R> {
             budget,
             state_dir: None,
             graphql_enabled: true,
+            search_results: moka::sync::Cache::builder()
+                .max_capacity(256)
+                .time_to_live(std::time::Duration::from_secs(60))
+                .build(),
         })
     }
 

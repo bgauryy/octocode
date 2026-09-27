@@ -733,21 +733,35 @@ fn group_by_file_summarizes_per_file_with_workspace_relative_paths() {
             "range": {"start": {"line": line, "character": 0}, "end": {"line": line, "character": 3}}
         })
     };
-    let summaries = group_by_file(
-        &[
-            location("src/a.ts", 4),
-            location("src/a.ts", 9),
-            location("src/b.ts", 0),
-        ],
-        &root_str,
-    );
+    let summaries = group_by_file(&[
+        location("src/a.ts", 4),
+        location("src/a.ts", 9),
+        location("src/b.ts", 0),
+    ]);
+    let absolute = |name: &str| format!("{root_str}/{name}");
     assert_eq!(
         summaries,
         vec![
-            serde_json::json!({"path": "src/a.ts", "references": 2, "lines": [5, 10]}),
-            serde_json::json!({"path": "src/b.ts", "references": 1, "lines": [1]}),
+            serde_json::json!({"path": absolute("src/a.ts"), "references": 2, "lines": [5, 10]}),
+            serde_json::json!({"path": absolute("src/b.ts"), "references": 1, "lines": [1]}),
         ]
     );
+    // Through the envelope, base + path names the real file.
+    let envelope = crate::runtime::response::envelope(vec![serde_json::json!({
+        "index": 0,
+        "data": {"path": absolute("src/deep/anchor.ts"), "payload": {"byFile": summaries}}
+    })]);
+    let base = envelope["base"].as_str().expect("base");
+    for file in envelope["results"][0]["data"]["payload"]["byFile"]
+        .as_array()
+        .expect("byFile")
+    {
+        let joined = format!("{base}/{}", file["path"].as_str().expect("path"));
+        assert!(
+            joined == absolute("src/a.ts") || joined == absolute("src/b.ts"),
+            "{joined}"
+        );
+    }
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -781,7 +795,6 @@ async fn grouped_references_replace_locations_with_file_summaries() {
     let result = locations(
         &q,
         &mut SourceCache::new(&paths),
-        &root.to_string_lossy(),
         "references",
         "referencesProvider",
         snippets,
@@ -790,7 +803,7 @@ async fn grouped_references_replace_locations_with_file_summaries() {
     assert!(result["payload"].get("locations").is_none(), "{result}");
     assert_eq!(
         result["payload"]["byFile"],
-        serde_json::json!([{"path": "a.ts", "references": 2, "lines": [1, 2]}])
+        serde_json::json!([{"path": root.join("a.ts").to_string_lossy(), "references": 2, "lines": [1, 2]}])
     );
     assert_eq!(result["payload"]["totalReferences"], 2);
     let _ = std::fs::remove_dir_all(root);
@@ -818,7 +831,6 @@ async fn recovered_alias_references_are_labeled_in_output() {
     let result = locations(
         &q,
         &mut SourceCache::new(&paths),
-        &root.to_string_lossy(),
         "references",
         "referencesProvider",
         vec![at(0), recovered],
@@ -927,7 +939,6 @@ async fn unreadable_in_policy_files_stay_authorized_and_keep_their_locations() {
     let result = locations(
         &q,
         &mut sources,
-        &root.to_string_lossy(),
         "references",
         "referencesProvider",
         snippets,
@@ -1841,4 +1852,27 @@ fn anchor_file_uri_is_stated_once_per_row() {
     let mut encoded = serde_json::json!({"uri":"file:///repo/src/a%20b.ts"});
     super::receipt::drop_same_uri(&mut encoded, "file:///repo/src/a b.ts");
     assert!(encoded.get("uri").is_none(), "{encoded}");
+}
+
+#[test]
+fn page_two_query_hashes_like_page_one() {
+    let first: LspSearchQuery = serde_json::from_value(serde_json::json!({
+        "uri":"/tmp/a.rs","symbolName":"is_alive","lineHint":1,"operation":"references",
+        "pageSize":1,"reasoning":"r"
+    }))
+    .expect("page 1");
+    // A continuation lists the same fields in another order.
+    let second: LspSearchQuery = serde_json::from_value(serde_json::json!({
+        "pageSize":1,"page":2,"snapshot":"lsp-v1:abc","operation":"references",
+        "lineHint":1,"reasoning":"r","symbolName":"is_alive","uri":"/tmp/a.rs"
+    }))
+    .expect("page 2");
+    let items = [serde_json::json!({"uri":"file:///tmp/a.rs"})];
+    assert_eq!(
+        semantic_snapshot(&first, "references", &items),
+        semantic_snapshot(&second, "references", &items),
+        "first={} second={}",
+        first.to_row(),
+        second.to_row()
+    );
 }

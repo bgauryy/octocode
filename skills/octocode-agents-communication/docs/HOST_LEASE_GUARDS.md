@@ -28,7 +28,23 @@ by owner presence. `checkedAt` is the snapshot time and `advisory:true` remains 
 The result is not an enduring capability: expiry, release, a later extension rewrite,
 or filesystem topology changes can invalidate it after the check.
 
-## Pi opt-in
+## Check setup before editing
+
+| Setup | Covered operations | Configuration evidence |
+| --- | --- | --- |
+| Pi `tools: 'editing'` | `write`, `edit` | Enabled automatically; `controller.getGuardCapabilities()` reports `configured` and current `bound` state |
+| Pi other profiles | None by default | Set `requireLeases:true` explicitly; the same capability receipt reports the result |
+| Claude guard | `Write`, `Edit` | `--config` emits a stderr capability receipt with `configured:false`: it is only a settings preview |
+| OpenCode guard | `write`, `edit` | Explicit plugin factory and native-session map; importing alone installs nothing |
+| Cursor/Grok message hooks | None | `host-config` emits a stderr capability receipt with `configured:false` and no supported edit operations |
+| Codex | No bundled guard | `host-config --vendor codex` rejects unsupported setup |
+
+Native settings remain on stdout unchanged. Preview receipts never claim that a
+host loaded or enabled a hook. Verify a blocked unleased structured write and a
+successful leased write in the actual configured host before relying on admission.
+None of these receipts promise shell/custom-tool or operating-system fencing.
+
+## Pi editing setup
 
 Configure a trusted extension to load the existing inbox adapter:
 
@@ -40,17 +56,22 @@ export default function (pi) {
     binary: '/absolute/skill/scripts/agents-communication',
     workspace: '/absolute/repo',
     database: '/absolute/store.sqlite',
-    requireLeases: true,
+    tools: 'editing',
   });
 }
 ```
 
-The default remains unchanged. With `requireLeases:true`, the adapter registers a
+The editing tool profile enables admission by default and rejects
+`requireLeases:false`. Other profiles retain their messaging behavior; explicitly
+set `requireLeases:true` when they also use structured writes. The adapter registers a
 `tool_call` handler for Pi's structured `write` and `edit` tools. It resolves their
 `input.path` from the event's working directory through the same
 `hooks/lease-check.mjs` admission call as the Claude and OpenCode guards. Missing/stale bindings, missing paths, failed coverage, expired
 results, and CLI failures return an explicit block before that tool runs. The
 adapter never auto-acquires a lease; the agent must coordinate and retry.
+Its initial identity context states whether the guard is configured once per
+binding; this is not repeated on every event. The returned controller exposes
+`getGuardCapabilities()` for host checks without model calls or database writes.
 
 This gate does not cover `bash`, `powershell`, arbitrary custom tools, user terminal
 commands, or unrelated processes. Pi allows later handlers to rewrite input; use a

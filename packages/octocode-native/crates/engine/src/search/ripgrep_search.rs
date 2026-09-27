@@ -60,6 +60,13 @@ const DEFAULT_MAX_SNIPPET_CHARS: u32 = 500;
 /// source files (including sizeable generated ones) are still searched.
 pub(crate) const DEFAULT_MAX_SEARCH_FILE_BYTES: u64 = 20 * 1024 * 1024;
 
+/// Default per-file ceiling for line-oriented (non-multiline) search. Line
+/// mode streams the file through a line buffer already bounded by
+/// [`SEARCH_HEAP_LIMIT_BYTES`], so large logs, dumps, and generated files stay
+/// searchable; only multiline search, which buffers the whole file, keeps the
+/// tighter [`DEFAULT_MAX_SEARCH_FILE_BYTES`].
+pub(crate) const DEFAULT_MAX_LINE_SEARCH_FILE_BYTES: u64 = 512 * 1024 * 1024;
+
 /// Hard heap ceiling for a single `Searcher` pass. `grep-searcher` buffers a
 /// whole line (or multiline block) before matching; without a cap a huge single
 /// line can allocate unbounded. Files above [`DEFAULT_MAX_SEARCH_FILE_BYTES`]
@@ -929,10 +936,14 @@ fn collect<M: Matcher + Sync>(
     let keep_unmatched = mode == Mode::FilesWithoutMatch;
     let limit = collection_limit(opts);
 
-    let max_file_bytes = opts
-        .max_file_bytes
-        .map(u64::from)
-        .unwrap_or(DEFAULT_MAX_SEARCH_FILE_BYTES);
+    let max_file_bytes =
+        opts.max_file_bytes
+            .map(u64::from)
+            .unwrap_or(if opts.multiline.unwrap_or(false) {
+                DEFAULT_MAX_SEARCH_FILE_BYTES
+            } else {
+                DEFAULT_MAX_LINE_SEARCH_FILE_BYTES
+            });
 
     // Traversal ordering is only stable if a single worker drains the walk in a
     // fixed order; the default parallel walk merges worker buffers arbitrarily.

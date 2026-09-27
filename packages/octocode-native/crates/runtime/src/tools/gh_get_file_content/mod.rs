@@ -201,21 +201,12 @@ where
             });
         }
     }
-    if content.error_code.as_deref() == Some("fullContentLimit") {
-        content.error = None;
-        content.content = Some(String::new());
-        content.content_view = Some(local.minify_mode());
-    }
     if content.error.is_none() {
         content.status = if match_not_found {
             // Same as localFetch: no selected line is an empty read, which
             // keeps the recovery hint visible under the hint policy.
             "empty"
-        } else if content.content.as_ref().is_some_and(|s| !s.is_empty())
-                // An oversized fullContent read is partial (next.continue
-                // pages the same view), not an empty file.
-                || content.error_code.as_deref() == Some("fullContentLimit")
-        {
+        } else if content.content.as_ref().is_some_and(|s| !s.is_empty()) {
             "success"
         } else {
             "empty"
@@ -396,9 +387,7 @@ fn rewrite_continuations(
             query.insert("owner".into(), Value::String(source.owner.to_string()));
             query.insert("repo".into(), Value::String(source.repo.to_string()));
             query.insert("branch".into(), Value::String(resolved_ref.to_owned()));
-            if result.error_code.as_deref() != Some("fullContentLimit") {
-                query.insert("fullContent".into(), Value::Bool(false));
-            }
+            query.insert("fullContent".into(), Value::Bool(false));
             query.insert(
                 "minify".into(),
                 Value::String(
@@ -555,7 +544,7 @@ fn local_fetch_query(query: &GhGetFileContentQuery) -> Result<LocalFetchQuery, P
 
 fn default_chunk_size(local: &LocalFetchQuery) -> usize {
     match local.chunk_type.unwrap_or(ChunkType::Lines) {
-        ChunkType::Lines => 100,
+        ChunkType::Lines => crate::tools::local_fetch::DEFAULT_LINE_CHUNK,
         ChunkType::Bytes => 16384,
     }
 }
@@ -846,8 +835,15 @@ mod tests {
         .await
         .expect("result");
         let file = &result.files[0];
-        assert_eq!(file.content.error_code.as_deref(), Some("fullContentLimit"));
-        assert_ne!(file.content.status, "empty");
+        // The first bounded page comes back inline, not an empty body.
+        assert_eq!(file.content.error_code, None);
+        assert_eq!(file.content.status, "success");
+        assert!(
+            file.content
+                .content
+                .as_deref()
+                .is_some_and(|text| !text.is_empty())
+        );
         assert_eq!(file.content.is_partial, Some(true));
         assert!(
             file.next

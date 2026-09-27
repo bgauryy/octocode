@@ -30,7 +30,7 @@ const STDERR_LINE_MAX_CHARS: usize = 2_000;
 /// Bytes of one stderr line kept in memory (4 × the char cap, the UTF-8
 /// worst case). The rest of an overlong line is read and discarded.
 const STDERR_LINE_MAX_BYTES: usize = STDERR_LINE_MAX_CHARS * 4;
-const MAX_SNIPPET_SOURCE_BYTES: u64 = 1_000_000;
+const MAX_SNIPPET_SOURCE_BYTES: u64 = super::MAX_LSP_SOURCE_BYTES;
 /// Snippet `content` for a location whose file the [`SnippetReadPolicy`]
 /// refused. The location itself is kept so the caller can apply its own
 /// policy to it; no byte of the file was read.
@@ -359,6 +359,37 @@ struct NativeLspClientInner {
     /// macOS: the RSS watchdog enforcing `max_memory_mb` (no `RLIMIT_AS`
     /// there). Dropped (aborted) by `stop` before the child is reaped.
     memory_watchdog: StdMutex<Option<spawn_limits::AbortOnDrop>>,
+    /// Query responses (anchor generation + `method` + params) from this
+    /// server, reused only inside [`RESPONSE_SCOPE`] continuation pages.
+    responses: moka::sync::Cache<String, Arc<Value>>,
+}
+
+/// Response reuse for one lspSearch call. `generation` (the anchor
+/// document's content hash) is part of every cached key, so an edited anchor
+/// never reuses; `reuse` is set only on continuation pages (page > 1 with the
+/// walk's snapshot). First pages always reach the server and refresh the cache.
+#[derive(Clone, Debug, Default)]
+pub struct ResponseScope {
+    pub reuse: bool,
+    pub generation: String,
+}
+
+tokio::task_local! {
+    pub static RESPONSE_SCOPE: std::cell::RefCell<ResponseScope>;
+}
+
+/// Bytes of cached responses per server process, and idle lifetime.
+const RESPONSE_CACHE_BYTES: u64 = 64 * 1024 * 1024;
+const RESPONSE_CACHE_IDLE: std::time::Duration = std::time::Duration::from_secs(600);
+
+fn response_cache() -> moka::sync::Cache<String, Arc<Value>> {
+    moka::sync::Cache::builder()
+        .max_capacity(RESPONSE_CACHE_BYTES)
+        .weigher(|key: &String, value: &Arc<Value>| {
+            u32::try_from(key.len() + value.to_string().len()).unwrap_or(u32::MAX)
+        })
+        .time_to_idle(RESPONSE_CACHE_IDLE)
+        .build()
 }
 
 #[cfg_attr(feature = "napi-addon", napi)]
@@ -386,6 +417,7 @@ impl NativeLspClient {
                 open_docs: StdMutex::new(OpenDocuments::new(MAX_OPEN_DOCUMENTS)),
                 memory_cap_guard: StdMutex::new(None),
                 memory_watchdog: StdMutex::new(None),
+                responses: response_cache(),
             }),
         }
     }
@@ -1193,6 +1225,25 @@ impl NativeLspClient {
     }
 
     async fn request(&self, method: &str, params: Value) -> Result<Value> {
+        let (reuse, generation) = RESPONSE_SCOPE
+            .try_with(|scope| {
+                let scope = scope.borrow();
+                (scope.reuse, scope.generation.clone())
+            })
+            .unwrap_or_default();
+        if generation.is_empty() {
+            return self.send_request(method, params).await;
+        }
+        let key = format!("{generation}\u{0}{method}\u{0}{params}");
+        if reuse && let Some(hit) = self.inner.responses.get(&key) {
+            return Ok((*hit).clone());
+        }
+        let value = self.send_request(method, params).await?;
+        self.inner.responses.insert(key, Arc::new(value.clone()));
+        Ok(value)
+    }
+
+    async fn send_request(&self, method: &str, params: Value) -> Result<Value> {
         let _activity = self.lease();
         // Acquire a cloned handle and DROP the guard before awaiting, so the
         // request + content-modified retry loop never holds the connection

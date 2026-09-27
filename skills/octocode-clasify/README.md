@@ -59,5 +59,4 @@ Requires `OCTOCODE_CLASSIFICATION_API` in the environment.
 
 ## References
 
-- [Protocol and query schema](references/ojql.md)
-- [Workflow patterns](references/clasify-workflows.md)
+- Protocol and query schema: live `octocode scheme clasify --view query --compact`

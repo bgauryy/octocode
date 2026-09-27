@@ -19,7 +19,7 @@ if (args.includes('--help')) {
   no folders   every skill under the nearest skills/ root (or the current folder if it is a skill)
   folder       one skill folder, or a collection whose immediate children are skill folders
   --json       machine-readable findings
-  --self-test  run collection, usage-error, and frontmatter-route regressions
+  --self-test  run collection, routing, standalone-runtime, and usage-error regressions
   --help       this text
 
 Navigation gates treat the skill as a map: SKILL.md is the lobby, every local file reference stays
@@ -69,7 +69,7 @@ function frontmatter(text) {
 
 function linkedPaths(text) {
   const hits = [];
-  const rx = /`((?:references|scripts|assets|scheme)\/[^`]+?)`|\((?:(\.\/)?((?:references|scripts|assets|scheme)\/[^)]+))\)/g;
+  const rx = /`((?:references|scripts|assets|scheme|docs)\/[^`]*?)`|\((?:(\.\/)?((?:references|scripts|assets|scheme|docs)\/[^)]*))\)/g;
   let m;
   while ((m = rx.exec(text))) {
     const raw = (m[1] || m[3]).split('#')[0].trim();
@@ -98,7 +98,7 @@ const ENTRY_CUE = /\b(load when|use when|read when|apply when|when you|before |a
 
 /** A named directory (`assets/hooks/`) stands in for the files under it. */
 function mentionedDirs(text) {
-  return [...new Set((text.match(/(?:references|scripts|assets|scheme)\/[A-Za-z0-9._-]*\//g) || []))];
+  return [...new Set((text.match(/(?:references|scripts|assets|scheme|docs)\/[A-Za-z0-9._-]*\//g) || []))];
 }
 
 /** Every runnable file under scripts/, so the lobby can be checked for completeness. */
@@ -223,23 +223,25 @@ function checkSkill(dir) {
 
   const lobby = bodyWithoutFrontmatter(skill);
   const conventions = [
-    ['lobby-tools-convention', /^tools:\s*`npx octocode`\s*\/\s*`octocode-mcp`\s*$/m,
-      'declare `tools: npx octocode / octocode-mcp` below the H1.'],
-    ['lobby-related-skill-convention', /^related-skill:\s*`[a-z0-9][a-z0-9-]*`\s*$/m,
-      'declare one `related-skill: <skill-name>` below the H1.'],
-    ['lobby-output-convention', /^output:\s*`<workspace>\/\.octocode\/`\s+for workspace work\s*\|\s*`<home>\/\.octocode\/`\s+when no workspace applies\s*$/m,
-      'declare the workspace-versus-home `output:` decision below the H1.'],
-    ['lobby-routes-convention', /^routes:\s*.*\breference\b.*\bdoc\b.*\bscript\b.*\bnext action\b.*$/mi,
-      'declare when a reference, doc, or script earns a route below the H1.'],
+    ['lobby-tools-convention', /^tools:[ \t]*\S[^\n]*$/m,
+      'declare the actual commands or host tools on a `tools:` line below the H1.'],
+    ['lobby-output-convention', /^output:[ \t]*\S[^\n]*$/m,
+      'declare where artifacts/state go, or explicitly state none, on an `output:` line below the H1.'],
+    ['lobby-routes-convention', /^routes:[ \t]*[^\n]*\b(use|load|run|read|when|before|after|for)\b[^\n]*$/mi,
+      'declare when or why to use supporting files on a `routes:` line below the H1.'],
   ];
   for (const [code, pattern, message] of conventions) {
     if (!pattern.test(lobby)) error(code, message);
   }
 
+  if (/^related-skill:/m.test(lobby) && !/^related-skill:[ \t]*`[a-z0-9][a-z0-9-]*`[ \t]*$/m.test(lobby)) {
+    error('lobby-related-skill-convention', 'when useful, declare one `related-skill: <skill-name>`; omit it when no related skill is needed.');
+  }
+
   if (!existsSync(join(dir, 'README.md'))) warn('readme-missing', 'README.md is recommended for standalone skills.');
 
   const refsDir = join(dir, 'references');
-  const referenced = new Set(linkedPaths(skill));
+  const referenced = new Set([...texts].filter(([rel, text]) => rel.endsWith('.md') && text != null).flatMap(([, text]) => linkedPaths(text)));
   const fromLobby = new Set(linkedPaths(skill));
   const refTexts = new Map();
   if (existsSync(refsDir)) {
@@ -289,7 +291,7 @@ function checkSkill(dir) {
   }
 
   // Navigation gates: the lobby is the map. It lists routed references, scripts, and schemes with when/how, plus the workflow.
-  const dirs = mentionedDirs(skill);
+  const dirs = [...mentionedDirs(skill), ...fromLobby].filter((path) => path.endsWith('/'));
   const listedInLobby = (rel) => fromLobby.has(rel) || skill.includes(rel) || dirs.some((d) => rel.startsWith(d));
 
   if (!/^\s*(?:\*\*)?(?:flow|workflow)/im.test(skill) && !/^##+\s+workflow/im.test(skill)) {
@@ -364,7 +366,7 @@ function checkSkill(dir) {
   }
 
   for (const line of routeLines(skill)) {
-    if (/^\s*\|/.test(line)) continue;
+    if (/^\s*\||^tools:/.test(line)) continue;
     if (!ROUTE_CONDITION.test(line)) {
       warn('route-condition', `route has no when/why cue: "${line.trim().slice(0, 70)}"`);
     }
@@ -505,6 +507,38 @@ Run the hook test and stop.
       || outsideMessages.includes(`'${bareFilePrefix}'`)) {
       throw new Error(`outside-file regression: ${JSON.stringify(outsideFindings)}`);
     }
+
+    const runtimeDir = join(root, 'standalone-runtime');
+    mkdirSync(join(runtimeDir, 'scripts', 'hooks'), { recursive: true });
+    writeFileSync(join(runtimeDir, 'SKILL.md'), `---
+name: standalone-runtime
+description: Use when coordinating workers through a bundled native runtime.
+---
+# Runtime
+tools: \`scripts/worker\` (CLI or MCP)
+output: Shared database selected by the caller; commands return JSON.
+routes: Use \`scripts/\` for generated runtime and host adapters; run command help for setup.
+## Workflow
+Start the runtime, execute work, then stop.
+`);
+    writeFileSync(join(runtimeDir, 'scripts', 'worker'), Buffer.from([127, 69, 76, 70, 0]));
+    writeFileSync(join(runtimeDir, 'scripts', 'SHA256SUMS'), 'checksum  worker\n');
+    writeFileSync(join(runtimeDir, 'scripts', 'hooks', 'native-selected.ps1'), 'Write-Output "ready"\n');
+    const runtimeErrors = () => checkSkill(runtimeDir).findings.filter(f => f.level === 'ERROR');
+    if (runtimeErrors().length) throw new Error(`standalone runtime regression: ${JSON.stringify(runtimeErrors())}`);
+    writeFileSync(join(runtimeDir, 'unrouted.txt'), 'still unused\n');
+    if (!runtimeErrors().some(f => f.code === 'unused-file')) throw new Error('directory routing must not hide unrelated unused files');
+    rmSync(join(runtimeDir, 'unrouted.txt'));
+    const runtimeLobby = readFileSync(join(runtimeDir, 'SKILL.md'), 'utf8');
+    writeFileSync(join(runtimeDir, 'SKILL.md'), runtimeLobby + '\nRun `scripts/missing-worker`.\n');
+    if (!runtimeErrors().some(f => f.code === 'missing-route')) throw new Error('directory routing must not hide missing literal files');
+    writeFileSync(join(runtimeDir, 'SKILL.md'), runtimeLobby + '\nUse `docs/missing/` for setup.\n');
+    if (!runtimeErrors().some(f => f.code === 'missing-route')) throw new Error('missing directory must fail');
+    writeFileSync(join(runtimeDir, 'SKILL.md'), runtimeLobby.replace(/^tools:.*$/m, 'tools: '));
+    if (!runtimeErrors().some(f => f.code === 'lobby-tools-convention')) throw new Error('blank tools declaration must fail');
+    writeFileSync(join(runtimeDir, 'SKILL.md'), runtimeLobby);
+    writeFileSync(join(runtimeDir, 'README.md'), '# Runtime\nRun `scripts/missing-readme-command`.\n');
+    if (!runtimeErrors().some(f => f.code === 'missing-route')) throw new Error('README missing route must fail');
 
     let rejectedMissing = false;
     try { expandTarget(join(root, 'missing')); } catch { rejectedMissing = true; }

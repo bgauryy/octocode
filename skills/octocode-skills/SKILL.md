@@ -17,7 +17,7 @@ Reviews: `<output>/octocode-skills/`; scratch: `<output>/tmp/octocode-skills/`. 
 
 ## Rules
 - `SKILL.md` owns entry decisions and shared constraints; references own conditional detail. Use `scheme/<contract-name>.json` only when the skill needs a machine-readable contract: one valid top-level JSON object per file. Keep each shipped file reachable through a route that explains when to use it.
-- Every lobby declares tools, one related-skill, the workspace-versus-home output decision, and the actionable route-value rule. Installing a missing related skill still requires authority.
+- Every lobby declares its actual tools, output/state destination (or none), and actionable supporting-file routes. Name a related skill only when useful; installing it still requires authority.
 - Inspect the real skill before quoting, judging, or installing it. Identify candidates by path and require authority for writes.
 - Stop discovery when one fit is clear, further angles add no evidence, a winner needs user judgment, or approval is pending.
 - Ship a standalone folder: local references stay inside it, and every shipped file is reachable from the lobby, README, or another used file. Remove duplicate, development-only metadata, probe, and scratch files. Core commands must work alone; optional sibling integrations must declare setup and pass isolated absent/present dependency checks.
@@ -26,7 +26,7 @@ Reviews: `<output>/octocode-skills/`; scratch: `<output>/tmp/octocode-skills/`. 
 - At UNDERSTAND, identify the requested skill operation, scope, source, and write authority before choosing a route.
 - When discovering, load `references/search-playbook.md`; choose a source with `references/discovery-surfaces.md`, parse manifests with `references/discovery-manifests.md`, and recover with `references/recovery.md` — search broadly enough without inventing candidates.
 - When judging, load `references/quality-rubric.md` for content fit, and `references/quality-signals.md` for adoption/recency; when recommending, present through `references/output-format.md` — rank evidence, not popularity alone.
-- When designing structure or a `scheme/` contract, load `references/skill-anatomy.md`; write with `references/skill-authoring.md`, extract deterministic work with `references/skill-scripts.md`, and tune activation with `references/description-tuning.md` — keep the lobby lean and triggers strong.
+- When designing structure or a machine-readable contract, load `references/skill-anatomy.md`; write with `references/skill-authoring.md`, extract deterministic work with `references/skill-scripts.md`, and tune activation with `references/description-tuning.md` — keep the lobby lean and triggers strong.
 - When improving, load `references/skill-improve.md`; choose review/refactor mode with `references/self-improvement.md` and clean with `references/skill-cleanup.md`. Use `octocode-eval-benchmark`; if unavailable, freeze goal/KPI/baseline and require comparable accept/revert evidence — preserve intent and measurable acceptance.
 - Before done, load `references/skill-review.md`; interpret findings with `references/skill-review-rules.md` — check navigation, useful content, and standalone execution. Assess advisory formatting warnings in context.
 - When reviewing lifecycle automation, load `references/hooks.md`; when adding it, load `references/hooks-add.md`, and use `assets/hooks/` — map the correct host event and avoid silent no-ops.

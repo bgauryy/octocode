@@ -19,6 +19,7 @@ secrecy = "0.10"
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
+moka = { workspace = true }
 tokio = { workspace = true, features = ["macros", "sync", "time"] }
 tokio-util = { version = "0.7", default-features = false }
 url = { workspace = true }

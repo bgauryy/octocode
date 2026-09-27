@@ -1,4 +1,5 @@
 use super::types::*;
+use crate::canonical_json::canonicalize;
 use crate::policy::discovery::{
     DISCOVERY_IGNORED_FILE_EXTENSIONS, DISCOVERY_IGNORED_FILE_NAMES, DISCOVERY_IGNORED_FOLDER_NAMES,
 };
@@ -987,7 +988,7 @@ fn merge_context_windows(
     out
 }
 
-struct PolicyFilter(PathPolicy);
+pub(crate) struct PolicyFilter(pub(crate) PathPolicy);
 impl RipgrepPathFilter for PolicyFilter {
     fn allows(&self, path: &std::path::Path, is_dir: bool) -> bool {
         if is_dir {
@@ -1335,25 +1336,6 @@ fn fingerprint(
             serde_json::to_vec(&canonical).unwrap_or_default()
         ))
     )
-}
-fn canonicalize(value: Value) -> Value {
-    match value {
-        Value::Object(map) => {
-            let mut entries = map
-                .into_iter()
-                .filter(|(_, v)| !v.is_null())
-                .collect::<Vec<_>>();
-            entries.sort_by(|a, b| a.0.cmp(&b.0));
-            Value::Object(
-                entries
-                    .into_iter()
-                    .map(|(k, v)| (k, canonicalize(v)))
-                    .collect(),
-            )
-        }
-        Value::Array(a) => Value::Array(a.into_iter().map(canonicalize).collect()),
-        v => v,
-    }
 }
 
 #[cfg(test)]

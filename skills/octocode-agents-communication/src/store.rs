@@ -60,7 +60,9 @@ pub fn now() -> i64 {
         .unwrap_or_default()
         .as_millis() as i64
 }
-pub fn page(mut rows: Vec<Value>, string_cursor: bool) -> Value {
+pub const PAGE_BYTES: usize = 16 * 1024;
+
+pub fn page(mut rows: Vec<Value>, string_cursor: bool, command: &str, input: &Value) -> Value {
     let mut bytes = 64;
     let mut count = 0;
     for row in rows.iter().take(100) {
@@ -70,7 +72,7 @@ pub fn page(mut rows: Vec<Value>, string_cursor: bool) -> Value {
             break;
         }
         let size = counter.0;
-        if count > 0 && bytes + size > 256 * 1024 {
+        if count > 0 && bytes + size > PAGE_BYTES {
             break;
         }
         bytes += size;
@@ -90,8 +92,19 @@ pub fn page(mut rows: Vec<Value>, string_cursor: bool) -> Value {
     } else {
         Value::Null
     };
+    let next = if next.is_null() {
+        Value::Null
+    } else {
+        let mut input = input.clone();
+        input["after"] = next;
+        json!({"command":command,"input":input})
+    };
     rows.truncate(count);
-    json!({"items":rows,"next":next})
+    let mut result = json!({"items":rows,"next":next});
+    if bytes > PAGE_BYTES {
+        result["budget"] = json!({"targetBytes":PAGE_BYTES,"reason":"Single oversized row returned intact to preserve evidence and cursor progress"});
+    }
+    result
 }
 impl Store {
     pub fn open(
@@ -115,7 +128,7 @@ impl Store {
             idle_inbox: RefCell::new(None),
         })
     }
-    fn check_database(&self) -> Result<()> {
+    pub(crate) fn check_database(&self) -> Result<()> {
         let current = fs::metadata(&self.database)
             .map_err(|_| anyhow!("Coordination database disappeared; stop this worker"))?;
         if !current.is_file() || !self.database_identity.is_file() {
@@ -180,6 +193,8 @@ impl Store {
                     ],
                 )?,
                 true,
+                "peers",
+                input,
             )),
             "inbox" => {
                 if let Some(message) = input.get("message") {
@@ -187,10 +202,12 @@ impl Store {
                     Ok(page(
                         query(
                             &self.db,
-                            "SELECT m.id,m.sender,s.name AS senderName,m.body,m.reasoning,m.topic,m.expiresAt,m.wake,m.conversationId,m.replyTo FROM deliveries d JOIN messages m ON m.id=d.message JOIN sessions s ON s.id=m.sender WHERE d.recipient=? AND d.acknowledgedAt IS NULL AND m.expiresAt>? AND m.id=?",
+                            "SELECT m.id,m.sender,s.name AS senderName,m.body,m.reasoning,m.topic,m.expiresAt,m.wake,m.conversationId,m.replyTo,m.replyRequired FROM deliveries d JOIN messages m ON m.id=d.message JOIN sessions s ON s.id=m.sender WHERE d.recipient=? AND d.acknowledgedAt IS NULL AND m.expiresAt>? AND m.id=?",
                             &[json!(session), json!(now()), message.clone()],
                         )?,
                         false,
+                        "inbox",
+                        input,
                     ))
                 } else {
                     self.inbox(session, input["after"].as_i64().unwrap_or(0))
@@ -265,6 +282,20 @@ impl Store {
                 )?;
                 Ok(json!({"alive":true}))
             }),
+            "set_status" => transaction(&self.db, |db| {
+                self.known(session, true)?;
+                execute(
+                    db,
+                    "UPDATE sessions SET task=coalesce(?,task),status=coalesce(?,status) WHERE id=?",
+                    &[
+                        input["task"].clone(),
+                        input["status"].clone(),
+                        json!(session),
+                    ],
+                )?;
+                let identity = self.known(session, true)?;
+                Ok(json!({"id":session,"task":identity["task"],"status":identity["status"]}))
+            }),
             "leave" => transaction(&self.db, |db| {
                 self.known(session, false)?;
                 // Leaving ends the identity's claims; a crash-resume keeps subscriptions.
@@ -309,40 +340,21 @@ impl Store {
             }),
             "check_write" => self.check_write(session, input),
             "check_paths" => self.check_paths(session, input),
+            "locks" => {
+                let mut result = self.entity_list(session, "lease", input)?;
+                if !result["next"].is_null() {
+                    result["next"]["command"] = json!("locks");
+                }
+                Ok(result)
+            }
             "lock" | "lock_many" => self.lock(session, input, name == "lock_many"),
             "renew" | "unlock" => self.lease_transition(session, input, name == "renew"),
-            "send_message" => self.send(session, input, false),
+            "send_message" => self.send(session, input, false, false),
             "share_document" => self.share_document(session, input),
             "read_document" => self.read_document(session, input),
             "context" => self.context(session, input),
-            "notify_all" => self.send(session, input, true),
-            "ack" => transaction(&self.db, |db| {
-                self.known(session, true)?;
-                if let Some(messages) = input["messages"].as_array() {
-                    let at = json!(now());
-                    for message in messages {
-                        let count = execute(
-                            db,
-                            "UPDATE deliveries SET acknowledgedAt=coalesce(acknowledgedAt,?) WHERE message=? AND recipient=?",
-                            &[at.clone(), message.clone(), json!(session)],
-                        )?;
-                        if count != 1 {
-                            // The transaction rolls back earlier updates and audit
-                            // triggers, so callers can never receive partial success.
-                            bail!(
-                                "Batch acknowledgement requires every ID to be received by this session"
-                            );
-                        }
-                    }
-                    return Ok(json!({"acknowledged":true,"count":messages.len()}));
-                }
-                let count = execute(
-                    db,
-                    "UPDATE deliveries SET acknowledgedAt=coalesce(acknowledgedAt,?) WHERE message=? AND recipient=?",
-                    &[json!(now()), input["message"].clone(), json!(session)],
-                )?;
-                Ok(json!({"acknowledged":count==1}))
-            }),
+            "notify_all" => self.send(session, input, true, false),
+            "complete" => self.complete(session, input),
             // Scoped to the bound workspace: one workspace never deletes another's leases.
             "prune" => transaction(&self.db, |db| {
                 let at = now();
@@ -352,7 +364,7 @@ impl Store {
                     &[json!(self.workspace), json!(at), json!(at)],
                 )?;
                 let next = if removed == 100 {
-                    json!({"command":"prune"})
+                    json!({"command":"prune","input":{}})
                 } else {
                     Value::Null
                 };
@@ -381,14 +393,63 @@ impl Store {
         }
         Ok(())
     }
-    fn send(&self, session: &str, input: &Value, broadcast: bool) -> Result<Value> {
+    fn complete(&self, session: &str, input: &Value) -> Result<Value> {
+        if let Some(reply) = input.get("reply") {
+            // Completion owns routing and retry identity. A final reply and its
+            // received-message transition commit in the send transaction below.
+            let message = &input["message"];
+            let outgoing = json!({
+                "replyTo": message,
+                "body": reply,
+                "reasoning": input["reasoning"].as_str().unwrap_or("Complete received message"),
+                "key": format!("complete:{message}"),
+            });
+            return self.send(session, &outgoing, false, true);
+        }
+        transaction(&self.db, |db| {
+            self.known(session, true)?;
+            let messages = input["messages"]
+                .as_array()
+                .cloned()
+                .unwrap_or_else(|| vec![input["message"].clone()]);
+            if let Some(required) = query(db,
+                "SELECT m.id FROM deliveries d JOIN messages m ON m.id=d.message WHERE d.recipient=? AND d.acknowledgedAt IS NULL AND m.replyRequired=1 AND m.id IN (SELECT value FROM json_each(?)) LIMIT 1",
+                &[json!(session), json!(json!(messages).to_string())])?.first() {
+                bail!("Message {} requires a final answer: use complete with message and reply, or leave unfinished work pending", required["id"]);
+            }
+            let at = json!(now());
+            for message in &messages {
+                let count = execute(
+                    db,
+                    "UPDATE deliveries SET acknowledgedAt=coalesce(acknowledgedAt,?) WHERE message=? AND recipient=?",
+                    &[at.clone(), message.clone(), json!(session)],
+                )?;
+                if count != 1 {
+                    bail!("Completion requires every ID to be received by this session");
+                }
+            }
+            Ok(json!({"completed":true,"count":messages.len()}))
+        })
+    }
+    fn send(
+        &self,
+        session: &str,
+        input: &Value,
+        broadcast: bool,
+        completing: bool,
+    ) -> Result<Value> {
+        if !completing && input.get("replyTo").is_some() {
+            bail!("Final replies require complete with message and reply");
+        }
         if !broadcast
             && ((input.get("to").is_some() && input.get("topic").is_some())
                 || (input.get("to").is_none()
                     && input.get("topic").is_none()
                     && input.get("replyTo").is_none()))
         {
-            bail!("Supply exactly one of to or topic, or replyTo alone");
+            bail!(
+                "Supply exactly one of to or topic. For replies use complete with message and reply."
+            );
         }
         let target = if broadcast {
             Some("*")
@@ -401,11 +462,13 @@ impl Store {
         };
         let body = text(input, "body")?;
         let reasoning = text(input, "reasoning")?;
-        let ack_reply = input["ackReply"].as_bool().unwrap_or(false);
-        if ack_reply
-            && (broadcast || input.get("topic").is_some() || input.get("replyTo").is_none())
-        {
-            bail!("ackReply requires a direct replyTo to an incoming message");
+        let reply_required = input["replyRequired"].as_bool().unwrap_or(
+            !broadcast && input.get("topic").is_none() && input.get("replyTo").is_none(),
+        );
+        if input.get("replyTo").is_some() && reply_required {
+            bail!(
+                "Replies are informational; use replyRequired:false. Start a new direct request for new work"
+            );
         }
         let duration = ttl(input, 3_600_000)?;
         let wake = input["wake"]
@@ -420,15 +483,23 @@ impl Store {
         } else {
             Uuid::new_v4().to_string()
         };
+        if !completing && key.starts_with("complete:") {
+            bail!("Keys beginning complete: are reserved for complete replies");
+        }
         transaction(&self.db, |db| {
             self.known(session, true)?;
             let mut conversation = input["conversationId"].clone();
             let mut reply_sender = None;
             if let Some(reply) = input.get("replyTo") {
                 let parent = query(db,
-                    "SELECT m.conversationId,m.sender FROM messages m JOIN sessions s ON s.id=m.sender WHERE m.id=? AND s.workspace=? AND (m.sender=? OR EXISTS(SELECT 1 FROM deliveries d WHERE d.message=m.id AND d.recipient=?))",
+                    "SELECT m.conversationId,m.sender,m.replyRequired FROM messages m JOIN sessions s ON s.id=m.sender WHERE m.id=? AND s.workspace=? AND (m.sender=? OR EXISTS(SELECT 1 FROM deliveries d WHERE d.message=m.id AND d.recipient=?))",
                     &[reply.clone(), json!(self.workspace), json!(session), json!(session)])?
                     .into_iter().next().ok_or_else(|| anyhow!("Reply requires a visible parent in this workspace"))?;
+                if parent["replyRequired"] == false {
+                    bail!(
+                        "Message {reply} is informational and accepts no reply. Handle it with complete using message or messages only; start a new direct request for new work"
+                    );
+                }
                 if input.get("conversationId").is_some() && conversation != parent["conversationId"]
                 {
                     bail!("Reply conversationId must match its parent");
@@ -441,7 +512,7 @@ impl Store {
                 .ok_or_else(|| anyhow!("Reply parent has no sender"))?;
             // Completion is explicit recipient intent, never inferred from visibility,
             // correlation, a transport receipt, or a model turn ending.
-            if ack_reply
+            if completing
                 && (reply_sender.as_deref() != Some(target)
                     || query(
                         db,
@@ -450,19 +521,18 @@ impl Store {
                     )?
                     .is_empty())
             {
-                bail!(
-                    "ackReply requires replying to the sender of a message received by this session"
-                );
+                bail!("Completion requires replying to a message received by this session");
             }
             let receipt = |id: Value, recipients: Value| -> Result<Value> {
                 let mut result = json!({"id":id,"recipients":recipients});
-                if ack_reply {
+                if completing {
                     execute(
                         db,
                         "UPDATE deliveries SET acknowledgedAt=? WHERE message=? AND recipient=? AND acknowledgedAt IS NULL",
                         &[json!(now()), input["replyTo"].clone(), json!(session)],
                     )?;
-                    result["acknowledged"] = json!(true);
+                    result["completed"] = json!(true);
+                    result["count"] = json!(1);
                 }
                 Ok(result)
             };
@@ -480,8 +550,14 @@ impl Store {
                     || row["wake"] != wake
                     || row["conversationId"] != conversation
                     || row["replyTo"] != input["replyTo"]
+                    || row["replyRequired"] != reply_required
                     || row["ttlMs"] != duration
                 {
+                    if completing {
+                        bail!(
+                            "Final reply already stored with different content; use send_message for new work"
+                        );
+                    }
                     bail!(
                         "Message key reused with different content (target, topic, body, reasoning, wake, correlation or ttlMs); use a new key"
                     );
@@ -492,6 +568,11 @@ impl Store {
                     &[row["id"].clone()],
                 )?;
                 return receipt(row["id"].clone(), count[0]["n"].clone());
+            }
+            if completing && !query(db,
+                "SELECT 1 FROM deliveries WHERE message=? AND recipient=? AND acknowledgedAt IS NOT NULL",
+                &[input["replyTo"].clone(), json!(session)])?.is_empty() {
+                bail!("Message already completed without this reply; send_message for new work");
             }
             let mut offline = false;
             let recipients = if broadcast {
@@ -520,7 +601,7 @@ impl Store {
             };
             execute(
                 db,
-                "INSERT INTO messages(sender,target,topic,body,key,expiresAt,reasoning,wake,conversationId,replyTo,ttlMs) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO messages(sender,target,topic,body,key,expiresAt,reasoning,wake,conversationId,replyTo,ttlMs,replyRequired) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                 &[
                     json!(session),
                     json!(target),
@@ -533,6 +614,7 @@ impl Store {
                     conversation,
                     input["replyTo"].clone(),
                     json!(duration),
+                    json!(reply_required),
                 ],
             )?;
             let id = db.last_insert_rowid();
@@ -565,10 +647,12 @@ impl Store {
         let result = page(
             query(
                 &self.db,
-                "SELECT m.id,m.sender,s.name AS senderName,m.body,m.reasoning,m.topic,m.expiresAt,m.wake,m.conversationId,m.replyTo FROM deliveries d JOIN messages m ON m.id=d.message JOIN sessions s ON s.id=m.sender WHERE d.recipient=? AND d.acknowledgedAt IS NULL AND m.expiresAt>? AND d.message>? ORDER BY d.message LIMIT 101",
+                "SELECT m.id,m.sender,s.name AS senderName,m.body,m.reasoning,m.topic,m.expiresAt,m.wake,m.conversationId,m.replyTo,m.replyRequired FROM deliveries d JOIN messages m ON m.id=d.message JOIN sessions s ON s.id=m.sender WHERE d.recipient=? AND d.acknowledgedAt IS NULL AND m.expiresAt>? AND d.message>? ORDER BY d.message LIMIT 101",
                 &[json!(session), json!(now()), json!(after)],
             )?,
             false,
+            "inbox",
+            &json!({"after":after}),
         );
         *self.idle_inbox.borrow_mut() = result["items"]
             .as_array()
@@ -590,7 +674,7 @@ impl Store {
             self.known(session, true)?;
             let items = query(
                 db,
-                "SELECT m.id,m.sender,m.body,m.reasoning,m.topic,m.expiresAt,m.wake,m.conversationId,m.replyTo FROM messages m JOIN deliveries d ON m.id=d.message WHERE d.recipient=? AND d.acknowledgedAt IS NULL AND d.claimUntil<=? AND m.expiresAt>? AND (d.claimedBy IS NULL OR d.claimedBy<>?) AND NOT EXISTS(SELECT 1 FROM dispatches x WHERE x.message=d.message AND x.recipient=d.recipient) ORDER BY m.id LIMIT 10",
+                "SELECT m.id,m.sender,m.body,m.reasoning,m.topic,m.expiresAt,m.wake,m.conversationId,m.replyTo,m.replyRequired FROM messages m JOIN deliveries d ON m.id=d.message WHERE d.recipient=? AND d.acknowledgedAt IS NULL AND d.claimUntil<=? AND m.expiresAt>? AND (d.claimedBy IS NULL OR d.claimedBy<>?) AND NOT EXISTS(SELECT 1 FROM dispatches x WHERE x.message=d.message AND x.recipient=d.recipient) ORDER BY m.id LIMIT 10",
                 &[json!(session), json!(now()), json!(now()), json!(owner)],
             )?;
             for item in &items {

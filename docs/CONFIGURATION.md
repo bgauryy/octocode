@@ -348,7 +348,7 @@ Always start with `npx octocode auth --json` (token source + identity), `npx oct
 | Wrong GitHub account | `npx octocode auth logout` then `auth login` — or `auth login --force` |
 | Env token overriding saved token | Env always wins — unset the env var |
 | `ghCloneRepo` unavailable | Use the CLI with `OCTOCODE_STORAGE_MODE=persistent`. MCP never exposes cloning. Check `npx octocode scheme`. |
-| `astRewrite` unavailable | It's a beta feature: set `OCTOCODE_BETA=true` or `local.beta: true` (the sole gate for both preview and apply). MCP registers it only when this gate and local tools are enabled. |
+| `astRewrite` unavailable | It's a CLI-only beta feature: run `octocode astRewrite` with `OCTOCODE_BETA=true` or `local.beta: true` (the sole gate for both preview and apply). MCP never registers it. |
 | Local tools turned off | Ensure neither `ENABLE_LOCAL` nor `local.enabled` is `false` |
 | A tool is missing | Inspect `npx octocode scheme`; check `TOOLS_TO_RUN` / `tools.enabled` (strict allowlists) and `DISABLE_TOOLS` / `tools.disabled`. Removed tool names are not aliases. |
 | Slow / timeouts | Raise `REQUEST_TIMEOUT` (max `300000` ms) |

@@ -21,8 +21,8 @@ function fixture(t) {
   return { workspace, database, args, call, session, db };
 }
 function message(f, key, { acknowledged = true, uncertain = false, expiresAt = 1, replyTo = null } = {}) {
-  const id = Number(f.db.prepare('INSERT INTO messages(sender,target,body,key,expiresAt,reasoning,replyTo) VALUES(?,?,?,?,?,?,?)')
-    .run(f.session, f.session, `audit body ${key}`, key, expiresAt, 'Keep complete protocol evidence', replyTo).lastInsertRowid);
+  const id = Number(f.db.prepare('INSERT INTO messages(sender,target,body,key,expiresAt,reasoning,replyTo,replyRequired) VALUES(?,?,?,?,?,?,?,?)')
+    .run(f.session, f.session, `audit body ${key}`, key, expiresAt, 'Keep complete protocol evidence', replyTo, replyTo === null ? 1 : 0).lastInsertRowid);
   f.db.prepare('INSERT INTO deliveries(message,recipient,acknowledgedAt) VALUES(?,?,?)').run(id, f.session, acknowledged ? Date.now() : null);
   if (uncertain) f.db.prepare('INSERT INTO dispatches(message,recipient,token,transport,state,attemptedAt) VALUES(?,?,?,?,?,?)').run(id, f.session, 'attempt', 'raw', 'uncertain', Date.now());
   return id;

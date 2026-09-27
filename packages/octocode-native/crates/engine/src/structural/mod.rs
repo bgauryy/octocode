@@ -51,7 +51,7 @@ use types::{STRUCTURAL_ANALYZER, STRUCTURAL_ANALYZER_VERSION, structural_query_f
 /// the public napi export hands off to, so a multi-MB blob
 /// can't hang tree-sitter parsing or `match_multi_capture` backtracking with no
 /// timeoutMs escape. At-or-below passes; over returns an error / `truncated`.
-const MAX_STRUCTURAL_CONTENT_BYTES: usize = 1_000_000;
+const MAX_STRUCTURAL_CONTENT_BYTES: usize = crate::signatures::MAX_PARSE_SIZE;
 
 /// Run a structural search over `content`, parsed with the grammar resolved
 /// from `ext`. Exactly one of `pattern` / `rule` must be `Some`.
@@ -112,7 +112,7 @@ pub fn search_detailed(
             ),
         )
         .with_path(file_path)
-        .with_recovery("Scope the content with fetch.content charLength/charOffset or run a file search with maxFileBytes instead.");
+        .with_recovery("Target a smaller file; for this one, read bounded ranges with localFetch or search text with localSearch.");
         return StructuralSearchDetailedResult {
             path: file_path.to_owned(),
             analyzer: STRUCTURAL_ANALYZER.to_owned(),

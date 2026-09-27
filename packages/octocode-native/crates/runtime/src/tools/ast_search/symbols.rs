@@ -95,14 +95,25 @@ pub fn execute_symbols(
     if meta.is_file() {
         super::validate_file_language(&p.canonical, q.lang_type().as_deref())?;
     } else if q.lang_type.is_some() {
-        return Err(super::AstError::new(
+        let mut error = super::AstError::new(
             "ast.language.fileRequired",
             "langType on symbols requires a single source file.",
-        ));
+        );
+        // Directory symbols pick each file's grammar from its extension, so
+        // the same query without langType is the exact repair.
+        if let Ok(mut repaired) = serde_json::to_value(q) {
+            if let Some(object) = repaired.as_object_mut() {
+                object.remove("langType");
+            }
+            error.next = Some(Box::new(json!({
+                "repair": {"tool": "astSearch", "confidence": "exact", "query": repaired}
+            })));
+        }
+        return Err(error);
     }
     let (mut entries, truncated, mut skipped, mut diagnostics) = if meta.is_file() {
         let b = std::fs::read(&p.canonical).map_err(super::io_error)?;
-        if b.len() > 1_000_000 {
+        if b.len() > super::MAX_PARSE_SOURCE_BYTES {
             return Ok(limit(
                 &p.canonical
                     .file_name()
@@ -111,7 +122,7 @@ pub fn execute_symbols(
             ));
         }
         let s = security
-            .validate_text_bytes(&b, Some(&p.canonical), 1_000_000)
+            .validate_text_bytes(&b, Some(&p.canonical), super::MAX_PARSE_SOURCE_BYTES)
             .map_err(super::AstError::from)?;
         let source_path = p.canonical.to_string_lossy();
         let raw = if super::cpp_header_override(&p.canonical, q.lang_type().as_deref()) {
@@ -121,7 +132,7 @@ pub fn execute_symbols(
                 "cpp",
             )
         } else {
-            octocode_engine::portable::extract_graph_facts(&s.content, &source_path)
+            octocode_engine::portable::extract_declarations(&s.content, &source_path)
         };
         match raw {
             Some(raw) => (
@@ -142,7 +153,7 @@ pub fn execute_symbols(
                 path: p.canonical.to_string_lossy().into_owned(),
                 exclude_dir: q.exclude_dir(),
                 max_files: Some(q.max_files()),
-                max_file_bytes: Some(1_000_000),
+                max_file_bytes: u32::try_from(super::MAX_PARSE_SOURCE_BYTES).ok(),
                 language_globs: q.language_globs().map(|map| {
                     map.iter()
                         .flat_map(|(language, globs)| {
@@ -233,17 +244,49 @@ pub fn execute_symbols(
             row["path"] = json!(security.sanitize_text(path, None).content);
         }
     }
+    let set = SymbolSet {
+        path: super::display_name(&p.canonical),
+        snapshot,
+        declarations,
+        diagnostics,
+        files_scanned: entries.len(),
+        skipped,
+        truncated,
+    };
+    Ok(render_page(q, &set))
+}
+
+/// Every declaration of one symbols query, before paging.
+struct SymbolSet {
+    path: String,
+    snapshot: String,
+    declarations: Vec<Value>,
+    diagnostics: Vec<Value>,
+    files_scanned: usize,
+    skipped: u32,
+    truncated: bool,
+}
+
+fn render_page(q: &AstSearchQuerySymbols, set: &SymbolSet) -> Value {
+    let SymbolSet {
+        path,
+        snapshot,
+        declarations,
+        diagnostics,
+        files_scanned,
+        skipped,
+        truncated,
+    } = set;
+    let (skipped, truncated) = (*skipped, *truncated);
     if q.page() > 1 && q.snapshot() != Some(snapshot.as_str()) {
-        return Ok(
-            json!({"status":"error","errorCode":"ast.snapshot.changed","error":"The source or query changed, or this continuation omitted its snapshot. Discard earlier pages and restart.","snapshot":snapshot,"complete":false}),
-        );
+        return json!({"status":"error","errorCode":"ast.snapshot.changed","error":"The source or query changed, or this continuation omitted its snapshot. Discard earlier pages and restart.","snapshot":snapshot,"complete":false});
     }
     let size = q.page_size().clamp(1, 1000) as usize;
     let page = q.page().max(1) as usize;
     let start = (page - 1) * size;
     let more = start + size < declarations.len();
     let incomplete = truncated || skipped > 0;
-    let mut out = json!({"operation":"symbols","path":super::display_name(&p.canonical),"snapshot":snapshot,"declarations":declarations.get(start..(start+size).min(declarations.len())).unwrap_or(&[]),"totalDeclarations":declarations.len(),"filesScanned":entries.len(),"filesSkipped":skipped,"diagnostics":diagnostics,"isPartial":more||incomplete});
+    let mut out = json!({"operation":"symbols","path":path,"snapshot":snapshot,"declarations":declarations.get(start..(start+size).min(declarations.len())).unwrap_or(&[]),"totalDeclarations":declarations.len(),"filesScanned":files_scanned,"filesSkipped":skipped,"diagnostics":diagnostics,"isPartial":more||incomplete});
     if more || page > 1 {
         out["pagination"] = json!({"currentPage":page,"totalPages":declarations.len().div_ceil(size).max(1),"hasMore":more});
     }
@@ -263,7 +306,7 @@ pub fn execute_symbols(
     if declarations.is_empty() && !incomplete {
         out["status"] = json!("empty")
     }
-    Ok(out)
+    out
 }
 fn limit(path: &str) -> Value {
     json!({"status":"error","path":path,"errorCode":"ast.source.limit","error":"Source exceeds the native parser byte limit.","complete":false,"terminalLimit":true})
@@ -287,7 +330,8 @@ const SYNTAX_ONLY_NOTE: &str =
 /// `symbolName`+`lineHint` or a zero-based `position`; `endLine` (1-based) is
 /// the end of the declaration and is omitted when equal to `line`;
 /// `startLine` appears only when the declaration starts before its name line
-/// (decorators, attributes). `id` is `name@line:character`, unique within its
+/// (decorators, attributes); `docStartLine` is the first line of the comment
+/// block directly above, when present. `id` is `name@line:character`, unique within its
 /// file (`path`); `parent` uses the same scheme. `exported` appears only when
 /// true, with `exportedAs` listing public names that differ from `name`. Rows are returned in input order, one per engine declaration.
 fn compact_declarations(raw: &[Value]) -> Vec<Value> {
@@ -329,6 +373,9 @@ fn compact_declarations(raw: &[Value]) -> Vec<Value> {
             && start < line
         {
             row["startLine"] = json!(start);
+        }
+        if let Some(doc) = d["docLine"].as_u64() {
+            row["docStartLine"] = json!(doc + 1);
         }
         if let Some(end) = pos(d, "range", "end", "line").map(|l| l + 1)
             && end != line

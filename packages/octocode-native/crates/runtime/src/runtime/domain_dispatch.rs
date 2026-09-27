@@ -23,6 +23,7 @@ pub(super) struct DomainDispatcher {
     pub home: PathBuf,
     pub handle: tokio::runtime::Handle,
     pub lsp_pool: Arc<octocode_engine::lsp::pool::LspClientPool>,
+    pub local_views: Arc<crate::tools::gh_get_file_content::SanitizedViewMemo>,
     pub lsp_execution_config: LspExecutionConfig,
     pub available_tools: Vec<&'static str>,
 }
@@ -114,6 +115,7 @@ impl DomainDispatcher {
         let paths = self.paths.clone();
         let security = self.security.clone();
         let regex = self.regex.clone();
+        let views = self.local_views.clone();
         let context = context.clone();
         // OCTOCODE_BETA is the shared gate for beta local tools. For astRewrite,
         // enabling beta permits both preview and hash-guarded apply.
@@ -127,6 +129,7 @@ impl DomainDispatcher {
                     &security,
                     &context,
                     &regex,
+                    &views,
                     allow_apply,
                 )
             })

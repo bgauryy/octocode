@@ -539,6 +539,35 @@ fn one_request_parses_yaml_once_across_planning_and_languages() {
 }
 
 #[test]
+fn csharp_statement_and_expression_patterns_match_inside_methods() {
+    let source = "class W {\n  int Area() { return Helper(LIMIT); }\n  static int Run() { var s = \"😀\"; Log(s); return Helper(s.Length); }\n}\n";
+    let calls = run_pattern(source, "cs", "Helper($A)");
+    assert_eq!(calls.len(), 2, "expression pattern");
+    assert_eq!(calls[1].metavars["A"], ["s.Length"]);
+    assert_eq!(
+        run_pattern(source, "cs", "Log($A);").len(),
+        1,
+        "statement pattern"
+    );
+    assert_eq!(
+        run_pattern(source, "cs", "Helper(LIMIT)").len(),
+        1,
+        "literal pattern"
+    );
+}
+
+#[test]
+fn pasted_ast_grep_rule_file_metadata_is_tolerated() {
+    let rule_file = "id: no-unwrap\nlanguage: rust\nseverity: warning\nmessage: avoid\nnote: why\nurl: https://x\nmetadata: {a: 1}\nrule:\n  pattern: $A.unwrap()\n";
+    let matches = run_rule("fn f() { let v = x.unwrap(); }", "rs", rule_file);
+    assert_eq!(matches.len(), 1, "metadata keys do not affect matching");
+    let unsupported =
+        StructuralQuery::new(None, Some("id: x\nrule:\n  pattern: $A\nconstraints: {}\n")).unwrap();
+    let error = compile_matcher(&lang("rs"), &unsupported).err().unwrap();
+    assert!(error.contains("unknown field `constraints`"), "{error}");
+}
+
+#[test]
 fn malformed_yaml_is_parsed_once_without_changing_compile_errors() {
     RULE_PARSE_COUNT.with(|count| count.set(0));
     let query = StructuralQuery::new(None, Some("pattern: [")).unwrap();

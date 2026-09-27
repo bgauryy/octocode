@@ -560,7 +560,7 @@ fn content_of_exactly(byte_len: usize) -> String {
 
 #[test]
 fn search_rejects_oversize_content() {
-    const CAP: usize = 1_000_000;
+    const CAP: usize = crate::signatures::MAX_PARSE_SIZE;
     let content = content_of_at_least(CAP + 1);
     assert!(content.len() > CAP, "fixture must be over the cap");
     let err = match search(&content, "ts", Some("target($X)"), None) {
@@ -579,7 +579,7 @@ fn search_rejects_oversize_content() {
 
 #[test]
 fn search_accepts_content_at_cap() {
-    const CAP: usize = 1_000_000;
+    const CAP: usize = crate::signatures::MAX_PARSE_SIZE;
     let content = content_of_exactly(CAP);
     assert_eq!(content.len(), CAP, "fixture must be exactly at the cap");
     let matches = search(&content, "ts", Some("target($X)"), None)
@@ -590,7 +590,7 @@ fn search_accepts_content_at_cap() {
 
 #[test]
 fn search_detailed_reports_oversize_as_truncated() {
-    const CAP: usize = 1_000_000;
+    const CAP: usize = crate::signatures::MAX_PARSE_SIZE;
     let content = content_of_at_least(CAP + 1);
     assert!(content.len() > CAP, "fixture must be over the cap");
     let result = search_detailed(&content, "a.ts", "ts", Some("target($X)"), None);
@@ -610,7 +610,7 @@ fn search_detailed_reports_oversize_as_truncated() {
 
 #[test]
 fn search_detailed_accepts_content_at_cap() {
-    const CAP: usize = 1_000_000;
+    const CAP: usize = crate::signatures::MAX_PARSE_SIZE;
     let content = content_of_exactly(CAP);
     assert_eq!(content.len(), CAP, "fixture must be exactly at the cap");
     let result = search_detailed(&content, "a.ts", "ts", Some("target($X)"), None);

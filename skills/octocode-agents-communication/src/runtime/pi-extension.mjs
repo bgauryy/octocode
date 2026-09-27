@@ -10,6 +10,27 @@ export default function (pi) {
 
 export function registerBoundTools(pi, options) {
   const { tools } = options;
+  const names = new Set(tools.map(tool => tool.name));
+  // Responses can normalize omitted strict into all-required parameters.
+  // Preserve the canonical optional fields; Rust still validates every call.
+  pi.on?.('before_provider_request', event => {
+    const payload = event.payload;
+    if (!Array.isArray(payload?.tools)) return payload;
+    let changed = false;
+    const descriptors = payload.tools.map(tool => {
+      if (tool.type !== 'function') return tool;
+      if (names.has(tool.function?.name) && tool.function.strict !== false) {
+        changed = true;
+        return { ...tool, function: { ...tool.function, strict: false } };
+      }
+      if (names.has(tool.name) && tool.strict !== false) {
+        changed = true;
+        return { ...tool, strict: false };
+      }
+      return tool;
+    });
+    return changed ? { ...payload, tools: descriptors } : payload;
+  });
   for (const tool of tools) {
     pi.registerTool({
       name: tool.name,

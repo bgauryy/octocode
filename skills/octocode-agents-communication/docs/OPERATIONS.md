@@ -23,7 +23,7 @@ means active queued/submitted work without a diagnosed fault; normal processing
 is not an error. Successful reads exit zero even when status is `attention`;
 monitoring should inspect the JSON.
 Passive mail waiting for an action is normal. Submitted mail still requires the
-recipient's explicit handling ACK.
+recipient's explicit handling completion.
 
 | Issue | Operator response |
 | --- | --- |
@@ -31,7 +31,7 @@ recipient's explicit handling ACK.
 | `expiredAction` | Decide whether work is still needed; acknowledge a deliberate no-action decision or issue a new request |
 | `offlineRecipient` | Check the recipient and delivery owner; deliberately resume without reviving old leases |
 | `stalledOffer` | Inspect the process offering context and the recipient before recovery |
-| `overdueHandling` | Check recipient progress; do not convert submission into an ACK or blindly resend |
+| `overdueHandling` | Check recipient progress; do not convert submission into an completion or blindly resend |
 
 The last two use `staleAfterMs`, default five minutes. It is an observation
 threshold, not a lease extension, cancellation or replay timer. Counts cover all

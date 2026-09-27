@@ -1,5 +1,6 @@
 mod executor;
 mod extraction;
+mod large_source;
 mod pagination;
 mod types;
 mod validation;
@@ -424,6 +425,31 @@ mod tests {
     }
 
     #[test]
+    fn full_content_continuation_pages_by_the_byte_budget_not_100_lines() {
+        let t = Temp::new();
+        let paths = Paths(t.0.clone());
+        let file = t.0.join("short-lines.rs");
+        fs::write(&file, "let x = 1;\n".repeat(6_000)).expect("fixture should be written");
+        let mut full = q(&file);
+        full.full_content = Some(true);
+        let limited = execute_local_fetch(&full, &paths, &Safe, &NeverCancel);
+        assert_eq!(
+            limited.partial_reasons,
+            vec![PartialReason::FullContentLimit]
+        );
+        assert!(limited.pagination.as_ref().expect("first page").length > 1_000);
+        let next = limited
+            .next
+            .and_then(|next| next.r#continue)
+            .expect("continuation");
+        let page = execute_local_fetch(&next.query, &paths, &Safe, &NeverCancel);
+        let pagination = page.pagination.expect("paged");
+        // 11-byte lines: a 16 KiB page holds ~1,489 lines, not 100.
+        assert!(pagination.length > 1_000, "{pagination:?}");
+        assert!(page.content.as_deref().unwrap_or_default().len() <= 16_384);
+    }
+
+    #[test]
     fn full_content_limits_return_executable_continuations() {
         let t = Temp::new();
         let paths = Paths(t.0.clone());
@@ -433,7 +459,14 @@ mod tests {
         compact.full_content = Some(true);
         compact.minify = Some(MinifyMode::Standard);
         let result = execute_local_fetch(&compact, &paths, &Safe, &NeverCancel);
-        assert_eq!(result.error_code.as_deref(), Some("fullContentLimit"));
+        // Page 1 of the view is returned inline with the continuation.
+        assert_eq!(result.error_code, None);
+        assert!(
+            result
+                .content
+                .as_deref()
+                .is_some_and(|text| !text.is_empty())
+        );
         assert_eq!(
             result.partial_reasons,
             vec![PartialReason::FullContentLimit]
@@ -447,12 +480,18 @@ mod tests {
         let mut full = q(&source_limited);
         full.full_content = Some(true);
         let result = execute_local_fetch(&full, &Paths(source_temp.0.clone()), &Safe, &NeverCancel);
-        assert_eq!(result.error_code.as_deref(), Some("fileTooLarge"));
+        assert_eq!(result.error_code, None);
+        assert!(
+            result
+                .content
+                .as_deref()
+                .is_some_and(|text| !text.is_empty())
+        );
         assert_eq!(
             result.partial_reasons,
-            vec![PartialReason::FullContentSourceSizeLimit]
+            vec![PartialReason::FullContentLimit]
         );
-        assert_eq!(result.metadata_unavailable, vec!["totalLines"]);
+        assert!(result.next.and_then(|next| next.r#continue).is_some());
     }
 
     #[test]

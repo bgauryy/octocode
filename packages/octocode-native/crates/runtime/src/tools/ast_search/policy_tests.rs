@@ -580,7 +580,11 @@ fn unknown_symbol_kinds_are_rejected_and_source_limits_are_errors() {
     assert_eq!(ok["declarations"][0]["name"], "visible");
 
     let large = root.0.join("large.rs");
-    std::fs::write(&large, "// x\n".repeat(250_001)).expect("large");
+    std::fs::write(
+        &large,
+        "// x\n".repeat(super::MAX_PARSE_SOURCE_BYTES / 5 + 1),
+    )
+    .expect("large");
     for query in [
         json!({"operation":"symbols","reasoning":"test","path":large}),
         json!({"operation":"syntaxTree","reasoning":"test","path":large}),

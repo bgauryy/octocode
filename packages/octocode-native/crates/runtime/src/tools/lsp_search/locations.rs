@@ -13,7 +13,6 @@ use super::failure::{continuation, empty};
 use super::render::{as_array, flatten_document_symbol, paginate, symbol_kind_name, uri_to_path};
 use super::source::SourceCache;
 use serde_json::{Value, json};
-use std::path::Path;
 
 /// One-based public `displayRange` of a zero-based LSP range.
 pub(super) fn public_range(range: &Value) -> Option<Value> {
@@ -53,7 +52,6 @@ pub(super) fn public_workspace_symbol(symbol: &Value) -> Value {
 pub(super) async fn locations(
     query: &LspSearchQuery,
     sources: &mut SourceCache<'_>,
-    workspace_root: &str,
     kind: &str,
     provider: &str,
     snippets: Vec<impl serde::Serialize>,
@@ -70,11 +68,6 @@ pub(super) async fn locations(
                 .is_some_and(|uri| sources.uri_authorized(uri))
         })
         .collect::<Vec<_>>();
-    if let Some(context_lines) = query.context_lines() {
-        for location in &mut locations {
-            apply_context_lines(location, context_lines, sources).await;
-        }
-    }
     // Internal shape (exact provider ranges, without engine-only fields) drives
     // ordering, snapshots and grouping; `public_location` shapes emitted rows.
     locations = locations.into_iter().map(compact_location).collect();
@@ -96,7 +89,7 @@ pub(super) async fn locations(
     // the page unit becomes a file summary.
     let grouped = query.group_by_file() == Some(true);
     let entries = if grouped {
-        group_by_file(&locations, workspace_root)
+        group_by_file(&locations)
     } else {
         locations.clone()
     };
@@ -109,6 +102,13 @@ pub(super) async fn locations(
     let mut payload = if grouped {
         json!({ "kind": kind, "byFile": page })
     } else {
+        // Context lines are read for this page only, not the whole set.
+        let mut page = page;
+        if let Some(context_lines) = query.context_lines() {
+            for location in &mut page {
+                apply_context_lines(location, context_lines, sources).await;
+            }
+        }
         let mut page = page.into_iter().map(public_location).collect::<Vec<_>>();
         let shared_uri = shared_location_uri(&page);
         if shared_uri.is_some() {
@@ -326,7 +326,11 @@ fn location_sort_key(location: &Value) -> (String, u64, u64, u64, u64) {
 /// Per-file summaries `{path, references, lines}` in path order, with `path`
 /// relative to the workspace root (absolute when outside it) and one-based
 /// start `lines`.
-pub(super) fn group_by_file(locations: &[Value], workspace_root: &str) -> Vec<Value> {
+/// Per-file reference summaries. Paths stay absolute, like every location,
+/// so the response envelope relativizes them against the same `base`;
+/// pre-relativizing here (to the workspace root) made `base + path` point at
+/// files that do not exist whenever `base` was the anchor's directory.
+pub(super) fn group_by_file(locations: &[Value]) -> Vec<Value> {
     let mut files: std::collections::BTreeMap<String, Vec<u64>> = std::collections::BTreeMap::new();
     for location in locations {
         let path = location
@@ -334,18 +338,12 @@ pub(super) fn group_by_file(locations: &[Value], workspace_root: &str) -> Vec<Va
             .and_then(Value::as_str)
             .map(uri_to_path)
             .unwrap_or_else(|| "unknown".to_owned());
-        let relative = Path::new(&path)
-            .strip_prefix(workspace_root)
-            .ok()
-            .filter(|relative| !relative.as_os_str().is_empty())
-            .map(|relative| relative.to_string_lossy().replace('\\', "/"))
-            .unwrap_or(path);
         let line = location
             .pointer("/range/start/line")
             .and_then(Value::as_u64)
             .unwrap_or(0)
             + 1;
-        files.entry(relative).or_default().push(line);
+        files.entry(path).or_default().push(line);
     }
     files
         .into_iter()
@@ -364,12 +362,15 @@ pub(super) fn semantic_snapshot(query: &LspSearchQuery, kind: &str, items: &[Val
             object.remove(field);
         }
     }
-    let bytes = serde_json::to_vec(&json!({
+    // Canonical form: a continuation lists the query's fields in a
+    // different order than the caller did, and the digest must not care.
+    let bytes = serde_json::to_vec(&crate::canonical_json::canonicalize(json!({
         "query": scope,
         "kind": kind,
         "items": items,
-    }))
+    })))
     .unwrap_or_default();
+
     format!("lsp-v1:{}", hex::encode(Sha256::digest(bytes)))
 }
 

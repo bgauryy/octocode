@@ -115,6 +115,12 @@
         ],
         "resources[].maxChars": [
           "consumed"
+        ],
+        "resources[].prefilter": [
+          "consumed"
+        ],
+        "carry": [
+          "consumed"
         ]
       }
     },

@@ -21,11 +21,11 @@ export function checkSkill(executable, skillPath, timeoutMs = 10000) {
   return { passed: true };
 }
 
-export function checkStartup(executable, timeoutMs = 10000) {
+export function checkStartup(executable, timeoutMs = 10000, args = ['--help']) {
   const started = performance.now();
   let result;
   try {
-    result = JSON.parse(execFileSync(executable, ['--help'], {
+    result = JSON.parse(execFileSync(executable, args, {
       encoding: 'utf8', timeout: timeoutMs, killSignal: 'SIGKILL', maxBuffer: 1024 * 1024,
       stdio: ['ignore', 'pipe', 'pipe'],
     }));
@@ -38,7 +38,15 @@ export function checkStartup(executable, timeoutMs = 10000) {
   return { passed: true, elapsedMs: performance.now() - started, timeoutMs };
 }
 
-export function verifyExecutable(executable, { target, hostTarget, timeoutMs = 10000 }) {
+// First execution of a new macOS inode can wait for XProtect. Keep this bounded
+// assessment allowance separate from the normal startup gate; never retry failures.
+export function verifyStartup(executable, { timeoutMs = 10000, coldStart = false, coldTimeoutMs = 60000 } = {}, args = ['--help']) {
+  const cold = coldStart && process.platform === 'darwin'
+    ? checkStartup(executable, coldTimeoutMs, args) : undefined;
+  return { ...checkStartup(executable, timeoutMs, args), ...(cold ? { coldStart: cold } : {}) };
+}
+
+export function verifyExecutable(executable, { target, hostTarget, timeoutMs = 10000, coldStart = false, coldTimeoutMs = 60000 }) {
   let signature = 'not-checked-on-this-host';
   if (process.platform === 'darwin' && target.endsWith('-apple-darwin')) {
     execFileSync('/usr/bin/codesign', ['--verify', '--strict', executable], {
@@ -46,7 +54,7 @@ export function verifyExecutable(executable, { target, hostTarget, timeoutMs = 1
     });
     signature = 'valid';
   }
-  return { signature, startup: target === hostTarget ? checkStartup(executable, timeoutMs) : { passed: null, reason: 'foreign-target-needs-native-CI' } };
+  return { signature, startup: target === hostTarget ? verifyStartup(executable, { timeoutMs, coldStart, coldTimeoutMs }) : { passed: null, reason: 'foreign-target-needs-native-CI' } };
 }
 
 export function installExecutable(source, destination, options) {
@@ -62,7 +70,7 @@ export function installExecutable(source, destination, options) {
   try {
     copyFileSync(source, temporary);
     chmodSync(temporary, 0o755);
-    const verification = verifyExecutable(temporary, options);
+    const verification = verifyExecutable(temporary, { ...options, coldStart: true });
     renameSync(temporary, destination);
     return { changed: true, sha256: sourceHash, verification };
   } finally { rmSync(temporary, { force: true }); }

@@ -94,7 +94,7 @@ test('context pages advance across sparse audit rows and incremental reads never
   assert.deepEqual(page.items.map(x => x.name), ['note-0.md']); assert.ok(page.next); assert.equal(page.scanned, 1);
   f.call('share_document', { name: 'concurrent.md', content: 'later snapshot', context: { summary: 'Published during pagination' } }, f.a.id);
   const names = page.items.map(x => x.name);
-  while (page.next) { page = f.call('context', page.next, f.b.id); names.push(...page.items.map(x => x.name)); }
+  while (page.next) { page = f.call(page.next.command, page.next.input, f.b.id); names.push(...page.items.map(x => x.name)); }
   assert.deepEqual(names, ['note-0.md', 'note-1.md', 'note-2.md']);
   page = f.call('context', { after: page.cursor }, f.b.id);
   assert.deepEqual(page.items.map(x => x.name), ['concurrent.md']);
@@ -158,7 +158,7 @@ test('document reads use byte paging without repeating or splitting Unicode and 
     const page = f.call('read_document', input, f.b.id);
     assert.equal(page.offset, Buffer.byteLength(output));
     assert.ok(Buffer.byteLength(page.content) <= 4);
-    output += page.content; input = page.next;
+    output += page.content; input = page.next?.input;
     assert.ok(++pages < 100);
   }
   assert.equal(output, content);
@@ -248,11 +248,32 @@ test('Pi bound tools send large document JSON over stdin and retain cancellation
   assert.equal(readFileSync(join(f.workspace, shared.details.document.path), 'utf8'), content);
   const page = await registered.get('read_document').execute('read', { name, limit: 100 });
   assert.ok(content.startsWith(page.details.content));
-  assert.ok(page.details.next.offset > 0);
+  assert.ok(page.details.next.input.offset > 0);
   const controller = new AbortController(); controller.abort();
   await assert.rejects(registered.get('share_document').execute('aborted', { name: 'aborted.md', content }, controller.signal), /abort/i);
   // A child rejecting its arguments before consuming stdin must reject, not emit unhandled EPIPE.
   const earlyExit = new Map();
   registerBoundTools({ registerTool: tool => earlyExit.set(tool.name, tool) }, { ...binding, binary: process.execPath });
   await assert.rejects(earlyExit.get('share_document').execute('early-exit', { name, content }));
+});
+
+
+test('targeted document reads cross scan boundaries and reject off-page same-size tampering', t => {
+  const f = fixture(t), name = 'window.md';
+  const content = 'a'.repeat(8191) + '🙂β' + 'z'.repeat(1024 * 1024 - 8197);
+  assert.equal(Buffer.byteLength(content), 1024 * 1024);
+  f.call('share_document', { name, content }, f.a.id);
+  const page = f.call('read_document', { name, offset: 8191, limit: 5 }, f.b.id);
+  assert.equal(page.content, '🙂');
+  assert.deepEqual(page.next, { command: 'read_document', input: { name, offset: 8195, limit: 5 } });
+  assert.equal(f.call('read_document', page.next.input, f.b.id).content, 'βzzz');
+  assert.throws(() => f.call('read_document', { name, offset: 8192, limit: 4 }, f.b.id), /boundary/);
+  const path = join(f.workspace, '.octocode/communication', name);
+  const modified = Buffer.from(content); modified[modified.length - 1] = 120;
+  writeFileSync(path, modified);
+  // Both a repeated earlier page and an empty EOF page must revalidate the whole file.
+  assert.throws(() => f.call('read_document', { name, offset: 8191, limit: 5 }, f.b.id), /integrity/);
+  assert.throws(() => f.call('read_document', { name, offset: modified.length }, f.b.id), /integrity/);
+  writeFileSync(path, content);
+  assert.equal(f.call('read_document', { name, offset: 8191, limit: 5 }, f.b.id).content, '🙂');
 });

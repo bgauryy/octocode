@@ -218,6 +218,12 @@ fn error_code_hint(tool: ToolId, code: &str) -> Option<&'static str> {
             ToolId::AstSearch,
             "ast.language.required" | "ast.language.unsupported" | "ast.language.mismatch",
         ) => "Set langType to the grammar of the source files (e.g. \"typescript\", \"rust\").",
+        (ToolId::AstSearch, "ast.language.fileRequired") => {
+            "For a directory, drop langType: each extension picks its grammar; languageGlobs overrides (e.g. {cpp:[\"**/*.h\"]})."
+        }
+        (ToolId::AstSearch, "ast.language.directoryRequired") => {
+            "For a single file, use langType instead of languageGlobs."
+        }
         _ => return None,
     })
 }
@@ -1416,6 +1422,8 @@ mod tests {
             ("ast.policy.inputTooLarge", "smaller"),
             ("ast.language.required", "langType"),
             ("ast.language.unsupported", "langType"),
+            ("ast.language.fileRequired", "languageGlobs"),
+            ("ast.language.directoryRequired", "langType"),
         ] {
             let mut row = json!({
                 "index": 0,

@@ -39,7 +39,7 @@ The [server reference](https://opencode.ai/docs/server/) exposes messages and
 `noReply`. In [the inspected implementation](https://github.com/anomalyco/opencode/blob/16c56fe5ecc3305028d1f0a9cff5806e51c9d480/packages/opencode/src/session/prompt.ts),
 `createUserMessage` runs before the `noReply` early return; only the other branch
 enters the model loop. This provides the same passive-delivery concept as Codex
-injection. Keep the DB stage/confirm/ack protocol around that API. Never send peer
+injection. Keep the DB stage/confirm/complete protocol around that API. Never send peer
 text as a `system` override. A receiving agent still uses the communication CLI/DB for replies.
 
 Before integrating a server, inspect its `/doc` schema. This adapter accepts only
@@ -92,7 +92,7 @@ Only already-submitted, unexpired, unacknowledged deliveries qualify. The respon
 lists at most 16 IDs without message bodies. The agent handles known context or
 fetches a missing body with `inbox({message:ID})`, then replies/ACKs normally.
 `stop_hook_active:true` returns `{}`, preventing a repeated blocking loop when
-work cannot finish. Invalid bindings fail with a diagnostic; they do not ACK work.
+work cannot finish. Invalid bindings fail with a diagnostic; they do not completion work.
 
 The check neither stages nor resends context, writes audit state, nor grants
 permissions. It does not wake an idle host, recover provider failures, guarantee
@@ -133,3 +133,7 @@ Pi inserts directory-only notices without requesting a turn. Native recipients g
 changes with their next message delivery; managed workers also receive an initial
 directory. No roster update wakes an idle native host. Directory injection is a
 best-effort convenience; `peers` remains the current lookup when choosing a recipient.
+
+Pi bindings may set `completionCheck: true`. After an actual agent turn ends, the extension checks submitted, unacknowledged IDs and permits one recovery turn per work cycle. New action mail or user input starts a new cycle; its own recovery does not. Queued passive mail never wakes an idle agent. Session/workspace changes cancel stale checks. This is opt-in, read-only, and never acknowledges unfinished work.
+
+Pi explicitly sends `strict:false` for its communication function descriptors on OpenAI Chat/Responses requests. This preserves optional routing fields: Responses may otherwise normalize omitted `strict` into required fields. Other tools and canonical schemas stay unchanged; Rust rejects invalid arguments. See [OpenAI function calling](https://developers.openai.com/api/docs/guides/function-calling).

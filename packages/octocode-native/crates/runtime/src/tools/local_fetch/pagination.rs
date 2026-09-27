@@ -83,7 +83,7 @@ pub fn page(content: &str, q: &LocalFetchQuery) -> Result<Page, String> {
             let requested_limit = q.chunk_size().unwrap_or(if selected {
                 lines.len().clamp(1, 50_000)
             } else {
-                100
+                DEFAULT_LINE_CHUNK
             });
             let mut end = (offset + requested_limit).min(lines.len());
             let mut bytes: usize = lines[offset..end].iter().map(|s| s.len()).sum();
@@ -220,6 +220,56 @@ pub fn sanitize_byte_page(
     Ok(None)
 }
 
+/// A redacted line longer than this is sliced to the page instead of being
+/// emitted whole.
+const LONG_REDACTED_LINE_BYTES: usize = 64 * 1024;
+const PLACEHOLDER_PREFIX: &str = "[REDACTED";
+/// Unchanged text after a placeholder used to find where its span ends.
+const ANCHOR_BYTES: usize = 32;
+
+/// Offset in `clean` (a sanitized copy of `raw` whose secrets became
+/// `[REDACTED…]` placeholders) that corresponds to byte `raw_at` of `raw`.
+/// Text between placeholders is identical in both, so the walk advances in
+/// lockstep there and re-synchronizes after each placeholder on the unchanged
+/// text that follows it. A position inside a redacted span maps to that
+/// span's placeholder, so a slice never contains secret bytes.
+fn clean_offset(raw: &str, clean: &str, raw_at: usize) -> usize {
+    let (mut i, mut j) = (0usize, 0usize);
+    while i < raw_at && j < clean.len() {
+        if clean[j..].starts_with(PLACEHOLDER_PREFIX) {
+            let placeholder_end = clean[j..].find(']').map_or(clean.len(), |at| j + at + 1);
+            let anchor_end = clean[placeholder_end..]
+                .find(PLACEHOLDER_PREFIX)
+                .map_or(clean.len(), |at| placeholder_end + at)
+                .min(placeholder_end + ANCHOR_BYTES);
+            let mut anchor_end = anchor_end;
+            while !clean.is_char_boundary(anchor_end) {
+                anchor_end -= 1;
+            }
+            let anchor = &clean[placeholder_end..anchor_end];
+            let resumes = if anchor.is_empty() {
+                raw.len()
+            } else {
+                raw[i..].find(anchor).map_or(raw.len(), |at| i + at)
+            };
+            if resumes > raw_at {
+                return j;
+            }
+            i = resumes;
+            j = placeholder_end;
+            continue;
+        }
+        let step = clean[j..].chars().next().map_or(1, char::len_utf8);
+        i += step;
+        j += step;
+    }
+    let mut j = j.min(clean.len());
+    while !clean.is_char_boundary(j) {
+        j -= 1;
+    }
+    j
+}
+
 /// Rebuild a raw-coordinate byte page from a sanitized window with the same
 /// line count: unchanged lines keep their raw slice, redacted lines are
 /// emitted whole from the clean window (extending the page end if needed).
@@ -248,6 +298,13 @@ fn map_clean_window(
         }
         if raw_line == clean_line {
             text.push_str(&view[line_start.max(start)..line_end.min(end)]);
+        } else if raw_line.len() > LONG_REDACTED_LINE_BYTES {
+            // A long redacted line (a minified bundle, an embedded base64
+            // blob) is sliced, not emitted whole: map the page's raw range
+            // onto the sanitized line so the page stays chunk-sized.
+            let from = clean_offset(raw_line, clean_line, start.saturating_sub(line_start));
+            let to = clean_offset(raw_line, clean_line, end.min(line_end) - line_start);
+            text.push_str(&clean_line[from..to.max(from)]);
         } else {
             text.push_str(clean_line);
             end = end.max(line_end);
@@ -289,4 +346,25 @@ pub fn continuation(q: &LocalFetchQuery, p: &Pagination) -> Option<NextCalls> {
 }
 pub fn result_counts(s: &str) -> (usize, usize, usize) {
     (utf16(s), s.len(), line_count(s))
+}
+
+#[cfg(test)]
+mod long_redacted_line_tests {
+    use super::clean_offset;
+
+    #[test]
+    fn offsets_track_unchanged_text_and_snap_into_placeholders() {
+        let raw = "aaaa SECRETSECRET bbbb SECRET2 cccc";
+        let clean = "aaaa [REDACTED-X] bbbb [REDACTED-Y] cccc";
+        assert_eq!(clean_offset(raw, clean, 0), 0);
+        assert_eq!(clean_offset(raw, clean, 4), 4);
+        // Inside the first secret: the placeholder start, never secret bytes.
+        assert_eq!(clean_offset(raw, clean, 8), 5);
+        // After it, raw and clean realign on " bbbb".
+        let raw_b = raw.find("bbbb").expect("b");
+        assert_eq!(&clean[clean_offset(raw, clean, raw_b)..][..4], "bbbb");
+        let raw_c = raw.find("cccc").expect("c");
+        assert_eq!(&clean[clean_offset(raw, clean, raw_c)..], "cccc");
+        assert_eq!(clean_offset(raw, clean, raw.len()), clean.len());
+    }
 }

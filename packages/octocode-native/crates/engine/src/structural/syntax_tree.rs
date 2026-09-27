@@ -113,7 +113,7 @@ pub fn inspect_with_extension(
         .map(str::to_owned)
         .unwrap_or_else(|| get_extension_internal(file_path, true, "txt"));
 
-    if content.len() > crate::minify::minifier::MAX_SIZE {
+    if content.len() > crate::signatures::MAX_PARSE_SIZE {
         return SyntaxTreeInspectResult {
             nodes: Vec::new(),
             total_nodes: 0,
@@ -125,7 +125,7 @@ pub fn inspect_with_extension(
                 "parse",
                 format!(
                     "Syntax-tree content exceeds {} byte limit",
-                    crate::minify::minifier::MAX_SIZE
+                    crate::signatures::MAX_PARSE_SIZE
                 ),
                 file_path,
             )],

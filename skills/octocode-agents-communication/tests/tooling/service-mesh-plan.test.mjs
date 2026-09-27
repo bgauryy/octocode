@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 const script = fileURLToPath(new URL('../../src/service-mesh.mjs', import.meta.url));
 function plan(input = {}) {
   const env = {...process.env};
-  for (const key of ['COMMUNICATION_VENDORS', 'COMMUNICATION_AGENT_ORIGINATED', 'COMMUNICATION_OPENCODE_COMMAND', 'COMMUNICATION_PI_MODEL', 'COMMUNICATION_COPIES', 'COMMUNICATION_COMPLETION_CHECK', 'COMMUNICATION_SCOPED_SKILL', 'COMMUNICATION_TASK_FAMILY']) delete env[key];
+  for (const key of ['COMMUNICATION_VENDORS', 'COMMUNICATION_AGENT_ORIGINATED', 'COMMUNICATION_OPENCODE_COMMAND', 'COMMUNICATION_PI_MODEL', 'COMMUNICATION_COPIES', 'COMMUNICATION_COMPLETION_CHECK', 'COMMUNICATION_SCOPED_SKILL', 'COMMUNICATION_TASK_FAMILY', 'COMMUNICATION_VENDOR_COPIES', 'COMMUNICATION_REVIEW_MANIFEST', 'COMMUNICATION_FEATURE_CHECK']) delete env[key];
   return JSON.parse(execFileSync(process.execPath, [script, '--plan'], {env: {...env, ...input}, encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'pipe']}));
 }
 test('default native vendors and raw fallback retain the historical nine-peer matrix', () => {
@@ -33,4 +33,19 @@ test('agent-originated Pi and two same-vendor workers use supported native recei
   const pair = plan({ COMMUNICATION_VENDORS: 'codex', COMMUNICATION_AGENT_ORIGINATED: '1' });
   assert.equal(pair.peers, 2); assert.equal(pair.requestEdges, 2);
   assert.throws(() => plan({ COMMUNICATION_VENDORS: 'codex', COMMUNICATION_AGENT_ORIGINATED: '1', COMMUNICATION_COPIES: '1' }));
+});
+
+test('six cross-vendor code reviewers form a bounded native challenge ring',()=>{
+ const args={COMMUNICATION_VENDORS:'claude,codex,grok,pi',COMMUNICATION_AGENT_ORIGINATED:'1',COMMUNICATION_TASK_FAMILY:'code-review',COMMUNICATION_COPIES:'1',COMMUNICATION_VENDOR_COPIES:'{"claude":2,"codex":2}'};
+ const p=plan(args);assert.equal(p.peers,6);assert.equal(p.requestEdges,6);assert.equal(p.rawPeer,false);
+ assert.throws(()=>plan({...args,COMMUNICATION_VENDOR_COPIES:'{"unknown":1}'}));
+ assert.throws(()=>plan({...args,COMMUNICATION_VENDOR_COPIES:'{"claude":3}'}));
+ assert.throws(()=>plan({...args,COMMUNICATION_AGENT_ORIGINATED:'0'}));
+});
+
+test('production qualification requires native agent-originated review before any host starts', () => {
+  const input = {COMMUNICATION_VENDORS:'grok,claude,codex,pi', COMMUNICATION_AGENT_ORIGINATED:'1', COMMUNICATION_FEATURE_CHECK:'1'};
+  const p=plan(input); assert.equal(p.featureCheck,true); assert.equal(p.peers,8); assert.equal(p.requestEdges,56);
+  assert.throws(()=>plan({...input,COMMUNICATION_AGENT_ORIGINATED:'0'}));
+  assert.throws(()=>plan({...input,COMMUNICATION_TASK_FAMILY:'code-review'}));
 });

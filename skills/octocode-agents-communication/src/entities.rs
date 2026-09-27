@@ -107,10 +107,10 @@ impl Store {
             }
         }
         if matches!(name, "session" | "lease") {
-            let status = filters["status"].as_str().unwrap_or("active");
-            if status != "all" {
+            let presence = filters["presence"].as_str().unwrap_or("active");
+            if presence != "all" {
                 conditions.push("active=?".into());
-                args.push(json!(status == "active"));
+                args.push(json!(presence == "active"));
             }
         }
         for field in ["vendor", "owner", "message", "conversationId", "replyTo"] {
@@ -178,6 +178,8 @@ impl Store {
                 .map(|row| decode(name, row))
                 .collect::<Result<Vec<_>>>()?,
             true,
+            &format!("entity list {name}"),
+            filters,
         ))
     }
     pub fn entity_set(&self, session: &str, name: &str, id: &str, input: &Value) -> Result<Value> {

@@ -229,7 +229,7 @@ fn symlink_parent_traversal_matches_os_identity() -> Result<()> {
 #[test]
 fn durable_messages_claim_recovery_and_ack() -> Result<()> {
     let f = Fixture::new()?;
-    let args = json!({"reasoning":"Verify durable message receipt and recovery","to":f.b,"body":"hello","key":"one"});
+    let args = json!({"reasoning":"Verify durable message receipt and recovery","to":f.b,"body":"hello","key":"one","replyRequired":false});
     let sent = f.store.call(&f.a, "send_message", &args)?;
     assert_eq!(f.store.call(&f.a, "send_message", &args)?["id"], sent["id"]);
     assert!(
@@ -249,16 +249,19 @@ fn durable_messages_claim_recovery_and_ack() -> Result<()> {
         "same live worker must not repeat history"
     );
     assert_eq!(f.store.claim(&f.b, "new")?.len(), 1);
-    assert_eq!(
-        f.store.call(&f.a, "ack", &json!({"message":sent["id"]}))?["acknowledged"],
-        false
+    assert!(
+        f.store
+            .call(&f.a, "complete", &json!({"message":sent["id"]}))
+            .is_err()
     );
     assert_eq!(
-        f.store.call(&f.b, "ack", &json!({"message":sent["id"]}))?["acknowledged"],
+        f.store
+            .call(&f.b, "complete", &json!({"message":sent["id"]}))?["completed"],
         true
     );
     assert_eq!(
-        f.store.call(&f.b, "ack", &json!({"message":sent["id"]}))?["acknowledged"],
+        f.store
+            .call(&f.b, "complete", &json!({"message":sent["id"]}))?["completed"],
         true
     );
     assert_eq!(f.store.inbox(&f.b, 0)?["items"], json!([]));
@@ -345,22 +348,50 @@ fn entity_visibility_updates_and_pagination() -> Result<()> {
             &json!({"reasoning":"Exercise send_message contract in an isolated regression fixture","to":f.b,"body":i.to_string()}),
         )?;
     }
-    let first = f
-        .store
-        .entity_list(&f.a, "message", &json!({"direction":"sent"}))?;
-    let last = f.store.entity_list(
-        &f.a,
-        "message",
-        &json!({"direction":"sent","after":first["next"]}),
-    )?;
-    assert_eq!(first["items"].as_array().map(Vec::len), Some(100));
-    assert_eq!(last["items"].as_array().map(Vec::len), Some(5));
-    assert!(last["next"].is_null());
-    let inbox = f.store.inbox(&f.b, 0)?;
-    assert_eq!(inbox["items"].as_array().map(Vec::len), Some(100));
-    let tail = f.store.inbox(&f.b, inbox["next"].as_i64().unwrap_or(0))?;
-    assert_eq!(tail["items"].as_array().map(Vec::len), Some(5));
-    assert!(tail["next"].is_null());
+    for entity in [true, false] {
+        let mut input = if entity {
+            json!({"direction":"sent"})
+        } else {
+            json!({})
+        };
+        let mut ids = Vec::new();
+        let mut pages = 0;
+        loop {
+            let page = if entity {
+                f.store.entity_list(&f.a, "message", &input)?
+            } else {
+                f.store.call(&f.b, "inbox", &input)?
+            };
+            let items = page["items"]
+                .as_array()
+                .ok_or_else(|| anyhow::anyhow!("items"))?;
+            assert!(!items.is_empty() && items.len() <= 100);
+            ids.extend(items.iter().map(|item| item["id"].as_i64().unwrap_or(0)));
+            pages += 1;
+            assert!(pages <= 10, "continuation must make progress");
+            if page["next"].is_null() {
+                break;
+            }
+            assert_eq!(
+                page["next"]["command"],
+                if entity {
+                    "entity list message"
+                } else {
+                    "inbox"
+                }
+            );
+            input = page["next"]["input"].clone();
+            if entity {
+                assert_eq!(input["direction"], "sent");
+            }
+        }
+        assert!(pages > 1);
+        assert_eq!(ids.len(), 105);
+        assert!(
+            ids.windows(2).all(|pair| pair[0] < pair[1]),
+            "no duplicate or reordered IDs"
+        );
+    }
     let outsider = f
         .store
         .call("", "join", &json!({"name":"c","vendor":"other"}))?;

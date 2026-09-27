@@ -69,6 +69,9 @@ pub struct ToolRuntime {
         >,
     >,
     lsp_pool: Arc<octocode_engine::lsp::pool::LspClientPool>,
+    /// Sanitized full views of recently paged local files (this runtime's
+    /// security policy only), so each localFetch page skips a full rescan.
+    local_views: Arc<crate::tools::gh_get_file_content::SanitizedViewMemo>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -277,6 +280,7 @@ impl ToolRuntime {
             github_cache,
             github_services: Arc::new(std::sync::OnceLock::new()),
             lsp_pool: Arc::new(octocode_engine::lsp::pool::LspClientPool::default()),
+            local_views: Arc::default(),
         })
     }
 
@@ -377,6 +381,10 @@ impl ToolRuntime {
         let clone = self.input.runtime_surface == RuntimeSurface::Cli
             && self.config.resolved.storage.mode == "persistent";
         let id = ToolId::from_name(tool);
+        if self.input.runtime_surface != RuntimeSurface::Cli && id.is_some_and(ToolId::is_cli_only)
+        {
+            return false;
+        }
         // GitHub read tools are always enabled; cloning has an extra gate below.
         let github = matches!(id, Some(t) if t.is_github() && t != ToolId::GhCloneRepo);
         let local_tools = local
@@ -414,6 +422,10 @@ impl ToolRuntime {
                 });
                 if self.excluded_by_tool_list(name) {
                     entry["unavailableReason"] = json!("toolsList");
+                } else if self.input.runtime_surface != RuntimeSurface::Cli
+                    && ToolId::from_name(name).is_some_and(ToolId::is_cli_only)
+                {
+                    entry["unavailableReason"] = json!("cliOnly");
                 }
                 entry
             })
@@ -487,12 +499,12 @@ impl ToolRuntime {
         input: Value,
         mcp: bool,
     ) -> Result<ToolOutcome, RuntimeError> {
-        // The CLI may clone into its persistent cache. MCP never exposes the
-        // mutating clone operation, even if an embedder used a CLI host surface.
-        if mcp && tool == "ghCloneRepo" {
+        // Clone and rewrite mutate the user's machine: CLI only. MCP never
+        // executes them, even if an embedder used a CLI host surface.
+        if mcp && ToolId::from_name(&tool).is_some_and(ToolId::is_cli_only) {
             return Err(RuntimeError::new(
                 "toolUnavailable",
-                "Tool ghCloneRepo is not available through MCP",
+                format!("Tool {tool} is not available through MCP; run `octocode {tool}`."),
             ));
         }
         if !self.is_available(&tool) {
@@ -675,6 +687,7 @@ impl ToolRuntime {
             home: home.clone(),
             handle: handle.clone(),
             lsp_pool: self.lsp_pool.clone(),
+            local_views: self.local_views.clone(),
             lsp_execution_config: crate::tools::lsp_search::LspExecutionConfig {
                 config_path: self.config.resolved.lsp.config_path.clone(),
                 trust_project_config: self.input.trusted_project,

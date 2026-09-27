@@ -1,4 +1,11 @@
 mod deep_stack;
+
+/// Largest source the parsers accept (declarations, graph facts, oxc,
+/// syntax trees). Separate from the minifier's 1 MiB guard: parsing a real
+/// monolithic source (TypeScript's 3 MB checker.ts) is cheap and bounded,
+/// and the runtime tools share this bound.
+pub const MAX_PARSE_SIZE: usize = 8 * 1024 * 1024;
+
 pub mod extractor;
 pub mod graph_facts;
 pub mod js_oxc;
@@ -25,6 +32,41 @@ pub(crate) fn extract_graph_facts_with_metadata_inner(
 ) -> Option<GraphFactsExtraction> {
     js_oxc::extract_graph_facts_with_metadata(content, file_path)
         .or_else(|| graph_facts::extract_graph_facts_with_metadata(content, file_path))
+}
+
+/// Declarations-only facts for outlines: the light oxc path for JS/TS; other
+/// languages' single tree-sitter walk already costs about the same.
+/// 0-based line where the comment block directly above a declaration
+/// starting at `start` (0-based) begins, if any. Blank lines end the block;
+/// Rust `#[...]` attributes between the comment and the item are skipped. `#`
+/// is a comment only in Python (C/C++ `#include`/`#define` are code), and a
+/// `*` continuation run must reach its `/*` opener.
+pub(crate) fn leading_doc_line(lines: &[&str], start: usize, ext: &str) -> Option<u32> {
+    let is_comment = |line: &str| {
+        let line = line.trim_start();
+        if ext == "py" {
+            line.starts_with('#')
+        } else {
+            line.starts_with("//") || line.starts_with("/*") || line.starts_with('*')
+        }
+    };
+    let mut top = start.min(lines.len());
+    while ext == "rs" && top > 0 && lines[top - 1].trim_start().starts_with("#[") {
+        top -= 1;
+    }
+    let mut doc = top;
+    while doc > 0 && is_comment(lines[doc - 1]) {
+        doc -= 1;
+    }
+    if doc == top || (ext != "py" && lines[doc].trim_start().starts_with('*')) {
+        return None;
+    }
+    u32::try_from(doc).ok()
+}
+
+pub(crate) fn extract_declarations_inner(content: &str, file_path: &str) -> Option<String> {
+    js_oxc::extract_declarations(content, file_path)
+        .or_else(|| extract_graph_facts_inner(content, file_path))
 }
 
 pub(crate) fn extract_graph_facts_inner(content: &str, file_path: &str) -> Option<String> {
@@ -60,7 +102,7 @@ pub const SIGNATURES_ONLY_HINT: &str = concat!(
 /// Returns an empty Vec for files above the 1 MB guard or without a first-class
 /// grammar (there is no regex/heuristic fallback).
 pub fn extract_boundary_lines_inner(content: &str, file_path: &str) -> Vec<(usize, String)> {
-    if content.len() > crate::minify::minifier::MAX_SIZE {
+    if content.len() > MAX_PARSE_SIZE {
         return Vec::new();
     }
     // Wrap the tree-sitter parser path in `catch_unwind` so a parser panic on
@@ -231,7 +273,7 @@ pub fn get_semantic_boundary_offsets_inner(content: &str, file_path: &str) -> Ve
 /// Extract a structural skeleton from `content`.
 /// Returns `NNN| text` rendered string or `None`.
 pub fn extract_signatures_inner(content: &str, file_path: &str) -> Option<String> {
-    if content.len() > crate::minify::minifier::MAX_SIZE {
+    if content.len() > MAX_PARSE_SIZE {
         return None;
     }
     let skeleton = std::panic::catch_unwind(|| {
@@ -682,7 +724,7 @@ mod tests {
 
     #[test]
     fn boundary_offsets_empty_for_oversized_input() {
-        let src = "function f() {}\n".repeat(70_000);
+        let src = "function f() {}\n".repeat(MAX_PARSE_SIZE / 16 + 1);
         let offsets = get_semantic_boundary_offsets_inner(&src, "big.ts");
         assert!(
             offsets.is_empty(),

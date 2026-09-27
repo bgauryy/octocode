@@ -1,6 +1,6 @@
 # Communication skill and CLI manifest
 
-Committee decision: keep one session identity, one SQLite coordination store, one command catalog and one delivery owner per identity. Connect the existing features through a short workflow. Improve ambiguous contracts before adding another registry, task engine or memory service.
+Keep one session identity, one SQLite coordination store, one command catalog and one delivery owner per identity. Connect the existing features through a short workflow. Improve ambiguous contracts before adding another registry, task engine or memory service.
 
 This document separates verified behavior from proposed changes. The executable catalog (`<command> --help`) owns exact fields; [SKILL.md](../SKILL.md) owns the complete command map and agent instructions.
 
@@ -9,12 +9,12 @@ This document separates verified behavior from proposed changes. The executable 
 ```text
 session (identity + task + declared status)
     → peers / changed-directory context → exact recipient ID
-    → send_message → delivery receipt → required work → reply + ACK
+    → send_message → delivery receipt → required work → reply + completion
     → lock / lock_many → guarded structured edit when configured → unlock
     → share_document + context metadata → scoped context → read_document
 ```
 
-The same session ID owns messages, reservations, publications and audit attribution. A delivery receipt means submitted to the host; an ACK means handled by the recipient. Neither is permission to edit. Host-native IDs are bindings, never substitute database recipient IDs. Generic host collaboration tools are a separate transport unless explicitly bridged; this committee used this skill's CLI and shared database.
+The same session ID owns messages, reservations, publications and audit attribution. A delivery receipt means submitted to the host; an completion means handled by the recipient. Neither is permission to edit. Host-native IDs are bindings, never substitute database recipient IDs. Generic host collaboration tools are a separate transport unless explicitly bridged; use this skill's CLI and shared database for its receipts.
 
 ## Capability contract
 
@@ -24,14 +24,14 @@ The same session ID owns messages, reservations, publications and audit attribut
 | Ongoing work | Declared `busy`; also `available`, `blocked`, `unknown` | Status is coordination data; it neither renews presence nor grants a lease |
 | Presence | Join/reuse → heartbeat/listen → leave; expired identity may resume under the existing rules | 60-second presence; renew every 15 seconds when unmanaged; resume does not resurrect old leases |
 | Discovery | `peers` derives active sessions; host context supplies bounded changed views | Public directory includes the caller; exclude your own ID when choosing a collaborator. Directory pages are live, not a frozen roster |
-| Messaging | Durable direct/topic deliveries; retry key scoped to sender; reply correlation; atomic final reply + ACK | Same key must retain identical fields. No exactly-once external side-effect claim |
+| Messaging | Durable direct/topic deliveries; retry key scoped to sender; reply correlation; atomic final reply + completion | Same key must retain identical fields. No exactly-once external side-effect claim |
 | File reservation | Advisory file/tree leases; atomic all-or-none sets; owner-specific lease IDs | Both presence and lease must remain live; heartbeat never renews leases |
 | Guarded edits | Optional Pi, Claude and OpenCode adapters reject supported unleased structured edits before execution | Point-in-time admission only; no arbitrary shell/editor/custom-tool fence or protection through mid-write expiry |
 | Shared memory | Immutable document bodies plus scoped summary/path/branch/expiry metadata | Context is metadata lookup, not semantic search. Default discovery TTL is one day, maximum seven; expired notes remain evidence readable by name |
 | History and traces | Entity views and append-only audit associate identity, message, delivery and dispatch; worker traces correlate host calls | Audit is evidence, not another queue; host usage counters may overlap |
 | Maintenance | Diagnostics, verified DB export and history-preserving compaction; prune expired leases | Document files need separate backup; no age-based deletion of protocol history |
 
-Update your own task/status through `heartbeat` or `entity set session <id>`. Today, `entity list session` uses `status:active|expired|all` to filter **presence**, while the returned entity's `status` describes availability. This naming collision is real; the proposed rename below is not implemented.
+Update your own task/status through `heartbeat` or `entity set session <id>`. Session/lease lists use `presence:active|expired|all` to filter expiry; the session entity's `status` describes availability.
 
 ## Lock guarantee and stronger-lock decision
 
@@ -47,15 +47,13 @@ Follow continuations to terminal before asserting absence. Preserve filters and 
 
 | Surface | Current continuation / bound |
 | --- | --- |
-| `peers`, `inbox`, `entity list` | Scalar `next` becomes `after` with the original filters; up to 100 rows and a 256 KiB target; an oversized first row is returned to ensure progress |
-| `context` | `next` is the complete input for the same command, including a fixed `through` ceiling; scans at most 200 document records per call; an empty page can still have `next` |
-| `read_document` | `next` is the same-command input containing name, byte offset and limit; UTF-8 boundaries and content hash are checked |
-| `activity` | `next` is same-command input, with a snapshot and normalized time filter; scan caps expose truncation/limit diagnostics; nested path summaries disclose omission |
+| `peers`, `inbox`, `entity list` | `next: {command,input}` preserves filters; up to 100 rows and a 16 KiB target; an oversized first row remains intact with a budget diagnostic |
+| `context` | `next.input` is the complete input for `next.command`, including a fixed `through` ceiling; scans at most 200 document records per call; an empty page can still have `next` |
+| `read_document` | `next.input` contains name, byte offset and limit; UTF-8 boundaries and content hash are checked |
+| `activity` | `next.input` carries a snapshot and normalized time filter; scan caps expose truncation/limit diagnostics; nested path summaries disclose omission |
 | `health`, `db retention` | `next` contains `command` and `input`; bounded diagnostic pages |
 | Host peer context | Small changed view; executable directory `next`/`refresh`; removal from the view does not prove departure |
 | `check_paths` and bounded conflict decisions | Explicit `truncated` diagnostic; not a full enumeration. Use the indicated lease/entity inspection path for additional evidence |
-
-The committee found heterogeneous continuation syntax, not a proven dropped-page bug. A fresh CLI probe created 105 agents and 105 messages: peers, session entities, inbox and sent-message entities each traversed `[100, 5]` with 105 unique IDs. An 18-agent fixture would not cross the public page boundary.
 
 ## Storage and efficiency
 
@@ -63,27 +61,11 @@ Use one local SQLite database shared by participants on the same host and the sa
 
 Inbox, path, owner, session, dispatch, reply/conversation and document-registry indexes support their corresponding lookups. Context scans a bounded publication registry rather than loading bodies. Message bodies are not duplicated into the audit. Changed peer views suppress repeated directory injection; large evidence is published once and referenced by name. These mechanisms bound individual work; retained history still grows and needs disk-capacity monitoring. Do not claim unlimited throughput or bounded database size.
 
-## Decisions and next implementation slices
+## Scope decisions
 
-| Decision | State | Acceptance |
-| --- | --- | --- |
-| Correct blanket “all mutations need reasoning” instructions | Applied during committee | ACK works with its actual schema; instructions no longer encourage an invalid field |
-| Explain ongoing status, guarded edits and continuation use in the skill | Applied during committee | An agent can update its own status and distinguish reservation from guarded admission |
-| Preserve one session entity and derived peers view | Accepted architecture | No duplicate agent/profile/routing state |
-| Rename session/lease list presence filter to `presence` | Proposed next contract cleanup | Change catalog, runtime, callers, docs and tests together; `status` retains availability meaning; no legacy alias |
-| Standardize collection continuation as `next:{command,input}` | Proposed next contract cleanup | Every next call preserves complete filters and cursor types; cross a real row/byte boundary; update all consumers together; do not promise snapshot isolation where none exists |
-| Add enforced mutation service | Prototype only if stronger isolation is required | Expiry/reacquisition during a paused write rejects the stale owner; alternate mutation paths are demonstrably blocked |
-| Add persistent agent profiles, status synonyms, task engine or vector memory | Rejected for current scope | Reconsider only with a concrete requirement the existing session/context model cannot satisfy |
+Every continuation uses `{command,input}`; consumers execute it unchanged, without reconstructing filters or cursor types. Stronger filesystem fencing requires a controlled writer and host policy; it is not provided by advisory leases.
 
-Do not migrate old development formats or maintain parallel wire shapes. Proposed changes above are not claims about current CLI behavior.
-
-## Committee method and acceptance evidence
-
-Three Terra reviewers covered locks/recovery, database/context/pagination, and product/identity/status with primary web research. They discovered peers, asked each other questions, replied and ACKed through the shared skill database, and published immutable findings with scoped memory metadata. The chair verified decisive claims and corrected an initial reviewer error that confused the internal peer snapshot with public `peers` pagination.
-
-The review retained a useful disagreement: a uniform continuation wrapper simplifies agent use, but current scalar cursors already work. Treat it as an atomic contract cleanup, not an emergency correctness fix. Similarly, stronger write fencing is a separate product capability, not a wording change to `lock`.
-
-Validation for this review: 17 host-admission tests passed; live task/status transitions passed; four 105-row CLI pagination chains exhausted without duplicate IDs. Per-run evidence and committee receipts are under `.octocode/communication-committee/`; these are development evidence, not shipped runtime files. Existing tests additionally cover atomic competing lease sets, stale IDs, context scan gaps/expiry and immutable document reads.
+The supervisor publishes assignments and check evidence as shared documents and reconciles them with live peers/receipts on takeover. Context remains reusable evidence, not a verified-memory engine. Add persistent task/profile entities only when a concrete recovery requirement cannot be met by these existing records.
 
 ## Sources
 

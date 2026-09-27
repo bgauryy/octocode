@@ -17,9 +17,10 @@ only deliver. Add a layer only for a measured requirement these boundaries canno
 | Agent workflow | `SKILL.md` | One instruction file within a bounded context budget; when and why to coordinate |
 | Commands and tool schemas | `src/catalog.json`, `src/catalog.rs` | One command definition feeds CLI help and bound MCP/Pi tools |
 | CLI ingress | `src/cli.rs` | Arguments, bounded JSON input, command routing and output |
-| MCP ingress | `src/mcp.rs` | JSON-RPC framing and a restricted bound-tool surface |
+| MCP ingress | `src/mcp.rs` | JSON-RPC framing, optional managed raw identity lifecycle, and a restricted bound-tool surface |
 | Coordination state | `src/store.rs`, `src/leases.rs` | Identity, messages, presence, claims and advisory reservations |
 | Storage | `src/database.rs`, `src/schema.sql` | SQLite opening, schema checks and verified exports |
+| Human dashboard | `src/view.rs`, `src/view_data.rs`, `src/view/` | Token-scoped loopback HTTP, embedded assets, bounded read-only workspace-wide entity queries; no agent identity or additional state |
 | Operational diagnostics | `src/health.rs` | Read-only workspace queue counts and paginated issue IDs; no message bodies, replay or vendor polling |
 | Maintenance | `src/retention.rs` | Bounded retention diagnostics and explicit compaction without deleting protocol history |
 | Views and documents | `src/entities.rs`, `src/documents.rs` | Workspace-scoped reads/updates and immutable document handoffs |
@@ -30,7 +31,7 @@ only deliver. Add a layer only for a measured requirement these boundaries canno
 | Native delivery port | `src/transport/protocol.rs` | Typed prepare/offer/poll/receipt contract; adapter capability policy and normalized usage, no DB access |
 | Vendor APIs | `src/transport.rs`, `src/transport/grok.rs`, `src/transport/opencode.rs` | Existing-recipient socket/WebSocket/HTTP/ACP I/O beneath the common port |
 | Host hooks | `src/host_hooks.rs` | Cursor/Grok event envelopes, identity binding and config previews |
-| Completion check | `src/completion.rs` | Optional Claude Stop check of submitted pending IDs; read-only, one recovery continuation, no second delivery owner |
+| Completion check | `src/completion.rs` | Optional Claude/Pi check of submitted pending IDs; read-only, one recovery continuation, no second delivery owner |
 | Pi bridge | Skill `scripts/pi-inbox.mjs`, `scripts/pi-extension.mjs` | Lifecycle, bound tools, native context and durable host receipts |
 | Optional worker creation | `src/proxy.rs`, `src/wire.rs` | Owned vendor processes, bounded frames, deadlines and teardown |
 | Home resolution | `../../packages/octocode-config/rust/home.rs` | Shared native home policy; no private configuration implementation |
@@ -53,7 +54,12 @@ Host attachment is `attach --help`. `skill --vendor <host>` returns the body
 without install frontmatter. Managed `run` workers get `catalog::worker_skill()`
 once: the explicit Workflow section, preceded by the selected tool names, without
 the full CLI map or setup the host owns. A coverage test checks that the skill
-command map includes every catalog command. No prompt is regenerated per message.
+command map includes every catalog command. No prompt is regenerated per message. An explicit managed `run --session` resumes an expired identity and rebinds its receiver through `attach` while holding delivery ownership; unresolved staged deliveries still block replacement.
+
+Managed startup sends only the user task and workflow. Queued messages remain
+unstaged until startup completes; subsequent delivery uses the shared Codex
+tool-output formatter where that host supports it. The other host protocols
+retain their explicit peer-data envelope and local permission boundaries.
 
 ## Message flow
 
@@ -88,9 +94,9 @@ vendor. `NativeDelivery::prepare` precedes `stage_bound`; `offer` receives the
 same rendered context, dispatch token and action intent. Synchronous receipts and
 delayed Grok receipts converge on `DeliveryClients::finish`. Adapter failures after
 staging mark that batch uncertain; preflight failures leave it unstaged. No adapter
-imports the Store or owns retry/ACK policy. Closing a listener abandons a pending
+imports the Store or owns retry/completion policy. Closing a listener abandons a pending
 receipt without killing the host-owned recipient. Raw/Pi host delivery continues
-to use the same renderer and DB stage/confirm/ACK contract; it does not acquire a
+to use the same renderer and DB stage/confirm/completion contract; it does not acquire a
 second native delivery owner. See the [internal protocol](docs/SERVICE_PROTOCOL.md#unified-adapter-protocol).
 
 ## Transaction and recovery invariants
@@ -104,9 +110,9 @@ second native delivery owner. See the [internal protocol](docs/SERVICE_PROTOCOL.
 - The receipt catalog owns the delivery row limit. Native staging derives it from
   `confirm_delivery`; Pi discovers it once and chunks accumulated durable receipts.
   A ledger flush spanning multiple batches cannot stall on a stale adapter cap.
-- A transport receipt records submission, not handling. The recipient persists any
-  required reply before `ack`, or uses explicit `ackReply:true` to commit a final
-  direct reply and ACK together. Uncertain attempts require inspection; explicit retry
+- A transport receipt records submission, not handling. The recipient calls `complete`: a final
+  reply and handling transition commit together, or handled no-reply messages
+  complete as one atomic batch. Uncertain attempts require inspection; explicit retry
   can duplicate external effects. Pi alone reconciles its own staged attempts against
   the complete durable native session ledger.
 - Raw hooks and native APIs are explicit alternatives. A transport failure does not
@@ -177,3 +183,7 @@ Release bundles include checksummed platform binaries; source checkouts omit the
 Only the recorded platforms/versions are validated. The package is private. Pi retains
 its own plans, approvals and context controls; the former Awareness package is
 [retired](../../docs/COMMUNICATION_RETIREMENT.md).
+
+### Reply requirements
+
+`messages.replyRequired` is immutable. Runtime validation and SQLite triggers enforce final answers for required requests and forbid replies to informational messages; mixed completion batches are atomic. Replies are informational, while new follow-up work starts a new direct request. See [database protocol](docs/DB.md#reply-requirements).

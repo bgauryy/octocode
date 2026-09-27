@@ -27,7 +27,7 @@ pub use policy::{
     classify as classify_component, compare_to_baseline, evaluate as evaluate_boundary_rules,
 };
 
-use std::{fs, io::Read, path::Path};
+use std::{fs, io::Read, path::Path, sync::Arc};
 
 use globset::Glob;
 use rayon::prelude::*;
@@ -116,6 +116,26 @@ pub(crate) fn scan_graph_facts_filtered(
     })
 }
 
+/// Graph facts of one parsed file.
+struct ParsedFacts {
+    facts: GraphFactsDocument,
+    reference_counts: Vec<crate::types::GraphReferenceCount>,
+    /// Source bytes, the cache weight (facts scale with source size).
+    weight: u32,
+}
+
+/// Parsed facts keyed by (content digest, relative path, parser override):
+/// a rescan re-reads and hashes every file but re-parses only changed ones.
+/// Content-addressed, so an edited file can never hit a stale entry.
+static FACTS_MEMO: std::sync::LazyLock<moka::sync::Cache<String, Arc<ParsedFacts>>> =
+    std::sync::LazyLock::new(|| {
+        moka::sync::Cache::builder()
+            .max_capacity(256 * 1024 * 1024)
+            .weigher(|_: &String, parsed: &Arc<ParsedFacts>| parsed.weight)
+            .time_to_idle(std::time::Duration::from_secs(1800))
+            .build()
+    });
+
 pub(crate) fn scan_graph_facts_typed_filtered(
     options: GraphFactsScanOptions,
     allow_path: &(dyn Fn(&Path) -> Result<bool, String> + Sync),
@@ -201,20 +221,34 @@ pub(crate) fn scan_graph_facts_typed_filtered(
                     "languageGlobs matched this path with more than one parser",
                 );
             }
-            let extraction = if let Some(extension) = selected.iter().next() {
-                crate::signatures::graph_facts::extract_graph_facts_with_metadata_with_extension(
-                    &content,
-                    &relative_path,
-                    extension,
-                )
+            let content_digest = crate::index::content_digest(content.as_bytes());
+            let parser = selected.iter().next().copied();
+            let memo_key = format!("{content_digest}\u{0}{relative_path}\u{0}{}", parser.unwrap_or(""));
+            let parsed = if let Some(hit) = FACTS_MEMO.get(&memo_key) {
+                hit
             } else {
-                crate::signatures::extract_graph_facts_with_metadata_inner(&content, &relative_path)
-            };
-            let Some(extraction) = extraction else {
-                return outcome(
-                    "graph.scan.extractFailed",
-                    "native graph-fact extraction returned no result",
-                );
+                let extraction = if let Some(extension) = parser {
+                    crate::signatures::graph_facts::extract_graph_facts_with_metadata_with_extension(
+                        &content,
+                        &relative_path,
+                        extension,
+                    )
+                } else {
+                    crate::signatures::extract_graph_facts_with_metadata_inner(&content, &relative_path)
+                };
+                let Some(extraction) = extraction else {
+                    return outcome(
+                        "graph.scan.extractFailed",
+                        "native graph-fact extraction returned no result",
+                    );
+                };
+                let parsed = Arc::new(ParsedFacts {
+                    facts: extraction.facts,
+                    reference_counts: extraction.reference_counts,
+                    weight: u32::try_from(content.len()).unwrap_or(u32::MAX),
+                });
+                FACTS_MEMO.insert(memo_key, Arc::clone(&parsed));
+                parsed
             };
             if !allow_path(path)? {
                 return Ok(None);
@@ -222,9 +256,9 @@ pub(crate) fn scan_graph_facts_typed_filtered(
             Ok(Some(GraphFactsScanOutcome::Entry(Box::new(
                 GraphFactsTypedEntry {
                     relative_path,
-                    content_digest: crate::index::content_digest(content.as_bytes()),
-                    facts: extraction.facts,
-                    reference_counts: extraction.reference_counts,
+                    content_digest,
+                    facts: parsed.facts.clone(),
+                    reference_counts: parsed.reference_counts.clone(),
                 },
             ))))
         })
@@ -384,7 +418,7 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).expect("create fixture");
         fs::write(root.join("invalid.js"), [0xff, 0xfe]).expect("write invalid utf8 fixture");
-        let extraction_size = crate::minify::minifier::MAX_SIZE + 1;
+        let extraction_size = crate::signatures::MAX_PARSE_SIZE + 1;
         fs::write(root.join("extract.ts"), vec![b'x'; extraction_size])
             .expect("write extraction fixture");
 

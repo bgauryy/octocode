@@ -16,7 +16,7 @@ use std::path::Path;
 /// memory-safety bound distinct from — and larger than — the 100KB full-content
 /// *return* cap below: files under this ceiling still page normally via
 /// next.continue; files over it are refused outright with `fileTooLarge`.
-const MAX_SOURCE_BYTES: u64 = 10 * 1024 * 1024;
+pub(super) const MAX_SOURCE_BYTES: u64 = 10 * 1024 * 1024;
 
 /// Build the shared `fileTooLarge` result for a source that exceeds
 /// [`MAX_SOURCE_BYTES`]. Terminal: there is no bounded continuation past the
@@ -96,10 +96,9 @@ pub fn execute_local_fetch_with_regex(
             return LocalFetchResult::error(q.path.to_string(), "fileAccessFailed", e.to_string());
         }
     };
-    // Enforce the hard source-size ceiling on every read path (default,
-    // matchString, and line-range) before opening the file, so an oversized
-    // source is never read into memory.
-    if meta.len() > MAX_SOURCE_BYTES {
+    // Past the whole-file ceiling, only a streamed line window is served
+    // (see `large_source`); past the streaming ceiling nothing is read.
+    if meta.len() > super::large_source::MAX_STREAM_SOURCE_BYTES {
         return source_too_large(&q.path, meta.len());
     }
     let mut sample = [0_u8; 8192];
@@ -129,28 +128,35 @@ pub fn execute_local_fetch_with_regex(
         ];
         return result;
     }
-    if q.full_content == Some(true)
+    if meta.len() > MAX_SOURCE_BYTES {
+        let mut result = super::large_source::fetch_window(
+            q,
+            &path,
+            meta.len(),
+            meta.modified().ok().and_then(system_time_iso),
+            security,
+            cancel,
+            regex,
+        );
+        if result.status != "error" {
+            result.path = q.path.to_string();
+        }
+        return result;
+    }
+    // An oversized whole-file read returns its first bounded page inline
+    // (with next.continue) instead of an empty error that costs a call.
+    let bounded;
+    let full_content_limited = q.full_content == Some(true)
         && q.minify_mode() == MinifyMode::None
         && q.match_string.is_none()
         && q.start_line().is_none()
-        && meta.len() > 100 * 1024
-    {
-        let mut result = LocalFetchResult::error(
-            q.path.to_string(),
-            "fileTooLarge",
-            format!(
-                "File too large: {}KB (limit: 100KB). Follow next.continue to retrieve the complete file in bounded chunks, or select startLine/endLine or matchString.",
-                meta.len() / 1024
-            ),
-        );
-        result.resolved_path = Some(q.path.to_string());
-        result.source_bytes = Some(meta.len() as usize);
-        result.is_partial = Some(true);
-        result.partial_reasons = vec![PartialReason::FullContentSourceSizeLimit];
-        result.metadata_unavailable = vec!["totalLines".into()];
-        result.next = Some(bounded_continuation(q));
-        return result;
-    }
+        && meta.len() > 100 * 1024;
+    let q = if full_content_limited {
+        bounded = bounded_query(q);
+        &bounded
+    } else {
+        q
+    };
     // Read at most the cap (+1 sentinel byte). Re-check the length in case the
     // file grew past the ceiling between the stat above and this read (TOCTOU).
     let bytes = match fs::File::open(&path).and_then(|file| {
@@ -176,6 +182,9 @@ pub fn execute_local_fetch_with_regex(
         cancel,
         regex,
     );
+    if full_content_limited {
+        mark_full_content_limited(&mut result);
+    }
     bind_continuation_to_source(&mut result);
     result
 }
@@ -280,11 +289,21 @@ pub fn process_fetched_content(
             error: None,
             resolved_path: None,
             warnings: vec![],
-            hints: vec![no_match_hint(
-                q.match_string_is_regex.unwrap_or(false),
-                q.match_string_case_sensitive.unwrap_or(false),
-                "localSearch",
-            )],
+            // The response keeps one hint per row. In a file with redactions
+            // a shorter token cannot reach text matched against a
+            // placeholder, so that explanation replaces the generic advice.
+            // It depends only on the file, never on the guess (no oracle),
+            // and reveals no more than a plain fetch (which shows the
+            // placeholders).
+            hints: vec![if match_redacted || key_blocks_redacted {
+                REDACTED_MATCH_HINT.into()
+            } else {
+                no_match_hint(
+                    q.match_string_is_regex.unwrap_or(false),
+                    q.match_string_case_sensitive.unwrap_or(false),
+                    "localSearch",
+                )
+            }],
             total_lines: Some(total_lines),
             start_line: None,
             end_line: None,
@@ -336,6 +355,15 @@ pub fn process_fetched_content(
     if let Err(e) = cancel.check() {
         return LocalFetchResult::error(q.path.to_string(), "cancelled", e);
     }
+    // A complete view over the limit returns its first bounded page inline.
+    let bounded_view;
+    let view_limited = q.full_content == Some(true) && selected.len() > FULL_CONTENT_LIMIT_BYTES;
+    let q = if view_limited {
+        bounded_view = bounded_query(q);
+        &bounded_view
+    } else {
+        q
+    };
     // A line or byte page is scanned on its own window (see
     // `sanitize_line_page` / `sanitize_byte_page`); complete views keep the
     // whole-view scan because they return the whole view.
@@ -393,21 +421,6 @@ pub fn process_fetched_content(
         warnings.extend(security_warnings);
         if let Err(e) = cancel.check() {
             return LocalFetchResult::error(q.path.to_string(), "cancelled", e);
-        }
-        if q.full_content == Some(true) && safe.len() > 50000 {
-            let mut result = LocalFetchResult::error(
-            q.path.to_string(),
-            "fullContentLimit",
-            "The complete view exceeds 50000 bytes. Follow next.continue to read the same view in bounded chunks.".into(),
-        );
-            result.path = q.path.to_string();
-            result.total_lines = Some(total_lines);
-            result.source_chars = Some(source_chars);
-            result.source_bytes = Some(source_bytes);
-            result.is_partial = Some(true);
-            result.partial_reasons = vec![PartialReason::FullContentLimit];
-            result.next = Some(bounded_continuation(q));
-            return result;
         }
         let pg = match page(&safe, q) {
             Ok(p) => p,
@@ -522,11 +535,30 @@ pub fn process_fetched_content(
         returned_lines: Some(ret_lines),
         pagination: Some(pg.pagination.clone()),
         is_partial: (next.is_some() && !out_of_range).then_some(true),
-        partial_reasons: vec![],
+        partial_reasons: if view_limited {
+            vec![PartialReason::FullContentLimit]
+        } else {
+            vec![]
+        },
         terminal_limit: None,
         metadata_unavailable: vec![],
         out_of_range,
         next,
+    }
+}
+
+/// Complete views larger than this return page 1 plus next.continue.
+const FULL_CONTENT_LIMIT_BYTES: usize = 50_000;
+
+fn mark_full_content_limited(result: &mut LocalFetchResult) {
+    if result.status == "error" {
+        return;
+    }
+    if !result
+        .partial_reasons
+        .contains(&PartialReason::FullContentLimit)
+    {
+        result.partial_reasons.push(PartialReason::FullContentLimit);
     }
 }
 /// Sanitize the full source while preserving its line structure so match line
@@ -602,23 +634,16 @@ fn stale_snapshot(q: &LocalFetchQuery) -> LocalFetchResult {
     result
 }
 
-fn bounded_continuation(q: &LocalFetchQuery) -> NextCalls {
+/// The first bounded line page of the same view as a complete read.
+fn bounded_query(q: &LocalFetchQuery) -> LocalFetchQuery {
     let mut query = q.clone();
     query.full_content = None;
     query.chunk_type = Some(ChunkType::Lines);
     query.offset = Some(0);
-    query.chunk_size = wire_positive(100);
-    NextCalls {
-        r#continue: Some(Continuation {
-            tool: "localFetch".into(),
-            query,
-            confidence: "exact".into(),
-            reason: Some("Continue to the next page of results.".into()),
-        }),
-        read_bounded_lines: None,
-        restart: None,
-    }
+    query.chunk_size = wire_positive(DEFAULT_LINE_CHUNK);
+    query
 }
+
 pub(crate) fn compress_ranges(lines: &[usize]) -> Vec<LineRange> {
     let mut out: Vec<LineRange> = vec![];
     for &n in lines {
@@ -717,13 +742,14 @@ mod source_size_tests {
     }
 
     #[test]
-    fn oversized_plain_read_returns_file_too_large() {
+    fn source_above_the_streaming_ceiling_returns_file_too_large() {
         let dir = temp_dir();
         let path = dir.join("huge.txt");
-        // Sparse file just past the hard ceiling — the size guard fires before
-        // any bytes are read, so this stays cheap.
+        // Sparse file just past the streaming ceiling — the size guard fires
+        // before any bytes are read, so this stays cheap.
         let file = fs::File::create(&path).expect("create file");
-        file.set_len(MAX_SOURCE_BYTES + 1).expect("grow file");
+        let len = super::super::large_source::MAX_STREAM_SOURCE_BYTES + 1;
+        file.set_len(len).expect("grow file");
         drop(file);
 
         let req = LocalFetchQuery {
@@ -734,8 +760,100 @@ mod source_size_tests {
 
         assert_eq!(result.status, "error");
         assert_eq!(result.error_code.as_deref(), Some("fileTooLarge"));
-        assert_eq!(result.source_bytes, Some((MAX_SOURCE_BYTES + 1) as usize));
+        assert_eq!(result.source_bytes, Some(len as usize));
         assert_eq!(result.terminal_limit, Some(true));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // Past the whole-file ceiling a plain read streams a bounded line window:
+    // exact whole-file totals, a digest-bound continuation that advances,
+    // and matchString redirected to localSearch.
+    #[test]
+    fn oversized_text_source_is_served_as_streamed_line_windows() {
+        let dir = temp_dir();
+        let path = dir.join("big.log");
+        let mut text = String::new();
+        let mut lines = 0usize;
+        while text.len() as u64 <= MAX_SOURCE_BYTES {
+            lines += 1;
+            text.push_str(&format!("line {lines} payload payload payload payload\n"));
+        }
+        fs::write(&path, &text).expect("write");
+        let query =
+            |q: LocalFetchQuery| execute_local_fetch(&q, &Paths(dir.clone()), &Safe, &NeverCancel);
+        let first = query(LocalFetchQuery {
+            path: path.to_string_lossy().parse().expect("path"),
+            ..LocalFetchQuery::test_default()
+        });
+        assert_eq!(first.status, "success", "{first:?}");
+        assert_eq!(first.total_lines, Some(lines));
+        assert_eq!(first.start_line, Some(1));
+        assert!(
+            first
+                .content
+                .as_deref()
+                .is_some_and(|c| c.starts_with("line 1 "))
+        );
+        let next = first
+            .next
+            .as_ref()
+            .and_then(|n| n.r#continue.clone())
+            .expect("continue");
+        assert!(next.query.snapshot.is_some());
+        let second = query(next.query);
+        assert_eq!(second.status, "success", "{second:?}");
+        assert_eq!(second.start_line, first.end_line.map(|line| line + 1));
+
+        // A wide explicit window pages within itself and advances.
+        let wide = query(LocalFetchQuery {
+            path: path.to_string_lossy().parse().expect("path"),
+            start_line: wire_positive(1),
+            end_line: wire_positive(3_000),
+            ..LocalFetchQuery::test_default()
+        });
+        let inner = wide
+            .next
+            .as_ref()
+            .and_then(|n| n.r#continue.clone())
+            .expect("inner continue");
+        let wide_two = query(inner.query);
+        let page_end = |r: &LocalFetchResult| r.source_line_ranges.last().map(|range| range.end);
+        let page_start =
+            |r: &LocalFetchResult| r.source_line_ranges.first().map(|range| range.start);
+        assert_eq!(
+            page_start(&wide_two),
+            page_end(&wide).map(|line| line + 1),
+            "pages advance"
+        );
+
+        let tail = query(LocalFetchQuery {
+            path: path.to_string_lossy().parse().expect("path"),
+            start_line: wire_positive(lines),
+            end_line: wire_positive(lines),
+            ..LocalFetchQuery::test_default()
+        });
+        assert_eq!(tail.start_line, Some(lines), "{tail:?}");
+        assert!(
+            tail.content
+                .as_deref()
+                .is_some_and(|c| c.starts_with(&format!("line {lines} ")))
+        );
+        assert!(tail.next.is_none());
+
+        let matched = query(LocalFetchQuery {
+            path: path.to_string_lossy().parse().expect("path"),
+            match_string: Some("line 7 ".parse().expect("match")),
+            ..LocalFetchQuery::test_default()
+        });
+        assert_eq!(matched.error_code.as_deref(), Some("largeSourceWindowOnly"));
+        assert!(
+            matched
+                .hints
+                .iter()
+                .any(|hint| hint.contains("localSearch")),
+            "{matched:?}"
+        );
 
         let _ = fs::remove_dir_all(&dir);
     }
@@ -822,6 +940,28 @@ mod source_size_tests {
         assert_eq!(right.selected_match_count, wrong.selected_match_count);
         assert_eq!(right.error_code, wrong.error_code);
         assert_eq!(right.selected_match_count, Some(0), "{right:?}");
+        // Same hints either way (no oracle), and they explain the miss.
+        assert_eq!(right.hints, wrong.hints);
+        assert!(
+            right.hints.iter().any(|hint| hint == REDACTED_MATCH_HINT),
+            "{right:?}"
+        );
+        let clean = dir.join("clean.txt");
+        fs::write(&clean, "nothing secret\n").expect("write clean");
+        let miss = execute_local_fetch(
+            &LocalFetchQuery {
+                path: clean.to_string_lossy().parse().expect("path"),
+                match_string: Some("absent".parse().expect("match string")),
+                ..LocalFetchQuery::test_default()
+            },
+            &Paths(dir.clone()),
+            &security,
+            &NeverCancel,
+        );
+        assert!(
+            !miss.hints.iter().any(|hint| hint == REDACTED_MATCH_HINT),
+            "{miss:?}"
+        );
         let after = probe("needle");
         assert_eq!(after.match_ranges, vec![LineRange { start: 3, end: 3 }]);
         assert_eq!(after.total_lines, Some(3));
@@ -857,6 +997,9 @@ mod source_size_tests {
         let _ = fs::remove_dir_all(&dir);
     }
 }
+
+/// Why a matchString can miss text that is visibly in the file.
+const REDACTED_MATCH_HINT: &str = "No visible line matches; this file has secrets, and matchString runs on [REDACTED…] placeholders, never secret text.";
 
 /// Next step for a matchString that selected no line, tuned to how it matched.
 /// `finder` names the search tool that locates the file containing the text.

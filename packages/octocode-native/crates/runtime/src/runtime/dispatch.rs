@@ -26,6 +26,7 @@ pub(super) fn execute_local(
     security: &ContentSecurity,
     context: &ExecutionContext,
     regex: &LocalFetchRegex,
+    views: &crate::tools::gh_get_file_content::SanitizedViewMemo,
     allow_ast_rewrite_apply: bool,
 ) -> Result<DomainResult, ExecutionError> {
     // Generated query types carry the meta fields, so each tool parses the
@@ -36,7 +37,8 @@ pub(super) fn execute_local(
                 Ok(request) => request,
                 Err(row) => return Ok(*row),
             };
-            let result = execute_local_fetch_with_regex(&request, paths, security, context, regex);
+            let scan = crate::tools::gh_get_file_content::MemoizedScan::new(security, views);
+            let result = execute_local_fetch_with_regex(&request, paths, &scan, context, regex);
             let status = match result.status.as_str() {
                 "error" => Some("error"),
                 "empty" => Some("empty"),

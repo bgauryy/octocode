@@ -13,10 +13,29 @@ use super::matching::{
 };
 use super::pattern::CompiledPattern;
 
+/// A wrapped rule document. Besides `rule`, it tolerates the metadata keys
+/// of an ast-grep rule file (`id`, `language`, `severity`, …) so a pasted
+/// rule file runs as-is; none of them affects matching (`langType` selects
+/// the grammar). Any other key, like an unsupported `constraints`/`fix`,
+/// still fails with the list of supported fields.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawRuleDocument {
     rule: RawRule,
+    #[serde(rename = "id")]
+    _id: Option<serde_yaml_ng::Value>,
+    #[serde(rename = "language")]
+    _language: Option<serde_yaml_ng::Value>,
+    #[serde(rename = "severity")]
+    _severity: Option<serde_yaml_ng::Value>,
+    #[serde(rename = "message")]
+    _message: Option<serde_yaml_ng::Value>,
+    #[serde(rename = "note")]
+    _note: Option<serde_yaml_ng::Value>,
+    #[serde(rename = "url")]
+    _url: Option<serde_yaml_ng::Value>,
+    #[serde(rename = "metadata")]
+    _metadata: Option<serde_yaml_ng::Value>,
 }
 
 #[derive(Deserialize)]

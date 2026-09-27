@@ -4,7 +4,7 @@ use crate::{
 use octocode_engine::structural::SyntaxTreeInspectOptions;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-const MAX_SOURCE: usize = 1_000_000;
+const MAX_SOURCE: usize = super::MAX_PARSE_SOURCE_BYTES;
 pub use crate::contracts::tool_types::AstSearchQuerySyntaxTree;
 
 /// Engine-unit views over the generated `syntaxTree` query.

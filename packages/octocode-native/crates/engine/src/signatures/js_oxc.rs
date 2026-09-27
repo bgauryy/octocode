@@ -13,12 +13,13 @@
 //! return `None` and the caller falls back to the tree-sitter signature path.
 
 use oxc_ast::ast::{
-    BindingPattern, Class, ClassElement, Declaration, ExportAllDeclaration, ExportDeclaration,
-    ExportDefaultDeclarationKind, ExportSpecifier, Expression, Function, ImportDeclaration,
-    ImportDeclarationSpecifier, ImportOrExportKind, MethodDefinitionKind, Program, Statement,
-    TSEnumDeclaration, TSEnumMemberName, TSExternalModuleDeclaration, TSGlobalDeclaration,
-    TSInterfaceDeclaration, TSModuleReference, TSNamespaceDeclaration, TSNamespaceDeclarationBody,
-    TSSignature, TSTypeAliasDeclaration, VariableDeclaration, VariableDeclarationKind,
+    ArrowFunctionBody, BindingPattern, Class, ClassElement, Declaration, ExportAllDeclaration,
+    ExportDeclaration, ExportDefaultDeclarationKind, ExportSpecifier, Expression, Function,
+    ImportDeclaration, ImportDeclarationSpecifier, ImportOrExportKind, MethodDefinitionKind,
+    Program, Statement, TSEnumDeclaration, TSEnumMemberName, TSExternalModuleDeclaration,
+    TSGlobalDeclaration, TSInterfaceDeclaration, TSModuleReference, TSNamespaceDeclaration,
+    TSNamespaceDeclarationBody, TSSignature, TSTypeAliasDeclaration, VariableDeclaration,
+    VariableDeclarationKind,
 };
 use oxc_parser::Parser;
 use oxc_semantic::SemanticBuilder;
@@ -98,6 +99,9 @@ struct GraphDeclaration {
     /// `["default"]`). Empty when it is exported only under its own name.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     exported_as: Vec<String>,
+    /// 0-based first line of the comment block directly above.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    doc_line: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     parent: Option<String>,
 }
@@ -207,7 +211,7 @@ fn is_oxc_path(file_path: &str) -> bool {
 /// Returns `None` for: oversized input, a hard parse failure (caller falls back
 /// to tree-sitter), or a file with no extractable top-level symbols.
 pub fn extract_js_symbols(content: &str, file_path: &str) -> Option<String> {
-    if content.len() > crate::minify::minifier::MAX_SIZE || !is_oxc_path(file_path) {
+    if content.len() > crate::signatures::MAX_PARSE_SIZE || !is_oxc_path(file_path) {
         return None;
     }
     let content = content.to_owned();
@@ -264,7 +268,7 @@ pub fn find_in_file_references(
     line: u32,
     character: u32,
 ) -> Option<String> {
-    if content.len() > crate::minify::minifier::MAX_SIZE || !is_oxc_path(file_path) {
+    if content.len() > crate::signatures::MAX_PARSE_SIZE || !is_oxc_path(file_path) {
         return None;
     }
     let content = content.to_owned();
@@ -293,7 +297,7 @@ pub(crate) fn extract_graph_facts_with_metadata(
     content: &str,
     file_path: &str,
 ) -> Option<super::GraphFactsExtraction> {
-    if content.len() > crate::minify::minifier::MAX_SIZE || !is_oxc_path(file_path) {
+    if content.len() > crate::signatures::MAX_PARSE_SIZE || !is_oxc_path(file_path) {
         return None;
     }
     let content = content.to_owned();
@@ -364,6 +368,7 @@ fn extract_graph_facts_with_metadata_inner<const COMMON_JS: bool>(
             &mut declarations,
             &mut edges,
         );
+        attach_doc_lines(content, &mut declarations);
 
         let mut calls = Vec::new();
         collect_program_calls(&parser_ret.program, &line_index, &mut calls);
@@ -474,6 +479,82 @@ fn extract_graph_facts_with_metadata_inner<const COMMON_JS: bool>(
             facts,
             reference_counts,
         })
+    })
+}
+
+/// Declarations (with exports and containment) only, as graph-facts JSON:
+/// the calls, CommonJS loads, and value-reference counts a dependency graph
+/// needs are skipped. An outline of a large file otherwise pays for a full
+/// semantic pass and a multi-megabyte facts document it never reads.
+pub(crate) fn extract_declarations(content: &str, file_path: &str) -> Option<String> {
+    if content.len() > crate::signatures::MAX_PARSE_SIZE || !is_oxc_path(file_path) {
+        return None;
+    }
+    let content = content.to_owned();
+    let file_path = file_path.to_owned();
+    run_on_deep_stack_with_timeout(AST_EXECUTION_TIMEOUT, move || {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            extract_declarations_inner(&content, &file_path)
+        }))
+        .unwrap_or(None)
+    })
+}
+
+fn extract_declarations_inner(content: &str, file_path: &str) -> Option<String> {
+    let ext = crate::text::file_extension::get_extension_internal(file_path, true, "ts");
+    if !is_js_ts_extension(&ext) {
+        return None;
+    }
+    with_thread_allocator(|allocator| {
+        let parser_ret = Parser::new(allocator, content, source_type_for(&ext, file_path)).parse();
+        if job_cancelled()
+            || (parser_ret.program.body.is_empty() && !parser_ret.diagnostics.is_empty())
+        {
+            return None;
+        }
+        let line_index = LineIndex::new(content);
+        let mut symbols = Vec::new();
+        collect_program(&parser_ret.program, &line_index, &mut symbols);
+        let mut local_exports = LocalExports::default();
+        let mut imports = Vec::new();
+        let mut exports = Vec::new();
+        collect_module_facts(
+            &parser_ret.program,
+            &line_index,
+            &mut imports,
+            &mut exports,
+            &mut local_exports,
+        );
+        let mut declarations = Vec::new();
+        let mut edges = Vec::new();
+        flatten_symbols(
+            file_path,
+            &symbols,
+            None,
+            &local_exports,
+            &mut declarations,
+            &mut edges,
+        );
+        attach_doc_lines(content, &mut declarations);
+        serde_json::to_string(&GraphFacts {
+            kind: "graphFacts",
+            schema_version: super::GRAPH_FACTS_SCHEMA_VERSION,
+            source: "native-ast",
+            language: ext,
+            file: file_path.to_string(),
+            declarations,
+            imports,
+            exports,
+            calls: Vec::new(),
+            common_js: Vec::new(),
+            edges,
+            diagnostics: parser_ret
+                .diagnostics
+                .into_iter()
+                .map(|diagnostic| diagnostic.message.to_string())
+                .collect(),
+        })
+        .ok()
     })
 }
 
@@ -862,6 +943,14 @@ fn declaration_names(decl: &Declaration) -> Vec<String> {
     }
 }
 
+fn attach_doc_lines(content: &str, declarations: &mut [GraphDeclaration]) {
+    let lines = content.lines().collect::<Vec<_>>();
+    for declaration in declarations {
+        declaration.doc_line =
+            super::leading_doc_line(&lines, declaration.range.start.line as usize, "ts");
+    }
+}
+
 fn flatten_symbols(
     file_path: &str,
     symbols: &[DocumentSymbol],
@@ -898,6 +987,7 @@ fn flatten_symbols(
             exported: public_names.is_some(),
             exported_as,
             parent: parent.map(str::to_string),
+            doc_line: None,
         });
         if let Some(parent_id) = parent {
             edges.push(GraphEdge {
@@ -1228,7 +1318,47 @@ fn collect_statement(stmt: &Statement, li: &LineIndex, out: &mut Vec<DocumentSym
             ExportDefaultDeclarationKind::ClassDeclaration(c) => push_opt(out, class_symbol(c, li)),
             _ => {}
         },
+        // A top-level IIFE (UMD wrappers, legacy bundles) is the module's real
+        // scope: outline its body instead of reporting an empty file.
+        Statement::ExpressionStatement(e) => {
+            if let Some(statements) = iife_statements(&e.expression) {
+                for stmt in statements {
+                    collect_statement(stmt, li, out);
+                }
+            }
+        }
         _ => {}
+    }
+}
+
+/// Body statements of an immediately invoked function expression:
+/// `(function(){…})()`, `(() => {…})()`, `!function(){…}()`, and
+/// `(function(){…}).call(this, …)`.
+fn iife_statements<'a>(expression: &'a Expression<'a>) -> Option<&'a [Statement<'a>]> {
+    match expression.without_parentheses() {
+        Expression::UnaryExpression(unary) => iife_statements(&unary.argument),
+        Expression::CallExpression(call) => {
+            let callee = match call.callee.without_parentheses() {
+                Expression::StaticMemberExpression(member)
+                    if matches!(member.property.name.as_str(), "call" | "apply") =>
+                {
+                    member.object.without_parentheses()
+                }
+                callee => callee,
+            };
+            match callee {
+                Expression::FunctionExpression(function) => function
+                    .body
+                    .as_ref()
+                    .map(|body| body.statements.as_slice()),
+                Expression::ArrowFunctionExpression(arrow) => match &arrow.body {
+                    ArrowFunctionBody::FunctionBody(body) => Some(body.statements.as_slice()),
+                    _ => None,
+                },
+                _ => None,
+            }
+        }
+        _ => None,
     }
 }
 

@@ -4,7 +4,7 @@ use crate::lsp::uri::uri_to_path;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
-const MAX_SAFE_READ_FILE_BYTES: u64 = 1_000_000;
+const MAX_SAFE_READ_FILE_BYTES: u64 = super::MAX_LSP_SOURCE_BYTES;
 
 fn normalize_path_or_uri(path_or_uri: &str) -> Result<String> {
     if path_or_uri.starts_with("file://") {

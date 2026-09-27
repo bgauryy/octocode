@@ -322,11 +322,39 @@ pub fn default_server_for_workspace_root_with_options(
 /// an inferred project that knows none of the workspace symbols. Each search
 /// is a bounded breadth-first walk that skips hidden, vendored, and build dirs.
 pub fn workspace_root_representative_source(workspace_root: &str) -> Option<String> {
+    let extension = workspace_root_languages(workspace_root)
+        .into_iter()
+        .next()?;
+    representative_source_for(workspace_root, extension)
+}
+
+/// Representative-source extensions (`.ts`, `.rs`, `.go`, `.py`) of every
+/// project marker at `workspace_root`, in server-selection order and
+/// deduplicated. The first is the language a root-only query uses; the rest
+/// are other projects sharing the root (e.g. a Cargo workspace with a
+/// tsconfig), which a root-only query does not search.
+#[must_use]
+pub fn workspace_root_languages(workspace_root: &str) -> Vec<&'static str> {
     let root = Path::new(workspace_root);
-    let extension = WORKSPACE_ROOT_MARKERS
-        .iter()
-        .find(|(marker, _)| root.join(marker).is_file())
-        .map(|(_, extension)| *extension)?;
+    let mut languages: Vec<&'static str> = Vec::new();
+    for (marker, extension) in WORKSPACE_ROOT_MARKERS {
+        let family = if *extension == ".js" {
+            ".ts"
+        } else {
+            *extension
+        };
+        if root.join(marker).is_file() && !languages.contains(&family) {
+            languages.push(family);
+        }
+    }
+    languages
+}
+
+/// [`workspace_root_representative_source`] for one language, as returned
+/// by [`workspace_root_languages`].
+#[must_use]
+pub fn representative_source_for(workspace_root: &str, extension: &str) -> Option<String> {
+    let root = Path::new(workspace_root);
     let family: &[&str] = match extension {
         ".ts" | ".js" => &["ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs"],
         ".rs" => &["rs"],

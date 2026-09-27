@@ -117,6 +117,9 @@ pub struct ExecutorConfig {
     pub graphql_spacing: Duration,
     pub write_spacing: Duration,
     pub code_search_per_minute: usize,
+    /// Longest wait for a code-search window slot taken inside the request
+    /// (the 10/min window spans 60 s, beyond the general retry-after cap).
+    pub code_search_wait: Duration,
     /// Added to a primary reset before retrying (Octokit waits reset + 1s).
     pub reset_grace: Duration,
     /// Secondary-limit wait when GitHub sends no `retry-after`.
@@ -134,6 +137,7 @@ impl ExecutorConfig {
             graphql_spacing: Duration::from_millis(1000),
             write_spacing: Duration::from_millis(1000),
             code_search_per_minute: 10,
+            code_search_wait: Duration::from_secs(20),
             reset_grace: Duration::from_secs(1),
             secondary_default: Duration::from_secs(60),
             circuit_failures: 5,
@@ -686,7 +690,13 @@ impl KeyState {
                         }
                     }
                     let wait = Duration::from_millis(start.saturating_sub(now));
-                    if wait > cap.max(config.spacing(group)) || Instant::now() + wait >= deadline {
+                    let limit = if window {
+                        cap.max(config.code_search_wait)
+                    } else {
+                        cap
+                    };
+                    if wait > limit.max(config.spacing(group)) || Instant::now() + wait >= deadline
+                    {
                         return Err(rate_limited_error(
                             "GitHub code search window is full; request not sent.",
                             RateLimit {
@@ -1151,6 +1161,37 @@ mod tests {
                 .expect("admitted");
         }
         assert!(started.elapsed() >= Duration::from_millis(290));
+    }
+
+    #[tokio::test]
+    async fn a_short_code_search_window_wait_is_taken_inside_the_request() {
+        let config = ExecutorConfig {
+            code_search_per_minute: 2,
+            ..ExecutorConfig::relaxed()
+        };
+        let budget = Arc::new(GitHubBudget::with_config(config));
+        let state = budget.key_state(&LimiterKey::new("h", None), None);
+        // The window is full, and its oldest slot frees in ~1.5 s: longer
+        // than the 1 s retry-after cap, inside the code-search wait.
+        {
+            let now = now_ms();
+            let mut facts = state.facts();
+            facts.code_search_ms.push_back(now - 58_500);
+            facts.code_search_ms.push_back(now - 10_000);
+        }
+        let started = Instant::now();
+        let admitted = state
+            .admit(
+                Some(Group::Search),
+                budget.config(),
+                true,
+                Duration::from_secs(1),
+                Instant::now() + Duration::from_secs(10),
+                &CancellationToken::new(),
+            )
+            .await;
+        assert!(admitted.is_ok(), "{:?}", admitted.err());
+        assert!(started.elapsed() >= Duration::from_millis(1_000));
     }
 
     #[tokio::test]

@@ -16,7 +16,7 @@ const workspace = join(dirname(output), 'workspace'); mkdirSync(workspace, { rec
 const database = join(workspace, 'store.sqlite'), binding = ['--workspace', workspace, '--database', database];
 const hash = data => createHash('sha256').update(data).digest('hex');
 const call = (command, input, session) => JSON.parse(execFileSync(binary, [command, JSON.stringify(input), ...binding, ...(session ? ['--session', session] : [])], { encoding: 'utf8', timeout: 10000, maxBuffer: 2 * 1024 * 1024 }));
-const manifest = { startedAt: new Date().toISOString(), binarySha256: hash(readFileSync(binary)), harnessSha256: hash(readFileSync(fileURLToPath(import.meta.url))), messageCounts: [0, 1000, 10000], bodyBytes: 1024, querySamples: 30, modelCalls: 0, description: 'Single persistent MCP writer, unacknowledged self-deliveries retained; first inbox page p50/p95. Storage includes audit and WAL; descriptive single local run, no regression claim.' };
+const manifest = { startedAt: new Date().toISOString(), binarySha256: hash(readFileSync(binary)), harnessSha256: hash(readFileSync(fileURLToPath(import.meta.url))), messageCounts: [0, 1000, 10000], bodyBytes: 1024, querySamples: 30, modelCalls: 0, description: 'Single persistent MCP writer, unacknowledged self-deliveries retained; first inbox page p50/p95 plus one complete paginated read per size. Storage includes audit and WAL; descriptive single local run, no regression claim.' };
 writeFileSync(join(dirname(output), 'manifest.json'), JSON.stringify(manifest, null, 2));
 let id, child, closed, db, seq = 0, result = { passed: false, manifest, points: [] };
 const pending = new Map();
@@ -53,19 +53,37 @@ try {
   for (const targetCount of manifest.messageCounts) {
     const begin = performance.now();
     for (; count < targetCount; count++) {
-      await tool('send_message', { to: id, body: 'x'.repeat(manifest.bodyBytes), key: `message-${count}`, wake: 'passive', reasoning: 'Measure retained message and audit growth' });
+      await tool('send_message', { to: id, replyRequired: false, body: 'x'.repeat(manifest.bodyBytes), key: `message-${count}`, wake: 'passive', reasoning: 'Measure retained message and audit growth' });
       if (count % 1000 === 0) call('heartbeat', {}, id);
     }
     const appendMs = performance.now() - begin, queryMs = [];
     for (let sample = 0; sample < manifest.querySamples; sample++) {
       const started = performance.now(), inbox = await tool('inbox', {}); queryMs.push(performance.now() - started);
-      assert.equal(inbox.items.length, Math.min(targetCount, 100));
-      if (targetCount > 100) assert.ok(inbox.next != null);
+      assert.ok(inbox.items.length <= Math.min(targetCount, 100));
+      assert.equal(inbox.items.length === 0, targetCount === 0);
+      assert.equal(inbox.next != null, inbox.items.length < targetCount);
     }
+    const fullReadStart = performance.now(), ids = [];
+    let page = await tool('inbox', {}), inboxPages = 0;
+    for (;;) {
+      inboxPages++;
+      assert.ok(inboxPages <= targetCount + 1, 'Pagination must make bounded progress');
+      for (const item of page.items) {
+        assert.ok(ids.length === 0 || item.id > ids.at(-1), 'IDs must be strictly ordered without repeats');
+        ids.push(item.id);
+      }
+      if (!page.next) break;
+      assert.equal(page.next.command, 'inbox');
+      page = await tool(page.next.command, page.next.input);
+    }
+    const inboxFullReadMs = performance.now() - fullReadStart;
+    assert.equal(ids.length, targetCount);
+    assert.equal(new Set(ids).size, targetCount);
+    assert.deepEqual(ids, db.prepare('SELECT id FROM messages ORDER BY id').all().map(row => row.id));
     const snapshot = { messages: db.prepare('SELECT count(*) n FROM messages').get().n, deliveries: db.prepare('SELECT count(*) n FROM deliveries').get().n, audit: db.prepare('SELECT count(*) n FROM audit').get().n };
     assert.equal(snapshot.messages, targetCount); assert.equal(snapshot.deliveries, targetCount);
     queryMs.sort((a, b) => a - b);
-    result.points.push({ ...snapshot, databaseBytes: bytes(database), walBytes: bytes(`${database}-wal`), appendMs, inboxP50Ms: queryMs[14], inboxP95Ms: queryMs[28], querySamplesMs: queryMs });
+    result.points.push({ ...snapshot, databaseBytes: bytes(database), walBytes: bytes(`${database}-wal`), appendMs, inboxPages, inboxFullReadMs, inboxVerifiedItems: ids.length, inboxP50Ms: queryMs[14], inboxP95Ms: queryMs[28], querySamplesMs: queryMs });
   }
   assert.equal(db.prepare('PRAGMA integrity_check').get().integrity_check, 'ok');
   assert.equal(hash(readFileSync(binary)), manifest.binarySha256);

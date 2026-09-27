@@ -73,6 +73,8 @@ fn fold_rust_attributes<'t>(
                     folded.unsupported = true;
                 }
             }
+            // `cfg` gates whether a module compiles, not which file it maps
+            // to: the edge is conditional, not unknown.
             "allow"
             | "warn"
             | "deny"
@@ -80,7 +82,12 @@ fn fold_rust_attributes<'t>(
             | "expect"
             | "doc"
             | "deprecated"
-            | "no_implicit_prelude" => {}
+            | "no_implicit_prelude"
+            | "cfg"
+            | "macro_use"
+            | "test" => {}
+            // A conditional attribute that rewrites the path does change it.
+            "cfg_attr" if !inner.contains("path") => {}
             _ => folded.unsupported = true,
         }
     }
@@ -142,7 +149,7 @@ pub(super) fn rust_inner_unsupported(node: Node<'_>, content: &str) -> bool {
             .unwrap_or_default()
             .trim();
         let name = inner.split(['(', '=']).next().unwrap_or_default().trim();
-        !matches!(
+        !(matches!(
             name,
             "allow"
                 | "warn"
@@ -152,7 +159,9 @@ pub(super) fn rust_inner_unsupported(node: Node<'_>, content: &str) -> bool {
                 | "doc"
                 | "deprecated"
                 | "no_implicit_prelude"
-        )
+                | "cfg"
+                | "macro_use"
+        ) || name == "cfg_attr" && !inner.contains("path"))
     })
 }
 

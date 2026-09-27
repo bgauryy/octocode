@@ -23,7 +23,7 @@ flowchart LR
     E --> H[Recipient handles message]
     F --> H
     H -->|Required reply: persist first| B
-    H -->|Then ack handled ID| B
+    H -->|Then complete handled ID| B
 ```
 
 The DB is the durable outbox and inbox for every vendor. Native APIs carry new
@@ -61,7 +61,7 @@ flowchart LR
 
 Receipt kinds remain `socket-write-only`, `jsonrpc`, `http` and
 `acp-turn-completion`. They are not equivalent assurances and none is a handling
-ACK. A pending result includes whether a turn was requested. Usage contains only
+completion. A pending result includes whether a turn was requested. Usage contains only
 observed counters and its scope; absent counters are not zero. Passive-only
 batches cannot reach an action-only adapter. A busy recipient defers before
 staging; failures after offering remain uncertain and are never automatically
@@ -95,9 +95,9 @@ path; a per-agent default database accidentally creates disconnected networks.
 
 | Mechanism | Existing recipient requirement | Consume peer context | Request inference | Receipt strength |
 | --- | --- | --- | --- | --- |
-| Codex app-server | Owning server and loaded, idle thread | Passive `thread/inject_items`; action context in `turn/start` | Action starts the existing thread | Validated RPC receipt; DB ack remains separate |
+| Codex app-server | Owning server and loaded, idle thread | Passive `function_call_output` through `thread/inject_items`; action `turn/start.toolOutput` | Action starts the existing thread | Validated RPC receipt; DB complete remains separate |
 | Claude inbox | Reachable session socket and native session ID | Cross-session socket | Passive-only waits in DB; action permits native policy | Socket submission, not policy acceptance |
-| Grok leader | Same-user Unix socket, IPC/ACP v1 and existing resident session | `session/prompt` carrying new context | Passive held until action; existing recipient executes | ACP request completion, then separate DB ack |
+| Grok leader | Same-user Unix socket, IPC/ACP v1 and existing resident session | `session/prompt` carrying new context | Passive held until action; existing recipient executes | ACP request completion, then separate DB complete |
 | OpenCode server | Existing idle session in this workspace, literal loopback HTTP endpoint | Session `/message` with `noReply:true` | Action uses `/prompt_async` | Passive validates message/session IDs; action requires HTTP 204 |
 | Pi extension | Loaded `pi-inbox.mjs`, active Pi session | Native `pi.sendMessage` with canonical Rust context | New action batch at idle; passive never wakes | Confirms matching durable session-file receipt |
 | Raw host hook | Supported context event that consumes stdout | Host event injects text/JSON | Host controls scheduling | Offered stdout or explicitly confirmed queue |
@@ -114,6 +114,8 @@ Codex checks thread identity, canonical workspace and status before staging. Bus
 later dispatch. If state changes after staging or a receipt is ambiguous, inspect
 the uncertain attempt before retrying; the adapter does not inject the same action
 and then start a second context-bearing turn.
+Native peer content stays tool output, with an empty user `input` on action turns.
+This requires the host's current tool-output API; errors never fall back to user input.
 
 Grok's adapter never calls session create/resume/load: it addresses a session that
 is already resident on the owning leader. Resume/load can replace that session's
@@ -150,26 +152,14 @@ an immutable document referenced by name and relevant byte range.
 
 The envelope includes optional `conversationId` on a root and `replyTo` on answers. Replies
 inherit the visible parent's nullable conversation; explicit mismatches fail.
-Use `send_message {replyTo, body, key, reasoning}` without `to`/`topic` to resolve
-the recipient from the parent inside the writer transaction. Explicit targets are
-never corrected silently. A required reply must succeed before acknowledging its
-request; failed sends leave the request pending. For a final direct reply, add
-`ackReply:true`: reply persistence and handling acknowledgement commit atomically.
-The caller must have received the parent and reply to its sender; topic/broadcast
-completion is rejected. Omit the flag for clarification or partial work. An
-identical keyed retry may explicitly enable completion later: it changes only the
-recipient handling state, never the immutable message. Repeated completion preserves
-the original acknowledgement timestamp and emits no duplicate ACK audit event.
-Without this flag, reply and ACK remain separate operations. Do not mark a failed
-send handled merely because the agent attempted it.
-For handled messages needing no reply, `ack` accepts either `message:ID` or
-`messages:[ID,...]` (1–100 unique IDs). Batch ACK is atomic: an unknown ID or one
-not received by this session rolls back every update and audit event. Repeats
-preserve the original timestamps. Batch returns `{acknowledged:true,count:N}`;
-single-ID results are unchanged. Do not include unfinished work in a batch.
-Parent visibility and immutable retry constraints are defined in DB.md. Recipients
-gain no access to a parent merely because a new message references it. Correlation
-groups ordinary messages; it neither transfers authority nor makes a task engine.
+Only `complete` creates replies; `send_message` rejects `replyTo`. Final answers use `complete {message:ID,reply:"answer"}`: persistence and the
+handling transition commit atomically. The service chooses the parent sender,
+inherits correlation, and uses the reserved `complete:<ID>` retry key. Identical
+retries reuse the same reply; changed replies fail. A failed reply leaves the
+request pending. New questions and progress FYIs use `send_message`; progress uses an explicit recipient, `replyRequired:false` and the same `conversationId`. It never completes work. Handled answers/FYIs use `complete {messages:[ID,...]}` without
+replying. A batch contains 1–100 unique received IDs; one invalid ID rolls back
+all transitions. Completion requires a live bound identity and never renews
+presence or leases.
 
 Talk like collaborators: ask once, answer the requested question, report changed
 facts, and stop. Do not echo acknowledgements or FYIs. A short result can say what
@@ -184,8 +174,8 @@ stateDiagram-v2
     Stored --> Staged: unique dispatch token committed
     Staged --> Submitted: transport success
     Staged --> Uncertain: ambiguous failure
-    Submitted --> Handled: recipient ack
-    Stored --> Handled: manual inbox + ack
+    Submitted --> Handled: recipient complete
+    Stored --> Handled: manual inbox + complete
     Uncertain --> Ready: explicit inspected retry
     Staged --> Ready: explicit inspected retry
     Submitted --> Ready: explicit inspected retry
@@ -203,7 +193,7 @@ through recovery and acknowledge it even when a transport attempt is uncertain.
 | Staged token | One delivery owner reserved the attempt before I/O | Successful I/O |
 | Transport submission | Adapter's success condition was met | Recipient accepted, read or agreed |
 | Native acceptance, if exposed | Vendor-specific queue/context acceptance | Requested work completed |
-| `ack` | Recipient reports requested handling/no action needed | Agreement, user approval or correct side effect |
+| `complete` | Recipient reports requested handling/no action needed | Agreement, user approval or correct side effect |
 | Reply/result | New immutable correlated content | Automatic completion of another task |
 
 No automatic timeout replay occurs for staged/submitted/uncertain attempts.
@@ -222,7 +212,9 @@ be actionable while requiring only acknowledgement, never another answer. Reply
 only when the body or assigned task requests one. Action stays within the
 recipient's authorized task.
 Managed workers wait for eligible action mail, then include bounded pending mail
-in one turn. Passive-only managed mail does not start inference. Attached adapters use native scheduling capabilities: Codex/Pi action wakes only
+in one turn. Startup carries only the assigned task; queued mail remains unstaged
+until that turn completes. Codex managed peer turns use the same named tool output
+as native delivery. Passive-only managed mail does not start inference. Attached adapters use native scheduling capabilities: Codex/Pi action wakes only
 at idle, Claude/Grok passive mail waits for action, and OpenCode selects the
 appropriate passive/action endpoint. Native host policy remains authoritative.
 Pi defers while busy and suppresses nested wake during an already-starting turn;
@@ -284,7 +276,7 @@ rather than adopting or deleting them automatically.
 
 Optional scoped document summaries use this same audit record. `context` performs
 a bounded, read-only path/branch/expiry lookup with explicit pagination and an
-incremental cursor. It creates no message, dispatch or ACK and never reads bodies
+incremental cursor. It creates no message, dispatch or completion and never reads bodies
 for the host. Persistent notes do not replace active questions or handoffs.
 
 Keep prompts/tools stable for a session, and deliver only new peer IDs, attribution,
@@ -355,3 +347,7 @@ they may retry. Automatic keys do not deduplicate separately initiated requests.
 Codex, Claude, and Pi calls. A missing upstream ID stays unknown. These events go to
 controller stdout and do not notify peers; the directory carries collaboration
 context. Transport receipts still do not prove that a recipient handled a message.
+
+### Reply requirements
+
+Every delivered message includes boolean `replyRequired`. A required request needs a final answer; informational messages reject replies. Native adapters preserve this field unchanged. Completion receipts prove protocol handling, not semantic correctness. See [storage enforcement](DB.md#reply-requirements).

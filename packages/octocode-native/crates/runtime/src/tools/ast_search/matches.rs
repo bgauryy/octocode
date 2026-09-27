@@ -194,7 +194,7 @@ fn execute_match_inner(
         super::validate_file_language(&p.canonical, q.lang_type().as_deref())?;
         let bytes = std::fs::read(&p.canonical).map_err(super::io_error)?;
         let s = security
-            .validate_text_bytes(&bytes, Some(&p.canonical), 1_000_000)
+            .validate_text_bytes(&bytes, Some(&p.canonical), super::MAX_PARSE_SOURCE_BYTES)
             .map_err(super::AstError::from)?;
         let source_path = p.canonical.to_string_lossy();
         let r = if super::cpp_header_override(&p.canonical, q.lang_type().as_deref()) {
@@ -245,7 +245,7 @@ fn execute_match_inner(
                     no_ignore: q.no_ignore(),
                     max_depth: q.max_depth().map(|depth| depth.saturating_add(1)),
                     max_files: Some(q.max_files().unwrap_or(2_000)),
-                    max_file_bytes: Some(1_000_000),
+                    max_file_bytes: u32::try_from(super::MAX_PARSE_SOURCE_BYTES).ok(),
                 },
                 &|path| {
                     // Explicit include globs are intersected with langType: files

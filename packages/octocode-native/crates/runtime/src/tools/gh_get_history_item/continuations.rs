@@ -150,6 +150,22 @@ pub(super) fn pr_next_menu(
     if content.and_then(|v| v.get("commits")).is_none() {
         next.insert("getCommits".into(), call(json!({"commits":{}})));
     }
+    if raw.get("merged_at").is_some_and(|v| !v.is_null())
+        && let Some(sha) = raw
+            .get("merge_commit_sha")
+            .and_then(Value::as_str)
+            .filter(|sha| !sha.is_empty())
+    {
+        next.insert(
+            "getMergeCommit".into(),
+            continuation(json!({
+                "operation":"commit",
+                "owner":target["owner"],
+                "repo":target["repo"],
+                "ref":sha
+            })),
+        );
+    }
     Value::Object(next)
 }
 
@@ -500,6 +516,18 @@ pub(super) fn attach_diff_continuations(
             make(nq, "Continue the current patch window."),
         );
     }
+    // Commit → pull request: GitHub issue search matches PRs by commit SHA.
+    if matches!(operation, ItemOperation::Commit)
+        && !with_why
+        && let Some(sha) = out.get("sha").and_then(Value::as_str)
+    {
+        next.insert(
+            "findPullRequest".into(),
+            json!({"tool":"ghSearchHistory","confidence":"high","query":{
+                "operation":"pullRequest","owner":q.owner(),"repo":q.repo(),"keywords":[sha]
+            }}),
+        );
+    }
     if !next.is_empty() {
         out["next"] = Value::Object(next);
     }
@@ -600,6 +628,27 @@ mod tests {
             ranges,
             &json!([{"file":"src/b.rs","deletions":[2]}]),
             "{output}"
+        );
+    }
+
+    #[test]
+    fn merged_pull_requests_link_their_merge_commit_and_open_ones_do_not() {
+        let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
+            "operation":"pullRequest","reasoning":"test","owner":"o","repo":"r","number":5
+        }))
+        .expect("pr query");
+        let merged = json!({"merged_at":"2026-09-26T15:24:18Z","merge_commit_sha":"facc6fc"});
+        let menu = pr_next_menu(&query, None, "none", None, &merged);
+        assert_eq!(
+            menu["getMergeCommit"]["query"],
+            json!({"operation":"commit","owner":"o","repo":"r","ref":"facc6fc"})
+        );
+        // An open PR's merge_commit_sha is GitHub's test merge, not a real commit.
+        let open = json!({"merged_at":null,"merge_commit_sha":"deadbee"});
+        assert!(
+            pr_next_menu(&query, None, "none", None, &open)
+                .get("getMergeCommit")
+                .is_none()
         );
     }
 

@@ -67,7 +67,7 @@ const dispatch = id => db.prepare('SELECT * FROM dispatches WHERE message=? AND 
 const offerCount = id => report.offers.filter(offer => offer.message === id).length;
 const listen = () => run(['listen', ...flags, '--session', receiver, '--duration-ms', '6000'], 8000);
 async function send(label) {
-  const result = await call('send_message', {to: receiver, body: label, wake: 'action', reasoning: 'Exercise recovery ordering in an isolated transport fixture'}, sender);
+  const result = await call('send_message', {to: receiver, replyRequired: false, body: label, wake: 'action', reasoning: 'Exercise recovery ordering in an isolated transport fixture'}, sender);
   sentIds.add(result.id);
   return result.id;
 }
@@ -76,7 +76,7 @@ async function visible(id, state) {
   assert.equal(db.prepare('SELECT acknowledgedAt FROM deliveries WHERE message=? AND recipient=?').get(id, receiver).acknowledgedAt, null, 'Submission never implies handling');
   assert.ok((await call('inbox', {}, receiver)).items.some(message => message.id === id), `Message ${id} remains inspectable`);
 }
-async function handled(id) { await visible(id, 'submitted'); assert.equal((await call('ack', {message: id}, receiver)).acknowledged, true); }
+async function handled(id) { await visible(id, 'submitted'); assert.equal((await call('complete', {message: id}, receiver)).completed, true); }
 async function retry(id) {
   const token = dispatch(id).token;
   allowedRetry.add(id);
@@ -154,7 +154,7 @@ try {
       await until(() => dispatch(firstId)?.state === 'submitted', 'first connection');
       server.closeAllConnections();
       db.exec('BEGIN IMMEDIATE');
-      const pending = run(args('send_message', {to: receiver, body: `${i}: after reconnect`, wake: 'action', reasoning: 'Verify progress after the database writer releases'}, sender));
+      const pending = run(args('send_message', {to: receiver, replyRequired: false, body: `${i}: after reconnect`, wake: 'action', reasoning: 'Verify progress after the database writer releases'}, sender));
       try { await delay(100); assert.equal(pending.child.exitCode, null); } finally { db.exec('ROLLBACK'); }
       const result = await pending.done; assert.equal(result.code, 0, result.stderr);
       const secondId = JSON.parse(result.stdout).id; sentIds.add(secondId);

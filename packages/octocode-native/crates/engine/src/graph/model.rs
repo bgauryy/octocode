@@ -31,6 +31,9 @@ pub struct GraphFactDeclaration {
     pub exported_as: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent: Option<String>,
+    /// 0-based first line of the comment block directly above.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub doc_line: Option<u32>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]

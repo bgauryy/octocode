@@ -33,7 +33,7 @@ for (const vendor of ['cursor', 'grok']) {
     assert.equal(db.prepare('SELECT count(*) n FROM sessions').get().n, 1);
     assert.equal(vendor === 'cursor' ? initial.additional_context.includes(recipient.id) : Object.keys(initial).length === 0, true);
     const sender = f.cli('join', { vendor: 'raw', name: 'sender' });
-    const message = f.cli('send_message', { to: recipient.id, body: 'ONE DELIVERY' }, sender.id);
+    const message = f.cli('send_message', { to: recipient.id, body: 'ONE DELIVERY', replyRequired:false }, sender.id);
     const ignored = f.hook(vendor === 'cursor' ? 'beforeSubmitPrompt' : 'UserPromptSubmit');
     assert.deepEqual(ignored, vendor === 'cursor' ? { continue: true } : {});
     assert.equal(db.prepare('SELECT count(*) n FROM dispatches').get().n, 0);
@@ -43,7 +43,7 @@ for (const vendor of ['cursor', 'grok']) {
     assert.equal(content.includes('Communication identity:'), vendor !== 'cursor');
     assert.deepEqual(f.hook('postToolUseFailure'), {});
     assert.equal(f.cli('inbox', {}, recipient.id).items[0].id, message.id);
-    f.cli('ack', { message: message.id }, recipient.id);
+    f.cli('complete', { message: message.id }, recipient.id);
     f.hook('sessionEnd');
     assert.ok(db.prepare('SELECT expiresAt FROM sessions WHERE id=?').get(recipient.id).expiresAt <= Date.now());
     f.hook('postToolUse');

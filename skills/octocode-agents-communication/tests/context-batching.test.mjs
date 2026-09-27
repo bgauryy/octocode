@@ -14,7 +14,7 @@ function fixture(t) {
   call('attach', { transport: 'raw' }, receiver);
   const db = new DatabaseSync(database, { readOnly: true });
   t.after(() => { db.close(); rmSync(workspace, { recursive: true, force: true }); });
-  const send = (body, to = receiver) => call('send_message', { to, body, reasoning: 'Coordinate a pending decision', conversationId: 'shared-decision' }, sender).id;
+  const send = (body, to = receiver) => call('send_message', { to, body, replyRequired:false, reasoning: 'Coordinate a pending decision', conversationId: 'shared-decision' }, sender).id;
   const pending = () => db.prepare('SELECT message FROM deliveries WHERE recipient=? AND acknowledgedAt IS NULL ORDER BY message').all(receiver).map(x => x.message);
   const audits = () => db.prepare("SELECT count(*) AS n FROM audit WHERE kind='delivery.acknowledged'").get().n;
   return { call, sender, receiver, send, db, pending, audits };
@@ -23,17 +23,17 @@ function fixture(t) {
 test('batch ACK is atomic, recipient scoped, audited once and idempotent', t => {
   const f = fixture(t), ids = [f.send('first'), f.send('second')];
   const foreign = f.send('other recipient', f.sender);
-  assert.throws(() => f.call('ack', { messages: [...ids, foreign] }, f.receiver), /every ID/);
-  assert.throws(() => f.call('ack', { messages: [...ids, 999999] }, f.receiver), /every ID/);
+  assert.throws(() => f.call('complete', { messages: [...ids, foreign] }, f.receiver), /every ID/);
+  assert.throws(() => f.call('complete', { messages: [...ids, 999999] }, f.receiver), /every ID/);
   assert.deepEqual(f.pending(), ids);
   assert.equal(f.audits(), 0, 'rolled-back ACKs must leave no audit events');
-  assert.deepEqual(f.call('ack', { messages: ids }, f.receiver), { acknowledged: true, count: 2 });
+  assert.deepEqual(f.call('complete', { messages: ids }, f.receiver), { completed: true, count: 2 });
   assert.deepEqual(f.pending(), []);
   assert.equal(f.audits(), 2);
-  assert.deepEqual(f.call('ack', { messages: ids }, f.receiver), { acknowledged: true, count: 2 });
+  assert.deepEqual(f.call('complete', { messages: ids }, f.receiver), { completed: true, count: 2 });
   assert.equal(f.audits(), 2, 'retries must not create duplicate ACK audit events');
-  assert.deepEqual(f.call('ack', { message: ids[0] }, f.receiver), { acknowledged: true });
-  assert.deepEqual(f.call('ack', { message: foreign }, f.receiver), { acknowledged: false });
+  assert.deepEqual(f.call('complete', { message: ids[0] }, f.receiver), { completed: true, count: 1 });
+  assert.throws(() => f.call('complete', { message: foreign }, f.receiver));
 });
 
 test('ACK schema rejects ambiguous, empty, duplicate, invalid and oversized batches', t => {
@@ -41,7 +41,7 @@ test('ACK schema rejects ambiguous, empty, duplicate, invalid and oversized batc
   for (const input of [{}, { messages: [] }, { messages: [id, id] }, { messages: [0] },
     { messages: ['1'] }, { message: id, messages: [id] },
     { messages: Array.from({ length: 101 }, (_, i) => i + 1) }]) {
-    assert.throws(() => f.call('ack', input, f.receiver));
+    assert.throws(() => f.call('complete', input, f.receiver));
     assert.deepEqual(f.pending(), [id]);
   }
 });
@@ -64,7 +64,7 @@ test('ready bursts retain every field and ID, drain 16 at a time and never repla
       assert.equal(message.wake, undefined);
       assert.equal(message.dispatchToken, undefined);
     }
-    f.call('ack', { messages: batch.items.map(x => x.id) }, f.receiver);
+    f.call('complete', { messages: batch.items.map(x => x.id) }, f.receiver);
   }
   assert.equal(f.call('hook', { format: 'json' }, f.receiver).context, undefined);
   assert.deepEqual(f.pending(), []);
@@ -79,4 +79,16 @@ test('larger row cap preserves byte bound and oversized-first-item progress', t 
     assert.deepEqual(batch.items.map(x => x.id), [id]);
   }
   assert.deepEqual(f.call('hook', { format: 'json' }, f.receiver).items, []);
+});
+
+// Reproduces the mixed batch where an agent handled requests but overlooked an answer.
+test('mixed delivered batches enumerate request and notice obligations without completing either', t => {
+ const f=fixture(t);
+ const request=f.call('send_message',{to:f.receiver,body:'Please review',reasoning:'Mixed batch regression'},f.sender).id;
+ const answer=f.send('A received answer is still a notice to complete');
+ const batch=f.call('hook',{format:'json'},f.receiver);
+ assert.ok(batch.context.split('\n')[0].includes(`Requests: [${request}]. Notices/answers: [${answer}].`));
+ assert.deepEqual(f.pending(),[request,answer],'Delivery instructions never complete work automatically');
+ f.call('complete',{messages:[answer]},f.receiver);
+ assert.deepEqual(f.pending(),[request],'A handled answer does not complete the separate request');
 });

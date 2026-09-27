@@ -206,14 +206,15 @@ than `gh`+Headroom, and ~3.2× fewer than `gh`+RTK** in the local-build headline
 ## Tools
 
 **14 tools in the full discovery catalog.** By default MCP registers **10**.
-`ghCloneRepo` is CLI-only; MCP never registers it. `clasify` needs
-`OCTOCODE_CLASSIFICATION_API` (or its `OCTOCODE_JEV_KEY` alias), while
-`astRewrite` and `astTopology` need `OCTOCODE_BETA`. The CLI keeps all 14
-commands discoverable; cloning requires persistent storage.
+`ghCloneRepo` and `astRewrite` mutate the machine, so they are CLI-only; MCP
+never registers them. `clasify` needs `OCTOCODE_CLASSIFICATION_API` (or its
+`OCTOCODE_JEV_KEY` alias), while `astRewrite` and `astTopology` need
+`OCTOCODE_BETA`. The CLI keeps all 14 commands discoverable; cloning requires
+persistent storage.
 
 | Surface | Registers by default | Gated tools |
 |---|---:|---|
-| MCP, no flags | 10 of 14 | `ghCloneRepo` is always omitted; `clasify`, `astRewrite`, and `astTopology` can be enabled. |
+| MCP, no flags | 10 of 14 | `ghCloneRepo` and `astRewrite` are always omitted; `clasify` and `astTopology` can be enabled. |
 | CLI, no flags | 14 discoverable | Clone runs with persistent storage; other gated commands explain the gate to set. |
 
 Use `TOOLS_TO_RUN` for a strict allowlist or `DISABLE_TOOLS` to remove tools from
@@ -243,7 +244,7 @@ or trees with its strict `operation` field.
 | `structureSearch` | Directory outlines and file discovery by name or metadata; no parser. | `operation` |
 | `astSearch` | AST shape, syntax-tree, and symbol queries. | `operation` |
 | `astTopology` | Cross-file dependency graph analysis: dependencies, dependents, paths, cycles, reachability, dead code, and drift. | `analysis` |
-| `astRewrite` | Preview or apply snapshot-bound structural rewrites. Beta feature gated by `OCTOCODE_BETA` (the sole gate for both preview and apply). | `apply` |
+| `astRewrite` | CLI only. Preview or apply snapshot-bound structural rewrites. Beta feature gated by `OCTOCODE_BETA` (the sole gate for both preview and apply). | `apply` |
 | `localFetch` | Read a local file or region: exact slice, match string, line range, or paginated chars. | `minify` |
 
 ### Package search

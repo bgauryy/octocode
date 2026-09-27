@@ -12,7 +12,7 @@ campaigns
 *.dxt
 # npm pack output
 *.tgz
-
+octocode-local-testing
 # Package READMEs are authored source and must remain trackable.
 !packages/*/README.md
 !packages/*/npm/*/README.md

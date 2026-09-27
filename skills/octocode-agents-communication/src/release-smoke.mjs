@@ -78,18 +78,22 @@ try {
     { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'release-smoke', version: '1' } } },
     { jsonrpc: '2.0', method: 'notifications/initialized' },
     { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} },
-    { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'send_message', arguments: { to: a, body: 'Handoff confirmed', reasoning: 'Complete the requested check', replyTo: sent.id, ackReply: true, key: 'release-answer' } } },
+    { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'complete', arguments: { message: sent.id, reply: 'Handoff confirmed', reasoning: 'Complete the requested check' } } },
   ];
-  const responses = run(binary, ['mcp', '--tools', 'peers,send_message,ack', '--workspace', workspace, '--database', database, '--session', b], { input: frames.map(frame => JSON.stringify(frame)).join('\n') + '\n' }).trim().split('\n').map(line => JSON.parse(line));
+  const responses = run(binary, ['mcp', '--tools', 'peers,send_message,complete', '--workspace', workspace, '--database', database, '--session', b], { input: frames.map(frame => JSON.stringify(frame)).join('\n') + '\n' }).trim().split('\n').map(line => JSON.parse(line));
   assert.equal(responses.length, 3);
   assert.equal(responses[0].result.protocolVersion, '2024-11-05');
-  assert.deepEqual(responses[1].result.tools.map(tool => tool.name).sort(), ['ack', 'peers', 'send_message']);
+  assert.deepEqual(responses[1].result.tools.map(tool => tool.name).sort(), ['complete', 'peers', 'send_message']);
   assert.equal(responses[2].result.isError, undefined, JSON.stringify(responses[2]));
   const reply = JSON.parse(responses[2].result.content[0].text);
+  assert.equal(reply.completed, true);
+  assert.equal(reply.count, 1);
+  assert.ok(Number.isSafeInteger(reply.id));
+  assert.equal(reply.recipients, 1);
   assert.equal(call(workspace, database, 'inbox', {}, b).items.length, 0);
   const inbox = call(workspace, database, 'inbox', {}, a).items;
   assert.equal(inbox.length, 1); assert.equal(inbox[0].replyTo, sent.id);
-  call(workspace, database, 'ack', { message: reply.id }, a);
+  call(workspace, database, 'complete', { message: reply.id }, a);
   inspect(database, db => {
     assert.equal(db.prepare('SELECT count(*) n FROM messages').get().n, 2);
     assert.equal(db.prepare('SELECT count(*) n FROM deliveries WHERE acknowledgedAt IS NULL').get().n, 0);

@@ -138,6 +138,13 @@ impl ToolId {
         )
     }
 
+    /// Mutating tools the CLI runs on the user's machine; MCP never lists or
+    /// executes them (an agent host must not clone or rewrite through MCP).
+    #[must_use]
+    pub const fn is_cli_only(self) -> bool {
+        matches!(self, ToolId::GhCloneRepo | ToolId::AstRewrite)
+    }
+
     /// Tools hidden from discovery unless the shared beta gate is enabled.
     #[must_use]
     pub const fn is_beta(self) -> bool {

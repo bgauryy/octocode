@@ -36,6 +36,7 @@ const TOOL_PAGINATION_CONTRACT: Record<
     exemption: 'bounded clone/materialization operation',
   },
   localSearch: { controls: ['page', 'pageSize'] },
+  structureSearch: { controls: ['page', 'pageSize'] },
   astSearch: { controls: ['page', 'pageSize'] },
   astTopology: {
     controls: ['page', 'pageSize', 'diagnosticPage', 'diagnosticPageSize'],
@@ -49,7 +50,7 @@ const TOOL_PAGINATION_CONTRACT: Record<
   },
 };
 
-const TOTAL_CAP_TOOLS = new Set(['astSearch', 'astTopology']);
+const TOTAL_CAP_TOOLS = new Set(['structureSearch', 'astTopology']);
 
 describe('all-tools pagination contract', () => {
   it('covers every tool in the live catalog', () => {

@@ -133,14 +133,19 @@ fn codex_idle_action_starts_once_without_injecting_duplicate_context() -> Result
     let start = requests.last().ok_or_else(|| anyhow!("No turn request"))?;
     assert_eq!(
         start["params"].as_object().map(|v| v.len()),
-        Some(2),
+        Some(3),
         "Do not override host model, policy, effort or permissions"
     );
     assert_eq!(
-        start["params"]["input"][0]["text"]
+        start["params"]["toolOutput"]["output"]
             .as_str()
             .map(|s| s.matches("exact peer body").count()),
         Some(1)
+    );
+    assert_eq!(start["params"]["input"], json!([]));
+    assert_eq!(
+        start["params"]["toolOutput"]["name"],
+        "octocode_peer_messages"
     );
     drop(requests);
     assert_eq!(
@@ -172,6 +177,24 @@ fn codex_passive_injects_without_starting_turn() -> Result<()> {
             "thread/inject_items"
         ]
     );
+    let requests = server
+        .requests
+        .lock()
+        .map_err(|_| anyhow!("Request mutex poisoned"))?;
+    let items = &requests
+        .last()
+        .ok_or_else(|| anyhow!("No injection request"))?["params"]["items"];
+    assert_eq!(items.as_array().map(Vec::len), Some(1));
+    assert_eq!(items[0]["type"], "function_call_output");
+    assert_eq!(items[0]["name"], "octocode_peer_messages");
+    assert!(items[0].get("role").is_none());
+    assert_eq!(
+        items[0]["output"]
+            .as_str()
+            .map(|s| s.matches("exact peer body").count()),
+        Some(1)
+    );
+    drop(requests);
     server.stop(client)
 }
 

@@ -77,6 +77,100 @@ pub(crate) fn parse_with_deadline(
     })
 }
 
+/// Parse only `ranges` of `content` (tree-sitter included ranges): node
+/// positions stay in `content` coordinates, so one `LineIndex` serves both
+/// trees. Used to read Rust item-level macro bodies as items.
+pub(crate) fn parse_ranges_before(
+    content: &str,
+    language: &Language,
+    ranges: &[tree_sitter::Range],
+    deadline: Instant,
+) -> Option<Tree> {
+    if Instant::now() >= deadline {
+        return None;
+    }
+    PARSER.with_borrow_mut(|parser| {
+        parser.reset();
+        parser.set_language(language).ok()?;
+        parser.set_included_ranges(ranges).ok()?;
+        let bytes = content.as_bytes();
+        let mut read = |offset: usize, _| bytes.get(offset..).unwrap_or(b"");
+        let mut progress = |_: &tree_sitter::ParseState| {
+            if Instant::now() >= deadline {
+                ControlFlow::Break(())
+            } else {
+                ControlFlow::Continue(())
+            }
+        };
+        let tree = parser.parse_with_options(
+            &mut read,
+            None,
+            Some(ParseOptions::new().progress_callback(&mut progress)),
+        );
+        let _ = parser.set_included_ranges(&[]);
+        parser.reset();
+        tree.filter(|_| Instant::now() < deadline)
+    })
+}
+
+/// The outermost parenthesized expression wrapping `node` (or `node`).
+fn skip_parens<'t>(mut node: tree_sitter::Node<'t>) -> tree_sitter::Node<'t> {
+    while let Some(parent) = node.parent()
+        && parent.kind() == "parenthesized_expression"
+    {
+        node = parent;
+    }
+    node
+}
+
+/// Whether `body` is the body of a function expression invoked immediately
+/// by a top-level statement: `(function(){…})()`, `(() => {…})()`,
+/// `!function(){…}()`, or `(function(){…}).call(this)`.
+fn is_top_level_iife_body(body: tree_sitter::Node<'_>) -> bool {
+    let Some(function) = body.parent() else {
+        return false;
+    };
+    if !matches!(
+        function.kind(),
+        "function_expression" | "function" | "arrow_function"
+    ) {
+        return false;
+    }
+    let mut callee = skip_parens(function);
+    if let Some(member) = callee
+        .parent()
+        .filter(|parent| parent.kind() == "member_expression")
+        && member
+            .child_by_field_name("object")
+            .is_some_and(|object| object.id() == callee.id())
+    {
+        callee = skip_parens(member);
+    }
+    let Some(call) = callee
+        .parent()
+        .filter(|parent| parent.kind() == "call_expression")
+    else {
+        return false;
+    };
+    if call
+        .child_by_field_name("function")
+        .is_none_or(|function| function.id() != callee.id())
+    {
+        return false;
+    }
+    let mut statement = skip_parens(call);
+    while let Some(parent) = statement.parent()
+        && parent.kind() == "unary_expression"
+    {
+        statement = skip_parens(parent);
+    }
+    statement
+        .parent()
+        .filter(|parent| parent.kind() == "expression_statement")
+        .and_then(|expression| expression.parent())
+        .is_some_and(|program| program.kind() == "program")
+}
+
 /// [`parse_with_deadline`] for callers that treat every failure alike.
 pub(crate) fn parse_before(content: &str, language: &Language, deadline: Instant) -> Option<Tree> {
     parse_with_deadline(content, language, deadline).ok()
@@ -171,6 +265,11 @@ fn extract_with_limits(
                     continue;
                 }
                 let node = capture.node;
+                // A top-level IIFE body is the module's real scope (UMD
+                // wrappers, legacy bundles): outline inside it, don't drop it.
+                if is_top_level_iife_body(node) {
+                    continue;
+                }
                 let start = node.start_position().row;
                 let end = node.end_position().row;
 

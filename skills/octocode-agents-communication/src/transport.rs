@@ -174,6 +174,14 @@ fn unix(path: &str) -> Result<std::os::unix::net::UnixStream> {
     Ok(stream)
 }
 
+pub(crate) fn codex_peer_turn(session: &str, content: &str) -> Value {
+    json!({"threadId":session,"input":[],"toolOutput":{"name":"octocode_peer_messages","output":content}})
+}
+
+pub(crate) fn codex_peer_items(session: &str, content: &str) -> Value {
+    json!({"threadId":session,"items":[{"type":"function_call_output","name":"octocode_peer_messages","output":content}]})
+}
+
 pub struct Codex {
     socket: WebSocket<DeadlineStream>,
     sequence: u64,
@@ -256,7 +264,7 @@ impl Codex {
         bail!("Codex {method} timed out; delivery may have succeeded; inspect before retrying")
     }
     pub fn inject(&mut self, session: &str, content: &str) -> Result<()> {
-        self.request("thread/inject_items",json!({"threadId":session,"items":[{"type":"message","role":"user","content":[{"type":"input_text","text":content}]}]}))?;
+        self.request("thread/inject_items", codex_peer_items(session, content))?;
         Ok(())
     }
     pub fn idle(&mut self, session: &str, workspace: &str) -> Result<bool> {
@@ -282,10 +290,7 @@ impl Codex {
     }
     pub fn start_turn(&mut self, session: &str, content: &str) -> Result<()> {
         // One input effect; never inject the same body first. Existing host settings remain intact.
-        let result = self.request(
-            "turn/start",
-            json!({"threadId":session,"input":[{"type":"text","text":content}]}),
-        )?;
+        let result = self.request("turn/start", codex_peer_turn(session, content))?;
         if result["turn"]["id"].as_str().is_none_or(str::is_empty)
             || !matches!(
                 result["turn"]["status"].as_str(),

@@ -44,6 +44,10 @@ fn usize_of_signed(value: i64) -> usize {
     usize::try_from(value).unwrap_or(0)
 }
 
+/// Default line-page request. The 16 KiB page budget, not a line count,
+/// bounds each page, so short-line files are not split into many tiny calls.
+pub const DEFAULT_LINE_CHUNK: usize = 2000;
+
 /// Encodes an engine `usize` as a positive wire integer.
 pub(crate) fn wire_positive(value: usize) -> Option<std::num::NonZeroU64> {
     std::num::NonZeroU64::new(u64::try_from(value).unwrap_or(u64::MAX))

@@ -58,19 +58,19 @@ At startup, the Node adapter loads the platform-specific Rust N-API addon (`@oct
 ## Tool catalog
 
 The full discovery catalog contains 14 tools. With default settings and no
-provider key, the MCP server registers 10: `ghCloneRepo` is CLI-only and is
-always omitted. `clasify` needs a nonblank resolved classification key: `OCTOCODE_CLASSIFICATION_API`, else the selected vendor's key (`OCTOCODE_JEV_KEY` for jev), else `.octocoderc` `classification.api` (a present-but-blank `OCTOCODE_CLASSIFICATION_API` disables it);
-`astRewrite` and `astTopology` need `OCTOCODE_BETA=true`. Unavailable tools
+provider key, the MCP server registers 10: `ghCloneRepo` and `astRewrite` are
+CLI-only and always omitted. `clasify` needs a nonblank resolved classification key: `OCTOCODE_CLASSIFICATION_API`, else the selected vendor's key (`OCTOCODE_JEV_KEY` for jev), else `.octocoderc` `classification.api` (a present-but-blank `OCTOCODE_CLASSIFICATION_API` disables it);
+`astTopology` needs `OCTOCODE_BETA=true`. Unavailable tools
 are omitted from MCP discovery entirely, not registered as failing calls.
 
 | Family | Tools |
 |--------|-------|
 | GitHub | `ghSearch`, `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem`, `ghCloneRepo` |
-| Local | `localSearch`, `localFetch`, `structureSearch`, `astSearch`, `astTopology`, `astRewrite`, `lspSearch` |
+| Local | `localSearch`, `localFetch`, `structureSearch`, `astSearch`, `astTopology`, `lspSearch` (`astRewrite` is CLI-only) |
 | Package | `artifactSearch` |
 | Semantic assessment | `clasify` |
 
-`astRewrite` and `astTopology` are omitted from MCP discovery unless `OCTOCODE_BETA=true`.
+`astTopology` is omitted from MCP discovery unless `OCTOCODE_BETA=true`; `astRewrite` is never registered on MCP (run `octocode astRewrite`).
 (or `local.beta:true`) — the sole gate for both preview and apply. It is
 preview-first; applying a mutation requires the complete set of preview hashes.
 

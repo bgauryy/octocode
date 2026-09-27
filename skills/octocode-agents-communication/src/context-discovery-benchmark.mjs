@@ -54,7 +54,7 @@ try {
         const result = run(['entity', 'list', 'audit', '--session', reader], input);
         bytes += result.bytes; ms += result.ms; calls++;
         found.push(...result.value.items.filter(row => row.kind === 'document.created'));
-        input = result.value.next ? { after: result.value.next } : null;
+        input = result.value.next?.input;
         assert.ok(calls < 20, 'Baseline must terminate');
       } while (input);
       assert.equal(found.length, notes.length);
@@ -66,7 +66,7 @@ try {
       do {
         const result = call('context', input); bytes += result.bytes; ms += result.ms; calls++;
         found.push(...result.value.items.map(note => note.name)); cursor = result.value.cursor;
-        input = result.value.next; assert.ok(calls < 20, 'Candidate must terminate');
+        input = result.value.next?.input; assert.ok(calls < 20, 'Candidate must terminate');
       } while (input);
       assert.deepEqual(found.sort(), expected);
       assert.deepEqual(call('context', { path: `src/group-${group}/file.rs`, branch, after: cursor }).value.items, []);

@@ -68,12 +68,11 @@ describe('generated tool types', () => {
     expect(ast.oneOf.map((branch) => branch.$ref)).toEqual([
       '#/$defs/AstSearchQueryMatchPattern',
       '#/$defs/AstSearchQueryMatchRule',
-      '#/$defs/AstSearchQueryFiles',
-      '#/$defs/AstSearchQueryTree',
+      '#/$defs/AstSearchQuerySyntaxTree',
       '#/$defs/AstSearchQuerySymbols',
     ]);
-    const files = defs.AstSearchQueryFiles as { properties: Record<string, unknown> };
-    expect(files.properties.operation).toEqual({ type: 'string', enum: ['files'] });
+    const symbols = defs.AstSearchQuerySymbols as { properties: Record<string, unknown> };
+    expect(symbols.properties.operation).toEqual({ type: 'string', enum: ['symbols'] });
     // typify drops a string const (emits a free String); a one-value enum is
     // enforced. Boolean consts stay a contract-validator check.
     expect(JSON.stringify(defs)).not.toMatch(/"const":"/);

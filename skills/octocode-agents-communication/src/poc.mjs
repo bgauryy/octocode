@@ -70,14 +70,14 @@ function start(vendor, model, prompt) {
 }
 
 try {
-  const common = `This is a communication-only POC. Use only the communication tools (peers, send_message, notify_all, inbox, ack, subscribe, lock, renew, unlock). Do not use shell, edit files, or spawn agents. Initially call peers once, respond READY in your final answer (do not send a READY peer message), and finish your turn. Later inbox messages initiate the following authorized test. Preserve nonce strings exactly. `;
-  const claude = start('claude', 'haiku', common + `On PING <nonce>, try lock with path ${claudePath}. It MUST conflict. Send PONG <nonce> CONFLICT to the sender only if the lock was denied; otherwise send FAIL. Acknowledge the incoming message. Finish the turn.`);
-  const pi = withPi ? start('pi', piModel, common + `On PROBE <nonce>, try lock REAL/SHARED.TXT. It MUST conflict. Send CHECKED <nonce> CONFLICT to the sender only if denied; otherwise send FAIL. Acknowledge PROBE and finish the turn.`) : null;
-  const completion = `release your lease, send DONE <nonce> to controller ${controller.id}, acknowledge the incoming message and finish the turn.`;
+  const common = `This is a communication-only POC. Use only the communication tools (peers, send_message, notify_all, inbox, complete, subscribe, lock, renew, unlock). Do not use shell, edit files, or spawn agents. Initially call peers once, respond READY in your final answer (do not send a READY peer message), and finish your turn. Later inbox messages initiate the following authorized test. Preserve nonce strings exactly. Use complete with reply for requested answers; standalone informational reports use replyRequired:false. `;
+  const claude = start('claude', 'haiku', common + `On PING <nonce>, try lock with path ${claudePath}. It MUST conflict. Call complete with message:<PING-ID> and reply:PONG <nonce> CONFLICT only if the lock was denied; otherwise reply FAIL. Finish the turn.`);
+  const pi = withPi ? start('pi', piModel, common + `On PROBE <nonce>, try lock REAL/SHARED.TXT. It MUST conflict. Call complete with message:<PROBE-ID> and reply:CHECKED <nonce> CONFLICT only if denied; otherwise reply FAIL. and finish the turn.`) : null;
+  const completion = `release your lease, send DONE <nonce> with replyRequired:false to controller ${controller.id}, acknowledge the incoming message and finish the turn.`;
   const afterPong = withPi ? `find poc-pi via peers, send PROBE <nonce> to it, acknowledge PONG and finish the turn. On CHECKED <nonce> CONFLICT, ${completion}` : completion;
   const codex = start('codex', 'gpt-6-luna', common + `On START <nonce>, acquire lock real/shared.txt with ttlMs 120000, remember the lease ID, find poc-claude via peers and send PING <nonce> to it. Acknowledge START. Finish the turn. On PONG <nonce> CONFLICT, ${afterPong}`);
   await until(() => workers.every(w => w.ready && w.idle), 'workers ready');
-  store.send(controller.id, { to: codex.session, body: `START ${nonce}`, key: nonce });
+  store.send(controller.id, { to: codex.session, replyRequired:false, body: `START ${nonce}`, key: nonce });
   await until(() => store.inbox(controller.id).items.some(m => m.body === `DONE ${nonce}`), 'cross-vendor round trip');
   const db = new DatabaseSync(database);
   try {

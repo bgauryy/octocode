@@ -76,7 +76,7 @@ pub(super) async fn graphql_pull_request<R: CredentialResolver>(
     let mut selections: Vec<&str> = vec![
         "number title url state body isDraft isMerged author { login }",
         "labels(first:20){ pageInfo{ hasNextPage } nodes { name } }",
-        "baseRefName headRefName headRefOid createdAt updatedAt closedAt mergedAt",
+        "baseRefName headRefName headRefOid createdAt updatedAt closedAt mergedAt mergeCommit { oid }",
         "comments { totalCount } changedFiles additions deletions",
     ];
     let mut variables = json!({
@@ -195,6 +195,8 @@ pub(super) fn map_graphql_pr_metadata(pr: &Value) -> Value {
         "body": pr.get("body"),
         "draft": pr.get("isDraft"),
         "merged_at": pr.get("mergedAt"),
+        // REST 2026-03-10 drops merge_commit_sha; GraphQL keeps mergeCommit.
+        "merge_commit_sha": pr.pointer("/mergeCommit/oid"),
         "user": { "login": str_at(pr, "/author/login").unwrap_or("") },
         "labels": labels,
         "labels_truncated": labels_truncated,

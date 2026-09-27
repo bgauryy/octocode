@@ -55,24 +55,20 @@
       "description": "Find packages by capability or resolve dependency metadata and upstream source across eight ecosystems"
     },
     {
-      "name": "ghCloneRepo",
-      "description": "Clone a GitHub repository or subtree for local analysis"
-    },
-    {
       "name": "localSearch",
       "description": "Search local text with literal or regex matching"
     },
     {
+      "name": "structureSearch",
+      "description": "Outline local directories or find files by name or metadata"
+    },
+    {
       "name": "astSearch",
-      "description": "Inspect local syntax, symbols, structural matches, files, and syntax trees"
+      "description": "Find declarations, syntax trees, or structural code matches"
     },
     {
       "name": "astTopology",
       "description": "Analyze local dependency topology, cycles, reachability, dead code, and drift"
-    },
-    {
-      "name": "astRewrite",
-      "description": "Preview or apply transactional structural rewrites with exact file-hash preconditions"
     },
     {
       "name": "localFetch",

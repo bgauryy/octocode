@@ -2,7 +2,7 @@ use crate::{
     catalog::text,
     database::{execute, query, read_transaction, transaction},
     paths::{overlap, resolve_path},
-    store::{Store, now},
+    store::{PAGE_BYTES, Store, now},
 };
 use anyhow::{Result, anyhow, bail};
 use rusqlite::Connection;
@@ -87,7 +87,7 @@ fn directory(workspace: &str, create: bool) -> Result<PathBuf> {
     Ok(path)
 }
 
-fn read(path: &Path) -> Result<String> {
+fn open_document(path: &Path) -> Result<fs::File> {
     if !fs::symlink_metadata(path)?.file_type().is_file() {
         bail!("Document must be a regular file, not a symlink");
     }
@@ -102,8 +102,13 @@ fn read(path: &Path) -> Result<String> {
     if !file.metadata()?.is_file() {
         bail!("Document must be a regular file");
     }
+    Ok(file)
+}
+
+fn read(path: &Path) -> Result<String> {
     let mut content = String::new();
-    file.take((MAX_BYTES + 1) as u64)
+    open_document(path)?
+        .take((MAX_BYTES + 1) as u64)
         .read_to_string(&mut content)?;
     if content.len() > MAX_BYTES {
         bail!("Document exceeds 1 MiB");
@@ -232,8 +237,10 @@ impl Store {
             let mut items = Vec::new();
             let mut cursor = after;
             let mut scanned = 0;
+            let mut bytes = 0;
             let at = now();
             for row in &rows {
+                let previous_cursor = cursor;
                 cursor = row["id"]
                     .as_i64()
                     .ok_or_else(|| anyhow!("Invalid document ID"))?;
@@ -254,7 +261,15 @@ impl Store {
                 {
                     continue;
                 }
-                items.push(json!({"id":cursor,"name":record["name"],"author":record["author"],"context":context}));
+                let item = json!({"id":cursor,"name":record["name"],"author":record["author"],"context":context});
+                let size = serde_json::to_vec(&item)?.len();
+                if !items.is_empty() && bytes + size > PAGE_BYTES {
+                    cursor = previous_cursor;
+                    scanned -= 1;
+                    break;
+                }
+                bytes += size;
+                items.push(item);
                 if items.len() == limit {
                     break;
                 }
@@ -267,7 +282,7 @@ impl Store {
                 let mut next = input.clone();
                 next["after"] = json!(cursor);
                 next["through"] = json!(through);
-                next
+                json!({"command":"context","input":next})
             } else {
                 Value::Null
             };
@@ -303,23 +318,57 @@ impl Store {
                 );
             }
         };
-        let content = read(&directory(&self.workspace, false)?.join(name))?;
-        if record["sha256"] != digest(&content)
-            || record["bytes"].as_u64() != Some(content.len() as u64)
-        {
-            bail!("Document integrity mismatch; ask the author to publish a new document");
-        }
         let offset = input["offset"].as_u64().unwrap_or(0) as usize;
         let limit = input["limit"].as_u64().unwrap_or(8192) as usize;
-        if !content.is_char_boundary(offset) {
+        let bytes = record["bytes"]
+            .as_u64()
+            .filter(|bytes| *bytes <= MAX_BYTES as u64)
+            .ok_or_else(|| anyhow!("Invalid document size"))? as usize;
+        if offset > bytes {
             bail!("Offset must be a UTF-8 byte boundary within the document");
         }
-        let mut end = offset.saturating_add(limit).min(content.len());
-        while !content.is_char_boundary(end) {
-            end -= 1;
+        // Reverify the complete file on every call: metadata caches would miss
+        // same-size edits outside this page. Retain only this page, not 1 MiB.
+        let mut file = open_document(&directory(&self.workspace, false)?.join(name))?
+            .take((MAX_BYTES + 1) as u64);
+        let mut hasher = Sha256::new();
+        let mut buffer = [0_u8; 8192];
+        let mut page = Vec::with_capacity(limit.min(bytes - offset));
+        let mut scanned = 0;
+        loop {
+            let count = file.read(&mut buffer)?;
+            if count == 0 {
+                break;
+            }
+            hasher.update(&buffer[..count]);
+            let from = offset.saturating_sub(scanned).min(count);
+            let to = offset
+                .saturating_add(limit)
+                .saturating_sub(scanned)
+                .min(count);
+            if from < to {
+                page.extend_from_slice(&buffer[from..to]);
+            }
+            scanned += count;
         }
+        let actual: String = hasher
+            .finalize()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        if scanned != bytes || record["sha256"] != actual {
+            bail!("Document integrity mismatch; ask the author to publish a new document");
+        }
+        let content = match std::str::from_utf8(&page) {
+            Ok(content) => content,
+            Err(error) if error.error_len().is_none() => {
+                std::str::from_utf8(&page[..error.valid_up_to()])?
+            }
+            Err(_) => bail!("Offset must be a UTF-8 byte boundary within the document"),
+        };
+        let end = offset + content.len();
         Ok(
-            json!({"document":record,"offset":offset,"content":&content[offset..end],"next":if end < content.len() { json!({"name":name,"offset":end,"limit":limit}) } else { Value::Null }}),
+            json!({"document":record,"offset":offset,"content":content,"next":if end < bytes { json!({"command":"read_document","input":{"name":name,"offset":end,"limit":limit}}) } else { Value::Null }}),
         )
     }
 }

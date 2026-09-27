@@ -7,6 +7,7 @@
 #![cfg_attr(test, allow(clippy::expect_used, clippy::unwrap_used, clippy::panic))]
 
 pub mod cache;
+mod canonical_json;
 mod civil_date;
 pub mod config;
 pub mod content;

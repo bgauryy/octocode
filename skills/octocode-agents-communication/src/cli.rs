@@ -36,6 +36,8 @@ pub struct Args {
     #[arg(long)]
     pub trace: bool,
     #[arg(long)]
+    pub managed: bool,
+    #[arg(long)]
     pub help: bool,
     pub args: Vec<String>,
 }
@@ -68,6 +70,9 @@ pub fn run() -> Result<()> {
         });
     }
     let command = &args.args[0];
+    if args.managed && command != "mcp" {
+        bail!("--managed is supported only for mcp");
+    }
     let rest = &args.args[1..];
     if let Some(selection) = args.tools.as_deref() {
         if !(matches!(command.as_str(), "mcp" | "run") || command == "schema" && rest == ["tools"])
@@ -77,6 +82,13 @@ pub fn run() -> Result<()> {
         catalog::selected_tools(Some(selection))?;
     }
     match command.as_str() {
+        "view" => {
+            arity(rest, 0, 1)?;
+            let input: Value =
+                serde_json::from_str(rest.first().map(String::as_str).unwrap_or("{}"))?;
+            catalog::command("view", &input)?;
+            return crate::view::run(&args, &input);
+        }
         "host-hook" | "host-config" => {
             arity(rest, 0, 0)?;
             return if command == "host-hook" {
@@ -150,6 +162,10 @@ pub fn run() -> Result<()> {
                 &database::path(args.database.as_deref())?,
                 &args.workspace,
             )?);
+        }
+        "mcp" => {
+            arity(rest, 0, 0)?;
+            return crate::mcp::run(&args);
         }
         "run" => {
             arity(rest, 0, 0)?;
@@ -262,15 +278,13 @@ pub fn run() -> Result<()> {
                 | "read_document"
                 | "context"
                 | "check_paths"
+                | "locks"
                 | "check_write"
                 | "health"
                 | "completion-check"
         ),
         command == "join",
     )?;
-    if command == "mcp" {
-        return crate::mcp::serve(&store, session, args.tools.as_deref());
-    }
     match command.as_str() {
         "completion-check" => return output(&store.completion_check(session, &input)?),
         "attach" => return output(&store.attach(session, &input)?),

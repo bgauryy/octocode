@@ -17,7 +17,7 @@ use std::{
 };
 use uuid::Uuid;
 
-const PROXY_INSTRUCTIONS: &str = "You are a managed communication worker; the host owns identity, presence and delivery. Use only bound tools to execute the user task and its explicit response rules. Never initiate messages, broadcasts or subscriptions, and reply only as the task authorizes, never to acknowledgements or notices. Call inbox only for requested recovery. Handle each injected ID once, ack it, then end the turn.";
+const PROXY_INSTRUCTIONS: &str = "You are a managed communication worker; the host owns identity, presence and delivery. Use bound tools for the user task. Initiate messages, broadcasts or subscriptions only when the task authorizes them. Follow the supplied skill for send and complete decisions; incomplete work stays pending. Call inbox only for requested recovery. End each turn after handling delivered work or reporting a blocker.";
 
 pub fn run(args: &Args) -> Result<()> {
     let vendor = args
@@ -76,6 +76,9 @@ fn worker(
 ) -> Result<()> {
     // This worker is the identity's only delivery owner for as long as it runs.
     let _owner = crate::dispatch::claim_delivery_owner(&store.database, id)?;
+    // Explicit run takes delivery ownership from the prior native receiver.
+    // Reuse attach's staged-delivery guard before starting a replacement host.
+    store.attach(id, &json!({"transport":"raw"}))?;
     let stop = Arc::new(AtomicBool::new(false));
     let signal = stop.clone();
     ctrlc::set_handler(move || signal.store(true, Ordering::Relaxed))?;
@@ -230,25 +233,31 @@ fn worker(
         store.call(id, "heartbeat", &json!({"vendorSession":vendor_session}))?;
     }
     output(&json!({"type":"ready","session":id,"vendor":vendor,"pid":host.pid()}))?;
+    let mut directory = store.peer_context(id, "worker", "session")?;
+    if vendor == "codex" && !directory.is_empty() {
+        host.request(
+            "thread/inject_items",
+            crate::transport::codex_peer_items(&vendor_session, &directory),
+            &stop,
+        )?;
+        directory.clear();
+    }
     let guidance = format!(
         "Available communication tools: {}\n\n{}\n\nBound communication identity: {id}. {}\n\nUser task:\n{prompt}",
         serde_json::to_string(&tool_names)?,
         catalog::worker_skill(),
-        store.peer_context(id, "worker", "session")?
+        directory
     );
-    let initial = store.stage(id, "initial")?;
-    let guidance = if initial.is_empty() {
-        guidance
+    // Startup carries the authorized task; queued peers stay in the mailbox until it succeeds.
+    if vendor == "codex" {
+        host.request(
+            "turn/start",
+            json!({"threadId":vendor_session,"input":[{"type":"text","text":guidance}],"effort":"low"}),
+            &stop,
+        )?;
     } else {
-        format!("{guidance}\n\n{}", crate::dispatch::context(&initial))
-    };
-    let delivered = deliver(&mut host, vendor, &vendor_session, &guidance, &stop);
-    store.finish_dispatch(
-        id,
-        &initial,
-        delivered.as_ref().err().map(ToString::to_string).as_deref(),
-    )?;
-    delivered?;
+        deliver(&mut host, vendor, &vendor_session, &guidance, &stop)?;
+    }
     let mut busy = true;
     let mut heartbeat = Instant::now();
     let mut poll = Instant::now();
@@ -264,6 +273,7 @@ fn worker(
             heartbeat = Instant::now();
         }
         if let Some(event) = host.event(Duration::from_millis(100))? {
+            let was_busy = busy;
             persist_usage(store, id, vendor, &vendor_session, &event)?;
             if args.trace {
                 trace_usage(vendor, &event)?;
@@ -341,12 +351,18 @@ fn worker(
                 busy = false;
                 output(&json!({"type":"turn-completed","vendor":vendor}))?;
             }
+            if was_busy && !busy {
+                store.call(id, "heartbeat", &json!({"status":"available"}))?;
+                heartbeat = Instant::now();
+            }
         }
         if !busy && poll.elapsed() >= Duration::from_millis(500) {
             poll = Instant::now();
             let items = store.stage(id, &format!("managed:{vendor}"))?;
             if !items.is_empty() {
                 busy = true;
+                store.call(id, "heartbeat", &json!({"status":"busy"}))?;
+                heartbeat = Instant::now();
                 output(
                     &json!({"type":"delivery","messages":items.iter().map(|v|v["id"].clone()).collect::<Vec<_>>()}),
                 )?;
@@ -402,7 +418,7 @@ fn deliver(
     if vendor == "codex" {
         host.request(
             "turn/start",
-            json!({"threadId":session,"input":[{"type":"text","text":input}],"effort":"low"}),
+            crate::transport::codex_peer_turn(session, input),
             stop,
         )?;
     } else if vendor == "pi" {

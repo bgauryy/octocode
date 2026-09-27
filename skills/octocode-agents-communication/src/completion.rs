@@ -1,4 +1,4 @@
-//! One bounded host Stop check; never a delivery owner or an automatic ACK.
+//! One bounded host Stop check; never a delivery owner or automatic completion.
 use crate::{
     database::query,
     store::{Store, now},
@@ -21,14 +21,16 @@ impl Store {
             bail!("Completion check requires the bound native session and workspace");
         }
         let attachment = self.attachment(session)?;
-        if attachment["transport"] != "claude" {
-            bail!("Claude completion check requires a Claude native binding");
+        if attachment["transport"] != "claude"
+            && !(identity["vendor"] == "pi" && attachment["transport"] == "raw")
+        {
+            bail!("Completion check requires a Claude native binding or Pi raw binding");
         }
         // Only already-submitted mail: queued passive mail must not create a turn.
         // This is metadata, not proof the host accepted a socket write.
         let pending = query(
             &snapshot,
-            "SELECT m.id FROM deliveries d JOIN messages m ON m.id=d.message JOIN dispatches x ON x.message=d.message AND x.recipient=d.recipient WHERE d.recipient=? AND d.acknowledgedAt IS NULL AND m.expiresAt>? AND x.state='submitted' ORDER BY m.id LIMIT 17",
+            "SELECT DISTINCT m.id FROM deliveries d JOIN messages m ON m.id=d.message JOIN dispatches x ON x.message=d.message AND x.recipient=d.recipient WHERE d.recipient=? AND d.acknowledgedAt IS NULL AND m.expiresAt>? AND x.state='submitted' ORDER BY m.id LIMIT 17",
             &[json!(session), json!(now())],
         )?;
         snapshot.commit()?;
@@ -40,8 +42,8 @@ impl Store {
             .take(16)
             .map(|row| row["id"].clone())
             .collect();
-        Ok(json!({"decision":"block","reason":format!(
-            "Peer work is still unacknowledged: IDs {}{}. Handle these IDs from existing context; only if a body is missing, recover it with inbox(message:ID). Reply to requests using replyTo and ackReply:true; batch-ACK handled FYIs/answers. Do not ACK unfinished work or send ACK messages. If genuinely blocked, explain why and stop; this check will not block the recovery turn again.",
+        Ok(json!({"decision":"block","pending":ids,"reason":format!(
+            "Peer work is still unacknowledged: IDs {}{}. Handle these IDs from existing context; only if a body is missing, recover it with inbox(message:ID). Finish requests with complete {{message:ID,reply:answer}}; handled FYIs/answers with complete {{messages:[IDs]}} without a reply. Leave unfinished work pending. If genuinely blocked, explain why and stop; this check will not block the recovery turn again.",
             json!(ids), if pending.len()>16 { " (more pending; use inbox recovery as needed)" } else { "" }
         )}))
     }

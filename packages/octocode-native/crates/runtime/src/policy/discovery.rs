@@ -21,6 +21,12 @@ pub const SENSITIVE_DIRECTORY_NAMES: &[&str] = &[
     ".gnupg",
 ];
 
+/// Directories localSearch prunes at any depth: dependency, build, and tool
+/// caches. Names that are routinely real source (`output/`, `cache/`,
+/// `vendor/`, `release/`, `tmp/`, …) are deliberately absent: pruning them
+/// silently hid source files the syntax tools still saw (nlohmann's
+/// `detail/output/`, Django's `core/cache/`). Sensitive directories stay
+/// blocked by the read policy (`SENSITIVE_DIRECTORY_NAMES`) regardless.
 pub const DISCOVERY_IGNORED_FOLDER_NAMES: &[&str] = &[
     ".git",
     ".ssh",
@@ -30,7 +36,6 @@ pub const DISCOVERY_IGNORED_FOLDER_NAMES: &[&str] = &[
     ".kube",
     ".terraform",
     "secrets",
-    "private",
     ".password-store",
     ".github",
     ".vscode",
@@ -41,15 +46,8 @@ pub const DISCOVERY_IGNORED_FOLDER_NAMES: &[&str] = &[
     "dist",
     "build",
     "out",
-    "output",
     "target",
-    "release",
     "node_modules",
-    "vendor",
-    "third_party",
-    "tmp",
-    "temp",
-    "cache",
     ".cache",
     ".tmp",
     ".pytest_cache",

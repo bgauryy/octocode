@@ -9,7 +9,7 @@ use std::time::Instant;
 use tree_sitter::Node;
 
 const DEFAULT_RADIUS: i32 = 5;
-const MAX_POSITION_SOURCE_BYTES: usize = 1_000_000;
+const MAX_POSITION_SOURCE_BYTES: usize = super::MAX_LSP_SOURCE_BYTES as usize;
 
 fn budget_error() -> Error {
     Error::new(
@@ -30,7 +30,9 @@ fn check_source_size(size: usize) -> Result<()> {
     if size > MAX_POSITION_SOURCE_BYTES {
         Err(Error::new(
             Status::GenericFailure,
-            "[lspSourceTooLarge] Symbol position source exceeds 1000000 bytes; narrow the source.",
+            format!(
+                "[lspSourceTooLarge] Symbol position source exceeds {MAX_POSITION_SOURCE_BYTES} bytes; narrow the source."
+            ),
         ))
     } else {
         Ok(())
@@ -875,7 +877,10 @@ mod tests {
 
     #[test]
     fn oversized_position_source_returns_limit_instead_of_a_symbol() {
-        let source = format!("const target = 1;\n{}", " ".repeat(1_000_000));
+        let source = format!(
+            "const target = 1;\n{}",
+            " ".repeat(crate::lsp::MAX_LSP_SOURCE_BYTES as usize)
+        );
         let result = resolve_position_with_path(
             "demo.ts",
             &source,

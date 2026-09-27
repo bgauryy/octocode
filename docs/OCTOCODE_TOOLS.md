@@ -109,7 +109,7 @@ Row fields are `index`, optional `status`, optional `cache`, `meta`, and `data`.
 | `structureSearch` | Internal/local | Outlines directories and finds files by name or metadata under allowed local paths, without parsing. |
 | `astSearch` | Internal/local | Finds structural AST matches, declarations, and paginated syntax trees against allowed local paths. |
 | `astTopology` | Internal/local | Analyzes syntactic cross-file dependency graphs for dependencies, dependents, paths, cycles, reachability, dead code, and drift. |
-| `astRewrite` | Internal/local | Opt-in beta feature (`OCTOCODE_BETA=true`). Previews structural ast-grep rewrites and performs serialized, snapshot-bound, hash-guarded applies with journal recovery; inspect the commit or recovery receipt. Cross-file changes are not simultaneously visible. |
+| `astRewrite` | CLI only | Opt-in beta feature (`OCTOCODE_BETA=true`); never exposed through MCP. Previews structural ast-grep rewrites and performs serialized, snapshot-bound, hash-guarded applies with journal recovery; inspect the commit or recovery receipt. Cross-file changes are not simultaneously visible. |
 | `localFetch` | Internal/local | Reads a known allowed path with full, match, line-range, minified, or symbol-outline views and exact continuations. |
 | `lspSearch` | Internal/local with a language-server process | Resolves an anchored symbol and asks a real language server for definitions, references, calls, types, symbols, hierarchy, or diagnostics. It reports unavailable capabilities instead of returning a syntactic approximation as semantic proof. |
 | `clasify` | External Jev provider | Executes unread read-tool requests or accepts supplied state, applies Noul, Choice, or Score questions across a resource-question matrix, and returns correlated typed pages without retrieved bodies. |
@@ -253,9 +253,9 @@ Key fields:
 | `chunkType`, `offset`, `chunkSize` | Same line/UTF-8 byte pagination as `localFetch`; follow `next.continue`. |
 | `minify` | `standard` (lossy, language-dependent compression), `none` (no minification), or `symbols` (structural outline). Defaults to `none`, exactly as `localFetch`. Security redaction still applies. |
 
-Choose one extraction intent: whole file, line range, matching slices, or symbol outline. Both readers reject symbol outlines combined with match or line selectors. Selection precedes minification, redaction, and pagination. `chunkType` defaults to `lines` with `chunkSize:100`; `bytes` defaults to 16384 UTF-8 bytes. Offsets are zero-based in the selected view. Line pages have a 16384-byte budget and oversized lines switch to bytes. Byte ends may extend by up to three bytes to finish a code point.
+Choose one extraction intent: whole file, line range, matching slices, or symbol outline. Both readers reject symbol outlines combined with match or line selectors. Selection precedes minification, redaction, and pagination. `chunkType` defaults to `lines` with `chunkSize:2000` (the 16384-byte page budget usually ends the page first); `bytes` defaults to 16384 UTF-8 bytes. Offsets are zero-based in the selected view. Line pages have a 16384-byte budget and oversized lines switch to bytes. Byte ends may extend by up to three bytes to finish a code point.
 
-`fullContent:true` requests an unpaged view and rejects chunk controls. Views over 50000 bytes return a typed `fullContentLimit` with a bounded `next.continue` call. A range remains bounded by its original `endLine`; continuing a match preserves its pattern and source-line context. `totalLines` and `sourceBytes` describe the original file; `pagination.totalLines`/`totalBytes` describe the complete selected view. `matchedLines` contains source anchors on the current page and `selectedMatchCount` counts all selected matching lines. `minifyFallback` explains when match evidence or unavailable outlines prevent the requested transform.
+`fullContent:true` requests an unpaged view and rejects chunk controls. A view over 50000 bytes (or a source over 100 KB) returns its first bounded line page inline, `partialReasons:["full-content-limit"]`, and `next.continue` for the rest. A range remains bounded by its original `endLine`; continuing a match preserves its pattern and source-line context. `totalLines` and `sourceBytes` describe the original file; `pagination.totalLines`/`totalBytes` describe the complete selected view. `matchedLines` contains source anchors on the current page and `selectedMatchCount` counts all selected matching lines. `minifyFallback` explains when match evidence or unavailable outlines prevent the requested transform.
 
 File reads return content without creating a checkout. Use `ghSearch operation:"tree"` to browse directories or `ghCloneRepo` with `sparsePath` to create a local subtree.
 
@@ -327,6 +327,12 @@ Read one known history item or compare two refs through one strict operation:
 Fields from another operation are rejected rather than ignored. In particular,
 PR and issue identity is always `number`; commit identity is `ref`; comparison
 identity is the `base` + `head` pair.
+
+A merged pull request reports `mergeCommitSha` (from GraphQL `mergeCommit`;
+REST API 2026-03-10 drops `merge_commit_sha`) with `next.getMergeCommit`; an
+open pull request never reports GitHub's test-merge SHA. A commit offers
+`next.findPullRequest`, a `ghSearchHistory` query that finds the pull request
+containing that SHA.
 
 <!-- tool: ghGetHistoryItem -->
 ```json
@@ -710,7 +716,7 @@ depth), so deeply nested files do not hit the deadline on `stopBy: end`. A
 file that still exceeds the deadline is reported as a
 `structural.match.deadline` diagnostic, never as zero matches.
 
-`operation:"symbols"` marks a JS/TS declaration `exported` by its local
+`operation:"symbols"` rows carry `docStartLine` when a comment block sits directly above the declaration (JSDoc, `///`, `#` in Python). It marks a JS/TS declaration `exported` by its local
 binding. When it is exported under another name, `exportedAs` lists the public
 names: `export { foo as bar }` gives `foo` with `exportedAs: ["bar"]`, and
 `export default function foo` gives `exportedAs: ["default"]`.

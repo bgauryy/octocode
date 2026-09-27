@@ -58,6 +58,11 @@ impl AgLanguage {
         self.expando
     }
 
+    /// Whether patterns are first parsed inside a synthetic class body.
+    pub(super) fn class_wraps(&self) -> bool {
+        self.class_wrap
+    }
+
     pub(super) fn terminated_fragment_kind(&self) -> Option<&'static str> {
         self.terminated_fragment_kind
     }

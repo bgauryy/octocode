@@ -23,10 +23,11 @@ missing or invalid, startup fails closed.
 ## Tool registration
 
 The native catalog contains thirteen tools. MCP registers only the available
-subset: `astRewrite` and `astTopology` are beta features requiring
-`OCTOCODE_BETA=true` (or `local.beta:true`). For `astRewrite`, that is the
-sole gate for both preview and apply. The runtime filters both beta tools from
-discovery while the gate is off, and
+subset: `astTopology` is a beta feature requiring `OCTOCODE_BETA=true` (or
+`local.beta:true`), filtered from discovery while the gate is off.
+`ghCloneRepo` and `astRewrite` mutate the machine and are CLI-only: the native
+catalog marks them `unavailableReason: "cliOnly"` on MCP and rejects direct
+calls, and
 `clasify` requires a nonblank `OCTOCODE_CLASSIFICATION_API`.
 
 `createNativeMcp()` constructs one `NativeRuntime` and calls `catalog()`. The

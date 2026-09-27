@@ -53,10 +53,10 @@ test('CLI entity round trips, subscriptions, delivery status and generic resume'
  assert.throws(()=>call('entity','set','session',b.id,'{"name":"bad"}'));
  call('entity','set','subscriptions',a.id,'{"topics":["build","build"]}');
  assert.deepEqual(call('entity','get','subscriptions',a.id).topics,['build']);
- const sent=call('send_message',JSON.stringify({to:b.id,body:'hello',key:'one'}));
+ const sent=call('send_message',JSON.stringify({to:b.id,body:'hello',key:'one',replyRequired:false}));
  assert.equal(call('entity','list','message','{"direction":"sent"}').items.length,1);
  assert.equal(call('entity','get','delivery',`${sent.id}:${b.id}`).acknowledgedAt??null,null);
- invoke(f,['ack',JSON.stringify({message:sent.id}),'--session',b.id]);
+ invoke(f,['complete',JSON.stringify({message:sent.id}),'--session',b.id]);
  assert.equal(typeof call('entity','get','delivery',`${sent.id}:${b.id}`).acknowledgedAt,'number');
  const lock=call('lock','{"path":"src","kind":"tree"}');
  assert.equal(call('entity','list','lease','{"path":"src/file"}').items[0].id,lock.lease.id);
@@ -91,11 +91,12 @@ test('MCP binds identity and survives malformed frames',async t=>{
   {jsonrpc:'2.0',id:4,method:'tools/call',params:{name:'lock',arguments:{path:'file',owner:'other'}}},
   {jsonrpc:'2.0',id:5,method:'tools/call',params:{name:'join',arguments:{name:'hidden',vendor:'bad'}}},
   {jsonrpc:'2.0',id:6,method:'tools/call',params:{name:'context',arguments:{path:'.'}}},
+  {jsonrpc:'2.0',id:7,method:'tools/call',params:{name:'locks',arguments:{}}},
  ].map(JSON.stringify)].map(v=>v===null?'null':v).join('\n')+'\n';
  const result=await start(f,['mcp','--session',a.id],frames);assert.equal(result.code,0,result.stderr);
  const rows=result.stdout.trim().split('\n').map(JSON.parse);
  assert.equal(rows[0].error.code,-32600);assert.equal(rows[1].error.code,-32700);
- assert.equal(rows[3].result.tools.length,14);assert.equal(JSON.parse(rows[4].result.content[0].text).lease.path,'file');assert.equal(invoke(f,['entity','list','lease','{"path":"file"}','--session',a.id]).items[0].owner,a.id);
+ assert.equal(rows[3].result.tools.length,16);assert.equal(JSON.parse(rows[4].result.content[0].text).lease.path,'file');assert.equal(invoke(f,['entity','list','lease','{"path":"file"}','--session',a.id]).items[0].owner,a.id);
  const catalog=invoke(f,['schema']);
  assert.deepEqual(rows[3].result.tools,catalog.tools);
  for(const tool of catalog.tools){
@@ -105,6 +106,7 @@ test('MCP binds identity and survives malformed frames',async t=>{
  }
  assert.equal(rows[5].result.isError,true);assert.equal(rows[6].result.isError,true);
  assert.deepEqual(JSON.parse(rows[7].result.content[0].text).items,[]);
+ const leases=JSON.parse(rows[8].result.content[0].text).items;assert.equal(leases.length,1);assert.equal(leases[0].owner,a.id);assert.ok(leases[0].refreshedAt<=leases[0].expiresAt);
 });
 test('CLI wait receives a message and acknowledges only when requested',async t=>{
  const f=fixture(t),a=joinAgent(f),b=joinAgent(f,'b');
@@ -133,7 +135,7 @@ test('copied skill runs outside the repo with no Node, Cargo or vendor executabl
  assert.equal(run('--help').implementation,'Rust');assert.equal(run('schema','entities').length,8);
  assert.ok(run('skill').instructions.includes('scripts/agents-communication'));
  assert.equal(run('skill').instructions,readFileSync(join(standalone,'SKILL.md'),'utf8'));
- assert.ok(run('skill').instructions.trimEnd().split('\n').length<=50);
+ assert.ok(Buffer.byteLength(run('skill').instructions)<=8500);
  assert.equal(existsSync(join(standalone,'references')),false);
  const protocol=run('db','protocol');
  assert.ok(protocol.protocol.includes('BEGIN IMMEDIATE'));
@@ -174,7 +176,7 @@ test('Pi inbox pages maximum escaped messages without loss or buffer overflow',a
   assert.ok(Buffer.byteLength(result.content[0].text)<=256*1024);
   assert.ok(result.details.items.length>0);
   for(const item of result.details.items){assert.equal(item.body,body);seen.push(item.id);}
-  after=result.details.next;
+  after=result.details.next?.input.after;
   if(seen.length%20===0)invoke(f,['heartbeat','--session',b.id]);
  } while(after!=null);
  assert.equal(seen.length,101);assert.equal(new Set(seen).size,101);
@@ -231,11 +233,11 @@ test('duration also bounds a blocked vendor stdin write', {skip:process.platform
 
 
 // Stop a worker once its first turn completes instead of waiting out --duration-ms.
-function runUntilTurn(args,env,timeout=15000){return new Promise((resolve,reject)=>{
+function runUntilTurn(args,env,timeout=15000,turns=1){return new Promise((resolve,reject)=>{
  const child=spawn(binary,args,{env});let stdout='',stderr='',interrupted=false;
  const timer=setTimeout(()=>child.kill('SIGKILL'),timeout);
  child.stdout.on('data',chunk=>{stdout+=chunk;
-  if(!interrupted&&stdout.split('\n').some(line=>line.includes('"turn-completed"'))){interrupted=true;child.kill('SIGINT');}});
+  if(!interrupted&&stdout.split('\n').filter(line=>line.includes('"turn-completed"')).length>=turns){interrupted=true;child.kill('SIGINT');}});
  child.stderr.on('data',chunk=>stderr+=chunk);child.on('error',reject);
  child.on('close',code=>{clearTimeout(timer);
   if(code===0&&interrupted)resolve(stdout.trim().split('\n').map(JSON.parse));
@@ -253,6 +255,7 @@ const capture=v=>fs.writeFileSync(process.env.COMMUNICATION_CAPTURE,JSON.stringi
 rl.on('line',line=>{const c=JSON.parse(line);
  fs.appendFileSync(process.env.COMMUNICATION_CAPTURE+'.frames',JSON.stringify({at:Date.now(),id:c.id,method:c.method,type:c.type})+'\\n');
  if(c.method==='initialize')send({id:c.id,result:{}});
+ if(c.method==='thread/inject_items')send({id:c.id,result:{}});
  if(c.method==='config/read')send({id:c.id,result:{config:{plugins:{'unrelated@test':{enabled:true}},mcp_servers:{unrelated:{enabled:true}}}}});
  if(c.method==='skills/list')send({id:c.id,result:{data:[{skills:[{path:'/unrelated/SKILL.md',enabled:true}]}]}});
  if(c.method==='thread/start'){fs.writeFileSync(process.env.COMMUNICATION_CAPTURE+'.thread',JSON.stringify(c.params));send({id:c.id,result:{thread:{id:'fake-codex'}}});}
@@ -283,7 +286,7 @@ rl.on('line',line=>{const c=JSON.parse(line);
   const started=Date.now();
   let events;
   try {
-   events=await runUntilTurn(['run','--vendor',vendor,'--model','test','--prompt','Task sentinel','--tools','peers,send_message,ack','--trace','--duration-ms','10000','--workspace',f.workspace,'--database',f.database],vendorEnv);
+   events=await runUntilTurn(['run','--vendor',vendor,'--model','test','--prompt','Task sentinel','--tools','peers,send_message,complete','--trace','--duration-ms','10000','--workspace',f.workspace,'--database',f.database],vendorEnv);
   } catch(error) {
    const boot=existsSync(capture+'.boot')?JSON.parse(readFileSync(capture+'.boot','utf8')):null;
    const frames=existsSync(capture+'.frames')?readFileSync(capture+'.frames','utf8').trim().split('\n').slice(-20).map(JSON.parse):[];
@@ -293,16 +296,19 @@ rl.on('line',line=>{const c=JSON.parse(line);
   assert.ok(existsSync(capture),`${vendor}: prompt not captured; boot=${existsSync(capture+'.boot')}; ${JSON.stringify(events)}`);
   const prompt=JSON.parse(readFileSync(capture,'utf8'));
   assert.equal(prompt.split('## Workflow').length,2);
-  assert.ok(prompt.includes('ackReply'));
+  assert.ok(prompt.includes('complete'));
   assert.ok(!prompt.includes('## Host setup'));
   assert.ok(!prompt.includes('## CLI command map'));
-  assert.equal(prompt.split('\n')[0], 'Available communication tools: ["peers","send_message","ack"]');
+  assert.equal(prompt.split('\n')[0], 'Available communication tools: ["peers","send_message","complete"]');
   assert.ok(!prompt.includes('heartbeat'));
   assert.ok(prompt.includes(events.find(e=>e.type==='ready').session));
   assert.ok(prompt.endsWith('User task:\nTask sentinel'));
   const boot=JSON.parse(readFileSync(capture+'.boot','utf8'));
   assert.notEqual(boot.cwd,f.workspace);assert.equal(existsSync(boot.cwd),false,'temporary vendor directory survived teardown');
   assert.equal(events.filter(e=>e.type==='usage').length,1);
+  const stateDb=new DatabaseSync(f.database,{readOnly:true});
+  assert.equal(stateDb.prepare('SELECT status FROM sessions WHERE id=?').get(events.find(e=>e.type==='ready').session).status,'available');
+  stateDb.close();
   if(vendor==='codex'){
    const params=JSON.parse(readFileSync(capture+'.thread','utf8'));
    assert.equal(params.cwd,boot.cwd);assert.equal(params.config.project_doc_max_bytes,0);
@@ -312,9 +318,9 @@ rl.on('line',line=>{const c=JSON.parse(line);
    assert.equal(params.config.features.code_mode.enabled,false);
    assert.deepEqual(params.config.skills.config,[{path:'/unrelated/SKILL.md',enabled:false}]);
    assert.equal(params.config.features.skill_search,false);
-   assert.match(params.baseInstructions,/Never initiate messages, broadcasts or subscriptions/);
+   assert.match(params.baseInstructions,/Initiate messages, broadcasts or subscriptions only when the task authorizes them/);
   }
-  if(vendor==='pi'||vendor==='claude')assert.match(boot.args[boot.args.indexOf('--system-prompt')+1],/Never initiate messages, broadcasts or subscriptions/);
+  if(vendor==='pi'||vendor==='claude')assert.match(boot.args[boot.args.indexOf('--system-prompt')+1],/Initiate messages, broadcasts or subscriptions only when the task authorizes them/);
   if(vendor==='claude'){assert.ok(boot.args.includes('--system-prompt'));assert.deepEqual(JSON.parse(boot.args[boot.args.indexOf('--settings')+1]),{disableAllHooks:true,autoMemoryEnabled:false});}
   assert.deepEqual(invoke(f,['peers']).items,[]);
  }
@@ -357,4 +363,87 @@ test('idle proxy exits and reaps its vendor when the database is removed', {skip
  }
  assert.equal(existsSync(f.database),false);
  assert.throws(()=>process.kill(Number(readFileSync(pidFile,'utf8')),0),e=>e.code==='ESRCH');
+});
+
+test('managed run resumes a native-bound identity with its new vendor session', {skip:process.platform==='win32'}, async t=>{
+ const f=fixture(t),bin=join(f.workspace,'path');mkdirSync(bin);
+ const script=join(bin,'claude.cjs');
+ writeFileSync(script, `const rl=require('node:readline').createInterface({input:process.stdin});
+ rl.on('line',()=>{console.log(JSON.stringify({type:'system',subtype:'init',session_id:'managed-session'}));console.log(JSON.stringify({type:'result',is_error:false}));});`);
+ const quote=value=>"'"+value.replaceAll("'","'\\''")+"'";
+ writeFileSync(join(bin,'claude'),`#!/bin/sh\nexec ${quote(process.execPath)} ${quote(script)} "$@"\n`,{mode:0o755});
+ const env={...process.env,PATH:bin};delete env.NODE_TEST_CONTEXT;
+ const identity=invoke(f,['join',JSON.stringify({name:'resumed-worker',vendor:'claude'})]);
+ invoke(f,['attach',JSON.stringify({transport:'claude',endpoint:join(f.workspace,'old.sock'),vendorSession:'old-native-session'}),'--session',identity.id]);
+ invoke(f,['leave','--session',identity.id]);
+ await runUntilTurn(['run','--vendor','claude','--model','test','--prompt','Complete assigned work','--session',identity.id,'--duration-ms','10000','--workspace',f.workspace,'--database',f.database],env);
+ const db=new DatabaseSync(f.database,{readOnly:true});t.after(()=>db.close());
+ assert.equal(db.prepare('SELECT vendorSession FROM sessions WHERE id=?').get(identity.id).vendorSession,'managed-session');
+ assert.equal(db.prepare('SELECT transport FROM attachments WHERE session=?').get(identity.id).transport,'raw');
+ assert.deepEqual(invoke(f,['peers']).items,[]);
+});
+
+test('managed Codex separates user kickoff from pending peer tools and preserves mail on startup failure', {skip:process.platform==='win32'}, async t=>{
+ for(const rejectKickoff of [false,true]){
+  const f=fixture(t),bin=join(f.workspace,'path'),capture=join(f.workspace,'requests.jsonl');mkdirSync(bin);
+  const script=join(bin,'codex.cjs');
+  writeFileSync(script,`const fs=require('node:fs');
+  const send=v=>console.log(JSON.stringify(v));
+  require('node:readline').createInterface({input:process.stdin}).on('line',line=>{
+   const c=JSON.parse(line);if(!c.id)return;
+   fs.appendFileSync(process.env.CAPTURE,JSON.stringify(c)+'\\n');
+   if(c.method==='turn/start'){
+    if(process.env.REJECT_KICKOFF==='true')return send({id:c.id,error:{code:-32000,message:'kickoff rejected'}});
+    send({id:c.id,result:{turn:{id:'turn',status:'inProgress'}}});
+    send({method:'turn/completed',params:{turn:{id:'turn',status:'completed'}}});return;
+   }
+   const result=c.method==='config/read'?{config:{}}:c.method==='skills/list'?{data:[]}:c.method==='thread/start'?{thread:{id:'worker'}}:{};
+   send({id:c.id,result});
+  });`);
+  const quote=value=>"'"+value.replaceAll("'","'\\''")+"'";
+  writeFileSync(join(bin,'codex'),`#!/bin/sh\nexec ${quote(process.execPath)} ${quote(script)} "$@"\n`,{mode:0o755});
+  const env={...process.env,PATH:bin,CAPTURE:capture,REJECT_KICKOFF:String(rejectKickoff)};delete env.NODE_TEST_CONTEXT;
+  execFileSync(join(bin,'codex'),[],{env,input:'',timeout:30000});
+  const sender=invoke(f,['join',JSON.stringify({name:'supervisor',vendor:'generic',task:'DIRECTORY_SENTINEL'})]),receiver=invoke(f,['join',JSON.stringify({name:'worker',vendor:'codex'})]);
+  const sent=invoke(f,['send_message',JSON.stringify({to:receiver.id,body:'PEER_SENTINEL',wake:'action'}),'--session',sender.id]);
+  invoke(f,['leave','--session',receiver.id]);
+  const args=['run','--vendor','codex','--model','test','--prompt','USER_SENTINEL','--session',receiver.id,'--duration-ms','3000','--workspace',f.workspace,'--database',f.database];
+  if(rejectKickoff)await assert.rejects(()=>runUntilTurn(args,env),/worker exited 1/);
+  else await runUntilTurn(args,env,10000,2);
+  const frames=readFileSync(capture,'utf8').trim().split('\n').map(JSON.parse);
+  const turns=frames.filter(x=>x.method==='turn/start');
+  assert.match(turns[0].params.input[0].text,/USER_SENTINEL/);
+  assert.ok(!JSON.stringify(turns[0]).includes('PEER_SENTINEL'),'peer data cannot be promoted into the user kickoff');
+  assert.ok(!JSON.stringify(turns[0]).includes('DIRECTORY_SENTINEL'));
+  const directory=frames.find(x=>x.method==='thread/inject_items').params.items[0];
+  assert.equal(directory.type,'function_call_output');assert.match(directory.output,/DIRECTORY_SENTINEL/);
+  const db=new DatabaseSync(f.database,{readOnly:true});
+  try{
+   const delivery=db.prepare('SELECT state FROM dispatches WHERE message=?').get(sent.id);
+   if(rejectKickoff){assert.equal(turns.length,1);assert.equal(delivery,undefined);}
+   else{
+    assert.equal(turns.length,2);assert.deepEqual(turns[1].params.input,[]);
+    assert.equal(turns[1].params.toolOutput.name,'octocode_peer_messages');
+    assert.equal(turns[1].params.toolOutput.output.split('PEER_SENTINEL').length-1,1);
+    assert.equal(delivery.state,'submitted');
+   }
+   assert.equal(db.prepare('SELECT acknowledgedAt FROM deliveries WHERE message=?').get(sent.id).acknowledgedAt,null);
+  }finally{db.close();}
+ }
+});
+
+test('entity presence filters distinguish expiry from declared availability',t=>{
+ const f=fixture(t),a=joinAgent(f,'observer');
+ const b=invoke(f,['join',JSON.stringify({name:'worker',vendor:'generic',status:'blocked'})]);
+ const lease=invoke(f,['lock',JSON.stringify({path:'owned.txt'}),'--session',b.id]);
+ const db=new DatabaseSync(f.database);t.after(()=>db.close());
+ db.prepare('UPDATE sessions SET expiresAt=0 WHERE id=?').run(b.id);
+ const list=(entity,filter={})=>invoke(f,['entity','list',entity,JSON.stringify(filter),'--session',a.id]);
+ assert.deepEqual(list('session').items.map(x=>x.id),[a.id]);
+ const expired=list('session',{presence:'expired'}).items;
+ assert.deepEqual(expired.map(x=>x.id),[b.id]);assert.equal(expired[0].status,'blocked');
+ assert.equal(list('session',{presence:'all'}).items.length,2);
+ assert.equal(list('lease').items.length,0);
+ assert.equal(list('lease',{presence:'expired'}).items[0].id,lease.lease.id);
+ for(const entity of ['session','lease'])assert.throws(()=>list(entity,{status:'all'}));
 });

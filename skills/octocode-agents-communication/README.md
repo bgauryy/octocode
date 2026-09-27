@@ -1,12 +1,12 @@
 # Octocode agents communication
 
-Cross-vendor agent discovery, durable messages, advisory path leases, shared context memories, and host delivery. The [skill](SKILL.md) defines the agent workflow; command help is the input reference. The [capability manifest](docs/MANIFEST.md) records guarantees, pagination, storage boundaries and proposed contract simplifications.
+Cross-vendor agent discovery, durable messages, advisory path leases, shared context memories, and host delivery. The bundle exposes both a CLI and a [stdio MCP server](#connect-through-mcp), backed by the same Rust runtime and SQLite database. The [skill](SKILL.md) defines the agent workflow; command help is the input reference. The [capability manifest](docs/MANIFEST.md) records behavior, pagination, and storage boundaries.
 
 ## Get started
 
 The package is **private and unpublished**. Copy or install the built `skills/octocode-agents-communication/` folder into your host's skill location and have the agent read its `SKILL.md` file. The folder includes the platform executable and SQLite; raw CLI use requires no Node, Cargo, SDK, or separate npm installation. Source checkouts need a [maintainer build](#build-and-validate).
 
-The locally validated bundle is macOS ARM64. Other platform selectors require their own built and validated binaries. Windows uses `scripts/agents-communication.ps1`.
+The locally validated bundle is macOS ARM64. Other targets are development builds until validated on their native host. Packaging rejects foreign targets and verifies the native executable, embedded skill, and launcher before publishing an archive. Windows uses `scripts/agents-communication.ps1`.
 
 For a manual CLI participant, replace these absolute paths with your installed launcher, repository, and shared database:
 
@@ -38,14 +38,33 @@ comm send_message '{"to":"RECIPIENT_ID","body":"Can you review src/api?","key":"
   --session SESSION_ID
 ```
 
-After completing the review, the receiver can reply and acknowledge the request in one operation. Replace `123` with the received message ID and use the receiver's identity:
+After completing the review, the receiver can reply and complete the request in one operation. Replace `123` with the received message ID and use the receiver's identity:
 
 ```sh
-comm send_message '{"replyTo":123,"body":"Review complete; the API change looks good.","key":"api-review-answer-1","reasoning":"Return the requested review result","ackReply":true}' \
+comm complete '{"message":123,"reply":"Review complete; see src/api."}' \
   --session RECIPIENT_ID
 ```
 
-Omit `ackReply` for questions or partial work. If the message needs no reply, use `ack` after handling. Reserve paths before writes, renew leases while working, and stop writing if renewal fails. Finish with `comm leave --session SESSION_ID` to release that identity's leases. The [skill](SKILL.md) contains the complete agent routine; `<command> --help` supplies inputs on demand.
+Use `send_message` for questions or partial work; it never completes received work. For handled answers/FYIs, use `complete '{"messages":[123]}'` without replying. Reserve paths before writes, renew leases while working, and stop writing if renewal fails. Finish with `comm leave --session SESSION_ID` to release that identity's leases. The [skill](SKILL.md) contains the complete agent routine; `<command> --help` supplies inputs on demand.
+
+## Connect through MCP
+
+The built skill includes a stdio MCP server. Installing the skill makes its instructions and scripts available; configure your host separately to start the server. No `scripts/index.js`, Node wrapper, or separate MCP package is required.
+
+For a standalone MCP participant, configure your host to launch:
+
+```sh
+/absolute/skill/scripts/agents-communication mcp --managed \
+  --name reviewer --vendor HOST \
+  --workspace /absolute/project --database /absolute/shared/communication.sqlite \
+  --tools peers,send_message,inbox,complete
+```
+
+Managed mode creates a fresh identity, maintains its presence, and leaves on EOF or a termination signal. To reuse an identity, replace `--name reviewer` with `--session SESSION_ID` and supply the same vendor. Readiness on stderr reports the identity and manual-inbox delivery mode; stdout contains MCP messages only. Each agent needs its own identity and connection. Participants share the canonical workspace and database.
+
+Managed mode owns a raw participant: it rejects native-bound identities and another delivery owner. It supplies callable tools, not incoming push or idle-host wakeup. Read `inbox` at task boundaries. For automatic delivery through a host hook/native adapter or an existing supervised listener, retain that host's lifecycle and use `comm mcp --session SESSION_ID` instead; plain mode never leaves or maintains the host's identity.
+
+The server binds calls to its identity, so tools omit the sender's session/workspace arguments. `--tools` restricts discovery and calls; omit it for all agent tools, or add document/lease tools when needed. Inspect names with `schema tools` and inputs with `schema <command>`. Every paginated result supplies `next: {command,input}`; run that command with its input unchanged.
 
 ## Supported hosts
 
@@ -64,6 +83,13 @@ Native adapters deliver into an **existing recipient session**. Its owner suppli
 | Any other vendor or custom agent | No vendor-specific adapter required for the shared protocol | Raw CLI, host-wired context hook, or conforming SQLite client | [Database protocol](docs/DB.md) |
 
 Fallback is an explicit choice: **native API → supported context hook → manual inbox**. A transport error never silently switches paths. A database write cannot wake an arbitrary process, and hooks need a host event. Agents without a local process or database connection need a local bridge. Generic ACP support stays outside the dispatcher.
+
+Use a deterministic bridge for transport; a second model adds no delivery guarantee.
+`run` creates a worker to do assigned work, not a relay required by another vendor.
+Codex native delivery uses [app-server tool output](https://learn.chatgpt.com/docs/app-server) to preserve peer authority.
+Claude's [session socket](https://code.claude.com/docs/en/cross-session-messaging#the-sessions-inbox-socket) already supports local scripts; [Channels](https://code.claude.com/docs/en/channels) is an optional preview integration, not a prerequisite.
+Cursor's [Cloud Agents API](https://cursor.com/docs/cloud-agent/api/endpoints) addresses cloud agents, not arbitrary local editor conversations; it is not implemented here.
+Its [SDK Bridge](https://cursor.com/docs/sdk/bridge) and [ACP CLI](https://cursor.com/docs/cli/acp) are candidates for managed Cursor workers, also not implemented here.
 
 ### Connect a native recipient
 
@@ -123,3 +149,29 @@ The `verify` package script runs lint (Rust format, strict Clippy and a Markdown
 - `docs/`: storage and host integration contracts; [ARCHITECTURE.md](ARCHITECTURE.md) maps implementation ownership.
 
 Each build produces one platform bundle directly in `scripts/`. Installed bundles contain only `SKILL.md` and `scripts/`; source, tests and build caches stay in the checkout.
+
+## Mandatory edit reservations
+
+Before every edit, hold a live covering `lock`/`lock_many` lease with a brief `reasoning`. `locks {}` (CLI or MCP) lists active workspace reservations with owner agent IDs and acquisition, refresh and expiry timestamps; follow `next` for every page. Default TTL is 60 seconds, maximum 10 minutes per acquisition/renewal. Stale locks and expired owners are excluded. On conflict, message the owner once using the returned handoff command if needed, or wait; retry acquisition before editing. See [lock rules](docs/LOCKS.md).
+
+This development schema adds lease timestamps. Older databases remain untouched and fail compatibility checks; use a fresh shared database for the updated runtime.
+
+## Task-sized tools and evidence
+
+Use `--tools messaging`, `--tools review`, or `--tools editing` for normal agent setup; an explicit comma-separated list selects custom tools. Omitting selection preserves complete discovery. `set_status` updates only the bound agent’s task/status; it never extends presence or file leases.
+
+Read only the document sections needed for a targeted question and state incomplete coverage. Complete-document reviews still follow all continuations. Every read verifies the entire file’s hash while retaining a bounded page/scan buffer; this preserves tamper detection but does not eliminate repeated hashing across pages. Prefer small task-specific shared documents.
+
+Use one local database on the same machine. SQLite WAL is not a cross-machine shared-drive coordination service. Host guard setup reports its actual supported/configured operations; advisory leases do not fence arbitrary shell or OS writes.
+
+### Reply requirements
+
+Direct requests default to `replyRequired:true` and require `complete` with a final answer. Set `false` for FYIs; replies and fanout default false. Informational messages reject replies. See [database protocol](docs/DB.md#reply-requirements). Use a fresh development DB after this schema change; existing stores fail closed.
+
+## Watch communication locally
+
+Run `scripts/agents-communication view --workspace <repo> --database <db>` to open the local dashboard. It shows workspace-wide agents, requests/replies and completion, live file locks with owners/reasons/timestamps, document metadata, subscriptions, connections, dispatch state and paginated audit history. Follow an agent across views, pause updates or browse older pages.
+
+The native executable embeds the interface: no Node, frontend install or external assets are required. It reads an existing compatible database without joining an agent or changing state. The observer is for the local user; participant-scoped CLI/MCP visibility stays unchanged. It binds only to 127.0.0.1 on a random port with a per-launch URL token. Keep that URL local. Ctrl+C stops the server. `view '{"open":false,"port":8766}'` prints the URL without launching a browser; port 0 selects an available port. Use the same canonical workspace and database as the agents. Documents are shown as metadata; the viewer does not read arbitrary filesystem paths.
+
+Messages open first. Search scans all retained message history, including inactive agents; filter by named agent (sent and received), handling state, or a message’s **Open conversation** button. **Older / Previous / Newest** page through results without dropping records. The search for other entity views covers the current page. Pruned data is unavailable; use an exported database to inspect a saved run.

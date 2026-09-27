@@ -104,7 +104,7 @@ impl Store {
                 ),
                 _ => (
                     "overdueHandling",
-                    "Check the recipient's progress. Submission is not handling; do not auto-ack or resend.",
+                    "Check the recipient's progress. Submission is not handling; do not automatically complete or resend.",
                 ),
             };
             actions.insert(code.to_owned(), json!(action));

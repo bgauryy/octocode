@@ -32,6 +32,7 @@ use std::time::Duration;
 
 mod anchor;
 mod failure;
+mod importers;
 mod inferred_project;
 mod locations;
 mod ops;
@@ -197,6 +198,33 @@ pub async fn execute(
     paths: &PathPolicy,
     execution_config: &LspExecutionConfig,
 ) -> Result<Value, LspFailure> {
+    // A continuation page (page > 1 with its walk's snapshot) may reuse the
+    // server responses computed for page 1; the snapshot check still proves
+    // the page belongs to the same result set. First pages always re-query.
+    let reuse = query
+        .get("page")
+        .and_then(Value::as_u64)
+        .is_some_and(|page| page > 1)
+        && query.get("snapshot").is_some_and(Value::is_string);
+    let scope = octocode_engine::lsp::client::ResponseScope {
+        reuse,
+        generation: String::new(),
+    };
+    octocode_engine::lsp::client::RESPONSE_SCOPE
+        .scope(
+            std::cell::RefCell::new(scope),
+            execute_page(query, cancel, pool, paths, execution_config),
+        )
+        .await
+}
+
+async fn execute_page(
+    query: Value,
+    cancel: &dyn CancellationCheck,
+    pool: &LspClientPool,
+    paths: &PathPolicy,
+    execution_config: &LspExecutionConfig,
+) -> Result<Value, LspFailure> {
     cancel.check().map_err(LspFailure::cancelled)?;
     // `debug` asks for the provider receipt (server identity, fingerprints,
     // capabilities); ordinary rows carry only the answer.
@@ -297,7 +325,17 @@ pub async fn execute(
         None
     } else {
         match read_bounded_source_async(std::path::PathBuf::from(&path)).await {
-            Ok(content) => Some(sources.insert(&path, content)),
+            Ok(content) => {
+                // Responses are cached per anchor content: an edited anchor
+                // never reuses an earlier page's server answers.
+                let generation = {
+                    use sha2::{Digest, Sha256};
+                    hex::encode(Sha256::digest(content.as_bytes()))
+                };
+                let _ = octocode_engine::lsp::client::RESPONSE_SCOPE
+                    .try_with(|scope| scope.borrow_mut().generation = generation);
+                Some(sources.insert(&path, content))
+            }
             Err(SourceReadError::TooLarge(len)) => {
                 return fail(
                     "lsp.documentTooLarge",
@@ -422,6 +460,7 @@ pub async fn execute(
         root_only,
         line: anchor.line,
         character: anchor.character,
+        language_id: receipt_config.language_id.as_deref(),
     }
     .run()
     .await?;
@@ -442,6 +481,11 @@ pub async fn execute(
         receipt_config.language_id.as_deref(),
         &path,
         &receipt_config.workspace_root,
+    );
+    inferred_project::annotate_compile_database(
+        &mut result,
+        receipt_config.language_id.as_deref(),
+        &path,
     );
     receipt::attach_provider_context(
         &mut result,

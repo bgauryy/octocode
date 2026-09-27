@@ -9,7 +9,3 @@ Tested skills. They are used and judged in this repo, and they are not published
 | [`skills-dev/`](../skills-dev/) | Skills for working on this repository. Not published. |
 
 ## In trial
-
-- [octocode-harness-check](octocode-harness-check/) — orangu session mining + live CLI/MCP tool probe + code trace → verified fix plan.
-
-Promote a folder from here into [`../skills/`](../skills/) when its trial holds.

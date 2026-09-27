@@ -6,7 +6,7 @@ Use this flow when semantic localization can replace broad host reads. For a lit
 2. Use metadata, titles, URLs and literal searches to narrow files without reading their bodies. Remove empty and duplicate captures.
 3. Save the following request as `.octocode/clasify-request.json`. Replace the absolute path and atomic targets. Multiple files may share one matrix only when every question applies to every file; keep the expanded matrix within 25 cells.
 4. Run the Octocode CLI command below. The same JSON works with MCP `clasify`; the host must consume `structuredContent`, because the text `content` array is empty.
-5. Group nearby `answers.*.matches[0]` windows into at most five exact read ranges per call. Read `source.path` with `localFetch` and verify the deciding source. Widen only when a sentence or record crosses a boundary; reuse that read across questions.
+5. Group nearby `best` / `answers.*.matches` windows into at most five exact read ranges per call. Read `source.path` with `localFetch` and verify the deciding source. Widen only when a sentence or record crosses a boundary; reuse that read across questions.
 6. Low `exists`, partial coverage, errors and conflicting evidence remain unresolved. Follow `next.clasify` unchanged when more relevant coverage is needed. Never turn a negative page judgment into whole-site absence.
 
 ```json

@@ -11,6 +11,7 @@ const exec = promisify(execFile);
 const hosts = new WeakMap();
 const peerType = 'octocode-peer';
 const identityType = 'octocode-identity';
+const recoveryType = 'octocode-completion';
 const pause = () => new Promise(resolve => setImmediate(resolve));
 // Idle polls back off from 1 s to 10 s; presence (60 s) stays renewed by each hook call.
 const idleMin = 1000, idleMax = 10000;
@@ -21,12 +22,23 @@ export default function (pi) {
 
 // A host may embed this bridge without changing the process environment.
 export function registerPiInbox(pi, options = {}) {
-  if (hosts.has(pi)) return hosts.get(pi);
+  if (options.requireLeases !== undefined && typeof options.requireLeases !== 'boolean') throw new Error('requireLeases must be boolean');
+  if (options.tools === 'editing' && options.requireLeases === false) throw new Error('The editing profile requires lease admission; use a messaging profile for non-editing work');
+  const requireLeases = options.requireLeases ?? options.tools === 'editing';
+  const previous = hosts.get(pi);
+  if (previous) {
+    if ((options.tools !== undefined && options.tools !== previous.tools)
+      || (options.requireLeases !== undefined && options.requireLeases !== previous.requireLeases)) {
+      throw new Error('Pi communication is already registered with a different tool profile or lease guard; reload the extension to change configuration');
+    }
+    return previous.controller;
+  }
   const binary = options.binary || fileURLToPath(new URL('./agents-communication', import.meta.url));
   let lastHeartbeat = 0, diskCache;
   const pending = new Map();
   let binding, context, timer, polling, active = false, starting = false, stopped = true, generation = 0, idle = idleMin, deliveries = 0;
   let lifecycle = Promise.resolve(), lifecycleRevision = 0;
+  let workCycle = 0, recoveredCycle = -1, completion;
   const cancelled = new Error('Pi communication lifecycle superseded');
   const serial = run => { const next = lifecycle.then(run); lifecycle = next.catch(() => {}); return next; };
   const invalidate = () => { stopped = true; generation += 1; clearTimeout(timer); };
@@ -127,7 +139,7 @@ export function registerPiInbox(pi, options = {}) {
           await call('retry_delivery', { message: item.message, reason: 'Pi lifecycle recovery: complete session ledger has no receipt for this staged attempt' });
         }
       }
-      after = page.next;
+      after = page.next?.input.after;
     } while (after);
   };
   const drain = (allowWake = true) => {
@@ -145,6 +157,7 @@ export function registerPiInbox(pi, options = {}) {
         return;
       }
       deliveries += 1;
+      if (action === true) workCycle += 1;
       if (typeof content !== 'string' || !content) throw new Error('Communication CLI must provide canonical hook context; rebuild the skill bundle');
       const wanted = items.map(({ id, dispatchToken }) => ({ id, dispatchToken }));
       const found = () => {
@@ -167,8 +180,11 @@ export function registerPiInbox(pi, options = {}) {
   const confirmationLimit = schema(['confirm_delivery']).inputSchema?.properties?.items?.maxItems;
   if (!Number.isSafeInteger(confirmationLimit) || confirmationLimit < 1) throw new Error('Invalid confirmation batch limit in communication catalog');
   registerBoundTools(pi, { tools, getBinding: currentBinding });
-  if (options.requireLeases !== undefined && typeof options.requireLeases !== 'boolean') throw new Error('requireLeases must be boolean');
-  if (options.requireLeases) pi.on('tool_call', async (event, ctx) => {
+  if (options.completionCheck !== undefined && typeof options.completionCheck !== 'boolean') throw new Error('completionCheck must be boolean');
+  if (options.completionCheck) pi.on('input', event => {
+    if (currentBinding() && event.source !== 'extension') workCycle += 1;
+  });
+  if (requireLeases) pi.on('tool_call', async (event, ctx) => {
     // Covers Pi's structured edit/write tools only. Shell/custom tools and later
     // extension rewrites remain outside this admission check, not silently fenced.
     if (!['write', 'edit'].includes(event.toolName)) return;
@@ -189,6 +205,7 @@ export function registerPiInbox(pi, options = {}) {
   const stop = async () => {
     invalidate();
     await polling;
+    await completion;
     pending.clear();
     diskCache = undefined;
     try { if (binding?.session) await call('leave'); }
@@ -206,6 +223,8 @@ export function registerPiInbox(pi, options = {}) {
       active = false;
       starting = false;
       idle = idleMin;
+      workCycle = 0;
+      recoveredCycle = -1;
       if (options.enabled && !options.enabled(ctx)) return;
       try {
         const vendorSession = ctx.sessionManager.getSessionId();
@@ -233,7 +252,7 @@ export function registerPiInbox(pi, options = {}) {
         stopped = false;
         const identity = { ...binding };
         await persist({ customType: identityType,
-          content: `Communication session: ${binding.session}. Use bound tools for DB-audited coordination. The host maintains presence and delivers peer context; action messages wake an idle agent and passive messages wait. Skip manual setup and inbox polling.`,
+          content: `Communication session: ${binding.session}. Use bound tools for DB-audited coordination. The host maintains presence and delivers peer context; action messages wake an idle agent and passive messages wait. Skip manual setup and inbox polling. Lease guard: ${requireLeases ? 'write/edit checked before execution' : 'not configured'}; shell/custom tools and OS writes are not fenced.`,
           display: false, details: identity }, () => entries().some(e => matches(e, identityType, d => d.session === identity.session && d.database === identity.database)), generation);
         assertCurrent();
         await recover();
@@ -278,8 +297,27 @@ export function registerPiInbox(pi, options = {}) {
     context = ctx;
     active = false;
     idle = idleMin;
-    // Pi remains streaming until all agent_end handlers return.
-    setImmediate(() => { void drain(); });
+    // Only a completed agent run may authorize recovery. Polling passive mail
+    // never calls this check, and recovery itself does not reset the cycle budget.
+    const target = currentBinding(), expectedGeneration = generation, cycle = workCycle;
+    setImmediate(() => {
+      const current = () => expectedGeneration === generation && currentBinding() === target
+        && isBoundContext(ctx) && cycle === workCycle && !active && !starting;
+      if (!current()) return;
+      if (!options.completionCheck || recoveredCycle === cycle || completion) { void drain(); return; }
+      completion = (async () => {
+        await confirmPending();
+        if (!current()) return;
+        const result = await call('completion-check', { hook_event_name: 'Stop', stop_hook_active: false,
+          session_id: target.vendorSession, cwd: target.workspace });
+        if (!current() || result.decision !== 'block' || !result.pending?.length) return;
+        recoveredCycle = cycle;
+        pi.sendMessage({ customType: recoveryType, content: result.reason, display: true,
+          details: { session: target.session, database: target.database, pending: result.pending } },
+        { triggerTurn: true, deliverAs: 'followUp' });
+      })().catch(error => console.error(`Communication completion: ${error.message}`))
+        .finally(() => { completion = undefined; if (current()) void drain(); });
+    });
   });
   pi.on('message_end', async (event, ctx) => {
     const message = event.message;
@@ -300,7 +338,10 @@ export function registerPiInbox(pi, options = {}) {
       return call(command, input);
     },
     getBinding: () => currentBinding() ? { ...binding } : null, isBoundContext, drain,
+    getGuardCapabilities: () => ({vendor: 'pi', configured: requireLeases, bound: Boolean(currentBinding()),
+      supportedOperations: ['write', 'edit'], advisory: true,
+      uncoveredOperations: ['bash', 'powershell', 'custom tools', 'OS writes', 'later extension rewrites']}),
   };
-  hosts.set(pi, controller);
+  hosts.set(pi, {controller, tools: options.tools, requireLeases});
   return controller;
 }

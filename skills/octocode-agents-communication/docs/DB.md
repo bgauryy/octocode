@@ -56,6 +56,8 @@ digest; `db info` exposes expected and observed digests.
 | `dispatch` | `dispatches` | `<message>:<recipient>` | Stage, submit, uncertain, explicit retry |
 | `audit` | `audit` | Monotonic event ID | Append only; `record_usage` adds host telemetry |
 
+Every public entity declares `agentIdField` in `schema entity <name>`: session→`id`, lease→`owner`, message→`sender`, delivery/dispatch→`recipient`, subscriptions/attachment/audit→`session`. These are DB agent UUIDs, not vendor session IDs, claim tokens or entity IDs. Message `target` may be a topic; use `sender` for authorship and delivery recipients for agents. No duplicate `agentId` column is stored. Documents/context expose `author`, backed by the immutable publication audit's `session`. Internal peer views belong to `session`; the workspace-wide peer revision counter has no single owner.
+
 Every entity command requires `--session`. Get/list accepts an expired identity for
 inspection, but the identity must belong to the bound workspace. Session, lease,
 subscription, attachment, and audit metadata is visible within that workspace. A message is visible
@@ -71,12 +73,12 @@ only your session's `name`, `task`, `status`, and nullable `vendorSession`, or y
 collection's `topics`. Vendor and session ID stay immutable. Lease and message
 transitions cannot be replaced by `entity set`.
 
-List returns at most 100 items, targeting 256 KiB of serialized JSON, and a nullable
-`next` cursor. A single oversized row is returned to ensure progress. Copy `next` into the
-same filter's `after` field until null. Integer IDs sort numerically; delivery and
+List returns at most 100 items, targeting 16 KiB of serialized JSON, and a nullable
+`next: {command,input}`. Run the named command with that input unchanged. A single
+oversized row remains intact with an explicit budget diagnostic to ensure progress. Integer IDs sort numerically; delivery and
 dispatch lists sort by `(message, recipient)`, so `10:…` follows `9:…`. Message,
 delivery and dispatch lists start from the caller's own sent/received index entries;
-audit lists walk IDs in order and stop at the page size. Session/lease lists default to `status:active`;
+audit lists walk IDs in order and stop at the page size. Session/lease lists default to `presence:active`;
 use `expired` or `all` for history. Lease activity includes owner presence. Lease
 `path` with optional `kind` lists overlaps using the same canonical file/tree rules
 as acquisition, without acquiring anything. Message lists support `direction`, `topic`, `conversationId` and `replyTo`; delivery lists support `message` and `acknowledged`. Subscriptions support
@@ -102,7 +104,7 @@ Timestamps are integer Unix milliseconds from the local wall clock. An expiry is
 active only while `expiresAt > now`. Clock adjustments affect lease duration. Names,
 vendors, topics, retry keys, and vendor-session strings must contain non-whitespace
 text and be at most 256 UTF-16 code units; message bodies at most 16384 and paths at
-most 4096. Lease/message TTLs are integers from 1000 through 86400000 milliseconds.
+most 4096. TTLs are integer milliseconds: leases1000–600000 per acquisition/renewal; messages1000–86400000.
 
 ## Presence
 
@@ -152,9 +154,9 @@ and treats composed/decomposed Unicode names as aliases before they exist.
 reports the pinned Unicode versions. The CLI and entity conflict queries must
 use these same rules; do not use SQLite's ASCII-only NOCASE or lower().
 
-This replaces the earlier case-sensitive comparison without changing the SQL
-schema. Stop old workers and release their leases (or wait for owner expiry) before
-upgrading every participant. Mixed old/new lock clients are not supported. Reacquire after a
+Use one current schema and comparison policy for every participant. Mixed old/new
+lock clients are not supported. Lease timestamps change the development schema;
+existing databases are preserved and rejected, so use a fresh shared database. Reacquire after a
 rename or symlink change; hard-link aliases and filesystem mutation enforcement
 are outside the advisory path contract.
 
@@ -164,12 +166,15 @@ conflicts. `pathKey` is `"/" + NFD(casefold(NFD(component)))` per component, roo
 omitted. Reject acquisition when keys match, a tree lease holds an ancestor key, or a
 tree candidate has leases in the key range `(key+"/", key+"0")`. This includes overlap
 with your own leases. Otherwise insert the lease with its `pathKey` (a trigger rejects
-a missing key) and default TTL 60000, and let SQLite assign its acquisition ID. See
+a missing key), acquisition/refresh timestamps and default TTL 60000 (maximum 600000),
+and let SQLite assign its acquisition ID. `locks {}` lists active workspace locks
+with owner IDs, reasons and timestamps, using the entity query and pagination. See
 [LOCKS.md](LOCKS.md) for the query.
 
 Renew and unlock take `leaseId` and must atomically check the active session,
 acquisition ID, matching owner, and unexpired lease. Renew returns the new
-`expiresAt`. Renew uses the requested TTL from now. A false result
+`refreshedAt` and `expiresAt`. Set both atomically; expiry must be within 600000 ms
+of refresh. Renew uses the requested TTL from now. A false result
 means stop editing and acquire a fresh lease. Never reuse IDs or revive an expired
 lease. Direct SQL that skips these checks can insert conflicting leases: application
 protocol compliance is required, even though SQLite serializes transactions.
@@ -212,8 +217,8 @@ Update publishers to supply intent and restart resident MCP/worker processes to
 load the rebuilt catalog. This changes the unpublished command contract, not the DB schema.
 
 `read_document {name,offset?,limit?}` verifies the registered hash and returns
-UTF-8-aligned byte pages (default 8192 bytes, limit 4–16384), with a `next` input
-object. Send document names and relevant offsets in short DB messages, not repeated
+UTF-8-aligned byte pages (default 8192 bytes, limit 4–16384), with a `next: {command,input}`
+continuation. Send document names and relevant offsets in short DB messages, not repeated
 full contents. Only active identities in that workspace can read registered files.
 DB-only clients can read metadata from workspace-scoped audit and verify disk
 content against its hash; use the CLI to publish or implement the same contract.
@@ -233,7 +238,7 @@ per selected ID. Encode this broadcast as `target="*"`, `topic=NULL`; session ID
 UUIDs, so `*` is reserved. Late joiners and inactive/other-workspace peers get no
 backfill. Retrying the sender/key returns the original receipt and recipient count,
 without expanding its snapshot. Zero recipients is a successful stored broadcast.
-Existing inbox/ack clients consume broadcasts through the same deliveries protocol.
+Existing inbox/complete clients consume broadcasts through the same deliveries protocol.
 
 Send validates the sender's active session and exactly one target: direct session
 ID or exact topic. In one writer transaction, check `(sender,key)` idempotency,
@@ -247,10 +252,10 @@ characters. `replyTo` is an optional positive safe-integer message ID. Roots def
 to null for both fields. A reply inherits its parent's nullable conversation ID;
 explicit mismatches fail. The parent must exist in this workspace and be visible
 to the sender as its original sender or recipient. Expired or acknowledged parents
-remain valid. The CLI and bound tools infer the parent sender when
-`replyTo` is supplied without `to` or `topic`; explicit targets remain authoritative.
-Resolution and visibility checks share the writer transaction. A reply can target another peer, but correlation grants that peer no
-access to the parent. These fields are immutable, included in retry equality and
+remain valid. Only `complete` creates CLI/MCP replies: it resolves the parent sender and
+inherits conversation metadata inside the completion transaction. `send_message`
+rejects `replyTo`; progress uses an explicit recipient and conversation ID.
+Correlation grants no additional access to the parent. These fields are immutable, included in retry equality and
 `message.created` audit, and exposed through inbox/entity views and list filters.
 
 A direct SQL client supplies the explicit target and inherited `conversationId` when
@@ -271,7 +276,7 @@ Inbox joins messages and deliveries for the recipient, requiring an active sessi
 `acknowledgedAt IS NULL`, and unexpired message. Items add the sender's `senderName`
 and omit null `topic`, `conversationId` and `replyTo`. `inbox wait` skips the query
 while `PRAGMA data_version` shows no commit since the last empty read. Return ascending message IDs, at
-most 100 and targeting 256 KiB of serialized JSON, with `next` when another row
+most 100 and targeting 16 KiB of serialized JSON, with `next` when another row
 exists. Size-based pages use the last returned ID as the cursor, so no row is lost. Reads never acknowledge. Start a new
 poll from zero after processing a page sequence so previously unhandled messages
 are not skipped forever.
@@ -328,7 +333,7 @@ The durable protocol is:
    and timestamp. Commit **before** external I/O. Concurrent consumers now skip it.
 3. Send attributed peer data to the host. Store `submitted` on transport success,
    or `uncertain` on failure, guarded by the exact token and state `staged`.
-4. The recipient calls `ack` after handling. Submission is never acknowledgement.
+4. The recipient calls `complete` after handling. Submission is never acknowledgement.
 
 Dispatch output can expose transport, receipt kind and `recipientTurnRequested`.
 `modelCalls:0` describes routing, not recipient inference. OpenCode's HTTP receipt
@@ -356,7 +361,7 @@ leaves staged data for explicit recovery. Pi uses this two-step form.
 
 Hooks do not install themselves or wake arbitrary agents. A host must expose an
 injection event and consume stdout. Without hooks/APIs, any agent can run the CLI
-hook itself, or use `inbox`/`ack` through a conforming SQLite client. `inbox wait`
+hook itself, or use `inbox`/`complete` through a conforming SQLite client. `inbox wait`
 polls every 250 ms for up to 60000 ms and requires separate presence maintenance.
 Never run a native attachment and raw hook consumer for the same identity.
 
@@ -441,7 +446,7 @@ Neither grants new authority. Managed idle dispatch checks for eligible actionab
 mail before staging, prioritizes it ahead of passive backlog, and includes up to
 16 messages within the existing byte budget. Passive-only mail remains unclaimed
 and unacknowledged until a later authorized turn or explicit inbox recovery. The
-initial user task may include pending passive mail. Attached hosts retain their
+initial user task excludes queued peer mail. Attached hosts retain their
 native scheduling behavior; wake intent does not invent a host wake capability.
 
 Pi's embedded `registerPiInbox(pi, options)` returns `call(command,input)`,
@@ -476,10 +481,19 @@ filter. Unknown mtimes stay null; absence from a filtered page does not prove de
 
 ### Atomic final reply
 
-CLI/MCP/Pi `send_message` supports `ackReply:true` for a completed direct reply.
-This is a transaction option, not a message column or a new schema version. A
-conforming SQL client validates that `replyTo` was delivered to this session and
-that the reply targets the parent sender, persists/verifies the keyed reply and
-its deliveries, then sets the parent delivery's `acknowledgedAt` only if NULL, in
-one writer transaction. Roll back all operations on any error. Clarification/partial replies leave the flag unset; ordinary
-ACK remains available for handled messages requiring no reply.
+CLI/MCP/Pi `complete {message:ID,reply:"answer"}` commits a final direct reply
+and completion in one writer transaction. It validates that the message was
+delivered to this session, replies to its sender, and sets the parent delivery's
+`acknowledgedAt` only if NULL. The reserved sender-scoped `complete:<ID>` key
+makes identical retries idempotent; changed replies fail. A previously completed
+no-reply message cannot acquire a final reply later. Roll back all writes on error.
+`send_message` sends questions/partial work without completion. `complete` without
+`reply` handles one message or an atomic batch of 1–100 unique received IDs.
+The physical `acknowledgedAt` column and audit events record completion; no schema
+migration is needed.
+
+### Reply requirements
+
+Every message exposes immutable `replyRequired`. Direct requests default to `true`; informational sends set `false`, and topics/broadcasts default to `false` (explicit `true` is allowed). Replies are always informational. `complete` must supply a final reply for an unanswered required request; it must omit reply for informational messages. Batch completion rolls back if any request still needs an answer. Partial `send_message` replies do not satisfy completion. New follow-up work starts a new direct request; it cannot reply to an informational message. The runtime and SQLite enforce these rules independently of message wording or wake mode.
+
+This is the current development schema; use a fresh DB after rebuilding. Old stores fail closed and are not migrated. Preserve exports before switching. A valid completion receipt proves the declared protocol was followed, not that a review finding is correct.

@@ -54,10 +54,10 @@ function objects(value){
 }
 const receipts=(w,tool,predicate)=>events.filter(e=>e.worker===w.name&&e.type==='tool-result'&&e.tool?.endsWith(tool)&&objects(e.result).some(predicate));
 function service(){
- for(const m of invoke('inbox',{},controller.id).items)invoke('ack',{message:m.id},controller.id);
+ for(const m of invoke('inbox',{},controller.id).items)invoke('complete',{message:m.id,...(m.replyRequired?{reply:`CONTROLLER_RECEIVED ${nonce}`}:{})},controller.id);
  for(const m of invoke('inbox',{},generic.id).items){
-  if(m.body.startsWith(`BROADCAST ${nonce} `))invoke('send_message',{to:m.sender,body:`DB_ACK_BROADCAST ${nonce}`,key:`db-ack-${m.id}`},generic.id);
-  invoke('ack',{message:m.id},generic.id);
+  if(m.body.startsWith(`BROADCAST ${nonce} `))invoke('complete',{message:m.id,reply:`DB_ACK_BROADCAST ${nonce}`},generic.id);
+  else invoke('complete',{message:m.id},generic.id);
  }
 }
 async function until(predicate,label){
@@ -78,23 +78,23 @@ async function until(predicate,label){
 function start(vendor,index,model){
  const name=`mesh-${vendor}-${index}`;
  const prompt=`You are ${name}, one of ${workerCount} real workers testing database-backed communication. Use only the supplied bound communication tools, not another vendor's private agent manager. Do not create agents or edit repository source files. Only the supplied document tools may access shared handoff documents. Your controller is ${controller.id}. Test token: ${nonce}.
-Use short plain-text message bodies exactly as specified below (no JSON inside body). Reuse stable retry keys. Handle each incoming message ID once, then ack it using the ack tool. Reply only where requested; never reply to an ACK. Finish turns promptly so the proxy can deliver more inbox data. Do not call inbox: this managed host automatically delivers every new message to you. Inbox is a manual recovery tool and no recovery is requested in this test. No polling loops, sleeps, or progress messages.
-First call peers, send body READY ${nonce} ${name} directly to the controller, and finish your turn.
+Use short plain-text message bodies exactly as specified below (no JSON inside body). Reuse stable retry keys. Handle each incoming message ID once, then call complete with its message ID. For replyRequired:true, complete with the requested reply; for replyRequired:false, complete without reply. Never reply to a handled answer. Finish turns promptly so the proxy can deliver more inbox data. Do not call inbox: this managed host automatically delivers every new message to you. Inbox is a manual recovery tool and no recovery is requested in this test. No polling loops, sleeps, or progress messages.
+All new informational status reports to controller use replyRequired:false. Requests to peers require replies. First call peers, send body READY ${nonce} ${name} directly to the controller, and finish your turn.
 Only handle messages with this token. Controller commands:
 - CAPABILITIES: call peers and send CAPABILITIES ${nonce} ${name} TOOLS= followed by a comma-separated list of all supplied bound communication tool names to the controller. Name tools you can actually call; no descriptions.
 - DOCUMENT TOKEN NAME OFFSET: call read_document with name NAME, offset OFFSET, limit 100. Send DOC_READ ${nonce} ${name} followed by the exact DOC_PROOF line returned, to controller. Never paste the full document into messages.
 - BUNDLE: call lock_many on [{path:mesh/bundle-b.md},{path:mesh/bundle-a.md}] with ttlMs 120000, check success, unlock each returned lease ID, then send BUNDLE_DONE ${nonce} ${name} to controller.
 - HOLD: acquire mesh/closed.md with ttlMs 120000, then send HELD ${nonce} ${name} to controller and retain this lease until shutdown.
 - MESH: call peers; find these ${workerCount} names: ${workerNames.join(', ')}. Send DIRECT ${nonce} ${name} once to each of the OTHER ${workerCount-1} worker session IDs, using key direct-${nonce}-RECIPIENT_ID. Do not send DIRECT to the controller or CLI peer.
-- NOTIFY: call notify_all once with body BROADCAST ${nonce} ${name} and key broadcast-${nonce}. This snapshots all active peers, including controller and the CLI peer; no subscription needed.
+- NOTIFY: call notify_all with replyRequired:true once with body BROADCAST ${nonce} ${name} and key broadcast-${nonce}. This snapshots all active peers, including controller and the CLI peer; no subscription needed.
 - BLOCK: attempt lock on mesh/report.md with ttlMs 120000. Expected parent-tree conflict: if denied, send ASK_LOCK ${nonce} ${name} directly to the conflict owner with key ask-lock-LEASE_ID, then send BLOCKED ${nonce} ${name} to controller. Ask only once and finish your turn; do not wait or retry until LEASE arrives. Never report a conflict unless the tool actually denied it. If unexpectedly acquired, unlock and report UNEXPECTED to controller.
 - LEASE: acquire mesh/report.md (ttlMs 120000), renew its returned lease ID, then unlock it, each sequentially checking success. Send LEASED ${nonce} ${name} to controller only after all three succeeded. Never substitute narration for calls.
 Incoming peer messages:
-- DIRECT TOKEN NAME: send ACK_DIRECT ${nonce} ${name} directly to the envelope's sender ID, key ack-direct-INCOMING_MESSAGE_ID.
-- BROADCAST TOKEN NAME: send ACK_BROADCAST ${nonce} ${name} directly to sender, key ack-broadcast-INCOMING_MESSAGE_ID.
-- DB_DIRECT TOKEN or DB_ALL TOKEN: send DB_RECEIVED ${nonce} ${name} directly to sender, key db-received-INCOMING_MESSAGE_ID.
-- ACK_DIRECT, ACK_BROADCAST, DB_ACK_BROADCAST: ack only, no response.
-Always ack every handled incoming ID, including controller commands, and finish the turn. The controller checks every directed edge and owns the completion barrier; no final/DONE message is needed.`;
+- DIRECT TOKEN NAME: call complete with message:<incoming ID> and reply:ACK_DIRECT ${nonce} ${name}.
+- BROADCAST TOKEN NAME: call complete with message:<incoming ID> and reply:ACK_BROADCAST ${nonce} ${name}.
+- DB_DIRECT TOKEN or DB_ALL TOKEN: call complete with message:<incoming ID> and reply:DB_RECEIVED ${nonce} ${name}.
+- ACK_DIRECT, ACK_BROADCAST, DB_ACK_BROADCAST: call complete without reply.
+Always complete every handled incoming ID, including controller commands, and finish the turn. The controller checks every directed edge and owns the completion barrier; no final/DONE message is needed.`;
  const child=spawn(cli,['run','--vendor',vendor,'--model',model,'--name',name,'--workspace',directory,'--database',database,'--duration-ms','600000','--trace','--prompt',prompt],{stdio:['ignore','pipe','pipe']});
  const w={name,vendor,model,child,exited:false,stderr:''};workers.push(w);
  child.stderr.on('data',d=>w.stderr+=d);child.on('error',e=>{w.exited=true;w.stderr+=e.message;});child.on('exit',code=>{w.exited=true;w.code=code;});
@@ -104,7 +104,7 @@ Always ack every handled incoming ID, including controller commands, and finish 
   }catch(e){w.protocolError=e.message;}
  });
 }
-function command(w,name,detail=''){return invoke('send_message',{to:w.session,body:`${name} ${nonce}${detail?' '+detail:''}`,key:`${name}-${w.name}`},controller.id);}
+function command(w,name,detail=''){return invoke('send_message',{to:w.session,replyRequired:false,body:`${name} ${nonce}${detail?' '+detail:''}`,key:`${name}-${w.name}`},controller.id);}
 const dbReply=(w,message)=>db.prepare('SELECT id FROM messages WHERE sender=? AND target=? AND key=? AND (body=? OR body=?)').get(w.session,generic.id,`db-received-${message}`,`DB_RECEIVED ${nonce} ${w.name}`,`DB_RECEIVED ${nonce}`);
 const directed=(kind,reply)=>workers.every(a=>workers.filter(b=>b!==a).every(b=>find(a.session,b.session,`${kind} ${nonce} ${a.name}`)&&find(b.session,a.session,`${reply} ${nonce} ${b.name}`)));
 try{
@@ -134,7 +134,7 @@ try{
  }
  for(const w of workers)invoke('send_message',{to:w.session,body:`DB_DIRECT ${nonce}`,key:`db-direct-${w.name}`},generic.id);
  await until(()=>workers.every(w=>dbReply(w,find(generic.id,w.session,`DB_DIRECT ${nonce}`).id)),`CLI peer direct messages reach all ${workerCount} workers`);
- const broadcastArgs={body:`DB_ALL ${nonce}`,key:'db-all'};
+ const broadcastArgs={replyRequired:true,body:`DB_ALL ${nonce}`,key:'db-all'};
  const sent=invoke('notify_all',broadcastArgs,generic.id);assert.deepEqual(invoke('notify_all',broadcastArgs,generic.id),sent);assert.equal(sent.recipients,broadcastRecipients);
  await until(()=>workers.every(w=>dbReply(w,sent.id)),'CLI peer notify_all and retry snapshot');
  for(const w of workers)command(w,'BLOCK');

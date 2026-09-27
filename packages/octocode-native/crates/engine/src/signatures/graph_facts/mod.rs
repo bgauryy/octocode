@@ -12,9 +12,9 @@ use crate::text::file_extension::get_extension_internal;
 
 use super::languages;
 use super::nodes::{
-    call_callee, clean_specifier, declaration_kind, declaration_name, import_specifier,
-    is_call_node, is_exported_declaration, is_import_node, is_name_leaf, last_name_leaf, name_node,
-    node_text,
+    call_callee, clean_specifier, compact_identifier, declaration, declaration_name,
+    import_specifier, is_call_node, is_exported_declaration, is_import_node, is_name_leaf,
+    last_name_leaf, node_text,
 };
 
 mod python;
@@ -54,6 +54,9 @@ struct GraphDeclaration {
     exported: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     parent: Option<String>,
+    /// 0-based first line of the comment block directly above.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    doc_line: Option<u32>,
 }
 
 #[derive(Serialize)]
@@ -186,6 +189,9 @@ struct GraphAccumulator {
     /// Start bytes of name tokens that are not value references: declaration
     /// names and the callee tokens of recorded calls (call edges).
     non_reference_tokens: std::collections::HashSet<usize>,
+    /// Bodies of Rust item-level macro calls (`cfg_rt! { mod x; }`) with
+    /// their enclosing module scope, re-read as items after the main walk.
+    macro_bodies: Vec<(tree_sitter::Range, Vec<String>)>,
 }
 
 impl GraphAccumulator {
@@ -200,6 +206,7 @@ impl GraphAccumulator {
             edges: Vec::new(),
             modules: Vec::new(),
             non_reference_tokens: std::collections::HashSet::new(),
+            macro_bodies: Vec::new(),
             diagnostics: vec![
                 "tree-sitter graph facts are syntax-only; use LSP references/callHierarchy for semantic proof".to_owned(),
             ],
@@ -226,7 +233,7 @@ pub(crate) fn extract_graph_facts_with_metadata_with_extension(
     file_path: &str,
     extension: &str,
 ) -> Option<super::GraphFactsExtraction> {
-    if content.len() > crate::minify::minifier::MAX_SIZE {
+    if content.len() > crate::signatures::MAX_PARSE_SIZE {
         return None;
     }
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -286,7 +293,9 @@ fn extract_graph_facts_with_metadata_before(
                 "tree-sitter recovered from parse errors; graph facts may be partial".to_owned(),
             );
         }
-        if !visit_node(root, content, &line_index, &mut acc, deadline) {
+        if !visit_node(root, content, &line_index, &mut acc, deadline, &[])
+            || !visit_macro_bodies(content, &entry.language, &line_index, &mut acc, deadline)
+        {
             // Facts gathered before the deadline are positive syntax facts and
             // stay. The diagnostic marks the file incomplete, so consumers must
             // not read a missing import, call or module as absent.
@@ -311,6 +320,11 @@ fn extract_graph_facts_with_metadata_before(
         );
     }
 
+    let lines = content.lines().collect::<Vec<_>>();
+    for declaration in &mut acc.declarations {
+        declaration.doc_line =
+            super::leading_doc_line(&lines, declaration.range.start.line as usize, &ext);
+    }
     let facts = GraphFacts {
         kind: "graphFacts",
         schema_version: super::GRAPH_FACTS_SCHEMA_VERSION,
@@ -445,12 +459,67 @@ pub fn graph_fact_capabilities_json() -> String {
     serde_json::to_string(&capabilities).unwrap_or_else(|_| "[]".to_owned())
 }
 
+/// A macro call in item position: directly in a file or module body, or as
+/// an `expression_statement` there (`make_items!();`).
+fn is_item_level(node: Node<'_>) -> bool {
+    let item_parent = |node: Node<'_>| matches!(node.kind(), "source_file" | "declaration_list");
+    node.parent().is_some_and(|parent| {
+        item_parent(parent)
+            || parent.kind() == "expression_statement" && parent.parent().is_some_and(item_parent)
+    })
+}
+
+fn push_macro_gap(acc: &mut GraphAccumulator) {
+    let message = "unsupported Rust macro expansion: macro-generated imports are not linked";
+    if !acc
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic == message)
+    {
+        acc.diagnostics.push(message.to_owned());
+    }
+}
+
+/// Read recorded Rust item-level macro bodies as items (nested bodies too,
+/// bounded). A body that does not parse as items stays an explicit gap.
+fn visit_macro_bodies(
+    content: &str,
+    language: &tree_sitter::Language,
+    line_index: &LineIndex<'_>,
+    acc: &mut GraphAccumulator,
+    deadline: std::time::Instant,
+) -> bool {
+    const MAX_MACRO_BODIES: usize = 256;
+    let mut visited = 0;
+    while let Some((range, scope)) = acc.macro_bodies.pop() {
+        visited += 1;
+        let parsed = (visited <= MAX_MACRO_BODIES)
+            .then(|| super::extractor::parse_ranges_before(content, language, &[range], deadline))
+            .flatten();
+        match parsed {
+            Some(tree) if !tree.root_node().has_error() => {
+                if !visit_node(tree.root_node(), content, line_index, acc, deadline, &scope) {
+                    return false;
+                }
+            }
+            _ => {
+                if std::time::Instant::now() >= deadline {
+                    return false;
+                }
+                push_macro_gap(acc);
+            }
+        }
+    }
+    true
+}
+
 fn visit_node(
     root: Node<'_>,
     content: &str,
     line_index: &LineIndex<'_>,
     acc: &mut GraphAccumulator,
     deadline: std::time::Instant,
+    outer_scope: &[String],
 ) -> bool {
     enum Frame<'tree> {
         Enter(Node<'tree>, RustContext),
@@ -462,7 +531,7 @@ fn visit_node(
     let mut frames = vec![Frame::Enter(root, RustContext::default())];
     let mut declarations: Vec<(String, String)> = Vec::new();
     // Names of the enclosing `mod` items, outermost first.
-    let mut module_scope: Vec<String> = Vec::new();
+    let mut module_scope: Vec<String> = outer_scope.to_vec();
     let mut children = Vec::new();
     let mut cursor = root.walk();
     while let Some(frame) = frames.pop() {
@@ -544,6 +613,18 @@ struct RustNodeContext<'a> {
     module_scope: &'a [String],
 }
 
+/// A Go `import ( ... )` / `import "x"` declaration: its `import_spec`
+/// children are the imports; the declaration itself would duplicate the
+/// first one on the `import` line.
+fn is_grouped_go_import(node: Node<'_>) -> bool {
+    if node.kind() != "import_declaration" {
+        return false;
+    }
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .any(|child| matches!(child.kind(), "import_spec" | "import_spec_list"))
+}
+
 /// Emits declaration/edge facts for `node`.
 ///
 /// Note the intentional coordinate-basis split on every emitted `GraphDeclaration`:
@@ -560,45 +641,69 @@ fn collect_node_facts(
     rust: Option<RustNodeContext<'_>>,
     deadline: std::time::Instant,
 ) -> Option<(String, String)> {
-    if acc.ext == "rs" && node.kind() == "macro_invocation" {
-        let message = "unsupported Rust macro expansion: macro-generated imports are not linked";
-        if !acc
-            .diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic == message)
-        {
-            acc.diagnostics.push(message.to_owned());
+    // Only item-level macro calls can generate `mod`/`use` items; their
+    // bodies are re-read as Rust items after the main walk.
+    if acc.ext == "rs"
+        && node.kind() == "macro_invocation"
+        && is_item_level(node)
+        && let Some(rust) = rust.as_ref()
+    {
+        let mut cursor = node.walk();
+        let body = node
+            .named_children(&mut cursor)
+            .find(|child| child.kind() == "token_tree")
+            .filter(|body| body.end_byte() > body.start_byte() + 2);
+        if body.is_none() {
+            // `make_imports!();` expands from its definition, which is not
+            // visible here: the generated items stay an explicit gap.
+            push_macro_gap(acc);
+        }
+        if let Some(body) = body {
+            let inner = tree_sitter::Range {
+                start_byte: body.start_byte() + 1,
+                end_byte: body.end_byte() - 1,
+                start_point: tree_sitter::Point {
+                    row: body.start_position().row,
+                    column: body.start_position().column + 1,
+                },
+                end_point: tree_sitter::Point {
+                    row: body.end_position().row,
+                    column: body.end_position().column.saturating_sub(1),
+                },
+            };
+            acc.macro_bodies.push((inner, rust.module_scope.to_vec()));
         }
     }
-    let decl = declaration_kind(node.kind()).and_then(|kind| {
-        declaration_name(node, content).map(|name| {
-            let range = line_index.range(node);
-            let line = range.start.line + 1;
-            // This identifies a declaration occurrence, not a canonical binding.
-            // Location distinguishes overloads, impl blocks and equal names in scopes.
-            let id = format!(
-                "declaration:{}#{}@{}:{}",
-                acc.file_path,
-                name,
-                node.start_byte(),
-                kind
-            );
-            let exported = is_exported_declaration(&acc.ext, node, content, &name, active_decl);
-            let parent = active_decl.map(str::to_owned);
-            if let Some(name_token) = name_node(node) {
+    let decl = declaration(node, content).and_then(|(kind, name_token)| {
+        node_text(name_token, content)
+            .and_then(compact_identifier)
+            .map(|name| {
+                let range = line_index.range(node);
+                let line = range.start.line + 1;
+                // This identifies a declaration occurrence, not a canonical binding.
+                // Location distinguishes overloads, impl blocks and equal names in scopes.
+                let id = format!(
+                    "declaration:{}#{}@{}:{}",
+                    acc.file_path,
+                    name,
+                    node.start_byte(),
+                    kind
+                );
+                let exported = is_exported_declaration(&acc.ext, node, content, &name, active_decl);
+                let parent = active_decl.map(str::to_owned);
                 acc.non_reference_tokens.insert(name_token.start_byte());
-            }
-            GraphDeclaration {
-                id,
-                name,
-                kind,
-                line,
-                range,
-                selection_range: line_index.range(name_node(node).unwrap_or(node)),
-                exported,
-                parent,
-            }
-        })
+                GraphDeclaration {
+                    id,
+                    name,
+                    kind,
+                    line,
+                    range,
+                    selection_range: line_index.range(name_token),
+                    exported,
+                    parent,
+                    doc_line: None,
+                }
+            })
     });
 
     // Keep the new declaration id alive for the entire child traversal so we
@@ -725,6 +830,7 @@ fn collect_node_facts(
             );
         }
     } else if is_import_node(node.kind())
+        && !is_grouped_go_import(node)
         && let Some(specifier) = import_specifier(node, content)
     {
         let line = line_index.range(node).start.line + 1;
@@ -983,7 +1089,7 @@ mod tests {
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|module| module["name"] == "child" && module["unsupported"] == true)
+                .any(|module| module["name"] == "child" && module["unsupported"] != true)
         );
         assert!(
             value["modules"]
@@ -992,15 +1098,28 @@ mod tests {
                 .iter()
                 .any(|module| module["name"] == "alias" && module["path"] == "actual.rs")
         );
+        // `cfg` gates compilation, not the module's file: the edge stays.
         assert!(
             value["modules"]
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|module| module["name"] == "gated" && module["unsupported"] == true)
+                .any(|module| module["name"] == "gated" && module["unsupported"] != true)
         );
         let root = facts("#![cfg(feature = \"x\")]\nmod child;", "src/lib.rs");
-        assert_eq!(root["rustRootUnsupported"], true);
+        assert_ne!(root["rustRootUnsupported"], true);
+        // A conditional attribute that rewrites the path is still unknown.
+        let rewritten = facts(
+            "#[cfg_attr(unix, path = \"u.rs\")] mod child;",
+            "src/lib.rs",
+        );
+        assert!(
+            rewritten["modules"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|module| module["unsupported"] == true)
+        );
         let local = facts(
             "fn f() { mod hidden { #[path = \"child.rs\"] mod child; } }",
             "src/lib.rs",
@@ -1030,7 +1149,7 @@ mod tests {
         assert!(
             modules
                 .iter()
-                .any(|module| module["name"] == "conditional" && module["unsupported"] == true)
+                .any(|module| module["name"] == "conditional" && module["unsupported"] != true)
         );
         assert!(
             value["imports"]
@@ -1127,9 +1246,47 @@ mod tests {
     }
 
     #[test]
+    fn rust_item_macro_bodies_are_read_as_items_and_expression_macros_are_not_gaps() {
+        // tokio-style `cfg_rt! { ... }` wrappers hold real mod/use items.
+        let value = facts(
+            "cfg_rt! {\n    pub mod runtime;\n    pub use crate::runtime::Handle;\n}\nmod outer { cfg_net! { mod tcp; } }\nfn f() { println!(\"{}\", 1); let v = vec![1]; }\n",
+            "src/lib.rs",
+        );
+        let modules = value["modules"].as_array().unwrap();
+        assert!(
+            modules
+                .iter()
+                .any(|m| m["name"] == "runtime" && m["line"] == 2),
+            "{modules:?}"
+        );
+        assert!(
+            modules
+                .iter()
+                .any(|m| m["name"] == "tcp" && m["scope"] == serde_json::json!(["outer"])),
+            "{modules:?}"
+        );
+        assert!(
+            value["imports"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|i| i["specifier"] == "crate::runtime::Handle")
+        );
+        assert!(
+            value["diagnostics"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|d| !d.as_str().unwrap().contains("macro expansion")),
+            "{}",
+            value["diagnostics"]
+        );
+    }
+
+    #[test]
     fn rust_nonconventional_modules_and_macros_remain_explicitly_unsupported() {
         let value = facts(
-            "#[cfg(feature = \"x\")] #[path = \"other.rs\"] mod child;\nmod inline { use super::Thing; }\nmake_imports!();",
+            "#[cfg_attr(unix, path = \"other.rs\")] mod child;\nmod inline { use super::Thing; }\nmake_imports!();",
             "src/lib.rs",
         );
         let imports = value["imports"].as_array().unwrap();
@@ -1223,7 +1380,8 @@ mod tests {
             source,
             &index,
             &mut acc,
-            std::time::Instant::now()
+            std::time::Instant::now(),
+            &[]
         ));
         assert!(acc.declarations.is_empty());
         assert!(acc.calls.is_empty());

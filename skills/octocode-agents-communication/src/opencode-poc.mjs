@@ -82,7 +82,7 @@ try {
   db = new DatabaseSync(database, {readOnly: true});
   const skill = JSON.parse(execFileSync(binary, ['skill'], {encoding: 'utf8'})).instructions;
   report.skillSha256 = digest(skill); report.skillBytes = Buffer.byteLength(skill);
-  const task = `${skill}\n\nAssigned interoperability task: Initially respond READY to the host only. For each incoming peer QUESTION, discover your peers and read handoff.md once per session, then reply exactly once with ANSWER, the document verification word, and your available communication capabilities. Use replyTo only; omit to/topic. Use key answer-ID with the incoming ID, reasoning and wake action. Acknowledge after the reply succeeds. Other messages are informational: acknowledge without replying. Native delivery is under test: do not call inbox or hook, poll, send readiness to peers, or start unrelated work. End your turn after handling delivered messages.`;
+  const task = `${skill}\n\nAssigned interoperability task: Initially respond READY to the host only. For each incoming peer QUESTION, discover your peers and read handoff.md once per session, then reply exactly once with ANSWER, the document verification word, and your available communication capabilities. Use complete with message:<incoming ID>, reply:<answer> and brief reasoning; omit key, wake and routing fields. Other messages are informational: call complete with their IDs without reply. Native delivery is under test: do not call inbox or hook, poll, send readiness to peers, or start unrelated work. End your turn after handling delivered messages.`;
   call('share_document', {name: 'handoff.md', reasoning: 'Verify OpenCode can consume shared coordination evidence', content: 'Coordination test. Verification word: SAFFRON. Discover collaborators and preserve reply correlation.\n'}, controller.id);
   for (const agent of agents.filter(a => a.vendor === 'opencode')) {
     agent.endpoint = `http://127.0.0.1:${await port()}`;
@@ -109,7 +109,7 @@ try {
   const raw = agents.find(a => a.vendor === 'raw'); call('attach', {transport: 'raw'}, raw.id);
   const native = agents.filter(a => a.vendor === 'opencode');
   const before = new Map(await Promise.all(native.map(async agent => [agent.id, (await api(agent, `/session/${agent.vendorSession}/message`)).filter(m => m.info.role === 'assistant').length])));
-  const passive = agents.map(agent => call('send_message', {to: agent.id, body: 'FYI: passive insertion; acknowledge on the next actionable message, without replying.', reasoning: 'Verify passive delivery costs no model turn', key: `passive-${agent.id}`, wake: 'passive'}, controller.id));
+  const passive = agents.map(agent => call('send_message', {to: agent.id, replyRequired: false, body: 'FYI: passive insertion; acknowledge on the next actionable message, without replying.', reasoning: 'Verify passive delivery costs no model turn', key: `passive-${agent.id}`, wake: 'passive'}, controller.id));
   await until(() => db.prepare("SELECT count(*) n FROM dispatches WHERE transport='opencode' AND state='submitted'").get().n === 2, 'passive submissions');
   await delay(2000);
   for (const agent of native) assert.equal((await api(agent, `/session/${agent.vendorSession}/message`)).filter(m => m.info.role === 'assistant').length, before.get(agent.id), 'Passive mail must not start inference');
@@ -124,8 +124,8 @@ try {
     for (;;) {
       const batch = call('hook', {format: 'json'}, raw.id); if (!batch.items.length) break;
       for (const message of hookMessages(batch)) {
-        if (message.body.startsWith('QUESTION')) call('send_message', {replyTo: message.id, body: 'ANSWER SAFFRON: DB-backed messages, documents, peers and leases.', key: `answer-${message.id}`, reasoning: 'Answer requested capabilities', wake: 'action'}, raw.id);
-        call('ack', {message: message.id}, raw.id);
+        if (message.body.startsWith('QUESTION')) call('complete', {message: message.id, reply: 'ANSWER SAFFRON: DB-backed messages, documents, peers and leases.', reasoning: 'Answer requested capabilities'}, raw.id);
+        else call('complete', {message: message.id}, raw.id);
       }
     }
   }

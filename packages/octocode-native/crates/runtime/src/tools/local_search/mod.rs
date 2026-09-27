@@ -1,6 +1,7 @@
 mod executor;
 mod manifest;
 mod types;
+pub(crate) use executor::PolicyFilter;
 pub use executor::execute_local_search;
 pub use types::LocalSearchError;
 pub use types::*;
@@ -502,6 +503,43 @@ mod tests {
         );
     }
 
+    /// Source directories with build-ish names are searched like any other;
+    /// only dependency/build caches are pruned.
+    #[test]
+    fn source_dirs_named_output_cache_vendor_are_searched_but_node_modules_is_not() {
+        let root = tempfile::tempdir().expect("fixture directory");
+        for dir in [
+            "detail/output",
+            "core/cache",
+            "vendor/lib",
+            "node_modules/pkg",
+        ] {
+            fs::create_dir_all(root.path().join(dir)).expect("dir");
+            fs::write(root.path().join(dir).join("x.txt"), "needle\n").expect("file");
+        }
+        let policy = PathPolicy::new(PathPolicyConfig {
+            workspace_root: Some(root.path().to_path_buf()),
+            ..Default::default()
+        })
+        .expect("policy");
+        let request = ls_query(
+            serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "needle", "resultView": "files"}),
+            None,
+        );
+        let result = execute_local_search(&request, &policy, &ContentSecurity::new(), &NeverCancel)
+            .expect("search");
+        let body =
+            serde_json::to_string(&serde_json::to_value(&result).expect("json")).expect("text");
+        for found in [
+            "detail/output/x.txt",
+            "core/cache/x.txt",
+            "vendor/lib/x.txt",
+        ] {
+            assert!(body.contains(found), "{found} missing: {body}");
+        }
+        assert!(!body.contains("node_modules"), "{body}");
+    }
+
     /// Explicitly targeting a single file that the engine skips (over the
     /// per-file byte ceiling → capped:true, capReason:"maxFileSize",
     /// filesSearched:0) must explain the skip instead of returning a silent
@@ -510,10 +548,10 @@ mod tests {
     fn skipped_single_file_target_explains_the_cap_instead_of_silent_empty() {
         let root = tempfile::tempdir().expect("fixture directory");
         let oversized = root.path().join("huge.txt");
-        // Sparse file over the engine's 20 MiB default ceiling: the skip is
-        // decided on metadata length, so no bytes need to be written.
+        // Sparse file over the engine's 512 MiB line-search ceiling: the skip
+        // is decided on metadata length, so no bytes need to be written.
         let file = fs::File::create(&oversized).expect("fixture");
-        file.set_len(20 * 1024 * 1024 + 1).expect("sparse length");
+        file.set_len(512 * 1024 * 1024 + 1).expect("sparse length");
         drop(file);
         let policy = PathPolicy::new(PathPolicyConfig {
             workspace_root: Some(root.path().to_path_buf()),

@@ -13,7 +13,7 @@ function fixture(t){
  call('attach',{transport:'claude',endpoint:join(workspace,'unused.sock'),vendorSession:'native-recipient'},b);
  const db=new DatabaseSync(database);t.after(()=>{db.close();rmSync(workspace,{recursive:true,force:true});});
  const event={hook_event_name:'Stop',stop_hook_active:false,session_id:'native-recipient',cwd:workspace};
- const send=(wake='action')=>call('send_message',{to:b,body:'DO NOT REPLAY THIS BODY',reasoning:'Complete requested review',wake},a).id;
+ const send=(wake='action')=>call('send_message',{to:b,body:'DO NOT REPLAY THIS BODY',reasoning:'Complete requested review',replyRequired:wake==='action',wake},a).id;
  const offer=()=>{call('attach',{transport:'raw'},b);call('hook',{format:'json'},b);call('attach',{transport:'claude',endpoint:join(workspace,'unused.sock'),vendorSession:'native-recipient'},b);};
  return {call,a,b,db,event,send,workspace,offer};
 }
@@ -29,7 +29,7 @@ test('Stop checks IDs only, once; never stages queued passive mail or ACKs work'
  assert.deepEqual(f.call('completion-check',{...f.event,hook_event_name:'StopFailure'},f.b),{});
  assert.equal(f.call('inbox',{message:id},f.b).items.length,1);
  assert.equal(f.db.prepare('SELECT acknowledgedAt FROM deliveries WHERE message=?').get(id).acknowledgedAt,null);
- f.call('ack',{message:id},f.b);assert.deepEqual(f.call('completion-check',f.event,f.b),{});
+ f.call('complete',{message:id},f.b);assert.deepEqual(f.call('completion-check',f.event,f.b),{});
 });
 test('Stop enforces native identity/workspace and selective recovery cannot expose other mail',t=>{
  const f=fixture(t),first=f.send(),second=f.send();f.offer();
@@ -49,4 +49,18 @@ test('skill command returns the one installed routine for every vendor flag',()=
  const body=full.replace(/^---\n[\s\S]*?\n---\n/,'');
  assert.ok(body!==full&&body.startsWith('# Agents communication'));
  for(const vendor of ['claude','codex','grok','pi','opencode','cursor','generic']) assert.equal(read(vendor),body);
+});
+
+test('Pi completion checks require bound raw identity and only list submitted pending IDs',t=>{
+ const f=fixture(t),pi=f.call('join',{name:'pi',vendor:'pi',vendorSession:'pi-bound'}).id;
+ f.call('attach',{transport:'raw',vendorSession:'pi-bound'},pi);
+ const event={...f.event,session_id:'pi-bound'};
+ const id=f.call('send_message',{to:pi,body:'passive body',reasoning:'Verify bounded recovery',wake:'passive'},f.a).id;
+ assert.deepEqual(f.call('completion-check',event,pi),{});
+ f.call('hook',{format:'json',consumer:'pi:pi-bound'},pi);
+ const result=f.call('completion-check',event,pi);assert.deepEqual(result.pending,[id]);
+ assert.ok(!result.reason.includes('passive body'));
+ assert.throws(()=>f.call('completion-check',{...event,session_id:'other'},pi));
+ assert.throws(()=>f.call('completion-check',{...event,cwd:tmpdir()},pi));
+ f.call('leave',{},pi);assert.throws(()=>f.call('completion-check',event,pi));
 });

@@ -45,6 +45,16 @@ pub fn selected_tools(selection: Option<&str>) -> Result<Vec<Value>> {
     let Some(selection) = selection else {
         return Ok(tools.clone());
     };
+    let selection = match selection {
+        "messaging" => "peers,set_status,send_message,inbox,complete",
+        "review" => {
+            "peers,set_status,send_message,inbox,complete,share_document,read_document,context"
+        }
+        "editing" => {
+            "peers,set_status,send_message,inbox,complete,share_document,read_document,context,locks,lock,lock_many,renew,unlock"
+        }
+        explicit => explicit,
+    };
     let mut names = std::collections::HashSet::new();
     for name in selection.split(',') {
         if !tools.iter().any(|tool| tool["name"] == name) {
@@ -90,9 +100,23 @@ fn build_catalog() -> Result<Value> {
         tool["description"] = command["description"].clone();
         tool["inputSchema"] = command["inputSchema"].clone();
     }
+    for entity in value["entities"]
+        .as_array()
+        .ok_or_else(|| anyhow!("Invalid entities"))?
+    {
+        let field = entity["agentIdField"]
+            .as_str()
+            .ok_or_else(|| anyhow!("Entity requires agentIdField"))?;
+        if entity["fields"].get(field).is_none() {
+            bail!(
+                "Entity {} references an undeclared agent ID field",
+                entity["name"]
+            );
+        }
+    }
     value["database"]["sql"] = json!(crate::database::SQL);
     value["database"]["schemaSha256"] = json!(crate::database::expected()?);
-    value["pagination"] = json!({"maxItems":100,"targetBytes":262144,"continuation":"Pass next as after with the same filters. A single oversized row is returned to ensure progress."});
+    value["pagination"] = json!({"maxItems":100,"targetBytes":16384,"continuation":"Run next.command with next.input unchanged. A single oversized row remains intact with an explicit budget diagnostic."});
     value["database"]["leasePathComparison"] = json!({"algorithm":"Unicode canonical caseless per component (NFD, full casefold, NFD)","unicodeVersion":caseless::UNICODE_VERSION,"normalizationUnicodeVersion":unicode_normalization::UNICODE_VERSION,"policy":"Case and normalization aliases conflict on every filesystem; access paths and workspace containment stay case-preserving."});
     Ok(value)
 }
@@ -102,10 +126,25 @@ fn resolve_fields(value: &mut Value, definitions: &Value) -> Result<()> {
         let name = reference
             .strip_prefix("#/$defs/")
             .ok_or_else(|| anyhow!("Unsupported catalog reference: {reference}"))?;
-        *value = definitions
+        // Local references share validation; only their description may vary by command.
+        let fields = value
+            .as_object()
+            .ok_or_else(|| anyhow!("Invalid field reference"))?;
+        if fields
+            .keys()
+            .any(|key| key != "$ref" && key != "description")
+        {
+            bail!("Unsupported catalog reference sibling: {name}");
+        }
+        let description = fields.get("description").cloned();
+        let mut resolved = definitions
             .get(name)
             .cloned()
             .ok_or_else(|| anyhow!("Missing catalog field: {name}"))?;
+        if let Some(description) = description {
+            resolved["description"] = description;
+        }
+        *value = resolved;
         return Ok(());
     }
     match value {
@@ -149,6 +188,7 @@ pub fn help() -> Result<Value> {
         "usage":"scripts/octocode-agents-communication <command> [json|-] --workspace <path> [--database <file>] [--session <id>]",
         "commands":commands,
         "discover":["skill", "<command> --help", "schema entity <name>", "db info"],
+        "toolProfiles":{"messaging":"messages/status","review":"messaging + documents/context","editing":"review + leases"},
     }))
 }
 pub fn definition(name: &str) -> Result<Value> {
@@ -159,6 +199,16 @@ pub fn definition(name: &str) -> Result<Value> {
         .ok_or_else(|| anyhow!("Unknown command: {name}; use --help"))
 }
 pub fn command(name: &str, input: &Value) -> Result<()> {
+    if name == "send_message" && input.get("replyTo").is_some() {
+        bail!(
+            "Replies use complete {{message:ID,reply:answer}} only. For progress send a new FYI with to, replyRequired:false and conversationId; omit replyTo."
+        );
+    }
+    if name == "complete" && input.get("reasoning").is_some() && input.get("reply").is_none() {
+        bail!(
+            "Invalid complete: to handle without replying, omit reasoning and use message or messages only. Do not add a reply merely to satisfy validation; handled informational messages need no reply."
+        );
+    }
     // Lazily compile only used commands. The bounded key set is embedded, never caller supplied.
     type CommandValidator = OnceLock<Result<Option<jsonschema::Validator>, String>>;
     static VALIDATORS: OnceLock<Result<HashMap<String, CommandValidator>, String>> =
@@ -217,7 +267,7 @@ fn stored_limit(key: &str) -> Option<(usize, bool)> {
     match key {
         "reasoning" => Some((512, true)),
         "content" => Some((1024 * 1024, true)),
-        "body" => Some((16384, false)),
+        "body" | "reply" => Some((16384, false)),
         "path" => Some((4096, false)),
         "prompt" => None,
         _ => Some((256, false)),
@@ -246,7 +296,10 @@ fn stored_lengths(input: &Value) -> Result<()> {
     match input {
         Value::Object(fields) => fields.iter().try_for_each(|(key, value)| match value {
             Value::String(text)
-                if matches!(key.as_str(), "reasoning" | "content" | "body" | "path") =>
+                if matches!(
+                    key.as_str(),
+                    "reasoning" | "content" | "body" | "reply" | "path"
+                ) =>
             {
                 check_length(key, text)
             }
@@ -280,11 +333,45 @@ pub fn ttl(input: &Value, default: i64) -> Result<i64> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn shared_field_descriptions_survive_without_overriding_validation() -> Result<()> {
+        let defs = json!({"purpose":{"type":"string","minLength":1,"description":"Generic"}});
+        let mut field = json!({"$ref":"#/$defs/purpose","description":"Reply only"});
+        resolve_fields(&mut field, &defs)?;
+        assert_eq!(
+            field,
+            json!({"type":"string","minLength":1,"description":"Reply only"})
+        );
+        assert!(validate(&field, &json!("")).is_err());
+        let mut invalid = json!({"$ref":"#/$defs/purpose","minLength":0});
+        assert!(resolve_fields(&mut invalid, &defs).is_err());
+        Ok(())
+    }
+
     fn error(name: &str, input: &Value) -> String {
         command(name, input)
             .err()
             .map(|e| e.to_string())
             .unwrap_or_default()
+    }
+
+    #[test]
+    fn silent_completion_error_preserves_no_reply_intent() -> Result<()> {
+        for input in [
+            json!({"message":7,"reasoning":"Handled"}),
+            json!({"messages":[7,1],"reasoning":"Handled"}),
+        ] {
+            let message = error("complete", &input);
+            assert!(message.contains("omit reasoning"), "{message}");
+            assert!(message.contains("Do not add a reply"), "{message}");
+        }
+        command("complete", &json!({"message":7}))?;
+        command("complete", &json!({"messages":[7,1]}))?;
+        command(
+            "complete",
+            &json!({"message":7,"reply":"Done","reasoning":"Return result"}),
+        )?;
+        Ok(())
     }
 
     #[test]
@@ -353,7 +440,7 @@ mod tests {
     #[test]
     fn discovery_surfaces_stay_within_token_budgets() -> Result<()> {
         let tools = serde_json::to_string(&selected_tools(None)?)?;
-        assert_eq!(selected_tools(None)?.len(), 14);
+        assert_eq!(selected_tools(None)?.len(), 16);
         assert!(!tools.contains("$schema"));
         assert!(tools.len() <= 12_000, "tools/list {} bytes", tools.len());
         let mut total = 0;
@@ -398,7 +485,7 @@ mod tests {
         assert!(claude.starts_with("# ") && claude.contains("## Host setup"));
         assert_eq!(skill_instructions(None), SKILL);
         let worker = worker_skill();
-        assert!(worker.contains("ackReply") && worker.contains("leaseId"));
+        assert!(worker.contains("complete") && worker.contains("leaseId"));
         for setup in [
             "## Host setup",
             "## CLI command map",

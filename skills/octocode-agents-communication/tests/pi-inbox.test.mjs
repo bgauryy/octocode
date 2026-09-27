@@ -33,8 +33,8 @@ test('Pi directory-only changes appear once without waking a turn', async t => {
 });
 test('Pi native tool selection uses the same CLI contract without creating storage',t=>{
  const f=fixture(t);
- registerPiInbox(f.pi,{binary,database:f.database,tools:'ack,send_message,peers'});
- assert.deepEqual(f.tools.map(tool=>tool.name),['peers','send_message','ack']);
+ registerPiInbox(f.pi,{binary,database:f.database,tools:'complete,send_message,peers'});
+ assert.deepEqual(f.tools.map(tool=>tool.name),['peers','send_message','complete']);
  assert.equal(existsSync(f.database),false);
  const bad=fixture(t);
  assert.throws(()=>registerPiInbox(bad.pi,{binary,database:bad.database,tools:'unknown'}));
@@ -186,7 +186,7 @@ test('Pi native context preserves reply correlation without replaying durable me
   const session = controller.getBinding().session;
   const sender = f.run('join', { vendor: 'raw', name: 'peer' }).id;
   const question = f.run('send_message', { to: sender, body: 'Can you review?', reasoning: 'Request a peer review', conversationId: 'review:42' }, session);
-  const reply = f.run('send_message', { to: session, body: 'Review complete.', reasoning: 'Report review result', replyTo: question.id }, sender);
+  const reply = f.run('complete', { message:question.id, reply:'Review complete.', reasoning:'Report review result' }, sender);
   const notice = f.run('send_message', { to: session, body: 'Independent notice.', reasoning: 'Share a separate update' }, sender);
   await controller.drain();
   const contexts = f.sent.filter(item => item.message.customType === 'octocode-peer');
@@ -308,4 +308,63 @@ test('Pi native delivery rejection stays staged and visible without an automatic
   const dispatch=JSON.parse(execFileSync(binary,['entity','get','dispatch',`${message.id}:${session}`,'--workspace',f.workspace,'--database',f.database,'--session',session],{encoding:'utf8'}));
   assert.equal(dispatch.state,'staged');assert.equal(f.run('inbox',{},session).items.length,1);
  } finally {await f.fire('session_shutdown');}
+});
+
+const completionMessages = f => f.sent.filter(s=>s.message.customType==='octocode-completion');
+async function settleCompletion(f, expected) {
+ const deadline=Date.now()+3000;
+ while(Date.now()<deadline && completionMessages(f).length<expected) await new Promise(resolve=>setTimeout(resolve,20));
+ assert.equal(completionMessages(f).length,expected);
+}
+test('Pi opt-in completion recovers omitted FYI once per external work cycle without automatic ACK',async t=>{
+ const f=fixture(t),controller=registerPiInbox(f.pi,{binary,database:f.database,completionCheck:true});
+ await f.fire('session_start');
+ try {
+  const session=controller.getBinding().session,sender=f.run('join',{name:'sender',vendor:'generic'}).id;
+  const sent=f.run('send_message',{to:session,body:'FYI evidence',replyRequired:false,reasoning:'Check omission recovery',wake:'passive'},sender);
+  await controller.drain();assert.equal(completionMessages(f).length,0,'idle passive delivery cannot wake recovery');
+  await f.fire('agent_start');await f.fire('agent_end');await settleCompletion(f,1);
+  const recovery=completionMessages(f)[0];assert.deepEqual(recovery.message.details.pending,[sent.id]);
+  assert.equal(recovery.options.triggerTurn,true);assert.equal(recovery.options.deliverAs,'followUp');
+  assert.ok(!recovery.message.content.includes('FYI evidence'));
+  await f.fire('input',{source:'extension',text:'Recovery'});
+  await f.fire('before_agent_start');await f.fire('agent_start');await f.fire('agent_end');
+  await new Promise(resolve=>setTimeout(resolve,150));assert.equal(completionMessages(f).length,1,'unfinished recovery cannot loop');
+  assert.equal(f.run('inbox',{message:sent.id},session).items.length,1,'recovery is not acknowledgement');
+  await f.fire('input',{source:'interactive',text:'Continue review'});await f.fire('agent_start');await f.fire('agent_end');await settleCompletion(f,2);
+  f.run('complete',{message:sent.id},session);
+  await f.fire('input',{source:'rpc',text:'Next task'});await f.fire('agent_start');await f.fire('agent_end');
+  await new Promise(resolve=>setTimeout(resolve,150));assert.equal(completionMessages(f).length,2);
+  f.run('send_message',{to:session,body:'New action',reasoning:'Verify action cycle reset'},sender);
+  await controller.drain();await f.fire('agent_start');await f.fire('agent_end');await settleCompletion(f,3);
+ } finally {await f.fire('session_shutdown');}
+});
+test('Pi completion ignores staged-only passive mail and cancels stale lifecycle work',async t=>{
+ const f=fixture(t);f.setDisk(false);
+ const controller=registerPiInbox(f.pi,{binary,database:f.database,completionCheck:true});await f.fire('session_start');
+ try {
+  const session=controller.getBinding().session,sender=f.run('join',{name:'sender',vendor:'generic'}).id;
+  f.run('send_message',{to:session,body:'not durable',reasoning:'Check submitted-only recovery',wake:'passive'},sender);
+  await controller.drain();await f.fire('agent_start');await f.fire('agent_end');
+  await new Promise(resolve=>setTimeout(resolve,150));assert.equal(completionMessages(f).length,0);
+  f.setDisk(true);f.flush();await controller.drain();
+  const stale={...f.ctx,sessionManager:{...f.ctx.sessionManager,getSessionId:()=> 'wrong'}};
+  await f.fire('agent_end',{},stale);await new Promise(resolve=>setTimeout(resolve,100));assert.equal(completionMessages(f).length,0);
+  await f.fire('agent_start');await f.fire('agent_end');await f.fire('session_shutdown');
+  await new Promise(resolve=>setTimeout(resolve,100));assert.equal(completionMessages(f).length,0);
+ } finally {await f.fire('session_shutdown');}
+});
+
+test('Pi shutdown cancels an in-flight completion result before it can wake a stale session',async t=>{
+ const f=fixture(t),marker=join(f.workspace,'completion-ready'),release=join(f.workspace,'completion-release'),wrapper=join(f.workspace,'delayed-completion.mjs');
+ writeFileSync(wrapper,`#!${process.execPath}\nimport {execFileSync} from 'node:child_process';import {writeFileSync,existsSync} from 'node:fs';\nconst out=execFileSync(${JSON.stringify(binary)},process.argv.slice(2),{encoding:'utf8'});if(process.argv[2]==='completion-check'){writeFileSync(${JSON.stringify(marker)},'ready');while(!existsSync(${JSON.stringify(release)}))await new Promise(r=>setTimeout(r,5));}process.stdout.write(out);`);chmodSync(wrapper,0o700);
+ const controller=registerPiInbox(f.pi,{binary:wrapper,database:f.database,completionCheck:true});await f.fire('session_start');
+ try {
+  const session=controller.getBinding().session,sender=f.run('join',{name:'sender',vendor:'generic'}).id;
+  f.run('send_message',{to:session,body:'FYI',reasoning:'Check stale recovery cancellation',wake:'passive'},sender);
+  await controller.drain();await f.fire('agent_start');await f.fire('agent_end');
+  const deadline=Date.now()+5000;while(!existsSync(marker)){if(Date.now()>deadline)throw new Error('Completion did not reach barrier');await new Promise(r=>setTimeout(r,5));}
+  const stopping=f.fire('session_shutdown');writeFileSync(release,'go');await stopping;
+  assert.equal(completionMessages(f).length,0);assert.equal(controller.getBinding(),null);
+ } finally {writeFileSync(release,'go');await f.fire('session_shutdown');}
 });

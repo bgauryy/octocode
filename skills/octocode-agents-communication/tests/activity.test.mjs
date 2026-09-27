@@ -73,12 +73,12 @@ test('activity continuation freezes relative time and rejects changed snapshots'
   for (const name of ['a', 'b', 'c']) f.put(name);
   const first = f.activity({ limit: 1, withinMs: 60000 });
   assert.equal(first.items.length, 1); assert.equal(first.totalMatched, 3);
-  assert.equal(first.next.withinMs, undefined); assert.equal(typeof first.next.sinceMs, 'number');
-  const second = f.activity(first.next), third = f.activity(second.next);
+  assert.equal(first.next.input.withinMs, undefined); assert.equal(typeof first.next.input.sinceMs, 'number');
+  const second = f.activity(first.next.input), third = f.activity(second.next.input);
   assert.equal(new Set([...first.items, ...second.items, ...third.items].map(r => r.path)).size, 3);
   assert.equal(third.next, undefined);
   f.put('extra');
-  assert.throws(() => f.activity(first.next), /Activity changed during pagination/);
+  assert.throws(() => f.activity(first.next.input), /Activity changed during pagination/);
 });
 
 test('commit and reflog views distinguish timestamps, bound coverage and filter workspace paths', t => {

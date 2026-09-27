@@ -18,7 +18,7 @@ const OVERLAPS: &str = "WITH hits(id) AS (
   SELECT id FROM leases WHERE workspace=?1 AND pathKey=?2
   UNION ALL SELECT id FROM leases WHERE workspace=?1 AND kind='tree' AND pathKey IN (SELECT value FROM json_each(?3))
   UNION ALL SELECT id FROM leases WHERE ?4='tree' AND workspace=?1 AND pathKey>?5 AND pathKey<?6)
-SELECT l.id,l.path,l.kind,l.owner,l.expiresAt,l.reasoning,s.name AS ownerName,s.vendor AS ownerVendor,s.expiresAt AS ownerExpiresAt
+SELECT l.id,l.path,l.kind,l.owner,l.acquiredAt,l.refreshedAt,l.expiresAt,l.reasoning,s.name AS ownerName,s.vendor AS ownerVendor,s.expiresAt AS ownerExpiresAt
 FROM hits h JOIN leases l ON l.id=h.id JOIN sessions s ON s.id=l.owner
 WHERE l.expiresAt>?7 AND s.expiresAt>?7 AND l.owner<>?8 ORDER BY l.id LIMIT ?9";
 
@@ -103,7 +103,7 @@ impl Store {
                         break;
                     }
                     conflicts.push(json!({"id":lease["id"],"path":self.relative(lease["path"].as_str().unwrap_or("")),
-                        "kind":lease["kind"],"owner":lease["owner"],"expiresAt":lease["expiresAt"],"reasoning":lease["reasoning"]}));
+                        "kind":lease["kind"],"owner":lease["owner"],"acquiredAt":lease["acquiredAt"],"refreshedAt":lease["refreshedAt"],"expiresAt":lease["expiresAt"],"reasoning":lease["reasoning"]}));
                 }
                 if truncated {
                     break;
@@ -161,7 +161,7 @@ impl Store {
                 .collect();
                 let path = self.relative(row["path"].as_str().unwrap_or(""));
                 let mut result = json!({"ok":false,
-                    "conflict":{"id":row["id"],"path":path,"kind":row["kind"],"expiresAt":row["expiresAt"],"reasoning":row["reasoning"]},
+                    "conflict":{"id":row["id"],"path":path,"kind":row["kind"],"acquiredAt":row["acquiredAt"],"refreshedAt":row["refreshedAt"],"expiresAt":row["expiresAt"],"reasoning":row["reasoning"]},
                     "owner":{"id":owner,"name":row["ownerName"],"vendor":row["ownerVendor"],"expiresAt":row["ownerExpiresAt"]},
                     "retryAfterMs":(expiry-at).max(0),"heldLeaseIds":held});
                 if owner == session {
@@ -171,28 +171,30 @@ impl Store {
                 } else {
                     result["next"] = json!({"command":"send_message","input":{"to":owner,"body":format!("Need access overlapping your lease {} on {path}; can you release it or agree a handoff?",row["id"]),"reasoning":reasoning,"key":format!("lease-request-{}-{}",row["id"], &reasoning_key(reasoning)[..16])}});
                     result["guidance"] = json!(
-                        "Nothing acquired. Unlock held leases, send next once, do independent work, retry after handoff or expiry. Never write without ok:true; do not poll."
+                        "Nothing acquired. Unlock held leases; send next once if coordination is needed, or wait/do independent work. Retry after handoff or expiry; never edit without ok:true or poll in a loop."
                     );
                 }
                 return Ok(result);
             }
-            let expires = now() + duration;
+            let expires = at + duration;
             let mut leases = Vec::with_capacity(targets.len());
             for target in &targets {
                 execute(
                     db,
-                    "INSERT INTO leases(workspace,path,kind,owner,expiresAt,reasoning,pathKey) VALUES(?,?,?,?,?,?,?)",
+                    "INSERT INTO leases(workspace,path,kind,owner,acquiredAt,refreshedAt,expiresAt,reasoning,pathKey) VALUES(?,?,?,?,?,?,?,?,?)",
                     &[
                         json!(self.workspace),
                         json!(target.path),
                         json!(target.kind),
                         json!(session),
+                        json!(at),
+                        json!(at),
                         json!(expires),
                         json!(reasoning),
                         json!(target.key),
                     ],
                 )?;
-                leases.push(json!({"id":db.last_insert_rowid(),"path":self.relative(&target.path),"kind":target.kind}));
+                leases.push(json!({"id":db.last_insert_rowid(),"path":self.relative(&target.path),"kind":target.kind,"owner":session,"reasoning":reasoning,"acquiredAt":at,"refreshedAt":at}));
             }
             Ok(if multiple {
                 json!({"ok":true,"expiresAt":expires,"leases":leases})
@@ -218,11 +220,11 @@ impl Store {
                 let expires = at + ttl(input, 60_000)?;
                 let count = execute(
                     db,
-                    "UPDATE leases SET expiresAt=? WHERE id=? AND owner=? AND expiresAt>?",
-                    &[json!(expires), lease, json!(session), json!(at)],
+                    "UPDATE leases SET expiresAt=?,refreshedAt=? WHERE id=? AND owner=? AND expiresAt>?",
+                    &[json!(expires), json!(at), lease, json!(session), json!(at)],
                 )?;
                 if count == 1 {
-                    json!({"renewed":true,"expiresAt":expires})
+                    json!({"renewed":true,"refreshedAt":at,"expiresAt":expires})
                 } else {
                     json!({"renewed":false,"guidance":"No live owned lease covers this ID. Stop writing; acquire a fresh lock before resuming."})
                 }

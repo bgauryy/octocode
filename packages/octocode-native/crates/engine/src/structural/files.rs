@@ -43,7 +43,7 @@ pub fn search_files(
     let max_file_bytes = options
         .max_file_bytes
         .map(|n| n as u64)
-        .unwrap_or(1_000_000);
+        .unwrap_or(crate::signatures::MAX_PARSE_SIZE as u64);
     let prefilter = query.prefilter();
     let query_explanation = query.explanation_with_prefilter(&prefilter);
 
@@ -383,7 +383,9 @@ pub fn search_files_detailed_filtered_with_extension(
     let exclude = exclude.unwrap_or_default();
     let exclude_dir = exclude_dir.unwrap_or_else(default_excluded_directories);
     let max_files = max_files.map(|n| n as usize).unwrap_or(2_000);
-    let max_file_bytes = max_file_bytes.map(|n| n as u64).unwrap_or(1_000_000);
+    let max_file_bytes = max_file_bytes
+        .map(|n| n as u64)
+        .unwrap_or(crate::signatures::MAX_PARSE_SIZE as u64);
     let prefilter = query.prefilter();
     let query_explanation = query.explanation_with_prefilter(&prefilter);
 
@@ -1202,7 +1204,9 @@ pub fn rewrite_files(
         .exclude_dir
         .unwrap_or_else(default_excluded_directories);
     let max_files = options.max_files.map(|n| n as usize).unwrap_or(2_000);
-    let max_file_bytes = u64::from(options.max_file_bytes.unwrap_or(1_000_000));
+    let max_file_bytes = options
+        .max_file_bytes
+        .map_or(crate::signatures::MAX_PARSE_SIZE as u64, u64::from);
 
     let overrides = build_overrides(&root, &include, &exclude)?;
     let is_single_file = root.is_file();

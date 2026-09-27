@@ -53,8 +53,12 @@ describe('published package release contract', () => {
   it('advertises canonical MCP tool names without client prefixes', async () => {
     const { DIRECT_TOOL_DEFINITIONS } =
       await import('@octocodeai/config/schema');
+    // Clone and rewrite mutate the machine: CLI-only, never registered by MCP.
+    const cliOnly = new Set(['ghCloneRepo', 'astRewrite']);
     expect(dxtManifest.tools.map(tool => tool.name).sort()).toEqual(
-      DIRECT_TOOL_DEFINITIONS.map(tool => tool.name).sort()
+      DIRECT_TOOL_DEFINITIONS.map(tool => tool.name)
+        .filter(name => !cliOnly.has(name))
+        .sort()
     );
   });
 

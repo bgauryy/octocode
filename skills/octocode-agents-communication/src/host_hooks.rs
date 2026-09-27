@@ -284,6 +284,14 @@ pub fn config(args: &Args) -> Result<()> {
             },
         );
     }
+    // Keep stdout directly consumable by the host; this setup receipt is not
+    // vendor configuration and must never be mistaken for installed enforcement.
+    eprintln!(
+        "{}",
+        json!({"type":"leaseGuard","vendor":vendor,"configured":false,
+            "supportedOperations":[],"advisory":true,
+            "reason":"Messaging hooks only; no bundled edit guard for this host. Shell/custom tools and OS writes are not fenced."})
+    );
     output(&if vendor == "cursor" {
         json!({"version":1,"hooks":hooks})
     } else {

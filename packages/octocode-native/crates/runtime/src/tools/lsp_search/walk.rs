@@ -565,6 +565,16 @@ fn resume_query(query: &LspSearchQuery, resume: &Resume, operation: Option<&str>
     Some(next)
 }
 
+/// Label for caller edges derived from verified importer references.
+const RECOVERED_FROM_REFERENCES: &str = "recoveredFromReferences";
+
+fn canonical_uri_path(uri: &str) -> String {
+    let decoded = decode_uri_path(uri).unwrap_or_else(|_| uri.to_owned());
+    std::fs::canonicalize(&decoded)
+        .map(|path| path.to_string_lossy().into_owned())
+        .unwrap_or(decoded)
+}
+
 pub(super) async fn hierarchy(
     client: &NativeLspClient,
     query: &LspSearchQuery,
@@ -572,6 +582,8 @@ pub(super) async fn hierarchy(
     path: &str,
     line: u32,
     character: u32,
+    extra_roots: &[(String, u32, u32)],
+    derived_callers: Vec<(Value, Vec<Value>)>,
     cancel: &dyn CancellationCheck,
 ) -> Result<Value, LspFailure> {
     let (prepared, expansions): (Value, &[Expansion]) = match query.operation().as_str() {
@@ -600,9 +612,30 @@ pub(super) async fn hierarchy(
             },
         ),
     };
-    let roots = as_array(&prepared)
+    let mut prepared = as_array(&prepared);
+    // Verified importer call sites (TS/JS recovery) root the same walk; a
+    // call-hierarchy item prepared there resolves in the importer's program.
+    if !extra_roots.is_empty()
+        && query.operation() != "supertypes"
+        && query.operation() != "subtypes"
+    {
+        for (root_path, root_line, root_character) in extra_roots {
+            if let Ok(Ok(more)) = cancellable(
+                cancel,
+                client.prepare_call_hierarchy(root_path.clone(), *root_line, *root_character),
+            )
+            .await
+            {
+                prepared.extend(as_array(&more));
+            }
+        }
+    }
+    let mut keys = NodeKeys::new(paths);
+    let mut root_keys = HashSet::new();
+    let roots = prepared
         .into_iter()
         .filter(|root| item_uri_is_authorized(root, paths))
+        .filter(|root| root_keys.insert(keys.key(root)))
         .collect::<Vec<_>>();
     let depth = query.depth().unwrap_or(1);
     let mut items = Vec::new();
@@ -611,6 +644,35 @@ pub(super) async fn hierarchy(
     for &expansion in expansions {
         let walk = walk_hierarchy(client, &roots, expansion, depth, paths, cancel).await?;
         items.extend(walk.edges.iter().map(|edge| public_edge(expansion, edge)));
+        if expansion == Expansion::IncomingCalls && !derived_callers.is_empty() {
+            // Reference-derived callers fill in only files the server's
+            // call hierarchy did not answer for at level 1.
+            let answered = walk
+                .edges
+                .iter()
+                .filter(|edge| edge.level == 1)
+                .filter_map(|edge| edge.node.get("uri").and_then(Value::as_str))
+                .map(canonical_uri_path)
+                .collect::<HashSet<_>>();
+            for (node, sites) in &derived_callers {
+                let file = node
+                    .get("uri")
+                    .and_then(Value::as_str)
+                    .map(canonical_uri_path);
+                if file.is_some_and(|file| answered.contains(&file)) {
+                    continue;
+                }
+                let edge = HierarchyEdge {
+                    node: node.clone(),
+                    parent: None,
+                    level: 1,
+                    sites: sites.clone(),
+                };
+                let mut item = public_edge(expansion, &edge);
+                item["source"] = json!(RECOVERED_FROM_REFERENCES);
+                items.push(item);
+            }
+        }
         walks.push((expansion, walk));
     }
     for (_, walk) in &mut walks {

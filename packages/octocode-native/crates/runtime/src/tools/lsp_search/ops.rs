@@ -5,16 +5,23 @@
 use super::LspSearchQuery;
 use super::cancellable;
 use super::failure::{LspFailure, empty, empty_hint};
+use super::importers::{self, Importers};
 use super::locations::{
     RECOVERED_ALIAS, items_payload, locations, public_range, public_workspace_symbol,
 };
-use super::recovery::{get_locations, recover_aliases, resolve_definition_chain};
+use super::recovery::{get_locations, recover_aliases, resolve_definition_chain, snippet_identity};
 use super::render::as_array;
+use super::render::uri_to_path;
 use super::source::{SourceCache, filter_authorized_items};
 use super::walk::hierarchy;
 use crate::tools::local_fetch::CancellationCheck;
 use octocode_engine::lsp::client::{LocationRequest, NativeLspClient, SnippetReadPolicy};
+use octocode_engine::lsp::config::{representative_source_for, workspace_root_languages};
 use serde_json::{Value, json};
+use std::collections::HashSet;
+
+/// Label for references found from a verified importer anchor.
+const RECOVERED_IMPORTER: &str = "recoveredImporter";
 
 pub(super) const PUSH_DIAGNOSTICS_WAIT_MS: u32 = 1_500;
 
@@ -33,10 +40,12 @@ pub(super) struct Operation<'a, 'p> {
     /// Zero-based LSP anchor (0,0 for document-wide operations).
     pub(super) line: u32,
     pub(super) character: u32,
+    /// Language of the anchor file, for server-specific recovery.
+    pub(super) language_id: Option<&'a str>,
 }
 
 impl Operation<'_, '_> {
-    pub(super) async fn run(self) -> Result<Value, LspFailure> {
+    pub(super) async fn run(mut self) -> Result<Value, LspFailure> {
         let query = self.query;
         match query.operation().as_str() {
             "definition" => {
@@ -74,26 +83,70 @@ impl Operation<'_, '_> {
                     &found,
                 )
                 .await?;
-                // Alias references are recovered, not server-reported: label
-                // each so callers can weigh them as such.
+                let mut seen = found
+                    .iter()
+                    .chain(&recovered)
+                    .map(snippet_identity)
+                    .collect::<HashSet<_>>();
+                let known_files = found
+                    .iter()
+                    .chain(&recovered)
+                    .map(|snippet| canonical_path(&uri_to_path(&snippet.uri)))
+                    .collect::<HashSet<_>>();
+                let importers = self.importers(&known_files).await?;
+                let mut from_importers = Vec::new();
+                if let Some(importers) = &importers {
+                    for anchor in importers.per_file() {
+                        let Ok(extra) = get_locations(
+                            self.client,
+                            self.snippet_policy,
+                            self.cancel,
+                            LocationRequest::References {
+                                include_declaration,
+                            },
+                            &anchor.path,
+                            anchor.line,
+                            anchor.character,
+                        )
+                        .await
+                        else {
+                            self.cancel.check().map_err(LspFailure::cancelled)?;
+                            continue;
+                        };
+                        from_importers.extend(
+                            extra
+                                .into_iter()
+                                .filter(|snippet| seen.insert(snippet_identity(snippet))),
+                        );
+                    }
+                }
+                // Recovered references are not reported from the anchor:
+                // label each so callers can weigh them as such.
+                let labelled = |label: &'static str| {
+                    move |snippet| {
+                        let mut value = serde_json::to_value(snippet).unwrap_or(Value::Null);
+                        value["source"] = json!(label);
+                        value
+                    }
+                };
                 let found = found
                     .drain(..)
                     .map(|snippet| serde_json::to_value(snippet).unwrap_or(Value::Null))
-                    .chain(recovered.into_iter().map(|snippet| {
-                        let mut value = serde_json::to_value(snippet).unwrap_or(Value::Null);
-                        value["source"] = json!(RECOVERED_ALIAS);
-                        value
-                    }))
+                    .chain(recovered.into_iter().map(labelled(RECOVERED_ALIAS)))
+                    .chain(from_importers.into_iter().map(labelled(RECOVERED_IMPORTER)))
                     .collect::<Vec<_>>();
-                Ok(locations(
+                let mut row = locations(
                     self.query,
                     self.sources,
-                    self.workspace_root,
                     "references",
                     "referencesProvider",
                     found,
                 )
-                .await)
+                .await;
+                if let Some(importers) = &importers {
+                    importers.annotate(&mut row);
+                }
+                Ok(row)
             }
             "typeDefinition" => {
                 let found = self
@@ -144,16 +197,46 @@ impl Operation<'_, '_> {
             "workspaceSymbol" => self.workspace_symbol().await,
             "diagnostic" => self.diagnostic().await,
             "callers" | "callees" | "callHierarchy" | "supertypes" | "subtypes" => {
-                hierarchy(
+                let importers = self.importers(&HashSet::new()).await?;
+                let extra_roots = importers
+                    .as_ref()
+                    .map(|importers| {
+                        importers
+                            .call_sites()
+                            .into_iter()
+                            .map(|anchor| (anchor.path.clone(), anchor.line, anchor.character))
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+                let derived_callers = match &importers {
+                    Some(importers) if query.operation() != "callees" => {
+                        importers::callers_from_references(
+                            self.client,
+                            self.sources,
+                            self.snippet_policy,
+                            self.cancel,
+                            importers,
+                        )
+                        .await?
+                    }
+                    _ => Vec::new(),
+                };
+                let mut row = hierarchy(
                     self.client,
                     query,
                     self.sources.policy(),
                     self.path,
                     self.line,
                     self.character,
+                    &extra_roots,
+                    derived_callers,
                     self.cancel,
                 )
-                .await
+                .await?;
+                if let Some(importers) = &importers {
+                    importers.annotate(&mut row);
+                }
+                Ok(row)
             }
             other => Ok(empty(
                 query,
@@ -162,6 +245,42 @@ impl Operation<'_, '_> {
                 true,
             )),
         }
+    }
+
+    /// Verified importer anchors when the server may have missed importers
+    /// (TS/JS incoming operations); `None` when recovery does not apply.
+    async fn importers(
+        &mut self,
+        known_files: &HashSet<String>,
+    ) -> Result<Option<Importers>, LspFailure> {
+        let operation = self.query.operation();
+        if !importers::applies(self.language_id, &operation) || self.root_only {
+            return Ok(None);
+        }
+        let symbol =
+            match self.query.symbol_name() {
+                Some(name) if !name.trim().is_empty() => Some(name.to_owned()),
+                _ => self.sources.get(self.path).await.and_then(|source| {
+                    importers::word_at(&source.content, self.line, self.character)
+                }),
+            };
+        let Some(symbol) = symbol else {
+            return Ok(None);
+        };
+        importers::verified_anchors(
+            self.client,
+            self.sources,
+            self.snippet_policy,
+            self.cancel,
+            &symbol,
+            self.workspace_root,
+            self.path,
+            self.line,
+            self.character,
+            known_files,
+        )
+        .await
+        .map(Some)
     }
 
     async fn location_request(
@@ -186,15 +305,7 @@ impl Operation<'_, '_> {
         provider: &str,
         found: Vec<octocode_engine::lsp::types::JsCodeSnippet>,
     ) -> Value {
-        locations(
-            self.query,
-            self.sources,
-            self.workspace_root,
-            kind,
-            provider,
-            found,
-        )
-        .await
+        locations(self.query, self.sources, kind, provider, found).await
     }
 
     async fn workspace_symbol(self) -> Result<Value, LspFailure> {
@@ -203,20 +314,62 @@ impl Operation<'_, '_> {
             .symbol_name()
             .map(str::to_owned)
             .ok_or_else(|| LspFailure::invalid_query("workspaceSymbol requires symbolName"))?;
-        let symbols = cancellable(self.cancel, self.client.workspace_symbol(name)).await??;
+        let symbols =
+            cancellable(self.cancel, self.client.workspace_symbol(name.clone())).await??;
         // workspace/symbol URIs are server-controlled and span the whole
         // project; drop any that fall outside the read policy before emitting.
-        let symbols = as_array(&filter_authorized_items(symbols, self.sources.policy()))
+        let mut symbols = as_array(&filter_authorized_items(symbols, self.sources.policy()))
             .iter()
             .map(public_workspace_symbol)
             .collect::<Vec<_>>();
+        // Servers return fuzzy matches in their own order (rust-analyzer:
+        // alphabetical), which can bury the exact name past the first page.
+        // Stable sort keeps server order within each tier.
+        symbols.sort_by_key(|symbol| {
+            match_tier(
+                symbol.get("name").and_then(Value::as_str).unwrap_or(""),
+                &name,
+            )
+        });
         let mut row = items_payload(query, "symbols", json!(symbols));
         if self.root_only && row.pointer("/payload/kind").and_then(Value::as_str) == Some("empty") {
+            let languages = workspace_root_languages(self.path);
+            let searched = languages
+                .first()
+                .map_or("unknown", |ext| language_name(ext));
+            row["lsp"]["language"] = json!(searched);
             // The server answered from one representative file's project;
-            // another project in this root may hold the symbol.
-            row["hints"] = json!([
-                "workspaceRoot-only search covers the project of one representative file; pass uri for a source file in the project that should contain the symbol."
-            ]);
+            // other project markers in this root name languages it never
+            // searched: route to each with a real source file as uri.
+            let mut others = Vec::new();
+            for extension in languages.iter().skip(1) {
+                let Some(file) = representative_source_for(self.path, extension) else {
+                    continue;
+                };
+                let language = language_name(extension);
+                others.push(language);
+                row["next"][format!("search{}", capitalized(language))] = json!({
+                    "tool": "lspSearch",
+                    "confidence": "medium",
+                    "query": {
+                        "operation": "workspaceSymbol",
+                        "symbolName": name,
+                        "uri": file,
+                        "reasoning": format!("Search the {language} project that shares this workspace root.")
+                    }
+                });
+            }
+            let hint = if others.is_empty() {
+                format!(
+                    "workspaceRoot-only search covered the {searched} project of one representative file; pass uri for a source file in the project that should contain the symbol."
+                )
+            } else {
+                format!(
+                    "workspaceRoot-only search used the {searched} language server; this root also holds {} projects it did not search. Follow next.* to search them.",
+                    others.join(", ")
+                )
+            };
+            row["hints"] = json!([hint]);
         }
         Ok(row)
     }
@@ -329,4 +482,71 @@ pub(super) fn diagnostic_items(report: Option<Value>) -> (Value, bool) {
         Value::Array(items.into_iter().map(publish_diagnostic_ranges).collect()),
         truncated,
     )
+}
+
+/// Relevance tier of a workspace symbol name for the query: exact, exact
+/// ignoring case, prefix, substring, then any other (fuzzy) match.
+fn match_tier(candidate: &str, query: &str) -> u8 {
+    let (lower, wanted) = (candidate.to_lowercase(), query.to_lowercase());
+    if candidate == query {
+        0
+    } else if lower == wanted {
+        1
+    } else if lower.starts_with(&wanted) {
+        2
+    } else if lower.contains(&wanted) {
+        3
+    } else {
+        4
+    }
+}
+
+fn language_name(extension: &str) -> &'static str {
+    match extension {
+        ".rs" => "rust",
+        ".go" => "go",
+        ".py" => "python",
+        _ => "typescript",
+    }
+}
+
+fn capitalized(word: &str) -> String {
+    let mut chars = word.chars();
+    chars
+        .next()
+        .map(|first| first.to_uppercase().chain(chars).collect())
+        .unwrap_or_default()
+}
+
+fn canonical_path(path: &str) -> String {
+    std::fs::canonicalize(path)
+        .map(|path| path.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| path.to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::match_tier;
+
+    #[test]
+    fn workspace_symbols_rank_exact_before_fuzzy() {
+        let mut names = vec![
+            "a_keeps_alive",
+            "process_is_alive",
+            "is_alive_now",
+            "IS_ALIVE",
+            "is_alive",
+        ];
+        names.sort_by_key(|name| match_tier(name, "is_alive"));
+        assert_eq!(
+            names,
+            vec![
+                "is_alive",
+                "IS_ALIVE",
+                "is_alive_now",
+                "process_is_alive",
+                "a_keeps_alive"
+            ]
+        );
+    }
 }

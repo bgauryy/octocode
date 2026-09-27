@@ -15,12 +15,15 @@ CREATE TABLE subscriptions (
 CREATE TABLE leases (
   id INTEGER PRIMARY KEY AUTOINCREMENT, workspace TEXT NOT NULL, path TEXT NOT NULL,
   kind TEXT NOT NULL CHECK(kind IN ('file','tree')), owner TEXT NOT NULL REFERENCES sessions(id),
-  expiresAt INTEGER NOT NULL,
+  acquiredAt INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec')*1000 AS INTEGER)),
+  refreshedAt INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec')*1000 AS INTEGER)),
+  expiresAt INTEGER NOT NULL CHECK(expiresAt<=refreshedAt+600000),
   reasoning TEXT NOT NULL, pathKey TEXT NOT NULL);
 
 CREATE TABLE messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT, sender TEXT NOT NULL REFERENCES sessions(id),
   target TEXT NOT NULL, topic TEXT, body TEXT NOT NULL, key TEXT NOT NULL,
+  replyRequired INTEGER NOT NULL DEFAULT 1 CHECK(replyRequired IN (0,1)),
   expiresAt INTEGER NOT NULL, reasoning TEXT NOT NULL, wake TEXT NOT NULL DEFAULT 'action' CHECK(wake IN ('action','passive')), conversationId TEXT
   CHECK(conversationId IS NULL OR (typeof(conversationId)='text' AND length(conversationId) BETWEEN 1 AND 128 AND conversationId NOT GLOB '*[^A-Za-z0-9._:-]*')), replyTo INTEGER REFERENCES messages(id)
   CHECK(replyTo IS NULL OR (typeof(replyTo)='integer' AND replyTo BETWEEN 1 AND 9007199254740991)), ttlMs INTEGER NOT NULL DEFAULT 3600000
@@ -104,7 +107,7 @@ CREATE TRIGGER audit_no_delete BEFORE DELETE ON audit BEGIN
 END;
 
 CREATE TRIGGER message_immutable BEFORE UPDATE ON messages
-WHEN NEW.sender IS NOT OLD.sender OR NEW.target IS NOT OLD.target OR NEW.topic IS NOT OLD.topic OR NEW.body IS NOT OLD.body OR NEW.key IS NOT OLD.key OR NEW.ttlMs IS NOT OLD.ttlMs BEGIN
+WHEN NEW.sender IS NOT OLD.sender OR NEW.target IS NOT OLD.target OR NEW.topic IS NOT OLD.topic OR NEW.body IS NOT OLD.body OR NEW.key IS NOT OLD.key OR NEW.ttlMs IS NOT OLD.ttlMs OR NEW.replyRequired IS NOT OLD.replyRequired BEGIN
   SELECT RAISE(ABORT,'Message content is immutable');
 END;
 
@@ -183,6 +186,23 @@ WHEN NEW.replyTo IS NOT NULL AND NOT EXISTS (
   SELECT RAISE(ABORT,'Reply requires a visible parent in this workspace and its conversationId');
 END;
 
+CREATE TRIGGER messages_reply_policy BEFORE INSERT ON messages
+WHEN NEW.replyTo IS NOT NULL AND (NEW.replyRequired<>0 OR EXISTS (
+  SELECT 1 FROM messages WHERE id=NEW.replyTo AND replyRequired=0
+)) BEGIN
+  SELECT RAISE(ABORT,'Informational messages accept no replies; start a new request for new work');
+END;
+
+CREATE TRIGGER completion_requires_answer BEFORE UPDATE OF acknowledgedAt ON deliveries
+WHEN OLD.acknowledgedAt IS NULL AND NEW.acknowledgedAt IS NOT NULL
+AND EXISTS (SELECT 1 FROM messages WHERE id=OLD.message AND replyRequired=1)
+AND NOT EXISTS (
+  SELECT 1 FROM messages WHERE sender=OLD.recipient AND replyTo=OLD.message
+    AND key='complete:'||OLD.message AND replyRequired=0
+) BEGIN
+  SELECT RAISE(ABORT,'Required answer missing; complete with message and reply, or leave unfinished work pending');
+END;
+
 CREATE TRIGGER audit_attachment_insert AFTER INSERT ON attachments BEGIN
   INSERT INTO audit(session,kind,at,data) VALUES(NEW.session,'attachment.created',NEW.updatedAt,json_object('transport',NEW.transport,'endpoint',NEW.endpoint));
 END;
@@ -196,9 +216,9 @@ WHEN typeof(NEW.pathKey)<>'text' OR substr(NEW.pathKey,1,1)<>'/' BEGIN
   SELECT RAISE(ABORT,'pathKey is required: "/" + NFD(casefold(NFD(component))) per path component');
 END;
 
-CREATE TRIGGER leases_path_immutable BEFORE UPDATE OF workspace,path,kind,owner,pathKey ON leases
+CREATE TRIGGER leases_path_immutable BEFORE UPDATE OF workspace,path,kind,owner,pathKey,acquiredAt ON leases
 WHEN NEW.workspace IS NOT OLD.workspace OR NEW.path IS NOT OLD.path OR NEW.kind IS NOT OLD.kind
-  OR NEW.owner IS NOT OLD.owner OR NEW.pathKey IS NOT OLD.pathKey BEGIN
+  OR NEW.owner IS NOT OLD.owner OR NEW.pathKey IS NOT OLD.pathKey OR NEW.acquiredAt IS NOT OLD.acquiredAt BEGIN
   SELECT RAISE(ABORT,'Lease scope is immutable; acquire a new lease');
 END;
 
@@ -220,7 +240,7 @@ WHEN NEW.name IS NOT OLD.name OR NEW.vendorSession IS NOT OLD.vendorSession OR N
 END;
 
 CREATE TRIGGER audit_message_insert AFTER INSERT ON messages BEGIN
-  INSERT INTO audit(session,kind,entityId,at,data) VALUES(NEW.sender,'message.created',CAST(NEW.id AS TEXT),CAST(unixepoch('subsec')*1000 AS INTEGER),json_patch('{}',json_object('target',NEW.target,'topic',NEW.topic,'key',NEW.key,'reasoning',NEW.reasoning,'wake',NEW.wake,'conversationId',NEW.conversationId,'replyTo',NEW.replyTo)));
+  INSERT INTO audit(session,kind,entityId,at,data) VALUES(NEW.sender,'message.created',CAST(NEW.id AS TEXT),CAST(unixepoch('subsec')*1000 AS INTEGER),json_patch('{}',json_object('target',NEW.target,'topic',NEW.topic,'key',NEW.key,'reasoning',NEW.reasoning,'wake',NEW.wake,'conversationId',NEW.conversationId,'replyTo',NEW.replyTo,'replyRequired',json(CASE NEW.replyRequired WHEN 1 THEN 'true' ELSE 'false' END))));
 END;
 
 CREATE TRIGGER audit_lease_update AFTER UPDATE OF expiresAt ON leases

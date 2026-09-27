@@ -1,19 +1,21 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { checkStartup, digest, installExecutable, verifyExecutable } from '../src/artifact-checks.mjs';
+import { checkStartup, digest, installExecutable, verifyExecutable, verifyStartup } from '../src/artifact-checks.mjs';
 import { packSkill } from '../src/pack-skill.mjs';
-import { tempWorkspace } from './helpers.mjs';
+import { binary, tempWorkspace } from './helpers.mjs';
 
 const options = { target: 'fixture', hostTarget: 'fixture', timeoutMs: 10000 };
-const skill = '---\nname: fixture\n---\nUse the CLI.\n';
-const valid = `#!/bin/sh\nif [ "$1" = skill ]; then\n  printf '%s\\n' '${JSON.stringify({ instructions: skill })}'\nelse\n  printf '%s\\n' '{"package":"@octocodeai/octocode-agents-communication","implementation":"Rust"}'\nfi\n`;
+// Successful install/pack checks exercise the shipped artifact, not shell help imitations.
+const skill = readFileSync(new URL('../SKILL.md', import.meta.url), 'utf8');
 const invalid = '#!/bin/sh\nprintf "%s\\n" "{}"\n';
 function fixture(t) {
   const directory = tempWorkspace(t, 'communication-artifact-');
-  const executable = (name, content = valid) => {
-    const path = join(directory, name); writeFileSync(path, content); chmodSync(path, 0o755); return path;
+  const executable = (name, content) => {
+    const path = join(directory, name);
+    if (content === undefined) copyFileSync(binary, path); else writeFileSync(path, content);
+    chmodSync(path, 0o755); return path;
   };
   return { directory, executable };
 }
@@ -50,10 +52,11 @@ function packageFixture(t) {
   writeFileSync(join(directory, 'SKILL.md'), skill);
   const executable = join(bin, 'octocode-agents-communication');
   const update = content => {
-    writeFileSync(executable, content); chmodSync(executable, 0o755);
+    if (content === undefined) copyFileSync(binary, executable); else writeFileSync(executable, content);
+    chmodSync(executable, 0o755);
     writeFileSync(join(bin, 'SHA256SUMS'), `${digest(executable)}  octocode-agents-communication\n`);
   };
-  update(valid);
+  update();
   const launcher = join(directory, 'scripts/agents-communication');
   writeFileSync(launcher, '#!/bin/sh\nexec "$(dirname "$0")/octocode-agents-communication" "$@"\n'); chmodSync(launcher, 0o755);
   return { ...f, skillDirectory: directory, bin, executable, update };
@@ -72,7 +75,7 @@ test('failed package verification preserves prior archive and leaves no staging 
   f.update(invalid);
   assert.throws(() => packSkill(f.directory, options), /Unexpected --help/);
   assert.deepEqual(readFileSync(packed.archive), before);
-  f.update(valid); writeFileSync(join(f.directory, 'SKILL.md'), 'changed');
+  f.update(); writeFileSync(join(f.directory, 'SKILL.md'), 'changed');
   assert.throws(() => packSkill(f.directory, options), /Embedded skill differs/);
   assert.deepEqual(readFileSync(packed.archive), before);
   writeFileSync(join(f.bin, 'incomplete.tmp'), 'unfinished build');
@@ -81,4 +84,21 @@ test('failed package verification preserves prior archive and leaves no staging 
   writeFileSync(join(f.bin, 'SHA256SUMS'), 'wrong checksum');
   assert.throws(() => packSkill(f.directory, options), /Checksum mismatch/);
   assert.equal(readdirSync(join(f.directory, 'out')).some(name => name.startsWith('.communication-pack-')), false);
+});
+
+// A foreign executable may be built, but cannot pass native archive validation here.
+test('pack refuses foreign targets before creating an archive', t => {
+  const f = fixture(t);
+  assert.throws(() => packSkill(f.directory, {hostTarget: 'native', target: 'foreign'}), /native validation on the target platform/);
+  assert.equal(existsSync(join(f.directory, 'out')), false);
+});
+
+
+test('cold assessment and normal startup remain separate bounded gates', { skip: process.platform !== 'darwin' }, t => {
+  const f=fixture(t), executable=f.executable('cold-native');
+  const result=verifyStartup(executable,{coldStart:true});
+  assert.equal(result.coldStart.passed,true);assert.equal(result.coldStart.timeoutMs,60000);
+  assert.equal(result.passed,true);assert.equal(result.timeoutMs,10000);
+  const stalled=f.executable('cold-stalled','#!/bin/sh\nexec sleep 60\n');
+  assert.throws(()=>verifyStartup(stalled,{coldStart:true,coldTimeoutMs:100,timeoutMs:100}),/ETIMEDOUT/);
 });

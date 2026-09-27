@@ -804,3 +804,48 @@ fn calls_carry_the_caller_declaration_identity() {
         .expect("module-level call");
     assert!(module_call.get("callerId").is_none());
 }
+
+#[test]
+fn top_level_iife_bodies_are_outlined_as_module_scope() {
+    for (wrapper, path) in [
+        ("(function(){\n%\n})();", "umd.js"),
+        ("(() => {\n%\n})();", "arrow.js"),
+        ("!function(){\n%\n}();", "bang.js"),
+        ("(function(){\n%\n}).call(this);", "call.js"),
+    ] {
+        let source = wrapper.replace(
+            '%',
+            "var FBL = {};\nfunction helper(n) { return n; }\nclass Panel {}",
+        );
+        let got = names(&symbols(&source, path));
+        for expected in ["FBL", "helper", "Panel"] {
+            assert!(got.iter().any(|name| name == expected), "{path}: {got:?}");
+        }
+        let decls = graph(&source, path)["declarations"]
+            .as_array()
+            .map(Vec::len)
+            .unwrap_or(0);
+        assert!(decls >= 3, "{path}: graph declarations {decls}");
+    }
+    // A plain call statement is not a scope.
+    let plain = extract_js_symbols("run(function(){ var hidden = 1; });", "call.js");
+    assert!(
+        plain.as_deref().is_none_or(|json| !json.contains("hidden")),
+        "{plain:?}"
+    );
+}
+
+#[test]
+fn declarations_only_matches_full_graph_facts_declarations() {
+    let source = "import { a } from './a';\nexport class Panel { draw() { return a(); } }\nexport function helper(n) { return n; }\nconst local = () => helper(1);\nexport default function main() { local(); }\n";
+    for path in ["mod.ts", "mod.js", "mod.tsx"] {
+        let full = graph(source, path);
+        let light: Value =
+            serde_json::from_str(&extract_declarations(source, path).expect("declarations"))
+                .expect("json");
+        assert_eq!(light["declarations"], full["declarations"], "{path}");
+        assert_eq!(light["imports"], full["imports"], "{path}");
+        assert_eq!(light["exports"], full["exports"], "{path}");
+        assert_eq!(light["calls"], serde_json::json!([]), "{path}");
+    }
+}

@@ -20,7 +20,7 @@ node scripts/skill-review.mjs                       # every skill under nearest 
 node scripts/skill-review.mjs ../skills             # every immediate child skill in a collection
 node scripts/skill-review.mjs ../some-skill         # one or more folders
 node scripts/skill-review.mjs ../some-skill --json  # machine-readable
-node scripts/skill-review.mjs --self-test            # collection/error/frontmatter regressions
+node scripts/skill-review.mjs --self-test            # routing/runtime/error regressions
 ```
 
 Exit `1` on any ERROR; WARN is advisory. Always run before reporting create/edit done; surface findings.
@@ -28,7 +28,7 @@ Exit `1` on any ERROR; WARN is advisory. Always run before reporting create/edit
 
 No-arg scan is relative to this skill copy: `.agents/skills/octocode-skills` scans `.agents/skills`; packaged `skills/octocode-skills` scans `skills`.
 
-For an authorized runtime review, copy the shipped skill alone into a temporary directory, use a separate working directory, and run its documented help and finite fixture checks. Keep sibling skills and developer-only files absent. Test optional integrations both without their dependency (clear setup guidance) and with the documented dependency supplied. Static review does not execute untrusted scripts or prove portability.
+For a runtime review, review the actual shipped file set rather than a development checkout containing compiler caches or dependencies. For an authorized execution check, copy the shipped skill alone into a temporary directory, use a separate working directory, and run its documented help and finite fixture checks. Keep sibling skills and developer-only files absent. Test optional integrations both without their dependency (clear setup guidance) and with the documented dependency supplied. Static review does not execute untrusted scripts or prove portability.
 
 ## Fix loop
 

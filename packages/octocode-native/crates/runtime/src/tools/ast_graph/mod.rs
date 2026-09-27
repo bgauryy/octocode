@@ -1,6 +1,7 @@
 mod algorithms;
 mod analysis;
 mod graph;
+mod packages;
 mod types;
 
 use crate::{
@@ -25,8 +26,8 @@ pub fn execute_topology(
         if query.analysis() == GraphAnalysis::Drift {
             return analysis::drift(query, paths, security, cancel);
         }
-        let built = graph::build_graph(query, paths, security, cancel)?;
-        analysis::analyze(built, query, security, cancel)
+        let mut built = graph::build_graph(query, paths, security, cancel)?;
+        analysis::analyze(&mut built, query, security, cancel)
     }))
     .unwrap_or_else(|panic| {
         let detail = panic
@@ -328,6 +329,79 @@ mod drift_tests {
         assert_eq!(row["files"], json!(["a.ts", "b.ts"]), "{out}");
         assert!(row.get("size").is_none(), "size duplicates files: {out}");
         assert!(row.get("outgoingComponentCount").is_none(), "{out}");
+    }
+
+    #[test]
+    fn go_package_imports_link_every_package_file_with_its_import_line() {
+        let temp = tempfile::TempDir::new().expect("temp");
+        let root = temp.path();
+        std::fs::write(root.join("go.mod"), "module example.com/app\n").unwrap();
+        std::fs::create_dir_all(root.join("tsdb")).unwrap();
+        std::fs::write(
+            root.join("main.go"),
+            "package main\n\nimport (\n\t\"fmt\"\n\t\"example.com/app/tsdb\"\n)\n\nfunc main() { fmt.Println(tsdb.Open()) }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("tsdb/db.go"),
+            "package tsdb\n\nfunc Open() int { return 1 }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("tsdb/head.go"),
+            "package tsdb\n\ntype Head struct{}\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("tsdb/db_test.go"), "package tsdb\n").unwrap();
+
+        let out = run(
+            json!({"operation":"topology","reasoning":"test","analysis":"dependencies","path":root.to_string_lossy(),"file":"main.go"}),
+            root,
+        )
+        .expect("dependencies");
+        let rows = out["results"].as_array().expect("rows");
+        let files = rows
+            .iter()
+            .map(|r| r["file"].as_str().unwrap_or_default())
+            .collect::<Vec<_>>();
+        assert_eq!(files, vec!["tsdb/db.go", "tsdb/head.go"], "{out}");
+        assert!(rows.iter().all(|r| r["importLine"] == 5), "{out}");
+
+        let dependents = run(
+            json!({"operation":"topology","reasoning":"test","analysis":"dependents","path":root.to_string_lossy(),"file":"tsdb/head.go"}),
+            root,
+        )
+        .expect("dependents");
+        assert_eq!(dependents["results"][0]["file"], "main.go", "{dependents}");
+    }
+
+    #[test]
+    fn java_class_imports_link_to_the_class_file() {
+        let temp = tempfile::TempDir::new().expect("temp");
+        let root = temp.path();
+        let dir = root.join("src/com/acme");
+        std::fs::create_dir_all(dir.join("util")).unwrap();
+        std::fs::write(
+            dir.join("App.java"),
+            "package com.acme;\n\nimport com.acme.util.Strings;\nimport java.util.List;\n\nclass App {}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("util/Strings.java"),
+            "package com.acme.util;\n\npublic class Strings {}\n",
+        )
+        .unwrap();
+
+        let out = run(
+            json!({"operation":"topology","reasoning":"test","analysis":"dependencies","path":root.to_string_lossy(),"file":"src/com/acme/App.java"}),
+            root,
+        )
+        .expect("dependencies");
+        assert_eq!(
+            out["results"][0]["file"], "src/com/acme/util/Strings.java",
+            "{out}"
+        );
+        assert_eq!(out["results"][0]["importLine"], 3, "{out}");
     }
 
     #[test]

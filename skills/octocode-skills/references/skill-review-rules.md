@@ -10,11 +10,11 @@ Load when interpreting or fixing review findings — after running `scripts/skil
 | `name-mismatch` | frontmatter `name` equals the folder name |
 | `description-missing` | non-empty `description` |
 | `description-too-long` | `description` ≤1024 chars |
-| `missing-route` | every routed `references/*`, `scripts/*`, and `scheme/*` path exists |
+| `missing-route` | every routed reference, script, asset, doc, or scheme path exists, including directory routes |
 | `link-outside-skill` | no dependency on a file outside the folder — no `../dir/file`, `~/`, `file://`, or absolute path (a bare `../dir` argument is fine, as is a path carrying a `<placeholder>`) |
 | `octocode-contract-stale` | use current public Octocode tool names and `octocode skill install/list/info` command forms |
-| `lobby-*-convention` | declare the required `tools`, `related-skill`, `output`, and actionable `routes` lines below the H1 |
-| `scheme-contract` | every `scheme/` entry is a flat `.json` file containing one valid top-level object |
+| `lobby-*-convention` | declare actual `tools`, output/state destination (or none), and actionable `routes` below the H1; `related-skill` is optional |
+| `scheme-contract` | every scheme directory entry is a flat `.json` file containing one valid top-level object |
 | `unused-file` | every shipped file is reachable from `SKILL.md`, `README.md`, or another used file; remove development-only metadata, probes, duplicates, and dead weight |
 
 ## WARN codes → assess
@@ -35,13 +35,13 @@ Load when interpreting or fixing review findings — after running `scripts/skil
 | `reference-entry-cue` | open the chunk with `Load when …` and `Why:` |
 | `reference-dead-end` | add a next hop when execution depends on it; a complete reference needs no ceremonial closing line |
 | `flow-phase-unrouted` | name each flow phase in a route or gate, or drop it from the flow |
-Navigation warnings are review candidates, not mandatory formatting. Check reachability and use conditions; retain clear nested routes and complete references. Audit trails, templates, and fixtures skip entry/exit cues. A concrete directory route includes its files; write schematic paths with a placeholder such as `scripts/<hook-directory>/` so the reviewer does not require that example to ship.
+Navigation warnings are review candidates, not mandatory formatting. Check reachability and use conditions; retain clear nested routes and complete references. Audit trails, templates, and fixtures skip entry/exit cues. A concrete directory route (including `scripts/`) includes its files, which supports native runtimes selecting generated adapters internally. Literal missing files still fail inside a routed directory; unrelated files remain subject to `unused-file`. Static reachability does not prove every routed adapter is useful; verify runtime selection separately. Write schematic paths with a placeholder such as `scripts/<hook-directory>/` so the reviewer does not require that example to ship.
 ## Judgment checks the script cannot make
 
 | Check | Fix |
 |-------|-----|
 | Duplicate or weak prose | one owner per concept; cross-link instead of restating; use direct verbs and named objects; cut filler without losing data |
-| Lobby and routed-file convention | declare tools, one related-skill, and the workspace-versus-home output decision without implying install authority; each reference/doc/script/scheme owns a coherent conditional job that changes the next action; move short shared rules to the lobby and delete wrappers/stubs |
+| Lobby and routed-file convention | declare actual tools and output/state destinations without implying install authority; name a related skill only when useful; each reference/doc/script/scheme owns a coherent conditional job that changes the next action; move short shared rules to the lobby and delete wrappers/stubs |
 | Output and gates | real markdown table for tabular data; complete gate sections |
 | `description` quality | one `Use when`; intents, not internals; no MUST/NEVER/ONLY-skill, second `Triggers:`, or quote spam |
 | Scripts and hooks | `--help` and flags; extract deterministic prose; route hook + `timeout`; a declared host scheme is really exposed |

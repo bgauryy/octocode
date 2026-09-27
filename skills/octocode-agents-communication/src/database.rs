@@ -50,6 +50,7 @@ pub fn query(db: &Connection, sql: &str, args: &[Value]) -> Result<Vec<Value>> {
         for (i, name) in columns.iter().enumerate() {
             let value = match row.get_ref(i)? {
                 ValueRef::Null => continue,
+                ValueRef::Integer(n) if name == "replyRequired" => json!(n != 0),
                 ValueRef::Integer(n) => json!(n),
                 ValueRef::Real(n) => json!(n),
                 ValueRef::Text(s) => json!(std::str::from_utf8(s)?),

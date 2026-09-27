@@ -21,4 +21,6 @@ pub mod proxy;
 pub mod retention;
 pub mod store;
 mod transport;
+mod view;
+mod view_data;
 mod wire;

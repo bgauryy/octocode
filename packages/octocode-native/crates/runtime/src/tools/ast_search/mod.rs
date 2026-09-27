@@ -192,6 +192,12 @@ pub(super) fn snapshot_changed(snapshot: &str) -> Value {
 }
 pub type AstResult = Result<Value, AstError>;
 
+/// Largest source astSearch parses (match, symbols, syntaxTree). Sized for
+/// real generated and monolithic sources (TypeScript's 3 MB checker.ts, the
+/// 2.3 MB lib.dom.d.ts); tree-sitter and oxc parse these in well under a
+/// second. Directory scans skip larger files and report them.
+pub(crate) const MAX_PARSE_SOURCE_BYTES: usize = octocode_engine::signatures::MAX_PARSE_SIZE;
+
 pub fn execute_ast(
     query: Value,
     paths: &crate::policy::path::PathPolicy,

@@ -97,7 +97,7 @@ A timeout is a cue to retry acquisition, never permission to write unlocked.
 Default lease TTL is 60 seconds. Presence expires after 60 seconds without a
 heartbeat, and heartbeats never renew leases. A stalled worker with a live
 listener therefore loses unrenewed locks; an orderly exit releases immediately.
-User-selected long TTLs and deliberate renewals can extend blocking. There is
+Each acquisition/renewal is capped at 600000 ms (10 minutes). An unrenewed lock older than 10 minutes cannot block. Deliberate renewal refreshes the deadline; presence heartbeat does not. There is
 no fairness queue or automatic force-steal; atomic acquisition prevents partial
 sets, while cooperation is still required for pre-existing separately held locks.
 Wall-clock changes affect expiry, and advisory locks do not fence OS writes.
@@ -116,3 +116,11 @@ rejection, stalled-owner expiry, orderly leave, and expired-owner cleanup.
 `tests/storage-scale.test.mjs` bounds lock, conflict and `check_paths` latency with
 10,000 leases and 100,000 audit rows; `check_paths` reports at most 100 conflicts
 and marks a larger set with `truncated:true`.
+
+## Before every edit and workspace discovery
+
+A live covering file/tree lease with `reasoning` is mandatory before every edit, including creation, deletion and rename (cover both paths). Reuse an existing live covering lease; otherwise acquire one and require `ok:true`.
+
+`locks '{}' --session <id> --workspace <repo>` lists all active locks in the bound workspace, with owner agent ID, reason, `acquiredAt`, `refreshedAt` and `expiresAt` in epoch milliseconds. MCP exposes the same `locks` tool. Follow every `{command,input}` continuation. Expired leases and leases of expired owners are excluded by default; `entity list lease '{"presence":"all"}'` is diagnostic history, never current ownership.
+
+On conflict, send the owner one short handoff request using the returned `next`, if needed; otherwise wait or do independent work. Retry acquisition after release/expiry, and edit only after it succeeds. SQLite-only renewals must set `refreshedAt` and `expiresAt` together; the database caps expiry at refresh plus 10 minutes. The development schema changed; older databases are preserved and rejected, not migrated. Use a fresh development database.
