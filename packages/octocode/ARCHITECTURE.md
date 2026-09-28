@@ -24,7 +24,7 @@ TypeScript remains only for:
 - `skill`, backed by the shared skill installer;
 - the TTY picker for `install` without `--ide`, which discovers client ids from `native install --list --json` and delegates the selected id back to native.
 
-Everything else—`config`, `auth`, `lsp-server`, tool invocations (`<toolName> '<json>'`), and non-interactive `install`—is delegated to the native CLI. Interactive installation is a transport adapter, not a second installer. The native `skill` command shells back to this launcher; `OCTOCODE_SKILL_DELEGATED` guards that hop so a native binary on PATH cannot recurse.
+Everything else—`showConfig`, `config`, `auth`, `lsp-server`, tool invocations (`<toolName> '<json>'`), and non-interactive `install`—is delegated to the native CLI. Interactive installation is a transport adapter, not a second installer. The native `skill` command shells back to this launcher; `OCTOCODE_SKILL_DELEGATED` guards that hop so a native binary on PATH cannot recurse.
 
 ## Build and packaging
 
@@ -45,3 +45,5 @@ Publish native platform packages, the native root, contract/config prerequisites
 - Keep management-only TypeScript paths explicit and small.
 - Do not add Node-side query batching, provider behavior, security policy, response shaping, or tool-specific error recovery.
 - Validate both the direct native CLI and the built Node launcher, including CLI/MCP structured-result parity.
+
+Global `.env` mutation uses the native config module’s shared parser and protection policy. The CLI accepts key/value arguments or a value on stdin, prints only mutation metadata, and delegates locked atomic file replacement to config.

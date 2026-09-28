@@ -82,6 +82,11 @@ pub struct GraphFactCall {
     pub line: u32,
     pub range: GraphRange,
     pub kind: String,
+    /// Syntactic type of a member call's receiver (`x` in `x.m()`) as written,
+    /// without references, pointers or generic arguments; absent when the
+    /// parser cannot read it from a declaration, constructor or field.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub receiver_type: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]

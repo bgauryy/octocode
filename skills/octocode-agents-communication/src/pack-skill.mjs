@@ -1,63 +1,51 @@
 import { execFileSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync } from 'node:fs';
+import { dirname, join, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { checkSkill, verifyStartup, digest, executableName, rustHostTarget, verifyExecutable } from './artifact-checks.mjs';
+import { checkSkill, checkStartup, digest, payloadFiles, payloadDigest, python, runRuntime, runtimeInfo } from './artifact-checks.mjs';
 
-export function packSkill(root, { hostTarget, target = process.env.CARGO_BUILD_TARGET ?? hostTarget, timeoutMs = 10000 }) {
-  if (target !== hostTarget) throw new Error('Packaging requires native validation on the target platform; cross-builds are not release-ready archives.');
-  const skill = root;
-  const bin = join(skill, 'scripts');
-  if (!existsSync(bin)) throw new Error('Build the skill before packaging it.');
-  const targets = [target];
-  const checkHashes = base => {
-    for (const target of targets) {
-      const name = executableName(target);
-      for (const entry of readdirSync(base, { withFileTypes: true })) {
-        if (entry.name.endsWith('.tmp') || entry.name === 'bin') {
-          throw new Error(`Unexpected runtime artifact: ${target}/${entry.name}; finish the build before packaging.`);
-        }
-      }
-      const expected = `${digest(join(base, name))}  ${name}\n`;
-      if (readFileSync(join(base, 'SHA256SUMS'), 'utf8') !== expected) throw new Error(`Checksum mismatch: ${target}`);
-    }
-  };
-  checkHashes(bin);
+export function packSkill(root, { timeoutMs = 10000 } = {}) {
+  const runtime = runtimeInfo();
+  const scripts = join(root, 'scripts');
+  if (!existsSync(join(scripts, 'communication.py'))) throw Error('Portable Python runtime is missing; build the skill before packaging.');
   const { version } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
-  const out = join(root, 'out');
-  mkdirSync(out, { recursive: true });
-  const name = `octocode-agents-communication-${version}-${target}.tar.gz`;
-  const archive = join(out, name);
+  const out = join(root, 'out'); mkdirSync(out, { recursive: true });
+  const name = `octocode-agents-communication-${version}-portable.tar.gz`, archive = join(out, name);
   const staging = mkdtempSync(join(out, '.communication-pack-'));
   try {
-    const candidate = join(staging, name);
-    const extracted = join(staging, 'extracted');
-    mkdirSync(extracted);
-    const payload = join(staging, 'payload');
-    const shipped = join(payload, 'octocode-agents-communication');
+    const shipped = join(staging, 'payload/octocode-agents-communication');
     mkdirSync(shipped, { recursive: true });
-    cpSync(join(skill, 'SKILL.md'), join(shipped, 'SKILL.md'));
-    cpSync(join(skill, 'scripts'), join(shipped, 'scripts'), { recursive: true });
-    execFileSync('tar', ['-czf', candidate, '-C', payload, 'octocode-agents-communication'], { timeout: 60000, killSignal: 'SIGKILL' });
-    execFileSync('tar', ['-xzf', candidate, '-C', extracted], { timeout: 60000, killSignal: 'SIGKILL' });
+    copyFileSync(join(root, 'SKILL.md'), join(shipped, 'SKILL.md'));
+    for (const source of payloadFiles(scripts)) {
+      const destination = join(shipped, 'scripts', relative(scripts, source));
+      mkdirSync(dirname(destination), { recursive: true }); copyFileSync(source, destination);
+    }
+    const candidate = join(staging, name), extracted = join(staging, 'extracted');
+    mkdirSync(extracted);
+    execFileSync(python(), ['-B', '-c', 'import sys,tarfile; archive,payload,extracted=sys.argv[1:];\nwith tarfile.open(archive,"w:gz") as t: t.add(payload,arcname="octocode-agents-communication")\nwith tarfile.open(archive,"r:gz") as t: t.extractall(extracted)', candidate, shipped, extracted], { timeout: 60000, killSignal: 'SIGKILL' });
     const extractedSkill = join(extracted, 'octocode-agents-communication');
-    const extractedBin = join(extractedSkill, 'scripts');
-    checkHashes(extractedBin);
-    const verification = Object.fromEntries(targets.map(target => {
-      const executable = join(extractedBin, executableName(target));
-      const checks = verifyExecutable(executable, { target, hostTarget, timeoutMs, coldStart: true });
-      checks.skill = checkSkill(executable, join(extractedSkill, 'SKILL.md'), timeoutMs);
-      return [target, checks];
-    }));
+    const entry = join(extractedSkill, 'scripts/communication.py');
+    const runtimeSha256 = payloadDigest(join(shipped, 'scripts'));
+    if (payloadDigest(join(extractedSkill, 'scripts')) !== runtimeSha256) throw Error('Extracted portable runtime differs from packaged payload.');
+    const verification = { startup: checkStartup(entry, timeoutMs), skill: checkSkill(entry, join(extractedSkill, 'SKILL.md'), timeoutMs) };
+    const schema = JSON.parse(runRuntime(entry, ['schema'], { timeout: timeoutMs }));
+    if (!schema.commands?.length || !schema.tools?.length || !schema.database?.sql) throw Error('Extracted runtime schema is incomplete.');
+    verification.schema = { passed: true, commands: schema.commands.length, tools: schema.tools.length };
+    const workspace = join(staging, 'workspace'); mkdirSync(workspace);
+    const database = join(workspace, 'state.sqlite');
+    const flags = ['--workspace', workspace, '--database', database];
+    const call = args => JSON.parse(runRuntime(entry, [...args, ...flags], { timeout: timeoutMs }));
+    const agent = call(['join', '{"name":"package-check","vendor":"generic"}']);
+    if (!agent.id || call(['peers']).items?.[0]?.id !== agent.id || call(['db', 'info']).compatible !== true) throw Error('Extracted runtime database smoke failed.');
+    call(['leave', '--session', agent.id]);
+    verification.database = { passed: true };
     const launcher = process.platform === 'win32'
-      ? verifyStartup('powershell.exe', { timeoutMs, coldStart: true }, ['-NoProfile', '-NonInteractive', '-File', join(extractedSkill, 'scripts/agents-communication.ps1'), '--help'])
-      : verifyStartup(join(extractedSkill, 'scripts/agents-communication'), { timeoutMs, coldStart: true });
+      ? checkStartup('powershell.exe', timeoutMs, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', join(extractedSkill, 'scripts/agents-communication.ps1'), '--help'])
+      : checkStartup('/bin/sh', timeoutMs, [join(extractedSkill, 'scripts/agents-communication'), '--help']);
     renameSync(candidate, archive);
-    return { archive, sha256: digest(archive), targets, verification, launcher };
+    return { archive, sha256: digest(archive), format: 'portable-python', runtime, runtimeSha256, verifiedPlatform: process.platform, verification, launcher };
   } finally { rmSync(staging, { recursive: true, force: true }); }
 }
-
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const root = dirname(dirname(fileURLToPath(import.meta.url)));
-  console.log(JSON.stringify(packSkill(root, { hostTarget: rustHostTarget() })));
+  console.log(JSON.stringify(packSkill(dirname(dirname(fileURLToPath(import.meta.url))))));
 }

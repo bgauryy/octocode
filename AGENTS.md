@@ -26,6 +26,7 @@ $OCTO scheme <name> --compact                   # schema before calling
 | Need | Use |
 |---|---|
 | Search code / files / symbols / LSP | Local CLI (`$OCTO <toolName> '<json>'`) **or** Octocode MCP |
+| Repo-wide structure: callers, dependents, cycles, blast radius, possible issues | `$OCTO graph ingest <path>` once, then `$OCTO graph query <op>` (`$OCTO graph --help`) |
 | GitHub code, PRs, history | same tools — `ghSearchRepo`, `ghSearchCode`, `ghStructure`, `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem`, `ghCloneRepo` |
 | Package discovery | `artifactSearch` |
 | Research / trace / change impact | `octocode-research` skill |
@@ -116,7 +117,7 @@ Workspace packages (`packages/*`) and one external core. Each package has its ow
 | Package | npm name | Role |
 |---|---|---|
 | [`octocode-skill-installer`](packages/octocode-skill-installer) | `@octocodeai/octocode-skill-installer` *(private)* | Shared durable skill materialization: platform paths, links/junctions, conflict policy. Bundled into callers. |
-| [`octocode-agents-communication`](skills/octocode-agents-communication) | `@octocodeai/octocode-agents-communication` *(private)* | Session identity, advisory path leases, and direct messages. The skill folder ships the Rust CLI. Unpublished. |
+| [`octocode-agents-communication`](skills/octocode-agents-communication) | `@octocodeai/octocode-agents-communication` *(private)* | Session identity, advisory path leases, and direct messages. The skill folder ships the Python CLI. Unpublished. |
 | [`octocode-benchmark`](packages/octocode-benchmark) | `@octocodeai/octocode-benchmark` *(private)* | Internal evals: head-to-head comparisons, VRPT scoring. Ships the `octocode-benchmark` skill. |
 | [`octocode-jev-lab`](packages/octocode-jev-lab) | `@octocodeai/jev-lab` *(private)* | Direct Jev/clasify provider probe for latency and multi-resource experiments, bypassing the runtime adapter. `yarn jev:probe --input <manifest>`. |
 
@@ -178,7 +179,7 @@ Three skill trees. Entries in [`.agents/skills/`](.agents/skills/) (gitignored) 
 | `octocode-scraping` | Fetch public URLs / crawl a site into a local corpus |
 | `octocode-chrome-devtools` | Real browser needed: JS-rendered pages, DOM, HAR, console, auth sessions |
 
-Package-owned skill outside `skills/`: `octocode-benchmark` ([`packages/octocode-benchmark/skills/`](packages/octocode-benchmark/skills/)). Communication lives directly in [`skills/octocode-agents-communication/`](skills/octocode-agents-communication/), including its Rust runtime source. Public folder contract: [`skills/README.md`](skills/README.md).
+Package-owned skill outside `skills/`: `octocode-benchmark` ([`packages/octocode-benchmark/skills/`](packages/octocode-benchmark/skills/)). Communication lives directly in [`skills/octocode-agents-communication/`](skills/octocode-agents-communication/), including its Python runtime source. Public folder contract: [`skills/README.md`](skills/README.md).
 
 ### Tested — [`skills-beta/`](skills-beta/) (not published)
 
@@ -208,7 +209,7 @@ yarn docs:verify · yarn health:check · yarn deps:dedupe   # docs links, worksp
 **Use `yarn build:dev` locally** (debug native + extension-rust + TS). `yarn build` compiles in
 **release**. Root builds run through `scripts/workspace-health.mjs run build --parallel`: each
 workspace starts once its dependencies finish (package deps plus `BUILD_INPUTS` edges, e.g.
-native's build.rs reads octocode-config's generated contract), so the three Cargo workspaces
+native's build.rs reads octocode-config's generated contract), so the native and extension Cargo workspaces
 overlap. Native builds go through `packages/octocode-native/scripts/build-native.cjs`: the CLI
 binaries + runtime addon (one Cargo invocation) and the engine addon (`portable-default,napi-addon`,
 different engine features) build **concurrently in separate target dirs** (`target/` and

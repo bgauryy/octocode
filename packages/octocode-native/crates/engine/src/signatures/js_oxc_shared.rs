@@ -26,6 +26,8 @@ pub(super) struct GraphCall {
     pub(super) line: u32,
     pub(super) range: Range,
     pub(super) kind: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) receiver_type: Option<String>,
 }
 
 #[derive(Serialize)]

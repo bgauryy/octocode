@@ -355,6 +355,7 @@ impl Operation<'_, '_> {
                         "operation": "workspaceSymbol",
                         "symbolName": name,
                         "uri": file,
+                        "goal": query.goal(),
                         "reasoning": format!("Search the {language} project that shares this workspace root.")
                     }
                 });

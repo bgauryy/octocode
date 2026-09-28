@@ -26,6 +26,10 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
   const rawArgv = argv ?? process.argv.slice(2);
   const args = parseArgs(rawArgv);
   if (args.options['no-color']) process.env.NO_COLOR = '1';
+  if (args.command === 'help' && ['scheme', 'skill'].includes(args.args[0])) {
+    args.command = args.args.shift() ?? null;
+    args.options.help = true;
+  }
 
   // A bare `octocode` (no command, no help/version flag) is the agent overview:
   // the same catalog `scheme` emits — short tool descriptions, availability, the

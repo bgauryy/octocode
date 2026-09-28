@@ -6,6 +6,7 @@ import { openSync, readSync, closeSync, fstatSync, realpathSync } from 'node:fs'
 import { relative, isAbsolute, sep } from 'node:path';
 import { registerBoundTools } from './pi-extension.mjs';
 import { checkHostWrite, plainHostPath } from './hooks/lease-check.mjs';
+import { runtimeCommand } from './cli-command.mjs';
 
 const exec = promisify(execFile);
 const hosts = new WeakMap();
@@ -34,7 +35,7 @@ export function registerPiInbox(pi, options = {}) {
     return previous.controller;
   }
   const binary = options.binary || fileURLToPath(new URL('./agents-communication', import.meta.url));
-  let lastHeartbeat = 0, diskCache;
+  let lastHeartbeat = 0, diskCache, maintenance;
   const pending = new Map();
   let binding, context, timer, polling, active = false, starting = false, stopped = true, generation = 0, idle = idleMin, deliveries = 0;
   let lifecycle = Promise.resolve(), lifecycleRevision = 0;
@@ -44,9 +45,10 @@ export function registerPiInbox(pi, options = {}) {
   const invalidate = () => { stopped = true; generation += 1; clearTimeout(timer); };
   const invoke = async (args, target = binding) => {
     if (!target) throw new Error('Communication is disabled or no session is bound');
-    const { stdout } = await exec(binary, [...args, '--workspace', target.workspace,
+    const invocation = runtimeCommand(binary, [...args, '--workspace', target.workspace,
       ...(target.database ? ['--database', target.database] : []),
-      ...(target.session ? ['--session', target.session] : [])], { timeout: 10000, maxBuffer: 1024 * 1024 });
+      ...(target.session ? ['--session', target.session] : [])]);
+    const { stdout } = await exec(invocation.command, invocation.args, { timeout: 10000, maxBuffer: 1024 * 1024 });
     return JSON.parse(stdout);
   };
   const call = (command, input = {}) => invoke([command, JSON.stringify(input)]);
@@ -149,7 +151,7 @@ export function registerPiInbox(pi, options = {}) {
       // Heartbeat and recovery are deterministic host work, never model calls.
       await confirmPending();
       if (expectedGeneration !== generation || !currentBinding()) return;
-      const { items, context: content, action } = await call('hook', { format: 'json', deferConfirm: true, consumer: `pi:${binding.vendorSession}` });
+      const { items, context: content, action } = await call('hook', { format: 'json', deferConfirm: true, consumer: `pi:${binding.vendorSession}`, managed: true });
       if (expectedGeneration !== generation || !currentBinding()) return;
       if (!items.length) {
         if (content) pi.sendMessage({customType:'octocode-directory',content,display:true,
@@ -175,7 +177,10 @@ export function registerPiInbox(pi, options = {}) {
     return polling;
   };
   if (options.tools !== undefined && typeof options.tools !== 'string') throw new Error('Communication tools must be comma-separated catalog names');
-  const schema = args => JSON.parse(execFileSync(binary, ['schema', ...args], { encoding: 'utf8', timeout: 10000, maxBuffer: 1024 * 1024 }));
+  const schema = args => {
+    const invocation = runtimeCommand(binary, ['schema', ...args]);
+    return JSON.parse(execFileSync(invocation.command, invocation.args, { encoding: 'utf8', timeout: 10000, maxBuffer: 1024 * 1024 }));
+  };
   const tools = schema(['tools', ...(options.tools === undefined ? [] : ['--tools', options.tools])]);
   const confirmationLimit = schema(['confirm_delivery']).inputSchema?.properties?.items?.maxItems;
   if (!Number.isSafeInteger(confirmationLimit) || confirmationLimit < 1) throw new Error('Invalid confirmation batch limit in communication catalog');
@@ -193,7 +198,7 @@ export function registerPiInbox(pi, options = {}) {
     const path = event.input?.path;
     if (!plainHostPath(path) || !plainHostPath(ctx.cwd)) return {block: true, reason: 'File edit requires a plain path without host aliases or parent traversal.'};
     try {
-      // The same Rust admission call as the Claude and OpenCode guards.
+      // The same Python admission call as the Claude and OpenCode guards.
       const covered = await checkHostWrite(target, {vendorSession: ctx.sessionManager.getSessionId(), cwd: ctx.cwd, path});
       if (currentBinding() !== target || !isBoundContext(ctx) || event.input?.path !== path) return {block: true, reason: 'Session or file path changed during lease validation; retry in the current session.'};
       if (!covered) return {block: true, reason: 'File edit blocked: acquire or renew your own covering lease before retrying.'};
@@ -205,6 +210,7 @@ export function registerPiInbox(pi, options = {}) {
   const stop = async () => {
     invalidate();
     await polling;
+    await maintenance?.catch(() => {});
     await completion;
     pending.clear();
     diskCache = undefined;
@@ -249,11 +255,12 @@ export function registerPiInbox(pi, options = {}) {
         assertCurrent();
         await call('attach', { transport: 'raw', vendorSession });
         assertCurrent();
+        lastHeartbeat = Date.now();
         stopped = false;
-        const identity = { ...binding };
+        const identity = { ...binding, leases: 'managed' };
         await persist({ customType: identityType,
-          content: `Communication session: ${binding.session}. Use bound tools for DB-audited coordination. The host maintains presence and delivers peer context; action messages wake an idle agent and passive messages wait. Skip manual setup and inbox polling. Lease guard: ${requireLeases ? 'write/edit checked before execution' : 'not configured'}; shell/custom tools and OS writes are not fenced.`,
-          display: false, details: identity }, () => entries().some(e => matches(e, identityType, d => d.session === identity.session && d.database === identity.database)), generation);
+          content: `Communication session: ${binding.session}. Use bound tools for DB-audited coordination. The host maintains presence, renews live owned leases and delivers peer context; acquire before editing, unlock when done, and reacquire expired leases. Action messages wake an idle agent and passive messages wait. Skip manual setup, renewal and inbox polling. Lease guard: ${requireLeases ? 'write/edit checked before execution' : 'not configured'}; shell/custom tools and OS writes are not fenced.`,
+          display: false, details: identity }, () => entries().some(e => matches(e, identityType, d => d.session === identity.session && d.database === identity.database && d.leases === 'managed')), generation);
         assertCurrent();
         await recover();
         assertCurrent();
@@ -262,14 +269,24 @@ export function registerPiInbox(pi, options = {}) {
         const tick = async () => {
           if (timerGeneration !== generation) return;
           if (!currentBinding()) { void shutdown().catch(error => console.error(`Communication cleanup: ${error.message}`)); return; }
-          if (active) {
-            idle = idleMin;
-            if (Date.now() - lastHeartbeat >= 15000) { lastHeartbeat = Date.now(); void call('heartbeat').catch(error => console.error(`Communication presence: ${error.message}`)); }
-          } else {
-            // Each empty poll doubles the wait; a delivery or turn boundary resets it.
-            const before = deliveries;
-            await drain();
-            idle = deliveries === before ? Math.min(idle * 2, idleMax) : idleMin;
+          try {
+            if (Date.now() - lastHeartbeat >= 15000) {
+              lastHeartbeat = Date.now();
+              maintenance = call('heartbeat', {renewLeases: true});
+              try { await maintenance; } finally { maintenance = undefined; }
+            }
+            if (active) {
+              idle = idleMin;
+            } else {
+              // Each empty poll doubles the wait; a delivery or turn boundary resets it.
+              const before = deliveries;
+              await drain();
+              idle = deliveries === before ? Math.min(idle * 2, idleMax) : idleMin;
+            }
+          } catch (error) {
+            console.error(`Communication lifecycle: ${error.message}`);
+            void shutdown().catch(cleanup => console.error(`Communication cleanup: ${cleanup.message}`));
+            return;
           }
           if (timerGeneration !== generation) return;
           timer = setTimeout(tick, idle);
@@ -289,7 +306,7 @@ export function registerPiInbox(pi, options = {}) {
     if (!enabled() || !isBoundContext(ctx)) { await shutdown(); return; }
     context = ctx;
     starting = true;
-    try { await drain(false); } finally { starting = false; }
+    try { await polling; await drain(false); } finally { starting = false; }
   });
   pi.on('agent_start', (_event, ctx) => { if (currentBinding() && isBoundContext(ctx)) active = true; });
   pi.on('agent_end', (_event, ctx) => {
@@ -337,7 +354,8 @@ export function registerPiInbox(pi, options = {}) {
       if (!currentBinding()) return Promise.reject(new Error('Communication is disabled or no current session is bound'));
       return call(command, input);
     },
-    getBinding: () => currentBinding() ? { ...binding } : null, isBoundContext, drain,
+    getBinding: () => currentBinding() ? { ...binding } : null, isBoundContext,
+    drain: async (...args) => { await polling; return drain(...args); },
     getGuardCapabilities: () => ({vendor: 'pi', configured: requireLeases, bound: Boolean(currentBinding()),
       supportedOperations: ['write', 'edit'], advisory: true,
       uncoveredOperations: ['bash', 'powershell', 'custom tools', 'OS writes', 'later extension rewrites']}),

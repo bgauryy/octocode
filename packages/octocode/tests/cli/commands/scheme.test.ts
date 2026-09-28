@@ -60,6 +60,38 @@ describe('scheme output format', () => {
 });
 
 describe('scheme command admission', () => {
+  it('rejects unknown flags with the global JSON error contract', async () => {
+    const output = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await expect(
+      runScheme({
+        command: 'scheme',
+        args: [],
+        options: { bogus: true, 'json-errors': true },
+      })
+    ).resolves.toBe(2);
+    expect(JSON.parse(output.mock.calls[0][0])).toEqual({
+      kind: 'octocode.toolError',
+      version: 1,
+      error: 'Unknown option: --bogus',
+    });
+    expect(error).not.toHaveBeenCalled();
+    output.mockRestore();
+    error.mockRestore();
+  });
+
+  it('rejects missing selector values', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await expect(
+      runScheme({
+        command: 'scheme',
+        args: ['localSearch'],
+        options: { select: true },
+      })
+    ).resolves.toBe(2);
+    expect(error).toHaveBeenCalledWith('--select requires a value.');
+    error.mockRestore();
+  });
   it('rejects extra tool names instead of silently ignoring them', async () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     await expect(

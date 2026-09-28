@@ -38,6 +38,7 @@ fn query() -> serde_json::Value {
     json!({
         "id":"decision",
         "reasoning":"Choose the next inspection.",
+        "goal":"Decide the next read.",
         "resources":[{"id":"observed","context":{"value":{"fact":"present"}}}],
         "questions":[
             {"id":"relevant","type":"noul","instructions":"Is it relevant?"},
@@ -47,7 +48,7 @@ fn query() -> serde_json::Value {
 }
 
 #[tokio::test]
-async fn clasify_accepts_optional_matrix_and_read_trace_context() {
+async fn clasify_requires_goal_and_reasoning_on_the_provider_state() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
@@ -56,7 +57,7 @@ async fn clasify_accepts_optional_matrix_and_read_trace_context() {
             "answers":{"answer":{"type":"noul","noul":0.8}},
             "usage":{"input_tokens":2,"output_tokens":1}
         })))
-        .expect(2)
+        .expect(1)
         .mount(&server)
         .await;
     let workspace = Workspace::new();
@@ -66,35 +67,65 @@ async fn clasify_accepts_optional_matrix_and_read_trace_context() {
         ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
         ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
     ]);
-    for reasoning in [None, Some("   ")] {
-        let mut input = query();
-        input["resources"] =
-            json!([{"id":"source","context":{"tool":"localFetch","query":{"path":file}}}]);
-        input["questions"] =
-            json!([{"id":"relevant","type":"noul","instructions":"Is evidence present?"}]);
-        match reasoning {
-            Some(reasoning) => input["reasoning"] = json!(reasoning),
-            None => {
-                input.as_object_mut().unwrap().remove("reasoning");
-            }
-        }
-        let outcome = runtime
-            .execute("semantic-reasoning".into(), "clasify".into(), input)
+    let mut input = query();
+    input["resources"] =
+        json!([{"id":"source","context":{"tool":"localFetch","query":{"path":file}}}]);
+    input["questions"] =
+        json!([{"id":"relevant","type":"noul","instructions":"Is evidence present?"}]);
+    input["reasoning"] = json!("The next read depends on whether the file states the fact.");
+    input["goal"] = json!("Files that state whether the evidence is present.");
+    let outcome = runtime
+        .execute("semantic-reasoning".into(), "clasify".into(), input.clone())
+        .await
+        .expect("required briefs reach the provider");
+    assert_eq!(
+        outcome.structured_content["queries"][0]["resources"][0]["pages"][0]["answers"]["relevant"]
+            ["noul"],
+        0.8,
+        "{}",
+        outcome.structured_content
+    );
+    let requests = server.received_requests().await.unwrap();
+    assert_eq!(requests.len(), 1);
+    let body = String::from_utf8(requests[0].body.clone()).unwrap();
+    assert!(
+        body.contains("The next read depends on whether the file states the fact."),
+        "reasoning must reach the provider state: {body}"
+    );
+    assert!(
+        body.contains("Files that state whether the evidence is present."),
+        "goal must reach the provider state: {body}"
+    );
+    for (field, invalid) in [
+        ("reasoning", serde_json::Value::Null),
+        ("reasoning", json!("")),
+        ("reasoning", json!("   ")),
+        ("goal", serde_json::Value::Null),
+        ("goal", json!("")),
+        ("goal", json!("   ")),
+    ] {
+        let mut rejected = input.clone();
+        rejected[field] = invalid;
+        let error = runtime
+            .execute("semantic-reasoning".into(), "clasify".into(), rejected)
             .await
-            .expect("trace context is optional");
-        assert_eq!(
-            outcome.structured_content["queries"][0]["resources"][0]["pages"][0]["answers"]["relevant"]
-                ["noul"],
-            0.8,
-            "{}",
-            outcome.structured_content
-        );
+            .expect_err("blank or missing briefs are rejected");
+        assert_eq!(error.code, "invalidInput");
+    }
+    for field in ["reasoning", "goal"] {
+        let mut missing = input.clone();
+        missing.as_object_mut().unwrap().remove(field);
+        let error = runtime
+            .execute("semantic-reasoning".into(), "clasify".into(), missing)
+            .await
+            .expect_err("missing briefs are rejected");
+        assert_eq!(error.code, "invalidInput");
     }
     runtime.close().await;
 }
 
 #[tokio::test]
-async fn provider_byte_limit_ignores_trace_and_isolates_oversized_questions() {
+async fn provider_byte_limit_forwards_reasoning_and_isolates_oversized_questions() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
@@ -117,7 +148,7 @@ async fn provider_byte_limit_ignores_trace_and_isolates_oversized_questions() {
         json!([{"id":"relevant","type":"noul","instructions":"Is evidence present?"}]);
     let mut trace = ordinary.clone();
     trace["id"] = json!("trace");
-    trace["reasoning"] = json!("trace-only ".repeat(900));
+    trace["reasoning"] = json!("Bound each captured resource before the next read.");
     // The matrix exceeds 4 MiB, but each independently captured resource and
     // provider request is within its own budget.
     trace["resources"] = json!((0..25)
@@ -155,7 +186,11 @@ async fn provider_byte_limit_ignores_trace_and_isolates_oversized_questions() {
     assert_eq!(requests.len(), 26);
     for request in requests {
         let body = String::from_utf8(request.body).unwrap();
-        assert!(!body.contains("trace-only"));
+        assert!(
+            body.contains("Bound each captured resource before the next read.")
+                || body.contains("Choose the next inspection."),
+            "reasoning must reach the provider state"
+        );
         assert!(body.len() < 200_000);
     }
     runtime.close().await;
@@ -293,7 +328,7 @@ async fn independent_resource_assessments_are_dispatched_concurrently() {
     ]);
     let input = json!({
         "id":"concurrent-resources",
-        "reasoning":"Assess independent resources without serial provider latency.",
+        "reasoning":"Assess independent resources without serial provider latency.","goal":"Decide the next read.",
         "resources":(0..4).map(|index| json!({
             "id":format!("resource-{index}"),
             "context":{"value":{"index":index}}
@@ -348,7 +383,7 @@ async fn classification_max_concurrency_bounds_provider_requests_in_flight() {
     ]);
     let input = json!({
         "id":"bounded-resources",
-        "reasoning":"Assess many resources without exceeding provider concurrency.",
+        "reasoning":"Assess many resources without exceeding provider concurrency.","goal":"Decide the next read.",
         "resources":(0..8).map(|index| json!({
             "id":format!("resource-{index}"),
             "context":{"value":{"index":index}}
@@ -415,7 +450,7 @@ async fn independent_query_matrices_are_dispatched_concurrently() {
         .map(|index| {
             json!({
                 "id":format!("query-{index}"),
-                "reasoning":"Assess an independent matrix without serial provider latency.",
+                "reasoning":"Assess an independent matrix without serial provider latency.","goal":"Decide the next read.",
                 "resources":[{"id":"resource","context":{"value":{"index":index}}}],
                 "questions":[{"id":"relevant","type":"noul","instructions":"Relevant?"}]
             })
@@ -469,7 +504,7 @@ async fn oversized_first_page_is_not_classified_or_given_a_looping_continuation(
     ]);
     let input = json!({
         "id":"bounded",
-        "reasoning":"Bound the supplied resource.",
+        "reasoning":"Bound the supplied resource.","goal":"Decide the next read.",
         "resources":[{"id":"large","maxChars":5,"context":{"value":{"text":"far too large"}}}],
         "questions":[{"id":"relevant","type":"noul","instructions":"Relevant?"}]
     });
@@ -514,9 +549,9 @@ async fn max_chars_budgets_sanitized_resource_payload_not_serialized_envelope() 
     ]);
     let input = json!({
         "id":"recover-full-content",
-        "reasoning":"Recover the exact pages of an oversized whole-file request.",
+        "reasoning":"Recover the exact pages of an oversized whole-file request.","goal":"Decide the next read.",
         "resources":[{"id":"file","maxChars":80_000,"context":{"tool":"localFetch","query":{
-            "path":file,"reasoning":"Read the complete file.","fullContent":true
+            "path":file,"goal": "test", "reasoning":"Read the complete file.","fullContent":true
         }}}],
         "questions":[{"id":"relevant","type":"noul","instructions":"Relevant?"}]
     });
@@ -569,8 +604,8 @@ async fn scout_expands_explicit_question_type_and_preserves_source_identity() {
         ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
     ]);
     let input = json!({
-        "id":"novelty", "reasoning":"Decide whether this unread section adds evidence.",
-        "resources":[{"id":"hooks","context":{"tool":"localFetch","query":{"path":file,"reasoning":"Screen the complete section."}}}],
+        "id":"novelty", "reasoning":"Decide whether this unread section adds evidence.","goal":"Decide the next read.",
+        "resources":[{"id":"hooks","context":{"tool":"localFetch","query":{"path":file,"goal": "test", "reasoning":"Screen the complete section."}}}],
         "questions":[{"id":"new","questionType":"addsEvidence","target":"Shutdown timing", "knownEvidence":["onClose runs after requests finish"]}]
     });
     let result = runtime
@@ -606,7 +641,7 @@ async fn search_rejects_removed_semantic_addon_without_calling_provider() {
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("OCTOCODE_CLASSIFICATION_API", "secret".into())]);
     let error = runtime.execute("search".into(), "localSearch".into(), json!({
-        "path":workspace.workspace, "searchText":"hooks", "reasoning":"Discover candidates.",
+        "path":workspace.workspace, "searchText":"hooks", "goal": "test", "reasoning":"Discover candidates.",
         "semanticRerank":{"questions":[{"id":"q","question":"Relevant?"}]}
     })).await.expect_err("semantic checks require clasify");
     assert_eq!(error.code, "invalidInput");
@@ -638,9 +673,9 @@ async fn page_budget_continuation_round_trips_through_the_public_contract() {
     ]);
     let input = json!({
         "id":"paged",
-        "reasoning":"Assess bounded pages.",
+        "reasoning":"Assess bounded pages.","goal":"Decide the next read.",
         "resources":[{"id":"file","maxChars":5000,"context":{"tool":"localFetch","query":{
-            "path":file,"reasoning":"Read the next exact line.","chunkSize":1,"fullContent":false
+            "path":file,"goal": "test", "reasoning":"Read the next exact line.","chunkSize":1,"fullContent":false
         }}}],
         "questions":[{"id":"relevant","questionType":"contribution","target":"line content"}]
     });
@@ -718,9 +753,9 @@ async fn payload_over_max_chars_returns_an_executable_clasify_continuation() {
     ]);
     let input = json!({
         "id":"over-budget",
-        "reasoning":"Assess no more than the resource payload budget.",
+        "reasoning":"Assess no more than the resource payload budget.","goal":"Decide the next read.",
         "resources":[{"id":"file","maxChars":80_000,"context":{"tool":"localFetch","query":{
-            "path":file,"reasoning":"Read the complete file.","fullContent":true
+            "path":file,"goal": "test", "reasoning":"Read the complete file.","fullContent":true
         }}}],
         "questions":[{"id":"relevant","type":"noul","instructions":"Relevant?"}]
     });
@@ -752,7 +787,7 @@ async fn invalid_inner_query_is_rejected_with_the_exact_contract_field() {
     let runtime = workspace.runtime(&[("OCTOCODE_CLASSIFICATION_API", "secret".into())]);
     let input = json!({
         "id": "bad-inner-query",
-        "reasoning": "Test that an invalid inner path surfaces its field name.",
+        "reasoning": "Test that an invalid inner path surfaces its field name.","goal":"Decide the next read.",
         "resources": [{
             "id": "r1",
             "context": {
@@ -807,9 +842,9 @@ async fn search_resource_fans_out_candidates_from_only_the_requested_page() {
     ]);
     let input = json!({
         "id":"search-page",
-        "reasoning":"Judge one search page.",
+        "reasoning":"Judge one search page.","goal":"Decide the next read.",
         "resources":[{"id":"hits","context":{"tool":"localSearch","query":{
-            "path":root,"searchText":"needle","reasoning":"Find hits.",
+            "path":root,"searchText":"needle","goal": "test", "reasoning":"Find hits.",
             "resultView":"paginated","pageSize":2
         }}}],
         "questions":[{"id":"relevant","type":"noul","instructions":"Relevant?"}]
@@ -899,10 +934,10 @@ async fn file_chunk_scout_hydrates_five_candidates_and_returns_exact_reads() {
     ]);
     let input = json!({
         "id":"hydrated-search",
-        "reasoning":"Judge source around each search hit.",
+        "reasoning":"Judge source around each search hit.","goal":"Decide the next read.",
         "resources":[{"id":"hits","context":{
             "tool":"localSearch","candidateEvidence":"fileChunks","query":{
-                "path":root,"searchText":"needle","reasoning":"Find candidates.",
+                "path":root,"searchText":"needle","goal": "test", "reasoning":"Find candidates.",
                 "resultView":"paginated","pageSize":20
             }
         },"maxChars":20_000}],
@@ -981,7 +1016,7 @@ async fn expanded_cells_fail_before_any_provider_request() {
     let resource = |id: &str, root: &str| {
         json!({
             "id":id,"context":{"tool":"localSearch","candidateEvidence":"search","query":{
-                "path":workspace.workspace.join(root),"searchText":"needle","reasoning":"Find candidates.",
+                "path":workspace.workspace.join(root),"searchText":"needle","goal": "test", "reasoning":"Find candidates.",
                 "pageSize":5
             }}
         })
@@ -1003,7 +1038,7 @@ async fn expanded_cells_fail_before_any_provider_request() {
             "expanded-cells".into(),
             "clasify".into(),
             json!({
-                "id":"expanded-cells","reasoning":"Exercise the runtime expansion gate.",
+                "id":"expanded-cells","reasoning":"Exercise the runtime expansion gate.","goal":"Decide the next read.",
                 "resources":[resource("a","a"),resource("b","b")],"questions":questions
             }),
         )
@@ -1040,8 +1075,8 @@ async fn empty_file_is_reported_without_a_provider_call() {
         ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
     ]);
     let input = json!({
-        "id":"empty","reasoning":"Screen an empty artifact.",
-        "resources":[{"id":"e","context":{"tool":"localFetch","query":{"path":file,"reasoning":"Read it."}}}],
+        "id":"empty","reasoning":"Screen an empty artifact.","goal":"Decide the next read.",
+        "resources":[{"id":"e","context":{"tool":"localFetch","query":{"path":file,"goal": "test", "reasoning":"Read it."}}}],
         "questions":[{"id":"q","type":"noul","instructions":"Relevant?"}]
     });
     let outcome = runtime
@@ -1078,10 +1113,10 @@ async fn empty_search_page_is_not_sent_to_the_provider() {
         ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
     ]);
     let input = json!({
-        "id":"empty-search","reasoning":"Screen a search page.",
+        "id":"empty-search","reasoning":"Screen a search page.","goal":"Decide the next read.",
         "resources":[{"id":"e","context":{"tool":"localSearch","query":{
             "path":file,"searchText":"UNLIKELY_OCTOCODE_SENTINEL_673829",
-            "reasoning":"Find matching source."
+            "goal": "test", "reasoning":"Find matching source."
         }}}],
         "questions":[{"id":"q","type":"noul","instructions":"Does this page show a match?"}]
     });
@@ -1131,9 +1166,9 @@ async fn disjoint_file_match_windows_return_real_ranges_without_a_focus() {
         ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
     ]);
     let input = json!({
-        "id":"disjoint","reasoning":"Find relevant match windows.",
+        "id":"disjoint","reasoning":"Find relevant match windows.","goal":"Decide the next read.",
         "resources":[{"id":"f","context":{"tool":"localFetch","query":{
-            "path":file,"reasoning":"Read matching windows.",
+            "path":file,"goal": "test", "reasoning":"Read matching windows.",
             "matchString":"MARKER","contextLines":45,"chunkSize":50000
         }}}],
         "questions":[{"id":"q","type":"noul","instructions":"Does this content show MARKER?"}]
@@ -1180,9 +1215,9 @@ async fn long_positive_scout_sends_only_authored_questions_and_preserves_probabi
         ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
     ]);
     let input = json!({
-        "id":"pure-scout","reasoning":"Screen the document.",
+        "id":"pure-scout","reasoning":"Screen the document.","goal":"Decide the next read.",
         "resources":[{"id":"f","context":{"tool":"localFetch","query":{
-            "path":file,"reasoning":"Read the source."
+            "path":file,"goal": "test", "reasoning":"Read the source."
         }}}],
         "questions":[
             {"id":"shutdown","type":"noul","instructions":"Could this document contain shutdown guidance?"},
@@ -1226,13 +1261,21 @@ async fn long_positive_scout_sends_only_authored_questions_and_preserves_probabi
     assert_eq!(
         sent["questions"]["answer_0"],
         json!({
-            "type":"noul","instructions":"Could this document contain shutdown guidance?"
+            "instructions":{
+                "question":"Could this document contain shutdown guidance?",
+                "goal":"Decide the next read."
+            },
+            "type":"noul"
         })
     );
     assert_eq!(
         sent["questions"]["answer_1"],
         json!({
-            "type":"choice","instructions":"Classify the document's role.",
+            "instructions":{
+                "question":"Classify the document's role.",
+                "goal":"Decide the next read."
+            },
+            "type":"choice",
             "criteria":{"yes":"Has guidance","no":"No guidance"}
         })
     );
@@ -1271,9 +1314,9 @@ async fn snippet_continuations_visit_every_file_and_match_page_before_completing
         ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
     ]);
     let mut input = json!({
-        "id":"matrix-1","reasoning":"Cover every file and match page.",
+        "id":"matrix-1","reasoning":"Cover every file and match page.","goal":"Decide the next read.",
         "resources":[{"id":"files","context":{"tool":"localSearch","query":{
-            "reasoning":"Page snippets.","path":root,"searchText":"marker",
+            "goal": "test", "reasoning":"Page snippets.","path":root,"searchText":"marker",
             "pageSize":1,"maxMatchesPerFile":1,"sort":"path"
         }}}],
         "questions":[{"id":"needle","type":"noul","instructions":"Does the evidence contain secret needle?"}]
@@ -1316,4 +1359,47 @@ async fn snippet_continuations_visit_every_file_and_match_page_before_completing
     );
     assert_eq!(coverages[5], "complete", "{coverages:?}");
     runtime.close().await;
+}
+
+#[tokio::test]
+async fn clasify_locate_preflight_returns_a_typed_error_without_capture_or_provider_calls() {
+    let server = MockServer::start().await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[
+        ("OCTOCODE_CLASSIFICATION_API", "secret".into()),
+        ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
+    ]);
+    let input = json!({
+        "reasoning":"Reject locate on a search resource.",
+        "goal":"Files that state the validation rules.",
+        "resources":[
+            {"id":"unread","context":{"tool":"localFetch","query":{"path":"/does-not-exist"}}},
+            {"id":"search","context":{"tool":"ghSearchCode","query":{"owner":"nonexistent"}}}
+        ],
+        "questions":[
+            {"questionType":"locate","target":"Validation rules"},
+            {"type":"noul","instructions":"Does this validate requests?"}
+        ]
+    });
+    let outcome = runtime
+        .execute("preflight".into(), "clasify".into(), input)
+        .await
+        .expect("typed rejection rather than WorkerFailed");
+    let resources = outcome.structured_content["queries"][0]["resources"]
+        .as_array()
+        .unwrap();
+    assert_eq!(resources.len(), 2);
+    for resource in resources {
+        assert_eq!(resource["coverage"], "error");
+        let page = &resource["pages"][0];
+        assert_eq!(page["error"]["code"], "classificationLocateUnsupported");
+        assert!(
+            page["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("search")
+        );
+        assert!(page.get("answers").is_none());
+    }
+    assert!(server.received_requests().await.unwrap().is_empty());
 }

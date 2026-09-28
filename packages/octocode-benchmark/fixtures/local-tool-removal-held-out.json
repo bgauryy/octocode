@@ -58,7 +58,7 @@
       "before": {"tool": "localSearch", "status": "retained"},
       "after": {
         "tool": "localSearch",
-        "query": {"reasoning": "Verify the retained lexical-search route.", "path": "<fixture>", "searchText": "alpha", "regex": "literal", "resultView": "paginated"}
+        "query": {"goal": "Verify the retained lexical-search route.", "reasoning": "Verify the retained lexical-search route.", "path": "<fixture>", "searchText": "alpha", "regex": "literal", "resultView": "paginated"}
       }
     },
     {
@@ -90,7 +90,7 @@
       "before": {"tool": "lspGetSemantics", "status": "retired"},
       "after": {
         "tool": "lspSearch",
-        "query": {"reasoning": "Verify the retained semantic-definition route.", "operation": "definition", "uri": "<fixture>", "symbolName": "alpha", "lineHint": 2},
+        "query": {"goal": "Verify the retained semantic-definition route.", "reasoning": "Verify the retained semantic-definition route.", "operation": "definition", "uri": "<fixture>", "symbolName": "alpha", "lineHint": 2},
         "providerOptional": true
       }
     }

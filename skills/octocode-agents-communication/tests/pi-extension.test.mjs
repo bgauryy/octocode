@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {registerBoundTools} from '../src/runtime/pi-extension.mjs';
+import {registerBoundTools} from '../scripts/pi-extension.mjs';
 function setup(){
  let hook,registered;
  const schema={type:'object',properties:{to:{type:'string'},topic:{type:'string'}},required:['to'],additionalProperties:false};

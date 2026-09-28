@@ -714,7 +714,7 @@ mod tests {
         };
         let query: GhGetFileContentQuery = serde_json::from_value(serde_json::json!({
             "owner": "a", "repo": "b", "path": "src/lib.rs", "branch": "main",
-            "chunkType": "lines", "chunkSize": 2, "reasoning": "test"
+            "chunkType": "lines", "chunkSize": 2, "goal": "test", "reasoning": "test"
         }))
         .expect("ghGetFileContent query");
         let result = execute_default_regex(
@@ -773,7 +773,7 @@ mod tests {
         };
         let query: GhGetFileContentQuery = serde_json::from_value(serde_json::json!({
             "owner": "a", "repo": "b", "path": "src/lib.rs", "branch": "main",
-            "matchString": "TOKEN", "contextLines": 0, "reasoning": "test"
+            "matchString": "TOKEN", "contextLines": 0, "goal": "test", "reasoning": "test"
         }))
         .expect("query");
         let result = execute_default_regex(
@@ -821,7 +821,7 @@ mod tests {
         };
         let query: GhGetFileContentQuery = serde_json::from_value(serde_json::json!({
             "owner": "a", "repo": "b", "path": "big.txt", "branch": sha,
-            "fullContent": true, "reasoning": "test"
+            "fullContent": true, "goal": "test", "reasoning": "test"
         }))
         .expect("query");
         let result = execute_default_regex(

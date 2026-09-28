@@ -288,6 +288,7 @@ pub(super) fn is_import_node(kind: &str) -> bool {
             | "preproc_include"
             | "require_command"
             | "source_command"
+            | "using_directive"
     )
 }
 
@@ -348,9 +349,30 @@ pub(super) fn call_callee<'tree>(
     node: Node<'tree>,
     content: &str,
 ) -> Option<(String, Node<'tree>)> {
+    // Java `obj.name(..)`: the receiver lives in a sibling `object` field.
+    if let (Some(object), Some(name)) =
+        (node.child_by_field_name("object"), node.child_by_field_name("name"))
+        && let Some(method) = node_text(name, content).and_then(compact_identifier)
+    {
+        let receiver = node_text(object, content)
+            .map(|text| text.split_whitespace().collect::<String>())
+            .and_then(|text| compact_identifier(&text))
+            .filter(|text| text.len() <= 80)
+            .unwrap_or_else(|| "<expr>".to_owned());
+        return Some((format!("{receiver}.{method}"), name));
+    }
     for field in ["function", "name", "method", "macro", "constructor"] {
         if let Some(child) = node.child_by_field_name(field) {
             if let Some(name) = node_text(child, content).and_then(compact_identifier) {
+                return Some((name, child));
+            }
+            // rustfmt/prettier break method chains across lines: collapse
+            // the whitespace so `self\n    .config\n    .iter` keeps its
+            // receiver instead of degrading to a bare `iter`.
+            if let Some(name) = node_text(child, content)
+                .map(|text| text.split_whitespace().collect::<String>())
+                .and_then(|text| compact_identifier(&text))
+            {
                 return Some((name, child));
             }
             if let Some(descendant) = first_name_descendant(child, 3)

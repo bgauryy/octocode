@@ -1,15 +1,40 @@
-import { execFileSync } from 'node:child_process';
+import * as childProcess from 'node:child_process';
+import { runtimeCommand } from '../scripts/cli-command.mjs';
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
+
+const python = childProcess.execFileSync(process.env.OCTOCODE_PYTHON || (process.platform === 'win32' ? 'python' : 'python3'), ['-c', 'import sys; print(sys.executable)'], { encoding: 'utf8' }).trim();
+function invocationFor(executable, args) {
+  const invocation = runtimeCommand(executable, args);
+  if (invocation.args[0] === '-B' && invocation.args[1]?.endsWith('.py')) invocation.command = python;
+  return invocation;
+}
+
+export function execFileSync(executable, args = [], ...rest) {
+  const invocation = invocationFor(executable, args);
+  return childProcess.execFileSync(invocation.command, invocation.args, ...rest);
+}
+export function execFile(executable, args = [], ...rest) {
+  const invocation = invocationFor(executable, args);
+  return childProcess.execFile(invocation.command, invocation.args, ...rest);
+}
+execFile[promisify.custom] = (executable, args = [], ...rest) => {
+  const invocation = invocationFor(executable, args);
+  return promisify(childProcess.execFile)(invocation.command, invocation.args, ...rest);
+};
+export function spawn(executable, args = [], ...rest) {
+  const invocation = invocationFor(executable, args);
+  return childProcess.spawn(invocation.command, invocation.args, ...rest);
+}
 
 export const root = fileURLToPath(new URL('../', import.meta.url));
 const scripts = join(root, 'scripts');
-const executable = `octocode-agents-communication${process.platform === 'win32' ? '.exe' : ''}`;
-/** Binary installed by src/build-skill.mjs for this host. */
-export const nativeBinary = join(scripts, executable);
-/** COMMUNICATION_BINARY override, else the prebuilt host binary. */
+/** Portable runtime entry; the historical name stays local to these fixtures. */
+export const nativeBinary = process.env.COMMUNICATION_BINARY || join(scripts, 'communication.py');
+/** COMMUNICATION_BINARY override, else the portable Python entry point. */
 export const binary = process.env.COMMUNICATION_BINARY || nativeBinary;
 /** Shipped POSIX launcher. */
 export const launcher = join(scripts, 'agents-communication');

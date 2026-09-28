@@ -34,7 +34,7 @@ async fn ordinary_tools_accept_optional_trace_context() {
         .execute(
             "reasoning-blank".into(),
             "localFetch".into(),
-            json!({"path":path,"reasoning":"   "}),
+            json!({"path":path,"goal": "test", "reasoning":"   "}),
         )
         .await
         .expect("blank trace context is harmless");
@@ -47,7 +47,7 @@ async fn ordinary_tools_accept_optional_trace_context() {
         .execute(
             "reasoning-valid".into(),
             "localFetch".into(),
-            json!({"path":path,"reasoning":"Read the fixture."}),
+            json!({"path":path,"goal": "test", "reasoning":"Read the fixture."}),
         )
         .await
         .expect("valid reasoning must be accepted");
@@ -71,8 +71,8 @@ async fn bulk_queries_preserve_indexes_and_isolate_domain_failures() {
             "bulk-success".into(),
             "localFetch".into(),
             json!({"queries":[
-                {"path":first,"reasoning":"Read the first fixture."},
-                {"path":second,"reasoning":"Read the second fixture."}
+                {"path":first,"goal": "test", "reasoning":"Read the first fixture."},
+                {"path":second,"goal": "test", "reasoning":"Read the second fixture."}
             ]}),
         )
         .await
@@ -92,8 +92,8 @@ async fn bulk_queries_preserve_indexes_and_isolate_domain_failures() {
             "bulk-mixed".into(),
             "localFetch".into(),
             json!({"queries":[
-                {"path":missing,"reasoning":"Exercise one missing fixture."},
-                {"path":first,"reasoning":"Retain the successful fixture."}
+                {"path":missing,"goal": "test", "reasoning":"Exercise one missing fixture."},
+                {"path":first,"goal": "test", "reasoning":"Retain the successful fixture."}
             ]}),
         )
         .await
@@ -148,13 +148,13 @@ async fn mcp_local_fetch_snapshots_stale_only_the_mutated_batch_row() {
                     "path":first_path,
                     "chunkType":"lines",
                     "chunkSize":1,
-                    "reasoning":"Page the first snapshot fixture."
+                    "goal": "test", "reasoning":"Page the first snapshot fixture."
                 },
                 {
                     "path":second_path,
                     "chunkType":"lines",
                     "chunkSize":1,
-                    "reasoning":"Page the second snapshot fixture."
+                    "goal": "test", "reasoning":"Page the second snapshot fixture."
                 }
             ]}),
         )

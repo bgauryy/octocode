@@ -515,7 +515,9 @@ impl ContentScan for crate::security::ContentSecurity {
 impl LocalFetchQuery {
     /// Minimal valid wire query; tests override the fields they exercise.
     pub(crate) fn test_default() -> Self {
-        serde_json::from_value(serde_json::json!({"path": "_", "reasoning": "test"}))
-            .expect("minimal localFetch query")
+        serde_json::from_value(
+            serde_json::json!({"path": "_", "goal": "test", "reasoning": "test"}),
+        )
+        .expect("minimal localFetch query")
     }
 }

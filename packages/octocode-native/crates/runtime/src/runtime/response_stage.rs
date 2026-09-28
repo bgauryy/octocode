@@ -46,6 +46,9 @@ pub(super) fn finish(
         allow_auto_paging,
         source_digest,
     } = input;
+    if tool != "clasify" {
+        super::continuations::fill_continuation_goals(&mut structured, &response_query);
+    }
     // Validate the complete, sanitized rows before deriving text, error state,
     // or a pagination snapshot from them.
     let repaired = match isolate_output_rows(&tool, &mut structured) {
@@ -179,7 +182,7 @@ mod tests {
             StageInput {
                 tool: tool.into(),
                 structured,
-                response_query: json!({"path":"/tmp/a.txt","reasoning":"r"}),
+                response_query: json!({"path":"/tmp/a.txt","goal": "test", "reasoning":"r"}),
                 options: ResponsePageOptions::default(),
                 mcp,
                 failure: None,
@@ -197,7 +200,7 @@ mod tests {
     fn fetch_row(index: usize) -> Value {
         json!({"index":index,"data":{"path":"a.txt","content":"one\n","totalLines":1,
             "next":{"continue":{"tool":"localFetch","confidence":"exact",
-                "query":{"path":"/tmp/a.txt","reasoning":"r","debug":false,"offset":1}}}}})
+                "query":{"path":"/tmp/a.txt","goal": "test", "reasoning":"r","debug":false,"offset":1}}}}})
     }
 
     #[test]
@@ -281,8 +284,8 @@ mod tests {
     fn clasify_receipts_keep_their_nested_queries_whole() {
         let receipt = json!({"queries":[{"queryId":"q","resources":[{"resourceId":"r","coverage":"complete",
             "pages":[{"answers":{"a":{"noul":0.5}}}]}],
-            "next":{"clasify":{"id":"q","reasoning":"r","resources":[{"id":"r","context":{"tool":"localFetch",
-                "query":{"path":"/tmp/a.txt","reasoning":"r","debug":false}}}],
+            "next":{"clasify":{"id":"q","goal": "test", "reasoning":"r","resources":[{"id":"r","context":{"tool":"localFetch",
+                "query":{"path":"/tmp/a.txt","goal": "test", "reasoning":"r","debug":false}}}],
                 "questions":[{"id":"a","type":"noul","instructions":"Does it?"}]}}}]});
         let outcome = stage("clasify", receipt.clone(), true);
         assert_eq!(outcome.structured_content["queries"], receipt["queries"]);

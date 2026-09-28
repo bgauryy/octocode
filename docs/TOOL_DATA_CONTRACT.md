@@ -36,7 +36,7 @@ and include those contracts in drift detection. Responses still carry matching
 
 ## Requests and result rows
 
-Each call uses one tool and an outer `queries` array of 1–5 queries. Independent queries can batch; a query that needs a prior result must wait for that result. Optional `goal` and `reasoning` provide task context and do not supply missing runtime fields.
+Each call uses one tool and an outer `queries` array of 1–5 queries. Independent queries can batch; a query that needs a prior result must wait for that result. Required `goal` and `reasoning` are the call brief, shared by every query in the batch, and do not supply missing runtime fields.
 
 For example, this is a `localFetch` request. Substitute an observed path and line range:
 

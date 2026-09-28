@@ -69,7 +69,14 @@
           "consumed"
         ],
         "reasoning": [
-          "workflow-metadata"
+          "consumed",
+          "forwarded",
+          "continuation"
+        ],
+        "goal": [
+          "consumed",
+          "forwarded",
+          "continuation"
         ],
         "resources": [
           "consumed"

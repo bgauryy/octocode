@@ -181,7 +181,7 @@ async fn github_clone_is_cli_only_even_when_mcp_enables_clone() {
         .execute_mcp(
             "mcp-clone".into(),
             "ghCloneRepo".into(),
-            json!({"queries":[{"owner":"a","repo":"b","reasoning":"check MCP gate"}]}),
+            json!({"queries":[{"owner":"a","repo":"b","goal": "test", "reasoning":"check MCP gate"}]}),
         )
         .await
         .expect_err("MCP channel cannot clone through a CLI runtime");
@@ -229,7 +229,7 @@ async fn three_github_bulk_queries_are_concurrent_and_preserve_order() {
             "path": name,
             "branch": sha,
             "forceRefresh": true,
-            "reasoning": format!("Read {name} through the GitHub bulk path."),
+            "goal": "test", "reasoning": format!("Read {name} through the GitHub bulk path."),
             "debug": true
         })
     });

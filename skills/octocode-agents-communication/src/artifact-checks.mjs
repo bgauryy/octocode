@@ -1,77 +1,45 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, copyFileSync, readFileSync, renameSync, rmSync, statSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join, relative } from 'node:path';
+import { runtimeCommand } from '../scripts/cli-command.mjs';
 
-export const rustHostTarget = () => execFileSync('rustc', ['-vV'], { encoding: 'utf8' }).match(/^host: (.+)$/m)[1];
-export const executableName = target => `octocode-agents-communication${target.includes('windows') ? '.exe' : ''}`;
-/** Executable that build-skill.mjs installs for `target`. */
-export const installedBinary = (target = rustHostTarget()) =>
-  fileURLToPath(new URL(`../scripts/${executableName(target)}`, import.meta.url));
 export const digest = path => createHash('sha256').update(readFileSync(path)).digest('hex');
-
+export const python = () => process.env.OCTOCODE_PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
+export function runRuntime(executable, args = [], options = {}) {
+  const invocation = runtimeCommand(executable, args);
+  return execFileSync(invocation.command, invocation.args, { encoding: 'utf8', timeout: 10000,
+    killSignal: 'SIGKILL', maxBuffer: 2 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'], ...options });
+}
+export function runtimeInfo() {
+  const value = JSON.parse(execFileSync(python(), ['-B', '-c', 'import sys,sqlite3,json; print(json.dumps({"implementation":"Python","version":sys.version.split()[0],"versionInfo":list(sys.version_info[:3]),"sqlite":sqlite3.sqlite_version}))'], { encoding: 'utf8', timeout: 10000 }));
+  if (value.versionInfo[0] !== 3 || value.versionInfo[1] < 9) throw Error('Python 3.9 or newer is required.');
+  return value;
+}
 export function checkSkill(executable, skillPath, timeoutMs = 10000) {
-  const response = JSON.parse(execFileSync(executable, ['skill'], {
-    encoding: 'utf8', timeout: timeoutMs, killSignal: 'SIGKILL', maxBuffer: 1024 * 1024,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  }));
-  if (response.instructions !== readFileSync(skillPath, 'utf8')) {
-    throw new Error('Embedded skill differs from packaged SKILL.md; rebuild before packaging.');
-  }
+  const response = JSON.parse(runRuntime(executable, ['skill'], { timeout: timeoutMs }));
+  if (response.instructions !== readFileSync(skillPath, 'utf8')) throw Error('Runtime skill differs from packaged SKILL.md.');
   return { passed: true };
 }
-
 export function checkStartup(executable, timeoutMs = 10000, args = ['--help']) {
   const started = performance.now();
   let result;
-  try {
-    result = JSON.parse(execFileSync(executable, args, {
-      encoding: 'utf8', timeout: timeoutMs, killSignal: 'SIGKILL', maxBuffer: 1024 * 1024,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    }));
-  } catch (error) {
-    throw new Error(`Read-only startup verification failed for ${executable}; artifact not published (${error.code ?? error.message}).`, { cause: error });
-  }
-  if (result?.package !== '@octocodeai/octocode-agents-communication' || result.implementation !== 'Rust') {
-    throw new Error(`Unexpected --help contract from ${executable}; artifact not published.`);
-  }
+  try { result = JSON.parse(runRuntime(executable, args, { timeout: timeoutMs })); }
+  catch (error) { throw new Error(`Read-only startup verification failed for ${executable}; artifact not published (${error.code ?? error.message}).`, { cause: error }); }
+  if (result?.package !== '@octocodeai/octocode-agents-communication' || result.implementation !== 'Python') throw Error(`Unexpected --help contract from ${executable}; artifact not published.`);
   return { passed: true, elapsedMs: performance.now() - started, timeoutMs };
 }
 
-// First execution of a new macOS inode can wait for XProtect. Keep this bounded
-// assessment allowance separate from the normal startup gate; never retry failures.
-export function verifyStartup(executable, { timeoutMs = 10000, coldStart = false, coldTimeoutMs = 60000 } = {}, args = ['--help']) {
-  const cold = coldStart && process.platform === 'darwin'
-    ? checkStartup(executable, coldTimeoutMs, args) : undefined;
-  return { ...checkStartup(executable, timeoutMs, args), ...(cold ? { coldStart: cold } : {}) };
+export function payloadFiles(root) {
+  return readdirSync(root, { withFileTypes: true }).sort((a,b) => a.name.localeCompare(b.name)).flatMap(entry => {
+    if (entry.name === '__pycache__' || /(?:\.py[co]|\.tmp)$/.test(entry.name)) return [];
+    if (entry.isSymbolicLink()) throw Error(`Portable runtime cannot contain a symlink: ${join(root, entry.name)}`);
+    const path = join(root, entry.name);
+    return entry.isDirectory() ? payloadFiles(path) : entry.isFile() ? [path] : [];
+  });
 }
-
-export function verifyExecutable(executable, { target, hostTarget, timeoutMs = 10000, coldStart = false, coldTimeoutMs = 60000 }) {
-  let signature = 'not-checked-on-this-host';
-  if (process.platform === 'darwin' && target.endsWith('-apple-darwin')) {
-    execFileSync('/usr/bin/codesign', ['--verify', '--strict', executable], {
-      timeout: timeoutMs, killSignal: 'SIGKILL', stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    signature = 'valid';
-  }
-  return { signature, startup: target === hostTarget ? verifyStartup(executable, { timeoutMs, coldStart, coldTimeoutMs }) : { passed: null, reason: 'foreign-target-needs-native-CI' } };
-}
-
-export function installExecutable(source, destination, options) {
-  const sourceHash = digest(source);
-  let unchanged = false;
-  try { unchanged = digest(destination) === sourceHash; }
-  catch (error) { if (error.code !== 'ENOENT') throw error; }
-  if (unchanged) {
-    if ((statSync(destination).mode & 0o777) !== 0o755) chmodSync(destination, 0o755);
-    return { changed: false, sha256: sourceHash, verification: verifyExecutable(destination, options) };
-  }
-  const temporary = `${destination}.${process.pid}.tmp`;
-  try {
-    copyFileSync(source, temporary);
-    chmodSync(temporary, 0o755);
-    const verification = verifyExecutable(temporary, { ...options, coldStart: true });
-    renameSync(temporary, destination);
-    return { changed: true, sha256: sourceHash, verification };
-  } finally { rmSync(temporary, { force: true }); }
+export function payloadDigest(root) {
+  const hash = createHash('sha256');
+  for (const path of payloadFiles(root)) hash.update(relative(root, path).replaceAll('\\', '/') + '\0').update(readFileSync(path)).update('\0');
+  return hash.digest('hex');
 }

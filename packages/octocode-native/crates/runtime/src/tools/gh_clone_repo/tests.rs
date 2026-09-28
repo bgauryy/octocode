@@ -213,7 +213,7 @@ fn setup<'a>(
 fn query() -> GhCloneRepoQuery {
     parse_query(serde_json::json!({
         "owner": "fixture-owner", "repo": "fixture-repo", "branch": "main",
-        "reasoning": "clone fixture"
+        "goal": "test", "reasoning": "clone fixture"
     }))
 }
 

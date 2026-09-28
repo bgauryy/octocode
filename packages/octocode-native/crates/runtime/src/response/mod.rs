@@ -688,16 +688,11 @@ fn build_continuation(
     page: &ResponsePagination,
 ) -> Option<ResponseContinuation> {
     let next_offset = page.next_char_offset.filter(|_| page.has_more)?;
-    let mut queries = query
+    let queries = query
         .get("queries")
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_else(|| vec![query.clone()]);
-    for query in &mut queries {
-        if let Some(object) = query.as_object_mut() {
-            object.remove("goal");
-        }
-    }
     // The runtime passes a flat query for one row and an envelope for a batch.
     // Keep the rows flat so the continuation can be submitted unchanged.
     let mut continuation = Map::new();
@@ -884,7 +879,7 @@ mod tests {
                 .prepare(
                     ResponseInput {
                         tool: "localFetch".into(),
-                        query: json!({"path":"a","reasoning":"r","debug":false}),
+                        query: json!({"path":"a","goal": "test", "reasoning":"r","debug":false}),
                         structured: envelope.clone(),
                         rendered_text: None,
                         is_error: false,
@@ -933,7 +928,7 @@ mod tests {
             .prepare(
                 ResponseInput {
                     tool: "localFetch".into(),
-                    query: json!({"path":"a","reasoning":"r"}),
+                    query: json!({"path":"a","goal": "test", "reasoning":"r"}),
                     structured: json!({"results":[{"index":0,"data":{"content":"body"}}]}),
                     rendered_text: None,
                     is_error: false,
@@ -958,7 +953,7 @@ mod tests {
             .prepare(
                 ResponseInput {
                     tool: "localFetch".into(),
-                    query: json!({"path":"a","reasoning":"r"}),
+                    query: json!({"path":"a","goal": "test", "reasoning":"r"}),
                     structured: envelope.clone(),
                     rendered_text: None,
                     is_error: false,
@@ -979,7 +974,7 @@ mod tests {
             .prepare(
                 ResponseInput {
                     tool: "localFetch".into(),
-                    query: json!({"path":"a","reasoning":"r"}),
+                    query: json!({"path":"a","goal": "test", "reasoning":"r"}),
                     structured: envelope.clone(),
                     rendered_text: Some("body".into()),
                     is_error: false,
@@ -1019,7 +1014,7 @@ mod tests {
         // continuation wraps in { queries: [q] } for backward compat
         assert_eq!(
             next["queries"][0],
-            json!({"path":"a", "reasoning":"r", "debug":true})
+            json!({"path":"a", "goal":"g", "reasoning":"r", "debug":true})
         );
         assert!(
             next["responseSnapshot"]
@@ -1033,8 +1028,8 @@ mod tests {
     fn bulk_continuations_preserve_queries_and_pass_output_contract() {
         let pager = ResponsePager::new(ResponsePagerConfig::default());
         let queries = json!([
-            {"path":"/repo/a.ts", "reasoning":"read first", "debug":true, "fullContent":true},
-            {"path":"/repo/b.ts", "reasoning":"read second", "debug":false, "startLine":2, "endLine":5}
+            {"path":"/repo/a.ts", "goal": "test", "reasoning":"read both", "debug":true, "fullContent":true},
+            {"path":"/repo/b.ts", "goal": "test", "reasoning":"read both", "debug":false, "startLine":2, "endLine":5}
         ]);
         for options in [
             options(8),

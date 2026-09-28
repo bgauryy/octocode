@@ -17,9 +17,11 @@ use crate::{
 use serde_json::{Value, json};
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
+const GITHUB_AUTH_RECOVERY_HINT: &str = "Run octocode auth login, or set OCTOCODE_TOKEN / GH_TOKEN / GITHUB_TOKEN. Fix or unset an invalid higher-priority environment token first; it overrides stored credentials.";
+
 fn provider_recovery_hint(kind: ProviderErrorKind) -> &'static str {
     match kind {
-        ProviderErrorKind::Authentication => "Authenticate with GitHub, then retry.",
+        ProviderErrorKind::Authentication => GITHUB_AUTH_RECOVERY_HINT,
         ProviderErrorKind::Permission => "Verify token scopes and repository access.",
         ProviderErrorKind::NotFound => "Verify owner/repo/ref and the requested identifier.",
         ProviderErrorKind::Validation => "Correct the invalid GitHub query fields.",
@@ -593,7 +595,7 @@ fn file_error(error: ProviderError, query: &Value) -> DomainResult {
     };
     let mut data = json!({"owner":owner,"repo":repo,"path":query["path"],"error":message});
     if error.kind == ProviderErrorKind::Authentication {
-        data["hints"] = json!(["octocode login, or set GITHUB_TOKEN / GH_TOKEN"]);
+        data["hints"] = json!([GITHUB_AUTH_RECOVERY_HINT]);
     }
     let requested = query["path"].as_str().unwrap_or_default();
     if error.message.as_ref() == BINARY_FILE_MESSAGE {
@@ -639,7 +641,7 @@ const BINARY_FILE_MESSAGE: &str = "binary files are not supported";
 /// comments) are a subset of the pull-request ones, so they carry over.
 fn attach_pull_request_recovery(data: &mut Value, query: &Value) {
     let mut next = serde_json::Map::new();
-    for field in ["owner", "repo", "number", "reasoning", "content"] {
+    for field in ["owner", "repo", "number", "goal", "reasoning", "content"] {
         if let Some(value) = query.get(field).filter(|value| !value.is_null()) {
             next.insert(field.into(), value.clone());
         }
@@ -672,6 +674,14 @@ fn tree_recovery(owner: &str, repo: &str, path: &str, query: &Value) -> Value {
     });
     if let Some(branch) = query["branch"].as_str() {
         tree["query"]["branch"] = json!(branch);
+    }
+    for field in ["goal", "reasoning"] {
+        if let Some(value) = query
+            .get(field)
+            .filter(|value| value.as_str().is_some_and(|text| !text.trim().is_empty()))
+        {
+            tree["query"][field] = value.clone();
+        }
     }
     tree
 }
@@ -733,7 +743,7 @@ fn search_error(tool: &str, error: ProviderError) -> DomainResult {
         serde_json::to_value(error.kind).unwrap_or(serde_json::Value::String("unknown".into()));
     let mut data = json!({"error": message, "errorCode": error_code});
     if error.kind == ProviderErrorKind::Authentication {
-        data["hints"] = json!(["octocode login, or set GITHUB_TOKEN / GH_TOKEN"]);
+        data["hints"] = json!([GITHUB_AUTH_RECOVERY_HINT]);
     } else if error.kind == ProviderErrorKind::RateLimited {
         data["hints"] = json!([
             "Wait for Retry-After or the rate-limit reset; authenticate for a higher quota."
@@ -768,7 +778,7 @@ fn history_error(error: ProviderError, search: bool) -> DomainResult {
     let (message, suggestion) = match error.kind {
         ProviderErrorKind::Authentication => (
             "GitHub authentication required",
-            Some("octocode login, or set GITHUB_TOKEN / GH_TOKEN"),
+            Some(GITHUB_AUTH_RECOVERY_HINT),
         ),
         ProviderErrorKind::Permission => (
             error.message.as_ref(),
@@ -853,7 +863,7 @@ fn history_error(error: ProviderError, search: bool) -> DomainResult {
         }
     }
     if error.kind == ProviderErrorKind::Authentication {
-        data["hints"] = json!(["octocode login, or set GITHUB_TOKEN / GH_TOKEN"]);
+        data["hints"] = json!([GITHUB_AUTH_RECOVERY_HINT]);
     }
     apply_provider_error_metadata(&mut data, &error);
     DomainResult {
@@ -869,6 +879,33 @@ fn history_error(error: ProviderError, search: bool) -> DomainResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn authentication_errors_explain_canonical_login_and_environment_precedence() {
+        let error = || ProviderError {
+            kind: ProviderErrorKind::Authentication,
+            message: "Bad credentials".into(),
+            status: Some(401),
+            request_id: None,
+            documentation_url: None,
+            rate_limit: None,
+            retryable: false,
+            reason: None,
+        };
+        for result in [
+            search_error("ghSearchCode", error()),
+            history_error(error(), true),
+            history_error(error(), false),
+            file_error(error(), &json!({"owner":"a","repo":"b","path":"x"})),
+            provider_error(error()),
+        ] {
+            let rendered = result.data.to_string();
+            assert!(rendered.contains("octocode auth login"), "{rendered}");
+            assert!(rendered.contains("OCTOCODE_TOKEN"), "{rendered}");
+            assert!(rendered.contains("Fix or unset"), "{rendered}");
+            assert!(!rendered.contains("octocode login"), "{rendered}");
+        }
+    }
 
     #[test]
     fn legal_block_is_not_rendered_as_a_network_failure() {

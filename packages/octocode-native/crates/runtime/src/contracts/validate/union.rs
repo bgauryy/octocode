@@ -399,7 +399,7 @@ mod tests {
                 "clasify",
                 json!({
                     "id":"missing-question-field",
-                    "reasoning":"Check the selected question.",
+                    "goal": "test", "reasoning":"Check the selected question.",
                     "resources":[{"id":"held","context":{"value":"Observed evidence"}}],
                     "questions":[question]
                 }),

@@ -1038,7 +1038,7 @@ mod tests {
 
     #[test]
     fn pure_clasify_requires_correlation_and_preserves_provider_entries() {
-        let query = json!({"id":"decision","reasoning":"Decide the next evidence read.","resources":[{"id":"source","context": {"value": {"observation": true}},"maxChars":80000}], "questions":[{"id":"answer",
+        let query = json!({"id":"decision","reasoning":"Decide the next evidence read.","goal":"Files that decide the next read.","resources":[{"id":"source","context": {"value": {"observation": true}},"maxChars":80000}], "questions":[{"id":"answer",
             "type": "noul", "instructions": {"prompt":"Assess supplied state"}, "criteria":{"true":null,"false":null}
         }]});
         let prepared = prepare_and_validate("clasify", query.clone(), PrepareOptions::default())
@@ -1053,7 +1053,7 @@ mod tests {
             prepare_and_validate("clasify", padded, PrepareOptions::default()).unwrap(),
             query
         );
-        for field in ["model", "goal", "debug", "route", "sources"] {
+        for field in ["model", "debug", "route", "sources"] {
             let mut invalid = query.clone();
             invalid[field] = json!("not part of the pure protocol");
             assert!(
@@ -1072,8 +1072,17 @@ mod tests {
         let mut blank_reasoning = query.clone();
         blank_reasoning["reasoning"] = json!("");
         assert!(
-            prepare_and_validate("clasify", blank_reasoning, PrepareOptions::default()).is_ok(),
-            "blank trace context is harmless"
+            prepare_and_validate("clasify", blank_reasoning, PrepareOptions::default()).is_err(),
+            "blank reasoning is rejected"
+        );
+        let mut missing_goal = query.clone();
+        missing_goal
+            .as_object_mut()
+            .expect("query object")
+            .remove("goal");
+        assert!(
+            prepare_and_validate("clasify", missing_goal, PrepareOptions::default()).is_err(),
+            "missing goal"
         );
     }
 
@@ -1081,17 +1090,33 @@ mod tests {
     fn validates_local_fetch_and_applies_schema_defaults() {
         let output = validate(
             "localFetch",
-            json!({"queries":[{"path":"/tmp/a","reasoning":"Read the fixture."}]}),
+            json!({"queries":[{"path":"/tmp/a","goal":"Read the fixture.","reasoning":"The next step needs these lines."}]}),
         )
         .expect("valid query");
-        assert_eq!(output["queries"][0]["goal"], Value::Null);
+        assert_eq!(output["queries"][0]["goal"], "Read the fixture.");
+        assert!(
+            validate(
+                "localFetch",
+                json!({"queries":[{"path":"/tmp/a","reasoning":"The next step needs these lines."}]}),
+            )
+            .is_err(),
+            "missing goal"
+        );
+        assert!(
+            validate(
+                "localFetch",
+                json!({"queries":[{"path":"/tmp/a","goal":"Read the fixture."}]}),
+            )
+            .is_err(),
+            "missing reasoning"
+        );
     }
 
     #[test]
     fn rejects_local_fetch_relations_and_unknown_fields() {
         let relation = validate(
             "localFetch",
-            json!({"queries":[{"path":"/tmp/a","fullContent":true,"chunkSize":2,"reasoning":"Read the complete fixture."}]}),
+            json!({"queries":[{"path":"/tmp/a","fullContent":true,"chunkSize":2,"goal": "test", "reasoning":"Read the complete fixture."}]}),
         )
         .expect_err("invalid relation");
         // `chunkSize` is a valid chunk control, mutually exclusive with
@@ -1110,7 +1135,7 @@ mod tests {
         assert!(
             validate(
                 "localFetch",
-                json!({"queries":[{"path":"/tmp/a","wat":true,"reasoning":"Exercise unknown-field validation."}]})
+                json!({"queries":[{"path":"/tmp/a","wat":true,"goal": "test", "reasoning":"Exercise unknown-field validation."}]})
             )
             .is_err()
         );
@@ -1126,7 +1151,7 @@ mod tests {
                 "owner":"octocat",
                 "repo":"Hello-World",
                 "keywords":["hello"],
-                "reasoning":"Reject a keyword search that would ignore its scope."
+                "goal": "test", "reasoning":"Reject a keyword search that would ignore its scope."
             });
             query[field] = json!("somewhere");
             let error = validate("ghSearchHistory", json!({"queries":[query]}))
@@ -1149,7 +1174,7 @@ mod tests {
             json!({"queries":[{
                 "owner":"octocode",
                 "repo":"octocode",
-                "reasoning":"Reject a repo-wide wildcard."
+                "goal": "test", "reasoning":"Reject a repo-wide wildcard."
             }]}),
         )
         .expect_err("owner/repo alone is not a runnable code search");
@@ -1166,7 +1191,7 @@ mod tests {
                 "owner":"octocode",
                 "repo":"octocode",
                 "path":"src",
-                "reasoning":"Run a path-bounded code search."
+                "goal": "test", "reasoning":"Run a path-bounded code search."
             }]}),
         )
         .expect("path is an explicit code-search narrowing filter");
@@ -1178,7 +1203,7 @@ mod tests {
             "ghSearchCode",
             json!({"queries":[{
                 "keywords":["isEmptyArray"],
-                "reasoning":"A keyword-only code search must not run globally."
+                "goal": "test", "reasoning":"A keyword-only code search must not run globally."
             }]}),
         )
         .expect_err("code search without an owner is a global wildcard");
@@ -1196,7 +1221,7 @@ mod tests {
             json!({"queries":[{
                 "owner":"sindresorhus",
                 "keywords":["isEmptyArray"],
-                "reasoning":"Owner-scoped code search is allowed."
+                "goal": "test", "reasoning":"Owner-scoped code search is allowed."
             }]}),
         )
         .expect("owner-scoped code search is runnable");
@@ -1231,7 +1256,7 @@ mod tests {
     fn formats_stable_cli_input_errors() {
         let range = validate(
             "localFetch",
-            json!({"queries":[{"path":"/tmp/a","startLine":5,"endLine":2,"reasoning":"Exercise range validation."}]}),
+            json!({"queries":[{"path":"/tmp/a","startLine":5,"endLine":2,"goal": "test", "reasoning":"Exercise range validation."}]}),
         )
         .expect_err("range");
         assert_eq!(
@@ -1243,7 +1268,7 @@ mod tests {
         );
         let unknown = validate(
             "localFetch",
-            json!({"queries":[{"path":"/tmp/a","madeUp":true,"reasoning":"Exercise unknown-field validation."}]}),
+            json!({"queries":[{"path":"/tmp/a","madeUp":true,"goal": "test", "reasoning":"Exercise unknown-field validation."}]}),
         )
         .expect_err("unknown");
         assert_eq!(
@@ -1259,7 +1284,7 @@ mod tests {
     fn names_the_selector_a_sibling_branch_needs_for_a_rejected_literal() {
         let error = validate(
             "localSearch",
-            json!({"queries":[{"path":"/tmp","searchText":"foo","unique":"list","reasoning":"List values."}]}),
+            json!({"queries":[{"path":"/tmp","searchText":"foo","unique":"list","goal": "test", "reasoning":"List values."}]}),
         )
         .expect_err("unique:list needs matchOnly");
         let formatted = format_input_error("localSearch", &error);
@@ -1275,7 +1300,7 @@ mod tests {
     fn names_the_mode_of_a_field_declared_by_a_sibling_branch() {
         let error = validate(
             "artifactSearch",
-            json!({"queries":[{"type":"npm","packageName":"zod","pageSize":3,"reasoning":"Exact lookup."}]}),
+            json!({"queries":[{"type":"npm","packageName":"zod","pageSize":3,"goal": "test", "reasoning":"Exact lookup."}]}),
         )
         .expect_err("pageSize is discovery-only");
         let formatted = format_input_error("artifactSearch", &error);

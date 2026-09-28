@@ -6,7 +6,8 @@ use serde_json::json;
 use support::Workspace;
 
 fn search(root: &str, extra: serde_json::Value) -> serde_json::Value {
-    let mut query = json!({"path":root,"searchText":"needle","reasoning":"Find needles."});
+    let mut query =
+        json!({"path":root,"searchText":"needle","goal": "test", "reasoning":"Find needles."});
     for (key, value) in extra.as_object().unwrap() {
         query[key] = value.clone();
     }

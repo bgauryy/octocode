@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync } from './helpers.mjs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { spawn } from 'node:child_process';
+import { spawn } from './helpers.mjs';
 import { createServer } from 'node:net';
 import { binary, tempWorkspace, withReasoning } from './helpers.mjs';
 

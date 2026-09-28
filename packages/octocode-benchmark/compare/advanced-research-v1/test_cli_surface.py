@@ -26,7 +26,7 @@ class CliSurface(unittest.TestCase):
                 self.assertEqual(policy.audit(shlex.join(launch + ["localFetch",
                     '{"path":"/outside/source.py"}'])), "query_outside_corpus")
                 self.assertIsNone(policy.audit(shlex.join(launch + ["localFetch",
-                    '{"reasoning":"Read fixture.","path":"' + str(self.source) + '"}'])))
+                    '{"goal":"Read fixture.","reasoning":"Read fixture.","path":"' + str(self.source) + '"}'])))
         self.assertEqual(policy.audit(shlex.join([str(self.root / "other.js"), "scheme"])),
                          "wrong_octocode_executable")
 
@@ -65,7 +65,7 @@ class CliSurface(unittest.TestCase):
             "id": "bad", "type": "command_execution", "command": command,
             "aggregated_output": failed.stdout + failed.stderr, "exit_code": failed.returncode}})
         self.assertFalse(audit.stop_requested)
-        args[-1] = json.dumps({"reasoning": "Read the repaired local fixture.", "path": str(self.source)})
+        args[-1] = json.dumps({"goal": "Read the repaired local fixture.", "reasoning": "Read the repaired local fixture.", "path": str(self.source)})
         repaired = subprocess.run(args, capture_output=True, text=True, timeout=20)
         self.assertEqual(repaired.returncode, 0, repaired.stderr)
         self.assertIn("pass", repaired.stdout)
@@ -98,21 +98,21 @@ class CliSurface(unittest.TestCase):
         def call(tool, query, *tail):
             return policy.audit(shlex.join(["node", str(self.cli), tool, json.dumps(query), *tail]))
         self.assertIsNone(call("localFetch", {
-            "reasoning": "Read the scoped fixture.", "path": str(self.source), "startLine": 1, "endLine": 1
+            "goal": "Read the scoped fixture.", "reasoning": "Read the scoped fixture.", "path": str(self.source), "startLine": 1, "endLine": 1
         }))
         self.assertEqual(call("localFetch", {
-            "reasoning": "Attempt an unscoped read.", "path": "/outside/source.py"
+            "goal": "Attempt an unscoped read.", "reasoning": "Attempt an unscoped read.", "path": "/outside/source.py"
         }), "query_outside_corpus")
         self.assertIsNone(call("astSearch", {
-            "reasoning": "Check scoped reachability.", "operation": "topology", "analysis": "reachability",
+            "goal": "Check scoped reachability.", "reasoning": "Check scoped reachability.", "operation": "topology", "analysis": "reachability",
             "path": str(self.corpus), "entrypoints": [str(self.source)]
         }))
         self.assertEqual(call("astSearch", {
-            "reasoning": "Attempt mixed-scope reachability.", "operation": "topology", "analysis": "reachability",
+            "goal": "Attempt mixed-scope reachability.", "reasoning": "Attempt mixed-scope reachability.", "operation": "topology", "analysis": "reachability",
             "path": str(self.corpus), "entrypoints": [str(self.source), "/outside/source.py"]
         }), "query_outside_corpus")
         self.assertEqual(call("localFetch", {
-            "reasoning": "Read the scoped fixture.", "path": str(self.source)
+            "goal": "Read the scoped fixture.", "reasoning": "Read the scoped fixture.", "path": str(self.source)
         }, "--unknown"), "unsupported_cli_flags")
         self.assertIsNone(policy.audit(shlex.join([
             "node", str(self.cli), "localFetch", "--help"

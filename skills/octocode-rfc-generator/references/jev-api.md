@@ -43,7 +43,7 @@ The host worker packet retains the full `review` including `questions`, its `adm
 
 ## Interpret and verify
 
-Inspect `queries[]` → `resources[]` → every `pages[]` entry and its `answers.<questionId>`. Correlate by `queryId`, `resourceId`, and `questionId`; inspect resource coverage, page scope, limitations, errors, and typed answers. `model` (the provider-resolved model) and summed `usage` appear once per query; report that model, never the configured alias. A successful command with an errored or partial page is not complete coverage.
+Inspect `queries[]` → `resources[]` → every `pages[]` entry and its `answers.<questionId>`. Correlate by `queryId`, `resourceId`, and `questionId`; inspect resource coverage, page scope, limitations, errors, and typed answers. The agent response omits provider model and usage. A successful command with an errored or partial page is not complete coverage.
 
 For answers, Noul near 0.5 means uncertainty. Choice `confidence` measures distribution concentration, not probability of correctness. Score is an expected ordered level, not a yes/no probability. Preserve raw typed provider answers, including distributions and provider fields; the host may add a separate disposition but must not rewrite the provider response into free-form reasoning.
 

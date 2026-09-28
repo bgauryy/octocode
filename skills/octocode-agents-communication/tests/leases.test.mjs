@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn } from './helpers.mjs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { nativeBinary as binary, tempWorkspace, withReasoning } from './helpers.mjs';
@@ -63,7 +63,7 @@ test('locks exposes owner, intent and timestamps; ten-minute cap applies to acqu
  assert.equal(conflict.ok,false);assert.equal(conflict.owner.id,f.a);assert.equal(conflict.conflict.reasoning,reasoning);
  assert.equal(conflict.conflict.refreshedAt,lease.refreshedAt);assert.equal(conflict.next.input.to,f.a);
  const sent=f.call(f.b,conflict.next.command,conflict.next.input);assert.ok(sent.id);
- assert.equal(f.call(f.b,'check_write',{paths:['parser.rs']}).ok,false);
+ assert.equal(f.call(f.b,'check_write',{paths:[{path:'parser.rs'}]}).ok,false);
  for(const [command,input] of [['lock',{path:'too-long'}],['lock_many',{paths:[{path:'too-long'}]}],['renew',{leaseId:lease.id}]])assert.throws(()=>f.call(f.a,command,{...input,ttlMs:600001}));
  const renewed=f.call(f.a,'renew',{leaseId:lease.id,ttlMs:600000});assert.equal(renewed.renewed,true);
  const updated=f.call(f.b,'locks').items[0];assert.equal(updated.acquiredAt,lease.acquiredAt);assert.ok(updated.refreshedAt>lease.refreshedAt);assert.equal(updated.expiresAt-updated.refreshedAt,600000);
@@ -86,7 +86,7 @@ test('workspace locks paginates every live lease and ignores stale locks and exp
  const seen=[];let input={},pages=0;
  do {const page=f.call(f.a,'locks',input);seen.push(...page.items.map(x=>x.id));pages++;if(!page.next)break;assert.equal(page.next.command,'locks');input=page.next.input;assert.ok(pages<20);}while(true);
  assert.ok(pages>1);assert.deepEqual(seen,ids);assert.ok(!seen.includes(old));
- assert.equal(f.call(f.a,'check_write',{paths:['stale']}).ok,false);
+ assert.equal(f.call(f.a,'check_write',{paths:[{path:'stale'}]}).ok,false);
  assert.equal(f.call(f.a,'renew',{leaseId:old}).renewed,false);
  assert.equal(f.call(f.a,'lock',{path:'stale'}).ok,true);
  db.close();

@@ -14,7 +14,7 @@ Start with a Surface Plan: local, GitHub, packages, PR/history, web, and reasons
 
 ## Classification capability
 
-Use `clasify` when a semantic target inside an unread known file would otherwise require broad host reads. Pass the read-tool request directly; batch independent same-evidence questions, then verify the returned windows. This includes local code, docs, logs and saved scrape/Chrome artifacts. Search literals and read small known ranges directly. For uncertain search candidates, screen snippets first; hydrate only when avoided reads can cover the extra work. See `workflow-local.md` for the sequence and `octocode-clasify` for question design.
+Use `clasify` when a semantic target inside an unread known file would otherwise require broad host reads. Pass the read-tool request directly; batch independent same-evidence questions. Replay `next.clasify` while the top `exists` is below 0.5, then verify published `best` windows. This includes local code, docs, logs and saved scrape/Chrome artifacts. Search literals and read small known ranges directly. For uncertain search candidates, screen snippets first; hydrate only when avoided reads can cover the extra work. See `workflow-local.md` for the sequence and `octocode-clasify` for question design.
 
 For package comparisons, gather decision-relevant version, maintenance, license, and integration evidence when available. Popularity and activity alone do not establish suitability. Apply the authorization rule in `SKILL.md`.
 

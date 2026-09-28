@@ -425,26 +425,27 @@ mod contract_owner_tests {
     }
 
     #[test]
-    fn public_queries_accept_optional_trace_context() {
+    fn public_queries_require_goal_and_reasoning() {
         let omitted = prepare_and_validate(
             "localFetch",
             json!({"path":"/tmp/source.rs"}),
             PrepareOptions::default(),
         );
-        assert_eq!(omitted.unwrap()["reasoning"], "");
+        assert!(omitted.is_err(), "a call without a brief is rejected");
         let blank = prepare_and_validate(
             "localFetch",
-            json!({"path":"/tmp/source.rs","reasoning":"   "}),
+            json!({"path":"/tmp/source.rs","goal":"   ","reasoning":"   "}),
             PrepareOptions::default(),
         );
-        assert_eq!(blank.unwrap()["reasoning"], "");
+        assert!(blank.is_err(), "a blank brief is rejected");
         let ok = prepare_and_validate(
             "localFetch",
-            json!({"path":"/tmp/source.rs","reasoning":"Read the source."}),
+            json!({"path":"/tmp/source.rs","goal":" Read the source. ","reasoning":" The next step needs these lines. "}),
             PrepareOptions::default(),
         )
-        .expect("trace context is accepted");
-        assert_eq!(ok["reasoning"], "Read the source.");
+        .expect("a trimmed brief is accepted");
+        assert_eq!(ok["goal"], "Read the source.");
+        assert_eq!(ok["reasoning"], "The next step needs these lines.");
     }
 
     #[test]
@@ -452,8 +453,8 @@ mod contract_owner_tests {
         let queries = prepare_many_and_validate(
             "localFetch",
             json!({"queries":[
-                {"path":"/tmp/a","reasoning":"Read a."},
-                {"path":"/tmp/b","reasoning":"Read b."}
+                {"path":"/tmp/a","goal": "test", "reasoning":"Read both."},
+                {"path":"/tmp/b","goal": "test", "reasoning":"Read both."}
             ]}),
             PrepareOptions::default(),
         )
@@ -463,6 +464,18 @@ mod contract_owner_tests {
         assert_eq!(queries[1]["path"], "/tmp/b");
         assert_eq!(queries[0]["debug"], false);
         assert_eq!(queries[1]["debug"], false);
+        let split = prepare_many_and_validate(
+            "localFetch",
+            json!({"queries":[
+                {"path":"/tmp/a","goal":"Find the writer.","reasoning":"Read both."},
+                {"path":"/tmp/b","goal":"Find the caller.","reasoning":"Read one."}
+            ]}),
+            PrepareOptions::default(),
+        )
+        .expect("each batch row carries its own goal and reasoning");
+        assert_eq!(split[0]["goal"], "Find the writer.");
+        assert_eq!(split[1]["goal"], "Find the caller.");
+        assert_eq!(split[1]["reasoning"], "Read one.");
     }
 
     #[test]
@@ -472,7 +485,7 @@ mod contract_owner_tests {
             "clasify",
             json!({
                 "id":"matrix",
-                "reasoning":"  Classify every resource.  ",
+                "reasoning":"  Classify every resource.  ","goal":"Decide the next read.",
                 "resources":[
                     {"id":"r1","context":{"value":{"text":"one"}}},
                     {"id":"r2","context":{"value":{"text":"two"}}}
@@ -500,7 +513,7 @@ mod contract_owner_tests {
             "clasify",
             json!({
                 "id":"duplicates",
-                "reasoning":"Classify resources.",
+                "reasoning":"Classify resources.","goal":"Decide the next read.",
                 "resources":[
                     {"id":"same","context":{"value":"one"}},
                     {"id":"same","context":{"value":"two"}}
@@ -522,7 +535,7 @@ mod contract_owner_tests {
             "clasify",
             json!({
                 "id":"oversized",
-                "reasoning":"Classify resources.",
+                "reasoning":"Classify resources.","goal":"Decide the next read.",
                 "resources":resources,
                 "questions":questions
             }),
@@ -536,7 +549,7 @@ mod contract_owner_tests {
             json!({"id":id,"context":{
                 "tool":"localSearch",
                 "candidateEvidence":"fileChunks",
-                "query":{"reasoning":"Find candidates.","path":"/tmp","searchText":"anchor"}
+                "query":{"goal": "test", "reasoning":"Find candidates.","path":"/tmp","searchText":"anchor"}
             }})
         });
         let hydrated_questions = (0..3)
@@ -546,7 +559,7 @@ mod contract_owner_tests {
             "clasify",
             json!({
                 "id":"expanded",
-                "reasoning":"Classify bounded file candidates.",
+                "reasoning":"Classify bounded file candidates.","goal":"Decide the next read.",
                 "resources":hydrated_resources,
                 "questions":hydrated_questions
             }),
@@ -564,14 +577,14 @@ mod contract_owner_tests {
                 json!({
                     "tool":"localFetch",
                     "candidateEvidence":"fileChunks",
-                    "query":{"reasoning":"Invalid search mode.","path":"/tmp/a.rs"}
+                    "query":{"goal": "test", "reasoning":"Invalid search mode.","path":"/tmp/a.rs"}
                 }),
                 "clasify.candidate-evidence",
             ),
             (
                 json!({
                     "tool":"localFetch",
-                    "query":{"reasoning":"Incomplete range.","path":"/tmp/a.rs","startLine":1}
+                    "query":{"goal": "test", "reasoning":"Incomplete range.","path":"/tmp/a.rs","startLine":1}
                 }),
                 "clasify.line-range",
             ),
@@ -580,7 +593,7 @@ mod contract_owner_tests {
                 "clasify",
                 json!({
                     "id":"invalid-context",
-                    "reasoning":"Reject invalid delegated context before execution.",
+                    "reasoning":"Reject invalid delegated context before execution.","goal":"Decide the next read.",
                     "resources":[{"id":"r","context":context}],
                     "questions":[with_id("q", &question)]
                 }),
@@ -593,11 +606,11 @@ mod contract_owner_tests {
         let matrix = |id: &str| {
             json!({
                 "id":id,
-                "reasoning":"Exercise the total expanded-cell limit.",
+                "reasoning":"Exercise the total expanded-cell limit.","goal":"Decide the next read.",
                 "resources":[{"id":"r","context":{
                     "tool":"localSearch",
                     "candidateEvidence":"fileChunks",
-                    "query":{"reasoning":"Find candidates.","path":"/tmp","searchText":"anchor"}
+                    "query":{"goal": "test", "reasoning":"Find candidates.","path":"/tmp","searchText":"anchor"}
                 }}],
                 "questions":(0..5).map(|index| with_id(format!("q{index}"), &question)).collect::<Vec<_>>()
             })
@@ -615,7 +628,7 @@ mod contract_owner_tests {
     fn clasify_rejects_duplicate_batch_query_ids() {
         let query = json!({
             "id":"qa",
-            "reasoning":"Classify resources.",
+            "reasoning":"Classify resources.","goal":"Decide the next read.",
             "resources":[{"id":"r","context":{"value":"one"}}],
             "questions":[{"id":"q1","type":"noul","instructions":"Relevant?"}]
         });
@@ -900,7 +913,7 @@ mod contract_owner_tests {
                                 "number":463,
                                 "content":{"body":true},
                                 "pageSize":30,
-                                "reasoning":"Read the optional body.",
+                                "goal": "test", "reasoning":"Read the optional body.",
                                 "debug":false
                             }
                         }
@@ -961,7 +974,14 @@ mod contract_owner_tests {
         // Continuation validation applies query defaults on a clone, so
         // page/pageSize/debug may be omitted. ghStructure's owner/repo are
         // genuinely required and keep the follow-up executable.
-        let data = |query: serde_json::Value| {
+        let data = |mut query: serde_json::Value| {
+            let object = query.as_object_mut().unwrap();
+            object
+                .entry("goal")
+                .or_insert_with(|| json!("Find the repository."));
+            object
+                .entry("reasoning")
+                .or_insert_with(|| json!("Verify the scoped repository exists."));
             json!({"results":[{"index":0,"data":{
                 "files":[],
                 "next":{"viewStructure":{"tool":"ghStructure","query":query,
@@ -989,9 +1009,11 @@ mod contract_owner_tests {
         // orderHint/page/debug are defaulted during validation. The URI
         // remains a real anchored-reference requirement.
         let data = |mut query: serde_json::Value| {
-            query
-                .as_object_mut()
-                .unwrap()
+            let object = query.as_object_mut().unwrap();
+            object
+                .entry("goal")
+                .or_insert_with(|| json!("Decide whether the candidate is unused."));
+            object
                 .entry("reasoning")
                 .or_insert_with(|| json!("Verify the candidate before deletion."));
             json!({"results":[{"index":0,"data":{
@@ -1025,9 +1047,11 @@ mod contract_owner_tests {
         // Tree pagination/debug fields are defaulted during validation; the
         // repository identity is still required.
         let data = |mut query: serde_json::Value| {
-            query
-                .as_object_mut()
-                .unwrap()
+            let object = query.as_object_mut().unwrap();
+            object
+                .entry("goal")
+                .or_insert_with(|| json!("Read the repository tree."));
+            object
                 .entry("reasoning")
                 .or_insert_with(|| json!("Continue the paged read."));
             json!({"results":[{"index":0,"data":{
@@ -1057,9 +1081,11 @@ mod contract_owner_tests {
         // Executable output continuations use the parsed query shape, so the
         // defaulted pageSize is serialized and operation remains required.
         let data = |mut query: serde_json::Value| {
-            query
-                .as_object_mut()
-                .unwrap()
+            let object = query.as_object_mut().unwrap();
+            object
+                .entry("goal")
+                .or_insert_with(|| json!("Find the history page."));
+            object
                 .entry("reasoning")
                 .or_insert_with(|| json!("Read the next history page."));
             json!({"results":[{"index":0,"data":{
@@ -1134,7 +1160,7 @@ mod contract_owner_tests {
                 "repo": "b",
                 "materialize": true,
                 "materializeOffset": 12,
-                "reasoning": "Exercise materialized tree validation."
+                "goal": "test", "reasoning": "Exercise materialized tree validation."
             }),
             PrepareOptions::default(),
         )

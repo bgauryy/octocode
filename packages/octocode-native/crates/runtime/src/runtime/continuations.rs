@@ -25,6 +25,91 @@ pub fn compact_input(tool: &str, input: &mut Value) {
 
 type Memo = HashMap<(String, String), Value>;
 
+/// Fills a missing `goal` on every `next` continuation in each result row
+/// with the goal of the input row that produced it: a continuation serves
+/// the same goal, and `goal` is required, so an emitter that sets only
+/// `reasoning` would otherwise withhold its whole row as a contract violation.
+pub fn fill_continuation_goals(structured: &mut Value, input: &Value) {
+    let goals: Vec<Option<&str>> = match input.get("queries").and_then(Value::as_array) {
+        Some(rows) => rows
+            .iter()
+            .map(|row| row.get("goal").and_then(Value::as_str))
+            .collect(),
+        None => vec![input.get("goal").and_then(Value::as_str)],
+    };
+    let Some(rows) = structured.get_mut("results").and_then(Value::as_array_mut) else {
+        return;
+    };
+    for (position, row) in rows.iter_mut().enumerate() {
+        let index = row
+            .get("index")
+            .and_then(Value::as_u64)
+            .and_then(|index| usize::try_from(index).ok())
+            .unwrap_or(position);
+        let Some(goal) = goals
+            .get(index)
+            .or_else(|| goals.first())
+            .copied()
+            .flatten()
+        else {
+            continue;
+        };
+        goal_walk(row, goal);
+    }
+}
+
+fn goal_walk(value: &mut Value, goal: &str) {
+    match value {
+        Value::Array(items) => items.iter_mut().for_each(|item| goal_walk(item, goal)),
+        Value::Object(map) => {
+            for (key, child) in map.iter_mut() {
+                if key == "next" {
+                    goal_next(child, goal);
+                } else {
+                    goal_walk(child, goal);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn goal_next(next: &mut Value, goal: &str) {
+    if continuation_target(next).is_some() {
+        fill_goal(next, goal);
+        return;
+    }
+    if let Some(map) = next.as_object_mut() {
+        for action in map.values_mut() {
+            if continuation_target(action).is_some() {
+                fill_goal(action, goal);
+            } else {
+                goal_walk(action, goal);
+            }
+        }
+    }
+}
+
+fn fill_goal(continuation: &mut Value, goal: &str) {
+    let Some(query) = continuation.get_mut("query") else {
+        return;
+    };
+    let rows: Vec<&mut Value> = match query.get_mut("queries").and_then(Value::as_array_mut) {
+        Some(rows) => rows.iter_mut().collect(),
+        None => vec![query],
+    };
+    for row in rows {
+        if let Some(object) = row.as_object_mut()
+            && object
+                .get("goal")
+                .and_then(Value::as_str)
+                .is_none_or(|value| value.trim().is_empty())
+        {
+            object.insert("goal".to_owned(), Value::String(goal.to_owned()));
+        }
+    }
+}
+
 /// Drop optional cross-tool next actions the current surface cannot execute.
 pub fn filter_unavailable_cross_tool_next(
     value: &mut Value,
@@ -145,9 +230,8 @@ fn compact_query(tool: &str, query: &mut Value, memo: &mut Memo) {
         *query = compact.clone();
         return;
     }
-    // `goal` describes the caller's original intent, not the replay.
+    // Required goal and reasoning stay: a replay that drops them no longer validates.
     let mut compact: Map<String, Value> = object.clone();
-    compact.remove("goal");
     let Ok(full) = validate_query(tool, Value::Object(compact.clone())) else {
         return;
     };
@@ -176,9 +260,34 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn fills_missing_continuation_goal_from_the_producing_row() {
+        let input = json!({"queries":[{"goal":"Find a."},{"goal":"Find b."}]});
+        let mut out = json!({"results":[
+            {"index":1,"data":{"next":{
+                "viewRepo":{"tool":"ghStructure","query":{"owner":"o","repo":"r","reasoning":"r"}},
+                "kept":{"tool":"localFetch","query":{"goal":"Own goal.","reasoning":"r"}}
+            }}},
+            {"index":0,"data":{"items":[{"next":{"tool":"localFetch","query":{"queries":[{"reasoning":"r"}]}}}]}}
+        ]});
+        fill_continuation_goals(&mut out, &input);
+        assert_eq!(
+            out["results"][0]["data"]["next"]["viewRepo"]["query"]["goal"],
+            "Find b."
+        );
+        assert_eq!(
+            out["results"][0]["data"]["next"]["kept"]["query"]["goal"],
+            "Own goal."
+        );
+        assert_eq!(
+            out["results"][1]["data"]["items"][0]["next"]["query"]["queries"][0]["goal"],
+            "Find a."
+        );
+    }
+
+    #[test]
     fn drops_only_fields_validation_restores() {
         let mut out = json!({"results":[{"data":{"next":{"nextPage":{"tool":"localSearch","confidence":"exact","query":{
-            "searchText":"foo","path":"/tmp","reasoning":"r","debug":false,"caseMode":"smart",
+            "searchText":"foo","path":"/tmp","goal":"Find foo.","reasoning":"r","debug":false,"caseMode":"smart",
             "matchContentLength":200,"page":2,"contextLines":0,"regex":"rust"
         }}}}}]});
         compact_continuations(&mut out);
@@ -187,7 +296,7 @@ mod tests {
         // contextLines), so validation cannot restore it and it is kept.
         assert_eq!(
             query,
-            &json!({"searchText":"foo","path":"/tmp","reasoning":"r","matchContentLength":200,"page":2,"contextLines":0})
+            &json!({"searchText":"foo","path":"/tmp","goal":"Find foo.","reasoning":"r","matchContentLength":200,"page":2,"contextLines":0})
         );
         let full = validate_query("localSearch", query.clone()).expect("valid");
         assert_eq!(full["matchContentLength"], 200);
@@ -195,7 +304,7 @@ mod tests {
 
     #[test]
     fn leaves_tool_query_shaped_data_outside_next_untouched() {
-        let data = json!({"tool":"localSearch","query":{"searchText":"a","path":"/tmp","reasoning":"r","debug":false}});
+        let data = json!({"tool":"localSearch","query":{"searchText":"a","path":"/tmp","goal":"Find a.","reasoning":"r","debug":false}});
         let mut out =
             json!({"results":[{"data":{"content":data.clone(),"next":{"nextPage":data.clone()}}}]});
         compact_continuations(&mut out);
@@ -209,12 +318,12 @@ mod tests {
 
     #[test]
     fn compacts_each_row_of_a_batch_envelope_and_leaves_invalid_queries() {
-        let mut input = json!({"queries":[{"searchText":"a","path":"/tmp","reasoning":"r","debug":false}],
+        let mut input = json!({"queries":[{"searchText":"a","path":"/tmp","goal":"Find a.","reasoning":"r","debug":false}],
             "responseCharOffset":10});
         compact_input("localSearch", &mut input);
         assert_eq!(
             input["queries"][0],
-            json!({"searchText":"a","path":"/tmp","reasoning":"r"})
+            json!({"searchText":"a","path":"/tmp","goal":"Find a.","reasoning":"r"})
         );
         assert_eq!(input["responseCharOffset"], 10);
         let mut invalid = json!({"tool":"localSearch","query":{"debug":false}});
@@ -224,7 +333,7 @@ mod tests {
 
     #[test]
     fn filters_unavailable_cross_tool_actions_without_touching_pagination_or_query_data() {
-        let query = json!({"reasoning":"continue", "next":{"readFile":{"tool":"localFetch","query":{"path":"/tmp/a"}}}});
+        let query = json!({"goal": "test", "reasoning":"continue", "next":{"readFile":{"tool":"localFetch","query":{"path":"/tmp/a"}}}});
         let mut out = json!({"results":[{"data":{
             "next":{
                 "nextPage":{"tool":"ghSearchCode","query":query.clone()},
@@ -253,7 +362,7 @@ mod tests {
     fn removes_empty_next_map_but_keeps_opaque_query_payload() {
         let mut out = json!({"results":[{"data":{
             "next":{"viewRepo":{"tool":"ghStructure","query":{"next":{"nested":{"tool":"localFetch","query":{}}}}}},
-            "context":{"next":{"nested":{"tool":"ghSearchCode","query":{"reasoning":"r"}}}}
+            "context":{"next":{"nested":{"tool":"ghSearchCode","query":{"goal": "test", "reasoning":"r"}}}}
         }}]});
         filter_unavailable_cross_tool_next(&mut out, "artifactSearch", |_| false);
         assert!(out["results"][0]["data"].get("next").is_none());

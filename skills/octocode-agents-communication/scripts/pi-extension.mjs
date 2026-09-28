@@ -1,7 +1,8 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { runtimeCommand } from './cli-command.mjs';
 
-// The Rust parent binds identity and supplies the same catalog used by MCP.
+// The parent binds identity and supplies the same catalog used by MCP.
 export default function (pi) {
   // A globally enabled idle cache warmer must not add model calls to this worker.
   pi.on('cache_warming_decision', () => ({ action: 'stop' }));
@@ -12,7 +13,7 @@ export function registerBoundTools(pi, options) {
   const { tools } = options;
   const names = new Set(tools.map(tool => tool.name));
   // Responses can normalize omitted strict into all-required parameters.
-  // Preserve the canonical optional fields; Rust still validates every call.
+  // Preserve the canonical optional fields; the runtime still validates every call.
   pi.on?.('before_provider_request', event => {
     const payload = event.payload;
     if (!Array.isArray(payload?.tools)) return payload;
@@ -46,8 +47,9 @@ export function registerBoundTools(pi, options) {
         const json = JSON.stringify(keyed ? { ...input, key: `pi:${createHash('sha256').update(id).digest('hex')}` } : input);
         const stdout = await new Promise((resolve, reject) => {
           let inputError;
-          const child = execFile(binary, [tool.name, '-',
-            '--workspace', workspace, '--database', database, '--session', session],
+          const invocation = runtimeCommand(binary, [tool.name, '-',
+            '--workspace', workspace, '--database', database, '--session', session]);
+          const child = execFile(invocation.command, invocation.args,
           // JSON goes through stdin so large documents do not exceed OS argv limits.
           // CLI pages are bounded to 256 KiB; keep output headroom for metadata.
           { signal, timeout: 10_000, maxBuffer: 1024 * 1024 }, (error, output) => {

@@ -39,6 +39,8 @@ export function parseArgs(argv: string[] = process.argv.slice(2)): ParsedArgs {
 
     if (arg === '-h') {
       result.options.help = true;
+    } else if (arg === '-V') {
+      result.options.version = true;
     } else if (arg.startsWith('--')) {
       // Split on the FIRST '=' only, so values that themselves contain '='
       // (e.g. --select=operation=code) survive intact instead of being

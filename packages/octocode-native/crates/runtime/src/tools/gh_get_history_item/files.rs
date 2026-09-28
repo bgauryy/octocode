@@ -279,7 +279,7 @@ mod tests {
     fn patch_request(fields: serde_json::Value) -> HistoryItemRequest {
         let base = json!({
             "operation":"pullRequest",
-            "reasoning":"test",
+            "goal": "test", "reasoning":"test",
             "owner":"a",
             "repo":"b",
             "number":1,
@@ -412,7 +412,7 @@ mod tests {
         );
         assert_eq!(pagination["patches"]["files"], json!(["a.rs", "b.rs"]));
         let request: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-            "operation":"pullRequest","reasoning":"test","owner":"o","repo":"r","number":5,
+            "operation":"pullRequest","goal": "test", "reasoning":"test","owner":"o","repo":"r","number":5,
             "content":{"patches":{"mode":"all"}},"filePage":2
         }))
         .expect("query");

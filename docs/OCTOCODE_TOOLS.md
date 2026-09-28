@@ -51,12 +51,12 @@ The CLI and MCP server expose the same canonical contracts from `@octocodeai/oct
 | Field | Scope | Meaning |
 | --- | --- | --- |
 | `queries` | Required outer field | Array of 1–5 queries for the **same tool**. Queries are independent and response rows retain their zero-based input `index`. Default execution concurrency is 3, so batching reduces round trips but does not create dependencies between rows. |
-| `goal` | Optional per query | States the result the query should accomplish. It is agent-facing context, not a ranking instruction or proof of correctness. |
-| `reasoning` | Optional per query | States why this query advances the goal. Use a short, decision-relevant sentence; do not put secrets, hidden chain-of-thought, or required runtime data here. |
+| `goal` | Required per query, at most 500 characters | States what this call must find or decide. Every query in one batch uses the same goal. It is not a ranking instruction or proof of correctness. |
+| `reasoning` | Required per query, at most 500 characters | States why this call advances the goal. Every query in one batch uses the same reasoning. Do not put secrets, hidden chain-of-thought, or required runtime data here. |
 | `responseCharLength` | Optional outer field | Limits the rendered whole-response text window to 1–50,000 characters. It does not replace a tool's own result pagination. When omitted, responses larger than `output.pagination.defaultCharLength` (default 50,000) are paged automatically; follow `responsePagination.next`. |
 | `responseCharOffset` | Optional outer field | Continues a whole-response text window. Copy the returned executable `responsePagination.next` call instead of constructing an offset by hand. |
 
-For ordinary tools, `goal` and `reasoning` are optional shared query fields. All other fields belong to a specific tool variant. Fields from different `operation` branches cannot be mixed, selector pairs such as `startLine`/`endLine` must be complete, and mutually exclusive selectors must not be combined. `clasify` has its own matrix contract with optional query-level `reasoning`.
+Every query requires `goal` and `reasoning`. Queries batched in one call share one goal and one reasoning. All other fields belong to a specific tool variant. Fields from different `operation` branches cannot be mixed, selector pairs such as `startLine`/`endLine` must be complete, and mutually exclusive selectors must not be combined. `clasify` sends `reasoning` and `goal` in each page's evidence state, and sends `goal` again with every question.
 
 ### Schema discovery, variants, relations, and hints
 
@@ -203,7 +203,7 @@ Discover repositories by keywords, topics, owner, and metadata filters.
 
 <!-- tool: ghSearchRepo -->
 ```json
-{"reasoning": "Use ghSearchRepo for this documented evidence request.", "keywords": ["code research"], "language": "TypeScript"}
+{"goal": "Show a documented ghSearchRepo result.", "reasoning": "Use ghSearchRepo for this documented evidence request.", "keywords": ["code research"], "language": "TypeScript"}
 ```
 
 Fields: `keywords`, `topics`, `language`, `owner`, `stars`, `forks`,
@@ -224,7 +224,7 @@ Search indexed default-branch code within one owner (required) and optional repo
 
 <!-- tool: ghSearchCode -->
 ```json
-{"reasoning": "Use ghSearchCode for this documented evidence request.", "keywords": ["useReducer"], "owner": "vercel", "repo": "next.js"}
+{"goal": "Show a documented ghSearchCode result.", "reasoning": "Use ghSearchCode for this documented evidence request.", "keywords": ["useReducer"], "owner": "vercel", "repo": "next.js"}
 ```
 
 Fields: `keywords`, required `owner`, `repo`, `path` (prefix), `extension`,
@@ -247,7 +247,7 @@ directory (`""` or `"."` for the root).
 
 <!-- tool: ghStructure -->
 ```json
-{"reasoning": "Use ghStructure for this documented evidence request.", "owner": "vercel", "repo": "next.js", "path": "packages", "maxDepth": 2}
+{"goal": "Show a documented ghStructure result.", "reasoning": "Use ghStructure for this documented evidence request.", "owner": "vercel", "repo": "next.js", "path": "packages", "maxDepth": 2}
 ```
 
 Fields: `owner`, `repo`, `path`, `branch`, `maxDepth` (1-20), `page`,
@@ -283,7 +283,7 @@ Examples:
 
 <!-- tool: ghGetFileContent -->
 ```json
-{"reasoning": "Use ghGetFileContent for this documented evidence request.", "owner": "vercel", "repo": "next.js", "path": "packages/next/src/server/config.ts", "matchString": "export", "contextLines": 2, "chunkType": "lines", "chunkSize": 20}
+{"goal": "Show a documented ghGetFileContent result.", "reasoning": "Use ghGetFileContent for this documented evidence request.", "owner": "vercel", "repo": "next.js", "path": "packages/next/src/server/config.ts", "matchString": "export", "contextLines": 2, "chunkType": "lines", "chunkSize": 20}
 ```
 
 Cost by mode:
@@ -317,9 +317,9 @@ with `ghGetHistoryItem`; search queries do not accept singular-item identities.
 
 <!-- tool: ghSearchHistory -->
 ```json
-{"reasoning": "Use ghSearchHistory for this documented evidence request.", "operation": "pullRequest", "owner": "vercel", "repo": "next.js", "keywords": ["middleware"], "match": ["title"], "state": "merged"}
-{"reasoning": "Use ghSearchHistory for this documented evidence request.", "operation": "issue", "owner": "vercel", "repo": "next.js", "keywords": ["memory leak"], "match": ["title"], "state": "open"}
-{"reasoning": "Use ghSearchHistory for this documented evidence request.", "operation": "commit", "owner": "vercel", "repo": "next.js", "path": "packages/next/src/server/", "since": "30d"}
+{"goal": "Show a documented ghSearchHistory result.", "reasoning": "Use ghSearchHistory for this documented evidence request.", "operation": "pullRequest", "owner": "vercel", "repo": "next.js", "keywords": ["middleware"], "match": ["title"], "state": "merged"}
+{"goal": "Show a documented ghSearchHistory result.", "reasoning": "Use ghSearchHistory for this documented evidence request.", "operation": "issue", "owner": "vercel", "repo": "next.js", "keywords": ["memory leak"], "match": ["title"], "state": "open"}
+{"goal": "Show a documented ghSearchHistory result.", "reasoning": "Use ghSearchHistory for this documented evidence request.", "operation": "commit", "owner": "vercel", "repo": "next.js", "path": "packages/next/src/server/", "since": "30d"}
 ```
 
 Prefer title-first PR and issue searches. For commit archaeology, narrow by path
@@ -356,10 +356,10 @@ containing that SHA.
 
 <!-- tool: ghGetHistoryItem -->
 ```json
-{"reasoning": "Use ghGetHistoryItem for this documented evidence request.", "operation": "pullRequest", "owner": "vercel", "repo": "next.js", "number": 12345, "content": {"changedFiles": true}}
-{"reasoning": "Use ghGetHistoryItem for this documented evidence request.", "operation": "issue", "owner": "vercel", "repo": "next.js", "number": 12345, "content": {"body": true, "comments": {"discussion": true}}}
-{"reasoning": "Use ghGetHistoryItem for this documented evidence request.", "operation": "commit", "owner": "vercel", "repo": "next.js", "ref": "abc123", "includeDiff": true}
-{"reasoning": "Use ghGetHistoryItem for this documented evidence request.", "operation": "compare", "owner": "vercel", "repo": "next.js", "base": "v14.0.0", "head": "v14.1.0"}
+{"goal": "Show a documented ghGetHistoryItem result.", "reasoning": "Use ghGetHistoryItem for this documented evidence request.", "operation": "pullRequest", "owner": "vercel", "repo": "next.js", "number": 12345, "content": {"changedFiles": true}}
+{"goal": "Show a documented ghGetHistoryItem result.", "reasoning": "Use ghGetHistoryItem for this documented evidence request.", "operation": "issue", "owner": "vercel", "repo": "next.js", "number": 12345, "content": {"body": true, "comments": {"discussion": true}}}
+{"goal": "Show a documented ghGetHistoryItem result.", "reasoning": "Use ghGetHistoryItem for this documented evidence request.", "operation": "commit", "owner": "vercel", "repo": "next.js", "ref": "abc123", "includeDiff": true}
+{"goal": "Show a documented ghGetHistoryItem result.", "reasoning": "Use ghGetHistoryItem for this documented evidence request.", "operation": "compare", "owner": "vercel", "repo": "next.js", "base": "v14.0.0", "head": "v14.1.0"}
 ```
 
 Request selected PR patches instead of every patch for large PRs, and leave
@@ -425,8 +425,8 @@ Examples:
 
 <!-- tool: ghCloneRepo -->
 ```json
-{"reasoning": "Use ghCloneRepo for this documented evidence request.", "owner": "vercel", "repo": "next.js", "branch": "canary"}
-{"reasoning": "Use ghCloneRepo for this documented evidence request.", "owner": "microsoft", "repo": "TypeScript", "sparsePath": "src/compiler"}
+{"goal": "Show a documented ghCloneRepo result.", "reasoning": "Use ghCloneRepo for this documented evidence request.", "owner": "vercel", "repo": "next.js", "branch": "canary"}
+{"goal": "Show a documented ghCloneRepo result.", "reasoning": "Use ghCloneRepo for this documented evidence request.", "owner": "microsoft", "repo": "TypeScript", "sparsePath": "src/compiler"}
 ```
 
 Rules:
@@ -453,11 +453,11 @@ Find packages for a capability, resolve a known dependency to registry metadata,
 
 <!-- tool: artifactSearch -->
 ```json
-{"reasoning": "Use artifactSearch for this documented evidence request.", "type": "npm", "packageName": "react"}
-{"reasoning": "Use artifactSearch for this documented evidence request.", "type": "pypi", "packageName": "requests"}
-{"reasoning": "Use artifactSearch for this documented evidence request.", "type": "crates", "keywords": ["async", "runtime"], "pageSize": 10}
-{"reasoning": "Use artifactSearch for this documented evidence request.", "type": "maven", "packageName": "org.slf4j:slf4j-api"}
-{"reasoning": "Use artifactSearch for this documented evidence request.", "type": "npm", "packageName": "@example/widget", "registry": "https://registry.example.com/"}
+{"goal": "Show a documented artifactSearch result.", "reasoning": "Use artifactSearch for this documented evidence request.", "type": "npm", "packageName": "react"}
+{"goal": "Show a documented artifactSearch result.", "reasoning": "Use artifactSearch for this documented evidence request.", "type": "pypi", "packageName": "requests"}
+{"goal": "Show a documented artifactSearch result.", "reasoning": "Use artifactSearch for this documented evidence request.", "type": "crates", "keywords": ["async", "runtime"], "pageSize": 10}
+{"goal": "Show a documented artifactSearch result.", "reasoning": "Use artifactSearch for this documented evidence request.", "type": "maven", "packageName": "org.slf4j:slf4j-api"}
+{"goal": "Show a documented artifactSearch result.", "reasoning": "Use artifactSearch for this documented evidence request.", "type": "npm", "packageName": "@example/widget", "registry": "https://registry.example.com/"}
 ```
 
 Each query selects one ecosystem. Compare ecosystems using independent entries in `queries` (maximum five), not `type:"all"`. All providers use official APIs. PyPI keyword discovery returns an unsupported-capability error with exact-lookup guidance; it does not silently fall back to a website or third-party service.
@@ -1066,7 +1066,7 @@ This is a beta feature, disabled by default. Set `OCTOCODE_BETA=true` (or
 | `postconditions` | Check a required `remainingMatches` count in the staged selected files before commit. |
 
 ```bash
-node packages/octocode/out/octocode.js astRewrite '{"reasoning":"<why>","path":"/ABS/repo/src","langType":"typescript","ruleKind":"pattern","pattern":"console.log($A)","rewrite":"logger.info($A)"}'
+node packages/octocode/out/octocode.js astRewrite '{"goal":"<what to find>","reasoning":"<why>","path":"/ABS/repo/src","langType":"typescript","ruleKind":"pattern","pattern":"console.log($A)","rewrite":"logger.info($A)"}'
 ```
 
 Match `range.start`/`range.end` lines are one-based; columns are zero-based UTF-16 code units (an emoji counts 2). `range.byteOffset` is the UTF-8 byte span.
@@ -1272,7 +1272,7 @@ Supply `rustContext` to select the Rust configuration used for a semantic query:
 For a Rust call found at line 5, query the definition with the `selected` feature:
 
 ```bash
-octocode lspSearch '{"reasoning":"<why>","uri":"/ABS/repo/src/lib.rs","operation":"definition","symbolName":"selected","lineHint":5,"rustContext":{"features":["selected"]}}'
+octocode lspSearch '{"goal":"<what to find>","reasoning":"<why>","uri":"/ABS/repo/src/lib.rs","operation":"definition","symbolName":"selected","lineHint":5,"rustContext":{"features":["selected"]}}'
 ```
 
 Replace the path, symbol, and line with an anchor from `localSearch`. An explicit
@@ -1474,7 +1474,7 @@ Use `octocode clasify --input request.json`; inspect `octocode scheme clasify --
 
 Context is supplied non-empty `{value}` state or one unread `{tool,query}` request. `instructions` is always a non-null, non-empty string, object, or array. Noul criteria are optional; when present, both `true` and `false` are required and their descriptions may be null. Choice requires 2–255 labels whose descriptions may be null. Score requires 2–10 ordered, non-null, non-empty string/object/array levels.
 
-The runtime executes supported read requests under normal policy and returns resource-major results: `resources[].pages[].answers[questionId]`, with the resolved `model` and summed `usage` once per query; it never silently averages or reduces pages. Follow an executable `next.clasify` unchanged, retain error pages, and never use partial coverage to establish global absence. See the [complete contract, research workflow, and examples](OCTOCODE_CLASIFY.md).
+The runtime executes supported read requests under normal policy and returns resource-major results: `resources[].pages[].answers[questionId]`. Required `goal` is sent with every question and, with required `reasoning`, in each page's evidence state; each page's `answers` holds every question's score. Provider model and token usage stay out of the agent response. It never silently averages or reduces pages. Follow an executable `next.clasify` unchanged, retain error pages, and never use partial coverage to establish global absence. Read `best` when its top `exists` is high or the walk is finished. See the [complete contract, research workflow, and examples](OCTOCODE_CLASIFY.md).
 
 ---
 

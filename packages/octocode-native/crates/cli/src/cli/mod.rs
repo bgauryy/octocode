@@ -1,10 +1,12 @@
 mod commands;
+mod config;
+mod graph;
 mod lsp_provision;
 mod mcp_install;
 mod schema;
 mod skill;
 mod system;
-use clap::Parser;
+use clap::{CommandFactory, FromArgMatches, Parser};
 use commands::{AuthCommand, Command, ToolArgs};
 use octocode_native::config::RuntimeSurface;
 use octocode_native::runtime::{HostOptions, ToolRuntime};
@@ -26,6 +28,9 @@ Every tool is called by its canonical name with a raw JSON query:\n\
   octocode <toolName> '<json>'      execute a tool\n\
   octocode scheme <toolName>        print the tool's contract\n\
   octocode scheme                   list every tool and its availability\n\n\
+Code graph (persisted; see `octocode graph --help`):\n\
+  octocode graph ingest <path>      parse once into <workspace>/.octocode/graph\n\
+  octocode graph query <op> [ref]   callers, impact, cycles, issues, ... in milliseconds\n\n\
 EXIT CODES:\n\
   0    Success\n\
   1    Empty result / no matches\n\
@@ -45,6 +50,9 @@ pub struct Args {
     /// Mask email addresses in GitHub tool outputs (same as OCTOCODE_REDACT_EMAILS=true).
     #[arg(long, global = true)]
     redact_emails: bool,
+    /// Disable ANSI color (also available through NO_COLOR).
+    #[arg(long, global = true)]
+    no_color: bool,
     #[command(subcommand)]
     command: Command,
 }
@@ -96,7 +104,15 @@ where
     T: Into<std::ffi::OsString> + Clone,
 {
     let argv: Vec<std::ffi::OsString> = argv.into_iter().map(Into::into).collect();
-    match Args::try_parse_from(&argv) {
+    let command = if argv.iter().any(|arg| arg == "--no-color") {
+        Args::command().color(clap::ColorChoice::Never)
+    } else {
+        Args::command()
+    };
+    match command
+        .try_get_matches_from(&argv)
+        .and_then(|matches| Args::from_arg_matches(&matches))
+    {
         Ok(args) => Ok(args),
         Err(error) => {
             let json_errors = argv.iter().any(|arg| arg == "--json-errors");
@@ -469,14 +485,37 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
                 }
             }
         }
-        Command::Config { check, json } => {
+        Command::ShowConfig { json } => config::show_path(runtime, json),
+        Command::Config {
+            check,
+            add,
+            value_stdin,
+            remove,
+            json,
+        } => {
+            if !add.is_empty() || remove.is_some() {
+                return config::edit(
+                    runtime,
+                    &add,
+                    remove.as_deref(),
+                    value_stdin,
+                    json || json_errors,
+                );
+            }
             let view = runtime.inspect_config();
             if let Some(key) = check {
                 let set = runtime
                     .config()
                     .env_value(&key)
                     .is_some_and(|value| !value.is_empty());
-                println!("{key}: {}", if set { "set" } else { "unset" });
+                if json {
+                    let code = write_json(&json!({"key": key, "set": set}), true);
+                    if code != 0 {
+                        return code;
+                    }
+                } else {
+                    println!("{key}: {}", if set { "set" } else { "unset" });
+                }
                 return if set { 0 } else { 1 };
             }
             let config_file = view
@@ -585,6 +624,7 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
             }) => system::login(runtime, hostname.as_deref(), force, refresh, json).await,
             Some(AuthCommand::Logout) => system::logout(runtime),
         },
+        Command::Graph { command } => graph::graph(runtime, command),
         Command::Skill { args } => skill::skill(runtime, &args),
         Command::Install {
             ide,
@@ -675,9 +715,7 @@ pub(super) async fn execute(runtime: &ToolRuntime, tool: &str, input: Value, com
             );
             let mut exit = match outcome.failure {
                 Some(octocode_native::runtime::FailureKind::NotFound) => 3,
-                // The raw-tool CLI classifies the legacy 401 message as a tool
-                // failure for parity with the frozen Node CLI contract.
-                Some(octocode_native::runtime::FailureKind::Authentication) => 5,
+                Some(octocode_native::runtime::FailureKind::Authentication) => 4,
                 Some(octocode_native::runtime::FailureKind::Permission) => 4,
                 Some(octocode_native::runtime::FailureKind::RateLimited) => 7,
                 Some(octocode_native::runtime::FailureKind::Execution) => 5,

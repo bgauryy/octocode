@@ -192,6 +192,10 @@ describe('CLI Parser', () => {
   });
 
   describe('hasVersionFlag', () => {
+    it('supports the native -V version alias', () => {
+      expect(hasVersionFlag(parseArgs(['-V']))).toBe(true);
+      expect(parseArgs(['-V']).command).toBeNull();
+    });
     it('should detect --version', () => {
       const args = parseArgs(['--version']);
       expect(hasVersionFlag(args)).toBe(true);

@@ -123,7 +123,7 @@ pub async fn login(
         let message =
             "OCTOCODE_GITHUB_CLIENT_ID is required for GitHub Enterprise device login and refresh.";
         if json_out {
-            return write_json(&json!({ "success": false, "error": message }), true);
+            return write_json(&json!({ "success": false, "error": message }), true).max(1);
         }
         eprintln!("{message}");
         return 1;
@@ -161,7 +161,7 @@ pub async fn login(
             .as_deref()
             .unwrap_or("credential.refreshFailed");
         if json_out {
-            return write_json(&json!({ "success": false, "error": error }), true);
+            return write_json(&json!({ "success": false, "error": error }), true).max(1);
         }
         eprintln!("{error}");
         eprintln!("Run `octocode auth login`, or set GITHUB_TOKEN / GH_TOKEN.");
@@ -220,7 +220,7 @@ pub async fn login(
     if !std::io::stdin().is_terminal() {
         let message = "login requires an interactive terminal, or set GITHUB_TOKEN / GH_TOKEN.";
         if json_out {
-            return write_json(&json!({ "success": false, "error": message }), true);
+            return write_json(&json!({ "success": false, "error": message }), true).max(1);
         }
         eprintln!("{message}");
         return 1;
@@ -259,7 +259,8 @@ pub async fn login(
         }
         Err(error) => {
             if json_out {
-                return write_json(&json!({ "success": false, "error": error.message }), true);
+                return write_json(&json!({ "success": false, "error": error.message }), true)
+                    .max(1);
             }
             eprintln!("{}", error.message);
             eprintln!("Run `octocode auth login`, or set GITHUB_TOKEN / GH_TOKEN.");

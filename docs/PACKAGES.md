@@ -51,7 +51,7 @@ Private shared implementation for durable canonical skill copies, platform links
 
 ### [`skills/octocode-agents-communication`](../skills/octocode-agents-communication) — `@octocodeai/octocode-agents-communication`
 
-Private Rust CLI and communication skill for shared session identity, path leases, messages, delivery, and handoff documents.
+Private Python CLI and communication skill for shared session identity, path leases, messages, delivery, and handoff documents.
 
 ### [`packages/octocode-extension-rust`](../packages/octocode-extension-rust) — `@octocodeai/octocode-extension-rust`
 

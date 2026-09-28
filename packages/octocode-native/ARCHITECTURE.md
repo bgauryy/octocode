@@ -132,6 +132,8 @@ Generic text search, reads, minification, file recognition, GitHub/history opera
 
 Tool wire types come from the same run: `contracts::tool_types` `include!`s `contract/tool_types.rs` (typify, from the bundled JSON Schema that also produces the TypeScript types). Ordinary tools parse their validated rows directly into generated `<Tool>Query` types (meta fields included) and build continuations from them. Tool modules may add accessor `impl` blocks for engine integer types, but never a second serde wire type. Clasify matrix orchestration still uses validated JSON values and defensive manual checks; migrating it to the generated query type remains an exception to remove. `tests/contract_field_effects.rs` fails only when the contract gains a field or discriminator value with no declared native effect in `field-effect-coverage.json`.
 
+`showConfig` exposes the resolved global dotenv path. `config --add` and `--remove` use `config/edit.rs` for locked atomic edits, sharing the dotenv parser and generated protected-key policy. They preserve unrelated lines and never return values.
+
 Configuration policy is independently owned by `@octocodeai/config` in `config-contract.json`. Native `build.rs` validates that declaration against its meta-schema and emits Rust config structs, defaults, environment policy, and generic resolver/validator metadata into `OUT_DIR`. Native-only builds therefore validate the full config contract without a prior Node generation step. Generated files are not hand edited.
 
 ## Build modes

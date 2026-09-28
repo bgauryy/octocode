@@ -387,21 +387,21 @@ mod tests {
         assert!(reject_window(11, 100).is_err());
         assert!(reject_window(10, 100).is_ok());
         for raw in [
-            r#"{"reasoning":"test","owner":"o"}"#,
-            r#"{"reasoning":"test","owner":"o","keywords":[]}"#,
-            r#"{"reasoning":"test","owner":"o","keywords":["   "]}"#,
-            r#"{"reasoning":"test","owner":"o","repo":"r"}"#,
+            r#"{"goal":"test","reasoning":"test","owner":"o"}"#,
+            r#"{"goal":"test","reasoning":"test","owner":"o","keywords":[]}"#,
+            r#"{"goal":"test","reasoning":"test","owner":"o","keywords":["   "]}"#,
+            r#"{"goal":"test","reasoning":"test","owner":"o","repo":"r"}"#,
         ] {
             let query: GhSearchCodeQuery =
                 serde_json::from_str(raw).expect("code search fixture should deserialize");
             assert!(!queries::code_has_narrowing_selector(&query), "{raw}");
         }
         for raw in [
-            r#"{"reasoning":"test","owner":"o","keywords":["needle"]}"#,
-            r#"{"reasoning":"test","owner":"o","path":"src"}"#,
-            r#"{"reasoning":"test","owner":"o","extension":"rs"}"#,
-            r#"{"reasoning":"test","owner":"o","filename":"Cargo.toml"}"#,
-            r#"{"reasoning":"test","owner":"o","language":"rust"}"#,
+            r#"{"goal":"test","reasoning":"test","owner":"o","keywords":["needle"]}"#,
+            r#"{"goal":"test","reasoning":"test","owner":"o","path":"src"}"#,
+            r#"{"goal":"test","reasoning":"test","owner":"o","extension":"rs"}"#,
+            r#"{"goal":"test","reasoning":"test","owner":"o","filename":"Cargo.toml"}"#,
+            r#"{"goal":"test","reasoning":"test","owner":"o","language":"rust"}"#,
         ] {
             let query: GhSearchCodeQuery =
                 serde_json::from_str(raw).expect("bounded code search fixture should deserialize");
@@ -411,13 +411,17 @@ mod tests {
     #[test]
     fn parses_each_public_tool_query() {
         serde_json::from_str::<GhSearchCodeQuery>(
-            r#"{"reasoning":"test","owner":"o","keywords":["x"]}"#,
+            r#"{"goal":"test","reasoning":"test","owner":"o","keywords":["x"]}"#,
         )
         .expect("ghSearchCode query");
-        serde_json::from_str::<GhSearchRepoQuery>(r#"{"reasoning":"test","owner":"o"}"#)
-            .expect("ghSearchRepo query");
-        serde_json::from_str::<GhStructureQuery>(r#"{"reasoning":"test","owner":"o","repo":"r"}"#)
-            .expect("ghStructure query");
+        serde_json::from_str::<GhSearchRepoQuery>(
+            r#"{"goal":"test","reasoning":"test","owner":"o"}"#,
+        )
+        .expect("ghSearchRepo query");
+        serde_json::from_str::<GhStructureQuery>(
+            r#"{"goal":"test","reasoning":"test","owner":"o","repo":"r"}"#,
+        )
+        .expect("ghStructure query");
     }
     #[test]
     fn complete_repository_zero_is_empty_but_partial_zero_is_not() {
@@ -539,7 +543,7 @@ mod tests {
                 .await;
             let out = run(
                 &server,
-                json!({"operation":"code","reasoning":"test","owner":"a","repo":"b","keywords":["needle"],
+                json!({"operation":"code","goal": "test", "reasoning":"test","owner":"a","repo":"b","keywords":["needle"],
                        "extension":"rs","path":"src","language":"rust","page":2,"pageSize":10}),
             )
             .await
@@ -576,7 +580,7 @@ mod tests {
                 .await;
             let out = run(
                 &server,
-                json!({"operation":"code","reasoning":"test","owner":"a","repo":"b","keywords":["needle"]}),
+                json!({"operation":"code","goal": "test", "reasoning":"test","owner":"a","repo":"b","keywords":["needle"]}),
             )
             .await
             .expect("search");
@@ -596,7 +600,7 @@ mod tests {
                 .await;
             let out = run(
                 &server,
-                json!({"operation":"repositories","reasoning":"test","keywords":["x"],"concise":true}),
+                json!({"operation":"repositories","goal": "test", "reasoning":"test","keywords":["x"],"concise":true}),
             )
             .await
             .expect("search");
@@ -618,7 +622,7 @@ mod tests {
                 .await;
             let out = run(
                 &server,
-                json!({"operation":"repositories","reasoning":"test","owner":"o","sort":"updated"}),
+                json!({"operation":"repositories","goal": "test", "reasoning":"test","owner":"o","sort":"updated"}),
             )
             .await
             .expect("owner listing");
@@ -684,7 +688,7 @@ mod tests {
             };
             let first = run(
                 &server,
-                json!({"operation":"repositories","reasoning":"test","owner":"o","pageSize":3}),
+                json!({"operation":"repositories","goal": "test", "reasoning":"test","owner":"o","pageSize":3}),
             )
             .await
             .expect("owner listing");
@@ -699,7 +703,7 @@ mod tests {
 
             let last = run(
                 &server,
-                json!({"operation":"repositories","reasoning":"test","owner":"o","pageSize":3,"page":3}),
+                json!({"operation":"repositories","goal": "test", "reasoning":"test","owner":"o","pageSize":3,"page":3}),
             )
             .await
             .expect("last page");
@@ -722,7 +726,7 @@ mod tests {
                 .await;
             let first = run(
                 &server,
-                json!({"operation":"code","reasoning":"test","owner":"o","keywords":["x"],"page":1,"pageSize":100}),
+                json!({"operation":"code","goal": "test", "reasoning":"test","owner":"o","keywords":["x"],"page":1,"pageSize":100}),
             )
             .await
             .expect("page 1");
@@ -730,7 +734,7 @@ mod tests {
             assert!(first.data.get("terminalLimit").is_none(), "{}", first.data);
             let last = run(
                 &server,
-                json!({"operation":"code","reasoning":"test","owner":"o","keywords":["x"],"page":10,"pageSize":100}),
+                json!({"operation":"code","goal": "test", "reasoning":"test","owner":"o","keywords":["x"],"page":10,"pageSize":100}),
             )
             .await
             .expect("page 10");
@@ -775,7 +779,7 @@ mod tests {
                 .await;
             let error = run(
                 &server,
-                json!({"operation":"tree","reasoning":"test","owner":"a","repo":"b","branch":"dev","path":"missing"}),
+                json!({"operation":"tree","goal": "test", "reasoning":"test","owner":"a","repo":"b","branch":"dev","path":"missing"}),
             )
             .await
             .expect_err("path missing on an existing branch");
@@ -818,7 +822,7 @@ mod tests {
                 .await;
             let out = run(
                 &server,
-                json!({"operation":"tree","reasoning":"test","owner":"a","repo":"b","branch":"gone"}),
+                json!({"operation":"tree","goal": "test", "reasoning":"test","owner":"a","repo":"b","branch":"gone"}),
             )
             .await
             .expect("fallback");
@@ -837,7 +841,7 @@ mod tests {
                 .await;
             let error = run(
                 &server,
-                json!({"operation":"tree","reasoning":"test","owner":"a","repo":"b","branch":"main","path":"src/lib.rs"}),
+                json!({"operation":"tree","goal": "test", "reasoning":"test","owner":"a","repo":"b","branch":"main","path":"src/lib.rs"}),
             )
             .await
             .expect_err("file path");
@@ -878,7 +882,7 @@ mod tests {
                 .await;
             let out = run(
                 &server,
-                json!({"operation":"tree","reasoning":"test","owner":"a","repo":"b","branch":sha,"materialize":true}),
+                json!({"operation":"tree","goal": "test", "reasoning":"test","owner":"a","repo":"b","branch":sha,"materialize":true}),
             )
             .await
             .expect("materialize continues past binary files");
@@ -911,7 +915,7 @@ mod tests {
                 .await;
             let out = run(
                 &server,
-                json!({"operation":"tree","reasoning":"test","owner":"a","repo":"b","branch":"main",
+                json!({"operation":"tree","goal": "test", "reasoning":"test","owner":"a","repo":"b","branch":"main",
                     "pageSize":1,"include":["sizes","branches"]}),
             )
             .await
@@ -951,7 +955,7 @@ mod tests {
                 .await;
             let out = run(
                 &server,
-                json!({"operation":"tree","reasoning":"test","owner":"a","repo":"b","branch":"main","maxDepth":2}),
+                json!({"operation":"tree","goal": "test", "reasoning":"test","owner":"a","repo":"b","branch":"main","maxDepth":2}),
             )
             .await
             .expect("tree");
@@ -969,7 +973,7 @@ mod tests {
     #[test]
     fn incomplete_and_cap_are_losslessly_typed() {
         let query = serde_json::from_str::<GhSearchCodeQuery>(
-            r#"{"reasoning":"test","owner":"o","keywords":["x"],"page":10,"pageSize":100}"#,
+            r#"{"goal":"test","reasoning":"test","owner":"o","keywords":["x"],"page":10,"pageSize":100}"#,
         )
         .expect("GitHub search test data should be valid");
         let mut value = json!({"pagination":{"hasMore":false}});

@@ -42,6 +42,113 @@ Reusable deterministic algorithms are in `src/graph/algorithms.rs`:
 
 `octocode-native/src/tools/ast_graph/algorithms.rs` only re-exports these engine primitives. The public `astTopology` response remains a syntax-confidence file-topology contract; semantic evidence isn't relabeled as syntax or exposed as proven symbol identity.
 
+## Persisted graphs (CLI)
+
+`octocode graph ingest <path>` runs the same `build_graph` linker as
+`astTopology`. It projects the result into file, symbol, and package nodes with
+`contains`, `imports`, and `calls` edges, and publishes an immutable snapshot:
+
+```text
+<workspace>/.octocode/graph/
+  latest                         # id of the newest snapshot
+  <YYYYMMDDTHHMMSSZ>-<scope>/
+    manifest.json                # scope, counts, link tallies, diagnostics, sha256
+    graph.bin
+```
+
+`graph.bin` (format v2) is a sectioned, varint-coded file:
+
+- **Header:** magic `OCGRAPH\0`, format version, section count, and the
+  SHA-256 of the body.
+- **Section table:** `{tag, offset, len}` entries.
+- **`STRS`:** sorted unique strings, front-coded. Symbols store only their key
+  suffix (`Struct.member`), and the reader rebuilds `path#Struct.member`, so
+  every path is stored once.
+- **`NODE` and `EDGE`:** varint columns. Edges are delta-coded by source, and
+  kind plus confidence share one byte.
+- **`KEYX` / `NAMX`:** lookup permutations.
+- **`DIAG`, `FDIG`, `FCMP`, `ENTR`:** diagnostics, per-file digests,
+  components, and entrypoints.
+- **Adjacency:** both CSR directions are rebuilt on load in O(V + E) instead
+  of being stored.
+
+It needs no dependencies and is deterministic. The only work at load is a linear adjacency rebuild. Decode
+validates every cross-reference. An unknown major version asks the user to
+re-ingest, and readers ignore unknown section tags.
+
+Call edges are syntax candidates. Each one is linked in one of these ways, in
+this order:
+
+1. A same-file declaration (with receiver-aware member preference).
+2. An import binding, following named and star re-exports for up to 8 hops.
+3. A namespace or module qualifier (`ns.f`, `pkg.F`, `mod::f`).
+4. A unique name across the whole graph (`low` confidence).
+
+Every call edge keeps its `resolution` and `confidence`. `graph query` then
+answers bounded, paged questions without rebuilding. The code is in
+`crates/runtime/src/tools/ast_graph/store/`.
+
+Ingest also classifies files by role, infers entrypoints, and reads manifests
+into components and declared dependencies. That code is in `store/classify.rs`
+and `store/workspace.rs`. Two more sections carry the results: `FCMP` maps each
+file to its component and `ENTR` maps each entrypoint to the rule that found it.
+Both are optional, so readers treat a missing section as empty. `uses` edges
+link named imports to the exported declaration. `inherits` edges link a class,
+interface, or impl to its base or trait.
+
+`graph query issues` (`store/detect.rs`) runs the detectors on the loaded
+snapshot. It needs no new dependencies:
+
+- iterative Tarjan SCCs
+- Eades–Lin–Smyth greedy feedback-arc cuts
+- BFS witness cycles
+- PageRank (damping 0.85, at most 50 iterations)
+- articulation points with separated-side sizes
+- Martin instability and abstractness
+- Lakos CCD/NCCD over the SCC condensation, using bitset reachability
+
+Finding ids hash the detector, the subject, and the identifying evidence, which
+is what lets `--baseline` diff two snapshots.
+
+Large inputs are bounded:
+
+- **Over 1 MB:** a file is never parsed. It stays a file node with the
+  `unparsed` role, and relative imports of it link through
+  `unparsed-target` edges. The false unresolved diagnostics those imports would
+  otherwise raise are dropped.
+- **Bundles under the bound:** a file classified as bundled (minified,
+  `sourceMappingURL`, webpack/parcel runtime, build output) keeps its file node
+  and imports. Its symbols are dropped and its call sites are not linked.
+- **Measured:** a 3.6 MB esbuild-minified bundle plus a 9 MB unminified file
+  ingest in about 70 ms with 91 MB RSS.
+
+### Validation
+
+`scripts/graph-bench/bench.py` measures quality against the source text, not
+against the graph's own output. On 20 repositories covering 12 grammars (47 to
+50k files):
+
+- Ingest is deterministic.
+- 89–100% of sampled import edges and 98–100% of sampled high-confidence call
+  edges verify against the source line they cite.
+- Cycle witness hops verify at 80–100%.
+
+`scripts/graph-bench/seeded.py` recalls 5/5 planted defects with zero
+negative-control leaks. The controls are a lazy Python import cycle and a Rust
+`mod tests` dev-dependency.
+
+Not yet covered:
+
+- LSP-enriched call identity. Method calls whose receiver type is not
+  locally evident stay unlinked rather than guessed. The answers that follow
+  calls report `coverage.callInternalRecall` so agents can see the gap.
+- Incremental re-ingest of changed files (an unchanged tree is reused whole).
+
+Symbols carry a test flag: symbols in test files, symbols inside Rust test
+modules (`mod tests`, `mod proptests`, …), and pytest `test_*` functions and
+`Test*` classes. `impact.testFunctions` lists the flagged symbols a change
+reaches.
+
 ## Evaluation
 
 Correctness gates cover canonical digests, stale semantic evidence, typed-fact fidelity, reverse-graph invariants, SCC partitioning, and native response parity. Run:

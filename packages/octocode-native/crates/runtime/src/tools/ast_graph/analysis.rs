@@ -600,15 +600,7 @@ fn entrypoints(
     let mut low = false;
     if let Some(explicit) = q.entrypoints().filter(|x| !x.is_empty()) {
         for raw in explicit {
-            let p = if Path::new(raw).is_absolute() {
-                Path::new(raw)
-                    .strip_prefix(&b.root)
-                    .ok()
-                    .map(|x| normalize(&x.to_string_lossy()))
-                    .unwrap_or_else(|| normalize(raw))
-            } else {
-                normalize(raw)
-            };
+            let p = graph_file(raw, &b.root);
             if b.nodes.contains_key(&p) {
                 push_unique(&mut roots, &mut seen_roots, p);
             } else {
@@ -1211,7 +1203,7 @@ fn add_next(
         // against the lspSearch anchored-query schema, whose serialization
         // requires every defaulted field; emit exactly those contract fields.
         let uri = root.join(file).to_string_lossy().into_owned();
-        next.insert("verifyReferences".into(),json!({"tool":"lspSearch","query":{"operation":"references","uri":uri,"symbolName":name,"lineHint":line,"includeDeclaration":false,"groupByFile":true,"orderHint":0,"page":1,"debug":false},"why":format!("Verify candidate \"{name}\" before deletion; repeat for each result, prioritizing viaHeuristic:\"reexport-chain\"."),"confidence":"high"}));
+        next.insert("verifyReferences".into(),json!({"tool":"lspSearch","query":{"operation":"references","uri":uri,"symbolName":name,"lineHint":line,"includeDeclaration":false,"groupByFile":true,"orderHint":0,"page":1,"debug":false,"goal":q.goal(),"reasoning":q.reasoning()},"why":format!("Verify candidate \"{name}\" before deletion; repeat for each result, prioritizing viaHeuristic:\"reexport-chain\"."),"confidence":"high"}));
     }
     if !next.is_empty() {
         base.insert("next".into(), Value::Object(next));
@@ -1261,7 +1253,11 @@ fn missing_file_message(file: &str, nodes: &BTreeMap<String, Node>) -> String {
 fn graph_file(f: &str, root: &Path) -> String {
     let p = Path::new(f);
     if p.is_absolute() {
-        p.strip_prefix(root)
+        let canonical = fs::canonicalize(p).ok();
+        canonical
+            .as_deref()
+            .unwrap_or(p)
+            .strip_prefix(root)
             .ok()
             .map(|x| normalize(&x.to_string_lossy()))
             .unwrap_or_else(|| normalize(f))
@@ -1462,10 +1458,39 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn graph_file_resolves_absolute_paths_through_symlinked_roots() {
+        let temp = tempfile::tempdir().expect("temporary workspace");
+        let root = temp.path().join("actual");
+        fs::create_dir(&root).expect("source directory");
+        fs::write(root.join("entry.ts"), "export const entry = 1;").expect("source file");
+        let alias = temp.path().join("alias");
+        std::os::unix::fs::symlink(&root, &alias).expect("workspace alias");
+        let canonical_root = fs::canonicalize(&root).expect("canonical root");
+
+        assert_eq!(
+            graph_file(&alias.join("entry.ts").to_string_lossy(), &canonical_root),
+            "entry.ts"
+        );
+        assert_eq!(
+            graph_file(&root.join("entry.ts").to_string_lossy(), &canonical_root),
+            "entry.ts"
+        );
+        assert_eq!(graph_file("entry.ts", &canonical_root), "entry.ts");
+        assert_eq!(
+            graph_file(
+                &canonical_root.join("missing.ts").to_string_lossy(),
+                &canonical_root
+            ),
+            "missing.ts"
+        );
+    }
+
     #[test]
     fn diagnostic_continuation_stays_on_ast_topology() {
         let query: AstTopologyQuery = serde_json::from_value(json!({
-            "reasoning":"test",
+            "goal": "test", "reasoning":"test",
             "analysis":"dependencies",
             "path":".",
             "file":"src/index.ts",

@@ -98,6 +98,7 @@
       "unified": {
         "tool": "ghSearchCode",
         "query": {
+          "goal": "Locate the remote dispatch-symbol definition.",
           "reasoning": "Locate the remote dispatch-symbol definition.",
           "keywords": ["dispatchSymbol"],
           "owner": "fixture-owner",
@@ -114,6 +115,7 @@
       "unified": {
         "tool": "ghSearchRepo",
         "query": {
+          "goal": "Discover repositories for language-server routing.",
           "reasoning": "Discover repositories for language-server routing.",
           "keywords": ["language server", "routing"]
         }
@@ -128,6 +130,7 @@
       "unified": {
         "tool": "ghStructure",
         "query": {
+          "goal": "Orient the known repository's source tree.",
           "reasoning": "Orient the known repository's source tree.",
           "owner": "fixture-owner",
           "repo": "fixture-repo",
@@ -145,6 +148,7 @@
       "unified": {
         "tool": "ghSearchHistory",
         "query": {
+          "goal": "Find merged pull requests about routing.",
           "reasoning": "Find merged pull requests about routing.",
           "operation": "pullRequest",
           "owner": "fixture-owner",
@@ -163,6 +167,7 @@
       "unified": {
         "tool": "ghSearchHistory",
         "query": {
+          "goal": "Find open schema-drift issues.",
           "reasoning": "Find open schema-drift issues.",
           "operation": "issue",
           "owner": "fixture-owner",
@@ -181,6 +186,7 @@
       "unified": {
         "tool": "ghSearchHistory",
         "query": {
+          "goal": "Trace commits that changed the routing module.",
           "reasoning": "Trace commits that changed the routing module.",
           "operation": "commit",
           "owner": "fixture-owner",
@@ -198,6 +204,7 @@
       "unified": {
         "tool": "localSearch",
         "query": {
+          "goal": "Find local lexical route-selector occurrences.",
           "reasoning": "Find local lexical route-selector occurrences.",
           "path": "/fixture/repo",
           "searchText": "selectRoute",
@@ -214,6 +221,7 @@
       "unified": {
         "tool": "astSearch",
         "query": {
+          "goal": "Find local route-selector call content.",
           "reasoning": "Find local route-selector call content.",
           "path": "/fixture/repo",
           "operation": "match",
@@ -231,6 +239,7 @@
       "unified": {
         "tool": "structureSearch",
         "query": {
+          "goal": "Discover local schema files.",
           "reasoning": "Discover local schema files.",
           "path": "/fixture/repo",
           "operation": "files",
@@ -247,6 +256,7 @@
       "unified": {
         "tool": "structureSearch",
         "query": {
+          "goal": "Browse the local source tree.",
           "reasoning": "Browse the local source tree.",
           "path": "/fixture/repo/src",
           "operation": "tree",

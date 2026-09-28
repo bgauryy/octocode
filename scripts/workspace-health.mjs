@@ -351,7 +351,7 @@ function runPrefixed(label, command, args) {
 /**
  * Runs each workspace as soon as its dependencies (package + BUILD_INPUTS
  * edges) finished. Independent packages — the separate Cargo workspaces
- * (native, extension-rust, agents-communication) each own a target dir, so
+ * (native, extension-rust) each own a target dir, so
  * they never contend on a Cargo lock — overlap. After a failure no new task
  * starts; running ones finish, then the run exits non-zero.
  */

@@ -35,13 +35,18 @@ function fetchPublishedCore(tempRoot) {
     console.error('contract-sync: no @octocodeai/octocode-core version pinned in root package.json.');
     process.exit(1);
   }
+  if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version)) {
+    throw new Error(
+      'Published contract verification requires an exact npm version for @octocodeai/octocode-core; local paths, protocols, tags, and ranges cannot prove release parity.'
+    );
+  }
   const spec = `@octocodeai/octocode-core@${version}`;
   console.log(`contract-sync: checking against published ${spec} …`);
   // A full install (not `npm pack`) so the published dist can import its own
   // runtime dependencies (zod, …) when we load the contract builder.
   execFileSync(
     'npm',
-    ['install', spec, '--prefix', tempRoot, '--no-save', '--no-audit', '--no-fund', '--silent'],
+    ['install', spec, '--prefix', tempRoot, '--ignore-scripts', '--no-save', '--no-audit', '--no-fund', '--silent'],
     { encoding: 'utf8' }
   );
   return {

@@ -726,7 +726,14 @@ fn is_history_expansion(name: &str, tool: &str, query: &Value) -> bool {
             query.keys().all(|key| {
                 matches!(
                     key.as_str(),
-                    "operation" | "owner" | "repo" | "number" | "content" | "reasoning" | "debug"
+                    "operation"
+                        | "owner"
+                        | "repo"
+                        | "number"
+                        | "content"
+                        | "goal"
+                        | "reasoning"
+                        | "debug"
                 )
             })
         })
@@ -844,21 +851,27 @@ mod tests {
     fn nested_context_uses_the_canonical_query_contract() {
         for query in [
             json!({}),
-            json!({"queries":[{"path":"/tmp/f","reasoning":"Read"}]}),
-            json!({"path":"/tmp/f","reasoning":"Read","responseCharOffset":0}),
+            json!({"queries":[{"path":"/tmp/f","goal": "test", "reasoning":"Read"}]}),
+            json!({"path":"/tmp/f","goal": "test", "reasoning":"Read","responseCharOffset":0}),
             json!({"cursor":"opaque"}),
         ] {
             assert!(prepare("localFetch", &query).is_err(), "{query}");
         }
-        assert!(prepare("localFetch", &json!({"path":"/tmp/f","reasoning":"Read"})).is_ok());
-        assert!(prepare("localFetch", &json!({"path":"/tmp/f"})).is_ok());
+        assert!(
+            prepare(
+                "localFetch",
+                &json!({"path":"/tmp/f","goal": "test", "reasoning":"Read"})
+            )
+            .is_ok()
+        );
+        assert!(prepare("localFetch", &json!({"path":"/tmp/f"})).is_err());
     }
 
     #[test]
     fn nested_context_cannot_materialize_tree_files() {
         let query = json!({
             "owner":"o", "repo":"r",
-            "reasoning":"Inspect tree", "materialize":true
+            "goal": "test", "reasoning":"Inspect tree", "materialize":true
         });
         let error = prepare("ghStructure", &query).expect_err("materialization writes files");
         assert_eq!(error.code, "invalidClassificationContext");
@@ -868,7 +881,7 @@ mod tests {
                 "ghStructure",
                 &json!({
                     "owner":"o", "repo":"r",
-                    "reasoning":"Inspect tree", "materialize":false
+                    "goal": "test", "reasoning":"Inspect tree", "materialize":false
                 })
             )
             .is_ok()
@@ -887,7 +900,7 @@ mod tests {
         );
         let err_unknown = prepare(
             "localFetch",
-            &json!({"path":"/tmp/f","reasoning":"r","typo":1}),
+            &json!({"path":"/tmp/f","goal": "test", "reasoning":"r","typo":1}),
         )
         .expect_err("unknown field must be rejected");
         assert_eq!(err_unknown.code, "invalidClassificationContext");
@@ -900,7 +913,7 @@ mod tests {
 
     #[test]
     fn artifact_domain_cursors_are_valid_context_and_receipt_continuations() {
-        let artifact = json!({"type":"npm","keywords":["parser"],"reasoning":"Find packages","cursor":"provider-cursor","pageSize":2});
+        let artifact = json!({"type":"npm","keywords":["parser"],"goal": "test", "reasoning":"Find packages","cursor":"provider-cursor","pageSize":2});
         assert!(prepare("artifactSearch", &artifact).is_ok());
         let receipt = receipt(
             "artifactSearch",
@@ -912,16 +925,16 @@ mod tests {
     #[test]
     fn failed_context_recovery_requires_an_exact_executable_continuation() {
         let exact = json!({"next":{"continue":{"tool":"localFetch","confidence":"exact","query":{
-            "path":"/tmp/f","reasoning":"Recover","offset":0,"chunkSize":100
+            "path":"/tmp/f","goal": "test", "reasoning":"Recover","offset":0,"chunkSize":100
         }}}});
         assert_eq!(
             exact_continuation(&exact),
             Some(json!({"tool":"localFetch","query":{
-                "path":"/tmp/f","reasoning":"Recover","offset":0,"chunkSize":100
+                "path":"/tmp/f","goal": "test", "reasoning":"Recover","offset":0,"chunkSize":100
             }}))
         );
         let candidate = json!({"next":{"continue":{"tool":"localFetch","confidence":"candidate","query":{
-            "path":"/tmp/f","reasoning":"Guess","offset":0,"chunkSize":100
+            "path":"/tmp/f","goal": "test", "reasoning":"Guess","offset":0,"chunkSize":100
         }}}});
         assert!(exact_continuation(&candidate).is_none());
         assert!(exact_continuation(&json!({"next":{}})).is_none());
@@ -930,7 +943,7 @@ mod tests {
     #[test]
     fn coverage_receipts_never_copy_bodies_and_preserve_only_valid_continuations() {
         let state = json!({"results":[{"index":0,"data":{"content":"SECRET_BODY","isPartial":true,"next":{
-            "continue":{"tool":"localFetch","query":{"path":"/tmp/f","reasoning":"Read","offset":2},"confidence":"exact","content":"SECRET_BODY"},
+            "continue":{"tool":"localFetch","query":{"path":"/tmp/f","goal": "test", "reasoning":"Read","offset":2},"confidence":"exact","content":"SECRET_BODY"},
             "invalid":{"tool":"localFetch","query":{}},"effect":{"tool":"astRewrite","query":{}}
         }}}]});
         let receipt = receipt("localFetch", &state);
@@ -977,7 +990,7 @@ mod tests {
                 name.into(),
                 json!({"tool":"ghGetHistoryItem","confidence":"exact","query":{
                     "operation":"pullRequest","owner":"example","repo":"repo","number":1,
-                    "content":content,"reasoning":"Inspect selected evidence","debug":false
+                    "content":content,"goal": "test", "reasoning":"Inspect selected evidence","debug":false
                 }}),
             );
         }
@@ -988,7 +1001,7 @@ mod tests {
     fn empty_code_search_does_not_replay_tree_discovery_as_a_continuation() {
         let state = json!({"results":[{"status":"empty","data":{"next":{
             "viewStructure":{"tool":"ghStructure","confidence":"exact","query":{
-                "reasoning":"Verify the repository scope","owner":"fastify",
+                "goal": "test", "reasoning":"Verify the repository scope","owner":"fastify",
                 "repo":"fastify","path":"","pageSize":100
             }}
         }}}]});
@@ -999,7 +1012,7 @@ mod tests {
     #[test]
     fn nested_match_pages_are_exhausted_before_the_file_page_advances() {
         let search = |page: u32, match_page: u32| {
-            json!({"reasoning":"r","path":"/w","searchText":"marker","pageSize":1,
+            json!({"goal": "test", "reasoning":"r","path":"/w","searchText":"marker","pageSize":1,
                 "maxMatchesPerFile":1,"page":page,"matchPage":match_page})
         };
         // localSearch emits the outer axis first; following it would skip the
@@ -1016,11 +1029,11 @@ mod tests {
 
     #[test]
     fn cross_tool_drill_downs_are_not_same_resource_continuations() {
-        let search = json!({"reasoning":"r","operation":"pullRequest","owner":"o","repo":"r",
+        let search = json!({"goal": "test", "reasoning":"r","operation":"pullRequest","owner":"o","repo":"r",
             "keywords":["k"],"page":2});
         let state = json!({"results":[{"index":0,"data":{"next":{
             "readPr":{"tool":"ghGetHistoryItem","confidence":"low","query":{
-                "reasoning":"r","operation":"pullRequest","owner":"o","repo":"r","number":7}},
+                "goal": "test", "reasoning":"r","operation":"pullRequest","owner":"o","repo":"r","number":7}},
             "nextPage":{"tool":"ghSearchHistory","confidence":"exact","query":search}
         }}}]});
         let receipt = receipt("ghSearchHistory", &state);
@@ -1068,7 +1081,15 @@ mod tests {
         }
         let compact = receipt("ghGetHistoryItem", &state);
         assert_eq!(compact["coverage"], "partial");
-        assert_eq!(compact["next"], state["next"]);
+        let kept = compact["next"].as_object().expect("page axes");
+        let source = state["next"].as_object().expect("source axes");
+        assert_eq!(kept.len(), source.len());
+        for (name, action) in source {
+            let row = kept.get(name).unwrap_or_else(|| panic!("dropped {name}"));
+            assert_eq!(row["tool"], action["tool"], "{name}");
+            assert_eq!(row["query"], action["query"], "{name}");
+            assert_eq!(row["confidence"], action["confidence"], "{name}");
+        }
         assert!(
             compact["limitations"][0]
                 .as_str()
@@ -1084,7 +1105,11 @@ mod tests {
         let compact = receipt("ghGetHistoryItem", &state);
         assert_eq!(compact["coverage"], "partial");
         assert_eq!(compact["next"].as_object().unwrap().len(), 1);
-        assert_eq!(compact["next"]["getBody"], state["next"]["getBody"]);
+        assert_eq!(
+            compact["next"]["getBody"]["query"],
+            state["next"]["getBody"]["query"]
+        );
+        assert_eq!(compact["next"]["getBody"]["tool"], "ghGetHistoryItem");
         assert!(
             compact["limitations"][0]
                 .as_str()
@@ -1124,7 +1149,7 @@ mod tests {
                 },
                 "sourceLineRanges": [{"start": start, "end": end}],
                 "next": {"continue": {"tool": "localFetch",
-                    "query": {"path": "/tmp/f", "reasoning": "R", "offset": next_offset, "chunkSize": length}
+                    "query": {"path": "/tmp/f", "goal": "test", "reasoning": "R", "offset": next_offset, "chunkSize": length}
                 }}
             }}]
         })
@@ -1153,7 +1178,7 @@ mod tests {
                 },
                 "sourceLineRanges": [{"start": 1, "end": 1}],
                 "next": if has_more { json!({"continue": {"tool": "localFetch",
-                    "query": {"path": "/tmp/f", "reasoning": "R",
+                    "query": {"path": "/tmp/f", "goal": "test", "reasoning": "R",
                         "offset": offset + length, "chunkSize": length}
                 }}) } else { json!(null) }
             }}]

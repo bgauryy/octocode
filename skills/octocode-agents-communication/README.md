@@ -1,12 +1,12 @@
 # Octocode agents communication
 
-Cross-vendor agent discovery, durable messages, advisory path leases, shared context memories, and host delivery. The bundle exposes both a CLI and a [stdio MCP server](#connect-through-mcp), backed by the same Rust runtime and SQLite database. The [skill](SKILL.md) defines the agent workflow; command help is the input reference. The [capability manifest](docs/MANIFEST.md) records behavior, pagination, and storage boundaries.
+Cross-vendor agent discovery, durable messages, advisory path leases, shared context memories, and host delivery. The bundle exposes both a CLI and a [stdio MCP server](#connect-through-mcp), backed by the same Python runtime and SQLite database. The [skill](SKILL.md) defines the worker workflow; [host setup](scripts/docs/HOST_SETUP.md) owns administration, and command help is the input reference.
 
 ## Get started
 
-The package is **private and unpublished**. Copy or install the built `skills/octocode-agents-communication/` folder into your host's skill location and have the agent read its `SKILL.md` file. The folder includes the platform executable and SQLite; raw CLI use requires no Node, Cargo, SDK, or separate npm installation. Source checkouts need a [maintainer build](#build-and-validate).
+The package is **private and unpublished**. Copy or install the built `skills/octocode-agents-communication/` folder into your host's skill location and have the agent read its `SKILL.md` file. The folder includes the Python runtime source. CLI and MCP require Python 3.9+ with SQLite 3.42+; no Node, compiler, SDK, or pip packages are needed. Set `OCTOCODE_PYTHON` to select an interpreter. Source checkouts need a [maintainer build](#build-and-validate).
 
-The locally validated bundle is macOS ARM64. Other targets are development builds until validated on their native host. Packaging rejects foreign targets and verifies the native executable, embedded skill, and launcher before publishing an archive. Windows uses `scripts/agents-communication.ps1`.
+Packaging produces one portable archive and verifies the extracted Python runtime, skill, schema, database and launcher. CI runs it on macOS, Linux and Windows; a local run validates only its own platform. Windows uses `scripts/agents-communication.ps1`.
 
 For a manual CLI participant, replace these absolute paths with your installed launcher, repository, and shared database:
 
@@ -49,7 +49,7 @@ Use `send_message` for questions or partial work; it never completes received wo
 
 ## Connect through MCP
 
-The built skill includes a stdio MCP server. Installing the skill makes its instructions and scripts available; configure your host separately to start the server. No `scripts/index.js`, Node wrapper, or separate MCP package is required.
+The built skill includes a stdio MCP server. Installing the skill makes its instructions and scripts available; configure your host separately to start the server. The launcher starts MCP directly through Python.
 
 For a standalone MCP participant, configure your host to launch:
 
@@ -60,7 +60,7 @@ For a standalone MCP participant, configure your host to launch:
   --tools peers,send_message,inbox,complete
 ```
 
-Managed mode creates a fresh identity, maintains its presence, and leaves on EOF or a termination signal. To reuse an identity, replace `--name reviewer` with `--session SESSION_ID` and supply the same vendor. Readiness on stderr reports the identity and manual-inbox delivery mode; stdout contains MCP messages only. Each agent needs its own identity and connection. Participants share the canonical workspace and database.
+Managed mode creates a fresh identity, maintains presence and live owned leases, and leaves on EOF or a termination signal. Every 15 seconds it extends live leases to at least 60 seconds ahead without shortening longer leases or reviving expired ones; workers still acquire and unlock explicitly. To reuse an identity, replace `--name reviewer` with `--session SESSION_ID` and supply the same vendor. Readiness on stderr reports the identity and manual-inbox delivery mode; stdout contains MCP messages only. Each agent needs its own identity and connection. Participants share the canonical workspace and database.
 
 Managed mode owns a raw participant: it rejects native-bound identities and another delivery owner. It supplies callable tools, not incoming push or idle-host wakeup. Read `inbox` at task boundaries. For automatic delivery through a host hook/native adapter or an existing supervised listener, retain that host's lifecycle and use `comm mcp --session SESSION_ID` instead; plain mode never leaves or maintains the host's identity.
 
@@ -74,18 +74,22 @@ Native adapters deliver into an **existing recipient session**. Its owner suppli
 
 | Host | Native or host-specific delivery | Without its messaging API | Setup |
 | --- | --- | --- | --- |
-| Claude Code | Existing session inbox socket; inbound policy controls handling | Raw CLI/manual inbox; generic hook if wired by the host | [Service protocol](docs/SERVICE_PROTOCOL.md) |
-| Codex | Owning app-server and loaded idle thread; action starts a turn, passive injects | Raw CLI/manual inbox; generic hook if wired by the host | [Service protocol](docs/SERVICE_PROTOCOL.md) |
-| Grok Build | Leader socket and resident session; action prompts, passive waits | Supplied post-tool hooks or raw CLI/manual inbox | [Hook contracts](docs/HOST_HOOKS.md) |
-| Pi | Extension uses `pi.sendMessage` and durable session receipts | Raw CLI/manual inbox without the extension | [Service protocol](docs/SERVICE_PROTOCOL.md) |
+| Claude Code | Existing session inbox socket; inbound policy controls handling | Raw CLI/manual inbox; generic hook if wired by the host | [Service protocol](scripts/docs/SERVICE_PROTOCOL.md) |
+| Codex | Owning app-server and loaded thread; action feeds the current turn or starts one, passive injects | Raw CLI/manual inbox; generic hook if wired by the host | [Service protocol](scripts/docs/SERVICE_PROTOCOL.md) |
+| Grok Build | Leader socket and resident session; action prompts, passive waits | Supplied post-tool hooks or raw CLI/manual inbox | [Hook contracts](scripts/docs/HOST_HOOKS.md) |
+| Pi | Extension uses `pi.sendMessage` and durable session receipts | Raw CLI/manual inbox without the extension | [Service protocol](scripts/docs/SERVICE_PROTOCOL.md) |
 | OpenCode | Existing idle loopback session; action prompts, passive uses `noReply:true` | Raw CLI/manual inbox; generic hook if wired by the host | [OpenCode setup](#connect-a-native-recipient) |
-| Cursor | Supplied project post-tool hooks; no native messaging adapter | Raw CLI/manual inbox when hooks are unavailable | [Hook setup](docs/HOST_HOOKS.md); fixtures, no live Cursor validation |
-| Any other vendor or custom agent | No vendor-specific adapter required for the shared protocol | Raw CLI, host-wired context hook, or conforming SQLite client | [Database protocol](docs/DB.md) |
+| Cursor | Supplied project post-tool hooks; no native messaging adapter | Raw CLI/manual inbox when hooks are unavailable | [Hook setup](scripts/docs/HOST_HOOKS.md); fixtures, no live Cursor validation |
+| Any other vendor or custom agent | No vendor-specific adapter required for the shared protocol | Raw CLI, host-wired context hook, or conforming SQLite client | [Database protocol](scripts/docs/DB.md) |
 
 Fallback is an explicit choice: **native API → supported context hook → manual inbox**. A transport error never silently switches paths. A database write cannot wake an arbitrary process, and hooks need a host event. Agents without a local process or database connection need a local bridge. Generic ACP support stays outside the dispatcher.
 
 Use a deterministic bridge for transport; a second model adds no delivery guarantee.
 `run` creates a worker to do assigned work, not a relay required by another vendor.
+Managed Claude and Codex forward messages during active turns at their native
+between-tool boundary. Claude uses its owned Unix inbox socket with peer origin;
+Codex uses tool-output items. Managed Claude therefore requires Unix socket support.
+The bridge checks mail every 100 ms; it does not wait for the whole turn to finish.
 Codex native delivery uses [app-server tool output](https://learn.chatgpt.com/docs/app-server) to preserve peer authority.
 Claude's [session socket](https://code.claude.com/docs/en/cross-session-messaging#the-sessions-inbox-socket) already supports local scripts; [Channels](https://code.claude.com/docs/en/channels) is an optional preview integration, not a prerequisite.
 Cursor's [Cloud Agents API](https://cursor.com/docs/cloud-agent/api/endpoints) addresses cloud agents, not arbitrary local editor conversations; it is not implemented here.
@@ -102,7 +106,7 @@ comm listen --session SESSION_ID
 
 `transport` is `claude`, `codex`, `grok`, `opencode` or `raw`; `comm attach --help` lists each one's endpoint requirements. `vendorSession` identifies the native recipient and `--session` its Octocode database record. Attachment creates no agent and grants no permissions. Pi's extension manages its own lifecycle. Grok needs its leader socket. Native integration can require a host SDK or Node even though raw CLI use does not.
 
-For **OpenCode**, start `opencode serve --hostname 127.0.0.1 --port 4096` in the same workspace and create or reuse an idle session. The endpoint must be literal-loopback HTTP with an explicit port and no path or credentials; proxies and redirects are disabled. When the server requires authentication, give only the listener's environment `OPENCODE_SERVER_PASSWORD`, optional `OPENCODE_SERVER_USERNAME`, and `OCTOCODE_OPENCODE_AUTH_ENDPOINT` set to the exact attached endpoint string; credentials are never written to the database. Before staging, the adapter checks the session ID, canonical directory and idle status; busy sessions defer. Passive messages use `noReply:true`, actionable ones `prompt_async`, and an HTTP 204 means submission, not handling. Structured-edit guards are separate ([OpenCode opt-in](docs/HOST_LEASE_GUARDS.md#opencode-opt-in)).
+For **OpenCode**, start `opencode serve --hostname 127.0.0.1 --port 4096` in the same workspace and create or reuse an idle session. The endpoint must be literal-loopback HTTP with an explicit port and no path or credentials; proxies and redirects are disabled. When the server requires authentication, give only the listener's environment `OPENCODE_SERVER_PASSWORD`, optional `OPENCODE_SERVER_USERNAME`, and `OCTOCODE_OPENCODE_AUTH_ENDPOINT` set to the exact attached endpoint string; credentials are never written to the database. Before staging, the adapter checks the session ID, canonical directory and idle status; busy sessions defer. Passive messages use `noReply:true`, actionable ones `prompt_async`, and an HTTP 204 means submission, not handling. Structured-edit guards are separate ([OpenCode opt-in](scripts/docs/HOST_LEASE_GUARDS.md#opencode-opt-in)).
 
 ## Work without a vendor API
 
@@ -119,59 +123,40 @@ Use the [raw setup above](#get-started) for the CLI path. SQL clients must prese
 
 ## Coordination you can inspect
 
-Messages, replies, identities, delivery attempts, and handling acknowledgements share the local database. Leases expire when their owner stops maintaining presence; heartbeats do not renew the leases themselves. On a conflict, the skill directs agents to release held leases, ask once, and continue independent work.
+Messages, replies, identities, delivery attempts, and handling acknowledgements share the local database. Leases expire when their owner stops maintaining presence; plain heartbeats do not renew leases, while managed hosts explicitly renew live owned leases. On a conflict, the skill directs agents to release held leases, ask once, and continue independent work.
 
-Path reservations are advisory. Optional [structured-edit guards](docs/HOST_LEASE_GUARDS.md) check live ownership for Claude, Pi, and OpenCode. Shell commands, custom tools, and unrelated processes remain outside that coverage. Peer messages cannot grant permissions or expand your assigned task.
+Path reservations are advisory. Optional [structured-edit guards](scripts/docs/HOST_LEASE_GUARDS.md) check live ownership for Claude, Pi, and OpenCode. Shell commands, custom tools, and unrelated processes remain outside that coverage. Peer messages cannot grant permissions or expand your assigned task.
 
-Use `health` for compact, read-only delivery diagnostics. Use `entity list audit` to inspect recorded events. Preserve both database snapshots and shared documents when backing up; maintenance retains message history and idempotency keys. See [operations and recovery](docs/OPERATIONS.md), [lock rules](docs/LOCKS.md), and [retention](docs/RETENTION.md).
+Use `health` for compact, read-only delivery diagnostics. Use `entity list audit` to inspect recorded events. Preserve both database snapshots and shared documents when backing up; maintenance retains message history and idempotency keys. See [operations and recovery](scripts/docs/OPERATIONS.md), [lock rules](scripts/docs/LOCKS.md), and [retention](scripts/docs/RETENTION.md).
 
 The scope is cooperating agents under the same trusted OS user. Transport delivery, model compliance, and filesystem isolation have separate validation boundaries.
 
 ## Build and validate
 
-Run maintainer commands from the monorepo root. Builds require Rust, a C compiler, and Node; packing requires system `tar`.
+Run maintainer commands from the monorepo root. Builds and checks require Node and Python. Packing uses Python’s standard-library archive support.
 
 ```sh
 yarn workspace @octocodeai/octocode-agents-communication build
 yarn workspace @octocodeai/octocode-agents-communication pack:skill
 ```
 
-Use `build:release` for an optimized executable. Packing checks the bundle and writes a standalone archive under the package's `out/` directory. Generated executables are not tracked by Git.
+Packing writes a portable archive under the package’s `out/` directory.
 
-The `verify` package script runs lint (Rust format, strict Clippy and a Markdown link check) and the product tests; `test:tooling` covers the benchmark and POC harnesses. The `poc:service-mesh` script exercises two recipients per configured vendor plus a CLI peer, including directed questions and replies, broadcasts, documents, and automatic wake. It requires authenticated vendor CLIs and an explicit `COMMUNICATION_PI_MODEL`; `COMMUNICATION_OPENCODE_COMMAND` adds OpenCode.
+`verify` runs syntax and link checks, Python and process regression tests, then exercises CLI/MCP messaging, lease handoff and database recovery from an extracted archive.
 
 ## Source and output
 
-- `src/`: Rust implementation, catalog, schema, build and evaluation tools.
-- `src/runtime/`: launcher and host adapter sources.
-- `scripts/`: generated runnable bundle, including `octocode-agents-communication` (`.exe` on Windows) and its checksum. Edit `src/`, then rebuild.
-- `tests/`: protocol, delivery, retry, trace and packaging regression tests.
-- `docs/`: storage and host integration contracts; [ARCHITECTURE.md](ARCHITECTURE.md) maps implementation ownership.
+- `scripts/`: Python runtime, catalog, SQL schema, dashboard, launchers and host adapters.
+- `scripts/docs/`: canonical protocol and host integration documentation, shipped with the runtime.
+- `src/`: build, package and verification utilities.
+- `tests/`: runtime and packaging regression tests.
 
-Each build produces one platform bundle directly in `scripts/`. Installed bundles contain only `SKILL.md` and `scripts/`; source, tests and build caches stay in the checkout.
-
-## Mandatory edit reservations
-
-Before every edit, hold a live covering `lock`/`lock_many` lease with a brief `reasoning`. `locks {}` (CLI or MCP) lists active workspace reservations with owner agent IDs and acquisition, refresh and expiry timestamps; follow `next` for every page. Default TTL is 60 seconds, maximum 10 minutes per acquisition/renewal. Stale locks and expired owners are excluded. On conflict, message the owner once using the returned handoff command if needed, or wait; retry acquisition before editing. See [lock rules](docs/LOCKS.md).
-
-This development schema adds lease timestamps. Older databases remain untouched and fail compatibility checks; use a fresh shared database for the updated runtime.
-
-## Task-sized tools and evidence
-
-Use `--tools messaging`, `--tools review`, or `--tools editing` for normal agent setup; an explicit comma-separated list selects custom tools. Omitting selection preserves complete discovery. `set_status` updates only the bound agent’s task/status; it never extends presence or file leases.
-
-Read only the document sections needed for a targeted question and state incomplete coverage. Complete-document reviews still follow all continuations. Every read verifies the entire file’s hash while retaining a bounded page/scan buffer; this preserves tamper detection but does not eliminate repeated hashing across pages. Prefer small task-specific shared documents.
-
-Use one local database on the same machine. SQLite WAL is not a cross-machine shared-drive coordination service. Host guard setup reports its actual supported/configured operations; advisory leases do not fence arbitrary shell or OS writes.
-
-### Reply requirements
-
-Direct requests default to `replyRequired:true` and require `complete` with a final answer. Set `false` for FYIs; replies and fanout default false. Informational messages reject replies. See [database protocol](docs/DB.md#reply-requirements). Use a fresh development DB after this schema change; existing stores fail closed.
+The build refreshes `scripts/octocode_config.py` from the shared config package and validates startup. Installed bundles contain only `SKILL.md` and `scripts/`. See [ARCHITECTURE.md](ARCHITECTURE.md) for the runtime flow.
 
 ## Watch communication locally
 
 Run `scripts/agents-communication view --workspace <repo> --database <db>` to open the local dashboard. It shows workspace-wide agents, requests/replies and completion, live file locks with owners/reasons/timestamps, document metadata, subscriptions, connections, dispatch state and paginated audit history. Follow an agent across views, pause updates or browse older pages.
 
-The native executable embeds the interface: no Node, frontend install or external assets are required. It reads an existing compatible database without joining an agent or changing state. The observer is for the local user; participant-scoped CLI/MCP visibility stays unchanged. It binds only to 127.0.0.1 on a random port with a per-launch URL token. Keep that URL local. Ctrl+C stops the server. `view '{"open":false,"port":8766}'` prints the URL without launching a browser; port 0 selects an available port. Use the same canonical workspace and database as the agents. Documents are shown as metadata; the viewer does not read arbitrary filesystem paths.
+The Python runtime serves the bundled interface: no Node, frontend install or external assets are required. It reads an existing compatible database without joining an agent or changing state. The observer is for the local user; participant-scoped CLI/MCP visibility stays unchanged. It binds only to 127.0.0.1 on a random port with a per-launch URL token. Keep that URL local. Ctrl+C stops the server. `view '{"open":false,"port":8766}'` prints the URL without launching a browser; port 0 selects an available port. Use the same canonical workspace and database as the agents. Documents are shown as metadata; the viewer does not read arbitrary filesystem paths.
 
 Messages open first. Search scans all retained message history, including inactive agents; filter by named agent (sent and received), handling state, or a message’s **Open conversation** button. **Older / Previous / Newest** page through results without dropping records. The search for other entity views covers the current page. Pruned data is unavailable; use an exported database to inspect a saved run.

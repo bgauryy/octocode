@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {execFile} from 'node:child_process';
+import { execFile } from './helpers.mjs';
 import {promisify} from 'node:util';
 import {mkdirSync, symlinkSync} from 'node:fs';
 import {tmpdir} from 'node:os';
@@ -17,7 +17,7 @@ function fixture(t) {
   const other = call('join', {name: 'other', vendor: 'raw'}).id;
   const db = new DatabaseSync(database); t.after(() => db.close());
   const lock = (path, kind = 'file', session = owner) => call('lock', {path, kind, reasoning: 'Exercise structured edit lease admission'}, session).lease;
-  const check = paths => call('check_write', {paths}, owner);
+  const check = paths => call('check_write', {paths: paths.map(path => ({path}))}, owner);
   return {workspace, database, args, call, owner, other, db, lock, check};
 }
 test('declared file targets require every own live lease, including tree coverage and absent files', t => {
@@ -36,7 +36,7 @@ test('check_write is read-only under a held writer and does not renew presence o
   const expires = f.db.prepare('SELECT expiresAt FROM sessions WHERE id=?').get(f.owner).expiresAt;
   f.db.exec('BEGIN IMMEDIATE');
   try {
-    const result = await exec(binary, f.args('check_write', {paths: ['file.txt']}, f.owner), {timeout: 1500});
+    const result = await exec(binary, f.args('check_write', {paths: [{path:'file.txt'}]}, f.owner), {timeout: 1500});
     assert.equal(JSON.parse(result.stdout).ok, true);
   } finally { f.db.exec('ROLLBACK'); }
   assert.equal(f.db.prepare('PRAGMA data_version').get().data_version, before);
@@ -63,7 +63,22 @@ test('guard rejects workspace escape, directories, malformed and oversized path 
 test('host session identity and lease coverage are checked in one read snapshot', t => {
   const f = fixture(t); f.lock('file.txt');
   f.call('heartbeat', {vendorSession:'actual-host'}, f.owner);
-  assert.equal(f.call('check_write', {paths:['file.txt'],vendorSession:'actual-host'},f.owner).ok,true);
-  for (const vendorSession of ['other-host',' ',null]) assert.throws(() => f.call('check_write', {paths:['file.txt'],vendorSession},f.owner));
+  assert.equal(f.call('check_write', {paths:[{path:'file.txt'}],vendorSession:'actual-host'},f.owner).ok,true);
+  for (const vendorSession of ['other-host',' ',null]) assert.throws(() => f.call('check_write', {paths:[{path:'file.txt'}],vendorSession},f.owner));
   assert.equal(f.check(['file.txt']).ok,true,'generic agents may omit native identity');
+});
+
+test('path checks share object inputs with file defaults while write admission remains file-only', t => {
+  const f = fixture(t); f.lock('src/file.txt'); f.lock('other/file.txt', 'file', f.other);
+  const paths = [{path:'src/file.txt'}, {path:'src/file.txt',kind:'file'}];
+  assert.equal(f.call('check_paths', {paths}, f.owner).ok, true);
+  assert.equal(f.call('check_write', {paths}, f.owner).ok, true);
+  const conflicts = f.call('check_paths', {paths:[{path:'other',kind:'tree'}]}, f.owner);
+  assert.equal(conflicts.ok, false); assert.equal(conflicts.conflicts.length, 1);
+  for (const command of ['check_paths','check_write']) {
+    for (const paths of [['src/file.txt'], [{path:'src/file.txt',kind:'directory'}], [{path:'src/file.txt',extra:true}]]) {
+      assert.throws(() => f.call(command, {paths}, f.owner), /Invalid input/);
+    }
+  }
+  assert.throws(() => f.call('check_write', {paths:[{path:'src',kind:'tree'}]}, f.owner), /Invalid input/);
 });

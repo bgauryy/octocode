@@ -63,21 +63,48 @@ pub(crate) fn pages_within_resource(tool: &str) -> bool {
     )
 }
 
+/// Whether a tool resource can yield the contiguous original-source page that
+/// `locate` tags: an untransformed file read, or search hydrated with
+/// `fileChunks` (a page that is still gapped fails per page at runtime).
+/// Supplied values are left to the runtime page check.
+fn locate_capable(context: &serde_json::Map<String, Value>) -> bool {
+    let Some(tool) = context.get("tool").and_then(Value::as_str) else {
+        return true;
+    };
+    match ToolId::from_name(tool) {
+        Some(ToolId::LocalFetch | ToolId::GhGetFileContent) => context
+            .get("query")
+            .and_then(|query| query.get("minify"))
+            .and_then(Value::as_str)
+            .is_none_or(|minify| minify == "none"),
+        Some(ToolId::LocalSearch | ToolId::GhSearchCode) => {
+            context.get("candidateEvidence").and_then(Value::as_str) == Some("fileChunks")
+        }
+        _ => false,
+    }
+}
+
 /// Validate the matrix and resolve its provider questions once, before capture.
 pub(crate) fn preflight(query: &Value) -> Result<Vec<Value>, ClassificationError> {
     let query = query
         .as_object()
         .ok_or_else(|| request_error("Query must be an object."))?;
-    let expected_keys =
-        3 + usize::from(query.contains_key("reasoning")) + usize::from(query.contains_key("carry"));
+    if !query.get("reasoning").is_some_and(valid_brief) {
+        return Err(request_error(
+            "reasoning must be a nonblank string of at most 500 characters.",
+        ));
+    }
+    if !query.get("goal").is_some_and(valid_brief) {
+        return Err(request_error(
+            "goal must be a nonblank string of at most 500 characters.",
+        ));
+    }
+    let expected_keys = 5 + usize::from(query.contains_key("carry"));
     if query.len() != expected_keys
         || query.get("carry").is_some_and(|carry| !carry.is_object())
         || !query.get("id").is_some_and(valid_matrix_id)
         || !query.get("resources").is_some_and(Value::is_array)
         || !query.get("questions").is_some_and(Value::is_array)
-        || query
-            .get("reasoning")
-            .is_some_and(|value| !value.is_string())
     {
         return Err(request_error(
             "Supply an id, resources, and typed questions.",
@@ -139,7 +166,41 @@ pub(crate) fn preflight(query: &Value) -> Result<Vec<Value>, ClassificationError
         }
         resolved.push(json!({"id":question["id"],"question":expanded}));
     }
+    if resolved
+        .iter()
+        .any(|question| questions::is_locate(&question["question"]))
+    {
+        let blocked = resources
+            .iter()
+            .filter(|resource| {
+                resource["context"]
+                    .as_object()
+                    .is_some_and(|context| !locate_capable(context))
+            })
+            .filter_map(|resource| resource["id"].as_str())
+            .collect::<Vec<_>>();
+        if !blocked.is_empty() {
+            return Err(ClassificationError {
+                code: "classificationLocateUnsupported".into(),
+                message: format!(
+                    "locate needs contiguous original source lines; resources {} cannot supply them.",
+                    blocked.join(", ")
+                ),
+                hints: vec![
+                    "For locate, use localFetch or ghGetFileContent without minify, or localSearch/ghSearchCode with candidateEvidence:\"fileChunks\".".into(),
+                    "To screen search, structure, AST, LSP, history, or package results, ask noul, choice, score, or contribution questions in a separate matrix.".into(),
+                ],
+                ..Default::default()
+            });
+        }
+    }
     Ok(resolved)
+}
+
+fn valid_brief(value: &Value) -> bool {
+    value.as_str().is_some_and(|text| {
+        text.chars().count() <= 500 && text.chars().any(|char| !char.is_whitespace())
+    })
 }
 
 fn valid_matrix_id(value: &Value) -> bool {
@@ -324,6 +385,7 @@ mod tests {
         json!({
             "id":"decision",
             "reasoning":"Decide whether to inspect the retry branch.",
+            "goal":"Searching for retry handling. Need files that decide a retry.",
             "resources":[{"id":"resource-1","context":context}],
             "questions":[{"id":"relevance.v1","question":question}]
         })
@@ -356,10 +418,12 @@ mod tests {
     }
 
     #[test]
-    fn reasoning_is_optional_metadata_and_never_provider_evidence() {
+    fn reasoning_and_goal_are_required_briefs_and_stay_off_the_expanded_question() {
         let provider = jev_provider();
         let mut query = semantic_query(json!({"value":{"observation":true}}), question());
-        let resolved = preflight(&query).expect("reasoning metadata accepted");
+        let resolved = preflight(&query).expect("required briefs accepted");
+        assert!(resolved[0]["question"].get("goal").is_none());
+        assert!(resolved[0]["question"].get("reasoning").is_none());
         assert_eq!(
             prepare(
                 &query["resources"][0]["context"]["value"],
@@ -370,16 +434,24 @@ mod tests {
             .unwrap(),
             json!({"model":"m","state":{"observation":true},"questions":{"answer":question()}})
         );
-        for invalid in [Value::Null, json!(7)] {
-            query["reasoning"] = invalid;
-            assert!(preflight(&query).is_err());
-        }
-        for blank in ["", " \t\n"] {
-            query["reasoning"] = json!(blank);
-            assert!(preflight(&query).is_ok());
-        }
-        query.as_object_mut().unwrap().remove("reasoning");
+        query["carry"] = json!({"t":[{"resourceId":"resource-1","exists":0.9,"startLine":1,"endLine":8,"probability":0.5}]});
         assert!(preflight(&query).is_ok());
+        for field in ["reasoning", "goal"] {
+            let mut missing = query.clone();
+            missing.as_object_mut().unwrap().remove(field);
+            assert!(preflight(&missing).is_err(), "missing {field}");
+            for invalid in [
+                Value::Null,
+                json!(7),
+                json!(""),
+                json!(" \t\n"),
+                json!("x".repeat(501)),
+            ] {
+                let mut bad = query.clone();
+                bad[field] = invalid.clone();
+                assert!(preflight(&bad).is_err(), "{field} {invalid}");
+            }
+        }
     }
 
     #[test]
@@ -468,6 +540,42 @@ mod tests {
             semantic_query(json!({"value":null}), question()),
         ] {
             assert!(preflight(&invalid).is_err());
+        }
+    }
+
+    #[test]
+    fn locate_is_rejected_before_capture_for_resources_without_source_lines() {
+        let locate = json!({"questionType":"locate","target":"retry condition"});
+        for context in [
+            json!({"tool":"localFetch","query":{}}),
+            json!({"tool":"localFetch","query":{"minify":"none"}}),
+            json!({"tool":"ghGetFileContent","query":{}}),
+            json!({"tool":"localSearch","query":{},"candidateEvidence":"fileChunks"}),
+            json!({"tool":"ghSearchCode","query":{},"candidateEvidence":"fileChunks"}),
+            json!({"value":"supplied"}),
+        ] {
+            assert!(preflight(&semantic_query(context, locate.clone())).is_ok());
+        }
+        for context in [
+            json!({"tool":"localFetch","query":{"minify":"standard"}}),
+            json!({"tool":"ghGetFileContent","query":{"minify":"symbols"}}),
+            json!({"tool":"localSearch","query":{}}),
+            json!({"tool":"ghSearchCode","query":{},"candidateEvidence":"search"}),
+            json!({"tool":"structureSearch","query":{}}),
+            json!({"tool":"astSearch","query":{}}),
+            json!({"tool":"astTopology","query":{}}),
+            json!({"tool":"lspSearch","query":{}}),
+            json!({"tool":"ghSearchRepo","query":{}}),
+            json!({"tool":"ghStructure","query":{}}),
+            json!({"tool":"ghSearchHistory","query":{}}),
+            json!({"tool":"ghGetHistoryItem","query":{}}),
+            json!({"tool":"artifactSearch","query":{}}),
+        ] {
+            let error = preflight(&semantic_query(context.clone(), locate.clone()))
+                .expect_err("locate needs source lines");
+            assert_eq!(error.code, "classificationLocateUnsupported", "{context}");
+            assert!(error.message.contains("resource-1"));
+            assert!(preflight(&semantic_query(context, question())).is_ok());
         }
     }
 

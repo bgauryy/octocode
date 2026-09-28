@@ -347,7 +347,7 @@ mod cursor_signing_tests {
                 "type": "npm",
                 "keywords": ["http"],
                 "cursor": cursor_value,
-                "reasoning": "test",
+                "goal": "test", "reasoning": "test",
             });
             async move {
                 execute(&query, dead, CancellationToken::new(), false, None, 0, true)
@@ -369,8 +369,7 @@ mod cursor_signing_tests {
         );
         let scope = cursor_scope(&typed).expect("scope");
         let token = cursor::sign_state(key, &scope, br#"{"offset":30,"page":2}"#).expect("sign");
-        let query =
-            json!({"type": "npm", "keywords": ["http"], "cursor": token, "reasoning": "test"});
+        let query = json!({"type": "npm", "keywords": ["http"], "cursor": token, "goal": "test", "reasoning": "test"});
         let issued = execute(&query, dead, CancellationToken::new(), false, None, 0, true)
             .await
             .expect_err("dead budget");
@@ -416,7 +415,7 @@ mod npm_auth_tests {
             "type": "npm",
             "packageName": "audit-package",
             "registry": format!("http://127.0.0.1:{port}"),
-            "reasoning": "test",
+            "goal": "test", "reasoning": "test",
         });
         // Generous: building the system HTTP client (native root certs) can
         // be slow in sandboxed test environments.

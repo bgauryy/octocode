@@ -749,7 +749,21 @@ fn run_clean(root: &Path, yes: bool, json: bool) -> u8 {
         }
         return 0;
     }
-    let _ = std::fs::remove_dir_all(root);
+    // A missing cache is already clean; any other failure must not be
+    // reported as success.
+    if let Err(error) = std::fs::remove_dir_all(root)
+        && error.kind() != std::io::ErrorKind::NotFound
+    {
+        if json {
+            super::write_json(
+                &serde_json::json!({ "clean": "failed", "root": root_display, "error": error.to_string() }),
+                true,
+            );
+        } else {
+            eprintln!("Could not remove the managed LSP cache at {root_display}: {error}");
+        }
+        return 5;
+    }
     if json {
         super::write_json(
             &serde_json::json!({ "clean": "done", "root": root_display }),
@@ -765,6 +779,27 @@ fn run_clean(root: &Path, yes: bool, json: bool) -> u8 {
 mod tests {
     use super::*;
     use flate2::{Compression, write::GzEncoder};
+
+    #[test]
+    fn clean_reports_success_only_when_the_cache_is_gone() {
+        let dir = tempfile::tempdir().expect("dir");
+        let cache = dir.path().join("lsp");
+        std::fs::create_dir_all(cache.join("server")).expect("cache");
+        assert_eq!(run_clean(&cache, false, true), 0, "dry run");
+        assert!(cache.exists(), "dry run keeps the cache");
+        assert_eq!(run_clean(&cache, true, true), 0);
+        assert!(!cache.exists());
+        assert_eq!(
+            run_clean(&cache, true, true),
+            0,
+            "an absent cache is already clean"
+        );
+        // A path that is a file cannot be removed as a directory: failure is
+        // reported, never "done".
+        let file = dir.path().join("not-a-dir");
+        std::fs::write(&file, "x").expect("file");
+        assert_eq!(run_clean(&file, true, true), 5);
+    }
     use std::io::Write;
     use zip::write::SimpleFileOptions;
 

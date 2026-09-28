@@ -47,25 +47,25 @@ class CampaignContext(unittest.TestCase):
                     self.assertEqual(json.loads(result.stdout)["name"], "localFetch")
     def test_cli_query_envelopes_preserve_every_scope_check(self):
         policy = pilot.Policy("octocode", self.cli, [self.corpus])
-        query = {"reasoning": "Read the scoped fixture.", "path": str(self.source)}
+        query = {"goal": "Read the scoped fixture.", "reasoning": "Read the scoped fixture.", "path": str(self.source)}
         for payload in ({"queries": [query]}, [query], query):
             command = f"node {self.cli} localFetch {shlex.quote(json.dumps(payload))}"
             self.assertIsNone(policy.audit(command))
-        for payload in ({"queries": []}, {"queries": [query, {"reasoning": "Attempt an unscoped read.", "path": "/etc/passwd"}]},
+        for payload in ({"queries": []}, {"queries": [query, {"goal": "Attempt an unscoped read.", "reasoning": "Attempt an unscoped read.", "path": "/etc/passwd"}]},
                         {"queries": [query], "extra": True}):
             command = f"node {self.cli} localFetch {shlex.quote(json.dumps(payload))}"
             self.assertIsNotNone(policy.audit(command))
 
     def test_response_continuation_envelope_preserves_scope_and_owns_no_schema_validation(self):
         policy = pilot.Policy("octocode", self.cli, [self.corpus])
-        payload = {"queries": [{"reasoning": "Read the scoped fixture.", "path": str(self.source)}], "responseCharLength": 1000,
+        payload = {"queries": [{"goal": "Read the scoped fixture.", "reasoning": "Read the scoped fixture.", "path": str(self.source)}], "responseCharLength": 1000,
                    "responseCharOffset": 1000, "responseSnapshot": "response-v1:fixture"}
         def audit(value):
             return policy.audit(f"node {self.cli} localFetch {shlex.quote(json.dumps(value))}")
         self.assertIsNone(audit(payload))
         self.assertIsNone(audit({**payload, "responseCharLength": "invalid-runtime-schema-value"}))
         self.assertIsNotNone(audit({**payload, "extra": True}))
-        self.assertIsNotNone(audit({**payload, "queries": [payload["queries"][0], {"reasoning": "Attempt an unscoped read.", "path": "/etc/passwd"}]}))
+        self.assertIsNotNone(audit({**payload, "queries": [payload["queries"][0], {"goal": "Attempt an unscoped read.", "reasoning": "Attempt an unscoped read.", "path": "/etc/passwd"}]}))
 
     def test_whole_response_continuations_execute_unmodified_through_real_cli(self):
         import subprocess
@@ -75,7 +75,7 @@ class CampaignContext(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parent, prefix="response fixture ") as root:
             source = Path(root) / "source.py"
             source.write_text("".join(f"fixture source line {line}\n" for line in range(1, 101)))
-            query = {"queries": [{"reasoning": "Page the bounded local fixture.", "path": str(source), "startLine": 1, "endLine": 100}], "responseCharLength": 1024}
+            query = {"queries": [{"goal": "Page the bounded local fixture.", "reasoning": "Page the bounded local fixture.", "path": str(source), "startLine": 1, "endLine": 100}], "responseCharLength": 1024}
             policy = pilot.Policy("octocode", cli, [root])
             offsets, pages = [], []
             while True:
@@ -110,7 +110,7 @@ class CampaignContext(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parent, prefix="envelope fixture ") as root:
             source = Path(root) / "source.py"
             source.write_text("pass\n")
-            payload = {"queries": [{"reasoning": "Read the bounded local fixture.", "path": str(source), "startLine": 1, "endLine": 1}]}
+            payload = {"queries": [{"goal": "Read the bounded local fixture.", "reasoning": "Read the bounded local fixture.", "path": str(source), "startLine": 1, "endLine": 1}]}
             argv = ["node", str(cli), "localFetch", json.dumps(payload)]
             self.assertIsNone(pilot.Policy("octocode", cli, [root]).audit(shlex.join(argv)))
             result = subprocess.run(argv, capture_output=True, text=True, timeout=30)
@@ -140,7 +140,7 @@ class CampaignContext(unittest.TestCase):
 
     def test_read_only_remote_scope_requires_selected_repository_and_pinned_content(self):
         policy = pilot.Policy("octocode", self.cli, [self.corpus], remote=True)
-        query = {"reasoning": "Read the pinned remote fixture.", "owner": "vercel", "repo": "next.js",
+        query = {"goal": "Read the pinned remote fixture.", "reasoning": "Read the pinned remote fixture.", "owner": "vercel", "repo": "next.js",
                  "path": "packages/next/src/server/config.ts", "branch": pilot.COMMITS["nextjs"]}
         def audit(tool, value):
             return policy.audit(f"node {self.cli} {tool} {shlex.quote(json.dumps(value))}")

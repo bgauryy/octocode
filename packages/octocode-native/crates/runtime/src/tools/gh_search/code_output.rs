@@ -46,7 +46,7 @@ pub(super) async fn empty_scope<R: CredentialResolver>(
         Err(error) if error.kind == ProviderErrorKind::NotFound => (
             "findRepository",
             "ghSearchRepo",
-            json!({"keywords":[repo]}),
+            json!({"keywords":[repo],"goal":query.goal.as_str(),"reasoning":query.reasoning.as_str()}),
             "Find the repository by name in case it moved or was renamed.",
             "low",
             "ghRepoNotFound",
@@ -80,7 +80,7 @@ pub(super) async fn empty_scope<R: CredentialResolver>(
         Ok(metadata) if metadata.archived => (
             "viewStructure",
             "ghStructure",
-            json!({"owner":owner,"repo":repo,"path":""}),
+            json!({"owner":owner,"repo":repo,"path":"","goal":query.goal.as_str(),"reasoning":query.reasoning.as_str()}),
             "Inspect the archived repository outside the code-search index.",
             "exact",
             "ghRepoArchived",
@@ -88,7 +88,7 @@ pub(super) async fn empty_scope<R: CredentialResolver>(
         _ => (
             "viewStructure",
             "ghStructure",
-            json!({"owner":owner,"repo":repo,"path":""}),
+            json!({"owner":owner,"repo":repo,"path":"","goal":query.goal.as_str(),"reasoning":query.reasoning.as_str()}),
             "Verify that the scoped repository and path exist before concluding absence.",
             "exact",
             "ghScopedZeroUnproven",

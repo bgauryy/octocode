@@ -18,7 +18,7 @@ The catalog shows available tools and configuration gates; a compact schema show
 
 Execute with `TOOL_NAME 'JSON'` — one query object or a batch of up to five same-tool queries. Batch only independent work; sequence calls when a later query needs an identity, path, source line, snapshot, cursor, or continuation from an earlier one.
 
-Optional `goal` and `reasoning` are short decision context, not ranking controls or proof. Result `index` maps to the zero-based input position, and one row can fail while siblings succeed; `hints` suggest recovery, not result data. Do not mix fields across operations or assume a former tool name still aliases. Follow executable `next.*` calls across collection, content, diagnostic, and whole-response pagination — a first page, bounded scan, empty result, or bare cursor is not a completeness claim. See [How every tool call works](OCTOCODE_TOOLS.md#how-every-tool-call-works) for the full shared envelope.
+Required `goal` and `reasoning` are short decision context, shared by every query in a batch, not ranking controls or proof. Result `index` maps to the zero-based input position, and one row can fail while siblings succeed; `hints` suggest recovery, not result data. Do not mix fields across operations or assume a former tool name still aliases. Follow executable `next.*` calls across collection, content, diagnostic, and whole-response pagination — a first page, bounded scan, empty result, or bare cursor is not a completeness claim. See [How every tool call works](OCTOCODE_TOOLS.md#how-every-tool-call-works) for the full shared envelope.
 
 ## Choose the evidence surface
 

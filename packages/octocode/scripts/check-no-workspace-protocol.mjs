@@ -16,7 +16,7 @@
  * is versioned independently. If you want to sync every package version to the
  * monorepo root, run `node ./scripts/prepublish.mjs --fix` explicitly.
  */
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, globSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -99,12 +99,11 @@ function collectWorkspaceMemberNames() {
     const rootName = readJson(rootPkgPath).name;
     if (typeof rootName === 'string') names.add(rootName);
   }
-  const roots = [join(repoRoot, 'packages'), NATIVE_NPM_DIR, EXTENSION_RUST_NPM_DIR];
-  for (const root of roots) {
-    if (!existsSync(root)) continue;
-    for (const entry of readdirSync(root, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue;
-      const pkgPath = join(root, entry.name, 'package.json');
+  const rootPkg = existsSync(rootPkgPath) ? readJson(rootPkgPath) : {};
+  const patterns = Array.isArray(rootPkg.workspaces) ? rootPkg.workspaces : rootPkg.workspaces?.packages ?? [];
+  for (const pattern of patterns) {
+    for (const directory of globSync(pattern, { cwd: repoRoot })) {
+      const pkgPath = join(repoRoot, directory, 'package.json');
       if (!existsSync(pkgPath)) continue;
       const name = readJson(pkgPath).name;
       if (typeof name === 'string') names.add(name);

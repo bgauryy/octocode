@@ -1,8 +1,9 @@
-// Optional host integrations share one read-only Rust admission call.
+// Optional host integrations share one read-only runtime admission call.
 import {execFile} from 'node:child_process';
 import {realpath} from 'node:fs/promises';
 import {isAbsolute, relative, sep} from 'node:path';
 import {promisify} from 'node:util';
+import {runtimeCommand} from '../cli-command.mjs';
 const execute = promisify(execFile);
 // Hosts normalize aliases differently. Admit plain paths only instead of guessing
 // whether lexical normalization and filesystem traversal identify the same file.
@@ -21,9 +22,10 @@ export async function checkHostWrite(binding, {vendorSession, cwd, path}) {
   const child = relative(workspace, directory);
   if (child === '..' || child.startsWith(`..${sep}`) || isAbsolute(child)) throw Error('Wrong workspace');
   if (!plainHostPath(path) || !plainHostPath(cwd)) throw Error('Use a plain path without host aliases or parent traversal');
-  // Rust owns canonical symlink and lease normalization for the plain target.
+  // The runtime owns canonical symlink and lease normalization for the plain target.
   const target = isAbsolute(path) ? path : `${directory}${sep}${path}`;
-  const {stdout} = await execute(binding.binary, ['check_write', JSON.stringify({paths: [target], vendorSession}), '--workspace', workspace, '--database', binding.database, '--session', binding.session], {timeout: 2500, maxBuffer: 256 * 1024, windowsHide: true});
+  const invocation = runtimeCommand(binding.binary, ['check_write', JSON.stringify({paths: [{path: target}], vendorSession}), '--workspace', workspace, '--database', binding.database, '--session', binding.session]);
+  const {stdout} = await execute(invocation.command, invocation.args, {timeout: 2500, maxBuffer: 256 * 1024, windowsHide: true});
   const result = JSON.parse(stdout), expiry = result.checks?.[0]?.lease?.expiresAt;
   return result.ok === true && result.checks?.length === 1 && Number.isSafeInteger(expiry) && expiry > Date.now();
 }

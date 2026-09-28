@@ -18,15 +18,15 @@ Load for a remote repository, package, upstream change, or external implementati
 Use the same private-read flow as local files, with remote identity preserved. Skip Clasify for a useful literal, a small exact range, or a cheap outline that already identifies the section.
 
 1. Discover owner/repo/path without loading the file body. Use a known tag/commit in `branch`; keep arbitrary-ref work out of default-branch code search.
-2. Pass that unread `ghGetFileContent` request as context. Batch atomic questions about the same file; use separate matrices for different question sets. Do not ask one window to cover “all limitations” or several dispersed conditions.
-3. Verify returned windows with `ghGetFileContent`, preserving owner/repo and the original repository-relative path. Use the returned `source.ref` as `branch` when present. The receipt’s `source.path` includes owner/repo and is not a ready-to-use repository-relative path.
-4. Merge overlapping windows. Read only missing boundary lines when a branch or record is incomplete. A scope marked complete means captured coverage, not that one ranked window fully answers every question.
-5. Keep errors/partial coverage unresolved; follow `next.clasify` when needed. If file identity changes, relocate before citing. Count request, hint, schema and all verification costs; a smaller hint alone proves no total saving.
+2. Pass that unread `ghGetFileContent` request as context, with the search goal in required `goal`, what the next read depends on in required `reasoning`, and every candidate in `resources`. Batch atomic questions about the same file; use separate matrices for different question sets. Do not ask one window to cover “all limitations” or several dispersed conditions. Read each page's `answers`.
+3. While `next.clasify` remains and `best` is absent or its top `exists` is below 0.5, replay that continuation unchanged. Do not read the page's closest passage.
+4. When the walk is finished, verify published `best` windows, or the single page `matches` when `best` is absent, with `ghGetFileContent`. Preserve owner/repo and the original repository-relative path. Use the returned `source.ref` as `branch` when present. The receipt’s `source.path` includes owner/repo and is not a ready-to-use repository-relative path. Merge overlapping windows. Read only missing boundary lines when a branch or record is incomplete.
+5. A caller-bounded line range with `coverage: complete` judged that range; `scope.totalLines` is the file length. Keep errors and partial coverage unresolved. If file identity changes, relocate before citing. Count request, hint, schema and all verification costs; a smaller hint alone proves no total saving.
 
 This request was exercised through local MCP; both targets share one unread capture:
 
 ```json
-{"reasoning":"Locate facts before reading remote source.","resources":[{"context":{"tool":"ghGetFileContent","query":{"reasoning":"Assess unread tagged source.","owner":"psf","repo":"requests","path":"src/requests/sessions.py","branch":"v2.32.3","fullContent":true}}}],"questions":[{"id":"auth","questionType":"locate","target":"The condition for removing authorization when a redirect changes hostname."},{"id":"rewind","questionType":"locate","target":"The condition under which a request body is rewound during redirection."}]}
+{"goal":"Searching for redirect handling. Need the conditions that drop authorization or rewind the body.","reasoning":"Locate facts before reading remote source.","resources":[{"context":{"tool":"ghGetFileContent","query":{"goal":"Find the redirect conditions.","reasoning":"Assess unread tagged source.","owner":"psf","repo":"requests","path":"src/requests/sessions.py","branch":"v2.32.3","fullContent":true}}}],"questions":[{"id":"auth","questionType":"locate","target":"The condition for removing authorization when a redirect changes hostname."},{"id":"rewind","questionType":"locate","target":"The condition under which a request body is rewound during redirection."}]}
 ```
 
 ## Code and package provenance

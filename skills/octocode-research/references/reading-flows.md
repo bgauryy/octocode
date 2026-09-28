@@ -4,7 +4,7 @@ Load when deciding between search, a compact overview, exact source, or a comple
 
 ## Semantic targets in unread files
 
-Before loading a large body, decide whether a useful literal or known small range answers the task. If so, read directly. Otherwise use `clasify` with an unread file-reader request and atomic `questionType:"locate"` questions; batch independent same-file targets. Verify the returned source windows together. This route applies to local source, docs, logs, saved scrape text and browser artifacts. Preserve provenance and coverage; hints do not replace source proof.
+Before loading a large body, decide whether a useful literal or known small range answers the task. If so, read directly. Otherwise use `clasify` with an unread file-reader request and atomic `questionType:"locate"` questions; batch independent same-file targets. Follow `next.clasify` while it remains and the top `exists` is below 0.5; verify published `best` windows together once that `exists` is at least 0.5 or the walk is finished. This route applies to local source, docs, logs, saved scrape text and browser artifacts. Preserve provenance and coverage; hints do not replace source proof.
 
 ## Markdown
 

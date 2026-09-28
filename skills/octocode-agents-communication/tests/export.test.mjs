@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn } from './helpers.mjs';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -18,7 +18,7 @@ function fixture(t) {
  return { workspace, database, args, cli, session, export: path => cli(['db', 'export', JSON.stringify({ path })]) };
 }
 function openWriter(f) {
- const db = new DatabaseSync(f.database); db.exec('PRAGMA foreign_keys=ON; PRAGMA wal_autocheckpoint=0; PRAGMA busy_timeout=5000');
+ const db = new DatabaseSync(f.database); db.exec('PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; PRAGMA busy_timeout=5000');
  return db;
 }
 function insert(db, session, key) {

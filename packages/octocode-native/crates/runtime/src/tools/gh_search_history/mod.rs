@@ -69,6 +69,20 @@ impl GhSearchHistoryQuery {
             Self::Issue { owner, .. } | Self::Commit { owner, .. } => Some(owner.as_str()),
         }
     }
+    pub fn goal(&self) -> &str {
+        match self {
+            Self::PullRequest { goal, .. }
+            | Self::Issue { goal, .. }
+            | Self::Commit { goal, .. } => goal.as_str(),
+        }
+    }
+    pub fn reasoning(&self) -> &str {
+        match self {
+            Self::PullRequest { reasoning, .. }
+            | Self::Issue { reasoning, .. }
+            | Self::Commit { reasoning, .. } => reasoning.as_str(),
+        }
+    }
     pub fn repo(&self) -> Option<&str> {
         match self {
             Self::PullRequest { repo, .. } => repo.as_deref().map(String::as_str),
@@ -371,7 +385,7 @@ pub async fn execute<R: CredentialResolver>(
                 .and_then(Value::as_u64)
                 && let (Some(owner), Some(repo)) = (query.owner(), query.repo())
             {
-                v["next"]["readPr"] = json!({"tool":"ghGetHistoryItem","query":{"operation":"pullRequest","owner":owner,"repo":repo,"number":number,"content":{"body":true,"changedFiles":true,"comments":{"discussion":true}},"pageSize":30,"minify":"standard"},"confidence":"low"});
+                v["next"]["readPr"] = json!({"tool":"ghGetHistoryItem","query":{"operation":"pullRequest","owner":owner,"repo":repo,"number":number,"goal":query.goal(),"reasoning":query.reasoning(),"content":{"body":true,"changedFiles":true,"comments":{"discussion":true}},"pageSize":30,"minify":"standard"},"confidence":"low"});
             }
             v
         }
@@ -403,7 +417,7 @@ pub async fn execute<R: CredentialResolver>(
                 .and_then(Value::as_u64)
                 && let (Some(owner), Some(repo)) = (query.owner(), query.repo())
             {
-                v["next"]["readIssue"] = json!({"tool":"ghGetHistoryItem","query":{"operation":"issue","owner":owner,"repo":repo,"number":number,"content":{"body":true,"comments":{"discussion":true}}},"confidence":"low"});
+                v["next"]["readIssue"] = json!({"tool":"ghGetHistoryItem","query":{"operation":"issue","owner":owner,"repo":repo,"number":number,"goal":query.goal(),"reasoning":query.reasoning(),"content":{"body":true,"comments":{"discussion":true}}},"confidence":"low"});
             }
             v
         }
@@ -438,8 +452,10 @@ pub async fn execute<R: CredentialResolver>(
             .map(str::to_owned)
         && let (Some(owner), Some(repo)) = (query.owner(), query.repo())
     {
-        let mut read =
-            json!({"operation":"commit","owner":owner,"repo":repo,"ref":sha,"includeDiff":true});
+        let mut read = json!({
+            "operation":"commit","owner":owner,"repo":repo,"ref":sha,"includeDiff":true,
+            "goal":query.goal(),"reasoning":query.reasoning()
+        });
         if let Some(path) = query.path() {
             read["path"] = json!(path);
         }
@@ -836,13 +852,13 @@ mod tests {
     use super::*;
     #[test]
     fn canonical_issue_qualifier_order() {
-        let q: GhSearchHistoryQuery=serde_json::from_str(r#"{"operation":"issue","reasoning":"test","owner":"a","repo":"b","keywords":["x"],"state":"closed","match":["title"],"label":["bug"]}"#).expect("GitHub history search test data should be valid");
+        let q: GhSearchHistoryQuery=serde_json::from_str(r#"{"operation":"issue","goal":"test","reasoning":"test","owner":"a","repo":"b","keywords":["x"],"state":"closed","match":["title"],"label":["bug"]}"#).expect("GitHub history search test data should be valid");
         assert_eq!(
             build_query(&q).expect("GitHub history search test data should be valid"),
             "x in:title is:issue repo:a/b is:closed label:\"bug\""
         );
         let archived: GhSearchHistoryQuery = serde_json::from_str(
-            r#"{"operation":"issue","reasoning":"test","owner":"a","repo":"b","keywords":["x"],"archived":true}"#,
+            r#"{"operation":"issue","goal":"test","reasoning":"test","owner":"a","repo":"b","keywords":["x"],"archived":true}"#,
         )
         .expect("valid");
         assert!(
@@ -856,32 +872,32 @@ mod tests {
         // A leading-quote keyword, an owner carrying operators,
         // and a label with an interior quote.
         let q = parse(
-            r#"{"operation":"issue","reasoning":"test","owner":"octocat","repo":"Hello-World","keywords":["\"hello\" NOT"]}"#,
+            r#"{"operation":"issue","goal":"test","reasoning":"test","owner":"octocat","repo":"Hello-World","keywords":["\"hello\" NOT"]}"#,
         );
         assert_eq!(
             build_query(&q).expect("valid"),
             "\"hello NOT\" is:issue repo:octocat/Hello-World"
         );
         let q = parse(
-            r#"{"operation":"pullRequest","reasoning":"test","owner":"a","keywords":["repo:evil/x","-y"]}"#,
+            r#"{"operation":"pullRequest","goal":"test","reasoning":"test","owner":"a","keywords":["repo:evil/x","-y"]}"#,
         );
         assert_eq!(
             build_query(&q).expect("valid"),
             "\"repo:evil/x\" \"-y\" is:pr user:a"
         );
         for raw in [
-            r#"{"operation":"issue","reasoning":"test","owner":"octocat OR is:public","repo":"b","keywords":["hello"]}"#,
-            r#"{"operation":"issue","reasoning":"test","owner":"a","repo":"b:c","keywords":["hello"]}"#,
-            r#"{"operation":"pullRequest","reasoning":"test","owner":"a","author":"x OR is:public"}"#,
-            r#"{"operation":"issue","reasoning":"test","owner":"a","repo":"b","label":["x\" OR is:public"]}"#,
-            r#"{"operation":"issue","reasoning":"test","owner":"a","repo":"b","created":"x OR is:public"}"#,
-            r#"{"operation":"commit","reasoning":"test","owner":"a","repo":"b","keywords":["x"],"committer":"a b"}"#,
+            r#"{"operation":"issue","goal":"test","reasoning":"test","owner":"octocat OR is:public","repo":"b","keywords":["hello"]}"#,
+            r#"{"operation":"issue","goal":"test","reasoning":"test","owner":"a","repo":"b:c","keywords":["hello"]}"#,
+            r#"{"operation":"pullRequest","goal":"test","reasoning":"test","owner":"a","author":"x OR is:public"}"#,
+            r#"{"operation":"issue","goal":"test","reasoning":"test","owner":"a","repo":"b","label":["x\" OR is:public"]}"#,
+            r#"{"operation":"issue","goal": "test", "reasoning":"test","owner":"a","repo":"b","created":"x OR is:public"}"#,
+            r#"{"operation":"commit","goal": "test", "reasoning":"test","owner":"a","repo":"b","keywords":["x"],"committer":"a b"}"#,
         ] {
             let error = build_query(&parse(raw)).expect_err(raw);
             assert_eq!(error.kind, ProviderErrorKind::Validation, "{raw}");
         }
         let q = parse(
-            r#"{"operation":"issue","reasoning":"test","owner":"a","repo":"b","label":["good first issue"],"comments":"> 5","author":"dependabot[bot]"}"#,
+            r#"{"operation":"issue","goal": "test", "reasoning":"test","owner":"a","repo":"b","label":["good first issue"],"comments":"> 5","author":"dependabot[bot]"}"#,
         );
         let built = build_query(&q).expect("valid");
         assert!(built.contains("label:\"good first issue\""), "{built}");
@@ -892,7 +908,7 @@ mod tests {
     #[test]
     fn quotes_multiword_history_keywords() {
         let q: GhSearchHistoryQuery = serde_json::from_str(
-            r#"{"operation":"issue","reasoning":"test","owner":"a","repo":"b","keywords":["fix login"]}"#,
+            r#"{"operation":"issue","goal":"test","reasoning":"test","owner":"a","repo":"b","keywords":["fix login"]}"#,
         )
         .expect("GitHub history search test data should be valid");
         assert!(
@@ -902,7 +918,7 @@ mod tests {
         );
         assert!(should_use_search_for_issues(&q));
         let listed: GhSearchHistoryQuery = serde_json::from_str(
-            r#"{"operation":"issue","reasoning":"test","owner":"a","repo":"b"}"#,
+            r#"{"operation":"issue","goal":"test","reasoning":"test","owner":"a","repo":"b"}"#,
         )
         .expect("GitHub history search test data should be valid");
         assert!(!should_use_search_for_issues(&listed));
@@ -910,7 +926,7 @@ mod tests {
     #[test]
     fn commit_search_uses_email_and_committer_date() {
         let q: GhSearchHistoryQuery = serde_json::from_str(
-            r#"{"operation":"commit","reasoning":"test","owner":"a","repo":"b","keywords":["fix"],"author":"dev@example.com","since":"2026-01-01T00:00:00Z"}"#,
+            r#"{"operation":"commit","goal":"test","reasoning":"test","owner":"a","repo":"b","keywords":["fix"],"author":"dev@example.com","since":"2026-01-01T00:00:00Z"}"#,
         )
         .expect("GitHub history search test data should be valid");
         let query = build_query(&q).expect("GitHub history search test data should be valid");
@@ -922,7 +938,7 @@ mod tests {
         // Commit history is repository-scoped by the wire contract.
         assert!(
             serde_json::from_str::<GhSearchHistoryQuery>(
-                r#"{"operation":"commit","reasoning":"test","owner":"a"}"#
+                r#"{"operation":"commit","goal":"test","reasoning":"test","owner":"a"}"#
             )
             .is_err()
         );
@@ -1032,7 +1048,7 @@ mod tests {
         )
         .expect("transport");
         for page in [1, 1000] {
-            let query = serde_json::from_value(json!({"operation":"pullRequest","reasoning":"test","keywords":["fix"],"pageSize":1,"page":page})).expect("query");
+            let query = serde_json::from_value(json!({"operation":"pullRequest","goal": "test", "reasoning":"test","keywords":["fix"],"pageSize":1,"page":page})).expect("query");
             let data = execute(
                 &transport,
                 &query,
@@ -1063,12 +1079,12 @@ mod tests {
     #[test]
     fn pull_request_search_allows_cross_repo_and_owner_scopes() {
         let both = build_query(&parse(
-            r#"{"operation":"pullRequest","reasoning":"test","owner":"a","repo":"b","keywords":["x"]}"#,
+            r#"{"operation":"pullRequest","goal":"test","reasoning":"test","owner":"a","repo":"b","keywords":["x"]}"#,
         ))
         .expect("scoped");
         assert!(both.contains("repo:a/b"), "{both}");
         let owner = build_query(&parse(
-            r#"{"operation":"pullRequest","reasoning":"test","owner":"a","keywords":["x"]}"#,
+            r#"{"operation":"pullRequest","goal":"test","reasoning":"test","owner":"a","keywords":["x"]}"#,
         ))
         .expect("owner-scoped PR search");
         assert!(
@@ -1076,7 +1092,7 @@ mod tests {
             "{owner}"
         );
         let global = build_query(&parse(
-            r#"{"operation":"pullRequest","reasoning":"test","keywords":["x"]}"#,
+            r#"{"operation":"pullRequest","goal":"test","reasoning":"test","keywords":["x"]}"#,
         ))
         .expect("cross-repo PR search");
         assert!(
@@ -1087,15 +1103,15 @@ mod tests {
         // Without a full repo scope the REST list endpoint is unusable, so the
         // PR path must route through search.
         assert!(should_use_search_for_prs(&parse(
-            r#"{"operation":"pullRequest","reasoning":"test","owner":"a"}"#
+            r#"{"operation":"pullRequest","goal":"test","reasoning":"test","owner":"a"}"#
         )));
         assert!(!should_use_search_for_prs(&parse(
-            r#"{"operation":"pullRequest","reasoning":"test","owner":"a","repo":"b"}"#
+            r#"{"operation":"pullRequest","goal":"test","reasoning":"test","owner":"a","repo":"b"}"#
         )));
         // Issues still require the repository scope.
         assert!(
             serde_json::from_str::<GhSearchHistoryQuery>(
-                r#"{"operation":"issue","reasoning":"test","keywords":["x"]}"#
+                r#"{"operation":"issue","goal":"test","reasoning":"test","keywords":["x"]}"#
             )
             .is_err()
         );
@@ -1104,7 +1120,7 @@ mod tests {
     #[test]
     fn commit_search_surfaces_invalid_date_warnings() {
         let q = parse(
-            r#"{"operation":"commit","reasoning":"test","owner":"a","repo":"b","keywords":["fix"],"since":"yesterday-ish"}"#,
+            r#"{"operation":"commit","goal":"test","reasoning":"test","owner":"a","repo":"b","keywords":["fix"],"since":"yesterday-ish"}"#,
         );
         let (terms, warnings) = build_query_with_warnings(&q).expect("valid");
         assert!(!terms.contains("committer-date"), "{terms}");
@@ -1117,13 +1133,13 @@ mod tests {
     #[test]
     fn inverted_since_until_is_a_validation_error() {
         let q = parse(
-            r#"{"operation":"commit","reasoning":"test","owner":"a","repo":"b","keywords":["fix"],"since":"2026-05-01","until":"2026-01-01"}"#,
+            r#"{"operation":"commit","goal":"test","reasoning":"test","owner":"a","repo":"b","keywords":["fix"],"since":"2026-05-01","until":"2026-01-01"}"#,
         );
         let error = build_query(&q).expect_err("since after until");
         assert_eq!(error.kind, ProviderErrorKind::Validation);
         assert!(error.message.contains("since"), "{}", error.message);
         let listed = parse(
-            r#"{"operation":"commit","reasoning":"test","owner":"a","repo":"b","since":"2026-05-01","until":"2026-01-01"}"#,
+            r#"{"operation":"commit","goal":"test","reasoning":"test","owner":"a","repo":"b","since":"2026-05-01","until":"2026-01-01"}"#,
         );
         assert!(build_query(&listed).is_err());
     }

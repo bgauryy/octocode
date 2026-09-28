@@ -263,7 +263,7 @@ mod tests {
         assert_eq!(missing.code, "ast.input.invalid");
 
         let unknown = execute_ast(
-            json!({"operation":"symbols","reasoning":"test","path":".","unknown":true}),
+            json!({"operation":"symbols","goal": "test", "reasoning":"test","path":".","unknown":true}),
             &paths,
             &security,
             &Active,
@@ -272,7 +272,7 @@ mod tests {
         assert_eq!(unknown.code, "ast.input.invalid");
 
         let cancelled = execute_ast(
-            json!({"operation":"symbols","reasoning":"test","path":"."}),
+            json!({"operation":"symbols","goal": "test", "reasoning":"test","path":"."}),
             &paths,
             &security,
             &Cancelled,
@@ -295,7 +295,7 @@ mod tests {
 
         let syntax = execute_ast(
             json!({
-                "operation":"syntaxTree","reasoning":"test",
+                "operation":"syntaxTree","goal": "test", "reasoning":"test",
                 "path":source.to_string_lossy()
             }),
             &paths,
@@ -312,7 +312,7 @@ mod tests {
         assert!(root_node.get("endByte").is_none(), "{root_node}");
         let debug = execute_ast(
             json!({
-                "operation":"syntaxTree","reasoning":"test","debug":true,
+                "operation":"syntaxTree","goal": "test", "reasoning":"test","debug":true,
                 "path":source.to_string_lossy()
             }),
             &paths,
@@ -324,12 +324,12 @@ mod tests {
         assert!(debug["nodes"][0]["endByte"].as_u64().is_some(), "{debug}");
 
         for retired in [
-            json!({"operation":"tree","reasoning":"test","treeKind":"filesystem","path":root.path().to_string_lossy()}),
-            json!({"operation":"tree","reasoning":"test","treeKind":"syntax","path":source.to_string_lossy()}),
-            json!({"operation":"files","reasoning":"test","path":root.path().to_string_lossy()}),
-            json!({"operation":"syntaxTree","reasoning":"test","path":source.to_string_lossy(),"entryType":"f"}),
-            json!({"operation":"syntaxTree","reasoning":"test","path":source.to_string_lossy(),"sort":"size"}),
-            json!({"operation":"topology","reasoning":"test","analysis":"dependencies","path":root.path().to_string_lossy(),"file":"fixture.ts"}),
+            json!({"operation":"tree","goal": "test", "reasoning":"test","treeKind":"filesystem","path":root.path().to_string_lossy()}),
+            json!({"operation":"tree","goal": "test", "reasoning":"test","treeKind":"syntax","path":source.to_string_lossy()}),
+            json!({"operation":"files","goal": "test", "reasoning":"test","path":root.path().to_string_lossy()}),
+            json!({"operation":"syntaxTree","goal": "test", "reasoning":"test","path":source.to_string_lossy(),"entryType":"f"}),
+            json!({"operation":"syntaxTree","goal": "test", "reasoning":"test","path":source.to_string_lossy(),"sort":"size"}),
+            json!({"operation":"topology","goal": "test", "reasoning":"test","analysis":"dependencies","path":root.path().to_string_lossy(),"file":"fixture.ts"}),
         ] {
             let error = execute_ast(retired, &paths, &security, &Active)
                 .expect_err("retired astSearch surface must be rejected");

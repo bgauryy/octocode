@@ -193,6 +193,31 @@ export async function printAgentInstructions(): Promise<number> {
 
 export async function runScheme(args: ParsedArgs): Promise<number> {
   const jsonErrors = args.options['json-errors'] === true;
+  const allowed = new Set([
+    'help',
+    'h',
+    'view',
+    'select',
+    'compact',
+    'pretty',
+    'json-errors',
+    'no-color',
+    'redact-emails',
+  ]);
+  const unknown = Object.keys(args.options).find(key => !allowed.has(key));
+  if (unknown) {
+    emitError(`Unknown option: --${unknown}`, jsonErrors);
+    return EXIT.USAGE;
+  }
+  for (const key of ['view', 'select']) {
+    if (
+      args.options[key] !== undefined &&
+      typeof args.options[key] !== 'string'
+    ) {
+      emitError(`--${key} requires a value.`, jsonErrors);
+      return EXIT.USAGE;
+    }
+  }
   if (args.options.help === true || args.options.h === true) {
     console.log(USAGE);
     return EXIT.OK;

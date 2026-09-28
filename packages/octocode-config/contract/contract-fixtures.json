@@ -3,6 +3,7 @@
     "id": "clasify.curated-1",
     "tool": "clasify",
     "input": {
+      "goal": "Files that state the retry condition and when retry must stop.",
       "reasoning": "Find the deciding source span before the host reads this documentation file.",
       "id": "docs-location",
       "resources": [
@@ -33,6 +34,7 @@
     "normalized": {
       "id": "docs-location",
       "reasoning": "Find the deciding source span before the host reads this documentation file.",
+      "goal": "Files that state the retry condition and when retry must stop.",
       "resources": [
         {
           "id": "guide",
@@ -63,6 +65,7 @@
     "id": "clasify.curated-2",
     "tool": "clasify",
     "input": {
+      "goal": "Files that decide request interceptor order.",
       "reasoning": "The path is a candidate but no snippet establishes whether it contributes ordering evidence; the verdict changes what to read.",
       "id": "interceptor-candidate",
       "resources": [
@@ -91,6 +94,7 @@
     "normalized": {
       "id": "interceptor-candidate",
       "reasoning": "The path is a candidate but no snippet establishes whether it contributes ordering evidence; the verdict changes what to read.",
+      "goal": "Files that decide request interceptor order.",
       "resources": [
         {
           "id": "axios-core",
@@ -119,6 +123,7 @@
     "id": "clasify.curated-3",
     "tool": "clasify",
     "input": {
+      "goal": "Files that implement handler registration.",
       "reasoning": "Judge bounded source chunks before choosing an exact verification read.",
       "id": "local-candidates",
       "resources": [
@@ -151,6 +156,7 @@
     "normalized": {
       "id": "local-candidates",
       "reasoning": "Judge bounded source chunks before choosing an exact verification read.",
+      "goal": "Files that implement handler registration.",
       "resources": [
         {
           "id": "search-results",
@@ -183,6 +189,7 @@
     "id": "clasify.curated-4",
     "tool": "clasify",
     "input": {
+      "goal": "Evidence that decides whether the guarantee holds.",
       "reasoning": "Interpret whether the held evidence supports the guarantee claim; the answer determines whether to keep or narrow the wording.",
       "id": "draft-evidence-review",
       "resources": [
@@ -219,6 +226,7 @@
     "normalized": {
       "id": "draft-evidence-review",
       "reasoning": "Interpret whether the held evidence supports the guarantee claim; the answer determines whether to keep or narrow the wording.",
+      "goal": "Evidence that decides whether the guarantee holds.",
       "resources": [
         {
           "id": "draft",
@@ -255,6 +263,7 @@
     "id": "ghSearchRepo.curated-1",
     "tool": "ghSearchRepo",
     "input": {
+      "goal": "Show the repository search result.",
       "reasoning": "Use ghSearchRepo for the repository search example.",
       "keywords": [
         "code research"
@@ -266,7 +275,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute ghSearchRepo via fixture",
+          "goal": "Show the repository search result.",
           "reasoning": "Use ghSearchRepo for the repository search example.",
           "debug": false,
           "keywords": [
@@ -284,6 +293,7 @@
     "id": "ghSearchCode.curated-1",
     "tool": "ghSearchCode",
     "input": {
+      "goal": "Show the code search result.",
       "reasoning": "Use ghSearchCode for the code search example.",
       "keywords": [
         "localSearch"
@@ -296,7 +306,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute ghSearchCode via fixture",
+          "goal": "Show the code search result.",
           "reasoning": "Use ghSearchCode for the code search example.",
           "debug": false,
           "keywords": [
@@ -315,6 +325,7 @@
     "id": "ghStructure.curated-1",
     "tool": "ghStructure",
     "input": {
+      "goal": "Show the repository tree result.",
       "reasoning": "Use ghStructure for the repository tree example.",
       "owner": "bgauryy",
       "repo": "octocode",
@@ -325,7 +336,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute ghStructure via fixture",
+          "goal": "Show the repository tree result.",
           "reasoning": "Use ghStructure for the repository tree example.",
           "debug": false,
           "owner": "bgauryy",
@@ -343,6 +354,7 @@
     "id": "ghGetFileContent.curated-1",
     "tool": "ghGetFileContent",
     "input": {
+      "goal": "Show the exact context around a match result.",
       "reasoning": "Use ghGetFileContent for the exact context around a match example.",
       "owner": "facebook",
       "repo": "react",
@@ -354,7 +366,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute ghGetFileContent via fixture",
+          "goal": "Show the exact context around a match result.",
           "reasoning": "Use ghGetFileContent for the exact context around a match example.",
           "debug": false,
           "owner": "facebook",
@@ -370,6 +382,7 @@
     "id": "ghGetFileContent.curated-2",
     "tool": "ghGetFileContent",
     "input": {
+      "goal": "Show the symbols outline (unknown/large file) result.",
       "reasoning": "Use ghGetFileContent for the symbols outline (unknown/large file) example.",
       "owner": "facebook",
       "repo": "react",
@@ -380,7 +393,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute ghGetFileContent via fixture",
+          "goal": "Show the symbols outline (unknown/large file) result.",
           "reasoning": "Use ghGetFileContent for the symbols outline (unknown/large file) example.",
           "debug": false,
           "owner": "facebook",
@@ -395,6 +408,7 @@
     "id": "ghGetFileContent.curated-3",
     "tool": "ghGetFileContent",
     "input": {
+      "goal": "Show the Markdown headings before an exact section read result.",
       "reasoning": "Use ghGetFileContent for the Markdown headings before an exact section read example.",
       "owner": "bgauryy",
       "repo": "octocode",
@@ -405,7 +419,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute ghGetFileContent via fixture",
+          "goal": "Show the Markdown headings before an exact section read result.",
           "reasoning": "Use ghGetFileContent for the Markdown headings before an exact section read example.",
           "debug": false,
           "owner": "bgauryy",
@@ -420,6 +434,7 @@
     "id": "ghGetFileContent.curated-4",
     "tool": "ghGetFileContent",
     "input": {
+      "goal": "Show the complete file result.",
       "reasoning": "Use ghGetFileContent for the complete file example.",
       "owner": "bgauryy",
       "repo": "octocode",
@@ -430,7 +445,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute ghGetFileContent via fixture",
+          "goal": "Show the complete file result.",
           "reasoning": "Use ghGetFileContent for the complete file example.",
           "debug": false,
           "owner": "bgauryy",
@@ -445,6 +460,7 @@
     "id": "ghSearchHistory.curated-1",
     "tool": "ghSearchHistory",
     "input": {
+      "goal": "Show the PR search (list) result.",
       "reasoning": "Use ghSearchHistory for the PR search (list) example.",
       "operation": "pullRequest",
       "owner": "bgauryy",
@@ -459,7 +475,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute ghSearchHistory via fixture",
+          "goal": "Show the PR search (list) result.",
           "reasoning": "Use ghSearchHistory for the PR search (list) example.",
           "debug": false,
           "keywords": [
@@ -478,6 +494,7 @@
     "id": "ghSearchHistory.curated-2",
     "tool": "ghSearchHistory",
     "input": {
+      "goal": "Show the issue search (list) result.",
       "reasoning": "Use ghSearchHistory for the issue search (list) example.",
       "operation": "issue",
       "owner": "bgauryy",
@@ -492,7 +509,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute ghSearchHistory via fixture",
+          "goal": "Show the issue search (list) result.",
           "reasoning": "Use ghSearchHistory for the issue search (list) example.",
           "debug": false,
           "owner": "bgauryy",
@@ -511,6 +528,7 @@
     "id": "ghSearchHistory.curated-3",
     "tool": "ghSearchHistory",
     "input": {
+      "goal": "Show the commit history result.",
       "reasoning": "Use ghSearchHistory for the commit history example.",
       "operation": "commit",
       "owner": "bgauryy",
@@ -523,7 +541,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute ghSearchHistory via fixture",
+          "goal": "Show the commit history result.",
           "reasoning": "Use ghSearchHistory for the commit history example.",
           "debug": false,
           "owner": "bgauryy",
@@ -541,6 +559,7 @@
     "id": "ghSearchHistory.curated-4",
     "tool": "ghSearchHistory",
     "input": {
+      "goal": "Show the pullRequest result.",
       "reasoning": "Use ghSearchHistory for the pullRequest variant.",
       "operation": "pullRequest",
       "keywords": [
@@ -551,7 +570,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute ghSearchHistory via fixture",
+          "goal": "Show the pullRequest result.",
           "reasoning": "Use ghSearchHistory for the pullRequest variant.",
           "debug": false,
           "keywords": [
@@ -567,6 +586,7 @@
     "id": "ghSearchHistory.curated-5",
     "tool": "ghSearchHistory",
     "input": {
+      "goal": "Show the issue result.",
       "reasoning": "Use ghSearchHistory for the issue variant.",
       "operation": "issue",
       "owner": "o",
@@ -576,7 +596,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute ghSearchHistory via fixture",
+          "goal": "Show the issue result.",
           "reasoning": "Use ghSearchHistory for the issue variant.",
           "debug": false,
           "owner": "o",
@@ -591,6 +611,7 @@
     "id": "ghSearchHistory.curated-6",
     "tool": "ghSearchHistory",
     "input": {
+      "goal": "Show the commit result.",
       "reasoning": "Use ghSearchHistory for the commit variant.",
       "operation": "commit",
       "owner": "o",
@@ -600,7 +621,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute ghSearchHistory via fixture",
+          "goal": "Show the commit result.",
           "reasoning": "Use ghSearchHistory for the commit variant.",
           "debug": false,
           "owner": "o",
@@ -616,33 +637,26 @@
     "id": "ghGetHistoryItem.curated-1",
     "tool": "ghGetHistoryItem",
     "input": {
-      "reasoning": "Use ghGetHistoryItem for the pull request detail example.",
+      "goal": "Show the PR summary and changed-file count result.",
+      "reasoning": "Use ghGetHistoryItem for the PR summary and changed-file count example.",
       "operation": "pullRequest",
-      "owner": "bgauryy",
-      "repo": "octocode",
-      "number": 1,
-      "content": {
-        "body": true,
-        "changedFiles": true
-      }
+      "owner": "microsoft",
+      "repo": "TypeScript",
+      "number": 51387
     },
     "accepted": true,
     "normalized": {
       "queries": [
         {
-          "goal": "Execute ghGetHistoryItem via fixture",
-          "reasoning": "Use ghGetHistoryItem for the pull request detail example.",
+          "goal": "Show the PR summary and changed-file count result.",
+          "reasoning": "Use ghGetHistoryItem for the PR summary and changed-file count example.",
           "debug": false,
-          "owner": "bgauryy",
-          "repo": "octocode",
+          "owner": "microsoft",
+          "repo": "TypeScript",
           "pageSize": 30,
-          "content": {
-            "body": true,
-            "changedFiles": true
-          },
           "minify": "standard",
           "operation": "pullRequest",
-          "number": 1
+          "number": 51387
         }
       ]
     }
@@ -651,6 +665,87 @@
     "id": "ghGetHistoryItem.curated-2",
     "tool": "ghGetHistoryItem",
     "input": {
+      "goal": "Show the large PR file inventory without patches; follow returned pages result.",
+      "reasoning": "Use ghGetHistoryItem for the large PR file inventory without patches; follow returned pages example.",
+      "operation": "pullRequest",
+      "owner": "microsoft",
+      "repo": "TypeScript",
+      "number": 51387,
+      "content": {
+        "changedFiles": true
+      },
+      "pageSize": 100
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "goal": "Show the large PR file inventory without patches; follow returned pages result.",
+          "reasoning": "Use ghGetHistoryItem for the large PR file inventory without patches; follow returned pages example.",
+          "debug": false,
+          "owner": "microsoft",
+          "repo": "TypeScript",
+          "pageSize": 100,
+          "content": {
+            "changedFiles": true
+          },
+          "minify": "standard",
+          "operation": "pullRequest",
+          "number": 51387
+        }
+      ]
+    }
+  },
+  {
+    "id": "ghGetHistoryItem.curated-3",
+    "tool": "ghGetHistoryItem",
+    "input": {
+      "goal": "Show the selected raw patch; follow returned character windows result.",
+      "reasoning": "Use ghGetHistoryItem for the selected raw patch; follow returned character windows example.",
+      "operation": "pullRequest",
+      "owner": "microsoft",
+      "repo": "TypeScript",
+      "number": 51387,
+      "content": {
+        "patches": {
+          "mode": "selected",
+          "files": [
+            "src/compiler/transformers/utilities.ts"
+          ]
+        }
+      },
+      "minify": "none"
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "goal": "Show the selected raw patch; follow returned character windows result.",
+          "reasoning": "Use ghGetHistoryItem for the selected raw patch; follow returned character windows example.",
+          "debug": false,
+          "owner": "microsoft",
+          "repo": "TypeScript",
+          "pageSize": 30,
+          "content": {
+            "patches": {
+              "mode": "selected",
+              "files": [
+                "src/compiler/transformers/utilities.ts"
+              ]
+            }
+          },
+          "minify": "none",
+          "operation": "pullRequest",
+          "number": 51387
+        }
+      ]
+    }
+  },
+  {
+    "id": "ghGetHistoryItem.curated-4",
+    "tool": "ghGetHistoryItem",
+    "input": {
+      "goal": "Show the issue detail result.",
       "reasoning": "Use ghGetHistoryItem for the issue detail example.",
       "operation": "issue",
       "owner": "bgauryy",
@@ -667,7 +762,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute ghGetHistoryItem via fixture",
+          "goal": "Show the issue detail result.",
           "reasoning": "Use ghGetHistoryItem for the issue detail example.",
           "debug": false,
           "owner": "bgauryy",
@@ -686,9 +781,10 @@
     }
   },
   {
-    "id": "ghGetHistoryItem.curated-3",
+    "id": "ghGetHistoryItem.curated-5",
     "tool": "ghGetHistoryItem",
     "input": {
+      "goal": "Show the exact commit result.",
       "reasoning": "Use ghGetHistoryItem for the exact commit example.",
       "operation": "commit",
       "owner": "bgauryy",
@@ -699,7 +795,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute ghGetHistoryItem via fixture",
+          "goal": "Show the exact commit result.",
           "reasoning": "Use ghGetHistoryItem for the exact commit example.",
           "debug": false,
           "owner": "bgauryy",
@@ -714,9 +810,10 @@
     }
   },
   {
-    "id": "ghGetHistoryItem.curated-4",
+    "id": "ghGetHistoryItem.curated-6",
     "tool": "ghGetHistoryItem",
     "input": {
+      "goal": "Show the compare two refs (base...head) result.",
       "reasoning": "Use ghGetHistoryItem for the compare two refs (base...head) example.",
       "operation": "compare",
       "owner": "bgauryy",
@@ -728,7 +825,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute ghGetHistoryItem via fixture",
+          "goal": "Show the compare two refs (base...head) result.",
           "reasoning": "Use ghGetHistoryItem for the compare two refs (base...head) example.",
           "debug": false,
           "owner": "bgauryy",
@@ -745,9 +842,10 @@
     }
   },
   {
-    "id": "ghGetHistoryItem.curated-5",
+    "id": "ghGetHistoryItem.curated-7",
     "tool": "ghGetHistoryItem",
     "input": {
+      "goal": "Show the pullRequest result.",
       "reasoning": "Use ghGetHistoryItem for the pullRequest variant.",
       "operation": "pullRequest",
       "owner": "o",
@@ -758,7 +856,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute ghGetHistoryItem via fixture",
+          "goal": "Show the pullRequest result.",
           "reasoning": "Use ghGetHistoryItem for the pullRequest variant.",
           "debug": false,
           "owner": "o",
@@ -772,9 +870,10 @@
     }
   },
   {
-    "id": "ghGetHistoryItem.curated-6",
+    "id": "ghGetHistoryItem.curated-8",
     "tool": "ghGetHistoryItem",
     "input": {
+      "goal": "Show the issue result.",
       "reasoning": "Use ghGetHistoryItem for the issue variant.",
       "operation": "issue",
       "owner": "o",
@@ -785,7 +884,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute ghGetHistoryItem via fixture",
+          "goal": "Show the issue result.",
           "reasoning": "Use ghGetHistoryItem for the issue variant.",
           "debug": false,
           "owner": "o",
@@ -798,9 +897,10 @@
     }
   },
   {
-    "id": "ghGetHistoryItem.curated-7",
+    "id": "ghGetHistoryItem.curated-9",
     "tool": "ghGetHistoryItem",
     "input": {
+      "goal": "Show the commit result.",
       "reasoning": "Use ghGetHistoryItem for the commit variant.",
       "operation": "commit",
       "owner": "o",
@@ -811,7 +911,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute ghGetHistoryItem via fixture",
+          "goal": "Show the commit result.",
           "reasoning": "Use ghGetHistoryItem for the commit variant.",
           "debug": false,
           "owner": "o",
@@ -826,9 +926,10 @@
     }
   },
   {
-    "id": "ghGetHistoryItem.curated-8",
+    "id": "ghGetHistoryItem.curated-10",
     "tool": "ghGetHistoryItem",
     "input": {
+      "goal": "Show the compare result.",
       "reasoning": "Use ghGetHistoryItem for the compare variant.",
       "operation": "compare",
       "owner": "o",
@@ -840,7 +941,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute ghGetHistoryItem via fixture",
+          "goal": "Show the compare result.",
           "reasoning": "Use ghGetHistoryItem for the compare variant.",
           "debug": false,
           "owner": "o",
@@ -860,6 +961,7 @@
     "id": "artifactSearch.curated-1",
     "tool": "artifactSearch",
     "input": {
+      "goal": "Show the exact package → source repo result.",
       "reasoning": "Use artifactSearch for the exact package → source repo example.",
       "type": "npm",
       "packageName": "zod"
@@ -868,7 +970,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute artifactSearch via fixture",
+          "goal": "Show the exact package → source repo result.",
           "reasoning": "Use artifactSearch for the exact package → source repo example.",
           "debug": false,
           "type": "npm",
@@ -881,6 +983,7 @@
     "id": "artifactSearch.curated-2",
     "tool": "artifactSearch",
     "input": {
+      "goal": "Show the keyword discovery (paged candidates) result.",
       "reasoning": "Use artifactSearch for the keyword discovery (paged candidates) example.",
       "type": "npm",
       "keywords": [
@@ -892,7 +995,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute artifactSearch via fixture",
+          "goal": "Show the keyword discovery (paged candidates) result.",
           "reasoning": "Use artifactSearch for the keyword discovery (paged candidates) example.",
           "debug": false,
           "type": "npm",
@@ -909,6 +1012,7 @@
     "id": "artifactSearch.curated-3",
     "tool": "artifactSearch",
     "input": {
+      "goal": "Show the PyPI exact lookup (discovery unsupported) result.",
       "reasoning": "Use artifactSearch for the PyPI exact lookup (discovery unsupported) example.",
       "type": "pypi",
       "packageName": "requests"
@@ -917,7 +1021,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute artifactSearch via fixture",
+          "goal": "Show the PyPI exact lookup (discovery unsupported) result.",
           "reasoning": "Use artifactSearch for the PyPI exact lookup (discovery unsupported) example.",
           "debug": false,
           "type": "pypi",
@@ -930,6 +1034,7 @@
     "id": "ghCloneRepo.curated-1",
     "tool": "ghCloneRepo",
     "input": {
+      "goal": "Show the full repo clone result.",
       "reasoning": "Use ghCloneRepo for the full repo clone example.",
       "owner": "bgauryy",
       "repo": "octocode"
@@ -938,7 +1043,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute ghCloneRepo via fixture",
+          "goal": "Show the full repo clone result.",
           "reasoning": "Use ghCloneRepo for the full repo clone example.",
           "debug": false,
           "owner": "bgauryy",
@@ -951,6 +1056,7 @@
     "id": "ghCloneRepo.curated-2",
     "tool": "ghCloneRepo",
     "input": {
+      "goal": "Show the subtree clone result.",
       "reasoning": "Use ghCloneRepo for the subtree clone example.",
       "owner": "bgauryy",
       "repo": "octocode",
@@ -960,7 +1066,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute ghCloneRepo via fixture",
+          "goal": "Show the subtree clone result.",
           "reasoning": "Use ghCloneRepo for the subtree clone example.",
           "debug": false,
           "owner": "bgauryy",
@@ -974,6 +1080,7 @@
     "id": "localSearch.curated-1",
     "tool": "localSearch",
     "input": {
+      "goal": "Show the text anchors result.",
       "reasoning": "Use localSearch for the text anchors example.",
       "path": "/ABS/repo/src",
       "searchText": "buildDirectToolCommandPatterns",
@@ -984,7 +1091,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute localSearch via fixture",
+          "goal": "Show the text anchors result.",
           "reasoning": "Use localSearch for the text anchors example.",
           "debug": false,
           "searchText": "buildDirectToolCommandPatterns",
@@ -1006,6 +1113,7 @@
     "id": "localSearch.curated-2",
     "tool": "localSearch",
     "input": {
+      "goal": "Show the lexical result.",
       "reasoning": "Use localSearch for the lexical variant.",
       "path": ".",
       "searchText": "toolSchemas"
@@ -1014,7 +1122,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute localSearch via fixture",
+          "goal": "Show the lexical result.",
           "reasoning": "Use localSearch for the lexical variant.",
           "debug": false,
           "searchText": "toolSchemas",
@@ -1035,6 +1143,7 @@
     "id": "structureSearch.curated-1",
     "tool": "structureSearch",
     "input": {
+      "goal": "Show the directory outline result.",
       "reasoning": "Use structureSearch for the directory outline example.",
       "operation": "tree",
       "path": "/ABS/repo",
@@ -1044,7 +1153,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute structureSearch via fixture",
+          "goal": "Show the directory outline result.",
           "reasoning": "Use structureSearch for the directory outline example.",
           "debug": false,
           "operation": "tree",
@@ -1059,6 +1168,7 @@
     "id": "structureSearch.curated-2",
     "tool": "structureSearch",
     "input": {
+      "goal": "Show the file discovery result.",
       "reasoning": "Use structureSearch for the file discovery example.",
       "operation": "files",
       "path": "/ABS/repo",
@@ -1070,7 +1180,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute structureSearch via fixture",
+          "goal": "Show the file discovery result.",
           "reasoning": "Use structureSearch for the file discovery example.",
           "debug": false,
           "operation": "files",
@@ -1089,6 +1199,7 @@
     "id": "structureSearch.curated-3",
     "tool": "structureSearch",
     "input": {
+      "goal": "Show the tree result.",
       "reasoning": "Use structureSearch for the tree variant.",
       "operation": "tree",
       "path": ".",
@@ -1098,7 +1209,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute structureSearch via fixture",
+          "goal": "Show the tree result.",
           "reasoning": "Use structureSearch for the tree variant.",
           "debug": false,
           "operation": "tree",
@@ -1113,6 +1224,7 @@
     "id": "structureSearch.curated-4",
     "tool": "structureSearch",
     "input": {
+      "goal": "Show the files result.",
       "reasoning": "Use structureSearch for the files variant.",
       "operation": "files",
       "path": ".",
@@ -1124,7 +1236,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute structureSearch via fixture",
+          "goal": "Show the files result.",
           "reasoning": "Use structureSearch for the files variant.",
           "debug": false,
           "operation": "files",
@@ -1143,6 +1255,7 @@
     "id": "astSearch.curated-1",
     "tool": "astSearch",
     "input": {
+      "goal": "Show the named declaration ranges result.",
       "reasoning": "Use astSearch for the named declaration ranges example.",
       "operation": "symbols",
       "path": "/ABS/repo/src",
@@ -1152,7 +1265,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute astSearch via fixture",
+          "goal": "Show the named declaration ranges result.",
           "reasoning": "Use astSearch for the named declaration ranges example.",
           "debug": false,
           "operation": "symbols",
@@ -1169,6 +1282,7 @@
     "id": "astSearch.curated-2",
     "tool": "astSearch",
     "input": {
+      "goal": "Show the structural match result.",
       "reasoning": "Use astSearch for the structural match example.",
       "operation": "match",
       "path": "/ABS/repo/src",
@@ -1179,7 +1293,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute astSearch via fixture",
+          "goal": "Show the structural match result.",
           "reasoning": "Use astSearch for the structural match example.",
           "debug": false,
           "path": "/ABS/repo/src",
@@ -1199,6 +1313,7 @@
     "id": "astSearch.curated-3",
     "tool": "astSearch",
     "input": {
+      "goal": "Show the document symbols result.",
       "reasoning": "Use astSearch for the document symbols example.",
       "operation": "symbols",
       "path": "/ABS/repo/src/index.ts"
@@ -1207,7 +1322,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute astSearch via fixture",
+          "goal": "Show the document symbols result.",
           "reasoning": "Use astSearch for the document symbols example.",
           "debug": false,
           "operation": "symbols",
@@ -1223,6 +1338,7 @@
     "id": "astSearch.curated-4",
     "tool": "astSearch",
     "input": {
+      "goal": "Show the match result.",
       "reasoning": "Use astSearch for the match variant.",
       "operation": "match",
       "path": ".",
@@ -1233,7 +1349,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute astSearch via fixture",
+          "goal": "Show the match result.",
           "reasoning": "Use astSearch for the match variant.",
           "debug": false,
           "path": ".",
@@ -1253,6 +1369,7 @@
     "id": "astSearch.curated-5",
     "tool": "astSearch",
     "input": {
+      "goal": "Show the syntaxTree result.",
       "reasoning": "Use astSearch for the syntaxTree variant.",
       "operation": "syntaxTree",
       "path": "/repo/src/index.ts",
@@ -1262,7 +1379,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute astSearch via fixture",
+          "goal": "Show the syntaxTree result.",
           "reasoning": "Use astSearch for the syntaxTree variant.",
           "debug": false,
           "operation": "syntaxTree",
@@ -1278,6 +1395,7 @@
     "id": "astSearch.curated-6",
     "tool": "astSearch",
     "input": {
+      "goal": "Show the symbols result.",
       "reasoning": "Use astSearch for the symbols variant.",
       "path": ".",
       "operation": "symbols"
@@ -1286,7 +1404,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute astSearch via fixture",
+          "goal": "Show the symbols result.",
           "reasoning": "Use astSearch for the symbols variant.",
           "debug": false,
           "operation": "symbols",
@@ -1302,6 +1420,7 @@
     "id": "astTopology.curated-1",
     "tool": "astTopology",
     "input": {
+      "goal": "Show the dead code from detected entrypoints result.",
       "reasoning": "Use astTopology for the dead code from detected entrypoints example.",
       "analysis": "deadCode",
       "path": "/ABS/repo",
@@ -1311,7 +1430,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute astTopology via fixture",
+          "goal": "Show the dead code from detected entrypoints result.",
           "reasoning": "Use astTopology for the dead code from detected entrypoints example.",
           "debug": false,
           "path": "/ABS/repo",
@@ -1327,6 +1446,7 @@
     "id": "astTopology.curated-2",
     "tool": "astTopology",
     "input": {
+      "goal": "Show the cycles result.",
       "reasoning": "Use astTopology for the cycles example.",
       "analysis": "cycles",
       "path": "/ABS/repo",
@@ -1336,7 +1456,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute astTopology via fixture",
+          "goal": "Show the cycles result.",
           "reasoning": "Use astTopology for the cycles example.",
           "debug": false,
           "path": "/ABS/repo",
@@ -1351,6 +1471,7 @@
     "id": "astTopology.curated-3",
     "tool": "astTopology",
     "input": {
+      "goal": "Show the dependencies of one file result.",
       "reasoning": "Use astTopology for the dependencies of one file example.",
       "analysis": "dependencies",
       "path": "/ABS/repo",
@@ -1361,7 +1482,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute astTopology via fixture",
+          "goal": "Show the dependencies of one file result.",
           "reasoning": "Use astTopology for the dependencies of one file example.",
           "debug": false,
           "path": "/ABS/repo",
@@ -1377,6 +1498,7 @@
     "id": "astTopology.curated-4",
     "tool": "astTopology",
     "input": {
+      "goal": "Show the dependents of one file result.",
       "reasoning": "Use astTopology for the dependents of one file example.",
       "analysis": "dependents",
       "path": "/ABS/repo",
@@ -1387,7 +1509,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute astTopology via fixture",
+          "goal": "Show the dependents of one file result.",
           "reasoning": "Use astTopology for the dependents of one file example.",
           "debug": false,
           "path": "/ABS/repo",
@@ -1403,6 +1525,7 @@
     "id": "astTopology.curated-5",
     "tool": "astTopology",
     "input": {
+      "goal": "Show the shortest dependency path result.",
       "reasoning": "Use astTopology for the shortest dependency path example.",
       "analysis": "path",
       "path": "/ABS/repo",
@@ -1413,7 +1536,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute astTopology via fixture",
+          "goal": "Show the shortest dependency path result.",
           "reasoning": "Use astTopology for the shortest dependency path example.",
           "debug": false,
           "path": "/ABS/repo",
@@ -1429,6 +1552,7 @@
     "id": "astTopology.curated-6",
     "tool": "astTopology",
     "input": {
+      "goal": "Show the reachability from detected entrypoints result.",
       "reasoning": "Use astTopology for the reachability from detected entrypoints example.",
       "analysis": "reachability",
       "path": "/ABS/repo",
@@ -1438,7 +1562,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute astTopology via fixture",
+          "goal": "Show the reachability from detected entrypoints result.",
           "reasoning": "Use astTopology for the reachability from detected entrypoints example.",
           "debug": false,
           "path": "/ABS/repo",
@@ -1454,6 +1578,7 @@
     "id": "astTopology.curated-7",
     "tool": "astTopology",
     "input": {
+      "goal": "Show the dependencies result.",
       "reasoning": "Use astTopology for the dependencies variant.",
       "path": ".",
       "analysis": "dependencies",
@@ -1463,7 +1588,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute astTopology via fixture",
+          "goal": "Show the dependencies result.",
           "reasoning": "Use astTopology for the dependencies variant.",
           "debug": false,
           "path": ".",
@@ -1479,6 +1604,7 @@
     "id": "astTopology.curated-8",
     "tool": "astTopology",
     "input": {
+      "goal": "Show the dependents result.",
       "reasoning": "Use astTopology for the dependents variant.",
       "path": ".",
       "analysis": "dependents",
@@ -1488,7 +1614,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute astTopology via fixture",
+          "goal": "Show the dependents result.",
           "reasoning": "Use astTopology for the dependents variant.",
           "debug": false,
           "path": ".",
@@ -1504,6 +1630,7 @@
     "id": "astTopology.curated-9",
     "tool": "astTopology",
     "input": {
+      "goal": "Show the path result.",
       "reasoning": "Use astTopology for the path variant.",
       "path": ".",
       "analysis": "path",
@@ -1514,7 +1641,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute astTopology via fixture",
+          "goal": "Show the path result.",
           "reasoning": "Use astTopology for the path variant.",
           "debug": false,
           "path": ".",
@@ -1530,6 +1657,7 @@
     "id": "astTopology.curated-10",
     "tool": "astTopology",
     "input": {
+      "goal": "Show the cycles result.",
       "reasoning": "Use astTopology for the cycles variant.",
       "path": ".",
       "analysis": "cycles"
@@ -1538,7 +1666,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute astTopology via fixture",
+          "goal": "Show the cycles result.",
           "reasoning": "Use astTopology for the cycles variant.",
           "debug": false,
           "path": ".",
@@ -1552,6 +1680,7 @@
     "id": "astTopology.curated-11",
     "tool": "astTopology",
     "input": {
+      "goal": "Show the reachability result.",
       "reasoning": "Use astTopology for the reachability variant.",
       "path": ".",
       "analysis": "reachability"
@@ -1560,7 +1689,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute astTopology via fixture",
+          "goal": "Show the reachability result.",
           "reasoning": "Use astTopology for the reachability variant.",
           "debug": false,
           "path": ".",
@@ -1575,6 +1704,7 @@
     "id": "astTopology.curated-12",
     "tool": "astTopology",
     "input": {
+      "goal": "Show the deadCode result.",
       "reasoning": "Use astTopology for the deadCode variant.",
       "path": ".",
       "analysis": "deadCode"
@@ -1583,7 +1713,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute astTopology via fixture",
+          "goal": "Show the deadCode result.",
           "reasoning": "Use astTopology for the deadCode variant.",
           "debug": false,
           "path": ".",
@@ -1598,6 +1728,7 @@
     "id": "astTopology.curated-13",
     "tool": "astTopology",
     "input": {
+      "goal": "Show the drift result.",
       "reasoning": "Use astTopology for the drift variant.",
       "path": ".",
       "analysis": "drift",
@@ -1607,7 +1738,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute astTopology via fixture",
+          "goal": "Show the drift result.",
           "reasoning": "Use astTopology for the drift variant.",
           "debug": false,
           "path": ".",
@@ -1622,6 +1753,7 @@
     "id": "astRewrite.curated-1",
     "tool": "astRewrite",
     "input": {
+      "goal": "Show the preview structural rewrite result.",
       "reasoning": "Use astRewrite for the preview structural rewrite example.",
       "path": "/ABS/repo/src",
       "langType": "typescript",
@@ -1633,7 +1765,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute astRewrite via fixture",
+          "goal": "Show the preview structural rewrite result.",
           "reasoning": "Use astRewrite for the preview structural rewrite example.",
           "debug": false,
           "path": "/ABS/repo/src",
@@ -1654,6 +1786,7 @@
     "id": "astRewrite.curated-2",
     "tool": "astRewrite",
     "input": {
+      "goal": "Show the apply unchanged preview result.",
       "reasoning": "Use astRewrite for the apply unchanged preview example.",
       "path": "/ABS/repo/src",
       "langType": "typescript",
@@ -1670,7 +1803,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute astRewrite via fixture",
+          "goal": "Show the apply unchanged preview result.",
           "reasoning": "Use astRewrite for the apply unchanged preview example.",
           "debug": false,
           "path": "/ABS/repo/src",
@@ -1695,6 +1828,7 @@
     "id": "astRewrite.curated-3",
     "tool": "astRewrite",
     "input": {
+      "goal": "Show the preview result.",
       "reasoning": "Use astRewrite for the preview variant.",
       "path": ".",
       "langType": "typescript",
@@ -1706,7 +1840,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute astRewrite via fixture",
+          "goal": "Show the preview result.",
           "reasoning": "Use astRewrite for the preview variant.",
           "debug": false,
           "path": ".",
@@ -1727,6 +1861,7 @@
     "id": "astRewrite.curated-4",
     "tool": "astRewrite",
     "input": {
+      "goal": "Show the apply result.",
       "reasoning": "Use astRewrite for the apply variant.",
       "path": ".",
       "langType": "typescript",
@@ -1743,7 +1878,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute astRewrite via fixture",
+          "goal": "Show the apply result.",
           "reasoning": "Use astRewrite for the apply variant.",
           "debug": false,
           "path": ".",
@@ -1768,6 +1903,7 @@
     "id": "localFetch.curated-1",
     "tool": "localFetch",
     "input": {
+      "goal": "Show the exact line range result.",
       "reasoning": "Use localFetch for the exact line range example.",
       "path": "/ABS/repo/packages/octocode-native/Cargo.toml",
       "startLine": 1,
@@ -1778,7 +1914,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute localFetch via fixture",
+          "goal": "Show the exact line range result.",
           "reasoning": "Use localFetch for the exact line range example.",
           "debug": false,
           "path": "/ABS/repo/packages/octocode-native/Cargo.toml",
@@ -1793,6 +1929,7 @@
     "id": "localFetch.curated-2",
     "tool": "localFetch",
     "input": {
+      "goal": "Show the matched slice result.",
       "reasoning": "Use localFetch for the matched slice example.",
       "path": "/ABS/repo/src/index.ts",
       "matchString": "export",
@@ -1803,7 +1940,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute localFetch via fixture",
+          "goal": "Show the matched slice result.",
           "reasoning": "Use localFetch for the matched slice example.",
           "debug": false,
           "path": "/ABS/repo/src/index.ts",
@@ -1818,6 +1955,7 @@
     "id": "localFetch.curated-3",
     "tool": "localFetch",
     "input": {
+      "goal": "Show the Markdown headings before an exact section read result.",
       "reasoning": "Use localFetch for the Markdown headings before an exact section read example.",
       "path": "/ABS/repo/README.md",
       "minify": "symbols"
@@ -1826,7 +1964,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute localFetch via fixture",
+          "goal": "Show the Markdown headings before an exact section read result.",
           "reasoning": "Use localFetch for the Markdown headings before an exact section read example.",
           "debug": false,
           "path": "/ABS/repo/README.md",
@@ -1839,6 +1977,7 @@
     "id": "localFetch.curated-4",
     "tool": "localFetch",
     "input": {
+      "goal": "Show the complete file result.",
       "reasoning": "Use localFetch for the complete file example.",
       "path": "/ABS/repo/README.md",
       "fullContent": true
@@ -1847,7 +1986,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute localFetch via fixture",
+          "goal": "Show the complete file result.",
           "reasoning": "Use localFetch for the complete file example.",
           "debug": false,
           "path": "/ABS/repo/README.md",
@@ -1860,6 +1999,7 @@
     "id": "lspSearch.curated-1",
     "tool": "lspSearch",
     "input": {
+      "goal": "Show the semantic definition (absolute uri + lineHint) result.",
       "reasoning": "Use lspSearch for the semantic definition (absolute uri + lineHint) example.",
       "uri": "/ABS/repo/packages/octocode-native/crates/runtime/src/runtime/engine.rs",
       "operation": "definition",
@@ -1870,7 +2010,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute lspSearch via fixture",
+          "goal": "Show the semantic definition (absolute uri + lineHint) result.",
           "reasoning": "Use lspSearch for the semantic definition (absolute uri + lineHint) example.",
           "debug": false,
           "uri": "/ABS/repo/packages/octocode-native/crates/runtime/src/runtime/engine.rs",
@@ -1888,6 +2028,7 @@
     "id": "lspSearch.curated-2",
     "tool": "lspSearch",
     "input": {
+      "goal": "Show the symbol references from an observed anchor result.",
       "reasoning": "Use lspSearch for the symbol references from an observed anchor example.",
       "uri": "/ABS/repo/src/index.ts",
       "operation": "references",
@@ -1899,7 +2040,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute lspSearch via fixture",
+          "goal": "Show the symbol references from an observed anchor result.",
           "reasoning": "Use lspSearch for the symbol references from an observed anchor example.",
           "debug": false,
           "uri": "/ABS/repo/src/index.ts",
@@ -1917,6 +2058,7 @@
     "id": "lspSearch.curated-3",
     "tool": "lspSearch",
     "input": {
+      "goal": "Show the symbol outline (absolute uri) result.",
       "reasoning": "Use lspSearch for the symbol outline (absolute uri) example.",
       "uri": "/ABS/repo/packages/octocode-native/crates/runtime/src/runtime/engine.rs",
       "operation": "documentSymbols"
@@ -1925,7 +2067,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute lspSearch via fixture",
+          "goal": "Show the symbol outline (absolute uri) result.",
           "reasoning": "Use lspSearch for the symbol outline (absolute uri) example.",
           "debug": false,
           "uri": "/ABS/repo/packages/octocode-native/crates/runtime/src/runtime/engine.rs",
@@ -1939,6 +2081,7 @@
     "id": "lspSearch.curated-4",
     "tool": "lspSearch",
     "input": {
+      "goal": "Show the file diagnostics (compile/type errors) result.",
       "reasoning": "Use lspSearch for the file diagnostics (compile/type errors) example.",
       "uri": "/ABS/repo/src/index.ts",
       "operation": "diagnostic"
@@ -1947,7 +2090,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute lspSearch via fixture",
+          "goal": "Show the file diagnostics (compile/type errors) result.",
           "reasoning": "Use lspSearch for the file diagnostics (compile/type errors) example.",
           "debug": false,
           "uri": "/ABS/repo/src/index.ts",
@@ -1961,6 +2104,7 @@
     "id": "lspSearch.curated-5",
     "tool": "lspSearch",
     "input": {
+      "goal": "Show the anchored result.",
       "reasoning": "Use lspSearch for the anchored variant.",
       "uri": "src/index.ts",
       "operation": "definition",
@@ -1971,7 +2115,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute lspSearch via fixture",
+          "goal": "Show the anchored result.",
           "reasoning": "Use lspSearch for the anchored variant.",
           "debug": false,
           "uri": "src/index.ts",
@@ -1989,6 +2133,7 @@
     "id": "lspSearch.curated-6",
     "tool": "lspSearch",
     "input": {
+      "goal": "Show the position result.",
       "reasoning": "Use lspSearch for the position variant.",
       "uri": "src/index.ts",
       "operation": "definition",
@@ -2001,7 +2146,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute lspSearch via fixture",
+          "goal": "Show the position result.",
           "reasoning": "Use lspSearch for the position variant.",
           "debug": false,
           "uri": "src/index.ts",
@@ -2020,6 +2165,7 @@
     "id": "lspSearch.curated-7",
     "tool": "lspSearch",
     "input": {
+      "goal": "Show the document result.",
       "reasoning": "Use lspSearch for the document variant.",
       "uri": "src/index.ts",
       "operation": "documentSymbols"
@@ -2028,7 +2174,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute lspSearch via fixture",
+          "goal": "Show the document result.",
           "reasoning": "Use lspSearch for the document variant.",
           "debug": false,
           "uri": "src/index.ts",
@@ -2042,6 +2188,7 @@
     "id": "lspSearch.curated-8",
     "tool": "lspSearch",
     "input": {
+      "goal": "Show the workspace:uri result.",
       "reasoning": "Use lspSearch for the workspace:uri variant.",
       "uri": "src/index.ts",
       "operation": "workspaceSymbol",
@@ -2051,7 +2198,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute lspSearch via fixture",
+          "goal": "Show the workspace:uri result.",
           "reasoning": "Use lspSearch for the workspace:uri variant.",
           "debug": false,
           "uri": "src/index.ts",
@@ -2066,6 +2213,7 @@
     "id": "lspSearch.curated-9",
     "tool": "lspSearch",
     "input": {
+      "goal": "Show the workspace:root result.",
       "reasoning": "Use lspSearch for the workspace:root variant.",
       "workspaceRoot": ".",
       "operation": "workspaceSymbol",
@@ -2075,7 +2223,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute lspSearch via fixture",
+          "goal": "Show the workspace:root result.",
           "reasoning": "Use lspSearch for the workspace:root variant.",
           "debug": false,
           "operation": "workspaceSymbol",
@@ -2090,6 +2238,7 @@
     "id": "local-fetch.default",
     "tool": "localFetch",
     "input": {
+      "goal": "Exercise the local-fetch.default fixture.",
       "reasoning": "Exercise the local-fetch.default native parity fixture.",
       "path": "/fixture/a.ts"
     },
@@ -2097,7 +2246,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute localFetch via fixture",
+          "goal": "Exercise the local-fetch.default fixture.",
           "reasoning": "Exercise the local-fetch.default native parity fixture.",
           "debug": false,
           "path": "/fixture/a.ts"
@@ -2109,26 +2258,17 @@
     "id": "local-fetch.blank-meta",
     "tool": "localFetch",
     "input": {
+      "goal": " ",
       "reasoning": "",
-      "path": "/fixture/a.ts",
-      "goal": " "
+      "path": "/fixture/a.ts"
     },
-    "accepted": true,
-    "normalized": {
-      "queries": [
-        {
-          "goal": "Execute localFetch via fixture",
-          "reasoning": "",
-          "debug": false,
-          "path": "/fixture/a.ts"
-        }
-      ]
-    }
+    "accepted": false
   },
   {
     "id": "local-fetch.reject-low",
     "tool": "localFetch",
     "input": {
+      "goal": "Exercise the local-fetch.reject-low fixture.",
       "reasoning": "Exercise the local-fetch.reject-low native parity fixture.",
       "path": "/fixture/a.ts",
       "startLine": -4,
@@ -2141,6 +2281,7 @@
     "id": "local-fetch.reject-high",
     "tool": "localFetch",
     "input": {
+      "goal": "Exercise the local-fetch.reject-high fixture.",
       "reasoning": "Exercise the local-fetch.reject-high native parity fixture.",
       "path": "/fixture/a.ts",
       "startLine": 2000000000,
@@ -2153,6 +2294,7 @@
     "id": "local-fetch.full",
     "tool": "localFetch",
     "input": {
+      "goal": "Exercise the local-fetch.full fixture.",
       "reasoning": "Exercise the local-fetch.full native parity fixture.",
       "path": "/fixture/a.ts",
       "fullContent": true
@@ -2161,7 +2303,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute localFetch via fixture",
+          "goal": "Exercise the local-fetch.full fixture.",
           "reasoning": "Exercise the local-fetch.full native parity fixture.",
           "debug": false,
           "path": "/fixture/a.ts",
@@ -2174,6 +2316,7 @@
     "id": "local-fetch.match",
     "tool": "localFetch",
     "input": {
+      "goal": "Exercise the local-fetch.match fixture.",
       "reasoning": "Exercise the local-fetch.match native parity fixture.",
       "path": "/fixture/a.ts",
       "matchString": "needle",
@@ -2184,7 +2327,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute localFetch via fixture",
+          "goal": "Exercise the local-fetch.match fixture.",
           "reasoning": "Exercise the local-fetch.match native parity fixture.",
           "debug": false,
           "path": "/fixture/a.ts",
@@ -2199,6 +2342,7 @@
     "id": "local-fetch.range-order",
     "tool": "localFetch",
     "input": {
+      "goal": "Exercise the local-fetch.range-order fixture.",
       "reasoning": "Exercise the local-fetch.range-order native parity fixture.",
       "path": "/fixture/a.ts",
       "startLine": 3,
@@ -2210,6 +2354,7 @@
     "id": "local-fetch.range-pair",
     "tool": "localFetch",
     "input": {
+      "goal": "Exercise the local-fetch.range-pair fixture.",
       "reasoning": "Exercise the local-fetch.range-pair native parity fixture.",
       "path": "/fixture/a.ts",
       "startLine": 3
@@ -2220,6 +2365,7 @@
     "id": "local-fetch.full-controls",
     "tool": "localFetch",
     "input": {
+      "goal": "Exercise the local-fetch.full-controls fixture.",
       "reasoning": "Exercise the local-fetch.full-controls native parity fixture.",
       "path": "/fixture/a.ts",
       "fullContent": true,
@@ -2231,6 +2377,7 @@
     "id": "local-fetch.match-controls",
     "tool": "localFetch",
     "input": {
+      "goal": "Exercise the local-fetch.match-controls fixture.",
       "reasoning": "Exercise the local-fetch.match-controls native parity fixture.",
       "path": "/fixture/a.ts",
       "matchStringIsRegex": true
@@ -2241,6 +2388,7 @@
     "id": "local-fetch.context-unit",
     "tool": "localFetch",
     "input": {
+      "goal": "Exercise the local-fetch.context-unit fixture.",
       "reasoning": "Exercise the local-fetch.context-unit native parity fixture.",
       "path": "/fixture/a.ts",
       "matchString": "x",
@@ -2253,6 +2401,7 @@
     "id": "local-fetch.symbol-selector",
     "tool": "localFetch",
     "input": {
+      "goal": "Exercise the local-fetch.symbol-selector fixture.",
       "reasoning": "Exercise the local-fetch.symbol-selector native parity fixture.",
       "path": "/fixture/a.ts",
       "minify": "symbols",
@@ -2265,6 +2414,7 @@
     "id": "local-fetch.unknown",
     "tool": "localFetch",
     "input": {
+      "goal": "Exercise the local-fetch.unknown fixture.",
       "reasoning": "Exercise the local-fetch.unknown native parity fixture.",
       "path": "/fixture/a.ts",
       "nope": true
@@ -2275,6 +2425,7 @@
     "id": "local-fetch.empty-path",
     "tool": "localFetch",
     "input": {
+      "goal": "Exercise the local-fetch.empty-path fixture.",
       "reasoning": "Exercise the local-fetch.empty-path native parity fixture.",
       "path": " "
     },
@@ -2284,6 +2435,7 @@
     "id": "artifact.exact-trim",
     "tool": "artifactSearch",
     "input": {
+      "goal": "Exercise the artifact.exact-trim fixture.",
       "reasoning": "Exercise the artifact.exact-trim native parity fixture.",
       "type": "npm",
       "packageName": "  zod "
@@ -2292,7 +2444,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute artifactSearch via fixture",
+          "goal": "Exercise the artifact.exact-trim fixture.",
           "reasoning": "Exercise the artifact.exact-trim native parity fixture.",
           "debug": false,
           "type": "npm",
@@ -2305,6 +2457,7 @@
     "id": "artifact.discovery-default",
     "tool": "artifactSearch",
     "input": {
+      "goal": "Exercise the artifact.discovery-default fixture.",
       "reasoning": "Exercise the artifact.discovery-default native parity fixture.",
       "type": "crates",
       "keywords": [
@@ -2315,7 +2468,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute artifactSearch via fixture",
+          "goal": "Exercise the artifact.discovery-default fixture.",
           "reasoning": "Exercise the artifact.discovery-default native parity fixture.",
           "debug": false,
           "type": "crates",
@@ -2331,6 +2484,7 @@
     "id": "artifact.npm-registry",
     "tool": "artifactSearch",
     "input": {
+      "goal": "Exercise the artifact.npm-registry fixture.",
       "reasoning": "Exercise the artifact.npm-registry native parity fixture.",
       "type": "npm",
       "packageName": "x",
@@ -2340,7 +2494,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute artifactSearch via fixture",
+          "goal": "Exercise the artifact.npm-registry fixture.",
           "reasoning": "Exercise the artifact.npm-registry native parity fixture.",
           "debug": false,
           "type": "npm",
@@ -2354,6 +2508,7 @@
     "id": "artifact.exclusive",
     "tool": "artifactSearch",
     "input": {
+      "goal": "Exercise the artifact.exclusive fixture.",
       "reasoning": "Exercise the artifact.exclusive native parity fixture.",
       "type": "npm",
       "packageName": "x",
@@ -2367,6 +2522,7 @@
     "id": "artifact.missing-mode",
     "tool": "artifactSearch",
     "input": {
+      "goal": "Exercise the artifact.missing-mode fixture.",
       "reasoning": "Exercise the artifact.missing-mode native parity fixture.",
       "type": "npm"
     },
@@ -2376,6 +2532,7 @@
     "id": "artifact.exact-pagination",
     "tool": "artifactSearch",
     "input": {
+      "goal": "Exercise the artifact.exact-pagination fixture.",
       "reasoning": "Exercise the artifact.exact-pagination native parity fixture.",
       "type": "npm",
       "packageName": "x",
@@ -2387,6 +2544,7 @@
     "id": "artifact.registry-type",
     "tool": "artifactSearch",
     "input": {
+      "goal": "Exercise the artifact.registry-type fixture.",
       "reasoning": "Exercise the artifact.registry-type native parity fixture.",
       "type": "pypi",
       "packageName": "x",
@@ -2398,6 +2556,7 @@
     "id": "artifact.registry-scheme",
     "tool": "artifactSearch",
     "input": {
+      "goal": "Exercise the artifact.registry-scheme fixture.",
       "reasoning": "Exercise the artifact.registry-scheme native parity fixture.",
       "type": "npm",
       "packageName": "x",
@@ -2409,6 +2568,7 @@
     "id": "artifact.registry-credentials",
     "tool": "artifactSearch",
     "input": {
+      "goal": "Exercise the artifact.registry-credentials fixture.",
       "reasoning": "Exercise the artifact.registry-credentials native parity fixture.",
       "type": "npm",
       "packageName": "x",
@@ -2420,6 +2580,7 @@
     "id": "artifact.blank-cursor",
     "tool": "artifactSearch",
     "input": {
+      "goal": "Exercise the artifact.blank-cursor fixture.",
       "reasoning": "Exercise the artifact.blank-cursor native parity fixture.",
       "type": "npm",
       "keywords": [
@@ -2433,6 +2594,7 @@
     "id": "artifact.blank-package",
     "tool": "artifactSearch",
     "input": {
+      "goal": "Exercise the artifact.blank-package fixture.",
       "reasoning": "Exercise the artifact.blank-package native parity fixture.",
       "type": "npm",
       "packageName": " "
@@ -2443,6 +2605,7 @@
     "id": "local-search.public-match-window",
     "tool": "localSearch",
     "input": {
+      "goal": "Exercise the local-search.public-match-window fixture.",
       "reasoning": "Exercise the local-search.public-match-window native parity fixture.",
       "path": "/r",
       "searchText": "x",
@@ -2453,7 +2616,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute localSearch via fixture",
+          "goal": "Exercise the local-search.public-match-window fixture.",
           "reasoning": "Exercise the local-search.public-match-window native parity fixture.",
           "debug": false,
           "searchText": "x",
@@ -2475,6 +2638,7 @@
     "id": "local-search.public-unique-list",
     "tool": "localSearch",
     "input": {
+      "goal": "Exercise the local-search.public-unique-list fixture.",
       "reasoning": "Exercise the local-search.public-unique-list native parity fixture.",
       "path": "/r",
       "searchText": "x",
@@ -2485,7 +2649,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute localSearch via fixture",
+          "goal": "Exercise the local-search.public-unique-list fixture.",
           "reasoning": "Exercise the local-search.public-unique-list native parity fixture.",
           "debug": false,
           "searchText": "x",
@@ -2506,6 +2670,7 @@
     "id": "local-search.public-unique-count",
     "tool": "localSearch",
     "input": {
+      "goal": "Exercise the local-search.public-unique-count fixture.",
       "reasoning": "Exercise the local-search.public-unique-count native parity fixture.",
       "path": "/r",
       "searchText": "x",
@@ -2516,7 +2681,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute localSearch via fixture",
+          "goal": "Exercise the local-search.public-unique-count fixture.",
           "reasoning": "Exercise the local-search.public-unique-count native parity fixture.",
           "debug": false,
           "searchText": "x",
@@ -2537,6 +2702,7 @@
     "id": "local-search.public-traversal-sort",
     "tool": "localSearch",
     "input": {
+      "goal": "Exercise the local-search.public-traversal-sort fixture.",
       "reasoning": "Exercise the local-search.public-traversal-sort native parity fixture.",
       "path": "/r",
       "searchText": "x",
@@ -2546,7 +2712,7 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute localSearch via fixture",
+          "goal": "Exercise the local-search.public-traversal-sort fixture.",
           "reasoning": "Exercise the local-search.public-traversal-sort native parity fixture.",
           "debug": false,
           "searchText": "x",
@@ -2567,6 +2733,7 @@
     "id": "gh-search-code.no-constraint",
     "tool": "ghSearchCode",
     "input": {
+      "goal": "Exercise the gh-search-code.no-constraint fixture.",
       "reasoning": "Exercise the gh-search-code.no-constraint native parity fixture.",
       "owner": "o"
     },
@@ -2576,6 +2743,7 @@
     "id": "gh-search-repo.no-constraint",
     "tool": "ghSearchRepo",
     "input": {
+      "goal": "Exercise the gh-search-repo.no-constraint fixture.",
       "reasoning": "Exercise the gh-search-repo.no-constraint native parity fixture.",
       "page": 2
     },
@@ -2585,6 +2753,7 @@
     "id": "github-content.range-pair",
     "tool": "ghGetFileContent",
     "input": {
+      "goal": "Exercise the github-content.range-pair fixture.",
       "reasoning": "Exercise the github-content.range-pair native parity fixture.",
       "owner": "o",
       "repo": "r",
@@ -2597,6 +2766,7 @@
     "id": "history-search.issue-scope",
     "tool": "ghSearchHistory",
     "input": {
+      "goal": "Exercise the history-search.issue-scope fixture.",
       "reasoning": "Exercise the history-search.issue-scope native parity fixture.",
       "operation": "issue",
       "owner": "o"
@@ -2607,6 +2777,7 @@
     "id": "history-search.keyword-path",
     "tool": "ghSearchHistory",
     "input": {
+      "goal": "Exercise the history-search.keyword-path fixture.",
       "reasoning": "Exercise the history-search.keyword-path native parity fixture.",
       "operation": "commit",
       "owner": "o",
@@ -2622,6 +2793,7 @@
     "id": "history-item.pr-number",
     "tool": "ghGetHistoryItem",
     "input": {
+      "goal": "Exercise the history-item.pr-number fixture.",
       "reasoning": "Exercise the history-item.pr-number native parity fixture.",
       "operation": "pullRequest",
       "owner": "o",
@@ -2633,6 +2805,7 @@
     "id": "history-item.selected-patches-empty",
     "tool": "ghGetHistoryItem",
     "input": {
+      "goal": "Exercise the history-item.selected-patches-empty fixture.",
       "reasoning": "Exercise the history-item.selected-patches-empty native parity fixture.",
       "operation": "pullRequest",
       "owner": "o",
@@ -2650,6 +2823,7 @@
     "id": "history-item.patch-files-without-selected",
     "tool": "ghGetHistoryItem",
     "input": {
+      "goal": "Exercise the history-item.patch-files-without-selected fixture.",
       "reasoning": "Exercise the history-item.patch-files-without-selected native parity fixture.",
       "operation": "pullRequest",
       "owner": "o",
@@ -2670,6 +2844,7 @@
     "id": "clone.blank-owner",
     "tool": "ghCloneRepo",
     "input": {
+      "goal": "Exercise the clone.blank-owner fixture.",
       "reasoning": "Exercise the clone.blank-owner native parity fixture.",
       "owner": " ",
       "repo": "r"
@@ -2680,6 +2855,7 @@
     "id": "local-search.unique-view",
     "tool": "localSearch",
     "input": {
+      "goal": "Exercise the local-search.unique-view fixture.",
       "reasoning": "Exercise the local-search.unique-view native parity fixture.",
       "path": "/r",
       "searchText": "x",
@@ -2691,6 +2867,7 @@
     "id": "local-search.match-window-view",
     "tool": "localSearch",
     "input": {
+      "goal": "Exercise the local-search.match-window-view fixture.",
       "reasoning": "Exercise the local-search.match-window-view native parity fixture.",
       "path": "/r",
       "searchText": "x",
@@ -2702,6 +2879,7 @@
     "id": "ast-search.pattern-rule",
     "tool": "astSearch",
     "input": {
+      "goal": "Exercise the ast-search.pattern-rule fixture.",
       "reasoning": "Exercise the ast-search.pattern-rule native parity fixture.",
       "operation": "match",
       "path": "/r",
@@ -2715,6 +2893,7 @@
     "id": "ast-rewrite.apply-guards",
     "tool": "astRewrite",
     "input": {
+      "goal": "Exercise the ast-rewrite.apply-guards fixture.",
       "reasoning": "Exercise the ast-rewrite.apply-guards native parity fixture.",
       "path": "/r",
       "langType": "ts",
@@ -2729,6 +2908,7 @@
     "id": "ast-rewrite.empty-rule",
     "tool": "astRewrite",
     "input": {
+      "goal": "Exercise the ast-rewrite.empty-rule fixture.",
       "reasoning": "Exercise the ast-rewrite.empty-rule native parity fixture.",
       "path": "/r",
       "langType": "ts",
@@ -2742,6 +2922,7 @@
     "id": "lsp.anchor",
     "tool": "lspSearch",
     "input": {
+      "goal": "Exercise the lsp.anchor fixture.",
       "reasoning": "Exercise the lsp.anchor native parity fixture.",
       "uri": "/r/a.ts",
       "operation": "definition"
@@ -2752,6 +2933,7 @@
     "id": "lsp.rust-uri",
     "tool": "lspSearch",
     "input": {
+      "goal": "Exercise the lsp.rust-uri fixture.",
       "reasoning": "Exercise the lsp.rust-uri native parity fixture.",
       "uri": "/r/a.ts",
       "operation": "diagnostic",
@@ -2763,6 +2945,7 @@
     "id": "lsp.proc-macros",
     "tool": "lspSearch",
     "input": {
+      "goal": "Exercise the lsp.proc-macros fixture.",
       "reasoning": "Exercise the lsp.proc-macros native parity fixture.",
       "uri": "/r/a.rs",
       "operation": "diagnostic",
@@ -2776,6 +2959,7 @@
     "id": "ast-search.topology-root",
     "tool": "astSearch",
     "input": {
+      "goal": "Exercise the ast-search.topology-root fixture.",
       "reasoning": "Exercise the ast-search.topology-root native parity fixture.",
       "operation": "dependencies",
       "file": "src/a.ts"

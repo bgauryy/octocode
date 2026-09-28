@@ -7,14 +7,15 @@ on:
       - 'packages/octocode-skill-installer/**'
       - 'packages/octocode/src/cli/commands/skill.ts'
       - 'packages/octocode/src/cli/commands/skills/**'
-      - 'packages/octocode-awareness/src/skill-*-command.ts'
+      - 'packages/octocode-native/crates/cli/src/cli/skill.rs'
   push:
+    branches: [main]
     paths:
       - '.github/workflows/skill-installer-windows.yml'
       - 'packages/octocode-skill-installer/**'
       - 'packages/octocode/src/cli/commands/skill.ts'
       - 'packages/octocode/src/cli/commands/skills/**'
-      - 'packages/octocode-awareness/src/skill-*-command.ts'
+      - 'packages/octocode-native/crates/cli/src/cli/skill.rs'
 
 permissions:
   contents: read

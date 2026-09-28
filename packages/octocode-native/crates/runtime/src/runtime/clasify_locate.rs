@@ -463,6 +463,27 @@ pub(super) fn rank_locate(
     (!best.is_empty()).then_some(Value::Object(best))
 }
 
+/// Publish `best` when the walk is finished, or when its top window already
+/// answers. A low-exists ranking on an open walk stays in `carry` only.
+pub(super) fn readable_best(best: &Value, walk_open: bool) -> Option<Value> {
+    if !walk_open {
+        return Some(best.clone());
+    }
+    let mut kept = Map::new();
+    for (id, rows) in best.as_object()? {
+        let top = rows
+            .as_array()
+            .and_then(|rows| rows.first())
+            .and_then(|row| row.get("exists"))
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0);
+        if top >= RUNNER_UP_MIN_EXISTS {
+            kept.insert(id.clone(), rows.clone());
+        }
+    }
+    (!kept.is_empty()).then_some(Value::Object(kept))
+}
+
 fn is_candidate_row(row: &Value) -> bool {
     let probability = |field: &str| {
         row[field]
@@ -688,6 +709,29 @@ mod tests {
         let merged = rank_locate(&single, &["t"], Some(&carry)).unwrap();
         assert_eq!(merged["t"][0]["startLine"], 5);
         assert_eq!(merged["t"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn an_open_walk_hides_a_low_exists_ranking_and_keeps_an_answer() {
+        let low = json!({"t":[
+            {"resourceId":"r","exists":0.06,"startLine":926,"endLine":933,"probability":0.23},
+            {"resourceId":"r","exists":0.05,"startLine":115,"endLine":122,"probability":0.59}
+        ]});
+        assert!(readable_best(&low, true).is_none());
+        assert_eq!(
+            readable_best(&low, false).unwrap()["t"][0]["startLine"],
+            926
+        );
+        let mixed = json!({"found":[
+            {"resourceId":"r","exists":0.98,"startLine":1473,"endLine":1480,"probability":0.94},
+            {"resourceId":"r","exists":0.06,"startLine":926,"endLine":933,"probability":0.23}
+        ],"waiting":[
+            {"resourceId":"r","exists":0.04,"startLine":1,"endLine":8,"probability":0.2},
+            {"resourceId":"r","exists":0.02,"startLine":9,"endLine":16,"probability":0.1}
+        ]});
+        let visible = readable_best(&mixed, true).unwrap();
+        assert_eq!(visible["found"][0]["startLine"], 1473);
+        assert!(visible.get("waiting").is_none());
     }
 
     #[test]

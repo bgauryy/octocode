@@ -9,7 +9,7 @@ use super::{
     ExecutionContext, ExecutionError,
     clasify_locate::{
         LocatedPage, collapse_locate_answer, literal_target_hint, locate_provider_questions,
-        located_state, rank_locate,
+        located_state, rank_locate, readable_best,
     },
     clasify_output::{self, PageOutcome},
     dispatch::{self, DomainResult},
@@ -415,11 +415,26 @@ fn github_candidate_read(candidate: &Value, max_bytes: usize) -> Option<(Value, 
 }
 
 fn candidate_read(source: &Value, candidate: &Value, max_bytes: usize) -> Option<(Value, bool)> {
-    match source.get("tool").and_then(Value::as_str) {
-        Some("localSearch") => local_candidate_read(candidate, max_bytes).map(|read| (read, true)),
-        Some("ghSearchCode") => github_candidate_read(candidate, max_bytes),
-        _ => None,
+    let (mut read, anchored) = match source.get("tool").and_then(Value::as_str) {
+        Some("localSearch") => (local_candidate_read(candidate, max_bytes)?, true),
+        Some("ghSearchCode") => github_candidate_read(candidate, max_bytes)?,
+        _ => return None,
+    };
+    // The hydrated read is a new tool call. It keeps the search brief so the
+    // required goal is the decision the search was opened for.
+    if read
+        .pointer("/query/goal")
+        .and_then(Value::as_str)
+        .is_none_or(|text| text.trim().is_empty())
+    {
+        if let Some(goal) = source
+            .pointer("/query/goal")
+            .filter(|value| value.as_str().is_some_and(|text| !text.trim().is_empty()))
+        {
+            read["query"]["goal"] = goal.clone();
+        }
     }
+    Some((read, anchored))
 }
 
 fn pin_github_read(read: &mut Value, state: &Value) {
@@ -1055,9 +1070,91 @@ enum PublicAnswerPlan {
     Failed(ClassificationError),
 }
 
+/// Put the caller's goal and next-read reason on the evidence sent to Jev.
+/// An evidence object gains the missing sibling keys. A string, array, or
+/// object that already uses either name is wrapped so a judged field is kept.
+fn with_briefs(state: Value, reasoning: &str, goal: &str) -> Value {
+    let reasoning = reasoning.trim();
+    let goal = goal.trim();
+    if reasoning.is_empty() && goal.is_empty() {
+        return state;
+    }
+    let mut briefs = serde_json::Map::new();
+    if !reasoning.is_empty() {
+        briefs.insert("reasoning".into(), Value::String(reasoning.to_owned()));
+    }
+    if !goal.is_empty() {
+        briefs.insert("goal".into(), Value::String(goal.to_owned()));
+    }
+    match state {
+        Value::Object(mut map) if !map.contains_key("reasoning") && !map.contains_key("goal") => {
+            map.extend(briefs);
+            Value::Object(map)
+        }
+        other => {
+            briefs.insert("evidence".into(), other);
+            Value::Object(briefs)
+        }
+    }
+}
+
+/// Attach the caller's search goal to one provider question. Public questions
+/// and continuations keep the original text on the query, not inside each question.
+fn stamp_goal(mut question: Value, goal: &str) -> Value {
+    let goal = goal.trim();
+    if goal.is_empty() {
+        return question;
+    }
+    let Some(instructions) = question.get_mut("instructions") else {
+        return question;
+    };
+    if let Some(map) = instructions.as_object_mut() {
+        map.entry("goal")
+            .or_insert_with(|| Value::String(goal.to_owned()));
+    } else {
+        let prior = instructions.take();
+        *instructions = json!({"question": prior, "goal": goal});
+    }
+    question
+}
+
+fn copy_goal(next: &mut Value, query: &Value) {
+    if let Some(goal) = query.get("goal").filter(|value| value.is_string()) {
+        next["goal"] = goal.clone();
+    }
+}
+
+/// A delegated read belongs to the same decision as the matrix. Fill a blank
+/// brief from the matrix so the tool call stays valid without a second essay.
+fn inherit_call_brief(resource: &mut Value, goal: &str, reasoning: &str) {
+    let Some(query) = resource
+        .pointer_mut("/context/query")
+        .and_then(Value::as_object_mut)
+    else {
+        return;
+    };
+    let fill = |query: &mut serde_json::Map<String, Value>, field: &str, value: &str| {
+        if value.is_empty() {
+            return;
+        }
+        let blank = match query.get(field) {
+            None => true,
+            Some(Value::String(text)) => text.trim().is_empty(),
+            Some(_) => false,
+        };
+        if blank {
+            query.insert(field.into(), Value::String(value.to_owned()));
+        }
+    };
+    fill(query, "goal", goal);
+    fill(query, "reasoning", reasoning);
+}
+
 async fn assess_page(
     state: &Value,
     questions: &[Value],
+    goal: &str,
+    reasoning: &str,
     config: &ProviderConfig<'_>,
     budget: &crate::providers::RequestBudget,
     gate: &GateLease,
@@ -1071,6 +1168,7 @@ async fn assess_page(
         Some(Err(error)) => (state.clone(), LocatedPage::default(), Some(error)),
         None => (state.clone(), LocatedPage::default(), None),
     };
+    let provider_state = with_briefs(provider_state, reasoning, goal);
     let mut provider_questions = Vec::new();
     let mut plans = Vec::with_capacity(questions.len());
     for question in questions {
@@ -1082,9 +1180,11 @@ async fn assess_page(
             let target = question["question"]["target"].as_str().unwrap_or_default();
             let [choice, exists] = locate_provider_questions(target, &page);
             let choice_index = provider_questions.len();
-            provider_questions.push(json!({"id":question["id"],"question":choice}));
+            provider_questions
+                .push(json!({"id":question["id"],"question":stamp_goal(choice, goal)}));
             let exists_index = provider_questions.len();
-            provider_questions.push(json!({"id":question["id"],"question":exists}));
+            provider_questions
+                .push(json!({"id":question["id"],"question":stamp_goal(exists, goal)}));
             plans.push(PublicAnswerPlan::Locate {
                 choice: choice_index,
                 exists: exists_index,
@@ -1092,7 +1192,11 @@ async fn assess_page(
             });
         } else {
             let index = provider_questions.len();
-            provider_questions.push(question.clone());
+            let mut cloned = question.clone();
+            if let Some(provider_question) = cloned.get_mut("question") {
+                *provider_question = stamp_goal(provider_question.take(), goal);
+            }
+            provider_questions.push(cloned);
             plans.push(PublicAnswerPlan::Direct(index));
         }
     }
@@ -1176,7 +1280,33 @@ fn execute_query(
     reads: &ReadLimiter,
 ) -> Result<(DomainResult, Vec<Value>), ExecutionError> {
     execution.check()?;
-    let resolved_questions = clasify::preflight(query).map_err(|_| ExecutionError::WorkerFailed)?;
+    let resolved_questions = match clasify::preflight(query) {
+        Ok(questions) => questions,
+        Err(error) => {
+            let resources = query["resources"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|resource| {
+                    clasify_output::resource(
+                        &resource["id"],
+                        &[],
+                        vec![PageOutcome::Failed {
+                            error: error.clone(),
+                            receipt: json!({"limitations":[
+                                "Matrix rejected before context retrieval or classification."
+                            ]}),
+                        }],
+                        false,
+                    )
+                })
+                .collect::<Vec<_>>();
+            return Ok((
+                dispatch::value_result(json!({"queryId":query["id"],"resources":resources})),
+                Vec::new(),
+            ));
+        }
+    };
     let questions = query["questions"]
         .as_array()
         .ok_or(ExecutionError::WorkerFailed)?;
@@ -1193,6 +1323,16 @@ fn execute_query(
     let (sender, mut receiver) =
         tokio::sync::mpsc::unbounded_channel::<(usize, Result<Capture, ExecutionError>)>();
     let candidate_limit = (MAX_EXPANDED_CELLS / questions.len().max(1)).max(1);
+    let goal = query
+        .get("goal")
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned)
+        .unwrap_or_default();
+    let reasoning = query
+        .get("reasoning")
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned)
+        .unwrap_or_default();
     // Capture every page before the first provider request. Search fan-out and
     // file paging expand the input matrix, so only the completed capture can
     // enforce the public 25-cell ceiling without racing or silently dropping
@@ -1201,14 +1341,18 @@ fn execute_query(
         for _ in 0..workers {
             let sender = sender.clone();
             let cursor = &cursor;
+            let goal = goal.clone();
+            let reasoning = reasoning.clone();
             scope.spawn(move || {
                 loop {
                     let index = cursor.fetch_add(1, Ordering::Relaxed);
                     let Some(resource) = resources.get(index) else {
                         break;
                     };
+                    let mut resource = resource.clone();
+                    inherit_call_brief(&mut resource, &goal, &reasoning);
                     let capture =
-                        capture_resource(resource, dispatcher, execution, reads, candidate_limit);
+                        capture_resource(&resource, dispatcher, execution, reads, candidate_limit);
                     if sender.send((index, capture)).is_err() {
                         break;
                     }
@@ -1282,9 +1426,19 @@ fn execute_query(
                     };
                     let state = state.clone();
                     let config = &config;
+                    let goal = goal.clone();
+                    let reasoning = reasoning.clone();
                     pending.push(async move {
-                        let (answers, usage) =
-                            assess_page(&state, resolved_questions, config, budget, gate).await;
+                        let (answers, usage) = assess_page(
+                            &state,
+                            resolved_questions,
+                            &goal,
+                            &reasoning,
+                            config,
+                            budget,
+                            gate,
+                        )
+                        .await;
                         (resource_index, page_index, answers, usage)
                     });
                 }
@@ -1384,8 +1538,11 @@ fn execute_query(
     // `carry` is the running best from earlier calls of this walk; the merged
     // ranking is file-wide on the final call and travels in next.clasify.
     let best = rank_locate(&rendered, &locate_ids, query.get("carry"));
-    if let Some(best) = &best {
-        output["best"] = best.clone();
+    let walk_open = !continuation_resources.is_empty();
+    if let Some(best) = &best
+        && let Some(visible) = readable_best(best, walk_open)
+    {
+        output["best"] = visible;
     }
     let hints = locate_targets
         .iter()
@@ -1415,6 +1572,7 @@ fn execute_query(
         if let Some(best) = best {
             output["next"]["clasify"]["carry"] = best;
         }
+        copy_goal(&mut output["next"]["clasify"], query);
     }
     Ok((dispatch::value_result(output), usage_records))
 }
@@ -1544,7 +1702,7 @@ mod tests {
     fn flat_questions_and_omitted_ids_are_normalized_for_internal_execution() {
         let mut queries = vec![
             json!({
-                "reasoning":"Locate facts",
+                "goal": "test", "reasoning":"Locate facts",
                 "resources":[
                     {"context":{"value":"a"}},
                     {"id":"resource-1","context":{"value":"b"}}
@@ -1556,7 +1714,7 @@ mod tests {
             }),
             json!({
                 "id":"matrix-1",
-                "reasoning":"Judge state",
+                "goal": "test", "reasoning":"Judge state",
                 "resources":[{"context":{"value":"c"}}],
                 "questions":[{"type":"noul","instructions":"third"}]
             }),
@@ -1717,14 +1875,14 @@ mod tests {
     #[test]
     fn candidate_page_bound_preserves_the_original_search_offset() {
         let first = json!({"tool":"localSearch","query":{
-            "reasoning":"find","path":"/repo","searchText":"x","pageSize":20
+            "goal": "test", "reasoning":"find","path":"/repo","searchText":"x","pageSize":20
         }});
         let bounded = bounded_search_source(&first, 5).expect("first page");
         assert_eq!(bounded["query"]["page"], 1);
         assert_eq!(bounded["query"]["pageSize"], 5);
 
         let aligned = json!({"tool":"ghSearchCode","query":{
-            "reasoning":"find","owner":"o","keywords":["x"],
+            "goal": "test", "reasoning":"find","owner":"o","keywords":["x"],
             "page":2,"pageSize":20
         }});
         let bounded = bounded_search_source(&aligned, 5).expect("aligned offset");
@@ -1732,7 +1890,7 @@ mod tests {
         assert_eq!(bounded["query"]["pageSize"], 5);
 
         let unaligned = json!({"tool":"localSearch","query":{
-            "reasoning":"find","path":"/repo","searchText":"x","page":2,"pageSize":6
+            "goal": "test", "reasoning":"find","path":"/repo","searchText":"x","page":2,"pageSize":6
         }});
         assert_eq!(
             bounded_search_source(&unaligned, 5)
@@ -1752,6 +1910,82 @@ mod tests {
         let mut terminal = json!({"next":{"continue":{}},"limitations":["terminal limit"]});
         mark_followed(&mut terminal);
         assert_eq!(terminal, json!({"limitations":["terminal limit"]}));
+    }
+
+    #[test]
+    fn briefs_reach_the_provider_state_beside_the_evidence() {
+        let file = json!({"path":"a.rs","lines":[1,1],"content":"fn a() {}\n"});
+        let tagged = with_briefs(
+            file,
+            "  The next read is the writer.  ",
+            "  The function that writes the continuation.  ",
+        );
+        assert_eq!(tagged["reasoning"], "The next read is the writer.");
+        assert_eq!(tagged["goal"], "The function that writes the continuation.");
+        assert_eq!(tagged["path"], "a.rs");
+        assert_eq!(tagged["content"], "fn a() {}\n");
+        assert_eq!(
+            with_briefs(json!("plain"), "why", "what"),
+            json!({"reasoning":"why","goal":"what","evidence":"plain"})
+        );
+        assert_eq!(
+            with_briefs(json!(["a", "b"]), "why", "what")["evidence"],
+            json!(["a", "b"])
+        );
+        let existing = with_briefs(
+            json!({"goal": "test", "reasoning":"field","content":"x"}),
+            "why",
+            "what",
+        );
+        assert_eq!(existing["reasoning"], "why");
+        assert_eq!(existing["goal"], "what");
+        assert_eq!(existing["evidence"]["reasoning"], "field");
+        assert_eq!(with_briefs(json!({"a":1}), "   ", "   "), json!({"a":1}));
+    }
+
+    #[test]
+    fn goal_reaches_every_provider_question_and_the_continuation() {
+        let goal = "  Searching for retry handling. Need files that decide a retry.  ";
+        let direct = json!({"type":"noul","instructions":"Does this decide a retry?"});
+        let stamped = stamp_goal(direct.clone(), goal);
+        assert_eq!(
+            stamped["instructions"],
+            json!({
+                "question":"Does this decide a retry?",
+                "goal":"Searching for retry handling. Need files that decide a retry."
+            })
+        );
+        assert_eq!(direct["instructions"], "Does this decide a retry?");
+        let preset = json!({"type":"noul","instructions":{"question":"prompt","target":"retry"}});
+        assert_eq!(
+            stamp_goal(preset, goal)["instructions"]["goal"],
+            "Searching for retry handling. Need files that decide a retry."
+        );
+        let owned = json!({"type":"noul","instructions":{"question":"prompt","goal":"own"}});
+        assert_eq!(stamp_goal(owned, goal)["instructions"]["goal"], "own");
+        assert_eq!(
+            stamp_goal(direct, "   ")["instructions"],
+            "Does this decide a retry?"
+        );
+        let [choice, exists] = locate_provider_questions("retry decision", &LocatedPage::default());
+        for question in [choice, exists] {
+            assert_eq!(
+                stamp_goal(question, goal)["instructions"]["goal"],
+                "Searching for retry handling. Need files that decide a retry."
+            );
+        }
+        let mut next = json!({});
+        copy_goal(
+            &mut next,
+            &json!({"goal":"Searching for retry handling. Need files that decide a retry."}),
+        );
+        assert_eq!(
+            next["goal"],
+            "Searching for retry handling. Need files that decide a retry."
+        );
+        let mut blank = json!({});
+        copy_goal(&mut blank, &json!({}));
+        assert!(blank.get("goal").is_none());
     }
 
     #[test]

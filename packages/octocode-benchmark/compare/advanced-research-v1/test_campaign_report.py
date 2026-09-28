@@ -147,7 +147,7 @@ class CampaignReportTests(unittest.TestCase):
                 row["budgets"] = {name: getattr(pilot.Budgets(), name) for name in pilot.Budgets.__dataclass_fields__}
                 events_path = root / f"{row['case']}-p{row['passNumber']:02}-{row['arm']}" / "events.jsonl"
                 events = [json.loads(line) for line in events_path.read_text().splitlines()]
-                query = json.dumps({"reasoning": "Read the campaign fixture.", "path": str(source)})
+                query = json.dumps({"goal": "Read the campaign fixture.", "reasoning": "Read the campaign fixture.", "path": str(source)})
                 events[0]["item"]["command"] = (
                     shlex.join(["node", str(cli), "localFetch", query])
                     if row["arm"] == "octocode" else f"rg value {source}"

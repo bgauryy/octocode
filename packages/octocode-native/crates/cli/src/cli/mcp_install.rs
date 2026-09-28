@@ -1,5 +1,5 @@
 //! MCP install for all supported clients: always `npx -y octocode-mcp@latest`,
-//! never `octo mcp`. JSON clients write `mcpServers.octocode`; codex writes
+//! never `octo mcp`. JSON clients use their native server map; codex writes
 //! `[mcp_servers.octocode]` TOML; goose writes `extensions.octocode` YAML.
 use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
@@ -48,12 +48,6 @@ struct ServerSpec {
 
 fn server_spec(args: &InstallArgs) -> ServerSpec {
     let mut env = BTreeMap::new();
-    if let Some(enabled) = args.enable_local {
-        env.insert(
-            "ENABLE_LOCAL".to_owned(),
-            if enabled { "true" } else { "false" }.to_owned(),
-        );
-    }
     if args.pass_env {
         for key in ["ENABLE_LOCAL", "GITHUB_TOKEN"] {
             if let Ok(value) = std::env::var(key)
@@ -62,6 +56,12 @@ fn server_spec(args: &InstallArgs) -> ServerSpec {
                 env.insert(key.to_owned(), value);
             }
         }
+    }
+    if let Some(enabled) = args.enable_local {
+        env.insert(
+            "ENABLE_LOCAL".to_owned(),
+            if enabled { "true" } else { "false" }.to_owned(),
+        );
     }
     let (cmd, cmd_args): (&str, &[&str]) = match args.method.as_deref().unwrap_or("npx") {
         "bunx" => ("bunx", &["octocode-mcp@latest"]),
@@ -108,8 +108,22 @@ pub fn run(args: InstallArgs) -> u8 {
             eprintln!("rollback: backup file not found: {}", bak.display());
             return 1;
         }
-        // Restore: strip .bak extension to get the original path
+        if bak.extension().and_then(|value| value.to_str()) != Some("bak") {
+            eprintln!("rollback: expected a .bak backup file");
+            return 2;
+        }
         let dest = bak.with_extension("");
+        if args.dry_run {
+            if args.json {
+                println!(
+                    "{}",
+                    json!({"success": true, "dryRun": true, "restored": dest, "from": bak})
+                );
+            } else {
+                println!("Would restore {} from {}", dest.display(), bak.display());
+            }
+            return 0;
+        }
         return match std::fs::copy(&bak, &dest) {
             Ok(_) => {
                 if args.json {
@@ -163,14 +177,18 @@ pub fn run(args: InstallArgs) -> u8 {
 
 fn install(ide: &str, config_path: &Path, args: &InstallArgs) -> Result<u8, String> {
     let mut root = read_json(config_path)?;
+    if args.check {
+        return report_check(ide, config_path, &root, args);
+    }
+    let key = json_server_key(ide);
     let servers = root
         .as_object_mut()
         .ok_or_else(|| "MCP config is not a JSON object".to_owned())?
-        .entry("mcpServers")
+        .entry(key)
         .or_insert_with(|| json!({}));
     let servers = servers
         .as_object_mut()
-        .ok_or_else(|| "mcpServers is not an object".to_owned())?;
+        .ok_or_else(|| format!("{key} is not an object"))?;
     let already = servers.contains_key("octocode");
     if already && !args.force && !args.dry_run && !args.check {
         if args.json {
@@ -190,10 +208,10 @@ fn install(ide: &str, config_path: &Path, args: &InstallArgs) -> Result<u8, Stri
         }
         return Ok(1);
     }
-    let server = octocode_server(args);
-    reject_octo_mcp(&server)?;
+    reject_octo_mcp(&octocode_server(args))?;
+    let server = json_server(ide, args);
     servers.insert("octocode".into(), server);
-    if args.dry_run || args.check {
+    if args.dry_run {
         if args.json {
             println!(
                 "{}",
@@ -246,6 +264,110 @@ fn install(ide: &str, config_path: &Path, args: &InstallArgs) -> Result<u8, Stri
     Ok(0)
 }
 
+fn json_server_key(ide: &str) -> &'static str {
+    match ide {
+        "zed" => "context_servers",
+        "opencode" => "mcp",
+        _ => "mcpServers",
+    }
+}
+
+fn json_server(ide: &str, args: &InstallArgs) -> Value {
+    if ide == "opencode" {
+        let spec = server_spec(args);
+        let mut command = vec![spec.command];
+        command.extend(spec.args);
+        let mut server = json!({"type": "local", "command": command});
+        if !spec.env.is_empty() {
+            server["environment"] = json!(spec.env);
+        }
+        server
+    } else {
+        let mut server = octocode_server(args);
+        if ide == "zed"
+            && let Some(object) = server.as_object_mut()
+        {
+            object.remove("type");
+        }
+        server
+    }
+}
+
+fn valid_server(ide: &str, root: &Value) -> bool {
+    let key = match ide {
+        "codex" => "mcp_servers",
+        "goose" => "extensions",
+        _ => json_server_key(ide),
+    };
+    let Some(server) = root.get(key).and_then(|servers| servers.get("octocode")) else {
+        return false;
+    };
+    if server.get("disabled").and_then(Value::as_bool) == Some(true)
+        || server.get("enabled").and_then(Value::as_bool) == Some(false)
+    {
+        return false;
+    }
+    let (command, args) = if ide == "opencode" {
+        if server.get("type").and_then(Value::as_str) != Some("local") {
+            return false;
+        }
+        let Some(command) = server.get("command").and_then(Value::as_array) else {
+            return false;
+        };
+        let Some((first, rest)) = command.split_first() else {
+            return false;
+        };
+        (first.as_str(), rest)
+    } else {
+        let command_key = if ide == "goose" { "cmd" } else { "command" };
+        if ide == "goose" && server.get("type").and_then(Value::as_str) != Some("stdio") {
+            return false;
+        }
+        let Some(args) = server.get("args").and_then(Value::as_array) else {
+            return false;
+        };
+        (
+            server.get(command_key).and_then(Value::as_str),
+            args.as_slice(),
+        )
+    };
+    let Some(command) = command else {
+        return false;
+    };
+    let runner = Path::new(command)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(command);
+    matches!(
+        runner,
+        "npx" | "npx.cmd" | "bunx" | "bunx.exe" | "pnpm" | "pnpm.cmd"
+    ) && args.iter().all(Value::is_string)
+        && args.iter().any(|arg| {
+            arg.as_str()
+                .is_some_and(|value| value == "octocode-mcp" || value.starts_with("octocode-mcp@"))
+        })
+        && (runner != "pnpm" && runner != "pnpm.cmd"
+            || args.first().and_then(Value::as_str) == Some("dlx"))
+}
+
+fn report_check(ide: &str, path: &Path, root: &Value, args: &InstallArgs) -> Result<u8, String> {
+    let valid = valid_server(ide, root);
+    if args.json {
+        println!(
+            "{}",
+            json!({"success": valid, "check": true, "ide": ide, "configPath": path, "installed": valid})
+        );
+    } else if valid {
+        println!("Octocode MCP is configured for {ide} at {}", path.display());
+    } else {
+        eprintln!(
+            "No valid Octocode MCP entry for {ide} at {}",
+            path.display()
+        );
+    }
+    Ok(if valid { 0 } else { 1 })
+}
+
 fn octocode_server(args: &InstallArgs) -> Value {
     let spec = server_spec(args);
     let mut server = json!({
@@ -290,7 +412,7 @@ fn finalize_text(
     rendered: &str,
     args: &InstallArgs,
 ) -> Result<u8, String> {
-    if args.dry_run || args.check {
+    if args.dry_run {
         if args.json {
             println!(
                 "{}",
@@ -382,6 +504,12 @@ fn install_toml(ide: &str, config_path: &Path, args: &InstallArgs) -> Result<u8,
     } else {
         None
     };
+    if args.check {
+        let root: toml::Value = toml::from_str(existing.as_deref().unwrap_or(""))
+            .map_err(|error| format!("codex config.toml is not valid TOML: {error}"))?;
+        let root = serde_json::to_value(root).map_err(|error| error.to_string())?;
+        return report_check(ide, config_path, &root, args);
+    }
     let (rendered, already) = render_codex_toml(existing.as_deref(), args)?;
     if already && !args.force && !args.dry_run && !args.check {
         return already_installed(config_path, args);
@@ -436,6 +564,13 @@ fn install_yaml(ide: &str, config_path: &Path, args: &InstallArgs) -> Result<u8,
     } else {
         None
     };
+    if args.check {
+        let root: serde_yaml_ng::Value =
+            serde_yaml_ng::from_str(existing.as_deref().unwrap_or("{}"))
+                .map_err(|error| format!("goose config.yaml is not valid YAML: {error}"))?;
+        let root = serde_json::to_value(root).map_err(|error| error.to_string())?;
+        return report_check(ide, config_path, &root, args);
+    }
     let (rendered, already) = render_goose_yaml(existing.as_deref(), args)?;
     if already && !args.force && !args.dry_run && !args.check {
         return already_installed(config_path, args);
@@ -481,6 +616,9 @@ fn reject_octo_mcp(server: &Value) -> Result<(), String> {
 pub fn config_path(ide: &str) -> Option<PathBuf> {
     let home = home_dir()?;
     let app_support = app_support_dir(&home);
+    let config_dir = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(".config"));
     let vscode_storage = app_support.join("Code").join("User").join("globalStorage");
     Some(match ide {
         "cursor" => home.join(".cursor").join("mcp.json"),
@@ -505,13 +643,21 @@ pub fn config_path(ide: &str) -> Option<PathBuf> {
             .join("rooveterinaryinc.roo-cline")
             .join("settings")
             .join("mcp_settings.json"),
-        "vscode-continue" => home.join(".continue").join("config.json"),
+        "vscode-continue" => home
+            .join(".continue")
+            .join("mcpServers")
+            .join("octocode.json"),
         "zed" => home.join(".config").join("zed").join("settings.json"),
-        "opencode" => app_support.join("opencode").join("config.json"),
+        "opencode" => config_dir.join("opencode").join("opencode.json"),
         "gemini-cli" => home.join(".gemini").join("settings.json"),
-        "kiro" => home.join(".kiro").join("mcp.json"),
+        "kiro" => home.join(".kiro").join("settings").join("mcp.json"),
         "codex" => home.join(".codex").join("config.toml"),
-        "goose" => app_support.join("goose").join("config.yaml"),
+        "goose" if cfg!(windows) => app_support
+            .join("Block")
+            .join("goose")
+            .join("config")
+            .join("config.yaml"),
+        "goose" => config_dir.join("goose").join("config.yaml"),
         _ => return None,
     })
 }
@@ -538,7 +684,7 @@ fn app_support_dir(home: &Path) -> PathBuf {
 
 fn read_json(path: &Path) -> Result<Value, String> {
     if !path.exists() {
-        return Ok(json!({ "mcpServers": {} }));
+        return Ok(json!({}));
     }
     let text = std::fs::read_to_string(path).map_err(|error| error.to_string())?;
     serde_json::from_str(&text).map_err(|error| error.to_string())
@@ -629,8 +775,6 @@ mod tests {
 
     #[test]
     fn codex_and_goose_have_config_paths() {
-        // SAFETY: single-threaded test; sets HOME so path resolution is deterministic.
-        unsafe { std::env::set_var("HOME", "/tmp/octo-test-home") };
         assert!(
             config_path("codex")
                 .expect("codex config path")
@@ -639,7 +783,11 @@ mod tests {
         assert!(
             config_path("goose")
                 .expect("goose config path")
-                .ends_with("goose/config.yaml")
+                .ends_with(if cfg!(windows) {
+                    "Block/goose/config/config.yaml"
+                } else {
+                    "goose/config.yaml"
+                })
         );
     }
 
@@ -691,5 +839,110 @@ mod tests {
         );
         let (_again, now_present) = render_goose_yaml(Some(&merged), &default_args()).expect("re");
         assert!(now_present, "detects existing octocode extension");
+    }
+    #[test]
+    fn client_specific_json_shapes_are_valid_and_preserve_other_settings() {
+        for (ide, key) in [
+            ("cursor", "mcpServers"),
+            ("zed", "context_servers"),
+            ("opencode", "mcp"),
+        ] {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let path = dir.path().join("config.json");
+            std::fs::write(&path, r#"{"theme":"dark","unrelated":{"keep":true}}"#)
+                .expect("fixture");
+            assert_eq!(
+                super::install(ide, &path, &default_args()).expect("install"),
+                0
+            );
+            let root: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(&path).expect("read")).expect("json");
+            assert_eq!(root["theme"], "dark");
+            assert_eq!(root["unrelated"]["keep"], true);
+            assert!(root[key].get("octocode").is_some());
+            assert!(super::valid_server(ide, &root));
+            if ide == "opencode" {
+                assert_eq!(
+                    root[key]["octocode"]["command"],
+                    json!(["npx", "-y", "octocode-mcp@latest"])
+                );
+            }
+            assert_eq!(
+                super::install(ide, &path, &default_args()).expect("existing"),
+                1
+            );
+        }
+    }
+
+    #[test]
+    fn checks_inspect_existing_entries_without_creating_or_repairing_files() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let check = super::InstallArgs {
+            check: true,
+            json: true,
+            ..default_args()
+        };
+        for (ide, file) in [
+            ("cursor", "c.json"),
+            ("zed", "z.json"),
+            ("opencode", "o.json"),
+            ("codex", "c.toml"),
+            ("goose", "g.yaml"),
+        ] {
+            let path = dir.path().join(file);
+            let inspect = |args: &super::InstallArgs| match ide {
+                "codex" => super::install_toml(ide, &path, args),
+                "goose" => super::install_yaml(ide, &path, args),
+                _ => super::install(ide, &path, args),
+            };
+            assert_eq!(inspect(&check).expect("missing"), 1, "{ide}");
+            assert!(!path.exists());
+            assert_eq!(inspect(&default_args()).expect("install"), 0);
+            let before = std::fs::read(&path).expect("before");
+            assert_eq!(inspect(&check).expect("valid"), 0);
+            assert_eq!(std::fs::read(&path).expect("after"), before);
+        }
+        assert!(!super::valid_server(
+            "cursor",
+            &json!({"mcpServers":{"octocode":{"command":"npx","args":["other-package"]}}})
+        ));
+        assert!(!super::valid_server(
+            "cursor",
+            &json!({"mcpServers":{"octocode":{"command":"npx","args":["octocode-mcp@latest"],"disabled":true}}})
+        ));
+    }
+
+    #[test]
+    fn rollback_dry_run_preserves_destination_and_real_rollback_restores() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("config.json");
+        let backup = dir.path().join("config.json.bak");
+        std::fs::write(&path, "current").expect("current");
+        std::fs::write(&backup, "previous").expect("backup");
+        let mut args = super::InstallArgs {
+            rollback: Some(backup.to_string_lossy().into_owned()),
+            dry_run: true,
+            json: true,
+            ..default_args()
+        };
+        assert_eq!(super::run(args), 0);
+        assert_eq!(std::fs::read_to_string(&path).expect("read"), "current");
+        args = super::InstallArgs {
+            rollback: Some(backup.to_string_lossy().into_owned()),
+            ..default_args()
+        };
+        assert_eq!(super::run(args), 0);
+        assert_eq!(std::fs::read_to_string(&path).expect("read"), "previous");
+    }
+
+    #[test]
+    fn client_paths_match_their_documented_configuration_files() {
+        for (ide, suffix) in [
+            ("kiro", ".kiro/settings/mcp.json"),
+            ("vscode-continue", ".continue/mcpServers/octocode.json"),
+            ("opencode", "opencode/opencode.json"),
+        ] {
+            assert!(config_path(ide).expect("path").ends_with(suffix), "{ide}");
+        }
     }
 }

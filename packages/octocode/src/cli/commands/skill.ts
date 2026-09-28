@@ -1,7 +1,7 @@
 import type { CLICommand, ParsedArgs } from '../types.js';
 import { EXIT } from '../exit-codes.js';
 import { getBool, getString } from '../options.js';
-import { c, bold, dim } from '../../utils/colors.js';
+import { bold, dim } from '../../utils/colors.js';
 import { runList } from './skills/commands/list.js';
 import { runInstall, type InstallOptions } from './skills/commands/install.js';
 import { runRemove } from './skills/commands/remove.js';
@@ -59,6 +59,7 @@ ${bold('Check options')}
 
 ${bold('Global flags')}
   --json                  Machine-readable JSON output
+  --json-errors           Emit structured JSON errors on stdout
   --help                  Show this help
 
 ${bold('Examples')}
@@ -116,6 +117,45 @@ export const skillCommand: CLICommand = {
   ],
   handler: (args: ParsedArgs) => {
     const json = getBool(args.options, 'json');
+    const jsonErrors = getBool(args.options, 'json-errors');
+    const fail = (message: string): void => {
+      if (jsonErrors)
+        console.log(
+          JSON.stringify({
+            kind: 'octocode.toolError',
+            version: 1,
+            error: message,
+          })
+        );
+      else if (json)
+        console.log(JSON.stringify({ success: false, error: message }));
+      else console.error(message);
+      process.exitCode = EXIT.USAGE;
+    };
+    const allowed = new Set([
+      ...(skillCommand.options ?? []).map(option => option.name),
+      'help',
+      'json-errors',
+      'no-color',
+      'redact-emails',
+    ]);
+    const unknown = Object.keys(args.options).find(key => !allowed.has(key));
+    if (unknown) return fail(`Unknown option: --${unknown}`);
+    for (const option of skillCommand.options ?? []) {
+      if (
+        option.hasValue &&
+        args.options[option.name] !== undefined &&
+        typeof args.options[option.name] !== 'string'
+      ) {
+        return fail(`--${option.name} requires a value.`);
+      }
+    }
+    if (
+      args.options.mode !== undefined &&
+      !['copy', 'symlink', 'auto'].includes(String(args.options.mode))
+    ) {
+      return fail('--mode expects copy|symlink|auto.');
+    }
     if (getBool(args.options, 'help')) {
       printBundledSkillHelp();
       return;
@@ -131,12 +171,10 @@ export const skillCommand: CLICommand = {
         const skillName = positionalAfterSubcommand(args)[0];
         if (!skillName) {
           const msg = 'Usage: octocode skill info <skill-name>';
-          if (json) console.log(JSON.stringify({ success: false, error: msg }));
-          else console.error(`\n  ${c('red', '✗')} ${msg}\n`);
-          process.exitCode = EXIT.USAGE;
+          fail(msg);
           return;
         }
-        runInfo(skillName, { json });
+        runInfo(skillName, { json, jsonErrors });
         return;
       }
 
@@ -151,6 +189,7 @@ export const skillCommand: CLICommand = {
           dryRun: getBool(args.options, 'dry-run'),
           noEnv: getBool(args.options, 'no-env'),
           json,
+          jsonErrors,
         });
         return;
 
@@ -172,6 +211,7 @@ export const skillCommand: CLICommand = {
           upgrade: getBool(args.options, 'upgrade'),
           dryRun: getBool(args.options, 'dry-run'),
           json,
+          jsonErrors,
         };
         runInstall(installNames(args), opts);
         return;
@@ -185,6 +225,7 @@ export const skillCommand: CLICommand = {
             platform: platformOption(args),
             dryRun: getBool(args.options, 'dry-run'),
             json,
+            jsonErrors,
           }
         );
         return;
@@ -194,22 +235,9 @@ export const skillCommand: CLICommand = {
         return;
 
       default:
-        if (json) {
-          console.log(
-            JSON.stringify({
-              success: false,
-              error: `Unknown skill command: "${command}"`,
-            })
-          );
-        } else {
-          console.error(
-            `\n  ${c('red', '✗')} Unknown skill command: "${command}"`
-          );
-          console.error(
-            `  Run ${c('cyan', 'octocode skill help')} for usage.\n`
-          );
-        }
-        process.exitCode = EXIT.NOT_FOUND;
+        fail(
+          `Unknown skill command: "${command}". Run octocode skill help for usage.`
+        );
     }
   },
 };

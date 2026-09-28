@@ -119,6 +119,7 @@ pub(super) fn annotate(
                 "query": {
                     "path": workspace_root,
                     "searchText": word_pattern(name),
+                    "goal": query.goal(),
                     "reasoning": "Find textual uses the inferred TypeScript project cannot see."
                 }
             });
@@ -174,7 +175,7 @@ mod tests {
 
     fn refs_query(uri: &str) -> LspSearchQuery {
         serde_json::from_value(json!({
-            "operation":"references","reasoning":"test","uri":uri,
+            "operation":"references","goal": "test", "reasoning":"test","uri":uri,
             "symbolName":"greet","lineHint":1
         }))
         .expect("references query")
@@ -253,7 +254,7 @@ mod tests {
         assert_eq!(row, refs_row());
 
         let definition: LspSearchQuery = serde_json::from_value(json!({
-            "operation":"definition","reasoning":"test",
+            "operation":"definition","goal": "test", "reasoning":"test",
             "uri":format!("file://{}", file.display()),"symbolName":"greet","lineHint":1
         }))
         .expect("definition query");

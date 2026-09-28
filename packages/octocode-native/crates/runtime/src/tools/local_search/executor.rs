@@ -1381,7 +1381,7 @@ mod repair_tests {
     #[test]
     fn invalid_regex_repair_keeps_only_caller_fields() {
         let query: LocalSearchQuery = serde_json::from_value(json!({
-            "path":"/tmp","searchText":"(unclosed","reasoning":"r","page":3,"pageSize":5
+            "path":"/tmp","searchText":"(unclosed","goal": "test", "reasoning":"r","page":3,"pageSize":5
         }))
         .expect("query");
         let error = invalid_regex(&query, "unclosed group".into());

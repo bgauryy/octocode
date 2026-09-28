@@ -58,7 +58,7 @@ for API contracts; those controls are not automatically CLI options.
 ## Database and verification
 
 Only the current development schema is supported. Use a fresh database after schema
-changes; see the [database protocol](../skills/octocode-agents-communication/docs/DB.md).
+changes; see the [database protocol](../skills/octocode-agents-communication/scripts/docs/DB.md).
 
 The previous six-worker activity exercise reported 93% cached cumulative input.
 Two acknowledgement-only turns accounted for 73,482 input tokens (69,632 cached),

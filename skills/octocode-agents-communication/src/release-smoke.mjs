@@ -5,11 +5,11 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
-import { digest as hash } from './artifact-checks.mjs';
+import { digest as hash, runtimeInfo, runRuntime, payloadDigest } from './artifact-checks.mjs';
 import { packSkill } from './pack-skill.mjs';
 
-// Uses the extracted native executable directly: no shell/shebang, vendor account,
-// npm dependencies, or host SDK is required on Windows, Linux, or macOS.
+// Uses the extracted Python entry point directly on Windows, Linux, and macOS.
+// No vendor account, npm dependencies, or host SDK is required.
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const outputIndex = process.argv.indexOf('--output');
 const output = resolve(outputIndex < 0 ? join(root, 'out/release-smoke.json') : process.argv[outputIndex + 1]);
@@ -17,19 +17,17 @@ const run = (file, args, options = {}) => execFileSync(file, args, {
   encoding: 'utf8', timeout: 15000, killSignal: 'SIGKILL', maxBuffer: 2 * 1024 * 1024,
   stdio: ['pipe', 'pipe', 'pipe'], ...options,
 });
-const rustc = run('rustc', ['-vV']);
-const target = rustc.match(/^host: (.+)$/m)[1];
+const runtime = runtimeInfo();
+const target = `${process.platform}-${process.arch}-python${runtime.versionInfo.slice(0, 2).join('.')}`;
 const temporary = realpathSync(mkdtempSync(join(tmpdir(), 'communication-release-')));
 const result = {
   passed: false, startedAt: new Date().toISOString(), target, platform: process.platform,
-  node: process.version, rustc: rustc.split('\n')[0], harnessSha256: hash(fileURLToPath(import.meta.url)),
+  node: process.version, runtime,
   version: JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version,
-  sourceRevision: run('git', ['rev-parse', 'HEAD'], { cwd: root }).trim(),
-  dirty: run('git', ['status', '--porcelain', '--', '.'], { cwd: root }).trim().length > 0,
-  providerCalls: 0, checks: [], restore: false,
+  checks: [], restore: false,
 };
 let binary;
-const cli = (workspace, database, args, session) => JSON.parse(run(binary, [
+const cli = (workspace, database, args, session) => JSON.parse(runRuntime(binary, [
   ...args, '--workspace', workspace, '--database', database, ...(session ? ['--session', session] : []),
 ]));
 const call = (workspace, database, name, input, session) => cli(workspace, database, [name, JSON.stringify(input)], session);
@@ -38,19 +36,19 @@ const inspect = (database, fn) => {
   try { return fn(db); } finally { db.close(); }
 };
 try {
-  if (process.env.COMMUNICATION_EXPECTED_TARGET) assert.equal(target, process.env.COMMUNICATION_EXPECTED_TARGET, 'Use a native host toolchain matching the release target');
-  result.package = packSkill(root, { hostTarget: target });
+  if (process.env.COMMUNICATION_EXPECTED_TARGET) assert.equal(target, process.env.COMMUNICATION_EXPECTED_TARGET, 'Use the operating system and Python version declared by this CI job');
+  result.package = packSkill(root);
   run('tar', ['-xzf', result.package.archive, '-C', temporary]);
   const skill = join(temporary, 'octocode-agents-communication');
-  binary = join(skill, 'scripts', `octocode-agents-communication${process.platform === 'win32' ? '.exe' : ''}`);
-  result.binarySha256 = hash(binary); result.skillSha256 = hash(join(skill, 'SKILL.md'));
-  assert.equal(JSON.parse(run(binary, ['skill'])).instructions, readFileSync(join(skill, 'SKILL.md'), 'utf8'));
-  result.checks.push('extracted executable and embedded skill agree');
+  binary = join(skill, 'scripts/communication.py');
+  result.runtimeSha256 = payloadDigest(join(skill, 'scripts')); result.entrySha256 = hash(binary); result.skillSha256 = hash(join(skill, 'SKILL.md'));
+  assert.equal(JSON.parse(runRuntime(binary, ['skill'])).instructions, readFileSync(join(skill, 'SKILL.md'), 'utf8'));
+  result.checks.push('extracted Python runtime and packaged skill agree');
   if (process.platform === 'win32') {
     const help = run('pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', join(skill, 'scripts/agents-communication.ps1'), '--help']);
     const contract = JSON.parse(help);
     assert.equal(contract.package, '@octocodeai/octocode-agents-communication');
-    assert.equal(contract.implementation, 'Rust');
+    assert.equal(contract.implementation, 'Python');
     result.launcher = { passed: true, shell: 'pwsh' };
   } else {
     assert.equal(result.package.launcher.passed, true);
@@ -80,7 +78,7 @@ try {
     { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} },
     { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'complete', arguments: { message: sent.id, reply: 'Handoff confirmed', reasoning: 'Complete the requested check' } } },
   ];
-  const responses = run(binary, ['mcp', '--tools', 'peers,send_message,complete', '--workspace', workspace, '--database', database, '--session', b], { input: frames.map(frame => JSON.stringify(frame)).join('\n') + '\n' }).trim().split('\n').map(line => JSON.parse(line));
+  const responses = runRuntime(binary, ['mcp', '--tools', 'peers,send_message,complete', '--workspace', workspace, '--database', database, '--session', b], { input: frames.map(frame => JSON.stringify(frame)).join('\n') + '\n' }).trim().split('\n').map(line => JSON.parse(line));
   assert.equal(responses.length, 3);
   assert.equal(responses[0].result.protocolVersion, '2024-11-05');
   assert.deepEqual(responses[1].result.tools.map(tool => tool.name).sort(), ['complete', 'peers', 'send_message']);
@@ -111,7 +109,8 @@ try {
   inspect(restored, db => assert.equal(db.prepare('SELECT count(*) n FROM messages').get().n, 2));
   result.restore = true;
   result.checks.push('Current-schema backup integrity and restore');
-  assert.equal(hash(binary), result.binarySha256);
+  assert.equal(hash(binary), result.entrySha256);
+  assert.equal(payloadDigest(join(skill, 'scripts')), result.runtimeSha256);
   result.passed = true;
 } catch (error) {
   result.error = error.stack;

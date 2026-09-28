@@ -1,6 +1,7 @@
 //! Deterministic native Octocode configuration.
 mod acquire;
 mod dotenv;
+mod edit;
 #[cfg(test)]
 mod layering_tests;
 mod loader;
@@ -11,6 +12,7 @@ pub use acquire::{acquire_config_input, octocode_home};
 pub use dotenv::{
     apply_env, merged_env, parse_boolean_env, parse_env, parse_int_env, parse_string_array_env,
 };
+pub use edit::edit_global_env;
 pub use loader::load_config;
 pub use resolver::{
     get_config_value, inspector_data, is_persistent_storage_enabled,

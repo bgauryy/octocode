@@ -86,6 +86,12 @@ impl LspSearchQuery {
     pub fn operation(&self) -> String {
         each_shape!(self, operation => operation.to_string())
     }
+    pub fn goal(&self) -> &str {
+        each_shape!(self, goal => goal.as_str())
+    }
+    pub fn reasoning(&self) -> &str {
+        each_shape!(self, reasoning => reasoning.as_str())
+    }
     pub fn uri(&self) -> Option<&str> {
         match self {
             Self::Anchored(query) => Some(query.uri.as_str()),

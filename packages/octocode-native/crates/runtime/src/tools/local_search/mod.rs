@@ -14,7 +14,7 @@ mod tests {
     /// `null` removes a field so its contract default applies.
     fn ls_query(fields: serde_json::Value, base: Option<&LocalSearchQuery>) -> LocalSearchQuery {
         let mut value = base.map_or_else(
-            || serde_json::json!({"path": "_", "searchText": "_", "reasoning": "test"}),
+            || serde_json::json!({"path": "_", "searchText": "_", "goal": "test", "reasoning": "test"}),
             |base| serde_json::to_value(base).expect("query serializes"),
         );
         let object = value.as_object_mut().expect("query object");

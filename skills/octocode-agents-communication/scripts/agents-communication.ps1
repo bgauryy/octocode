@@ -1,5 +1,6 @@
 $ErrorActionPreference = 'Stop'
-$binary = Join-Path $PSScriptRoot 'octocode-agents-communication.exe'
-if (!(Test-Path $binary)) { throw 'Communication executable missing. Build the skill with node src/build-skill.mjs.' }
-& $binary @args
+$entry = Join-Path $PSScriptRoot 'communication.py'
+if (!(Test-Path $entry)) { throw 'Communication scripts missing. Reinstall the complete skill folder.' }
+$python = if ($env:OCTOCODE_PYTHON) { $env:OCTOCODE_PYTHON } else { 'python' }
+& $python -B $entry @args
 exit $LASTEXITCODE

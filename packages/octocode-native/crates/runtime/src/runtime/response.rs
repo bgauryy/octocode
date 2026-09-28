@@ -1325,7 +1325,7 @@ mod tests {
         let row = result_row(
             "localFetch",
             0,
-            &json!({"reasoning":"Read the next exact page.","debug":false}),
+            &json!({"goal": "test", "reasoning":"Read the next exact page.","debug":false}),
             json!({
                 "next": {
                     "continue": {
@@ -1351,7 +1351,7 @@ mod tests {
         let row = result_row(
             "clasify",
             0,
-            &json!({"reasoning":"Evaluate captured evidence.","debug":false}),
+            &json!({"goal": "test", "reasoning":"Evaluate captured evidence.","debug":false}),
             json!({
                 "context": {
                     "next": {
@@ -1360,7 +1360,7 @@ mod tests {
                             "query": {
                                 "path":"/repo/a.rs",
                                 "offset":2,
-                                "reasoning":"Read the next exact page.",
+                                "goal": "test", "reasoning":"Read the next exact page.",
                                 "debug":true
                             }
                         }

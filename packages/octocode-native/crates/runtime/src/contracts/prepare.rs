@@ -49,7 +49,7 @@ pub struct PreparedQuery {
 pub fn prepare(
     tool_name: &str,
     input: Value,
-    options: PrepareOptions<'_>,
+    _options: PrepareOptions<'_>,
 ) -> Result<PreparedQuery, ContractInputError> {
     let mut object = match input {
         Value::Array(mut values) => {
@@ -83,11 +83,6 @@ pub fn prepare(
         }
     };
     if tool_name != "clasify" {
-        default_blank(
-            &mut object,
-            "goal",
-            format!("Execute {tool_name} via {}", options.source_label),
-        );
         object
             .entry("debug".to_owned())
             .or_insert(Value::Bool(false));
@@ -111,17 +106,6 @@ fn trim_string(object: &mut Map<String, Value>, field: &str) {
     }
 }
 
-fn default_blank(object: &mut Map<String, Value>, field: &str, default: String) {
-    let blank = match object.get(field) {
-        None => true,
-        Some(Value::String(value)) => value.trim().is_empty(),
-        Some(_) => false,
-    };
-    if blank {
-        object.insert(field.to_owned(), Value::String(default));
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{PrepareOptions, prepare};
@@ -129,7 +113,7 @@ mod tests {
 
     #[test]
     fn pure_clasify_preparation_preserves_exactly_the_supplied_values() {
-        let query = json!({"id":"decision","reasoning":"Decide the next evidence read.","resources":[{"id":"source","context": {"value": {"goal": "source data", "debug": true}}}], "questions":[{"id":"relevant",
+        let query = json!({"id":"decision","goal": "test", "reasoning":"Decide the next evidence read.","resources":[{"id":"source","context": {"value": {"goal": "source data", "debug": true}}}], "questions":[{"id":"relevant",
             "type": "noul", "instructions": "Assess supplied state"
         }]});
         for input in [
@@ -144,7 +128,7 @@ mod tests {
     }
 
     #[test]
-    fn defaults_goal_and_debug_but_never_invents_reasoning() {
+    fn defaults_debug_and_never_invents_goal_or_reasoning() {
         let prepared = prepare(
             "localFetch",
             json!({"path":"/tmp/a", "goal":" "}),
@@ -153,7 +137,7 @@ mod tests {
             },
         )
         .expect("valid input");
-        assert_eq!(prepared.query["goal"], "Execute localFetch via native CLI");
+        assert_eq!(prepared.query["goal"], " ");
         assert_eq!(prepared.query["debug"], false);
         assert!(prepared.query.get("reasoning").is_none());
     }

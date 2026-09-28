@@ -86,7 +86,7 @@ fn clasify_missing_key_is_actionable() {
     let workspace = Workspace::new();
     let query = serde_json::json!({
         "id":"decision",
-        "reasoning":"Choose the next inspection.",
+        "goal": "test", "reasoning":"Choose the next inspection.",
         "resources":[{"id":"observed","context":{"value":{"fact":"present"}}}],
         "questions":[{"id":"relevant","type":"noul","instructions":"Is it relevant?"}]
     });
@@ -110,7 +110,7 @@ fn tool_output_is_compact_by_default_and_pretty_on_request() {
     let workspace = Workspace::new();
     let query = serde_json::json!({
         "id":"decision",
-        "reasoning":"Exercise output formatting.",
+        "goal": "test", "reasoning":"Exercise output formatting.",
         "resources":[{"id":"observed","context":{"value":{"fact":"present"}}}],
         "questions":[{"id":"relevant","type":"noul","instructions":"Is it relevant?"}]
     })
@@ -150,7 +150,7 @@ fn blank_classification_key_disables_clasify_despite_home_and_vendor_keys() {
     .unwrap();
     let query = serde_json::json!({
         "id":"decision",
-        "reasoning":"Exercise the opt-out.",
+        "goal": "test", "reasoning":"Exercise the opt-out.",
         "resources":[{"id":"observed","context":{"value":{"fact":"present"}}}],
         "questions":[{"id":"relevant","type":"noul","instructions":"Is it relevant?"}]
     })
@@ -611,7 +611,7 @@ fn localfetch_pages_expose_a_rerunnable_continuation() {
         "path": path,
         "chunkType": "lines",
         "chunkSize": 3,
-        "reasoning": "Verify paginated native reads."
+        "goal": "test", "reasoning": "Verify paginated native reads."
     })
     .to_string();
     let first = workspace
@@ -680,7 +680,7 @@ fn tool_reads_query_from_input_file() {
     let source = workspace.write("input-source.rs", "fn from_file() {}\n");
     let query = serde_json::json!({
         "path": source,
-        "reasoning": "Verify --input file queries."
+        "goal": "test", "reasoning": "Verify --input file queries."
     })
     .to_string();
     let query_file = workspace.write("query.json", &query);
@@ -870,13 +870,13 @@ fn tool_accepts_bulk_queries() {
             "path": first,
             "startLine": 1,
             "endLine": 1,
-            "reasoning": "Verify the first native bulk query."
+            "goal": "test", "reasoning": "Verify the first native bulk query."
         },
         {
             "path": second,
             "startLine": 1,
             "endLine": 1,
-            "reasoning": "Verify the second native bulk query."
+            "goal": "test", "reasoning": "Verify the second native bulk query."
         }
     ])
     .to_string();
@@ -911,7 +911,7 @@ fn localsearch_emits_structured_results() {
         "searchText": "needle",
         "path": path,
         "resultView": "matchOnly",
-        "reasoning": "Verify structured lexical output."
+        "goal": "test", "reasoning": "Verify structured lexical output."
     })
     .to_string();
     let output = workspace
@@ -937,7 +937,7 @@ fn astrewrite_previews_then_applies_with_hash_guards() {
         "ruleKind": "pattern",
         "pattern": "pub const $NAME: u32 = $VALUE;",
         "rewrite": "pub const $NAME: u64 = $VALUE;",
-        "reasoning": "Verify guarded native rewrite application."
+        "goal": "test", "reasoning": "Verify guarded native rewrite application."
     });
     let preview = workspace
         .cli()
@@ -993,7 +993,7 @@ fn json_errors_do_not_leak_duplicate_stderr() {
     let missing = workspace.workspace.join("missing.rs");
     let query = serde_json::json!({
         "path": missing,
-        "reasoning": "Verify native read errors."
+        "goal": "test", "reasoning": "Verify native read errors."
     })
     .to_string();
     let output = workspace
@@ -1065,4 +1065,35 @@ fn install_rejects_unknown_method_and_accepts_claude_alias() {
     assert!(claude.status.success(), "{}", stderr(&claude));
     let value: serde_json::Value = serde_json::from_str(stdout(&claude)).expect("install JSON");
     assert_eq!(value["ide"], "claude-desktop");
+}
+
+#[tokio::test]
+async fn github_authentication_failure_uses_exit_four_and_actionable_hint() {
+    use wiremock::{Mock, MockServer, ResponseTemplate, matchers::method};
+
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(401).set_body_json(serde_json::json!({
+            "message": "Bad credentials"
+        })))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let mut command = workspace.cli();
+    command
+        .env("GITHUB_API_URL", format!("{}/api/v3", server.uri()))
+        .env("OCTOCODE_TOKEN", "invalid-fixture-token")
+        .args([
+            "ghGetFileContent",
+            r#"{"owner":"fixture","repo":"fixture","path":"README","forceRefresh":true}"#,
+        ]);
+    let output = tokio::task::spawn_blocking(move || command.output().expect("tool output"))
+        .await
+        .expect("tool worker");
+    assert_eq!(output.status.code(), Some(4), "{}", stdout(&output));
+    let result: serde_json::Value = serde_json::from_slice(&output.stdout).expect("tool JSON");
+    assert_eq!(result["results"][0]["data"]["errorCode"], "authentication");
+    assert!(stdout(&output).contains("octocode auth login"));
+    assert!(stdout(&output).contains("Fix or unset"));
+    assert!(!stdout(&output).contains("invalid-fixture-token"));
 }

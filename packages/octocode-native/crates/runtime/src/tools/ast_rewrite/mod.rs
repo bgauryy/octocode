@@ -91,7 +91,7 @@ impl AstRewriteQuery {
         }
     }
     pub fn goal(&self) -> Option<&str> {
-        either_kind!(self, goal => goal.as_deref())
+        Some(either_kind!(self, goal => goal.as_str()))
     }
     pub fn reasoning(&self) -> &str {
         either_kind!(self, reasoning => reasoning.as_str())
@@ -1586,7 +1586,7 @@ mod tests {
 
     fn query(root: &Path) -> Value {
         json!({
-            "path":root,"langType":"typescript","ruleKind":"pattern","reasoning":"test",
+            "path":root,"langType":"typescript","ruleKind":"pattern","goal": "test", "reasoning":"test",
             "pattern":"oldCall($A)","rewrite":"newCall($A)","pageSize":1
         })
     }
@@ -2070,7 +2070,7 @@ mod tests {
                 "path":root,
                 "langType":"typescript",
                 "ruleKind":"rule",
-                "reasoning":"test",
+                "goal": "test", "reasoning":"test",
                 "rule":{"pattern":"oldCall($A)"},
                 "fix":"newCall($A)",
                 "pageSize":100,

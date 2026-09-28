@@ -15,6 +15,7 @@ export interface RemoveOptions {
   platform: string | null;
   dryRun: boolean;
   json: boolean;
+  jsonErrors?: boolean;
 }
 
 type Target = { target: string; path: string };
@@ -67,8 +68,13 @@ function installedTargets(name: string): Target[] {
   );
 }
 
-function fail(message: string, json: boolean): void {
-  if (json) console.log(JSON.stringify({ success: false, error: message }));
+function fail(message: string, json: boolean, jsonErrors = false): void {
+  if (jsonErrors)
+    console.log(
+      JSON.stringify({ kind: 'octocode.toolError', version: 1, error: message })
+    );
+  else if (json)
+    console.log(JSON.stringify({ success: false, error: message }));
   else console.error(`\n  ${c('red', '✗')} ${message}\n`);
   process.exitCode = 1;
 }
@@ -92,13 +98,17 @@ export function runRemove(skillNames: string[], opts: RemoveOptions): void {
       else console.log('\n  No installed skills found.\n');
       return;
     }
-    return fail('Specify a skill name or use --all.', opts.json);
+    return fail(
+      'Specify a skill name or use --all.',
+      opts.json,
+      opts.jsonErrors
+    );
   }
 
   let platforms: Platform[] | null = null;
   if (opts.platform) {
     const parsed = parsePlatforms(opts.platform);
-    if (parsed.error) return fail(parsed.error, opts.json);
+    if (parsed.error) return fail(parsed.error, opts.json, opts.jsonErrors);
     platforms = parsed.platforms;
   }
 

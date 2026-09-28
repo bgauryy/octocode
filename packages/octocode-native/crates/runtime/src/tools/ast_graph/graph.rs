@@ -1,3 +1,4 @@
+use super::aliases::{ResolveContext, probe_js};
 use super::cargo::{CargoCrates, load_cargo_crates};
 use super::packages::{PackageIndex, PackageLink};
 use super::types::*;
@@ -6,8 +7,9 @@ use crate::{
 };
 use octocode_engine::types::{GraphFactsScanOptions, GraphLanguageGlob};
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     path::{Component, Path, PathBuf},
+    sync::{Arc, Mutex},
 };
 
 const EXCLUDES: &[&str] = &[
@@ -22,11 +24,32 @@ const EXCLUDES: &[&str] = &[
     ".cache",
 ];
 
+/// Scan options beyond the public astTopology query (used by persisted
+/// graph ingest). The default keeps astTopology's behavior.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct BuildExtras {
+    /// Skip paths ignored by `.gitignore` files (scan root, nested, and
+    /// ancestors up to the repository root) and `.git/info/exclude`.
+    pub respect_gitignore: bool,
+    /// Additional directory names excluded from the scan.
+    pub extra_excludes: Vec<String>,
+}
+
 pub(crate) fn build_graph(
     q: &AstTopologyQuery,
     paths: &PathPolicy,
     security: &ContentSecurity,
     cancel: &dyn CancellationCheck,
+) -> Result<BuiltGraph, AstGraphError> {
+    build_graph_with(q, paths, security, cancel, &BuildExtras::default())
+}
+
+pub(crate) fn build_graph_with(
+    q: &AstTopologyQuery,
+    paths: &PathPolicy,
+    security: &ContentSecurity,
+    cancel: &dyn CancellationCheck,
+    extras: &BuildExtras,
 ) -> Result<BuiltGraph, AstGraphError> {
     cancel
         .check()
@@ -36,15 +59,28 @@ pub(crate) fn build_graph(
         .validate(&requested_root)
         .map_err(|e| AstGraphError::new("ast.path.invalid", e.message))?;
     let mut exclude = EXCLUDES.iter().map(|x| x.to_string()).collect::<Vec<_>>();
-    if let Some(extra) = q.exclude_dir() {
-        for e in extra {
-            if !exclude.contains(e) {
-                exclude.push(e.clone())
-            }
+    for e in q
+        .exclude_dir()
+        .unwrap_or_default()
+        .iter()
+        .chain(&extras.extra_excludes)
+    {
+        if !exclude.contains(e) {
+            exclude.push(e.clone())
         }
     }
+    let gitignore = extras
+        .respect_gitignore
+        .then(|| GitignoreFilter::new(&validated.canonical));
     if q.max_files().is_none() {
-        admit_scope(q, &validated.canonical, &exclude, paths, cancel)?;
+        admit_scope(
+            q,
+            &validated.canonical,
+            &exclude,
+            paths,
+            gitignore.as_ref(),
+            cancel,
+        )?;
     }
     let max_files = q.max_files().unwrap_or(20_000).clamp(1, 50_000);
     let scan = octocode_engine::portable::scan_typed_graph_facts_filtered(
@@ -68,6 +104,12 @@ pub(crate) fn build_graph(
             cancel
                 .check()
                 .map_err(|message| format!("[ast.execution.cancelled] {message}"))?;
+            if gitignore
+                .as_ref()
+                .is_some_and(|filter| filter.is_ignored(path))
+            {
+                return Ok(false);
+            }
             Ok(paths.permits_discovery(path))
         },
     )
@@ -143,7 +185,7 @@ pub(crate) fn build_graph(
     } else {
         CargoCrates::default()
     };
-    let workspace_packages = load_workspace_packages(&built.root, &known, paths, security);
+    let resolve_context = ResolveContext::load(&built.root, &known, paths, security);
     let packages = PackageIndex::build(&built.root, &known);
     for skipped in scan.skipped {
         built.diagnostics.push(Diagnostic {
@@ -187,13 +229,14 @@ pub(crate) fn build_graph(
         }
         if let Some(builder) = graph_builder.as_mut() {
             builder
-                .ingest_facts(&file, entry.content_digest, &parsed)
+                .ingest_facts(&file, entry.content_digest.clone(), &parsed)
                 .map_err(|error| AstGraphError::new("ast.graph.modelFailed", error))?;
         }
+        let digest = entry.content_digest;
         link_file(
             &mut built,
             &known,
-            file,
+            file.clone(),
             parsed,
             entry
                 .reference_counts
@@ -203,10 +246,13 @@ pub(crate) fn build_graph(
             security,
             rust_cargo_unavailable,
             &cargo_crates,
-            &workspace_packages,
+            &resolve_context,
             &packages,
             graph_builder.as_mut(),
         )?;
+        if let Some(facts) = built.facts.get_mut(&file) {
+            facts.digest = digest;
+        }
     }
     // astTopology identifies results by their own digest (analysis
     // `resultId`); the whole-graph digest is never read here.
@@ -344,7 +390,7 @@ fn link_file(
     security: &ContentSecurity,
     rust_cargo_unavailable: bool,
     cargo_crates: &CargoCrates,
-    workspace_packages: &BTreeMap<String, String>,
+    ctx: &ResolveContext,
     packages: &PackageIndex,
     mut graph_builder: Option<&mut octocode_engine::graph::CodeGraphBuilder>,
 ) -> Result<(), AstGraphError> {
@@ -403,15 +449,35 @@ fn link_file(
         } else {
             "semantic-references"
         },
+        language: language.clone(),
         ..Default::default()
     };
     let mut node = Node::default();
+    // A bare JS/TS specifier naming project code (alias, workspace package,
+    // `#`/`@/`/`~/` convention): failing to link it is an internal gap.
+    let internal_bare = |spec: &str| {
+        is_javascript_extension(&ext)
+            && !spec.starts_with('.')
+            && !spec.starts_with('/')
+            && ctx.is_internal_bare_js(spec, &file)
+    };
+    for edge in &p.edges {
+        if matches!(edge.relation.as_str(), "extends" | "implements") {
+            facts.heritage.push(Heritage {
+                decl_id: edge.from.clone(),
+                relation: edge.relation.clone(),
+                target: edge.to.clone(),
+                line: edge.line,
+            });
+        }
+    }
     for d in p.declarations {
         facts.declarations.push(Declaration {
             id: d.id,
             name: d.name,
             kind: d.kind,
             line: d.line,
+            end_line: d.line + d.range.end.line.saturating_sub(d.range.start.line),
             exported: d.exported,
             exported_as: d.exported_as,
             parent: d.parent,
@@ -419,6 +485,7 @@ fn link_file(
     }
     for i in p.imports {
         if matches!(ext.as_str(), "go" | "java") {
+            let mut external = false;
             let targets = match packages.resolve(&ext, &i.specifier, &file) {
                 PackageLink::Files(files) => files,
                 PackageLink::UnresolvedInternal => {
@@ -436,6 +503,7 @@ fn link_file(
                 }
                 PackageLink::External => {
                     b.imports[1] += 1;
+                    external = true;
                     Vec::new()
                 }
             };
@@ -464,21 +532,31 @@ fn link_file(
             if targets.is_empty() {
                 facts.imports.push(Import {
                     imported_name,
+                    local_name: i.local_name,
+                    specifier: i.specifier,
                     line: i.line,
                     target: None,
+                    external,
                 });
             } else {
                 for target in targets {
                     facts.imports.push(Import {
                         imported_name: imported_name.clone(),
+                        local_name: i.local_name.clone(),
+                        specifier: i.specifier.clone(),
                         line: i.line,
                         target: Some(target),
+                        external: false,
                     });
                 }
             }
             continue;
         }
-        let target = if ext == "rs" && rust_cargo_unavailable {
+        let target = if ext == "rs"
+            && let Some(local) = rust_local_target(&i, &file, &p.modules, known)
+        {
+            Some(local)
+        } else if ext == "rs" && rust_cargo_unavailable {
             None
         } else {
             resolve(
@@ -489,10 +567,10 @@ fn link_file(
                 i.imported_name.as_deref().unwrap_or_default(),
                 known,
                 cargo_crates,
-                workspace_packages,
+                ctx,
             )
         };
-        record_resolution(
+        let external = record_resolution(
             b,
             &file,
             i.line,
@@ -500,9 +578,10 @@ fn link_file(
             &ext,
             &target,
             link == "unsupported" || ext == "rs" && rust_cargo_unavailable,
+            target.is_none() && internal_bare(&i.specifier),
             security,
         );
-        if let Some(t) = &target {
+        if let Some(t) = target.as_ref().filter(|t| **t != file) {
             add_edge(
                 b,
                 graph_builder.as_deref_mut(),
@@ -525,10 +604,12 @@ fn link_file(
         }
         facts.imports.push(Import {
             imported_name: i.imported_name.unwrap_or_default(),
+            local_name: i.local_name,
+            specifier: i.specifier,
             line: i.line,
             target,
+            external,
         });
-        let _ = i.local_name;
     }
     for x in p.exports {
         if let Some(spec) = x.source {
@@ -540,7 +621,7 @@ fn link_file(
                 x.local_name.as_deref().unwrap_or(&x.name),
                 known,
                 cargo_crates,
-                workspace_packages,
+                ctx,
             );
             record_resolution(
                 b,
@@ -550,6 +631,7 @@ fn link_file(
                 &ext,
                 &target,
                 link == "unsupported",
+                target.is_none() && internal_bare(&spec),
                 security,
             );
             if x.name == "*" {
@@ -598,17 +680,11 @@ fn link_file(
     }
     for c in p.calls {
         if c.kind == "dynamic-import" {
-            let target = resolve(
-                &c.callee,
-                &file,
-                &ext,
-                None,
-                "*",
-                known,
-                cargo_crates,
-                workspace_packages,
+            let target = resolve(&c.callee, &file, &ext, None, "*", known, cargo_crates, ctx);
+            let internal = target.is_none() && internal_bare(&c.callee);
+            record_resolution(
+                b, &file, c.line, &c.callee, &ext, &target, false, internal, security,
             );
-            record_resolution(b, &file, c.line, &c.callee, &ext, &target, false, security);
             if let Some(t) = target {
                 add_edge(
                     b,
@@ -626,23 +702,20 @@ fn link_file(
             facts.calls.push(Call {
                 caller_id: c.caller_id,
                 callee: c.callee,
+                line: c.line,
+                kind: c.kind,
+                receiver_type: c.receiver_type,
             });
         }
     }
     for c in p.common_js {
         match c.specifier {
             Some(spec) => {
-                let target = resolve(
-                    &spec,
-                    &file,
-                    &ext,
-                    None,
-                    "*",
-                    known,
-                    cargo_crates,
-                    workspace_packages,
+                let target = resolve(&spec, &file, &ext, None, "*", known, cargo_crates, ctx);
+                let internal = target.is_none() && internal_bare(&spec);
+                record_resolution(
+                    b, &file, c.line, &spec, &ext, &target, false, internal, security,
                 );
-                record_resolution(b, &file, c.line, &spec, &ext, &target, false, security);
                 if let Some(t) = target {
                     add_edge(
                         b,
@@ -754,6 +827,10 @@ fn is_non_code_specifier(spec: &str) -> bool {
     })
 }
 
+/// Tallies one import resolution; returns whether an unlinked specifier names
+/// an external package (as opposed to an unresolved or unsupported one).
+/// `internal_bare` marks a bare specifier that names project code (alias or
+/// workspace package), so an unlinked one is an internal gap.
 #[allow(clippy::too_many_arguments)]
 fn record_resolution(
     b: &mut BuiltGraph,
@@ -763,8 +840,9 @@ fn record_resolution(
     ext: &str,
     target: &Option<String>,
     unsupported: bool,
+    internal_bare: bool,
     security: &ContentSecurity,
-) {
+) -> bool {
     if target.is_some() {
         b.imports[0] += 1
     } else if unsupported {
@@ -779,13 +857,14 @@ fn record_resolution(
             ),
         })
     } else if !matches!(ext, "py" | "pyi")
-        && (spec.starts_with('.') || spec.starts_with('/'))
+        && (spec.starts_with('.') || spec.starts_with('/') || internal_bare)
         && is_non_code_specifier(spec)
     {
         b.imports[4] += 1
     } else if spec.starts_with('.')
         || spec.starts_with('/')
         || (ext == "rs" && rust_internal_specifier(spec))
+        || internal_bare
     {
         b.imports[2] += 1;
         b.diagnostics.push(Diagnostic {
@@ -798,8 +877,10 @@ fn record_resolution(
             ),
         })
     } else {
-        b.imports[1] += 1
+        b.imports[1] += 1;
+        return true;
     }
+    false
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -811,17 +892,40 @@ fn resolve(
     imported: &str,
     known: &BTreeSet<String>,
     cargo_crates: &CargoCrates,
-    workspace_packages: &BTreeMap<String, String>,
+    ctx: &ResolveContext,
 ) -> Option<String> {
     if matches!(ext, "py" | "pyi") {
-        return resolve_python(spec, importer, hint, imported, known);
+        return resolve_python(
+            spec,
+            importer,
+            hint,
+            imported,
+            known,
+            &ctx.python_roots_for(importer),
+        );
     }
     if is_c_family_extension(ext) {
-        if hint != Some("c-relative") || spec.starts_with('/') {
+        let quoted = match hint {
+            Some("c-relative") => true,
+            Some("c-system") => false,
+            _ => return None,
+        };
+        if spec.starts_with('/') {
             return None;
         }
-        let p = join_within_root(dirname(importer), spec)?;
-        return known.contains(&p).then_some(p);
+        if quoted
+            && let Some(p) = join_within_root(dirname(importer), spec)
+            && known.contains(&p)
+        {
+            return Some(p);
+        }
+        // Then the project's include search path (bounded list), then a
+        // unique path-suffix match for build-system include roots.
+        return ctx
+            .include_dirs(quoted)
+            .iter()
+            .find_map(|dir| join_within_root(dir, spec).filter(|p| known.contains(p)))
+            .or_else(|| ctx.header_by_suffix(spec, importer));
     }
     if ext == "rs" {
         return resolve_rust(spec, importer, known, cargo_crates);
@@ -829,55 +933,13 @@ fn resolve(
     if !is_javascript_extension(ext) {
         return None;
     }
-    if !spec.starts_with('.') && !spec.starts_with('/') {
-        let (package, subpath) = if spec.starts_with('@') {
-            let mut parts = spec.splitn(3, '/');
-            let scope = parts.next()?;
-            let name = parts.next()?;
-            (format!("{scope}/{name}"), parts.next().unwrap_or(""))
-        } else {
-            spec.split_once('/')
-                .map(|(pkg, sub)| (pkg.to_owned(), sub))
-                .unwrap_or((spec.to_owned(), ""))
-        };
-        if let Some(target) = workspace_packages.get(&package) {
-            if subpath.is_empty() {
-                return known.contains(target).then(|| target.clone());
-            }
-            let joined = join_within_root(dirname(target), subpath)?;
-            return known.contains(&joined).then_some(joined);
-        }
+    if spec.starts_with('/') {
         return None;
     }
-    if spec.starts_with('/') || !spec.starts_with('.') {
-        return None;
+    if !spec.starts_with('.') {
+        return ctx.resolve_bare_js(spec, importer, known);
     }
-    let stem = join_within_root(dirname(importer), spec)?;
-    let exts = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts"];
-    let mut candidates = Vec::new();
-    if exts.iter().any(|x| stem.ends_with(x)) {
-        candidates.push(stem.clone());
-        for (a, b) in [
-            (".js", ".ts"),
-            (".jsx", ".tsx"),
-            (".mjs", ".mts"),
-            (".cjs", ".cts"),
-        ] {
-            if stem.ends_with(a) {
-                candidates.push(format!("{}{b}", &stem[..stem.len() - a.len()]));
-                break;
-            }
-        }
-    } else {
-        candidates.push(stem.clone());
-        for x in exts {
-            candidates.push(format!("{stem}{x}"));
-        }
-        for x in exts {
-            candidates.push(join(&stem, &format!("index{x}")));
-        }
-    }
-    candidates.into_iter().find(|x| known.contains(x))
+    probe_js(&join_within_root(dirname(importer), spec)?, known)
 }
 /// The directory holding the importer's child modules: `foo/` for
 /// `foo/mod.rs` (and crate roots), `foo/bar/` for `foo/bar.rs`.
@@ -925,6 +987,39 @@ fn rust_crate_root(importer: &str, known: &BTreeSet<String>) -> String {
 /// items (types, functions) or globs rather than modules, so take the
 /// longest prefix that names a real file; with no resolvable segment the
 /// path denotes the base module itself (`use super::*;`).
+/// Rust paths the linker can settle from the importing file alone:
+/// - `#[path = "x.rs"] mod name;` resolves relative to the declaring file.
+/// - `super::`/`self::` inside an inline module (`mod tests { use super::*; }`)
+///   that does not climb past it refers to the same file.
+fn rust_local_target(
+    import: &octocode_engine::graph::GraphFactImport,
+    file: &str,
+    modules: &[octocode_engine::graph::GraphFactRustModule],
+    known: &BTreeSet<String>,
+) -> Option<String> {
+    if import.import_kind == "module" {
+        let name = import.imported_name.as_deref()?;
+        let path = modules
+            .iter()
+            .find(|m| m.name == name && m.line == import.line && !m.inline)?
+            .path
+            .as_deref()?;
+        let target = join_within_root(dirname(file), path)?;
+        return known.contains(&target).then_some(target);
+    }
+    let depth = import.module_scope.as_ref().map_or(0, Vec::len);
+    if depth == 0 {
+        return None;
+    }
+    let segments = import.specifier.split("::").collect::<Vec<_>>();
+    let climbs = match segments.first() {
+        Some(&"self") => 0,
+        Some(&"super") => segments.iter().take_while(|s| **s == "super").count(),
+        _ => return None,
+    };
+    (climbs <= depth).then(|| file.to_owned())
+}
+
 fn resolve_rust_module_prefix(
     base: &str,
     segments: &[&str],
@@ -1017,42 +1112,62 @@ fn resolve_rust(
         }
     }
 }
+/// Python imports: relative ones climb from the importer's package;
+/// absolute ones try each import root (`roots`, nearest first). With
+/// `from pkg import name`, a submodule `pkg/name.py` wins over `pkg` itself.
 fn resolve_python(
     spec: &str,
     importer: &str,
     hint: Option<&str>,
-    _imported: &str,
+    imported: &str,
     known: &BTreeSet<String>,
+    roots: &[&str],
 ) -> Option<String> {
     if !matches!(hint, Some("python-relative") | Some("python-absolute")) {
         return None;
     }
     let dots = spec.chars().take_while(|c| *c == '.').count();
-    let mut base = if dots > 0 { dirname(importer) } else { "." };
-    for _ in 1..dots {
-        if base == "." {
-            return None;
-        }
-        base = dirname(base);
-    }
     let module = spec[dots..].replace('.', "/");
-    let stem = join_within_root(base, &module)?;
-    [
-        format!("{stem}.py"),
-        format!("{stem}.pyi"),
-        join(&stem, "__init__.py"),
-        join(&stem, "__init__.pyi"),
-    ]
-    .into_iter()
-    .find(|x| known.contains(x))
+    let bases = if dots > 0 {
+        let mut base = dirname(importer);
+        for _ in 1..dots {
+            if base == "." {
+                return None;
+            }
+            base = dirname(base);
+        }
+        vec![base]
+    } else {
+        roots.to_vec()
+    };
+    let submodule = (!imported.is_empty()
+        && imported != "*"
+        && imported.chars().all(|c| c == '_' || c.is_alphanumeric()))
+    .then_some(imported);
+    let module_files = |stem: &str| {
+        [
+            format!("{stem}.py"),
+            format!("{stem}.pyi"),
+            join(stem, "__init__.py"),
+            join(stem, "__init__.pyi"),
+        ]
+        .into_iter()
+        .find(|x| known.contains(x))
+    };
+    bases.into_iter().find_map(|base| {
+        let stem = join_within_root(base, &module)?;
+        submodule
+            .and_then(|name| module_files(&join(&stem, name)))
+            .or_else(|| module_files(&stem))
+    })
 }
-fn dirname(p: &str) -> &str {
+pub(super) fn dirname(p: &str) -> &str {
     p.rsplit_once('/').map(|x| x.0).unwrap_or(".")
 }
-fn join(a: &str, b: &str) -> String {
+pub(super) fn join(a: &str, b: &str) -> String {
     normalize(&format!("{a}/{b}"))
 }
-fn join_within_root(a: &str, b: &str) -> Option<String> {
+pub(super) fn join_within_root(a: &str, b: &str) -> Option<String> {
     let mut parts = Vec::new();
     for component in Path::new(&format!("{a}/{b}")).components() {
         match component {
@@ -1078,6 +1193,7 @@ fn admit_scope(
     root: &Path,
     exclude: &[String],
     paths: &PathPolicy,
+    gitignore: Option<&GitignoreFilter>,
     cancel: &dyn CancellationCheck,
 ) -> Result<(), AstGraphError> {
     let found = octocode_engine::portable::query_file_system_filtered(
@@ -1097,6 +1213,9 @@ fn admit_scope(
         },
         &|path| {
             cancel.check()?;
+            if gitignore.is_some_and(|filter| filter.is_ignored(path)) {
+                return Ok(false);
+            }
             Ok(paths.permits_discovery(path))
         },
     )
@@ -1184,6 +1303,101 @@ fn admit_scope(
     Err(error)
 }
 
+/// `.gitignore` awareness for the scan's per-path filter. Matchers load
+/// lazily per directory (the walk visits directories before their children,
+/// and an ignored directory is pruned whole). Precedence follows git: the
+/// deepest `.gitignore` with a matching rule decides, then ancestors above
+/// the scan root up to the repository root, then `.git/info/exclude`.
+struct GitignoreFilter {
+    root: PathBuf,
+    /// Matchers above the scan root (nearest first), then info/exclude.
+    outer: Vec<ignore::gitignore::Gitignore>,
+    cache: Mutex<HashMap<PathBuf, Option<Arc<ignore::gitignore::Gitignore>>>>,
+}
+
+impl GitignoreFilter {
+    const MAX_OUTER_LEVELS: usize = 32;
+
+    fn new(root: &Path) -> Self {
+        let mut outer = Vec::new();
+        let mut repository = None;
+        for directory in root.ancestors().take(Self::MAX_OUTER_LEVELS) {
+            if directory != root
+                && let Some(matcher) = Self::load(directory, &directory.join(".gitignore"))
+            {
+                outer.push(matcher);
+            }
+            if directory.join(".git").exists() {
+                repository = Some(directory.to_path_buf());
+                break;
+            }
+        }
+        // Only a real repository scopes ancestor ignore files; without one,
+        // unrelated ignore files above the root must not hide sources.
+        let Some(repository) = repository else {
+            outer.clear();
+            return Self {
+                root: root.to_path_buf(),
+                outer,
+                cache: Mutex::default(),
+            };
+        };
+        if let Some(matcher) = Self::load(
+            &repository,
+            &repository.join(".git").join("info").join("exclude"),
+        ) {
+            outer.push(matcher);
+        }
+        Self {
+            root: root.to_path_buf(),
+            outer,
+            cache: Mutex::default(),
+        }
+    }
+
+    fn load(directory: &Path, file: &Path) -> Option<ignore::gitignore::Gitignore> {
+        if !file.is_file() {
+            return None;
+        }
+        let mut builder = ignore::gitignore::GitignoreBuilder::new(directory);
+        // A malformed line is skipped; the remaining rules still apply.
+        let _ = builder.add(file);
+        builder.build().ok().filter(|matcher| !matcher.is_empty())
+    }
+
+    fn matcher(&self, directory: &Path) -> Option<Arc<ignore::gitignore::Gitignore>> {
+        let mut cache = self
+            .cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        cache
+            .entry(directory.to_path_buf())
+            .or_insert_with(|| Self::load(directory, &directory.join(".gitignore")).map(Arc::new))
+            .clone()
+    }
+
+    fn is_ignored(&self, path: &Path) -> bool {
+        if path == self.root || !path.starts_with(&self.root) {
+            return false;
+        }
+        let is_dir = std::fs::symlink_metadata(path).is_ok_and(|meta| meta.is_dir());
+        let decide = |matcher: &ignore::gitignore::Gitignore| match matcher.matched(path, is_dir) {
+            ignore::Match::Ignore(_) => Some(true),
+            ignore::Match::Whitelist(_) => Some(false),
+            ignore::Match::None => None,
+        };
+        for directory in path.ancestors().skip(1) {
+            if !directory.starts_with(&self.root) {
+                break;
+            }
+            if let Some(decision) = self.matcher(directory).as_deref().and_then(decide) {
+                return decision;
+            }
+        }
+        self.outer.iter().find_map(decide).unwrap_or(false)
+    }
+}
+
 const WORKSPACE_CONTAINERS: &[&str] =
     &["packages", "crates", "apps", "libs", "services", "modules"];
 
@@ -1204,124 +1418,52 @@ pub(crate) fn normalize(p: &str) -> String {
     parts.join("/")
 }
 
-fn load_workspace_packages(
-    root: &Path,
-    known: &BTreeSet<String>,
-    paths: &PathPolicy,
-    security: &ContentSecurity,
-) -> BTreeMap<String, String> {
-    let mut packages = BTreeMap::new();
-    // The graph scan includes code extensions, never JSON. Discover package
-    // manifests along scanned files' ancestors instead of looking for them in
-    // `known`, which cannot contain package.json.
-    let mut manifests = BTreeSet::from(["package.json".to_owned()]);
-    for file in known {
-        let mut parent = Path::new(file).parent();
-        while let Some(directory) = parent {
-            if directory.as_os_str().is_empty() {
-                break;
-            }
-            manifests.insert(
-                directory
-                    .join("package.json")
-                    .to_string_lossy()
-                    .into_owned(),
-            );
-            parent = directory.parent();
-        }
-    }
-    for relative in manifests {
-        let path = root.join(&relative);
-        let Ok(validated) = paths.validate_read(&path) else {
-            continue;
-        };
-        let Ok(bytes) = std::fs::read(&validated.canonical) else {
-            continue;
-        };
-        let Ok(safe) = security.validate_text_bytes(&bytes, Some(&validated.canonical), 1_000_000)
-        else {
-            continue;
-        };
-        let Ok(value) = serde_json::from_str::<serde_json::Value>(&safe.content) else {
-            continue;
-        };
-        let Some(name) = value.get("name").and_then(serde_json::Value::as_str) else {
-            continue;
-        };
-        let directory = Path::new(&relative)
-            .parent()
-            .map(|parent| parent.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        let target = export_target(&value).or_else(|| {
-            value
-                .get("main")
-                .and_then(serde_json::Value::as_str)
-                .map(str::to_owned)
-        });
-        let Some(target) = target else {
-            continue;
-        };
-        let Some(joined) = join_within_root(
-            if directory.is_empty() {
-                "."
-            } else {
-                &directory
-            },
-            &target,
-        ) else {
-            continue;
-        };
-        packages.insert(name.to_owned(), joined);
-    }
-    packages
-}
-
-fn export_target(package: &serde_json::Value) -> Option<String> {
-    let exports = package.get("exports")?;
-    match exports {
-        serde_json::Value::String(value) => Some(value.clone()),
-        serde_json::Value::Object(map) => map
-            .get(".")
-            .and_then(|dot| match dot {
-                serde_json::Value::String(value) => Some(value.clone()),
-                serde_json::Value::Object(nested) => nested
-                    .get("import")
-                    .or_else(|| nested.get("default"))
-                    .or_else(|| nested.get("require"))
-                    .and_then(serde_json::Value::as_str)
-                    .map(str::to_owned),
-                _ => None,
-            })
-            .or_else(|| {
-                map.get("import")
-                    .and_then(serde_json::Value::as_str)
-                    .map(str::to_owned)
-            })
-            .or_else(|| {
-                map.iter().find_map(|(pattern, value)| {
-                    let (prefix, suffix) = pattern.split_once('*')?;
-                    if prefix != "./" {
-                        return None;
-                    }
-                    match value {
-                        serde_json::Value::String(target) => {
-                            Some(target.replace('*', suffix.trim_start_matches('/')))
-                        }
-                        serde_json::Value::Object(nested) => nested
-                            .get("import")
-                            .or_else(|| nested.get("default"))
-                            .and_then(serde_json::Value::as_str)
-                            .map(|target| target.replace('*', "index")),
-                        _ => None,
-                    }
-                })
-            }),
-        _ => None,
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    /// Real-repo sanity probe: `OCTOCODE_GRAPH_SANITY_ROOTS=a:b cargo test ...
+    /// graph_sanity_tallies -- --ignored --nocapture` prints import tallies.
+    #[test]
+    #[ignore = "manual real-repo probe"]
+    fn graph_sanity_tallies() {
+        struct Active;
+        impl crate::tools::local_fetch::CancellationCheck for Active {
+            fn check(&self) -> Result<(), String> {
+                Ok(())
+            }
+        }
+        let Ok(roots) = std::env::var("OCTOCODE_GRAPH_SANITY_ROOTS") else {
+            return;
+        };
+        for root in roots.split(':') {
+            let paths =
+                crate::policy::path::PathPolicy::new(crate::policy::path::PathPolicyConfig {
+                    workspace_root: Some(std::path::PathBuf::from(root)),
+                    ..Default::default()
+                })
+                .unwrap();
+            let security = crate::security::ContentSecurity::new();
+            let query: super::AstTopologyQuery = serde_json::from_value(serde_json::json!({
+                "goal": "test", "reasoning": "sanity", "analysis": "cycles", "path": root, "maxFiles": 20000
+            }))
+            .unwrap();
+            let started = std::time::Instant::now();
+            let built = super::build_graph(&query, &paths, &security, &Active).unwrap();
+            let unresolved = built
+                .diagnostics
+                .iter()
+                .filter(|d| d.code == "unresolved-internal")
+                .take(8)
+                .map(|d| format!("{}:{:?} {}", d.file, d.line, d.message))
+                .collect::<Vec<_>>();
+            println!(
+                "SANITY {root} files={} imports[resolved,external,unresolvedInternal,unsupported,nonCode]={:?} ms={}\n  sample unresolved: {unresolved:#?}",
+                built.facts.len(),
+                built.imports,
+                started.elapsed().as_millis()
+            );
+        }
+    }
+
     fn cargo_fixture() -> tempfile::TempDir {
         let root = tempfile::tempdir().unwrap();
         std::fs::write(
@@ -1425,6 +1567,7 @@ mod tests {
                 Some("python-relative"),
                 "run",
                 &known,
+                &["."],
             ),
             Some("pkg/shared.py".to_owned())
         );
@@ -1435,6 +1578,7 @@ mod tests {
                 Some("python-relative"),
                 "run",
                 &known,
+                &["."],
             ),
             None,
             "relative imports cannot climb above the scan root"
@@ -1494,9 +1638,8 @@ mod tests {
             .iter()
             .map(|path| (*path).to_owned())
             .collect();
-        let packages = [("example".to_owned(), "src/index.ts".to_owned())]
-            .into_iter()
-            .collect();
+        let packages =
+            super::ResolveContext::default().with_package("example", ".", "src/index.ts");
         assert_eq!(
             super::resolve(
                 "example",
@@ -1623,6 +1766,310 @@ mod tests {
         assert_eq!(
             super::resolve_rust("thing::item;", "src/lib.rs", &known, &crates),
             Some("src/thing.rs".to_owned())
+        );
+    }
+
+    fn known_set(files: &[&str]) -> std::collections::BTreeSet<String> {
+        files.iter().map(|file| (*file).to_owned()).collect()
+    }
+
+    fn write_file(root: &std::path::Path, file: &str, text: &str) {
+        let path = root.join(file);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    }
+
+    struct Active;
+    impl crate::tools::local_fetch::CancellationCheck for Active {
+        fn check(&self) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    fn fixture_graph(root: &std::path::Path, extras: &super::BuildExtras) -> super::BuiltGraph {
+        let paths = crate::policy::path::PathPolicy::new(crate::policy::path::PathPolicyConfig {
+            workspace_root: Some(root.to_path_buf()),
+            ..Default::default()
+        })
+        .unwrap();
+        let query: super::AstTopologyQuery = serde_json::from_value(serde_json::json!({
+            "goal": "test", "reasoning": "test", "analysis": "cycles", "path": root
+        }))
+        .unwrap();
+        super::build_graph_with(
+            &query,
+            &paths,
+            &crate::security::ContentSecurity::new(),
+            &Active,
+            extras,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn alias_looking_bare_specifiers_are_internal_gaps_not_external() {
+        let mut b = super::BuiltGraph::default();
+        let security = crate::security::ContentSecurity::new();
+        let record = |b: &mut super::BuiltGraph, spec: &str, internal: bool| {
+            super::record_resolution(
+                b, "src/a.ts", 1, spec, "ts", &None, false, internal, &security,
+            )
+        };
+        assert!(record(&mut b, "react", false), "third-party stays external");
+        assert!(!record(&mut b, "@/missing", true));
+        assert!(!record(&mut b, "@acme/core/package.json", true));
+        assert_eq!(b.imports, [0, 1, 1, 0, 1]);
+        assert!(
+            b.diagnostics
+                .iter()
+                .any(|d| d.code == "unresolved-internal" && d.message.contains("@/missing"))
+        );
+    }
+
+    #[test]
+    fn tsconfig_aliases_and_workspace_packages_link_in_a_built_graph() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        write_file(
+            &root,
+            "tsconfig.json",
+            "{ /* jsonc */ \"compilerOptions\": { \"paths\": { \"@app/*\": [\"./app/src/*\"], }, }, }",
+        );
+        write_file(
+            &root,
+            "lib/package.json",
+            r#"{ "name": "@acme/lib", "main": "./dist/index.js", "exports": { ".": { "import": "./dist/index.js" } } }"#,
+        );
+        write_file(&root, "lib/src/index.ts", "export const lib = 1;\n");
+        write_file(&root, "app/src/util.ts", "export const util = 1;\n");
+        write_file(
+            &root,
+            "app/src/main.ts",
+            "import { util } from '@app/util';\nimport { lib } from '@acme/lib';\nimport { gone } from '@app/gone';\nimport React from 'react';\nexport const all = [util, lib, gone, React];\n",
+        );
+        let built = fixture_graph(&root, &super::BuildExtras::default());
+        let imports = &built.facts["app/src/main.ts"].imports;
+        let target = |spec: &str| {
+            imports
+                .iter()
+                .find(|import| import.specifier == spec)
+                .map(|import| (import.target.clone(), import.external))
+        };
+        assert_eq!(
+            target("@app/util"),
+            Some((Some("app/src/util.ts".to_owned()), false))
+        );
+        assert_eq!(
+            target("@acme/lib"),
+            Some((Some("lib/src/index.ts".to_owned()), false))
+        );
+        assert_eq!(target("@app/gone"), Some((None, false)));
+        assert_eq!(target("react"), Some((None, true)));
+        assert_eq!(built.imports[..3], [2, 1, 1]);
+    }
+
+    #[test]
+    fn python_absolute_imports_use_src_layout_roots_and_submodules() {
+        let known = known_set(&[
+            "proj/src/pkg/__init__.py",
+            "proj/src/pkg/sub.py",
+            "proj/src/pkg/nested/__init__.py",
+            "proj/app.py",
+        ]);
+        let roots = ["proj/src", "proj", "."];
+        let resolve = |spec: &str, imported: &str| {
+            super::resolve_python(
+                spec,
+                "proj/app.py",
+                Some(if spec.starts_with('.') {
+                    "python-relative"
+                } else {
+                    "python-absolute"
+                }),
+                imported,
+                &known,
+                &roots,
+            )
+        };
+        assert_eq!(
+            resolve("pkg", "*").as_deref(),
+            Some("proj/src/pkg/__init__.py")
+        );
+        assert_eq!(
+            resolve("pkg", "sub").as_deref(),
+            Some("proj/src/pkg/sub.py")
+        );
+        assert_eq!(
+            resolve("pkg", "nested").as_deref(),
+            Some("proj/src/pkg/nested/__init__.py")
+        );
+        // A non-module name falls back to the package itself.
+        assert_eq!(
+            resolve("pkg", "function_name").as_deref(),
+            Some("proj/src/pkg/__init__.py")
+        );
+        assert_eq!(resolve("missing", "*"), None);
+    }
+
+    #[test]
+    fn c_includes_search_project_include_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        write_file(&root, "include/proj/api.h", "int api(void);\n");
+        write_file(&root, "third/include/dep.h", "int dep(void);\n");
+        write_file(
+            &root,
+            "compile_commands.json",
+            &serde_json::json!([{"directory": root, "command": "cc -Ithird/include -c src/main.c", "file": "src/main.c"}]).to_string(),
+        );
+        write_file(
+            &root,
+            "src/main.c",
+            "#include \"proj/api.h\"\n#include <dep.h>\n#include <stdio.h>\nint main(void) { return api() + dep(); }\n",
+        );
+        let built = fixture_graph(&root, &super::BuildExtras::default());
+        let imports = &built.facts["src/main.c"].imports;
+        let target = |spec: &str| {
+            imports
+                .iter()
+                .find(|import| import.specifier == spec)
+                .and_then(|import| import.target.clone())
+        };
+        assert_eq!(target("proj/api.h").as_deref(), Some("include/proj/api.h"));
+        assert_eq!(target("dep.h").as_deref(), Some("third/include/dep.h"));
+        assert_eq!(target("stdio.h"), None);
+    }
+
+    #[test]
+    fn gitignore_is_respected_only_when_requested() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        std::fs::create_dir_all(root.join(".git/info")).unwrap();
+        write_file(&root, ".git/info/exclude", "local-only.ts\n");
+        write_file(&root, ".gitignore", "generated/\n*.gen.ts\n");
+        write_file(&root, "pkg/.gitignore", "scratch/\n!keep.gen.ts\n");
+        for file in [
+            "src/main.ts",
+            "generated/api.ts",
+            "src/model.gen.ts",
+            "pkg/keep.gen.ts",
+            "pkg/scratch/tmp.ts",
+            "local-only.ts",
+        ] {
+            write_file(&root, file, "export const x = 1;\n");
+        }
+        let all = fixture_graph(&root, &super::BuildExtras::default());
+        assert_eq!(all.facts.len(), 6, "{:?}", all.facts.keys());
+        let filtered = fixture_graph(
+            &root,
+            &super::BuildExtras {
+                respect_gitignore: true,
+                extra_excludes: vec!["pkg".into()],
+            },
+        );
+        assert_eq!(filtered.facts.keys().collect::<Vec<_>>(), ["src/main.ts"],);
+        let nested = fixture_graph(
+            &root,
+            &super::BuildExtras {
+                respect_gitignore: true,
+                extra_excludes: Vec::new(),
+            },
+        );
+        assert_eq!(
+            nested.facts.keys().collect::<Vec<_>>(),
+            ["pkg/keep.gen.ts", "src/main.ts"],
+            "nested negation re-includes; nested dir rule prunes"
+        );
+    }
+
+    #[test]
+    fn link_file_keeps_heritage_and_call_kinds() {
+        use octocode_engine::graph::{GraphFactCall, GraphFactEdge, GraphFactsDocument};
+        let document = GraphFactsDocument {
+            schema_version: 1,
+            language: "typescript".into(),
+            edges: vec![
+                GraphFactEdge {
+                    from: "decl:A".into(),
+                    to: "ns.Base".into(),
+                    relation: "extends".into(),
+                    line: 3,
+                    ..Default::default()
+                },
+                GraphFactEdge {
+                    from: "decl:A".into(),
+                    to: "Shape".into(),
+                    relation: "implements".into(),
+                    line: 3,
+                    ..Default::default()
+                },
+                GraphFactEdge {
+                    from: "decl:A".into(),
+                    to: "x".into(),
+                    relation: "contains".into(),
+                    line: 4,
+                    ..Default::default()
+                },
+            ],
+            calls: vec![
+                GraphFactCall {
+                    callee: "Widget".into(),
+                    kind: "renders".into(),
+                    line: 5,
+                    ..Default::default()
+                },
+                GraphFactCall {
+                    callee: "Injectable".into(),
+                    kind: "decorates".into(),
+                    caller_id: Some("decl:A".into()),
+                    line: 2,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let mut built = super::BuiltGraph::default();
+        super::link_file(
+            &mut built,
+            &known_set(&["a.ts"]),
+            "a.ts".into(),
+            document,
+            Default::default(),
+            &crate::security::ContentSecurity::new(),
+            false,
+            &super::CargoCrates::default(),
+            &super::ResolveContext::default(),
+            &Default::default(),
+            None,
+        )
+        .unwrap();
+        let facts = &built.facts["a.ts"];
+        assert_eq!(
+            facts
+                .heritage
+                .iter()
+                .map(|h| (
+                    h.decl_id.as_str(),
+                    h.relation.as_str(),
+                    h.target.as_str(),
+                    h.line
+                ))
+                .collect::<Vec<_>>(),
+            [
+                ("decl:A", "extends", "ns.Base", 3),
+                ("decl:A", "implements", "Shape", 3)
+            ]
+        );
+        assert_eq!(
+            facts
+                .calls
+                .iter()
+                .map(|c| (c.callee.as_str(), c.kind.as_str(), c.caller_id.is_some()))
+                .collect::<Vec<_>>(),
+            [
+                ("Widget", "renders", false),
+                ("Injectable", "decorates", true)
+            ]
         );
     }
 

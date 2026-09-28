@@ -116,7 +116,7 @@ pub(crate) fn artifact_query(
     base: Option<&ArtifactSearchQuery>,
 ) -> ArtifactSearchQuery {
     let mut value = base.map_or_else(
-        || serde_json::json!({"type": "npm", "reasoning": "test"}),
+        || serde_json::json!({"type": "npm", "goal": "test", "reasoning": "test"}),
         |base| serde_json::to_value(base).expect("query serializes"),
     );
     let object = value.as_object_mut().expect("query object");

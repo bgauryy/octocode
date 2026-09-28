@@ -25,10 +25,16 @@ export interface CheckOptions {
   dryRun: boolean;
   noEnv: boolean;
   json: boolean;
+  jsonErrors?: boolean;
 }
 
-function fail(message: string, json: boolean): void {
-  if (json) console.log(JSON.stringify({ success: false, error: message }));
+function fail(message: string, json: boolean, jsonErrors = false): void {
+  if (jsonErrors)
+    console.log(
+      JSON.stringify({ kind: 'octocode.toolError', version: 1, error: message })
+    );
+  else if (json)
+    console.log(JSON.stringify({ success: false, error: message }));
   else console.error(`  ${c('red', '✗')} ${message}`);
   process.exitCode = 1;
 }
@@ -82,12 +88,13 @@ export function runCheck(opts: CheckOptions): void {
       ? opts.names
       : listSkills().map(skill => skill.folder);
   const missing = skillNames.find(name => !getSkill(name));
-  if (missing) return fail(`Skill not found: "${missing}"`, opts.json);
+  if (missing)
+    return fail(`Skill not found: "${missing}"`, opts.json, opts.jsonErrors);
 
   let platforms: Platform[] = SCAN_PLATFORMS;
   if (opts.platform) {
     const parsed = parsePlatforms(opts.platform);
-    if (parsed.error) return fail(parsed.error, opts.json);
+    if (parsed.error) return fail(parsed.error, opts.json, opts.jsonErrors);
     platforms = parsed.platforms;
   }
 

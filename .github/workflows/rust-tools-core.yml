@@ -58,6 +58,9 @@ jobs:
         with:
           node-version: 24
           package-manager-cache: false
+      # build-publication.test.cjs resolves @napi-rs/cli through build-native.cjs.
+      - run: corepack enable
+      - run: yarn install --immutable
       - name: Verify crate boundaries and release scripts
         working-directory: packages/octocode-native
         run: node scripts/check-crate-boundaries.cjs && node --test tests/build-publication.test.cjs

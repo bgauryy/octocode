@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {get as httpGet} from 'node:http';
 import {createConnection} from 'node:net';
-import {spawn,execFileSync} from 'node:child_process';
+import { spawn, execFileSync } from './helpers.mjs';
 import {createInterface} from 'node:readline';
 import {mkdirSync,existsSync} from 'node:fs';
 import {join} from 'node:path';

@@ -44,10 +44,12 @@ and prints single-line JSON (`--pretty` indents).
 | Command | Purpose |
 |---|---|
 | `scheme [tool]` | No name: compact catalog of every tool with availability. With a name: the public input contract. `--view query` prints the self-contained query schema; `--select FIELD=VALUE` keeps one union branch. Output validation schemas remain internal. |
-| `config` | Show config file paths and set key names — values are never printed. `--check <KEY>` tests one key; `--json`. |
+| `showConfig` | Print the global `.env` path; `--json` includes file existence. Honors `OCTOCODE_HOME`. |
+| `config` | Inspect config paths and key names; `--check KEY`, `--add KEY VALUE`, `--remove KEY`, and `--json`. Values are never printed. |
 | `auth` | GitHub auth status (default; `--json`). `auth login` (device flow; `--refresh`, `--force`, `--hostname`), `auth logout`. |
 | `install` | Write or check MCP client configuration for supported IDEs and agent hosts. |
 | `skill` | List, install, check, inspect, or remove bundled Octocode Agent Skills. |
+| `graph` | `graph ingest <path>` builds a persisted code graph under `<workspace>/.octocode/graph/`; `graph query <op>` answers bounded questions from it. See [`graph`](#graph--persisted-code-graph). |
 | `help` | Print help for any command. |
 
 Hidden maintenance commands (still available, not part of the agent surface):
@@ -141,6 +143,195 @@ The CLI and MCP server share cache data under the configured Octocode home:
 `cache status` reports cache location and recent evictions; `cache clear`
 removes cached GitHub responses. See
 [Cache storage and lifecycle](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#cache-storage-and-lifecycle).
+
+---
+
+## `graph` — persisted code graph
+
+Parse a repository **once**, then answer structural questions in milliseconds
+without re-reading source. Local tools must be enabled. `octocode graph --help`
+prints this workflow for agents.
+
+```bash
+npx octocode graph ingest .                         # build a snapshot
+npx octocode graph query stats                      # size, languages, hubs, gaps
+npx octocode graph query find createServer          # locate a node id
+npx octocode graph query callers 'src/server.ts#createServer'
+npx octocode graph query impact --since origin/main # blast radius + tests to run
+npx octocode graph query issues                     # ranked possible problems
+npx octocode graph query stale                      # changed since ingest? re-ingest
+```
+
+### Which op answers what
+
+| Question | Op |
+|---|---|
+| What is in this repo? | `stats`, `hubs`, `symbols <file>` |
+| Where is X? | `find <text> [--kind file\|symbol\|package]`, `node <ref>` |
+| What does X use or who uses X? | `deps <ref>`, `dependents <ref>`, `callers <ref>`, `callees <ref>` |
+| How are A and B connected? | `path <a> <b> [--direction both]`, `walk <ref> --depth n` |
+| What breaks if X changes? | `impact <ref>`, `impact --changed a,b`, `impact --since <rev>` |
+| What looks wrong? | `issues [--detector a,b] [--min-score x] [--baseline <snapshot>]`, `cycles`, `diagnostics` |
+| Is the snapshot current? | `stale` |
+
+On files, `deps` and `dependents` follow imports; on symbols, they follow calls.
+`--edge contains,imports,uses,calls,inherits` overrides either default.
+
+### References, output, and exit codes
+
+- **Node ids:** `src/a.ts` (file), `src/a.ts#Class.method` (symbol), and
+  `pkg:react` (package). An `@<line>` suffix appears only when a name repeats.
+  Absolute paths, bare names, and `Class.method` also resolve. An ambiguous
+  reference exits 2 and lists `candidates`.
+- **Output:** one JSON object; use `--pretty` for humans. Lists carry `total`
+  and `results`. A cut adds `truncated` and `next`, a paste-ready command. Use
+  `--limit` and `--offset` to page.
+- **Exit codes:** `0` ok · `1` empty · `2` bad input or ambiguous · `3` no graph
+  or node · `5` error · `6` more pages.
+- **Snapshots:** `ingest` writes
+  `<workspace>/.octocode/graph/<UTC time>-<scope>/{graph.bin,manifest.json}`
+  and updates `latest`. It keeps 3 snapshots per scope (`--keep`). The
+  workspace is the nearest `.git` ancestor, or `--workspace`. `--graph <id,
+  id substring, or dir>` picks an older snapshot.
+- **Unchanged trees are reused:** when the file set and every file's content
+  digest match the latest snapshot of the same scope, `ingest` returns it with
+  `reused: true` instead of re-parsing. `--force` rebuilds.
+- **Coverage:** answers that follow calls (`callers`, `callees`, `impact`,
+  `path`, and `walk`/`deps`/`dependents` over calls) include `coverage`. It
+  carries the language's `callInternalRecall`: the share of call sites naming
+  code in this repo that were linked. Below 0.9 it adds a `warning`, so treat
+  those caller lists as a lower bound.
+
+### What ingest understands
+
+- **Nodes and edges:** file, symbol, and package nodes. `contains`, `imports`,
+  `uses` (named import → declaration, through re-exports), `calls` (including
+  JSX `renders`, decorators, and `new`), and `inherits` (`extends` and
+  `implements`).
+- **Resolution:**
+  - JS/TS: tsconfig/jsconfig `paths`, `baseUrl`, and `extends`; workspace
+    packages, with `exports`/`imports` maps and `dist` mapped back to `src`.
+  - Rust: Cargo crates.
+  - Go: go.mod modules.
+  - Python: src-layout packages and submodules.
+  - C/C++: include roots, `compile_commands.json`, and unique path-suffix matches.
+- **Evidence:** every call edge records `via` and a `confidence`:
+  - `local`, `import`, `namespace`: the name is bound in this file.
+  - `type-qualified`: `Type.method` / `Type::method` resolved through the type.
+  - `same-package` / `import-scope`: an ambiguous name settled by the caller's
+    package or its imports.
+  - `unique-name`: the only declaration with that name (low confidence).
+
+  Calls qualified by an external package (`serde_json::…`, `fs.…`) never link
+  to internal code. Method calls on a value of unknown type stay unlinked
+  rather than guessed. The ingest receipt reports `calls.unresolvedByReason`
+  and `callInternalRecall`. Confirm identity with `lspSearch` before deleting
+  or renaming.
+- **Project model:**
+  - File roles: `test`, `generated`, `bundled`, `vendored`, `declaration`,
+    `config`, `entry`, `unparsed`.
+  - Entrypoints: manifests (`dist` mapped to `src`), framework routes,
+    `main`s, shebang scripts, and C translation units.
+  - Components: package.json, Cargo.toml, go.mod, and pyproject. Package
+    imports are tagged `external`, `-dev`, `-builtin`, `-hoisted`, `-test`,
+    `-undeclared`, or `-unknown`.
+- **Large files:**
+  - Files over 1 MB are not parsed. They stay as `unparsed` file nodes, and
+    relative imports of them still link (`via: unparsed-target`).
+  - Minified or bundled files under the bound keep their file node and imports
+    but no symbols, and their call sites are not linked.
+  - A 3.6 MB minified bundle plus a 9 MB file ingest in about 70 ms at 91 MB RSS.
+- `.gitignore` is honored. Hidden directories are never scanned.
+
+### `issues` — ranked hypotheses
+
+Each finding carries `evidence`, the false-positive `controls` that were
+applied, `verify` commands, and a `score`, computed as severity × confidence ×
+(0.5 + 0.5 × PageRank percentile).
+
+| Group | Detectors |
+|---|---|
+| Structure | `cycle` (runtime imports; witness plus Eades–Lin–Smyth `suggestedCuts`) · `dir-cycle` · `unreachable-file` · `test-only` · `unused-export` (JS/TS/Python) · `export-only-local` (exported but used only in its own file: could be un-exported) |
+| Dependencies | `undeclared-dependency` (including hoisted phantoms) · `dev-dependency-in-production` · `boundary-violation` (deep imports between npm packages) · `unresolved-import` |
+| Architecture | `god-file` (Arcan hub-like) · `critical-file` (PageRank) · `single-point-of-failure` (articulation points) · `unstable-dependency` · `main-sequence` · `misplaced-file` |
+
+- **Liveness is optimistic and violations are pessimistic.** Any edge keeps
+  code alive. Only runtime imports between authored files prove cycles, hubs,
+  or layering; type-only, dynamic, and Python function-level imports never do.
+- **Some code is not judged at file level.** Go, JVM, and .NET files share
+  package scope, so file-level checks are skipped for them. Python libraries
+  have no private modules, so reachability is skipped too. Generated, bundled,
+  vendored, and unparsed files are never subjects.
+- **Tiers (vulture-style):** each finding has a `tier`.
+  - `100`: nothing references it anywhere.
+  - `90`: no graph or text reference.
+  - `60`: referenced only by text, such as a path string in a worker, config,
+    or script (`evidence.mentionedIn`).
+
+  The default view shows 90 and above; `--min-tier 60` shows everything.
+  `summary.hiddenBelowTier` counts the rest. Dead-code findings are re-tiered by
+  one `.gitignore`-aware scan of the repository's text (Meta SCARF's
+  "mentioned anywhere" check).
+- **Extra output:** `summary.health` reports Lakos NCCD. `summary.detectorMs`
+  reports per-detector cost. `--baseline <snapshot>` labels findings
+  `new`/`existing` and lists `resolvedFindings`.
+
+### `impact` — blast radius
+
+- **A changed file** affects every importer, transitively. This matches Jest
+  `--findRelatedTests` and Nx `affected`.
+- **A changed symbol** affects only the `calls`, `uses`, and `inherits` edges
+  bound to it, plus importers that bind no name. These results report
+  `precision: "symbol"`.
+- **Depth:** 3 by default (`summary.maxDepth`; widen with `--depth`).
+- **Barrels:** barrel files (re-export only) pass changes through by symbol,
+  so importers of a barrel are affected only for the names they bind.
+- **Rows:** `depth`, `risk` (`direct` / `likely` / `transitive`),
+  `packageDistance`, `confidence`, and `typesOnly`.
+- **Summary:**
+  - `willBreak` (depth 1), `likely` (depth 2), `shouldTest` (depth 3 and beyond)
+  - `affectedEntrypoints`, `testsToRun`, `components`
+  - `testFunctions`: test functions reached, including Rust `mod tests`
+    functions and pytest `test_*` functions inside production files
+- **Config changes:** a manifest, lockfile, or tsconfig/pyproject/go.mod change
+  affects everything below its directory. `allAffected` means a root-level
+  change.
+
+### Recipes: hunting bugs with the graph
+
+These reverse-engineering walks (IDA/Ghidra xrefs, CodeQL-style source-to-sink
+reachability) map onto the existing ops:
+
+| Goal | Walk |
+|---|---|
+| Who can reach a dangerous operation? | Find the wrapper that deletes, spawns, or writes, then run `impact <wrapper>`. `affectedEntrypoints` is the attack surface. Wrappers with `testCount: 0` are untested destructive paths. |
+| Unbounded recursion | `cycles --edge calls`. Check each SCC that walks untrusted input for a depth bound. |
+| Choke points | `issues --detector single-point-of-failure,critical-file`. Validation belongs at the choke point. |
+| Is this cycle real? | `path <a> <b>` shows the witness. `issues --detector cycle` gives `suggestedCuts`. |
+| Dead or orphaned code | `issues --detector unreachable-file,unused-export`, then `dependents <ref> --edge imports,uses,calls` before deleting. |
+
+Each result is a lead, not proof. Read the cited line, then confirm identity
+with `lspSearch`. The graph cannot see edges created through reflection,
+dynamic dispatch, or FFI.
+
+### Performance
+
+Release build, measured with `packages/octocode-native/scripts/graph-bench`:
+
+| Repo | Files | Ingest | Snapshot | `issues` (wall) |
+|---|---|---|---|---|
+| excalidraw (TSX) | 694 | 0.3 s | 1.6 MB | 28 ms |
+| django | 3,041 | 1.6 s | 10 MB | 52 ms |
+| TypeScript compiler | 31,420 | 9.4 s | 52 MB | 0.27 s |
+| rust-lang/rust | 38,197 | 12.7 s | 66 MB | 0.26 s |
+| Linux (capped at 50k files) | 49,887 | 67 s | 797 MB | 3.0 s |
+
+Other results:
+
+- Ingest is deterministic: re-ingesting produces a byte-identical `graph.bin`.
+- Sampled import and high-confidence call edges verify against their source
+  lines at 89–100%.
+- Seeded defects are recalled 5/5, with zero negative-control leaks.
 
 ---
 
@@ -256,6 +447,20 @@ npx octocode localSearch '{"path":"/ABS/repo/src","searchText":"parseArgs","resu
 npx octocode localFetch '{"path":"/ABS/repo/src/cli/parser.ts","matchString":"parseArgs","reasoning":"Read the parser."}'
 ```
 
+### Structure, blast radius, and risks (code graph)
+
+```bash
+npx octocode graph ingest /ABS/repo
+npx octocode graph query dependents src/config.ts --depth 2   # who is affected
+npx octocode graph query impact --since origin/main            # changed files -> tests to run
+npx octocode graph query issues --min-score 0.3                # triage, then verify each lead
+npx octocode lspSearch '{"operation":"references","uri":"/ABS/repo/src/config.ts","symbolName":"load","lineHint":12,"reasoning":"Prove the graph lead."}'
+```
+
+Use the graph for repo-wide structure (imports, callers, cycles, reachability,
+blast radius). Use `lspSearch` to prove symbol identity before a destructive
+change.
+
 ### Remote repo to local proof
 
 GitHub code search can return zero rows when a provider has not indexed a repo.
@@ -308,6 +513,34 @@ tool from discovery until the key is available.
 
 ---
 
+## Global configuration
+
+`octocode showConfig` prints `<HOME>/.octocode/.env`, or the `.env` under
+`OCTOCODE_HOME` when overridden. It does not create or print the file.
+
+```bash
+octocode showConfig --json
+octocode config --add OCTOCODE_BETA true
+octocode config --add OCTOCODE_CLASSIFICATION_API --value-stdin
+octocode config --check OCTOCODE_CLASSIFICATION_API --json
+octocode config --remove OCTOCODE_BETA --json
+```
+
+`--add` replaces every assignment for the named key with one assignment.
+`--value-stdin` reads a single line, up to 64 KiB, without placing the value in
+command arguments. `--remove` is idempotent and only removes the global assignment.
+Both preserve unrelated lines and comments, use a file lock and atomic replacement,
+and never print values. On Unix, written files have owner-only permissions.
+Symlinked config files and keys blocked by the shared dotenv policy are rejected.
+
+Changes apply to subsequent commands. Existing process variables and applicable
+project configuration can still override the global value; removing a global key
+does not remove those overrides. `config --check KEY --json` returns a `set`
+boolean and exits `1` when unset. The global mutation response reports `key`,
+`action`, `path`, and `changed`.
+
+---
+
 ## Output, flags, and exit codes
 
 ### Common flags
@@ -335,6 +568,11 @@ tool from discovery until the key is available.
 | `6` | Partial result — the response carries a re-runnable `next.*`, `next.clasify`, or `responsePagination.next` continuation. |
 | `7` | Rate limited. |
 | `130` | Interrupted (Ctrl-C). |
+
+For mixed batches, inspect every `results[].status`: exit `0` can include a
+successful row alongside a runtime-error row. A rejected input row produces exit
+`2`; a continuation produces exit `6`. Exit codes alone do not establish that
+every row succeeded.
 
 ### Environment variables
 

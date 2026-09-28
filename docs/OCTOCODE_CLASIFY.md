@@ -89,13 +89,15 @@ One semantic matrix contains:
 | Field | Meaning |
 |---|---|
 | `id` | Stable query correlation ID |
-| `reasoning` | Caller trace; it is not provider question content |
+| `reasoning` | Required, at most 500 characters. Sent in each page's evidence state. Say what the next read depends on |
+| `goal` | Required, at most 500 characters. Sent with every question and in each page's evidence state. Say what a useful file must contain |
 | `resources[]` | Independently captured state or unread read requests |
 | `questions[]` | Caller-authored questions applied to every resource page |
 
-Put all independent questions that use the same evidence in one matrix. Each
-resource is captured once, and the runtime batches all fitting questions for its
-page. Use root `queries[]` for independent matrices whose resource cross-product
+Put all independent questions that use the same evidence in one matrix, and put
+every candidate in `resources`. Each resource is captured once, and the runtime
+batches all fitting questions for its page. Jev does not see the caller
+transcript: required `goal` travels with every question and in each page's evidence state, and required `reasoning` travels in that same state. Use root `queries[]` for independent matrices whose resource cross-product
 would be wrong. Use a later call only when an earlier answer changes the evidence
 or available options. Resource and question IDs must be unique inside their
 query.
@@ -131,7 +133,9 @@ Choice and Score confidence measures probability concentration, not correctness.
 
 Research presets are `locate`, `contribution`, `addsEvidence`, and `supportsClaim`. Do not combine a preset with custom `type`, `instructions`, or `criteria`.
 
-`locate` accepts only `target` and applies to a contiguous original-source `localFetch` or `ghGetFileContent` page. The runtime tags small source passages, asks Jev a Choice question to rank them and a Noul question to estimate whether an answer exists, then projects the answer back to original line numbers. Where the engine outlines the language, passages are grouped by their innermost declaration (leading doc comment included) and a doc-comment hit shows the declaration line. The answer is `{exists,matches:[{startLine,endLine,probability}]}` with one match, or two when the page answers (`exists` ≥ 0.5) and the runner-up holds at least half the winner's probability. Each query's `best[questionId]` ranks windows across pages by `exists`, then `probability`; identifier-like targets add a `hints` entry pointing to localSearch. `next.clasify` carries the running `best` as `carry`, so the last call of a multi-call walk ranks the whole file. A file resource may add `prefilter:[terms]`: the runtime reads the file once for those literals and captures only the three densest 600-line windows of hits (one call for a huge file). A ranking always has a winner; low `exists` means the returned range is merely the closest passage.
+`locate` accepts only `target` and applies to a contiguous original-source `localFetch` or `ghGetFileContent` page. The runtime tags small source passages, asks Jev a Choice question to rank them and a Noul question to estimate whether an answer exists, then projects the answer back to original line numbers. Where the engine outlines the language, passages are grouped by their innermost declaration (leading doc comment included) and a doc-comment hit shows the declaration line. The answer is `{exists,matches:[{startLine,endLine,probability}]}` with one match, or two when the page answers (`exists` ≥ 0.5) and the runner-up holds at least half the winner's probability. Each query's `best[questionId]` ranks windows across pages by `exists`, then `probability`. It is shown when the top `exists` is at least 0.5, or when the walk has no `next.clasify`. While a continuation remains and the top `exists` is lower, that ranking travels only as `carry`, so follow the continuation instead of reading the closest non-answer. The last call ranks the whole file. Identifier-like targets add a `hints` entry pointing to localSearch. A file resource may add `prefilter:[terms]` of rare literals: the runtime reads the file once and judges the three densest 600-line windows. Terms that occur throughout the file cover it, and a distinctive search is then cheaper. A finished ranking always has a winner; low `exists` means the returned range is merely the closest passage.
+
+For `locate`, request unminified file reads (`minify` omitted or `"none"`), or use `localSearch`/`ghSearchCode` with `candidateEvidence:"fileChunks"`. Hydrated chunks can still have gaps; those pages remain unsupported. Plain search snippets, repository/tree listings, AST/LSP results, history, and package metadata support the other question types. A matrix combining `locate` with an incompatible tool resource is rejected before retrieval or provider calls; split it into separate matrices. Supplied values and captured pages still undergo source-line validation.
 
 `answers.matches` provides each question’s source coordinates once. These are verification windows around ranked passages, not guaranteed complete declarations or answers. Batch nearby windows into at most five ranges per read call; expand or follow the source if the deciding statement is absent. Even a high score needs source verification. Results contain hints, never captured bodies. MCP returns a single structured payload with empty text content.
 
@@ -277,18 +281,18 @@ Do not copy unread bodies into `context.value`; use an unread read request so th
 |---|---:|
 | Queries per call | 5 |
 | Resources per query | 25 |
-| Questions per query | 5 |
+| Questions per query | 25 |
 | Expanded cells per query | 25 |
 | Total caller cells per call | 50 |
 | Default `maxChars` per resource | 80,000 |
 | Hydrated candidates per search page | 5 |
 | Sanitized characters per hydrated candidate | 12,000 |
 
-Search fan-out is included in the 25-cell limit. Calls that exceed the dynamic expanded-cell bound fail before provider work rather than silently dropping candidates.
+Search fan-out is included in the 25-cell limit. Twenty-five questions fit only with one resource, because resources × questions must stay at or under 25 cells. Calls that exceed the dynamic expanded-cell bound fail before provider work rather than silently dropping candidates.
 
 ## Output and verification
 
-Results are ordered as `queries[] → resources[] → pages[] → answers[questionId]`. Provider telemetry stays outside the agent response. Each page carries:
+Results are ordered as `queries[] → resources[] → pages[] → answers[questionId]`. Each page is one result row: its source plus `answers`, the score for every question on that page (`noul`, choice, score, or locate `exists` and `matches`). Provider telemetry stays outside the agent response. Each page carries:
 
 - source location and observed version when available
 - assessed source scope or transformed view
@@ -300,7 +304,7 @@ Each resource reports `coverage`. Here, `complete` means every captured page in 
 
 Rules:
 
-- Execute `next.clasify` unchanged when more selected coverage is needed.
+- Execute `next.clasify` unchanged when more selected coverage is needed. Read `best` when its top `exists` is at least 0.5, or when that continuation is absent. A lower `exists` on an open walk is withheld from `best` and kept in `carry`.
 - Execute a deciding `next.read` unchanged and cite the original source, not the score.
 - Treat `partial`, `error`, `insufficient`, content-firewall rejection, and mid-band scores as unresolved.
 - Preserve disjoint ranges; transformed-view positions are not source coordinates.

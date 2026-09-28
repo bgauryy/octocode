@@ -1,11 +1,8 @@
 #!/bin/sh
 set -eu
 case $0 in */*) base=${0%/*} ;; *) base=. ;; esac
-# Host hooks source this launcher from one directory below.
-[ -x "$base/octocode-agents-communication" ] || base=$base/..
-binary=$base/octocode-agents-communication
-if [ ! -x "$binary" ]; then
-  echo 'Communication executable missing. Build the skill with node src/build-skill.mjs.' >&2
+if [ ! -f "$base/communication.py" ]; then
+  echo 'Communication scripts missing. Reinstall the complete skill folder.' >&2
   exit 1
 fi
-exec "$binary" "$@"
+exec "${OCTOCODE_PYTHON:-python3}" -B "$base/communication.py" "$@"

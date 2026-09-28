@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {execFileSync,spawnSync} from 'node:child_process';
+import { spawnSync } from 'node:child_process';
+import { execFileSync } from './helpers.mjs';
 import {join} from 'node:path';
 import {DatabaseSync} from 'node:sqlite';
 import {binary,tempWorkspace} from './helpers.mjs';

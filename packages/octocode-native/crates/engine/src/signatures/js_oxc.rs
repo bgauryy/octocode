@@ -371,7 +371,8 @@ fn extract_graph_facts_with_metadata_inner<const COMMON_JS: bool>(
         attach_doc_lines(content, &mut declarations);
 
         let mut calls = Vec::new();
-        collect_program_calls(&parser_ret.program, &line_index, &mut calls);
+        let mut heritage = Vec::new();
+        collect_program_calls(&parser_ret.program, &line_index, &mut calls, &mut heritage);
         if job_cancelled() {
             return None;
         }
@@ -436,6 +437,7 @@ fn extract_graph_facts_with_metadata_inner<const COMMON_JS: bool>(
                 resolution: "unresolved",
             });
         }
+        push_heritage_edges(&declarations, heritage, &mut edges);
 
         let facts = GraphFacts {
             kind: "graphFacts",
@@ -948,6 +950,58 @@ fn attach_doc_lines(content: &str, declarations: &mut [GraphDeclaration]) {
     for declaration in declarations {
         declaration.doc_line =
             super::leading_doc_line(&lines, declaration.range.start.line as usize, "ts");
+    }
+}
+
+/// `extends`/`implements` edges from a class/interface declaration id to the
+/// base type name as written (`Base`, `ns.Base`). Syntax only: `to` is not a
+/// resolved declaration. A clause whose declaring name has no outline
+/// declaration (a class nested in a function body) is dropped.
+fn push_heritage_edges(
+    declarations: &[GraphDeclaration],
+    heritage: Vec<super::js_oxc_calls::GraphHeritage>,
+    edges: &mut Vec<GraphEdge>,
+) {
+    if heritage.is_empty() {
+        return;
+    }
+    let by_name_start: std::collections::HashMap<(u32, u32, &str), &str> = declarations
+        .iter()
+        .map(|declaration| {
+            (
+                (
+                    declaration.selection_range.start.line,
+                    declaration.selection_range.start.character,
+                    declaration.kind,
+                ),
+                declaration.id.as_str(),
+            )
+        })
+        .collect();
+    for item in heritage {
+        let key = (
+            item.name_start.line,
+            item.name_start.character,
+            item.declaration_kind,
+        );
+        let Some(from) = by_name_start.get(&key) else {
+            continue;
+        };
+        edges.push(GraphEdge {
+            id: format!(
+                "{from}->{}:{}:{}:{}",
+                item.to,
+                item.relation,
+                item.line,
+                edges.len()
+            ),
+            from: (*from).to_string(),
+            to: item.to,
+            relation: item.relation,
+            source: "oxc",
+            line: item.line,
+            resolution: "syntax",
+        });
     }
 }
 

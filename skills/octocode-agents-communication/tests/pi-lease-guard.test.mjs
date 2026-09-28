@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {execFileSync} from 'node:child_process';
+import { execFileSync } from './helpers.mjs';
 import {rmSync, writeFileSync, existsSync, mkdirSync, symlinkSync} from 'node:fs';
 import {join} from 'node:path';
 import {DatabaseSync} from 'node:sqlite';

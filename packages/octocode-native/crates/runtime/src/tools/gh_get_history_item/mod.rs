@@ -380,6 +380,7 @@ mod tests {
     fn false_content_selectors_do_not_request_sections() {
         let query = HistoryItemRequest::from_row(json!({
             "operation":"pullRequest", "owner":"o", "repo":"r", "number":1,
+            "goal":"Read the pull request.","reasoning":"False selectors must stay off.",
             "content":{
                 "body":false,"changedFiles":false,"reviews":false,
                 "comments":{"discussion":false,"reviewInline":false,"includeBots":false}
@@ -407,19 +408,19 @@ mod tests {
     fn missing_identity_is_rejected() {
         // The wire contract requires each operation's identity.
         for row in [
-            json!({"operation":"commit","reasoning":"test","owner":"a","repo":"b"}),
-            json!({"operation":"pullRequest","reasoning":"test","owner":"a","repo":"b"}),
-            json!({"operation":"compare","reasoning":"test","owner":"a","repo":"b","base":"x"}),
+            json!({"operation":"commit","goal": "test", "reasoning":"test","owner":"a","repo":"b"}),
+            json!({"operation":"pullRequest","goal": "test", "reasoning":"test","owner":"a","repo":"b"}),
+            json!({"operation":"compare","goal": "test", "reasoning":"test","owner":"a","repo":"b","base":"x"}),
         ] {
             assert!(HistoryItemRequest::from_row(row).is_err());
         }
         let committed = HistoryItemRequest::from_row(
-            json!({"operation":"commit","reasoning":"test","owner":"a","repo":"b","ref":"x"}),
+            json!({"operation":"commit","goal": "test", "reasoning":"test","owner":"a","repo":"b","ref":"x"}),
         )
         .expect("GitHub history test data should be valid");
         assert!(validate(&committed).is_ok());
         let blank = HistoryItemRequest::from_row(json!({
-            "operation":"compare","reasoning":"test","owner":"a","repo":"b","base":"","head":"x"
+            "operation":"compare","goal": "test", "reasoning":"test","owner":"a","repo":"b","base":"","head":"x"
         }))
         .expect("GitHub history test data should be valid");
         assert!(validate(&blank).is_err());

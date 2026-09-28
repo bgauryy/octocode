@@ -704,10 +704,10 @@ fn call_walk_stops_when_the_job_is_cancelled() {
     let line_index = LineIndex::new(src);
     let mut calls = Vec::new();
     super::super::deep_stack::run_as_cancelled_job(|| {
-        collect_program_calls(&parsed.program, &line_index, &mut calls);
+        collect_program_calls(&parsed.program, &line_index, &mut calls, &mut Vec::new());
     });
     assert!(calls.is_empty(), "cancelled walk must not descend");
-    collect_program_calls(&parsed.program, &line_index, &mut calls);
+    collect_program_calls(&parsed.program, &line_index, &mut calls, &mut Vec::new());
     assert_eq!(calls.len(), 3);
 }
 
@@ -848,4 +848,127 @@ fn declarations_only_matches_full_graph_facts_declarations() {
         assert_eq!(light["exports"], full["exports"], "{path}");
         assert_eq!(light["calls"], serde_json::json!([]), "{path}");
     }
+}
+
+/// `(kind, caller, callee, has callerId)` for every call fact of `kind`.
+fn calls_of_kind(facts: &Value, kind: &str) -> Vec<(String, String, bool)> {
+    facts["calls"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|call| call["kind"] == kind)
+        .map(|call| {
+            (
+                call["caller"].as_str().unwrap().to_string(),
+                call["callee"].as_str().unwrap().to_string(),
+                call.get("callerId").is_some(),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn jsx_component_usage_is_a_renders_call() {
+    let src = "import * as ns from './ns';\nexport function App() {\n  return <>\n    <div><Foo /></div>\n    <Foo.Bar x={make()}>text</Foo.Bar>\n    <ns.Comp />\n    <svg:rect />\n    <my-element />\n  </>;\n}\nrender(<App />, root);\n";
+    let facts = graph(src, "app.tsx");
+    assert_eq!(
+        calls_of_kind(&facts, "renders"),
+        vec![
+            ("App".to_string(), "Foo".to_string(), true),
+            ("App".to_string(), "Foo.Bar".to_string(), true),
+            ("App".to_string(), "ns.Comp".to_string(), true),
+            ("module".to_string(), "App".to_string(), false),
+        ]
+    );
+    let app_id = &declaration(&facts, "App")["id"];
+    let renders = facts["calls"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|call| call["kind"] == "renders")
+        .unwrap();
+    assert_eq!(&renders["callerId"], app_id);
+    assert!(
+        calls_of_kind(&facts, "calls").contains(&("App".to_string(), "make".to_string(), true)),
+        "calls inside JSX attributes stay calls"
+    );
+    assert!(
+        facts["edges"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|edge| edge["relation"] == "renders" && &edge["from"] == app_id),
+        "renders facts get the same call edge as calls"
+    );
+}
+
+#[test]
+fn bare_decorators_are_decorates_calls() {
+    let src = "@Injectable\n@ns.Tag\n@Component({ selector: 'x' })\nexport class Svc {\n  @Input name = '';\n  @HostListener('click') onClick() {}\n}\n";
+    let facts = graph(src, "svc.ts");
+    let decorates: Vec<(String, String)> = calls_of_kind(&facts, "decorates")
+        .into_iter()
+        .map(|(caller, callee, _)| (caller, callee))
+        .collect();
+    assert_eq!(
+        decorates,
+        vec![
+            ("Svc".to_string(), "Injectable".to_string()),
+            ("Svc".to_string(), "ns.Tag".to_string()),
+            ("Svc".to_string(), "Input".to_string()),
+        ]
+    );
+    let calls: Vec<String> = calls_of_kind(&facts, "calls")
+        .into_iter()
+        .map(|(_, callee, _)| callee)
+        .collect();
+    assert_eq!(calls, vec!["Component", "HostListener"]);
+}
+
+/// `(relation, from declaration name, to, line)` for heritage edges.
+fn heritage_edges(facts: &Value) -> Vec<(String, String, String, u64)> {
+    let declarations = facts["declarations"].as_array().unwrap();
+    facts["edges"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|edge| matches!(edge["relation"].as_str(), Some("extends" | "implements")))
+        .map(|edge| {
+            assert_eq!(edge["source"], "oxc");
+            assert_eq!(edge["resolution"], "syntax");
+            let from = declarations
+                .iter()
+                .find(|declaration| declaration["id"] == edge["from"])
+                .unwrap_or_else(|| panic!("from is a declaration id: {edge}"));
+            (
+                edge["relation"].as_str().unwrap().to_string(),
+                from["name"].as_str().unwrap().to_string(),
+                edge["to"].as_str().unwrap().to_string(),
+                edge["line"].as_u64().unwrap(),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn class_and_interface_heritage_are_edges() {
+    let src = "export class A extends B<T> implements C, ns.D<U> {}\ninterface I extends J, K.L<V> {}\nclass M extends mixin(A) {}\nnamespace N { export class Inner extends outer.Base {} }\nconst Expr = class Named extends A {};\nfunction f() { class Local extends A {} }\n";
+    let facts = graph(src, "h.ts");
+    let s = |value: &str| value.to_string();
+    assert_eq!(
+        heritage_edges(&facts),
+        vec![
+            (s("extends"), s("A"), s("B"), 1),
+            (s("implements"), s("A"), s("C"), 1),
+            (s("implements"), s("A"), s("ns.D"), 1),
+            (s("extends"), s("I"), s("J"), 2),
+            (s("extends"), s("I"), s("K.L"), 2),
+            (s("extends"), s("Inner"), s("outer.Base"), 4),
+        ]
+    );
+    let js = graph("class A extends React.Component {}\n", "a.js");
+    assert_eq!(
+        heritage_edges(&js),
+        vec![(s("extends"), s("A"), s("React.Component"), 1)]
+    );
 }

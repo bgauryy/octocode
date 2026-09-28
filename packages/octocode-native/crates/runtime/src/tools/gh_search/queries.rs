@@ -202,7 +202,7 @@ mod tests {
     #[test]
     fn repositories_exclude_archived_with_a_real_qualifier() {
         let q = repositories(&parse(
-            serde_json::json!({"reasoning":"test","keywords":["x"]}),
+            serde_json::json!({"goal": "test", "reasoning":"test","keywords":["x"]}),
         ));
         assert!(q.contains("archived:false"), "{q}");
         assert!(!q.contains("is:not-archived"), "{q}");
@@ -211,7 +211,7 @@ mod tests {
     #[test]
     fn dotted_directory_path_stays_a_path_prefix() {
         let q = code(&parse(
-            serde_json::json!({"reasoning":"test","owner":"o","keywords":["merge"],"path":"types/lodash.merge"}),
+            serde_json::json!({"goal": "test", "reasoning":"test","owner":"o","keywords":["merge"],"path":"types/lodash.merge"}),
         ));
         assert!(q.contains("path:\"types/lodash.merge\""), "{q}");
         assert!(!q.contains("filename:"), "{q}");
@@ -220,12 +220,12 @@ mod tests {
     #[test]
     fn qualifier_values_with_whitespace_are_quoted() {
         let q = code(&parse(
-            serde_json::json!({"reasoning":"test","owner":"o","keywords":["x"],"language":"Common Lisp","filename":"my file.txt"}),
+            serde_json::json!({"goal": "test", "reasoning":"test","owner":"o","keywords":["x"],"language":"Common Lisp","filename":"my file.txt"}),
         ));
         assert!(q.contains("language:\"Common Lisp\""), "{q}");
         assert!(q.contains("filename:\"my file.txt\""), "{q}");
         let q = repositories(&parse(
-            serde_json::json!({"reasoning":"test","keywords":["x"],"topics":["machine learning"],"stars":"> 100"}),
+            serde_json::json!({"goal": "test", "reasoning":"test","keywords":["x"],"topics":["machine learning"],"stars":"> 100"}),
         ));
         assert!(q.contains("topic:\"machine learning\""), "{q}");
         assert!(q.contains("stars:>100"), "{q}");
@@ -234,7 +234,7 @@ mod tests {
     #[test]
     fn reserved_boolean_keywords_are_quoted() {
         let q = code(&parse(
-            serde_json::json!({"reasoning":"test","owner":"o","keywords":["foo","OR","bar","NOT","and"]}),
+            serde_json::json!({"goal": "test", "reasoning":"test","owner":"o","keywords":["foo","OR","bar","NOT","and"]}),
         ));
         assert!(q.starts_with("foo \"OR\" bar \"NOT\" \"and\""), "{q}");
     }
@@ -243,7 +243,7 @@ mod tests {
     fn leading_quote_keyword_cannot_negate_the_repo_scope() {
         // A raw `"hello" NOT` would bind NOT to the repo: qualifier.
         let q = code(&parse(serde_json::json!({
-            "reasoning":"test","owner":"octocat","repo":"Hello-World",
+            "goal": "test", "reasoning":"test","owner":"octocat","repo":"Hello-World",
             "keywords":["\"hello\" NOT", "x\" OR repo:evil/x"]
         })));
         assert_eq!(
@@ -255,7 +255,7 @@ mod tests {
     #[test]
     fn scope_names_that_are_not_github_names_are_rejected() {
         for (owner, repo) in [("octocat OR is:public", None), ("a", Some("b\" OR x"))] {
-            let mut raw = serde_json::json!({"reasoning":"test","owner":owner,"keywords":["x"]});
+            let mut raw = serde_json::json!({"goal": "test", "reasoning":"test","owner":owner,"keywords":["x"]});
             if let Some(repo) = repo {
                 raw["repo"] = serde_json::json!(repo);
             }
@@ -267,7 +267,7 @@ mod tests {
         }
         assert!(
             validate_code_scope(&parse(
-                serde_json::json!({"reasoning":"test","owner":"octocat","repo":"Hello-World","keywords":["x"]})
+                serde_json::json!({"goal": "test", "reasoning":"test","owner":"octocat","repo":"Hello-World","keywords":["x"]})
             ))
             .is_ok()
         );
@@ -276,7 +276,7 @@ mod tests {
     #[test]
     fn relative_repository_dates_resolve_to_absolute_ranges() {
         let q = repositories(&parse(
-            serde_json::json!({"reasoning":"test","keywords":["x"],"updated":"30d","created":">2024-01-01"}),
+            serde_json::json!({"goal": "test", "reasoning":"test","keywords":["x"],"updated":"30d","created":">2024-01-01"}),
         ));
         let pushed = q
             .split(' ')

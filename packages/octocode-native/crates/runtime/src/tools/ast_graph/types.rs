@@ -51,6 +51,12 @@ fn u32_of(value: std::num::NonZeroU64) -> u32 {
 /// Analysis-independent views over the generated wire query, in the graph
 /// engine's `u32` units.
 impl AstTopologyQuery {
+    pub fn goal(&self) -> &str {
+        every_analysis!(self, goal => goal.as_str())
+    }
+    pub fn reasoning(&self) -> &str {
+        every_analysis!(self, reasoning => reasoning.as_str())
+    }
     pub fn analysis(&self) -> GraphAnalysis {
         match self {
             Self::DeadCode { .. } => GraphAnalysis::DeadCode,
@@ -174,6 +180,8 @@ pub(crate) struct Declaration {
     pub name: String,
     pub kind: String,
     pub line: u32,
+    /// Last line of the declaration body, in `line`'s numbering.
+    pub end_line: u32,
     pub exported: bool,
     /// Public names when they differ from `name`; empty means `[name]`.
     pub exported_as: Vec<String>,
@@ -194,8 +202,14 @@ impl Declaration {
 #[derive(Clone, Debug)]
 pub(crate) struct Import {
     pub imported_name: String,
+    /// Binding name inside the importing file (`import { a as b }` → `b`).
+    pub local_name: Option<String>,
+    pub specifier: String,
     pub line: u32,
     pub target: Option<String>,
+    /// Unlinked because it names a third-party/standard package, not because
+    /// an internal path failed to resolve.
+    pub external: bool,
 }
 #[derive(Clone, Debug)]
 pub(crate) struct Reexport {
@@ -208,6 +222,25 @@ pub(crate) struct Call {
     /// Declaration id of the caller; `None` for module-level code.
     pub caller_id: Option<String>,
     pub callee: String,
+    pub line: u32,
+    /// Engine call kind (`call`, `new`, `renders` for JSX, `decorates`, …).
+    pub kind: String,
+    /// Syntactic receiver type of a member call (`Store` for `s.save()`),
+    /// from the engine fact; `None` when the parser could not read it.
+    #[allow(dead_code)]
+    pub receiver_type: Option<String>,
+}
+/// A declaration's base type (`class A extends Base`, `impl Display for A`),
+/// as written at the declaration site.
+#[derive(Clone, Debug)]
+pub(crate) struct Heritage {
+    /// Declaration id of the derived type.
+    pub decl_id: String,
+    /// `extends` or `implements`.
+    pub relation: String,
+    /// Base type name as written (`Base`, `ns.Base`, `std::fmt::Display`).
+    pub target: String,
+    pub line: u32,
 }
 #[derive(Clone, Debug, Default)]
 pub(crate) struct FileFacts {
@@ -215,12 +248,17 @@ pub(crate) struct FileFacts {
     pub imports: Vec<Import>,
     pub reexports: Vec<Reexport>,
     pub calls: Vec<Call>,
+    /// Base-type relations of this file's declarations.
+    pub heritage: Vec<Heritage>,
     /// Value-reference count per declaration id (declaration names, export
     /// clauses and call targets excluded). A missing id was not counted.
     pub reference_counts: BTreeMap<String, u32>,
     /// How the counts were produced: `semantic-references` (scope-resolved
     /// JS/TS symbols) or `syntax-references` (identifier tokens by name).
     pub reference_basis: &'static str,
+    pub language: String,
+    /// Source content digest (`octocode_engine::index::content_digest`).
+    pub digest: String,
 }
 pub(crate) type Node = octocode_engine::graph::FileGraphNode;
 

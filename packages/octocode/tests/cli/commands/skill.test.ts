@@ -55,6 +55,58 @@ describe('skill command', () => {
     process.exitCode = undefined;
   });
 
+  it.each<{
+    args: string[];
+    options: Record<string, string | boolean>;
+    message: string;
+  }>([
+    {
+      args: ['list'],
+      options: { bogus: true },
+      message: 'Unknown option: --bogus',
+    },
+    {
+      args: ['install'],
+      options: { mode: 'invalid' },
+      message: '--mode expects copy|symlink|auto.',
+    },
+    {
+      args: ['install'],
+      options: { path: true },
+      message: '--path requires a value.',
+    },
+  ])(
+    'rejects invalid options before executing $args',
+    ({ args, options, message }) => {
+      run(args, { ...options, 'json-errors': true });
+      expect(process.exitCode).toBe(EXIT.USAGE);
+      expect(loggedJson()).toEqual({
+        kind: 'octocode.toolError',
+        version: 1,
+        error: message,
+      });
+      expect(console.error).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each([
+    ['nonesuch'],
+    ['info'],
+    ['info', 'missing-skill'],
+    ['install'],
+    ['remove'],
+    ['check', 'missing-skill'],
+  ])('honors --json-errors for %j', (...args) => {
+    run(args, { 'json-errors': true });
+    expect(process.exitCode).toBeGreaterThan(0);
+    expect(loggedJson()).toMatchObject({
+      kind: 'octocode.toolError',
+      version: 1,
+      error: expect.any(String),
+    });
+    expect(console.error).not.toHaveBeenCalled();
+  });
+
   it('has name "skill"', () => {
     expect(skillCommand.name).toBe('skill');
   });

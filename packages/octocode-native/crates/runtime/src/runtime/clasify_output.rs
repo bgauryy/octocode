@@ -356,7 +356,7 @@ mod tests {
         let receipt = json!({"source":"tool","tool":"localFetch","resultHash":"x","coverage":"bounded",
         "scope":{"startLine":1,"endLine":9,"totalLines":9},
         "read":{"tool":"localFetch","confidence":"exact","query":{
-            "reasoning":"Verify evidence.","path":"/repo/a.rs","startLine":1,"endLine":9
+            "goal": "test", "reasoning":"Verify evidence.","path":"/repo/a.rs","startLine":1,"endLine":9
         }}});
         let rendered = resource(
             &json!("file"),
@@ -375,7 +375,7 @@ mod tests {
             json!({"resourceId":"file","coverage":"partial","pages":[{
                 "scope":{"startLine":1,"endLine":9,"totalLines":9},
                 "next":{"read":{"tool":"localFetch","confidence":"exact","query":{
-                    "reasoning":"Verify evidence.","path":"/repo/a.rs","startLine":1,"endLine":9
+                    "goal": "test", "reasoning":"Verify evidence.","path":"/repo/a.rs","startLine":1,"endLine":9
                 }}},
                 "answers":{"retry":{"noul":0.9},"role":{"error":{"code":"timeout","message":"failed"}}}
             }]})

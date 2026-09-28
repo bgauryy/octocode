@@ -23,8 +23,6 @@ pub(super) fn base_public_query(q: &HistoryItemRequest, operation: ItemOperation
                 ItemOperation::Compare => "compare",
             }),
         );
-        m.remove("goal");
-        m.remove("reasoning");
         m.remove("debug");
         match operation {
             ItemOperation::PullRequest => {
@@ -540,7 +538,7 @@ mod tests {
     #[test]
     fn selected_patch_continuation_stops_after_every_requested_path_is_returned() {
         let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-            "operation":"pullRequest","reasoning":"test","owner":"a","repo":"b","number":1,
+            "operation":"pullRequest","goal": "test", "reasoning":"test","owner":"a","repo":"b","number":1,
             "content":{"patches":{"mode":"selected","files":["src/lib.rs"]}}
         }))
         .expect("selected patch query");
@@ -571,7 +569,7 @@ mod tests {
     #[test]
     fn selected_patch_continuation_carries_only_unresolved_paths() {
         let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-            "operation":"pullRequest","reasoning":"test","owner":"a","repo":"b","number":1,
+            "operation":"pullRequest","goal": "test", "reasoning":"test","owner":"a","repo":"b","number":1,
             "content":{"patches":{"mode":"selected","files":["src/a.rs","src/b.rs"]}}
         }))
         .expect("selected patch query");
@@ -601,7 +599,7 @@ mod tests {
     #[test]
     fn selected_patch_continuation_filters_resolved_range_selectors() {
         let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-            "operation":"pullRequest","reasoning":"test","owner":"a","repo":"b","number":1,
+            "operation":"pullRequest","goal": "test", "reasoning":"test","owner":"a","repo":"b","number":1,
             "content":{"patches":{"mode":"selected","ranges":[
                 {"file":"src/a.rs","additions":[1]},
                 {"file":"src/b.rs","deletions":[2]}
@@ -634,7 +632,7 @@ mod tests {
     #[test]
     fn merged_pull_requests_link_their_merge_commit_and_open_ones_do_not() {
         let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-            "operation":"pullRequest","reasoning":"test","owner":"o","repo":"r","number":5
+            "operation":"pullRequest","goal": "test", "reasoning":"test","owner":"o","repo":"r","number":5
         }))
         .expect("pr query");
         let merged = json!({"merged_at":"2026-09-26T15:24:18Z","merge_commit_sha":"facc6fc"});
@@ -655,7 +653,7 @@ mod tests {
     #[test]
     fn pr_next_menu_carries_required_defaults_and_drops_cursors() {
         let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-            "operation":"pullRequest","reasoning":"test","owner":"o","repo":"r","number":5,
+            "operation":"pullRequest","goal": "test", "reasoning":"test","owner":"o","repo":"r","number":5,
             "content":{"body":true},"charOffset":100,"commentPage":2,
             "reasoning":"r"
         }))
@@ -667,16 +665,18 @@ mod tests {
         assert_eq!(reviews["pageSize"], 30);
         assert_eq!(reviews["minify"], "standard");
         assert_eq!(reviews["content"], json!({"reviews":true}));
-        for key in ["charOffset", "commentPage", "reasoning"] {
+        for key in ["charOffset", "commentPage"] {
             assert!(reviews.get(key).is_none(), "{key} leaked: {reviews}");
         }
+        assert_eq!(reviews["goal"], "test");
+        assert_eq!(reviews["reasoning"], "r");
         assert!(menu.get("getBody").is_none());
     }
 
     #[test]
     fn pr_next_menu_omits_entries_the_row_already_answers() {
         let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-            "operation":"pullRequest","reasoning":"r","owner":"o","repo":"r","number":1
+            "operation":"pullRequest","goal": "test", "reasoning":"r","owner":"o","repo":"r","number":1
         }))
         .expect("query");
         let names = |menu: &Value| {
@@ -716,7 +716,7 @@ mod tests {
     #[test]
     fn pr_next_menu_drops_selected_patches_equivalent_to_all_patches() {
         let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-            "operation":"pullRequest","reasoning":"r","owner":"o","repo":"r","number":1
+            "operation":"pullRequest","goal": "test", "reasoning":"r","owner":"o","repo":"r","number":1
         }))
         .expect("query");
         // One changed file: the selected patch of that file is the whole diff.
@@ -739,7 +739,7 @@ mod tests {
         // charOffset is one shared field: continuing the body must not skew
         // review bodies or patches by the body offset (and vice versa).
         let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-            "operation":"pullRequest","reasoning":"test","owner":"o","repo":"r","number":5,
+            "operation":"pullRequest","goal": "test", "reasoning":"test","owner":"o","repo":"r","number":5,
             "content":{"body":true,"reviews":true,"patches":{"mode":"all"},"comments":{"discussion":true}},
             "charOffset":0
         }))

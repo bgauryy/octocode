@@ -37,6 +37,8 @@ futures-util = "0.3"
 secrecy = "0.10"
 keyring-core = "1"
 hex = { workspace = true }
+# `.gitignore` matching for graph ingest scans (already in the tree via the engine).
+ignore = "0.4"
 octocode-engine = { path = "../engine", default-features = false, features = ["portable-default", "embedded-ast-grep-rewrite"] }
 octocode-github = { path = "../github" }
 tokio = { workspace = true, features = ["fs", "rt-multi-thread", "macros", "sync", "time", "signal", "process", "io-util"] }

@@ -1,33 +1,22 @@
 import { execFileSync } from 'node:child_process';
-import { cpSync, mkdirSync, readdirSync, writeFileSync, renameSync, rmSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { executableName, installExecutable, rustHostTarget } from './artifact-checks.mjs';
+import { checkSkill, checkStartup, python, runtimeInfo } from './artifact-checks.mjs';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
-const hostTarget = rustHostTarget();
-const target = process.env.CARGO_BUILD_TARGET ?? hostTarget;
-const release = process.argv.includes('--release');
-const flags = ['build', '--locked', '--manifest-path', join(root, 'Cargo.toml'), '--target', target];
-if (release) flags.push('--release');
-execFileSync('cargo', flags, { cwd: root, stdio: 'inherit' });
-const filename = executableName(target);
-const source = join(process.env.CARGO_TARGET_DIR ?? join(root, 'target'), target, release ? 'release' : 'debug', filename);
-const output = join(root, 'scripts');
-const directory = output;
-mkdirSync(directory, { recursive: true });
-const destination = join(directory, filename);
-// Reuse an unchanged executable; copying it needlessly forces fresh OS checks.
-const installed = installExecutable(source, destination, { target, hostTarget });
-const checksum = join(directory, 'SHA256SUMS');
-const temporary = `${checksum}.${process.pid}.tmp`;
-try {
-  writeFileSync(temporary, `${installed.sha256}  ${filename}\n`);
-  renameSync(temporary, checksum);
-} finally { rmSync(temporary, { force: true }); }
-// Refresh runtime output, keeping only the current executable and checksum.
-for (const entry of readdirSync(output)) {
-  if (![filename, 'SHA256SUMS'].includes(entry)) rmSync(join(output, entry), { recursive: true, force: true });
+const source = join(root, '../../packages/octocode-config/python/octocode_config.py');
+const destination = join(root, 'scripts/octocode_config.py');
+if (!existsSync(destination) || !readFileSync(source).equals(readFileSync(destination))) {
+  const temporary = destination + '.' + process.pid + '.tmp';
+  try { copyFileSync(source, temporary); renameSync(temporary, destination); }
+  finally { rmSync(temporary, { force: true }); }
 }
-cpSync(join(root, 'src/runtime'), output, { recursive: true });
-console.log(JSON.stringify({ executable: destination, ...installed }));
+const runtime = runtimeInfo();
+// Compile source in memory: building the portable skill creates no bytecode artifacts.
+execFileSync(python(), ['-B', '-c', 'import pathlib,sys; root=pathlib.Path(sys.argv[1]); [compile(p.read_bytes(),str(p),"exec") for p in root.rglob("*.py")]', join(root, 'scripts')], { stdio: 'inherit', timeout: 10000 });
+if (process.platform !== 'win32') for (const name of ['communication.py', 'agents-communication', 'inbox-hook']) {
+  const path = join(root, 'scripts', name); if (existsSync(path)) chmodSync(path, 0o755);
+}
+const executable = join(root, 'scripts/communication.py');
+console.log(JSON.stringify({ executable, runtime, startup: checkStartup(executable), skill: checkSkill(executable, join(root, 'SKILL.md')) }));

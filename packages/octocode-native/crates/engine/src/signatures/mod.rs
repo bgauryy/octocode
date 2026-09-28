@@ -14,6 +14,7 @@ mod nodes;
 pub(crate) use deep_stack::run_on_deep_stack;
 mod js_oxc_calls;
 mod js_oxc_commonjs;
+mod js_oxc_receiver;
 mod js_oxc_references;
 mod js_oxc_shared;
 

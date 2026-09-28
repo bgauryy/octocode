@@ -1,11 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn } from './helpers.mjs';
 import { cpSync, existsSync, rmSync, readFileSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
-import { getOctocodeHome } from '@octocodeai/config';
+import { python } from '../src/artifact-checks.mjs';
+import { getOctocodeHome } from '../../../packages/octocode-config/src/home.ts';
 import { root, nativeBinary as binary, tempWorkspace, reasoningCommands, withReasoning } from './helpers.mjs';
 
 function testArgs(args){
@@ -27,7 +28,7 @@ test('inspection, discovery and rejected commands do not create storage',t=>{
 });
 test('help is compact, command-specific and discoverable without storage',t=>{
  const f=fixture(t),help=invoke(f,['--help']);
- assert.equal(help.implementation,'Rust');assert.ok(JSON.stringify(help).length<2000);
+ assert.equal(help.implementation,'Python');assert.ok(JSON.stringify(help).length<2000);
  assert.ok(help.commands.includes('run'));assert.ok(help.discover.includes('<command> --help'));
  for(const name of help.commands){
   const command=invoke(f,[...name.split(' '),'--help']);
@@ -39,12 +40,12 @@ test('help is compact, command-specific and discoverable without storage',t=>{
  assert.throws(()=>invoke(f,['unknown','--help']));
  assert.equal(existsSync(dirname(f.database)),false);
 });
-test('native home resolution matches the shared configuration package',t=>{
+test('Python home resolution matches the shared configuration package',t=>{
  const f=fixture(t);
  for(const override of ['', 'relative-home',' ../other-home ',join(f.workspace,'custom')]){
   const env={...process.env,OCTOCODE_HOME:override};
-  const value=JSON.parse(execFileSync(binary,['db','info'],{env,encoding:'utf8'}));
-  assert.equal(value.path,join(getOctocodeHome(env),'agents-communication/communication.sqlite'));
+  const value=execFileSync(python(),['-B','-c','import sys; sys.path.insert(0,sys.argv[1]); from octocode_config import get_octocode_home; print(get_octocode_home())',join(root,'scripts')],{env,encoding:'utf8'}).trim();
+  assert.equal(value,getOctocodeHome(env));
  }
 });
 test('CLI entity round trips, subscriptions, delivery status and generic resume',t=>{
@@ -126,16 +127,17 @@ test('copied skill runs outside the repo with no Node, Cargo or vendor executabl
  const runner=join(standalone,'scripts/agents-communication');
  const path=join(f.workspace,'path');mkdirSync(path);
  for(const tool of ['uname','dirname'])symlinkSync(`/usr/bin/${tool}`,join(path,tool));
- const env={...process.env,PATH:path};
+ const interpreter=execFileSync(python(),['-c','import sys; print(sys.executable)'],{encoding:'utf8'}).trim();
+ const env={...process.env,PATH:path,OCTOCODE_PYTHON:interpreter};
  const run=(...args)=>{
   const started=Date.now();
-  try{return JSON.parse(execFileSync(runner,args,{cwd:f.workspace,env,encoding:'utf8',stdio:['pipe','pipe','pipe'],timeout:60000,maxBuffer:1024*1024}));}
+  try{return JSON.parse(execFileSync('/bin/sh',[runner,...args],{cwd:f.workspace,env,encoding:'utf8',stdio:['pipe','pipe','pipe'],timeout:60000,maxBuffer:1024*1024}));}
   catch(error){t.diagnostic(JSON.stringify({phase:'copied-skill-launcher',command:args[0],elapsedMs:Date.now()-started,code:error.code,signal:error.signal,stderr:error.stderr?.toString().slice(-2000)}));throw error;}
  };
- assert.equal(run('--help').implementation,'Rust');assert.equal(run('schema','entities').length,8);
+ assert.equal(run('--help').implementation,'Python');assert.equal(run('schema','entities').length,8);
  assert.ok(run('skill').instructions.includes('scripts/agents-communication'));
  assert.equal(run('skill').instructions,readFileSync(join(standalone,'SKILL.md'),'utf8'));
- assert.ok(Buffer.byteLength(run('skill').instructions)<=8500);
+ assert.ok(Buffer.byteLength(run('skill').instructions)<=5000);
  assert.equal(existsSync(join(standalone,'references')),false);
  const protocol=run('db','protocol');
  assert.ok(protocol.protocol.includes('BEGIN IMMEDIATE'));
@@ -216,7 +218,10 @@ test('Pi provider errors after prompt acceptance fail the worker', {skip:process
   send({type:'agent_end',willRetry:false});send({type:'agent_settled'});
  }});
  `,{mode:0o755});
- assert.throws(()=>invoke(f,['run','--vendor','pi','--model','test','--prompt','test','--duration-ms','3000'],{env:{...process.env,PATH:bin},timeout:6000}),error=>{
+ const env={...process.env,PATH:bin};delete env.NODE_TEST_CONTEXT;
+ // Separate first execution of the fresh fixture from the provider-error deadline.
+ execFileSync(join(bin,'pi'),[],{env,input:'',stdio:['pipe','pipe','pipe'],timeout:30000});
+ assert.throws(()=>invoke(f,['run','--vendor','pi','--model','test','--prompt','test','--duration-ms','3000'],{env,timeout:6000}),error=>{
   assert.equal(error.status,1);assert.match(error.stderr.toString(),/Pi turn failed.*provider unavailable/);return true;
  });
  assert.deepEqual(invoke(f,['peers']).items,[]);
@@ -297,6 +302,9 @@ rl.on('line',line=>{const c=JSON.parse(line);
   const prompt=JSON.parse(readFileSync(capture,'utf8'));
   assert.equal(prompt.split('## Workflow').length,2);
   assert.ok(prompt.includes('complete'));
+  assert.ok(prompt.includes('Reuse the supplied identity and bound tools'));
+  assert.ok(prompt.includes('Discover → reserve → work → report → release'));
+  assert.ok(prompt.includes('Skip independent solo tasks') === false, 'frontmatter must stay out of worker instructions');
   assert.ok(!prompt.includes('## Host setup'));
   assert.ok(!prompt.includes('## CLI command map'));
   assert.equal(prompt.split('\n')[0], 'Available communication tools: ["peers","send_message","complete"]');
@@ -446,4 +454,17 @@ test('entity presence filters distinguish expiry from declared availability',t=>
  assert.equal(list('lease').items.length,0);
  assert.equal(list('lease',{presence:'expired'}).items[0].id,lease.lease.id);
  for(const entity of ['session','lease'])assert.throws(()=>list(entity,{status:'all'}));
+});
+
+
+test('native peer replay text does not break tool tracing',()=>{
+ const program = `import sys
+sys.path.insert(0,sys.argv[1])
+from communication.proxy import trace_tools
+assert trace_tools('session', {'type':'user','message':{'content':'peer context'},'isReplay':True}, {}) == []
+calls = {}
+records = trace_tools('session', {'type':'assistant','message':{'content':[{'type':'tool_use','id':'tool1','name':'peers','input':{}}]}}, calls)
+assert len(records) == 1 and records[0]['type'] == 'tool-call' and calls == {'tool1':'peers'}
+`;
+ execFileSync(python(),['-B','-c',program,join(root,'scripts')],{stdio:'pipe',timeout:10000});
 });

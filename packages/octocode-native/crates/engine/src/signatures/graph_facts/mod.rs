@@ -17,8 +17,13 @@ use super::nodes::{
     last_name_leaf, node_text,
 };
 
+mod heritage;
 mod python;
+mod receiver;
 mod rust;
+
+/// Caller label of calls outside any declaration (matches the OXC lane).
+const MODULE_CALLER: &str = "module";
 
 use python::collect_python_imports;
 use rust::{RustContext, collect_rust_imports, rust_child_contexts, rust_inner_unsupported};
@@ -110,12 +115,15 @@ struct GraphExport {
 struct GraphCall {
     id: String,
     caller: String,
-    /// Declaration id of the enclosing caller.
-    caller_id: String,
+    /// Declaration id of the enclosing caller; `None` for module-level code.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    caller_id: Option<String>,
     callee: String,
     line: u32,
     range: Range,
     kind: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    receiver_type: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -528,6 +536,7 @@ fn visit_node(
     }
 
     let rust = acc.ext == "rs";
+    let mut receivers = receiver::ReceiverTypes::new(&acc.ext, root);
     let mut frames = vec![Frame::Enter(root, RustContext::default())];
     let mut declarations: Vec<(String, String)> = Vec::new();
     // Names of the enclosing `mod` items, outermost first.
@@ -557,7 +566,8 @@ fn visit_node(
             context: &context,
             module_scope: &module_scope,
         });
-        if let Some(identity) = collect_node_facts(
+        let calls_before = acc.calls.len();
+        let identity = collect_node_facts(
             node,
             content,
             line_index,
@@ -566,7 +576,14 @@ fn visit_node(
             active.map(|(_, name)| name.as_str()),
             rust_node,
             deadline,
-        ) {
+        );
+        if acc.calls.len() > calls_before
+            && let Some(receivers) = receivers.as_mut()
+            && let Some(call) = acc.calls.last_mut()
+        {
+            call.receiver_type = receivers.receiver_type(node, content);
+        }
+        if let Some(identity) = identity {
             declarations.push(identity);
             frames.push(Frame::ExitDeclaration);
         }
@@ -735,6 +752,7 @@ fn collect_node_facts(
             });
         }
         acc.declarations.push(declaration);
+        heritage::collect_heritage(node, content, line_index, acc, &id);
         Some((id, name))
     } else {
         None
@@ -829,6 +847,8 @@ fn collect_node_facts(
                 hint,
             );
         }
+    } else if acc.ext == "cs" && node.kind() == "using_directive" {
+        collect_csharp_using(node, content, line_index, acc);
     } else if is_import_node(node.kind())
         && !is_grouped_go_import(node)
         && let Some(specifier) = import_specifier(node, content)
@@ -849,7 +869,7 @@ fn collect_node_facts(
     }
 
     if is_call_node(node.kind())
-        && let (Some(caller), Some((callee, callee_node))) = (next_decl, call_callee(node, content))
+        && let Some((callee, callee_node)) = call_callee(node, content)
     {
         let target = callee
             .rsplit(['.', ':'])
@@ -859,20 +879,29 @@ fn collect_node_facts(
         }
         let range = line_index.range(node);
         let line = range.start.line + 1;
-        let caller_name = next_name.unwrap_or(caller).to_owned();
+        // Module-level code (a Python decorator or `main()` guard, a Go
+        // package `var` initializer, a Rust item-level macro) has no
+        // enclosing declaration: it is owned by the `module` placeholder
+        // with no caller id, the same shape the OXC lane emits.
+        let caller_name = match next_decl {
+            Some(caller) => next_name.unwrap_or(caller).to_owned(),
+            None => MODULE_CALLER.to_owned(),
+        };
+        let from = next_decl.map_or_else(|| format!("file:{}", acc.file_path), str::to_owned);
         let id = format!("call:{}:{}:{}", caller_name, callee, acc.calls.len());
         acc.calls.push(GraphCall {
             id: id.clone(),
             caller: caller_name,
-            caller_id: caller.to_owned(),
+            caller_id: next_decl.map(str::to_owned),
             callee: callee.to_owned(),
             line,
             range,
             kind: "calls",
+            receiver_type: None,
         });
         acc.edges.push(GraphEdge {
-            id: format!("{caller}->{callee}:calls:{line}:{}", acc.edges.len()),
-            from: caller.to_owned(),
+            id: format!("{from}->{callee}:calls:{line}:{}", acc.edges.len()),
+            from,
             to: format!(
                 "reference:{}@{}:{}",
                 acc.file_path,
@@ -887,6 +916,52 @@ fn collect_node_facts(
     }
 
     next_decl_identity
+}
+
+/// C# `using A.B;`, `using static A.B;`, `global using A.B;` and the alias
+/// form `using X = A.B;`: the specifier is the namespace/type path as written,
+/// the alias (when present) is the local name.
+fn collect_csharp_using(
+    node: Node<'_>,
+    content: &str,
+    line_index: &LineIndex<'_>,
+    acc: &mut GraphAccumulator,
+) {
+    let alias = node.child_by_field_name("name");
+    let mut cursor = node.walk();
+    let target = node
+        .named_children(&mut cursor)
+        .find(|child| Some(*child) != alias && child.kind() != "comment");
+    let (target, alias) = match (target, alias) {
+        (Some(target), alias) => (target, alias),
+        // `using System;` may surface its only name in the `name` field.
+        (None, Some(name)) => (name, None),
+        (None, None) => return,
+    };
+    let Some(specifier) =
+        node_text(target, content).map(|text| text.split_whitespace().collect::<String>())
+    else {
+        return;
+    };
+    if specifier.is_empty() {
+        return;
+    }
+    let line = line_index.range(node).start.line + 1;
+    let local_name = alias
+        .and_then(|alias| node_text(alias, content))
+        .map(str::to_owned);
+    acc.imports.push(GraphImport {
+        id: format!("import:{}:{}:{}", specifier, line, acc.imports.len()),
+        specifier,
+        line,
+        import_kind: "value",
+        local_name,
+        imported_name: None,
+        imported_range: None,
+        local_range: alias.map(|alias| line_index.range(alias)),
+        resolution_hint: None,
+        module_scope: None,
+    });
 }
 
 fn push_language_import<'a>(
@@ -934,7 +1009,7 @@ fn fact_families_for_extension(ext: &str) -> Vec<&'static str> {
     match canonical_extension(ext) {
         // JS/TS (oxc lane) already emit import/export facts — advertise them so
         // `getGraphFactCapabilities` matches what `extractGraphFacts` returns.
-        "ts" | "tsx" | "js" | "rs" | "py" | "go" | "java" | "c" | "cpp" | "cu" | "scala" => {
+        "ts" | "tsx" | "js" | "rs" | "py" | "go" | "java" | "c" | "cpp" | "cu" | "scala" | "cs" => {
             families.push("imports");
             families.push("exports");
         }
@@ -1598,6 +1673,257 @@ def helper():
                 .is_some_and(|calls| calls
                     .iter()
                     .any(|call| call.get("callee").is_some_and(|callee| callee == "helper")))
+        );
+    }
+
+    fn facts_json(source: &str, path: &str) -> Value {
+        serde_json::from_str(&extract_graph_facts(source, path).expect("graph facts"))
+            .expect("facts JSON")
+    }
+
+    /// `(relation, from declaration name, to, line)` for every heritage edge.
+    fn heritage(source: &str, path: &str) -> Vec<(String, String, String, u64)> {
+        let facts = facts_json(source, path);
+        let declarations = facts["declarations"].as_array().expect("declarations");
+        facts["edges"]
+            .as_array()
+            .expect("edges")
+            .iter()
+            .filter(|edge| matches!(edge["relation"].as_str(), Some("extends" | "implements")))
+            .map(|edge| {
+                assert_eq!(edge["source"], "tree-sitter");
+                assert_eq!(edge["resolution"], "syntax");
+                let from = declarations
+                    .iter()
+                    .find(|declaration| declaration["id"] == edge["from"])
+                    .unwrap_or_else(|| panic!("edge from is a declaration id: {edge}"));
+                (
+                    edge["relation"].as_str().unwrap_or_default().to_owned(),
+                    from["name"].as_str().unwrap_or_default().to_owned(),
+                    edge["to"].as_str().unwrap_or_default().to_owned(),
+                    edge["line"].as_u64().unwrap_or_default(),
+                )
+            })
+            .collect()
+    }
+
+    fn edge(relation: &str, from: &str, to: &str, line: u64) -> (String, String, String, u64) {
+        (relation.to_owned(), from.to_owned(), to.to_owned(), line)
+    }
+
+    #[test]
+    fn rust_heritage_links_impl_trait_and_supertraits() {
+        let source = "trait Shape: Clone + std::fmt::Debug + 'static {}\nstruct Square;\nimpl std::fmt::Display for Square {}\nimpl<T> From<T> for Square {}\nimpl Square {}\n";
+        assert_eq!(
+            heritage(source, "lib.rs"),
+            vec![
+                edge("extends", "Shape", "Clone", 1),
+                edge("extends", "Shape", "std::fmt::Debug", 1),
+                edge("implements", "Square", "std::fmt::Display", 3),
+                edge("implements", "Square", "From", 4),
+            ]
+        );
+        let facts = facts_json(source, "lib.rs");
+        let impl_ids: Vec<&Value> = facts["declarations"]
+            .as_array()
+            .expect("declarations")
+            .iter()
+            .filter(|declaration| declaration["kind"] == "impl")
+            .map(|declaration| &declaration["id"])
+            .collect();
+        let froms: Vec<&Value> = facts["edges"]
+            .as_array()
+            .expect("edges")
+            .iter()
+            .filter(|edge| edge["relation"] == "implements")
+            .map(|edge| &edge["from"])
+            .collect();
+        assert_eq!(
+            froms,
+            impl_ids[..2].to_vec(),
+            "from is the impl declaration id"
+        );
+    }
+
+    #[test]
+    fn python_heritage_skips_keywords_splats_and_object() {
+        let source = "class A(Base, pkg.Mixin, Generic[T], metaclass=Meta):\n    pass\nclass B(object):\n    pass\nclass C(*bases, **kw):\n    pass\n";
+        assert_eq!(
+            heritage(source, "m.py"),
+            vec![
+                edge("extends", "A", "Base", 1),
+                edge("extends", "A", "pkg.Mixin", 1),
+                edge("extends", "A", "Generic", 1),
+            ]
+        );
+    }
+
+    #[test]
+    fn java_heritage_separates_extends_and_implements() {
+        let source = "class A extends Base<String> implements Runnable, java.io.Serializable {}\ninterface I extends J, K<T> {}\nenum E implements I {}\nrecord R(int x) implements I {}\n";
+        assert_eq!(
+            heritage(source, "A.java"),
+            vec![
+                edge("extends", "A", "Base", 1),
+                edge("implements", "A", "Runnable", 1),
+                edge("implements", "A", "java.io.Serializable", 1),
+                edge("extends", "I", "J", 2),
+                edge("extends", "I", "K", 2),
+                edge("implements", "E", "I", 3),
+                edge("implements", "R", "I", 4),
+            ]
+        );
+    }
+
+    #[test]
+    fn cpp_heritage_reads_the_base_class_clause() {
+        let source = "class A : public Base, private ns::Mixin<int> {};\nstruct S : virtual Base {};\nclass Plain {};\n";
+        assert_eq!(
+            heritage(source, "a.cpp"),
+            vec![
+                edge("extends", "A", "Base", 1),
+                edge("extends", "A", "ns::Mixin", 1),
+                edge("extends", "S", "Base", 2),
+            ]
+        );
+    }
+
+    #[test]
+    fn csharp_heritage_treats_the_first_class_base_as_extends() {
+        let source = "class A : Base, IDisposable, IList<int> {}\ninterface I : J, K {}\nstruct S : IEquatable<S> {}\nrecord R(int X) : Base(X);\n";
+        assert_eq!(
+            heritage(source, "A.cs"),
+            vec![
+                edge("extends", "A", "Base", 1),
+                edge("implements", "A", "IDisposable", 1),
+                edge("implements", "A", "IList", 1),
+                edge("extends", "I", "J", 2),
+                edge("extends", "I", "K", 2),
+                edge("implements", "S", "IEquatable", 3),
+                edge("extends", "R", "Base", 4),
+            ]
+        );
+    }
+
+    #[test]
+    fn heritage_edges_ingest_as_unresolved_targets() {
+        let extraction =
+            extract_graph_facts_with_metadata("class A(Base):\n    pass\n", "m.py").expect("facts");
+        let mut builder = crate::graph::CodeGraphBuilder::new("/fixture", 1);
+        builder
+            .ingest_facts("m.py", "digest", &extraction.facts)
+            .expect("ingest");
+        let graph = builder.finish_without_digest();
+        let extends = graph
+            .edges
+            .values()
+            .find(|edge| edge.kind == crate::graph::EdgeKind::Syntactic("extends".to_owned()))
+            .expect("extends edge");
+        assert!(extends.from.0.starts_with("symbol:m.py#declaration:"));
+        assert_eq!(extends.to.0, "occurrence:m.py#Base");
+        assert_eq!(
+            graph.nodes[&extends.to].kind,
+            crate::graph::NodeKind::UnresolvedTarget
+        );
+    }
+
+    #[test]
+    fn module_level_calls_have_no_caller_id() {
+        let source = "import app\n\n@app.route('/')\ndef index():\n    helper()\n\nsetup()\nif __name__ == '__main__':\n    index()\n";
+        let facts = facts_json(source, "main.py");
+        let calls: Vec<(String, String, bool)> = facts["calls"]
+            .as_array()
+            .expect("calls")
+            .iter()
+            .map(|call| {
+                (
+                    call["caller"].as_str().unwrap_or_default().to_owned(),
+                    call["callee"].as_str().unwrap_or_default().to_owned(),
+                    call.get("callerId").is_some(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            calls,
+            vec![
+                ("module".to_owned(), "app.route".to_owned(), false),
+                ("index".to_owned(), "helper".to_owned(), true),
+                ("module".to_owned(), "setup".to_owned(), false),
+                ("module".to_owned(), "index".to_owned(), false),
+            ]
+        );
+        let module_edge = facts["edges"]
+            .as_array()
+            .expect("edges")
+            .iter()
+            .find(|edge| edge["relation"] == "calls" && edge["line"] == 7)
+            .expect("module call edge");
+        assert_eq!(module_edge["from"], "file:main.py");
+        // A module-level call target is an edge, not a value reference.
+        assert_eq!(reference_count(source, "main.py", "index"), 0);
+    }
+
+    #[test]
+    fn module_level_calls_cover_go_rust_and_c() {
+        let callers = |source: &str, path: &str| -> Vec<(String, String)> {
+            facts_json(source, path)["calls"]
+                .as_array()
+                .expect("calls")
+                .iter()
+                .map(|call| {
+                    (
+                        call["caller"].as_str().unwrap_or_default().to_owned(),
+                        call["callee"].as_str().unwrap_or_default().to_owned(),
+                    )
+                })
+                .collect()
+        };
+        assert!(
+            callers("package p\n\nvar x = build()\n", "p.go")
+                .contains(&("module".to_owned(), "build".to_owned()))
+        );
+        assert!(
+            callers(
+                "lazy_static! { static ref X: u8 = 1; }\nfn f() { g(); }\n",
+                "lib.rs"
+            )
+            .contains(&("module".to_owned(), "lazy_static".to_owned()))
+        );
+        assert!(
+            callers("int f(void);\nint x = f();\n", "a.cpp")
+                .contains(&("module".to_owned(), "f".to_owned()))
+        );
+    }
+
+    #[test]
+    fn csharp_using_directives_are_imports() {
+        let source = "using System.Text;\nusing static System.Math;\nglobal using System;\nusing Json = Newtonsoft.Json.JsonConvert;\nnamespace App { using Inner.Pkg; class A { void M() { using (var x = Open()) {} } } }\n";
+        let facts = facts_json(source, "A.cs");
+        let imports: Vec<(String, Option<String>, u64)> = facts["imports"]
+            .as_array()
+            .expect("imports")
+            .iter()
+            .map(|import| {
+                (
+                    import["specifier"].as_str().unwrap_or_default().to_owned(),
+                    import["localName"].as_str().map(str::to_owned),
+                    import["line"].as_u64().unwrap_or_default(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            imports,
+            vec![
+                ("System.Text".to_owned(), None, 1),
+                ("System.Math".to_owned(), None, 2),
+                ("System".to_owned(), None, 3),
+                (
+                    "Newtonsoft.Json.JsonConvert".to_owned(),
+                    Some("Json".to_owned()),
+                    4
+                ),
+                ("Inner.Pkg".to_owned(), None, 5),
+            ]
         );
     }
 

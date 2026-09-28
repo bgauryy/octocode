@@ -110,11 +110,27 @@ pub(super) enum Command {
         #[arg(long)]
         compact: bool,
     },
-    /// Show configuration files and set key names. Values are never printed.
+    /// Print the global .env path (defaults to <HOME>/.octocode/.env).
+    #[command(name = "showConfig")]
+    ShowConfig {
+        /// Emit the path and file existence as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Inspect configuration or edit global .env keys. Values are never printed.
     Config {
         /// Test whether a specific configuration key is set (prints set/unset, never the value).
-        #[arg(long, value_name = "KEY")]
+        #[arg(long, value_name = "KEY", conflicts_with_all = ["add", "remove"])]
         check: Option<String>,
+        /// Add or replace a global .env key: --add KEY VALUE (or --add KEY --value-stdin).
+        #[arg(long, num_args = 1..=2, value_names = ["KEY", "VALUE"], conflicts_with = "remove")]
+        add: Vec<String>,
+        /// Read the --add value from stdin, keeping secrets out of shell history.
+        #[arg(long, requires = "add")]
+        value_stdin: bool,
+        /// Remove every assignment for a key from the global .env only.
+        #[arg(long, value_name = "KEY")]
+        remove: Option<String>,
         /// Emit JSON output.
         #[arg(long)]
         json: bool,
@@ -126,6 +142,12 @@ pub(super) enum Command {
         /// Emit JSON output (status only).
         #[arg(long)]
         json: bool,
+    },
+    /// Build (`ingest <path>`) or query (`query <op>`) a persisted code graph in <workspace>/.octocode/graph.
+    #[command(long_about = super::graph::GRAPH_HELP)]
+    Graph {
+        #[command(subcommand)]
+        command: super::graph::GraphCommand,
     },
     /// Manage bundled Octocode skills — `list`, `install`, `remove`, `check`, or `info`.
     Skill {

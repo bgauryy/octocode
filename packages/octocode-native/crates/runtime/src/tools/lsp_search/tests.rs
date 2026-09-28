@@ -44,7 +44,7 @@ fn definition_alias_retry_is_limited_to_an_unresolved_first_same_file_hop() {
 #[test]
 fn canonical_nested_position_survives_deserialization_and_resolves_exactly() {
     let query: LspSearchQuery = serde_json::from_value(serde_json::json!({
-        "operation": "definition", "reasoning": "test",
+        "operation": "definition", "goal": "test", "reasoning": "test",
         "uri": "/repo/src/lib.rs",
         "position": { "line": 7, "character": 11 },
         "page": 1,
@@ -69,7 +69,7 @@ fn explicit_position_is_zero_based_lsp_while_presentation_is_one_based() {
     // `resolvedSymbol` — is ONE-based (lines and UTF-16 columns). The receipt
     // does not echo the zero-based input back.
     let query: LspSearchQuery = serde_json::from_value(serde_json::json!({
-        "operation": "definition", "reasoning": "test",
+        "operation": "definition", "goal": "test", "reasoning": "test",
         "uri": "file:///repo/src/lib.rs",
         "position": { "line": 7, "character": 11 }
     }))
@@ -109,7 +109,7 @@ fn semantic_pagination_continuations_cover_the_full_result_fixture() {
         .map(|index| serde_json::json!({"name": format!("symbol-{index}")}))
         .collect::<Vec<_>>();
     let mut query: LspSearchQuery = serde_json::from_value(serde_json::json!({
-        "operation": "documentSymbols", "reasoning": "test",
+        "operation": "documentSymbols", "goal": "test", "reasoning": "test",
         "uri": "/repo/src/lib.rs",
         "page": 1,
         "pageSize": 3
@@ -160,7 +160,7 @@ fn didopen_read_is_capped_to_avoid_oversized_document_sync() {
 fn document_wide_operations_do_not_require_a_position_anchor() {
     for operation in ["documentSymbols", "workspaceSymbol", "diagnostic"] {
         let mut row = serde_json::json!({
-            "operation": operation, "reasoning": "test",
+            "operation": operation, "goal": "test", "reasoning": "test",
             "uri": "/repo/src/lib.rs",
             "page": 1,
             "pageSize": 40
@@ -184,7 +184,7 @@ fn document_wide_operations_do_not_require_a_position_anchor() {
 #[test]
 fn later_pages_require_the_semantic_snapshot_and_carry_it_forward() {
     let query: LspSearchQuery = serde_json::from_value(serde_json::json!({
-        "operation": "documentSymbols", "reasoning": "test",
+        "operation": "documentSymbols", "goal": "test", "reasoning": "test",
         "uri": "/repo/src/lib.rs",
         "page": 2,
         "pageSize": 1
@@ -221,7 +221,7 @@ fn later_pages_require_the_semantic_snapshot_and_carry_it_forward() {
 fn semantic_snapshot_ignores_paging_and_workflow_metadata() {
     let first: LspSearchQuery = serde_json::from_value(serde_json::json!({
         "operation": "references",
-        "reasoning": "Find every reference.",
+        "goal": "test", "reasoning": "Find every reference.",
         "debug": false,
         "uri": "/repo/src/lib.rs",
         "symbolName": "run",
@@ -231,7 +231,7 @@ fn semantic_snapshot_ignores_paging_and_workflow_metadata() {
     .expect("first page query");
     let continued: LspSearchQuery = serde_json::from_value(serde_json::json!({
         "operation": "references",
-        "reasoning": "Continuation metadata may be normalized.",
+        "goal": "test", "reasoning": "Continuation metadata may be normalized.",
         "uri": "/repo/src/lib.rs",
         "symbolName": "run",
         "lineHint": 4,
@@ -299,7 +299,7 @@ fn semantic_operations_require_their_advertised_lsp_capability() {
 #[test]
 fn document_symbols_use_the_canonical_flat_one_based_public_shape() {
     let query: LspSearchQuery = serde_json::from_value(serde_json::json!({
-        "operation": "documentSymbols", "reasoning": "test",
+        "operation": "documentSymbols", "goal": "test", "reasoning": "test",
         "uri": "file:///repo/src/lib.rs"
     }))
     .expect("document symbols query");
@@ -484,7 +484,7 @@ fn provider_receipt_exposes_effective_invocation_and_omits_empty_optional_fields
 #[test]
 fn empty_and_unavailable_rows_expose_status_and_recovery_next() {
     let query = query(serde_json::json!({
-        "operation": "definition", "reasoning": "test",
+        "operation": "definition", "goal": "test", "reasoning": "test",
         "uri": "/repo/src/lib.rs",
         "symbolName": "execute",
         "lineHint": 10
@@ -539,7 +539,7 @@ fn empty_and_unavailable_rows_expose_status_and_recovery_next() {
 #[test]
 fn workspace_root_failures_emit_a_string_uri_without_directory_read_recovery() {
     let query: LspSearchQuery = serde_json::from_value(serde_json::json!({
-        "operation": "workspaceSymbol", "reasoning": "test",
+        "operation": "workspaceSymbol", "goal": "test", "reasoning": "test",
         "workspaceRoot": "/repo",
         "symbolName": "execute"
     }))
@@ -572,7 +572,7 @@ fn workspace_root_failures_emit_a_string_uri_without_directory_read_recovery() {
 #[test]
 fn workspace_root_empty_results_do_not_emit_a_pathless_read_recovery() {
     let q = query(serde_json::json!({
-        "operation": "workspaceSymbol", "reasoning": "test",
+        "operation": "workspaceSymbol", "goal": "test", "reasoning": "test",
         "workspaceRoot": "/repo",
         "symbolName": "nothing"
     }));
@@ -636,7 +636,7 @@ fn requery(query: &LspSearchQuery, fields: serde_json::Value) -> LspSearchQuery 
 #[test]
 fn diagnostic_reports_are_listed_as_individual_diagnostics() {
     let q = query(
-        serde_json::json!({"operation": "diagnostic", "reasoning": "test", "uri": "file:///repo/a.ts"}),
+        serde_json::json!({"operation": "diagnostic", "goal": "test", "reasoning": "test", "uri": "file:///repo/a.ts"}),
     );
     let report = serde_json::json!({
         "kind": "full",
@@ -776,7 +776,7 @@ async fn grouped_references_replace_locations_with_file_summaries() {
     let uri =
         octocode_engine::lsp::uri::path_to_uri(&root.join("a.ts").to_string_lossy()).expect("uri");
     let q = query(serde_json::json!({
-        "operation": "references", "reasoning": "test",
+        "operation": "references", "goal": "test", "reasoning": "test",
         "uri": uri,
         "position": {"line": 0, "character": 0},
         "groupByFile": true
@@ -813,7 +813,7 @@ async fn recovered_alias_references_are_labeled_in_output() {
     let uri =
         octocode_engine::lsp::uri::path_to_uri(&root.join("a.ts").to_string_lossy()).expect("uri");
     let q = query(serde_json::json!({
-        "operation": "references", "reasoning": "test",
+        "operation": "references", "goal": "test", "reasoning": "test",
         "uri": uri,
         "position": {"line": 0, "character": 0}
     }));
@@ -917,7 +917,7 @@ async fn unreadable_in_policy_files_stay_authorized_and_keep_their_locations() {
         );
     }
     let q = query(serde_json::json!({
-        "operation": "references", "reasoning": "test",
+        "operation": "references", "goal": "test", "reasoning": "test",
         "uri": large.to_string_lossy(),
         "position": {"line": 0, "character": 0},
         "contextLines": 2
@@ -1010,7 +1010,7 @@ fn explicit_positions_on_lone_cr_lines_are_in_bounds() {
     // A lone-CR file has two lines, not one.
     let source = "export const a = 1;\rexport const b = 2;\r";
     let q = query(serde_json::json!({
-        "operation": "hover", "reasoning": "test",
+        "operation": "hover", "goal": "test", "reasoning": "test",
         "uri": "/repo/cr.ts",
         "position": {"line": 1, "character": 0}
     }));
@@ -1063,7 +1063,7 @@ async fn context_windows_come_from_one_cached_read_per_file() {
 fn symbol_anchors_resolve_on_the_synchronized_text_not_the_disk() {
     // The path does not exist: resolution must use the supplied content.
     let q = query(serde_json::json!({
-        "operation": "definition", "reasoning": "test",
+        "operation": "definition", "goal": "test", "reasoning": "test",
         "uri": "/nonexistent/lib.rs",
         "symbolName": "greet",
         "lineHint": 2
@@ -1098,7 +1098,7 @@ fn rust_context_overlays_the_engine_headless_defaults() {
         max_memory_mb: None,
     };
     let q = query(serde_json::json!({
-        "operation": "definition", "reasoning": "test",
+        "operation": "definition", "goal": "test", "reasoning": "test",
         "uri": "/repo/src/lib.rs",
         "position": {"line": 0, "character": 0},
         "rustContext": {"features": ["x"]}
@@ -1129,7 +1129,7 @@ fn failed_hierarchy_expansion_is_an_error_or_a_marked_partial_row() {
     assert!(items.is_empty() && failures.is_empty());
 
     let q = query(serde_json::json!({
-        "operation": "callers", "reasoning": "test",
+        "operation": "callers", "goal": "test", "reasoning": "test",
         "uri": "file:///repo/a.ts",
         "position": {"line": 0, "character": 0},
         "depth": 3
@@ -1402,7 +1402,7 @@ async fn hierarchy_fan_out_cap_truncates_with_a_terminal_limit() {
     assert_eq!(walk.fan_out_capped, vec!["root".to_owned()]);
 
     let q = query(serde_json::json!({
-        "operation": "callers", "reasoning": "test",
+        "operation": "callers", "goal": "test", "reasoning": "test",
         "uri": "file:///repo/a.ts",
         "position": {"line": 0, "character": 0}
     }));
@@ -1477,7 +1477,7 @@ async fn hierarchy_node_cap_truncates_with_an_executable_continuation() {
     );
 
     let q = query(serde_json::json!({
-        "operation": "callers", "reasoning": "test",
+        "operation": "callers", "goal": "test", "reasoning": "test",
         "uri": file.to_string_lossy(),
         "symbolName": "root",
         "lineHint": 1,
@@ -1610,7 +1610,7 @@ fn explicit_positions_past_the_document_are_anchor_errors() {
             .is_some_and(|error| error.contains("past the end of 0-based line 1"))
     );
     let q = query(serde_json::json!({
-        "operation": "hover", "reasoning": "test",
+        "operation": "hover", "goal": "test", "reasoning": "test",
         "uri": "file:///repo/a.ts",
         "position": {"line": 99999, "character": 0}
     }));
@@ -1642,14 +1642,14 @@ fn workspace_symbols_are_flat_named_and_one_based() {
 #[test]
 fn empty_diagnostics_carry_no_read_recovery_and_symbol_reads_are_matched() {
     let q = query(
-        serde_json::json!({"operation": "diagnostic", "reasoning": "test", "uri": "/repo/a.ts"}),
+        serde_json::json!({"operation": "diagnostic", "goal": "test", "reasoning": "test", "uri": "/repo/a.ts"}),
     );
     let row = with_next(&q, items_payload(&q, "diagnostics", serde_json::json!([])));
     assert_eq!(row["payload"]["category"], "noDiagnostics");
     assert!(row.get("next").is_none(), "{row}");
 
     let q = query(serde_json::json!({
-        "operation": "definition", "reasoning": "test",
+        "operation": "definition", "goal": "test", "reasoning": "test",
         "uri": "/repo/a.ts",
         "symbolName": "run",
         "lineHint": 3
@@ -1780,7 +1780,7 @@ async fn call_hierarchy_keeps_the_truncation_of_both_directions() {
         walks.push((expansion, walk));
     }
     let q = query(serde_json::json!({
-        "operation": "callHierarchy", "reasoning": "test",
+        "operation": "callHierarchy", "goal": "test", "reasoning": "test",
         "uri": file.to_string_lossy(),
         "position": {"line": 0, "character": 9},
         "depth": 2
@@ -1855,13 +1855,13 @@ fn anchor_file_uri_is_stated_once_per_row() {
 fn page_two_query_hashes_like_page_one() {
     let first: LspSearchQuery = serde_json::from_value(serde_json::json!({
         "uri":"/tmp/a.rs","symbolName":"is_alive","lineHint":1,"operation":"references",
-        "pageSize":1,"reasoning":"r"
+        "pageSize":1,"goal": "test", "reasoning":"r"
     }))
     .expect("page 1");
     // A continuation lists the same fields in another order.
     let second: LspSearchQuery = serde_json::from_value(serde_json::json!({
         "pageSize":1,"page":2,"snapshot":"lsp-v1:abc","operation":"references",
-        "lineHint":1,"reasoning":"r","symbolName":"is_alive","uri":"/tmp/a.rs"
+        "lineHint":1,"goal": "test", "reasoning":"r","symbolName":"is_alive","uri":"/tmp/a.rs"
     }))
     .expect("page 2");
     let items = [serde_json::json!({"uri":"file:///tmp/a.rs"})];

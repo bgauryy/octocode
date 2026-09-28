@@ -5,6 +5,7 @@ use crate::policy::path::{PathPolicy, PathPolicyConfig};
 use crate::regex::{IsolatedRegexEngine, IsolatedRegexLimits};
 use crate::response::{PreparedResponse, ResponsePageOptions, TextContent};
 use crate::security::ContentSecurity;
+use crate::tools::ast_graph::store as graph_store;
 use crate::tools::id::{ToolFamily, ToolId};
 use crate::tools::local_fetch::{CancellationCheck, LocalFetchRegex};
 
@@ -15,6 +16,9 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+const LOCAL_DISABLED: &str =
+    "Local tools are disabled (ENABLE_LOCAL=false); graph commands read local files.";
 
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -374,6 +378,28 @@ impl ToolRuntime {
                 .disabled
                 .as_ref()
                 .is_some_and(|names| names.iter().any(|name| name == tool))
+    }
+
+    /// CLI `graph ingest`: builds and publishes a code-graph snapshot under
+    /// the same path policy and content security as the local tools.
+    pub fn graph_ingest(&self, options: &graph_store::IngestOptions) -> graph_store::GraphOutput {
+        if !self.config.resolved.local.enabled {
+            return graph_store::GraphOutput::error(5, "graph.localDisabled", LOCAL_DISABLED);
+        }
+        graph_store::ingest(
+            options,
+            &self.paths,
+            &self.security,
+            &crate::tools::local_fetch::NeverCancel,
+        )
+    }
+
+    /// CLI `graph query`: answers one bounded question from a snapshot.
+    pub fn graph_query(&self, options: &graph_store::QueryOptions) -> graph_store::GraphOutput {
+        if !self.config.resolved.local.enabled {
+            return graph_store::GraphOutput::error(5, "graph.localDisabled", LOCAL_DISABLED);
+        }
+        graph_store::query(options, &self.paths)
     }
 
     pub fn is_available(&self, tool: &str) -> bool {
