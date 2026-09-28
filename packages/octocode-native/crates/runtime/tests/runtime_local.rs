@@ -11,35 +11,38 @@ use octocode_native::config::RuntimeSurface;
 use octocode_native::runtime::{HostOptions, ToolRuntime};
 
 #[tokio::test]
-async fn ordinary_tools_require_nonempty_reasoning() {
+async fn ordinary_tools_accept_optional_trace_context() {
     let workspace = Workspace::new();
     let path = workspace.write("reasoning.txt", "ok\n");
     let runtime = workspace.runtime(&[]);
     let path = path.to_string_lossy().into_owned();
 
-    // Omitting reasoning entirely is rejected (required since core 19.1.1).
-    let error = runtime
+    let outcome = runtime
         .execute(
             "reasoning-omitted".into(),
             "localFetch".into(),
             json!({"path":path}),
         )
         .await
-        .expect_err("omitted reasoning must be rejected");
-    assert_eq!(error.code, "invalidInput");
+        .expect("trace context is optional");
+    assert_eq!(
+        outcome.structured_content["results"][0]["data"]["content"],
+        "ok\n"
+    );
 
-    // Blank reasoning (whitespace-only) is also rejected.
-    let error = runtime
+    let outcome = runtime
         .execute(
             "reasoning-blank".into(),
             "localFetch".into(),
             json!({"path":path,"reasoning":"   "}),
         )
         .await
-        .expect_err("blank reasoning must be rejected when supplied");
-    assert_eq!(error.code, "invalidInput");
+        .expect("blank trace context is harmless");
+    assert_eq!(
+        outcome.structured_content["results"][0]["data"]["content"],
+        "ok\n"
+    );
 
-    // Valid reasoning succeeds.
     let outcome = runtime
         .execute(
             "reasoning-valid".into(),
@@ -342,7 +345,6 @@ async fn beta_ast_tools_require_the_shared_opt_in() {
         &runtime,
         "astTopology",
         json!({
-            "operation": "topology",
             "analysis": "cycles",
             "path": workspace.workspace
         }),
@@ -425,7 +427,7 @@ async fn runtime_catalog_lists_available_tools() {
         .collect();
     assert!(names.contains(&"localFetch"));
     assert!(names.contains(&"localSearch"));
-    assert!(names.contains(&"ghSearch"));
+    assert!(names.contains(&"ghSearchCode"));
     let grammars = catalog["grammarCapabilities"]
         .as_array()
         .expect("runtime grammar capabilities");
@@ -452,7 +454,6 @@ async fn ast_topology_executes_only_after_beta_opt_in() {
         &runtime,
         "astTopology",
         json!({
-            "operation": "topology",
             "analysis": "cycles",
             "path": workspace.workspace
         }),
@@ -698,7 +699,7 @@ async fn ast_topology_dead_code_verify_references_is_a_valid_lsp_query() {
     let outcome = call(
         &runtime,
         "astTopology",
-        json!({"operation":"topology","analysis":"deadCode","path":workspace.workspace}),
+        json!({"analysis":"deadCode","path":workspace.workspace}),
     )
     .await
     .expect("astTopology deadCode");
@@ -777,7 +778,7 @@ async fn ast_topology_result_pages_reject_a_changed_graph() {
     let first = call(
         &runtime,
         "astTopology",
-        json!({"operation":"topology","analysis":"dependencies","path":root,"file":"a.ts","pageSize":1}),
+        json!({"analysis":"dependencies","path":root,"file":"a.ts","pageSize":1}),
     )
     .await
     .expect("first topology page");

@@ -3,6 +3,7 @@ import {
   checkSkills,
   overallStatus,
   SCAN_PLATFORMS,
+  type CheckedLocation,
   type SkillCheckResult,
 } from '../checker.js';
 import {
@@ -12,6 +13,7 @@ import {
   isGroupSatisfied,
 } from '../env-params.js';
 import { parsePlatforms, type Platform } from '../platforms.js';
+import { getSkillsHome } from '../home.js';
 import { installSkill } from '../installer.js';
 import { bold, c, dim } from '../../../../utils/colors.js';
 
@@ -31,16 +33,33 @@ function fail(message: string, json: boolean): void {
   process.exitCode = 1;
 }
 
+const needsRepair = (location: CheckedLocation): boolean =>
+  location.status === 'broken' || location.content === 'stale';
+
+/**
+ * Repair only what is already there: refresh the canonical copy and relink
+ * broken or stale locations. Never add platforms or a workspace the user did
+ * not install into, and never replace a fresh link (e.g. a dev symlink).
+ */
 function fixSkill(
   result: SkillCheckResult,
-  platforms: Platform[],
+  workspace: boolean,
   dryRun: boolean
 ): void {
   const skill = getSkill(result.skillName);
   if (!skill) return;
+  const platforms = result.platforms
+    .filter(needsRepair)
+    .map(location => location.label as Platform);
+  const repairWorkspace = workspace && needsRepair(result.workspace);
   if (dryRun) {
+    const where = [
+      'home',
+      ...platforms,
+      ...(repairWorkspace ? ['workspace'] : []),
+    ].join(', ');
     console.log(
-      `  ${dim('dry-run:')} would re-install ${result.skillName} (${overallStatus(result)})`
+      `  ${dim('dry-run:')} would re-install ${result.skillName} (${overallStatus(result)}) → ${where}`
     );
     return;
   }
@@ -48,10 +67,8 @@ function fixSkill(
     sourcePath: skill.dir,
     skillName: skill.folder,
     platforms,
-    workspace:
-      result.workspace.status === 'missing' ||
-      result.workspace.status === 'broken' ||
-      result.workspace.content === 'stale',
+    workspace: repairWorkspace,
+    canonicalSkillsDir: getSkillsHome(),
     customPath: null,
     mode: 'symlink',
     force: true,
@@ -78,7 +95,7 @@ export function runCheck(opts: CheckOptions): void {
   if (opts.fix && !opts.json) {
     for (const result of results) {
       if (overallStatus(result) !== 'ok') {
-        fixSkill(result, platforms, opts.dryRun);
+        fixSkill(result, opts.workspace, opts.dryRun);
       }
     }
     if (!opts.dryRun) results = checkSkills(skillNames, platforms);
@@ -177,8 +194,14 @@ export function runCheck(opts: CheckOptions): void {
       console.log(`  ${icon} ${skill.name}: ${skill.installStatus}${dim(env)}`);
     }
     console.log(
-      `  ${summary.install.ok}/${summary.install.total} installed; ${summary.install.broken} broken; ${summary.install.stale} stale; ${summary.env.needsConfig} need env\n`
+      `  ${summary.install.ok}/${summary.install.total} ok; ${summary.install.stale} stale; ${summary.install.broken} broken; ${summary.install.notInstalled} not installed; env: ${summary.env.needsConfig} need config, ${summary.env.partial} optional missing`
     );
+    if (!installOk && !opts.fix) {
+      console.log(
+        `  ${dim('Repair with')} ${c('cyan', 'octocode skill check --fix')}`
+      );
+    }
+    console.log();
   }
   if (!success) process.exitCode = 1;
 }

@@ -293,13 +293,10 @@ fn provider_state(source: &Value, state: Value) -> Value {
 }
 
 fn is_candidate_search(source: &Value) -> bool {
-    match source.get("tool").and_then(Value::as_str) {
-        Some("localSearch") => true,
-        Some("ghSearch") => {
-            source.pointer("/query/operation").and_then(Value::as_str) == Some("code")
-        }
-        _ => false,
-    }
+    matches!(
+        source.get("tool").and_then(Value::as_str),
+        Some("localSearch" | "ghSearchCode")
+    )
 }
 
 fn file_chunks(source: &Value) -> bool {
@@ -324,7 +321,7 @@ fn candidate_identity(source: &Value, state: &Value, file: &Value) -> Option<Str
                     },
                 ),
         ),
-        "ghSearch" => Some(format!(
+        "ghSearchCode" => Some(format!(
             "{}/{}/{}",
             file.get("owner")?.as_str()?.to_ascii_lowercase(),
             file.get("repo")?.as_str()?.to_ascii_lowercase(),
@@ -420,7 +417,7 @@ fn github_candidate_read(candidate: &Value, max_bytes: usize) -> Option<(Value, 
 fn candidate_read(source: &Value, candidate: &Value, max_bytes: usize) -> Option<(Value, bool)> {
     match source.get("tool").and_then(Value::as_str) {
         Some("localSearch") => local_candidate_read(candidate, max_bytes).map(|read| (read, true)),
-        Some("ghSearch") => github_candidate_read(candidate, max_bytes),
+        Some("ghSearchCode") => github_candidate_read(candidate, max_bytes),
         _ => None,
     }
 }
@@ -438,7 +435,7 @@ fn pin_github_read(read: &mut Value, state: &Value) {
 }
 
 fn default_search_page_size(source: &Value) -> u64 {
-    if source.get("tool").and_then(Value::as_str) == Some("ghSearch") {
+    if source.get("tool").and_then(Value::as_str) == Some("ghSearchCode") {
         return 30;
     }
     match source.pointer("/query/resultView").and_then(Value::as_str) {
@@ -464,7 +461,7 @@ fn bounded_search_source(
             ClassificationError::new(
                 "invalidClassificationContext",
                 "Search candidate context is missing its query.",
-                "Pass one ordinary localSearch or ghSearch code query.",
+                "Pass one ordinary localSearch or ghSearchCode query.",
             )
         })?;
     let original_size = query
@@ -1666,8 +1663,8 @@ mod tests {
             {"owner":"o","repo":"r","path":"a.rs","matches":[{"value":"alpha"}]},
             {"owner":"O","repo":"R","path":"a.rs","matches":[{"value":"duplicate"}]},
             {"owner":"o","repo":"r","path":"b.rs","matches":[{"value":"beta"}]}
-        ],"next":{"nextPage":{"tool":"ghSearch","query":{"page":2}}}}}]});
-        let code = json!({"tool":"ghSearch","query":{"operation":"code"}});
+        ],"next":{"nextPage":{"tool":"ghSearchCode","query":{"page":2}}}}}]});
+        let code = json!({"tool":"ghSearchCode","query":{}});
         let candidates = search_candidate_states(&code, &state).expect("code candidates");
         assert_eq!(candidates.len(), 2);
         assert_eq!(
@@ -1684,7 +1681,7 @@ mod tests {
         );
         let receipt = super::super::clasify_context::candidate_receipt(&code, &candidates[0]);
         assert_eq!(receipt["source"]["path"], "o/r/a.rs");
-        let tree = json!({"tool":"ghSearch","query":{"operation":"tree"}});
+        let tree = json!({"tool":"ghStructure","query":{}});
         assert!(
             search_candidate_states(&tree, &state).is_none(),
             "tree entries are one discovery page, not code candidates"
@@ -1726,8 +1723,8 @@ mod tests {
         assert_eq!(bounded["query"]["page"], 1);
         assert_eq!(bounded["query"]["pageSize"], 5);
 
-        let aligned = json!({"tool":"ghSearch","query":{
-            "operation":"code","reasoning":"find","owner":"o","keywords":["x"],
+        let aligned = json!({"tool":"ghSearchCode","query":{
+            "reasoning":"find","owner":"o","keywords":["x"],
             "page":2,"pageSize":20
         }});
         let bounded = bounded_search_source(&aligned, 5).expect("aligned offset");

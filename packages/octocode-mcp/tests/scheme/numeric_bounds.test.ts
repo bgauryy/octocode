@@ -109,7 +109,7 @@ describe('LspSearchQuerySchema depth bound', () => {
     });
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.depth).toBe(LOCAL_MAX_DEPTH);
+      expect(result.data).toMatchObject({ depth: LOCAL_MAX_DEPTH });
     }
   });
 });

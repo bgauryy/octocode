@@ -135,7 +135,7 @@ describe('per-field resolution across layers', () => {
   });
 
   it('workspace null resets a global list; arrays replace, never concatenate', () => {
-    writeGlobal({ tools: { enabled: ['localSearch'], disabled: ['ghSearch', 'astSearch'] } });
+    writeGlobal({ tools: { enabled: ['localSearch'], disabled: ['ghSearchCode', 'astSearch'] } });
     writeWorkspace({ tools: { enabled: null, disabled: ['lspSearch'] } });
     const resolved = resolve();
     expect(resolved.tools.enabled).toBeNull();

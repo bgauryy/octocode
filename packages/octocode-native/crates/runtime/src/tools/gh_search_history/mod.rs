@@ -489,7 +489,9 @@ pub async fn execute<R: CredentialResolver>(
     mark_empty(&mut value, more);
     if result.incomplete_results || (!result.listed && result.total_count > 1000) {
         value["isPartial"] = json!(true);
-        value["terminalLimit"] = json!(result.total_count > 1000);
+        if !more {
+            value["terminalLimit"] = json!(true);
+        }
         value["partialReasons"] = json!([if result.total_count > 1000 {
             "providerResultCap"
         } else {
@@ -983,6 +985,75 @@ mod tests {
         let mut rows = json!({"issues": [{"number": 1}]});
         mark_empty(&mut rows, false);
         assert!(rows.get("status").is_none());
+    }
+
+    #[tokio::test]
+    async fn cap_is_terminal_only_after_the_last_reachable_page() {
+        use crate::providers::github::{
+            CredentialSource, GitHubEndpoint, RetryPolicy, StaticCredentialResolver,
+        };
+        use std::{sync::Arc, time::Duration};
+        use wiremock::{
+            Mock, MockServer, ResponseTemplate,
+            matchers::{method, path},
+        };
+
+        struct Passthrough;
+        impl ContentScan for Passthrough {
+            fn sanitize(
+                &self,
+                text: &str,
+                _: &std::path::Path,
+            ) -> Result<(String, Vec<String>), (String, String)> {
+                Ok((text.to_owned(), vec![]))
+            }
+        }
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v3/search/issues"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "total_count": 1001, "incomplete_results": false,
+                "items": [{"number": 3, "title": "Fix", "state": "open", "user": {"login": "dev"}}]
+            })))
+            .mount(&server)
+            .await;
+        let transport = GitHubTransport::new(
+            GitHubEndpoint::new(url::Url::parse(&format!("{}/api/v3", server.uri())).expect("url"))
+                .expect("endpoint"),
+            Arc::new(StaticCredentialResolver::new(
+                "fixture",
+                CredentialSource::Override,
+            )),
+            RetryPolicy {
+                max_attempts: 1,
+                ..Default::default()
+            },
+        )
+        .expect("transport");
+        for page in [1, 1000] {
+            let query = serde_json::from_value(json!({"operation":"pullRequest","reasoning":"test","keywords":["fix"],"pageSize":1,"page":page})).expect("query");
+            let data = execute(
+                &transport,
+                &query,
+                &RequestContext::with_timeout(Duration::from_secs(5), 1 << 20),
+                &Passthrough,
+            )
+            .await
+            .expect("history search");
+            assert_eq!(data["isPartial"], true, "{data}");
+            assert_eq!(
+                data["partialReasons"],
+                json!(["providerResultCap"]),
+                "{data}"
+            );
+            assert_eq!(
+                data["terminalLimit"].as_bool().unwrap_or(false),
+                page == 1000,
+                "{data}"
+            );
+            assert_eq!(data["next"]["nextPage"].is_object(), page < 1000, "{data}");
+        }
     }
 
     fn parse(json: &str) -> GhSearchHistoryQuery {

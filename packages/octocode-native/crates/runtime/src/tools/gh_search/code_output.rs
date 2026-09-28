@@ -1,4 +1,4 @@
-use super::GhSearchQuery;
+use super::{GhSearchCodeQuery, GhSearchCodeQueryMatch};
 use crate::providers::github::{
     CredentialResolver, GitHubTransport, ProviderErrorKind, RequestContext,
 };
@@ -21,11 +21,11 @@ pub(super) fn unique_file_count(items: &[CodeSearchItem]) -> usize {
 pub(super) async fn empty_scope<R: CredentialResolver>(
     value: &mut Value,
     diagnostics: &mut crate::tools::result::ToolDiagnostics,
-    query: &GhSearchQuery,
+    query: &GhSearchCodeQuery,
     transport: &GitHubTransport<R>,
     context: &RequestContext,
 ) -> Result<(), ProviderError> {
-    let GhSearchQuery::Code {
+    let GhSearchCodeQuery {
         owner,
         repo: Some(repo),
         ..
@@ -34,7 +34,7 @@ pub(super) async fn empty_scope<R: CredentialResolver>(
         return Ok(());
     };
     let metadata = transport.repository_metadata(owner, repo, context).await;
-    let (name, mut next_query, why, confidence, code) = match metadata {
+    let (name, tool, mut next_query, why, confidence, code) = match metadata {
         Err(error)
             if matches!(
                 error.kind,
@@ -45,7 +45,8 @@ pub(super) async fn empty_scope<R: CredentialResolver>(
         }
         Err(error) if error.kind == ProviderErrorKind::NotFound => (
             "findRepository",
-            json!({"operation":"repositories","keywords":[repo]}),
+            "ghSearchRepo",
+            json!({"keywords":[repo]}),
             "Find the repository by name in case it moved or was renamed.",
             "low",
             "ghRepoNotFound",
@@ -69,6 +70,7 @@ pub(super) async fn empty_scope<R: CredentialResolver>(
             next["page"] = json!(1);
             (
                 "retryRenamed",
+                "ghSearchCode",
                 next,
                 "Re-run the same search against the renamed repository.",
                 "exact",
@@ -77,14 +79,16 @@ pub(super) async fn empty_scope<R: CredentialResolver>(
         }
         Ok(metadata) if metadata.archived => (
             "viewStructure",
-            json!({"operation":"tree","owner":owner,"repo":repo,"path":""}),
+            "ghStructure",
+            json!({"owner":owner,"repo":repo,"path":""}),
             "Inspect the archived repository outside the code-search index.",
             "exact",
             "ghRepoArchived",
         ),
         _ => (
             "viewStructure",
-            json!({"operation":"tree","owner":owner,"repo":repo,"path":""}),
+            "ghStructure",
+            json!({"owner":owner,"repo":repo,"path":""}),
             "Verify that the scoped repository and path exist before concluding absence.",
             "exact",
             "ghScopedZeroUnproven",
@@ -98,20 +102,24 @@ pub(super) async fn empty_scope<R: CredentialResolver>(
     };
     diagnostics.add(code, &hint, false);
     // These are advisory "start a fresh query" actions (renamed repo / a
-    // different operation), not next-page continuations of the original
-    // search, so stamp page 1 rather than `page + 1`. The canonical
-    // continuation contract still requires page/pageSize (and `match` for
-    // code), which the hand-built queries above omit.
+    // different tool), not next-page continuations of the original search,
+    // so stamp page 1 rather than `page + 1`. The canonical continuation
+    // contract still requires each tool's defaulted fields, which the
+    // hand-built queries above omit.
     if let Some(object) = next_query.as_object_mut() {
         object.entry("page").or_insert_with(|| json!(1));
-        object.entry("pageSize").or_insert_with(|| json!(30));
-        if object.get("operation").and_then(Value::as_str) == Some("code")
-            && !object.contains_key("match")
-        {
-            object.insert("match".to_owned(), json!("file"));
-        }
-        if object.get("operation").and_then(Value::as_str) == Some("repositories") {
-            object.entry("sort").or_insert_with(|| json!("best-match"));
+        match tool {
+            "ghSearchCode" => {
+                object.entry("pageSize").or_insert_with(|| json!(30));
+                object.entry("match").or_insert_with(|| json!("file"));
+            }
+            "ghSearchRepo" => {
+                object.entry("pageSize").or_insert_with(|| json!(30));
+                object.entry("sort").or_insert_with(|| json!("best-match"));
+            }
+            _ => {
+                object.entry("pageSize").or_insert_with(|| json!(100));
+            }
         }
     }
     // Re-running the stale name cannot recover results the renamed repository
@@ -121,8 +129,7 @@ pub(super) async fn empty_scope<R: CredentialResolver>(
     {
         next.remove("retry");
     }
-    value["next"][name] =
-        json!({"tool":"ghSearch","query":next_query,"confidence":confidence,"why":why});
+    value["next"][name] = json!({"tool":tool,"query":next_query,"confidence":confidence,"why":why});
     Ok(())
 }
 
@@ -165,19 +172,16 @@ pub(super) fn read_top_match(value: &Value) -> Option<Value> {
 
 pub(super) fn files(
     items: &[CodeSearchItem],
-    query: &GhSearchQuery,
+    query: &GhSearchCodeQuery,
     security: &impl ContentScan,
 ) -> Result<Vec<Value>, ProviderError> {
-    let GhSearchQuery::Code {
+    let GhSearchCodeQuery {
         match_,
         concise,
         keywords,
         ..
-    } = query
-    else {
-        return Ok(Vec::new());
-    };
-    let path_only = *match_ == super::GhSearchQueryMatch::Path;
+    } = query;
+    let path_only = *match_ == GhSearchCodeQueryMatch::Path;
     let terms = super::ranking::terms(keywords)?;
     let mut groups: Vec<super::ranking::Group> = Vec::new();
     let mut group_indices = HashMap::new();

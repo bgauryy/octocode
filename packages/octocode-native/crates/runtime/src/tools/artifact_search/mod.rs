@@ -8,22 +8,23 @@ use serde_json::{Value, json};
 use std::time::Instant;
 use tokio_util::sync::CancellationToken;
 
-pub use crate::providers::artifact::{ArtifactItem, ArtifactSearchQueryType, ResolvedNpmRegistry};
+pub use crate::providers::artifact::{ArtifactItem, ArtifactType, ResolvedNpmRegistry};
 
 /// Signature scope for a query's cursor: a digest of the normalized query
 /// with the cursor itself removed, so a token lifted onto a different query
 /// fails verification while every page of one query shares a scope.
 fn cursor_scope(query: &ArtifactSearchQuery) -> Result<String, ArtifactError> {
-    let mut bare = query.clone();
-    bare.cursor = None;
-    let mut value = serde_json::to_value(&bare)
+    let mut value = serde_json::to_value(query)
         .map_err(|_| ArtifactError::new("provider_error", "Failed to derive cursor scope."))?;
     if let Some(object) = value.as_object_mut() {
         // Caller intent and diagnostics do not change which results a page
         // holds; a replayed page may restate them freely.
-        for meta in ["goal", "reasoning", "debug"] {
+        for meta in ["goal", "reasoning", "debug", "cursor"] {
             object.remove(meta);
         }
+        // Removing optional fields can reorder a preserve_order JSON map.
+        // Scope identity depends on values, not the presence of a cursor.
+        object.sort_keys();
     }
     crate::runtime::cursor::scope_digest(&value)
         .map_err(|_| ArtifactError::new("provider_error", "Failed to derive cursor scope."))
@@ -79,14 +80,14 @@ async fn run(
     // Signed cursors (issued by us) must verify against this query's scope.
     // A legacy raw-JSON state is still accepted for one release (dual-accept
     // window) and remains range-clamped by the provider.
-    if let Some(cursor) = query.cursor.clone()
+    if let Some(cursor) = query.cursor().map(str::to_owned)
         && cursor.starts_with(crate::runtime::cursor::SIGNED_STATE_PREFIX)
     {
         let scope = cursor_scope(&query)?;
         let payload = crate::runtime::cursor::verify_state(signing_key, &scope, &cursor)
             .map_err(|_| unrecognized_cursor())?;
         let state = String::from_utf8(payload).map_err(|_| unrecognized_cursor())?;
-        query.cursor = Some(state.parse().map_err(|_| unrecognized_cursor())?);
+        query.set_cursor(&state)?;
     }
     let http = SystemArtifactHttp::new()?;
     let budget = RequestBudget {
@@ -96,8 +97,8 @@ async fn run(
     };
     // The registry comes only from the query (default npmjs); credentials
     // come only from the user npmrc and only when scoped to that origin.
-    let requested_registry = if query.type_ == ArtifactSearchQueryType::Npm {
-        let (base, cache_identity) = match query.registry.as_deref() {
+    let requested_registry = if query.artifact_type() == ArtifactType::Npm {
+        let (base, cache_identity) = match query.registry() {
             Some(raw) => {
                 let base = url::Url::parse(raw).map_err(|_| {
                     ArtifactError::new(
@@ -147,7 +148,7 @@ async fn run(
             "hasMore": has_more,
             "totalFound": page.total,
         },
-        "type": query.type_,
+        "type": query.artifact_type(),
     });
     if let Some(state) = page.next_state {
         let state_json = serde_json::to_string(&state).map_err(|_| {
@@ -159,9 +160,7 @@ async fn run(
             .map_err(|_| {
                 ArtifactError::new("provider_error", "Failed to encode pagination cursor.")
             })?;
-        next.cursor = Some(cursor.parse().map_err(|_| {
-            ArtifactError::new("provider_error", "Failed to encode pagination cursor.")
-        })?);
+        next.set_cursor(&cursor)?;
         if let Ok(next_query) = serde_json::to_value(next) {
             data["next"] = json!({
                 "nextPage": {
@@ -175,15 +174,14 @@ async fn run(
     // An exact lookup whose source lives on GitHub continues straight to its
     // tree (package subdirectory when the registry names one). Registry
     // metadata can point at a fork or stale repo, so this is a lead, not proof.
-    if query.package_name.is_some()
+    if query.package_name().is_some()
         && let Some(artifact) = page.artifacts.first()
         && let Some((owner, repo)) = artifact.repository.as_deref().and_then(github_repo)
     {
         data["next"]["viewRepo"] = json!({
-            "tool": "ghSearch",
+            "tool": "ghStructure",
             "confidence": "high",
             "query": {
-                "operation": "tree",
                 "owner": owner,
                 "repo": repo,
                 "path": artifact
@@ -203,7 +201,7 @@ async fn run(
     }
     if page.artifacts.is_empty() {
         data["status"] = json!("empty");
-        data["hints"] = json!([if query.package_name.is_some() {
+        data["hints"] = json!([if query.package_name().is_some() {
             "Check the package name and ecosystem coordinate."
         } else {
             "Try fewer or broader keywords."
@@ -288,13 +286,13 @@ mod github_repo_tests {
 #[cfg(test)]
 mod cursor_signing_tests {
     use super::*;
-    use crate::providers::artifact::ArtifactSearchQueryType;
+    use crate::providers::artifact::ArtifactType;
     use crate::runtime::cursor;
     use std::time::Duration;
 
     fn keyword_query(keywords: &[&str]) -> ArtifactSearchQuery {
         crate::providers::artifact::artifact_query(
-            serde_json::json!({"type": ArtifactSearchQueryType::Npm, "keywords": keywords, "pageSize": 10}),
+            serde_json::json!({"type": ArtifactType::Npm, "keywords": keywords, "pageSize": 10}),
             None,
         )
     }
@@ -308,6 +306,17 @@ mod cursor_signing_tests {
         assert!(token.starts_with(cursor::SIGNED_STATE_PREFIX));
         assert_eq!(
             cursor::verify_state(key, &scope, &token).expect("verify"),
+            state.as_bytes()
+        );
+        let continued = crate::providers::artifact::artifact_query(
+            json!({"cursor": token, "goal": "continue", "reasoning": "next page", "debug": true}),
+            Some(&keyword_query(&["http"])),
+        );
+        let continued_scope = cursor_scope(&continued).expect("continuation scope");
+        assert_eq!(continued_scope, scope);
+        assert_eq!(
+            cursor::verify_state(key, &continued_scope, continued.cursor().expect("cursor"))
+                .expect("issued continuation verifies"),
             state.as_bytes()
         );
         // Lifted onto a different query, the same token fails verification.
@@ -350,7 +359,7 @@ mod cursor_signing_tests {
         assert_eq!(forged.code, "invalid_query");
         // Legacy raw-JSON state (dual-accept window): passes cursor checks.
         let legacy = run(r#"{"offset":30,"page":2}"#.into()).await;
-        assert_ne!(legacy.code, "invalid_query");
+        assert_ne!(legacy.code, "invalid_query", "{legacy:?}");
         // A genuinely issued token for this query verifies and reaches the
         // provider.
         let key = cursor::user_signing_key(None);
@@ -365,7 +374,7 @@ mod cursor_signing_tests {
         let issued = execute(&query, dead, CancellationToken::new(), false, None, 0, true)
             .await
             .expect_err("dead budget");
-        assert_ne!(issued.code, "invalid_query");
+        assert_ne!(issued.code, "invalid_query", "{issued:?}");
     }
 }
 

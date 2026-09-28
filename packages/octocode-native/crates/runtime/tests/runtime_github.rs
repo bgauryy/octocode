@@ -152,9 +152,8 @@ async fn github_tree_materialize_is_accepted_and_emits_location() {
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
     let outcome = call(
         &runtime,
-        "ghSearch",
+        "ghStructure",
         json!({
-            "operation": "tree",
             "owner": "a",
             "repo": "b",
             "materialize": true
@@ -1028,8 +1027,8 @@ async fn gh_search_concise_repositories_are_contract_valid() {
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
     let outcome = call(
         &runtime,
-        "ghSearch",
-        json!({"operation":"repositories","keywords":["x"],"concise":true}),
+        "ghSearchRepo",
+        json!({"keywords":["x"],"concise":true}),
     )
     .await
     .expect("concise repositories");

@@ -219,7 +219,7 @@ pub fn execute_clone(
             return Err(CloneError::new(
                 "clone.sparsePath.notFound",
                 format!(
-                    "sparsePath \"{sparse_path}\" does not exist in {}/{}@{branch} — nothing was checked out for it. Verify the path with ghSearch operation:\"tree\", then retry with the correct sparsePath (or omit it for a full clone).",
+                    "sparsePath \"{sparse_path}\" does not exist in {}/{}@{branch} — nothing was checked out for it. Verify the path with ghStructure, then retry with the correct sparsePath (or omit it for a full clone).",
                     query.owner, query.repo
                 ),
             ));

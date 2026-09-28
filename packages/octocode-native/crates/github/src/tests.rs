@@ -273,6 +273,56 @@ async fn distinguishes_permission_from_rate_limit_and_bounds_body() {
 }
 
 #[tokio::test]
+async fn pagination_respects_last_page_only_for_matching_numbered_links() {
+    for (next_query, last_route, has_next) in [
+        ("page=4", "items?page=3", false),
+        ("page=3", "items?page=3", true),
+        ("after=opaque", "items?page=3", true),
+        ("page=4&per_page=1", "items?page=3&per_page=2", true),
+        ("page=4", "other?page=3", true),
+    ] {
+        let server = MockServer::start().await;
+        let next = format!("{}/api/v3/items?{next_query}", server.uri());
+        let last = format!("{}/api/v3/{last_route}", server.uri());
+        Mock::given(method("GET"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header(
+                        "link",
+                        format!("<{next}>; rel=\"next\", <{last}>; rel=\"last\""),
+                    )
+                    .set_body_bytes(b"[]"),
+            )
+            .mount(&server)
+            .await;
+        let endpoint =
+            GitHubEndpoint::new(url::Url::parse(&format!("{}/api/v3", server.uri())).expect("URL"))
+                .expect("endpoint");
+        let transport = GitHubTransport::new(
+            endpoint.clone(),
+            Arc::new(StaticCredentialResolver::anonymous()),
+            RetryPolicy::default(),
+        )
+        .expect("transport");
+        let response = transport
+            .execute(
+                RequestSpec::get(endpoint.rest(&["items"]).expect("route")),
+                &RequestContext::with_timeout(Duration::from_secs(5), 16),
+            )
+            .await
+            .expect("page");
+        assert_eq!(
+            response.next.is_some(),
+            has_next,
+            "{next_query}, {last_route}"
+        );
+        if let Some(actual) = response.next {
+            assert_eq!(actual.as_str(), next);
+        }
+    }
+}
+
+#[tokio::test]
 async fn returns_same_origin_next_page_and_rejects_redirects() {
     let server = MockServer::start().await;
     let next = format!("{}/api/v3/items?page=2", server.uri());

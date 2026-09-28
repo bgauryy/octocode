@@ -133,7 +133,7 @@ describe('CLI Parser', () => {
     it('treats retired command vocabulary as plain booleans', () => {
       // Native commands re-parse raw argv themselves, so the parser carries
       // no per-command vocabulary beyond the skill value flags.
-      const result = parseArgs(['ghSearch', '--stars', '5']);
+      const result = parseArgs(['ghSearchRepo', '--stars', '5']);
       expect(result.options).toEqual({ stars: true });
       expect(result.args).toEqual(['5']);
     });

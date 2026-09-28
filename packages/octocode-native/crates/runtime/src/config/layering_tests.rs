@@ -154,7 +154,7 @@ fn workspace_null_array_resets_a_global_list() {
 #[test]
 fn workspace_array_replaces_instead_of_concatenating() {
     let out = resolve(Layers {
-        global_rc: Some(r#"{"tools":{"disabled":["ghSearch","astSearch"]}}"#),
+        global_rc: Some(r#"{"tools":{"disabled":["ghSearchCode","astSearch"]}}"#),
         project_rc: Some(r#"{"tools":{"disabled":["lspSearch"]}}"#),
         ..NONE
     });

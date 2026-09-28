@@ -4,8 +4,8 @@ mod model;
 mod policy;
 
 pub use algorithms::{
-    Condensed as CondensedFileGraph, Node as FileGraphNode, condense as condense_file_graph,
-    cycle_witness, reachable as reachable_files, reverse as reverse_file_graph,
+    Condensed as CondensedFileGraph, CycleWitnesses, Node as FileGraphNode,
+    condense as condense_file_graph, reachable as reachable_files, reverse as reverse_file_graph,
     scc as strongly_connected_components, scc_unsorted as strongly_connected_components_unsorted,
     shortest_path as shortest_file_path, transitive_edges, traverse as traverse_file_graph,
 };

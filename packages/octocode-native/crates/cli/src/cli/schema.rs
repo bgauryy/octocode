@@ -214,15 +214,15 @@ mod tests {
         let args = Args::try_parse_from([
             "octocode",
             "scheme",
-            "ghSearch",
+            "ghSearchHistory",
             "--view",
             "query",
             "--select",
-            "operation=code",
+            "operation=commit",
         ])
         .unwrap();
         assert!(
-            matches!(args.command, Command::Scheme { select: Some(selection), .. } if selection == "operation=code")
+            matches!(args.command, Command::Scheme { select: Some(selection), .. } if selection == "operation=commit")
         );
         // --select and --view require a tool name.
         for args in [
@@ -232,9 +232,14 @@ mod tests {
             assert!(Args::try_parse_from(args).is_err());
         }
         // --select without --view query parses but fails projection at runtime.
-        let args =
-            Args::try_parse_from(["octocode", "scheme", "ghSearch", "--select", "operation=x"])
-                .unwrap();
+        let args = Args::try_parse_from([
+            "octocode",
+            "scheme",
+            "ghSearchCode",
+            "--select",
+            "operation=x",
+        ])
+        .unwrap();
         assert!(matches!(
             args.command,
             Command::Scheme {
@@ -303,15 +308,15 @@ mod tests {
             .as_array()
             .unwrap()
             .iter()
-            .find(|tool| tool["name"] == "ghSearch")
+            .find(|tool| tool["name"] == "ghSearchHistory")
             .unwrap();
         let result =
-            project_selected(tool.clone(), SchemeView::Query, Some("operation=code")).unwrap();
+            project_selected(tool.clone(), SchemeView::Query, Some("operation=commit")).unwrap();
         let original = tool["querySchema"]["oneOf"]
             .as_array()
             .unwrap()
             .iter()
-            .find(|branch| branch["properties"]["operation"]["const"] == "code")
+            .find(|branch| branch["properties"]["operation"]["const"] == "commit")
             .unwrap();
         assert_eq!(result["querySchema"]["oneOf"], json!([original]));
         assert_local_refs_resolve(&result["querySchema"], &result["querySchema"]);
@@ -328,15 +333,15 @@ mod tests {
     #[test]
     fn scheme_view_parsing() {
         for (flag, expected) in [("full", SchemeView::Full), ("query", SchemeView::Query)] {
-            let args =
-                Args::try_parse_from(["octocode", "scheme", "ghSearch", "--view", flag]).unwrap();
+            let args = Args::try_parse_from(["octocode", "scheme", "ghSearchCode", "--view", flag])
+                .unwrap();
             assert!(
                 matches!(args.command, Command::Scheme { view: Some(view), .. } if view == expected)
             );
         }
         for args in [
-            vec!["octocode", "scheme", "ghSearch", "--view", "bad"],
-            vec!["octocode", "scheme", "ghSearch", "--view"],
+            vec!["octocode", "scheme", "ghSearchCode", "--view", "bad"],
+            vec!["octocode", "scheme", "ghSearchCode", "--view"],
             vec!["octocode", "--view", "query"],
         ] {
             assert!(Args::try_parse_from(args).is_err());

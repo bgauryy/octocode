@@ -480,7 +480,7 @@ fn parse_content_payload(body: &[u8], path: &str) -> Result<ContentPayload, Prov
 /// tree-listing recovery on the reason rather than the message.
 fn is_a_directory(path: &str) -> ProviderError {
     not_a_file(format!(
-        "Path \"{path}\" is a directory, not a file; list it with ghSearch operation:\"tree\"."
+        "Path \"{path}\" is a directory, not a file; list it with ghStructure."
     ))
     .with_reason(super::ProviderErrorReason::PathIsDirectory)
 }

@@ -35,8 +35,16 @@
   },
   "tools": [
     {
-      "name": "ghSearch",
-      "description": "Search GitHub code or repositories, or browse a repository tree"
+      "name": "ghSearchRepo",
+      "description": "Discover GitHub repositories by keywords, owner, or filters"
+    },
+    {
+      "name": "ghSearchCode",
+      "description": "Search indexed code or file paths in a GitHub owner or repository"
+    },
+    {
+      "name": "ghStructure",
+      "description": "Browse a GitHub repository's directory tree"
     },
     {
       "name": "ghGetFileContent",

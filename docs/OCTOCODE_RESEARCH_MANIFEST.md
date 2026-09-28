@@ -30,7 +30,7 @@ Optional `goal` and `reasoning` are short decision context, not ranking controls
 | `astSearch` | Which declarations, syntax trees, or structural matches are present? | Structural syntax evidence within the scanned scope. |
 | `astTopology` | Which files depend on one another or form paths and cycles? | Syntactic file topology; unresolved imports and excluded files limit coverage. |
 | `lspSearch` | Which definition, references, callers, or types does the server resolve? | Server and project scope limit semantic evidence. |
-| `ghSearch` | Which indexed code, repositories, or tree paths are candidates? | Code search uses GitHub's indexed default branch; a tree query can select a ref. |
+| `ghSearchRepo` / `ghSearchCode` / `ghStructure` | Which repositories, indexed code, or tree paths are candidates? | Code search uses GitHub's indexed default branch; `ghStructure` can select a ref. |
 | `ghGetFileContent` | What is in a known remote file? | Pin the ref for reproducibility; file views and provider limits still apply. |
 | `ghSearchHistory` | Which PRs, issues, or commits are candidates? | Discovery identifies records; it does not fetch every detail surface. |
 | `ghGetHistoryItem` | What does a known PR, issue, commit, or comparison contain? | Selected detail can have independent list and content continuations. |
@@ -54,9 +54,9 @@ AST patterns establish shape, not server-resolved identity; a zero-match pattern
 
 ## External workflow
 
-For an unknown repository, start with `artifactSearch` or `ghSearch(operation:"repositories")`. Package queries require an ecosystem `type` and exactly one of `packageName` or `keywords` (PyPI is exact-only); keyword discovery uses opaque `cursor` and `pageSize` — copy the complete `next.nextPage`. Preserve the repository subdirectory for monorepo packages.
+For an unknown repository, start with `artifactSearch` or `ghSearchRepo`. Package queries require an ecosystem `type` and exactly one of `packageName` or `keywords` (PyPI is exact-only); keyword discovery uses opaque `cursor` and `pageSize` — copy the complete `next.nextPage`. Preserve the repository subdirectory for monorepo packages.
 
-Use `ghSearch(operation:"tree")` for layout and path case, and `operation:"code"` for indexed candidates (`match:"path"` searches paths, `match:"file"` searches content). Snippets can be transformed — not an exact-source substitute — and an empty result does not prove absence on another branch or outside the provider index.
+Use `ghStructure` for layout and path case, and `ghSearchCode` for indexed candidates (`match:"path"` searches paths, `match:"file"` searches content). Snippets can be transformed — not an exact-source substitute — and an empty result does not prove absence on another branch or outside the provider index.
 
 Read a selected path with `ghGetFileContent`; supply an observed commit SHA in `branch` for revision-dependent claims and record the resolved identity, since a branch name can move. Fetch exact source before quoting a snippet or interpreting a diff in isolation: use `minify:"none"` and preserve the returned `commitSha`, and match or line metadata. `standard` and `symbols` are transformed views and do not prove omitted text was absent.
 

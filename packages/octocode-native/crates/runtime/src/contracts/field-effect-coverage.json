@@ -124,28 +124,15 @@
         ]
       }
     },
-    "ghSearch": {
+    "ghSearchRepo": {
       "evidence": [
         "src/tools/gh_search/mod.rs",
         "tests/runtime_github.rs"
       ],
-      "variants": [
-        "code",
-        "repositories",
-        "tree"
-      ],
-      "discriminators": {
-        "operation": [
-          "code",
-          "repositories",
-          "tree"
-        ]
-      },
+      "variants": [],
+      "discriminators": {},
       "fields": {
         "archived": [
-          "forwarded"
-        ],
-        "branch": [
           "forwarded"
         ],
         "concise": [
@@ -158,12 +145,6 @@
         "debug": [
           "workflow-metadata"
         ],
-        "extension": [
-          "forwarded"
-        ],
-        "filename": [
-          "forwarded"
-        ],
         "forks": [
           "forwarded"
         ],
@@ -171,9 +152,6 @@
           "workflow-metadata"
         ],
         "goodFirstIssues": [
-          "forwarded"
-        ],
-        "include": [
           "forwarded"
         ],
         "keywords": [
@@ -188,24 +166,72 @@
         "match": [
           "forwarded"
         ],
-        "materialize": [
+        "owner": [
+          "forwarded"
+        ],
+        "page": [
+          "forwarded",
+          "output-control",
+          "continuation"
+        ],
+        "pageSize": [
           "forwarded",
           "output-control"
         ],
-        "materializeOffset": [
-          "forwarded",
-          "output-control",
-          "continuation"
+        "reasoning": [
+          "workflow-metadata"
         ],
-        "maxDepth": [
+        "size": [
           "forwarded"
         ],
-        "metadataPage": [
-          "forwarded",
-          "output-control",
-          "continuation"
+        "sort": [
+          "forwarded"
         ],
-        "operation": [
+        "stars": [
+          "forwarded"
+        ],
+        "topics": [
+          "forwarded"
+        ],
+        "updated": [
+          "forwarded"
+        ],
+        "visibility": [
+          "forwarded"
+        ]
+      }
+    },
+    "ghSearchCode": {
+      "evidence": [
+        "src/tools/gh_search/mod.rs",
+        "tests/runtime_github.rs"
+      ],
+      "variants": [],
+      "discriminators": {},
+      "fields": {
+        "concise": [
+          "forwarded",
+          "output-control"
+        ],
+        "debug": [
+          "workflow-metadata"
+        ],
+        "extension": [
+          "forwarded"
+        ],
+        "filename": [
+          "forwarded"
+        ],
+        "goal": [
+          "workflow-metadata"
+        ],
+        "keywords": [
+          "forwarded"
+        ],
+        "language": [
+          "forwarded"
+        ],
+        "match": [
           "forwarded"
         ],
         "owner": [
@@ -229,23 +255,66 @@
         ],
         "repo": [
           "forwarded"
-        ],
-        "size": [
+        ]
+      }
+    },
+    "ghStructure": {
+      "evidence": [
+        "src/tools/gh_search/mod.rs",
+        "tests/runtime_github.rs"
+      ],
+      "variants": [],
+      "discriminators": {},
+      "fields": {
+        "branch": [
           "forwarded"
         ],
-        "sort": [
+        "debug": [
+          "workflow-metadata"
+        ],
+        "goal": [
+          "workflow-metadata"
+        ],
+        "include": [
           "forwarded"
         ],
-        "stars": [
+        "materialize": [
+          "forwarded",
+          "output-control"
+        ],
+        "materializeOffset": [
+          "forwarded",
+          "output-control",
+          "continuation"
+        ],
+        "maxDepth": [
           "forwarded"
         ],
-        "topics": [
+        "metadataPage": [
+          "forwarded",
+          "output-control",
+          "continuation"
+        ],
+        "owner": [
           "forwarded"
         ],
-        "updated": [
-          "forwarded"
+        "page": [
+          "forwarded",
+          "output-control",
+          "continuation"
         ],
-        "visibility": [
+        "pageSize": [
+          "forwarded",
+          "output-control"
+        ],
+        "path": [
+          "forwarded",
+          "security-policy"
+        ],
+        "reasoning": [
+          "workflow-metadata"
+        ],
+        "repo": [
           "forwarded"
         ]
       }
@@ -1103,9 +1172,6 @@
         "drift"
       ],
       "discriminators": {
-        "operation": [
-          "topology"
-        ],
         "analysis": [
           "deadCode",
           "cycles",
@@ -1167,9 +1233,6 @@
           "output-control"
         ],
         "maxFiles": [
-          "consumed"
-        ],
-        "operation": [
           "consumed"
         ],
         "page": [

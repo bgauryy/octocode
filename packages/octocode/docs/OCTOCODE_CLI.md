@@ -5,8 +5,8 @@ the Octocode MCP server. One binary — `npx octocode` — exposes every researc
 tool under its canonical tool name, plus a small set of system commands.
 
 ```text
-octocode <toolName> '<json>'   ──► same tool runner   ──► the MCP tool catalog
-octocode MCP tool call         ──► same core runners  ──► GitHub, local, npm, LSP
+octocode <toolName> '<json>'   ──► native Rust runtime ──► GitHub, local, packages, LSP
+octocode-mcp tool call         ──► native Rust runtime ──► (same tools, same contracts)
 ```
 
 CLI and MCP share logic, schemas, security, sanitization, and tool execution.
@@ -29,7 +29,9 @@ and prints single-line JSON (`--pretty` indents).
 | `astTopology` | Dependency graph analysis for paths, cycles, reachability, dead code, and drift. |
 | `astRewrite` | Structural find-and-replace; previews before writing. |
 | `lspSearch` | Definitions, references, hover, call/type hierarchy, diagnostics. |
-| `ghSearch` | GitHub repository, code, and tree search. |
+| `ghSearchRepo` | GitHub repository search. |
+| `ghSearchCode` | GitHub indexed code search. |
+| `ghStructure` | GitHub repository tree browsing. |
 | `ghGetFileContent` | Read a GitHub file without cloning. |
 | `ghSearchHistory` | Search PRs, issues, and commits. |
 | `ghGetHistoryItem` | Read one PR, issue, commit, or comparison. |
@@ -73,11 +75,11 @@ Replace `npx octocode` with `octocode` when the package is installed globally.
 
 Choose the tool first, then load its schema only if it is unfamiliar or missing
 from context. Use the query view for calls; select a known operation to omit
-unrelated branches. The full view is for auditing contracts.
+unrelated branches. The full view contains one complete input schema for the request envelope; the query view contains one standalone query schema. Output schemas remain internal.
 
 ```bash
 npx octocode scheme <name> --view query                     # self-contained query schema
-npx octocode scheme ghSearch --view query --select operation=code
+npx octocode scheme ghSearchHistory --view query --select operation=commit
 npx octocode scheme <name> --view full                      # descriptions, examples, rules
 ```
 
@@ -86,7 +88,7 @@ resolve from the command cwd, which may differ from the repository root.
 
 | Category | Default enabled tools |
 |---|---|
-| GitHub | `ghSearch` · `ghGetFileContent` · `ghSearchHistory` · `ghGetHistoryItem` |
+| GitHub | `ghSearchRepo` · `ghSearchCode` · `ghStructure` · `ghGetFileContent` · `ghSearchHistory` · `ghGetHistoryItem` |
 | Local Code | `localSearch` · `structureSearch` · `astSearch` · `localFetch` · `lspSearch` |
 | Package | `artifactSearch` |
 
@@ -228,12 +230,19 @@ Useful flags:
 | `--force` | Replace existing canonical or destination content that differs. Existing content is preserved by default. |
 | `--upgrade` | Refresh changed bundled content in the canonical store. Managed copies refresh only when they still match the previous canonical content; arbitrary destination drift remains a conflict. |
 | `--dry-run` | Preview actions without writing. |
-| `--fix` | `check` only: repair missing/broken installed locations. |
+| `--fix` | `check` only: refresh the canonical copy and relink broken or stale locations. Never adds platforms (or the workspace, unless `--workspace`) and never replaces a fresh link. |
 | `--workspace` | `check` only: also check the workspace `<cwd>/.agents/skills` directory. |
 | `--no-env` | `check` only: skip skill environment-readiness checks. |
 
 Skill actions use the subcommands above; removed flag forms are rejected with
 the canonical command syntax.
+
+`skill list` marks installs whose content differs from the bundled copy as
+`[stale]` (and broken links as `[broken]`). `skill check` reports per-skill
+`ok` / `stale` / `broken` / `not-installed` plus env readiness: `needs-config`
+means a required setting is missing; `partial` means the skill works but an
+optional setting would unlock more. `check` exits 1 on stale, broken, or
+needs-config; run `skill check --fix` to repair installs.
 
 ---
 
@@ -253,7 +262,7 @@ GitHub code search can return zero rows when a provider has not indexed a repo.
 Treat that as a provider gap, not proof of absence.
 
 ```bash
-npx octocode ghSearch '{"operation":"tree","owner":"vercel","repo":"next.js","path":"packages/next","reasoning":"Browse the package."}'
+npx octocode ghStructure '{"owner":"vercel","repo":"next.js","path":"packages/next","reasoning":"Browse the package."}'
 npx octocode ghCloneRepo '{"owner":"vercel","repo":"next.js","sparsePath":"packages/next","reasoning":"Materialize for search."}'
 npx octocode localSearch '{"path":"<clone localPath>/src","searchText":"useState","resultView":"matchOnly","reasoning":"Prove the usage."}'
 ```
@@ -271,7 +280,7 @@ npx octocode lspSearch '{"uri":"/ABS/repo/src/index.ts","operation":"references"
 
 ```bash
 npx octocode artifactSearch '{"type":"npm","packageName":"zod","reasoning":"Locate the package."}'
-npx octocode ghSearch '{"operation":"code","keywords":["ZodObject"],"owner":"colinhacks","repo":"zod","reasoning":"Find the source."}'
+npx octocode ghSearchCode '{"keywords":["ZodObject"],"owner":"colinhacks","repo":"zod","reasoning":"Find the source."}'
 ```
 
 ### Pull requests and history
@@ -358,8 +367,8 @@ client must retain. Removed compatibility names are rejected.
 | `skill` | Installs bundled Agent Skills locally; no MCP transport required. |
 
 The code boundary is intentionally thin:
-- `@octocodeai/octocode-native` owns tool schemas, descriptions, and execution logic.
-- `@octocodeai/octocode-core` supplies reusable output types.
+- `@octocodeai/octocode-core` authors tool schemas, descriptions, and instructions; `@octocodeai/config` delivers them (plus generated types) to every interface.
+- `@octocodeai/octocode-native` embeds that contract and owns validation and execution logic.
 - `@octocodeai/octocode-native/engine` exposes native primitives (minify, structural search, LSP, secret scanning) from the internal engine crate.
 - `octocode` launches the native binary in a terminal.
 - `octocode-mcp` registers the same tools for MCP clients.

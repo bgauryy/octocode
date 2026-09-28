@@ -1,5 +1,5 @@
 //! GitHub repository tree and independently paged metadata execution.
-use super::GhSearchQuery;
+use super::{GhStructureQuery, GhStructureQueryIncludeItem};
 use crate::tools::result::remove_nulls;
 use crate::{
     providers::github::{
@@ -48,12 +48,12 @@ pub(super) async fn execute<
     C: crate::providers::github::ConditionalCache,
 >(
     provider: &GitHubProvider<R, C>,
-    query: &GhSearchQuery,
+    query: &GhStructureQuery,
     context: &RequestContext,
     home: &Path,
 ) -> Result<ToolData, ProviderError> {
     let transport = &provider.transport;
-    let GhSearchQuery::Tree {
+    let GhStructureQuery {
         owner,
         repo,
         branch,
@@ -66,13 +66,7 @@ pub(super) async fn execute<
         materialize,
         materialize_offset,
         ..
-    } = query
-    else {
-        return Err(ProviderError::new(
-            ProviderErrorKind::Validation,
-            "expected tree query",
-        ));
-    };
+    } = query;
     let requested_branch = branch.clone();
     let mut resolved_branch = match branch {
         Some(branch) => branch.clone(),
@@ -178,7 +172,6 @@ pub(super) async fn execute<
         })
         .sum::<usize>();
     let mut value = json!({
-        "operation": "tree",
         "structure": structure,
         "summary": {"totalFiles": total_files, "totalFolders": total_folders},
         "resolvedBranch": resolved_branch,
@@ -194,7 +187,7 @@ pub(super) async fn execute<
         });
         remove_nulls(&mut value["pagination"]);
     }
-    if include.contains(&super::GhSearchQueryIncludeItem::Sizes) {
+    if include.contains(&GhStructureQueryIncludeItem::Sizes) {
         let file_sizes = page_entries
             .iter()
             .filter_map(|entry| {
@@ -866,7 +859,7 @@ struct MaterializeResume {
 #[allow(clippy::too_many_arguments)]
 fn attach_continuations(
     value: &mut Value,
-    query: &GhSearchQuery,
+    query: &GhStructureQuery,
     page: usize,
     page_size: usize,
     has_more: bool,
@@ -958,7 +951,7 @@ fn attach_continuations(
     Ok(())
 }
 fn base_tree_query(
-    query: &GhSearchQuery,
+    query: &GhStructureQuery,
     page: usize,
     page_size: usize,
 ) -> Result<Value, ProviderError> {
@@ -967,7 +960,7 @@ fn base_tree_query(
     query["pageSize"] = json!(page_size);
     Ok(query)
 }
-fn public_query(query: &GhSearchQuery) -> Result<Value, ProviderError> {
+fn public_query(query: &GhStructureQuery) -> Result<Value, ProviderError> {
     let mut query = serde_json::to_value(query)
         .map_err(|error| ProviderError::new(ProviderErrorKind::Decode, error.to_string()))?;
     remove_nulls(&mut query);
@@ -975,7 +968,7 @@ fn public_query(query: &GhSearchQuery) -> Result<Value, ProviderError> {
 }
 fn continuation(query: Value, why: impl Into<String>, confidence: &str) -> Value {
     json!({
-        "tool": "ghSearch",
+        "tool": "ghStructure",
         "query": query,
         "why": why.into(),
         "confidence": confidence

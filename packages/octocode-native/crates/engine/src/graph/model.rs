@@ -177,6 +177,8 @@ impl NodeId {
         Self(format!("external:{}", symbol.as_ref()))
     }
 
+    /// File-local declaration identity supplied by the syntax producer. This is
+    /// not a canonical cross-file binding or a stable identity across edits.
     pub fn symbol(file: &str, local_id: &str) -> Self {
         Self(format!("symbol:{}#{}", normalize_path(file), local_id))
     }
@@ -298,6 +300,9 @@ pub struct GraphCompleteness {
 pub struct SnapshotMetadata {
     pub root: String,
     pub facts_schema_version: u32,
+    /// Source snapshot identity (root, facts schema, file content digests).
+    /// Not a configured-project cache key: parser choices, manifests, provider
+    /// configuration and semantic observations are outside this identity.
     pub generation: String,
     pub digest: String,
     pub files: BTreeMap<String, String>,
@@ -474,6 +479,8 @@ impl CodeGraphBuilder {
         }
     }
 
+    /// Identifies source contents only. Consumers must separately validate the
+    /// producer/configuration before reusing semantic evidence across builders.
     pub fn generation(&self) -> String {
         generation_digest(
             &self.graph.snapshot.root,
@@ -1011,6 +1018,24 @@ mod tests {
             .add_semantic_relation(relation)
             .expect_err("stale evidence must fail");
         assert!(error.contains("generation"));
+    }
+
+    #[test]
+    fn source_generation_does_not_claim_provider_configuration_identity() {
+        let mut first = CodeGraphBuilder::new("/workspace", 1);
+        first.add_file("src/main.rs", "aaa").expect("source");
+        let mut second = CodeGraphBuilder::new("/workspace", 1);
+        second.add_file("src/main.rs", "aaa").expect("source");
+        let generation = first.generation();
+        let a = semantic(generation.clone());
+        let mut b = semantic(generation.clone());
+        b.server.configuration_digest = "different-config".to_owned();
+        first.add_semantic_relation(a).expect("first producer");
+        second.add_semantic_relation(b).expect("second producer");
+        let a = first.finish();
+        let b = second.finish();
+        assert_eq!(a.snapshot.generation, b.snapshot.generation);
+        assert_ne!(a.snapshot.digest, b.snapshot.digest);
     }
 
     fn observation(generation: String, outcome: SemanticOutcome) -> SemanticObservationInput {

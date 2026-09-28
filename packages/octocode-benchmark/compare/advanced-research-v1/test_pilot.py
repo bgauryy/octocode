@@ -263,7 +263,7 @@ class PilotControls(unittest.TestCase):
         base = f"node {self.cli} localFetch {shlex.quote(query)}"
         self.assertIsNone(policy.audit(base))
         self.assertIsNotNone(policy.audit(base.replace(str(self.source), "/etc/passwd")))
-        self.assertIsNotNone(policy.audit(f"node {self.cli} ghSearch '{{}}'"))
+        self.assertIsNotNone(policy.audit(f"node {self.cli} ghSearchCode '{{}}'"))
 
     def test_smart_case_is_an_allowed_raw_search_flag(self):
         for flag in ("-S", "--smart-case", "-s", "--case-sensitive"):
@@ -297,7 +297,7 @@ class PilotControls(unittest.TestCase):
 
     def test_recoverable_syntax_does_not_waive_scope_or_tool_restrictions(self):
         policy = pilot.Policy("octocode", self.cli, [self.corpus])
-        for suffix in ("auth", "skill install foo", "ghSearch '{}'",
+        for suffix in ("auth", "skill install foo", "ghSearchCode '{}'",
                        "localFetch '{\"path\":\"/etc/passwd\"}'"):
             issue = policy.audit(f"node {self.cli} {suffix}")
             self.assertIsNotNone(issue)

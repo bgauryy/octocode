@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { GitHubSearchBulkQuerySchema } from '@octocodeai/config/schema';
+import { GitHubSearchRepoBulkQuerySchema } from '@octocodeai/config/schema';
 import { LocalSearchBulkQuerySchema } from '@octocodeai/config/schema';
 import {
   AstTopologyBulkQuerySchema,
@@ -13,32 +13,29 @@ const q0 = (
 ) => schema.parse({ queries: [query] }).queries[0] as Record<string, unknown>;
 
 describe('Unified public pagination fields', () => {
-  it('ghSearch uses pageSize per page and does not expose a total limit', () => {
-    const query = q0(GitHubSearchBulkQuerySchema, {
+  it('ghSearchRepo uses pageSize per page and does not expose a total limit', () => {
+    const query = q0(GitHubSearchRepoBulkQuerySchema, {
       reasoning: 'exercise pagination fields',
-      operation: 'repositories',
       keywords: ['x'],
       page: 3,
       pageSize: 25,
     });
     expect(query).toMatchObject({ page: 3, pageSize: 25 });
     expect(
-      GitHubSearchBulkQuerySchema.safeParse({
+      GitHubSearchRepoBulkQuerySchema.safeParse({
         queries: [
           {
             reasoning: 'exercise pagination fields',
-            operation: 'repositories',
             limit: 10,
           },
         ],
       }).success
     ).toBe(false);
     expect(
-      GitHubSearchBulkQuerySchema.safeParse({
+      GitHubSearchRepoBulkQuerySchema.safeParse({
         queries: [
           {
             reasoning: 'exercise pagination fields',
-            operation: 'repositories',
             itemsPerPage: 10,
           },
         ],
@@ -85,7 +82,6 @@ describe('Unified public pagination fields', () => {
   it('astTopology distinguishes limit from pageSize', () => {
     const query = q0(AstTopologyBulkQuerySchema, {
       reasoning: 'exercise pagination fields',
-      operation: 'topology',
       analysis: 'cycles',
       path: '.',
       limit: 100,

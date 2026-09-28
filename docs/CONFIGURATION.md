@@ -212,7 +212,7 @@ Layering is **per field**: a workspace value replaces the global value for that 
 
 Every setting also has an **env var**, and env vars always win. See [Octocode configuration settings](generated/CONFIG_SETTINGS.md) for the complete generated example, env mappings, defaults, constraints, credential policy, and token priority (generated from the same contract consumed by TypeScript and Rust).
 
-Unknown keys emit a warning with their full path, so a misspelling like `local.enableLocl` is visible instead of silently defaulting. `tools.enabled` / `TOOLS_TO_RUN` is a strict allowlist (e.g. `["ghSearch","localSearch"]`); `tools.disabled` / `DISABLE_TOOLS` removes names from the default set. An allowlist cannot bypass availability policy — MCP still omits `clasify` unless `OCTOCODE_CLASSIFICATION_API` is nonblank.
+Unknown keys emit a warning with their full path, so a misspelling like `local.enableLocl` is visible instead of silently defaulting. `tools.enabled` / `TOOLS_TO_RUN` is a strict allowlist (e.g. `["ghSearchCode","localSearch"]`); `tools.disabled` / `DISABLE_TOOLS` removes names from the default set. An allowlist cannot bypass availability policy — MCP still omits `clasify` unless `OCTOCODE_CLASSIFICATION_API` is nonblank.
 
 ### How settings override each other
 

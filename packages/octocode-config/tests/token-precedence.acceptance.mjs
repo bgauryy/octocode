@@ -23,7 +23,7 @@ await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const endpoint = `http://127.0.0.1:${server.address().port}`;
 const groups = [
   {
-    tool: 'ghSearch',
+    tool: 'ghSearchRepo',
     aliases: [
       'OCTOCODE_TOKEN',
       'GH_TOKEN',
@@ -34,7 +34,6 @@ const groups = [
       queries: [
         {
           reasoning: 'Probe source precedence on a local fixture endpoint.',
-          operation: 'repositories',
           keywords: ['fixture'],
         },
       ],

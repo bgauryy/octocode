@@ -47,22 +47,116 @@ fn query() -> serde_json::Value {
 }
 
 #[tokio::test]
-async fn clasify_requires_non_blank_reasoning() {
+async fn clasify_accepts_optional_matrix_and_read_trace_context() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/systemone"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "model":"resolved",
+            "answers":{"answer":{"type":"noul","noul":0.8}},
+            "usage":{"input_tokens":2,"output_tokens":1}
+        })))
+        .expect(2)
+        .mount(&server)
+        .await;
     let workspace = Workspace::new();
-    let runtime = workspace.runtime(&[("OCTOCODE_CLASSIFICATION_API", "secret".into())]);
+    let file = workspace.write("trace.txt", "Evidence is present.\n");
+    let runtime = workspace.runtime(&[
+        ("OCTOCODE_CLASSIFICATION_API", "secret".into()),
+        ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
+        ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
+    ]);
     for reasoning in [None, Some("   ")] {
         let mut input = query();
+        input["resources"] =
+            json!([{"id":"source","context":{"tool":"localFetch","query":{"path":file}}}]);
+        input["questions"] =
+            json!([{"id":"relevant","type":"noul","instructions":"Is evidence present?"}]);
         match reasoning {
             Some(reasoning) => input["reasoning"] = json!(reasoning),
             None => {
                 input.as_object_mut().unwrap().remove("reasoning");
             }
         }
-        let error = runtime
+        let outcome = runtime
             .execute("semantic-reasoning".into(), "clasify".into(), input)
             .await
-            .expect_err("clasify reasoning is required and non-blank");
-        assert_eq!(error.code, "invalidInput");
+            .expect("trace context is optional");
+        assert_eq!(
+            outcome.structured_content["queries"][0]["resources"][0]["pages"][0]["answers"]["relevant"]
+                ["noul"],
+            0.8,
+            "{}",
+            outcome.structured_content
+        );
+    }
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn provider_byte_limit_ignores_trace_and_isolates_oversized_questions() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/systemone"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "model":"resolved",
+            "answers":{"answer":{"type":"noul","noul":0.8}},
+            "usage":{"input_tokens":2,"output_tokens":1}
+        })))
+        .expect(26)
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[
+        ("OCTOCODE_CLASSIFICATION_API", "secret".into()),
+        ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
+        ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
+    ]);
+    let mut ordinary = query();
+    ordinary["questions"] =
+        json!([{"id":"relevant","type":"noul","instructions":"Is evidence present?"}]);
+    let mut trace = ordinary.clone();
+    trace["id"] = json!("trace");
+    trace["reasoning"] = json!("trace-only ".repeat(900));
+    // The matrix exceeds 4 MiB, but each independently captured resource and
+    // provider request is within its own budget.
+    trace["resources"] = json!((0..25)
+        .map(|index| json!({"id":format!("source-{index}"),"context":{"value":"界".repeat(60_000)}}))
+        .collect::<Vec<_>>());
+    let mut oversized = ordinary.clone();
+    oversized["id"] = json!("oversized");
+    oversized["questions"][0]["instructions"] = json!(
+        (0..500)
+            .map(|index| (format!("section-{index}"), json!("evidence ".repeat(1000))))
+            .collect::<serde_json::Map<_, _>>()
+    );
+    let outcome = runtime
+        .execute(
+            "provider-byte-limit".into(),
+            "clasify".into(),
+            json!({"queries":[trace, oversized, ordinary]}),
+        )
+        .await
+        .expect("one oversized provider request must not fail the matrix batch");
+    let queries = &outcome.structured_content["queries"];
+    for index in [0, 2] {
+        assert_eq!(
+            queries[index]["resources"][0]["pages"][0]["answers"]["relevant"]["noul"], 0.8,
+            "{}",
+            outcome.structured_content
+        );
+    }
+    let oversized_resource = &queries[1]["resources"][0];
+    assert_eq!(oversized_resource["coverage"], "error");
+    let error = &oversized_resource["pages"][0]["answers"]["relevant"]["error"];
+    assert_eq!(error["code"], "invalidClassificationRequest");
+    assert!(error["message"].as_str().unwrap().contains("4 MiB"));
+    let requests = server.received_requests().await.unwrap();
+    assert_eq!(requests.len(), 26);
+    for request in requests {
+        let body = String::from_utf8(request.body).unwrap();
+        assert!(!body.contains("trace-only"));
+        assert!(body.len() < 200_000);
     }
     runtime.close().await;
 }
@@ -654,20 +748,16 @@ async fn payload_over_max_chars_returns_an_executable_clasify_continuation() {
 
 #[tokio::test]
 async fn invalid_inner_query_is_rejected_with_the_exact_contract_field() {
-    // A localFetch context missing `reasoning` is rejected before capture, and
-    // the contract detail names the offending nested field. The provider is
-    // never reached.
     let workspace = Workspace::new();
-    let file = workspace.write("dummy.txt", "content");
     let runtime = workspace.runtime(&[("OCTOCODE_CLASSIFICATION_API", "secret".into())]);
     let input = json!({
         "id": "bad-inner-query",
-        "reasoning": "Test that a missing inner reasoning surfaces its field name.",
+        "reasoning": "Test that an invalid inner path surfaces its field name.",
         "resources": [{
             "id": "r1",
             "context": {
                 "tool": "localFetch",
-                "query": { "path": file }
+                "query": { "path": 42 }
             }
         }],
         "questions": [{
@@ -678,15 +768,15 @@ async fn invalid_inner_query_is_rejected_with_the_exact_contract_field() {
     let error = runtime
         .execute("bad-inner-query".into(), "clasify".into(), input)
         .await
-        .expect_err("missing delegated reasoning must fail contract validation");
+        .expect_err("invalid delegated path must fail contract validation");
     assert_eq!(error.code, "invalidInput");
     let payload = error.payload.expect("structured validation payload");
     let details = payload["details"].as_array().expect("validation details");
     assert!(
         details.iter().any(|detail| detail
             .as_str()
-            .is_some_and(|detail| detail.contains("resources.0.context.query.reasoning"))),
-        "validation detail must name the nested reasoning field: {details:?}"
+            .is_some_and(|detail| detail.contains("resources.0.context.query.path"))),
+        "validation detail must name the nested path field: {details:?}"
     );
     runtime.close().await;
 }

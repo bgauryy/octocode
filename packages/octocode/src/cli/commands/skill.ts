@@ -53,7 +53,7 @@ ${bold('Remove options')}
 ${bold('Check options')}
   --platform <p>          Check specific platforms only
   --workspace             Also check <cwd>/.agents/skills
-  --fix                   Re-install missing/broken/stale locations automatically
+  --fix                   Refresh stale/broken installs in place (adds no new locations)
   --dry-run               With --fix: preview fixes without writing
   --no-env                Skip env param checks
 

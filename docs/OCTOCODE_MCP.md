@@ -57,15 +57,15 @@ At startup, the Node adapter loads the platform-specific Rust N-API addon (`@oct
 
 ## Tool catalog
 
-The full discovery catalog contains 14 tools. With default settings and no
-provider key, the MCP server registers 10: `ghCloneRepo` and `astRewrite` are
+The full discovery catalog contains 16 tools. With default settings and no
+provider key, the MCP server registers 12: `ghCloneRepo` and `astRewrite` are
 CLI-only and always omitted. `clasify` needs a nonblank resolved classification key: `OCTOCODE_CLASSIFICATION_API`, else the selected vendor's key (`OCTOCODE_JEV_KEY` for jev), else `.octocoderc` `classification.api` (a present-but-blank `OCTOCODE_CLASSIFICATION_API` disables it);
 `astTopology` needs `OCTOCODE_BETA=true`. Unavailable tools
 are omitted from MCP discovery entirely, not registered as failing calls.
 
 | Family | Tools |
 |--------|-------|
-| GitHub | `ghSearch`, `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem`, `ghCloneRepo` |
+| GitHub | `ghSearchRepo`, `ghSearchCode`, `ghStructure`, `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem`, `ghCloneRepo` |
 | Local | `localSearch`, `localFetch`, `structureSearch`, `astSearch`, `astTopology`, `lspSearch` (`astRewrite` is CLI-only) |
 | Package | `artifactSearch` |
 | Semantic assessment | `clasify` |
@@ -76,9 +76,9 @@ preview-first; applying a mutation requires the complete set of preview hashes.
 
 To read the live CLI catalog, run `octocode scheme`.
 
-`ghSearch` is the sole GitHub discovery entry point. Its strict
-`operation: "code" | "repositories" | "tree"` branches reject fields from
-other operations and removed compatibility names cannot be re-enabled.
+GitHub discovery is three tools with no `operation` field: `ghSearchRepo`
+(repositories), `ghSearchCode` (indexed code), and `ghStructure` (repository
+tree). Removed compatibility names cannot be re-enabled.
 
 Every tool accepts bulk input through `queries`, with up to 5 items per call. MCP
 publishes executable input schemas, descriptions, and availability metadata. It
@@ -121,10 +121,10 @@ active catalog entries.
 
 | Old name | New name |
 |---|---|
-| `github_search_code` | `ghSearch` |
+| `github_search_code` | `ghSearchCode` |
 | `github_fetch_content` | `ghGetFileContent` |
-| `github_view_repo_structure` | `ghSearch` (tree operation) |
-| `github_search_repos` | `ghSearch` (repositories operation) |
+| `github_view_repo_structure` | `ghStructure` |
+| `github_search_repos` | `ghSearchRepo` |
 | `github_search_pull_requests` | `ghSearchHistory` |
 | `github_clone_repo` | `ghCloneRepo` |
 | `local_analyze_graph` | `astTopology` |

@@ -4,6 +4,7 @@ import {
   isInstalledAtHome,
   linkedPlatforms,
   hasBroken,
+  hasStale,
 } from '../checker.js';
 import { getSkillEnvStatus, missingHint } from '../env-params.js';
 import { bold, c, dim } from '../../../../utils/colors.js';
@@ -18,6 +19,7 @@ export interface ListResult {
     linkedPlatforms: string[];
     hasWorkspaceLink: boolean;
     hasBroken: boolean;
+    hasStale: boolean;
     env: {
       readiness: string;
       params: Array<{
@@ -32,6 +34,7 @@ export interface ListResult {
   source: string;
   count: number;
   installedCount: number;
+  staleCount: number;
 }
 
 export function runList(opts: { json: boolean }): void {
@@ -49,6 +52,7 @@ export function runList(opts: { json: boolean }): void {
         check.workspace.status === 'linked' ||
         check.workspace.status === 'installed',
       hasBroken: hasBroken(check),
+      hasStale: hasStale(check),
       env: {
         readiness: env.readiness,
         params: env.params.map(param => ({
@@ -66,6 +70,7 @@ export function runList(opts: { json: boolean }): void {
     source: 'bundled',
     count: skills.length,
     installedCount: skills.filter(skill => skill.installed).length,
+    staleCount: skills.filter(skill => skill.hasStale).length,
     skills,
   };
 
@@ -73,22 +78,36 @@ export function runList(opts: { json: boolean }): void {
     console.log(JSON.stringify(result, null, 2));
     return;
   }
+  const stale = result.staleCount > 0 ? ` · ${result.staleCount} stale` : '';
   console.log(
-    `\n  ${bold('Octocode skills')} ${dim(`· ${result.installedCount}/${result.count} installed`)}`
+    `\n  ${bold('Octocode skills')} ${dim(`· ${result.installedCount}/${result.count} installed${stale}`)}`
   );
   if (skills.length === 0) console.log('  No bundled skills found.');
   for (const skill of skills) {
-    const icon = skill.hasBroken
-      ? c('yellow', '⚠')
-      : skill.installed
-        ? c('green', '✓')
-        : dim('–');
+    const icon =
+      skill.hasBroken || skill.hasStale
+        ? c('yellow', '⚠')
+        : skill.installed
+          ? c('green', '✓')
+          : dim('–');
+    const state = skill.hasBroken
+      ? c('yellow', ' [broken]')
+      : skill.hasStale
+        ? c('yellow', ' [stale]')
+        : '';
     const links =
       skill.linkedPlatforms.length > 0
         ? ` · ${skill.linkedPlatforms.join(', ')}`
         : '';
-    console.log(`  ${icon} ${skill.name}${dim(links)} — ${skill.description}`);
+    console.log(
+      `  ${icon} ${skill.name}${state}${dim(links)} — ${skill.description}`
+    );
     if (skill.env.hint) console.log(`    ${dim(`env: ${skill.env.hint}`)}`);
+  }
+  if (result.staleCount > 0 || skills.some(skill => skill.hasBroken)) {
+    console.log(
+      `\n  ${dim('Details:')} ${c('cyan', 'octocode skill check')} ${dim('· repair with')} ${c('cyan', 'octocode skill check --fix')}`
+    );
   }
   console.log();
 }

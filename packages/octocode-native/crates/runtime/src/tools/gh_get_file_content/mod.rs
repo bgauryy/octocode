@@ -176,7 +176,7 @@ where
         content.hints = vec![crate::tools::local_fetch::no_match_hint(
             query.match_string_is_regex.unwrap_or(false),
             query.match_string_case_sensitive.unwrap_or(false),
-            "ghSearch code",
+            "ghSearchCode",
         )];
         content.pagination = Some(crate::tools::local_fetch::Pagination {
             chunk_type: local.chunk_type.unwrap_or(ChunkType::Lines),

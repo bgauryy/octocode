@@ -274,7 +274,7 @@ describe('createNativeMcp registration + execution', () => {
         binding: bindingFor(() => ({
           fingerprint: getNativeContractFingerprint(),
           tools: [
-            tool('ghSearch', true),
+            tool('ghSearchCode', true),
             tool('localSearch', true),
             tool(TOOL_NAMES.CLASIFY, clasifyAvailable),
           ],
@@ -301,7 +301,7 @@ describe('createNativeMcp registration + execution', () => {
       expect(
         listed.tools.some(candidate => candidate.name === TOOL_NAMES.CLASIFY)
       ).toBe(clasifyAvailable);
-      for (const name of ['ghSearch', 'localSearch']) {
+      for (const name of ['ghSearchCode', 'localSearch']) {
         const schema = JSON.stringify(
           listed.tools.find(candidate => candidate.name === name)?.inputSchema
         );
@@ -322,7 +322,7 @@ describe('createNativeMcp registration + execution', () => {
         fingerprint: getNativeContractFingerprint(),
         tools: [
           tool('localFetch', true),
-          tool('ghSearch', false),
+          tool('ghSearchCode', false),
           tool('astTopology', false),
         ],
       })),
@@ -342,7 +342,7 @@ describe('createNativeMcp registration + execution', () => {
     expect(list.tools.every(t => !Object.hasOwn(t, 'outputSchema'))).toBe(true);
     const instructions = client.getInstructions();
     expect(instructions).toContain('localFetch');
-    expect(instructions).not.toContain('ghSearch');
+    expect(instructions).not.toContain('ghSearchCode');
     expect(instructions).not.toContain('astTopology');
 
     // Calling the tool drives the registered async callback → runtime.executeMcp.

@@ -1,5 +1,5 @@
 //! GitHub query syntax, matching the canonical provider query builders.
-use super::GhSearchQuery;
+use super::{GhSearchCodeQuery, GhSearchRepoQuery};
 
 use crate::providers::github::{
     ProviderError, SearchName, qualifier_value, quote_search_keyword, search_phrase,
@@ -19,14 +19,18 @@ fn push(parts: &mut Vec<String>, key: &str, value: Option<&str>) {
 
 /// Owner and repository names become `repo:`/`user:` scopes; reject any value
 /// that is not a GitHub name before it can rewrite the scope.
-pub(super) fn validate_scope(query: &GhSearchQuery) -> Result<(), ProviderError> {
-    let (owner, repo) = match query {
-        GhSearchQuery::Code { owner, repo, .. } => {
-            (Some(owner.as_str()), repo.as_deref().map(String::as_str))
-        }
-        GhSearchQuery::Repositories { owner, .. } => (owner.as_deref().map(String::as_str), None),
-        GhSearchQuery::Tree { .. } => return Ok(()),
-    };
+pub(super) fn validate_code_scope(query: &GhSearchCodeQuery) -> Result<(), ProviderError> {
+    validate_scope(
+        Some(query.owner.as_str()),
+        query.repo.as_deref().map(String::as_str),
+    )
+}
+
+pub(super) fn validate_repo_scope(query: &GhSearchRepoQuery) -> Result<(), ProviderError> {
+    validate_scope(query.owner.as_deref().map(String::as_str), None)
+}
+
+fn validate_scope(owner: Option<&str>, repo: Option<&str>) -> Result<(), ProviderError> {
     if let Some(owner) = owner {
         validate_search_name("owner", owner, SearchName::Owner)?;
     }
@@ -42,11 +46,14 @@ pub(super) fn validate_scope(query: &GhSearchQuery) -> Result<(), ProviderError>
 /// an absolute `>=YYYY-MM-DD` lower bound, which GitHub understands.
 fn range_value(value: &str, date: bool) -> String {
     let compact: String = value.chars().filter(|c| !c.is_whitespace()).collect();
-    let relative = compact.len() > 1
-        && compact[..compact.len() - 1]
-            .bytes()
-            .all(|c| c.is_ascii_digit())
-        && compact.ends_with(['h', 'd', 'w', 'm', 'y']);
+    let relative = compact
+        .as_bytes()
+        .split_last()
+        .is_some_and(|(unit, digits)| {
+            matches!(unit, b'h' | b'd' | b'w' | b'm' | b'y')
+                && !digits.is_empty()
+                && digits.iter().all(u8::is_ascii_digit)
+        });
     if date
         && relative
         && let Some(resolved) = crate::providers::github::resolve_date_window(&compact).value
@@ -56,18 +63,15 @@ fn range_value(value: &str, date: bool) -> String {
     compact
 }
 
-pub(super) fn code_has_narrowing_selector(query: &GhSearchQuery) -> bool {
-    let GhSearchQuery::Code {
+pub(super) fn code_has_narrowing_selector(query: &GhSearchCodeQuery) -> bool {
+    let GhSearchCodeQuery {
         keywords,
         path,
         extension,
         filename,
         language,
         ..
-    } = query
-    else {
-        return false;
-    };
+    } = query;
     keywords.iter().any(|value| !value.trim().is_empty())
         || [
             path.as_deref().map(String::as_str),
@@ -80,8 +84,8 @@ pub(super) fn code_has_narrowing_selector(query: &GhSearchQuery) -> bool {
         .any(|value| !value.trim().is_empty())
 }
 
-pub(super) fn code(query: &GhSearchQuery) -> String {
-    let GhSearchQuery::Code {
+pub(super) fn code(query: &GhSearchCodeQuery) -> String {
+    let GhSearchCodeQuery {
         keywords,
         owner,
         repo,
@@ -91,10 +95,7 @@ pub(super) fn code(query: &GhSearchQuery) -> String {
         filename,
         match_,
         ..
-    } = query
-    else {
-        return String::new();
-    };
+    } = query;
     let mut parts: Vec<String> = keywords
         .iter()
         .map(|v| quote_search_keyword(v))
@@ -125,8 +126,8 @@ pub(super) fn code(query: &GhSearchQuery) -> String {
     parts.join(" ").trim().into()
 }
 
-pub(super) fn repositories(query: &GhSearchQuery) -> String {
-    let GhSearchQuery::Repositories {
+pub(super) fn repositories(query: &GhSearchRepoQuery) -> String {
+    let GhSearchRepoQuery {
         keywords,
         owner,
         language,
@@ -142,10 +143,7 @@ pub(super) fn repositories(query: &GhSearchQuery) -> String {
         license,
         topics,
         ..
-    } = query
-    else {
-        return String::new();
-    };
+    } = query;
     let mut parts: Vec<String> = keywords
         .iter()
         .map(|v| quote_search_keyword(v))
@@ -189,14 +187,22 @@ pub(super) fn repositories(query: &GhSearchQuery) -> String {
 mod tests {
     use super::*;
 
-    fn parse(value: serde_json::Value) -> GhSearchQuery {
+    #[test]
+    fn range_qualifiers_preserve_unicode_without_panicking() {
+        for value in ["💥", "10💥", "é", "１２d"] {
+            assert_eq!(range_value(value, false), value);
+            assert_eq!(range_value(value, true), value);
+        }
+    }
+
+    fn parse<Q: serde::de::DeserializeOwned>(value: serde_json::Value) -> Q {
         serde_json::from_value(value).expect("query fixture")
     }
 
     #[test]
     fn repositories_exclude_archived_with_a_real_qualifier() {
         let q = repositories(&parse(
-            serde_json::json!({"operation":"repositories","reasoning":"test","keywords":["x"]}),
+            serde_json::json!({"reasoning":"test","keywords":["x"]}),
         ));
         assert!(q.contains("archived:false"), "{q}");
         assert!(!q.contains("is:not-archived"), "{q}");
@@ -205,7 +211,7 @@ mod tests {
     #[test]
     fn dotted_directory_path_stays_a_path_prefix() {
         let q = code(&parse(
-            serde_json::json!({"operation":"code","reasoning":"test","owner":"o","keywords":["merge"],"path":"types/lodash.merge"}),
+            serde_json::json!({"reasoning":"test","owner":"o","keywords":["merge"],"path":"types/lodash.merge"}),
         ));
         assert!(q.contains("path:\"types/lodash.merge\""), "{q}");
         assert!(!q.contains("filename:"), "{q}");
@@ -214,12 +220,12 @@ mod tests {
     #[test]
     fn qualifier_values_with_whitespace_are_quoted() {
         let q = code(&parse(
-            serde_json::json!({"operation":"code","reasoning":"test","owner":"o","keywords":["x"],"language":"Common Lisp","filename":"my file.txt"}),
+            serde_json::json!({"reasoning":"test","owner":"o","keywords":["x"],"language":"Common Lisp","filename":"my file.txt"}),
         ));
         assert!(q.contains("language:\"Common Lisp\""), "{q}");
         assert!(q.contains("filename:\"my file.txt\""), "{q}");
         let q = repositories(&parse(
-            serde_json::json!({"operation":"repositories","reasoning":"test","keywords":["x"],"topics":["machine learning"],"stars":"> 100"}),
+            serde_json::json!({"reasoning":"test","keywords":["x"],"topics":["machine learning"],"stars":"> 100"}),
         ));
         assert!(q.contains("topic:\"machine learning\""), "{q}");
         assert!(q.contains("stars:>100"), "{q}");
@@ -228,7 +234,7 @@ mod tests {
     #[test]
     fn reserved_boolean_keywords_are_quoted() {
         let q = code(&parse(
-            serde_json::json!({"operation":"code","reasoning":"test","owner":"o","keywords":["foo","OR","bar","NOT","and"]}),
+            serde_json::json!({"reasoning":"test","owner":"o","keywords":["foo","OR","bar","NOT","and"]}),
         ));
         assert!(q.starts_with("foo \"OR\" bar \"NOT\" \"and\""), "{q}");
     }
@@ -237,7 +243,7 @@ mod tests {
     fn leading_quote_keyword_cannot_negate_the_repo_scope() {
         // A raw `"hello" NOT` would bind NOT to the repo: qualifier.
         let q = code(&parse(serde_json::json!({
-            "operation":"code","reasoning":"test","owner":"octocat","repo":"Hello-World",
+            "reasoning":"test","owner":"octocat","repo":"Hello-World",
             "keywords":["\"hello\" NOT", "x\" OR repo:evil/x"]
         })));
         assert_eq!(
@@ -249,19 +255,19 @@ mod tests {
     #[test]
     fn scope_names_that_are_not_github_names_are_rejected() {
         for (owner, repo) in [("octocat OR is:public", None), ("a", Some("b\" OR x"))] {
-            let mut raw = serde_json::json!({"operation":"code","reasoning":"test","owner":owner,"keywords":["x"]});
+            let mut raw = serde_json::json!({"reasoning":"test","owner":owner,"keywords":["x"]});
             if let Some(repo) = repo {
                 raw["repo"] = serde_json::json!(repo);
             }
-            let error = validate_scope(&parse(raw)).expect_err("rejected");
+            let error = validate_code_scope(&parse(raw)).expect_err("rejected");
             assert_eq!(
                 error.kind,
                 crate::providers::github::ProviderErrorKind::Validation
             );
         }
         assert!(
-            validate_scope(&parse(
-                serde_json::json!({"operation":"code","reasoning":"test","owner":"octocat","repo":"Hello-World","keywords":["x"]})
+            validate_code_scope(&parse(
+                serde_json::json!({"reasoning":"test","owner":"octocat","repo":"Hello-World","keywords":["x"]})
             ))
             .is_ok()
         );
@@ -270,7 +276,7 @@ mod tests {
     #[test]
     fn relative_repository_dates_resolve_to_absolute_ranges() {
         let q = repositories(&parse(
-            serde_json::json!({"operation":"repositories","reasoning":"test","keywords":["x"],"updated":"30d","created":">2024-01-01"}),
+            serde_json::json!({"reasoning":"test","keywords":["x"],"updated":"30d","created":">2024-01-01"}),
         ));
         let pushed = q
             .split(' ')

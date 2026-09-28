@@ -5,7 +5,7 @@ use super::util::{
 };
 use super::{
     ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState, ArtifactSearchQuery,
-    ArtifactSearchQueryType,
+    ArtifactType,
 };
 use serde_json::Value;
 
@@ -24,21 +24,18 @@ pub(crate) async fn pypi(
         "https://pypi.org/pypi/{}/json",
         super::util::encode_component(package_name)
     ))?;
-    let Some(response) = client
-        .json(ArtifactSearchQueryType::Pypi, url, true, None)
-        .await?
-    else {
+    let Some(response) = client.json(ArtifactType::Pypi, url, true, None).await? else {
         return Ok(ArtifactProviderPage::empty(Some(0)));
     };
     let info = object_for(
-        object_for(&response, ArtifactSearchQueryType::Pypi)?
+        object_for(&response, ArtifactType::Pypi)?
             .get("info")
-            .ok_or_else(|| super::util::invalid(ArtifactSearchQueryType::Pypi))?,
-        ArtifactSearchQueryType::Pypi,
+            .ok_or_else(|| super::util::invalid(ArtifactType::Pypi))?,
+        ArtifactType::Pypi,
     )?;
-    let name = required(info.get("name"), ArtifactSearchQueryType::Pypi)?;
+    let name = required(info.get("name"), ArtifactType::Pypi)?;
     let mut artifact = ArtifactItem::new(
-        ArtifactSearchQueryType::Pypi,
+        ArtifactType::Pypi,
         name.clone(),
         format!(
             "https://pypi.org/project/{}/",
@@ -68,10 +65,10 @@ pub(crate) async fn pypi(
 fn crate_item(row: &serde_json::Map<String, Value>) -> Result<ArtifactItem, ArtifactError> {
     let name = required(
         row.get("name").or_else(|| row.get("id")),
-        ArtifactSearchQueryType::Crates,
+        ArtifactType::Crates,
     )?;
     let mut artifact = ArtifactItem::new(
-        ArtifactSearchQueryType::Crates,
+        ArtifactType::Crates,
         name.clone(),
         format!(
             "https://crates.io/crates/{}",
@@ -97,17 +94,14 @@ pub(crate) async fn crates(
             "https://crates.io/api/v1/crates/{}",
             super::util::encode_component(name)
         ))?;
-        let Some(response) = client
-            .json(ArtifactSearchQueryType::Crates, url, true, None)
-            .await?
-        else {
+        let Some(response) = client.json(ArtifactType::Crates, url, true, None).await? else {
             return Ok(ArtifactProviderPage::empty(Some(0)));
         };
         let row = object_for(
-            object_for(&response, ArtifactSearchQueryType::Crates)?
+            object_for(&response, ArtifactType::Crates)?
                 .get("crate")
-                .ok_or_else(|| super::util::invalid(ArtifactSearchQueryType::Crates))?,
-            ArtifactSearchQueryType::Crates,
+                .ok_or_else(|| super::util::invalid(ArtifactType::Crates))?,
+            ArtifactType::Crates,
         )?;
         return Ok(single(crate_item(row)?));
     }
@@ -122,29 +116,23 @@ pub(crate) async fn crates(
         ],
     )?;
     let response = client
-        .json(ArtifactSearchQueryType::Crates, url, false, None)
+        .json(ArtifactType::Crates, url, false, None)
         .await?
-        .ok_or_else(|| super::util::invalid(ArtifactSearchQueryType::Crates))?;
-    let data = object_for(&response, ArtifactSearchQueryType::Crates)?;
+        .ok_or_else(|| super::util::invalid(ArtifactType::Crates))?;
+    let data = object_for(&response, ArtifactType::Crates)?;
     let artifacts = rows(
         data.get("crates")
-            .ok_or_else(|| super::util::invalid(ArtifactSearchQueryType::Crates))?,
-        ArtifactSearchQueryType::Crates,
+            .ok_or_else(|| super::util::invalid(ArtifactType::Crates))?,
+        ArtifactType::Crates,
     )?
     .iter()
-    .map(|row| crate_item(object_for(row, ArtifactSearchQueryType::Crates)?))
+    .map(|row| crate_item(object_for(row, ArtifactType::Crates)?))
     .collect::<Result<Vec<_>, _>>()?;
     let count = data
         .get("meta")
         .and_then(Value::as_object)
         .and_then(|meta| total(meta.get("total")));
-    paged(
-        artifacts,
-        count,
-        page,
-        size,
-        ArtifactSearchQueryType::Crates,
-    )
+    paged(artifacts, count, page, size, ArtifactType::Crates)
 }
 
 pub(crate) async fn go(
@@ -156,23 +144,23 @@ pub(crate) async fn go(
         let path = coordinate_path(name);
         let module_url = parse_url(&format!("https://pkg.go.dev/v1/module/{path}"))?;
         let mut response = client
-            .json(ArtifactSearchQueryType::Go, module_url, true, None)
+            .json(ArtifactType::Go, module_url, true, None)
             .await?;
         let mut is_package = false;
         if response.is_none() {
             let package_url = parse_url(&format!("https://pkg.go.dev/v1/package/{path}"))?;
             response = client
-                .json(ArtifactSearchQueryType::Go, package_url, true, None)
+                .json(ArtifactType::Go, package_url, true, None)
                 .await?;
             is_package = true;
         }
         let Some(response) = response else {
             return Ok(ArtifactProviderPage::empty(Some(0)));
         };
-        let row = object_for(&response, ArtifactSearchQueryType::Go)?;
-        let returned = required(row.get("path"), ArtifactSearchQueryType::Go)?;
+        let row = object_for(&response, ArtifactType::Go)?;
+        let returned = required(row.get("path"), ArtifactType::Go)?;
         let mut artifact = ArtifactItem::new(
-            ArtifactSearchQueryType::Go,
+            ArtifactType::Go,
             returned.clone(),
             format!("https://pkg.go.dev/{}", coordinate_path(&returned)),
         );
@@ -196,21 +184,21 @@ pub(crate) async fn go(
         ],
     )?;
     let response = client
-        .json(ArtifactSearchQueryType::Go, url, false, None)
+        .json(ArtifactType::Go, url, false, None)
         .await?
-        .ok_or_else(|| super::util::invalid(ArtifactSearchQueryType::Go))?;
-    let data = object_for(&response, ArtifactSearchQueryType::Go)?;
+        .ok_or_else(|| super::util::invalid(ArtifactType::Go))?;
+    let data = object_for(&response, ArtifactType::Go)?;
     let artifacts = rows(
         data.get("items")
-            .ok_or_else(|| super::util::invalid(ArtifactSearchQueryType::Go))?,
-        ArtifactSearchQueryType::Go,
+            .ok_or_else(|| super::util::invalid(ArtifactType::Go))?,
+        ArtifactType::Go,
     )?
     .iter()
     .map(|value| {
-        let row = object_for(value, ArtifactSearchQueryType::Go)?;
-        let name = required(row.get("packagePath"), ArtifactSearchQueryType::Go)?;
+        let row = object_for(value, ArtifactType::Go)?;
+        let name = required(row.get("packagePath"), ArtifactType::Go)?;
         let mut artifact = ArtifactItem::new(
-            ArtifactSearchQueryType::Go,
+            ArtifactType::Go,
             name.clone(),
             format!("https://pkg.go.dev/{}", coordinate_path(&name)),
         );
@@ -234,9 +222,9 @@ pub(crate) async fn go(
 }
 
 fn composer(row: &serde_json::Map<String, Value>) -> Result<ArtifactItem, ArtifactError> {
-    let name = required(row.get("name"), ArtifactSearchQueryType::Packagist)?;
+    let name = required(row.get("name"), ArtifactType::Packagist)?;
     let mut artifact = ArtifactItem::new(
-        ArtifactSearchQueryType::Packagist,
+        ArtifactType::Packagist,
         name.clone(),
         format!("https://packagist.org/packages/{}", coordinate_path(&name)),
     );
@@ -264,7 +252,7 @@ pub(crate) async fn packagist(
             coordinate_path(&name)
         ))?;
         let mut response = client
-            .json(ArtifactSearchQueryType::Packagist, tagged_url, true, None)
+            .json(ArtifactType::Packagist, tagged_url, true, None)
             .await?;
         let mut entries = packagist_entries(response.as_ref(), &name)?;
         if entries.is_empty() {
@@ -273,14 +261,14 @@ pub(crate) async fn packagist(
                 coordinate_path(&name)
             ))?;
             response = client
-                .json(ArtifactSearchQueryType::Packagist, dev_url, true, None)
+                .json(ArtifactType::Packagist, dev_url, true, None)
                 .await?;
             entries = packagist_entries(response.as_ref(), &name)?;
         }
         return if let Some(first) = entries.first() {
             Ok(single(composer(object_for(
                 first,
-                ArtifactSearchQueryType::Packagist,
+                ArtifactType::Packagist,
             )?)?))
         } else {
             Ok(ArtifactProviderPage::empty(Some(0)))
@@ -297,17 +285,17 @@ pub(crate) async fn packagist(
         ],
     )?;
     let response = client
-        .json(ArtifactSearchQueryType::Packagist, url, false, None)
+        .json(ArtifactType::Packagist, url, false, None)
         .await?
-        .ok_or_else(|| super::util::invalid(ArtifactSearchQueryType::Packagist))?;
-    let data = object_for(&response, ArtifactSearchQueryType::Packagist)?;
+        .ok_or_else(|| super::util::invalid(ArtifactType::Packagist))?;
+    let data = object_for(&response, ArtifactType::Packagist)?;
     let artifacts = rows(
         data.get("results")
-            .ok_or_else(|| super::util::invalid(ArtifactSearchQueryType::Packagist))?,
-        ArtifactSearchQueryType::Packagist,
+            .ok_or_else(|| super::util::invalid(ArtifactType::Packagist))?,
+        ArtifactType::Packagist,
     )?
     .iter()
-    .map(|row| composer(object_for(row, ArtifactSearchQueryType::Packagist)?))
+    .map(|row| composer(object_for(row, ArtifactType::Packagist)?))
     .collect::<Result<Vec<_>, _>>()?;
     Ok(ArtifactProviderPage {
         next_state: string(data.get("next")).map(|_| ArtifactProviderState {
@@ -328,9 +316,9 @@ fn packagist_entries<'a>(
     let Some(response) = response else {
         return Ok(&[]);
     };
-    let packages = object_for(response, ArtifactSearchQueryType::Packagist)?
+    let packages = object_for(response, ArtifactType::Packagist)?
         .get("packages")
-        .ok_or_else(|| super::util::invalid(ArtifactSearchQueryType::Packagist))?;
+        .ok_or_else(|| super::util::invalid(ArtifactType::Packagist))?;
     Ok(packages
         .as_object()
         .and_then(|value| value.get(name))
@@ -340,9 +328,9 @@ fn packagist_entries<'a>(
 }
 
 fn gem(row: &serde_json::Map<String, Value>) -> Result<ArtifactItem, ArtifactError> {
-    let name = required(row.get("name"), ArtifactSearchQueryType::Rubygems)?;
+    let name = required(row.get("name"), ArtifactType::Rubygems)?;
     let mut artifact = ArtifactItem::new(
-        ArtifactSearchQueryType::Rubygems,
+        ArtifactType::Rubygems,
         name.clone(),
         format!(
             "https://rubygems.org/gems/{}",
@@ -371,16 +359,10 @@ pub(crate) async fn rubygems(
             "https://rubygems.org/api/v1/gems/{}.json",
             super::util::encode_component(name)
         ))?;
-        let Some(response) = client
-            .json(ArtifactSearchQueryType::Rubygems, url, true, None)
-            .await?
-        else {
+        let Some(response) = client.json(ArtifactType::Rubygems, url, true, None).await? else {
             return Ok(ArtifactProviderPage::empty(Some(0)));
         };
-        return Ok(single(gem(object_for(
-            &response,
-            ArtifactSearchQueryType::Rubygems,
-        )?)?));
+        return Ok(single(gem(object_for(&response, ArtifactType::Rubygems)?)?));
     }
     let page = state.page.unwrap_or(1);
     let url = endpoint(
@@ -391,10 +373,10 @@ pub(crate) async fn rubygems(
         ],
     )?;
     let response = client
-        .json(ArtifactSearchQueryType::Rubygems, url, false, None)
+        .json(ArtifactType::Rubygems, url, false, None)
         .await?
-        .ok_or_else(|| super::util::invalid(ArtifactSearchQueryType::Rubygems))?;
-    let fetched = rows(&response, ArtifactSearchQueryType::Rubygems)?;
+        .ok_or_else(|| super::util::invalid(ArtifactType::Rubygems))?;
+    let fetched = rows(&response, ArtifactType::Rubygems)?;
     // rubygems.org ignores per-page sizing (fixed ~30 rows per API page), so
     // honor pageSize by windowing within the fetched page via the cursor
     // offset and advancing to the next API page once it is drained.
@@ -404,7 +386,7 @@ pub(crate) async fn rubygems(
         .iter()
         .skip(skip)
         .take(size)
-        .map(|row| gem(object_for(row, ArtifactSearchQueryType::Rubygems)?))
+        .map(|row| gem(object_for(row, ArtifactType::Rubygems)?))
         .collect::<Result<Vec<_>, _>>()?;
     let consumed = skip + artifacts.len();
     let next_state = if artifacts.is_empty() {
@@ -449,7 +431,7 @@ fn paged(
     total: Option<u64>,
     page: u64,
     size: usize,
-    artifact_type: ArtifactSearchQueryType,
+    artifact_type: ArtifactType,
 ) -> Result<ArtifactProviderPage, ArtifactError> {
     let more = total
         .map(|count| page.saturating_mul(size as u64) < count)
@@ -457,7 +439,7 @@ fn paged(
     let terminal_limit = (more && artifacts.is_empty()).then(|| {
         format!(
             "{} returned an empty page before its reported total.",
-            if artifact_type == ArtifactSearchQueryType::Crates {
+            if artifact_type == ArtifactType::Crates {
                 "crates.io"
             } else {
                 artifact_type.as_str()
@@ -517,7 +499,7 @@ mod tests {
         RequestBudget::with_timeout(Duration::from_secs(10), 10_000_000)
     }
 
-    fn exact_query(artifact_type: ArtifactSearchQueryType, name: &str) -> ArtifactSearchQuery {
+    fn exact_query(artifact_type: ArtifactType, name: &str) -> ArtifactSearchQuery {
         artifact_query(
             serde_json::json!({"type": artifact_type, "packageName": name.to_string()}),
             None,
@@ -543,7 +525,7 @@ mod tests {
             cache_revision: 0,
             cache_enabled: false,
         };
-        let q = exact_query(ArtifactSearchQueryType::Pypi, "requests");
+        let q = exact_query(ArtifactType::Pypi, "requests");
         let page = pypi(&q, &client).await.expect("pypi");
         assert_eq!(page.artifacts.len(), 1);
         let item = &page.artifacts[0];
@@ -575,7 +557,7 @@ mod tests {
             cache_revision: 0,
             cache_enabled: false,
         };
-        let q = exact_query(ArtifactSearchQueryType::Crates, "serde");
+        let q = exact_query(ArtifactType::Crates, "serde");
         let page = crates(&q, &ArtifactProviderState::default(), &client)
             .await
             .expect("crates");
@@ -604,7 +586,7 @@ mod tests {
             cache_revision: 0,
             cache_enabled: false,
         };
-        let q = exact_query(ArtifactSearchQueryType::Go, "github.com/gin-gonic/gin");
+        let q = exact_query(ArtifactType::Go, "github.com/gin-gonic/gin");
         let page = go(&q, &ArtifactProviderState::default(), &client)
             .await
             .expect("go");
@@ -641,7 +623,7 @@ mod tests {
             cache_revision: 0,
             cache_enabled: false,
         };
-        let q = exact_query(ArtifactSearchQueryType::Packagist, "laravel/framework");
+        let q = exact_query(ArtifactType::Packagist, "laravel/framework");
         let page = packagist(&q, &ArtifactProviderState::default(), &client)
             .await
             .expect("packagist");
@@ -672,7 +654,7 @@ mod tests {
             cache_revision: 0,
             cache_enabled: false,
         };
-        let q = exact_query(ArtifactSearchQueryType::Rubygems, "rails");
+        let q = exact_query(ArtifactType::Rubygems, "rails");
         let page = rubygems(&q, &ArtifactProviderState::default(), &client)
             .await
             .expect("rubygems");

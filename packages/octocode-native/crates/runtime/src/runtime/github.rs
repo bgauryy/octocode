@@ -153,8 +153,8 @@ impl GitHubServices {
                     provider_error(error)
                 } else if tool == "ghGetFileContent" {
                     file_error(error, query)
-                } else if tool == "ghSearch" {
-                    search_error(error)
+                } else if matches!(tool, "ghSearchRepo" | "ghSearchCode" | "ghStructure") {
+                    search_error(tool, error)
                 } else {
                     history_error(error, tool == "ghSearchHistory")
                 });
@@ -221,8 +221,8 @@ impl GitHubServices {
                 self.execute_history_item_resolved(query, request_context, context, security)
                     .await
             }
-            "ghSearch" => {
-                self.execute_search_resolved(query, request_context, context, security)
+            "ghSearchRepo" | "ghSearchCode" | "ghStructure" => {
+                self.execute_search_resolved(tool, query, request_context, context, security)
                     .await
             }
             "ghSearchHistory" => {
@@ -287,24 +287,36 @@ impl GitHubServices {
 
     async fn execute_search_resolved(
         &self,
+        tool: &str,
         query: &Value,
         request_context: &RequestContext,
         context: &ExecutionContext,
         security: &ContentSecurity,
     ) -> Result<DomainResult, ExecutionError> {
         context.check()?;
-        let query: gh_search::GhSearchQuery = match super::dispatch::parse_query(query.clone()) {
-            Ok(query) => query,
-            Err(row) => return Ok(*row),
+        macro_rules! parsed {
+            ($type:ty) => {
+                match super::dispatch::parse_query::<$type>(query.clone()) {
+                    Ok(query) => query,
+                    Err(row) => return Ok(*row),
+                }
+            };
+        }
+        let result = match tool {
+            "ghSearchCode" => {
+                let query = parsed!(gh_search::GhSearchCodeQuery);
+                gh_search::execute_code(&self.provider, &query, request_context, security).await
+            }
+            "ghSearchRepo" => {
+                let query = parsed!(gh_search::GhSearchRepoQuery);
+                gh_search::execute_repositories(&self.provider, &query, request_context).await
+            }
+            _ => {
+                let query = parsed!(gh_search::GhStructureQuery);
+                gh_search::execute_structure(&self.provider, &query, request_context, &self.home)
+                    .await
+            }
         };
-        let result = gh_search::execute(
-            &self.provider,
-            &query,
-            request_context,
-            security,
-            &self.home,
-        )
-        .await;
         context.check()?;
         Ok(match result {
             Ok(output) => DomainResult {
@@ -315,7 +327,7 @@ impl GitHubServices {
                 source_digest: None,
                 failure: (output.status == Some("error")).then_some(FailureKind::Execution),
             },
-            Err(error) => search_error(error),
+            Err(error) => search_error(tool, error),
         })
     }
 
@@ -641,15 +653,14 @@ fn attach_pull_request_recovery(data: &mut Value, query: &Value) {
     }});
 }
 
-/// Advisory ghSearch tree query for ghGetFileContent recovery. The output
-/// contract validates it against the ghSearch tree-continuation schema, which
+/// Advisory ghStructure query for ghGetFileContent recovery. The output
+/// contract validates it against the ghStructure continuation schema, which
 /// requires the paginated defaulted fields: stamp the contract defaults (fresh
 /// page 1 — this starts a new bounded query, not a next-page of the fetch).
 fn tree_recovery(owner: &str, repo: &str, path: &str, query: &Value) -> Value {
     let mut tree = json!({
-        "tool": "ghSearch",
+        "tool": "ghStructure",
         "query": {
-            "operation": "tree",
             "owner": owner,
             "repo": repo,
             "path": path,
@@ -689,18 +700,27 @@ fn failure_kind(kind: ProviderErrorKind) -> FailureKind {
     }
 }
 
-/// Error formatter for ghSearch. Like `history_error`, the output contract
-/// requires `data.error` to be a plain string; this variant carries a
-/// ghSearch-specific message/hint set, so keep it separate.
-fn search_error(error: ProviderError) -> DomainResult {
+/// Error formatter for ghSearchRepo, ghSearchCode, and ghStructure. Like
+/// `history_error`, the output contract requires `data.error` to be a plain
+/// string; this variant carries a search-specific message/hint set, so keep it
+/// separate.
+fn search_error(tool: &str, error: ProviderError) -> DomainResult {
     let failure = failure_kind(error.kind);
     let message = match error.kind {
         ProviderErrorKind::Authentication => "GitHub authentication required".to_owned(),
         ProviderErrorKind::Permission => error.message.to_string(),
         ProviderErrorKind::NotFound => "Repository or resource not found".to_owned(),
         ProviderErrorKind::RateLimited => error.message.to_string(),
+        // Keep GitHub's own 422 detail (e.g. `"abc" is not a numeric value`,
+        // `The search is longer than 256 characters`): it names the bad input.
         ProviderErrorKind::Validation if error.status == Some(422) => {
-            "Invalid search query or request parameters".to_owned()
+            let detail = error.message.trim();
+            let detail = detail.strip_prefix("Validation Failed: ").unwrap_or(detail);
+            if detail.is_empty() || detail.eq_ignore_ascii_case("Validation Failed") {
+                "Invalid search query or request parameters".to_owned()
+            } else {
+                format!("Invalid search query or request parameters: {detail}")
+            }
         }
         ProviderErrorKind::Server if matches!(error.status, Some(502..=504)) => {
             "GitHub API temporarily unavailable".to_owned()
@@ -721,9 +741,11 @@ fn search_error(error: ProviderError) -> DomainResult {
     } else if error.kind == ProviderErrorKind::Validation
         && error.reason == Some(ProviderErrorReason::SearchWindowExceeded)
     {
-        data["hints"] = json!([
+        data["hints"] = json!([if tool == "ghSearchRepo" {
+            "Lower page, or narrow with keywords, stars, created, or updated to reach deeper results."
+        } else {
             "Lower page, or narrow with path, extension, or filename to reach deeper results."
-        ]);
+        }]);
     }
     apply_provider_error_metadata(&mut data, &error);
     DomainResult {
@@ -861,7 +883,7 @@ mod tests {
             reason: None,
         };
         for result in [
-            search_error(error()),
+            search_error("ghSearchCode", error()),
             history_error(error(), true),
             history_error(error(), false),
             file_error(error(), &json!({"owner":"a","repo":"b","path":"x"})),
@@ -882,6 +904,48 @@ mod tests {
     }
 
     #[test]
+    fn search_validation_keeps_github_detail_and_tool_specific_window_hint() {
+        let error = |message: &str, reason| ProviderError {
+            kind: ProviderErrorKind::Validation,
+            message: message.into(),
+            status: Some(422),
+            request_id: None,
+            documentation_url: None,
+            rate_limit: None,
+            retryable: false,
+            reason,
+        };
+        let result = search_error(
+            "ghSearchRepo",
+            error("\"abc\" is not a numeric value", None),
+        );
+        assert_eq!(
+            result.data["error"],
+            "Invalid search query or request parameters: \"abc\" is not a numeric value"
+        );
+        let generic = search_error("ghSearchCode", error("Validation Failed", None));
+        assert_eq!(
+            generic.data["error"],
+            "Invalid search query or request parameters"
+        );
+        let window = Some(ProviderErrorReason::SearchWindowExceeded);
+        let repo = search_error("ghSearchRepo", error("window", window));
+        assert!(
+            !repo.data["hints"][0]
+                .as_str()
+                .unwrap()
+                .contains("extension")
+        );
+        let code = search_error("ghSearchCode", error("window", window));
+        assert!(
+            code.data["hints"][0]
+                .as_str()
+                .unwrap()
+                .contains("extension")
+        );
+    }
+
+    #[test]
     fn permission_errors_keep_the_provider_reason_across_github_tools() {
         let reason = "Resource protected by organization SAML SSO authorization";
         let error = || ProviderError {
@@ -895,7 +959,7 @@ mod tests {
             reason: None,
         };
         for result in [
-            search_error(error()),
+            search_error("ghSearchCode", error()),
             history_error(error(), true),
             history_error(error(), false),
             file_error(
@@ -1036,7 +1100,7 @@ mod tests {
         let query = json!({"owner":"a","repo":"b","path":"src","branch":"main"});
         let error = ProviderError::new(
             ProviderErrorKind::Validation,
-            "Path \"src\" is a directory, not a file; list it with ghSearch operation:\"tree\".",
+            "Path \"src\" is a directory, not a file; list it with ghStructure.",
         )
         .with_reason(ProviderErrorReason::PathIsDirectory);
         let result = file_error(error, &query);

@@ -1,5 +1,6 @@
 mod algorithms;
 mod analysis;
+mod cargo;
 mod graph;
 mod packages;
 mod types;
@@ -111,7 +112,7 @@ mod drift_tests {
                     .expect("fixture file");
             }
         }
-        let query = json!({"operation":"topology","reasoning":"test","analysis":"cycles","path":root.path()});
+        let query = json!({"reasoning":"test","analysis":"cycles","path":root.path()});
         let error = run(query.clone(), root.path()).expect_err("scope refused");
         assert_eq!(error.code, "ast.graph.scopeTooBroad");
         assert!(
@@ -156,7 +157,7 @@ mod drift_tests {
         })
         .expect("paths");
         let security = ContentSecurity::new();
-        let query: AstTopologyQuery = serde_json::from_value(json!({"operation":"topology","reasoning":"test","analysis":"dependencies","path":root,"file":"include/widget.h","languageGlobs":{"cpp":["include/**/*.h"]}})).expect("query");
+        let query: AstTopologyQuery = serde_json::from_value(json!({"reasoning":"test","analysis":"dependencies","path":root,"file":"include/widget.h","languageGlobs":{"cpp":["include/**/*.h"]}})).expect("query");
         let built = graph::build_graph(&query, &paths, &security, &Active).expect("graph");
         assert!(
             built
@@ -201,7 +202,7 @@ mod drift_tests {
         let base = root.join("base");
         let out = run(
             json!({
-                "operation":"topology","reasoning":"test","analysis":"drift",
+                "reasoning":"test","analysis":"drift",
                 "path": head.to_string_lossy(),
                 "baseline": base.to_string_lossy()
             }),
@@ -233,12 +234,12 @@ mod drift_tests {
         // The wire contract scopes baseline to drift and requires it there.
         let parse = |query: Value| serde_json::from_value::<AstTopologyQuery>(query);
         assert!(
-            parse(json!({"operation":"topology","reasoning":"test","analysis":"cycles","path":root.to_string_lossy(),"baseline":root.to_string_lossy()}))
+            parse(json!({"reasoning":"test","analysis":"cycles","path":root.to_string_lossy(),"baseline":root.to_string_lossy()}))
                 .is_err(),
             "baseline rejected on cycles"
         );
         assert!(
-            parse(json!({"operation":"topology","reasoning":"test","analysis":"drift","path":root.to_string_lossy()}))
+            parse(json!({"reasoning":"test","analysis":"drift","path":root.to_string_lossy()}))
                 .is_err(),
             "drift requires baseline"
         );
@@ -260,7 +261,7 @@ mod drift_tests {
         std::fs::write(root.join("bar.rs"), "pub fn thing() {}\n").unwrap();
 
         let out = run(
-            json!({"operation":"topology","reasoning":"test","analysis":"cycles","path":root.to_string_lossy()}),
+            json!({"reasoning":"test","analysis":"cycles","path":root.to_string_lossy()}),
             root,
         )
         .expect("cycles result");
@@ -304,7 +305,7 @@ mod drift_tests {
         .unwrap();
 
         let out = run(
-            json!({"operation":"topology","reasoning":"test","analysis":"cycles","path":root.to_string_lossy()}),
+            json!({"reasoning":"test","analysis":"cycles","path":root.to_string_lossy()}),
             root,
         )
         .expect("cycles result");
@@ -355,7 +356,7 @@ mod drift_tests {
         std::fs::write(root.join("tsdb/db_test.go"), "package tsdb\n").unwrap();
 
         let out = run(
-            json!({"operation":"topology","reasoning":"test","analysis":"dependencies","path":root.to_string_lossy(),"file":"main.go"}),
+            json!({"reasoning":"test","analysis":"dependencies","path":root.to_string_lossy(),"file":"main.go"}),
             root,
         )
         .expect("dependencies");
@@ -368,7 +369,7 @@ mod drift_tests {
         assert!(rows.iter().all(|r| r["importLine"] == 5), "{out}");
 
         let dependents = run(
-            json!({"operation":"topology","reasoning":"test","analysis":"dependents","path":root.to_string_lossy(),"file":"tsdb/head.go"}),
+            json!({"reasoning":"test","analysis":"dependents","path":root.to_string_lossy(),"file":"tsdb/head.go"}),
             root,
         )
         .expect("dependents");
@@ -393,7 +394,7 @@ mod drift_tests {
         .unwrap();
 
         let out = run(
-            json!({"operation":"topology","reasoning":"test","analysis":"dependencies","path":root.to_string_lossy(),"file":"src/com/acme/App.java"}),
+            json!({"reasoning":"test","analysis":"dependencies","path":root.to_string_lossy(),"file":"src/com/acme/App.java"}),
             root,
         )
         .expect("dependencies");
@@ -416,7 +417,7 @@ mod drift_tests {
         std::fs::write(root.join("b.ts"), "export const b = 1;\n").unwrap();
 
         let out = run(
-            json!({"operation":"topology","reasoning":"test","analysis":"path","path":root.to_string_lossy(),"file":"a.ts","target":"b.ts"}),
+            json!({"reasoning":"test","analysis":"path","path":root.to_string_lossy(),"file":"a.ts","target":"b.ts"}),
             root,
         )
         .expect("path result");
@@ -433,7 +434,7 @@ mod drift_tests {
             std::fs::write(root.join(format!("f{i}.js")), "export const x = 1;\n").unwrap();
         }
         std::fs::write(root.join("a.js"), "export const a = 1;\n").unwrap();
-        let query = |page: u32| json!({"operation":"topology","reasoning":"test","analysis":"reachability","path":root.to_string_lossy(),"pageSize":2,"page":page});
+        let query = |page: u32| json!({"reasoning":"test","analysis":"reachability","path":root.to_string_lossy(),"pageSize":2,"page":page});
 
         let first = run(query(1), root).expect("page 1");
         let second = run(query(2), root).expect("page 2");
@@ -458,7 +459,7 @@ mod drift_tests {
         std::fs::write(root.join("unread.ts"), [0xff]).unwrap();
 
         let out = run(
-            json!({"operation":"topology","reasoning":"test","analysis":"dependencies","path":root.to_string_lossy(),"file":"entry.ts"}),
+            json!({"reasoning":"test","analysis":"dependencies","path":root.to_string_lossy(),"file":"entry.ts"}),
             root,
         )
         .expect("dependencies result");
@@ -491,7 +492,7 @@ mod drift_tests {
         .unwrap();
 
         let out = run(
-            json!({"operation":"topology","reasoning":"test","analysis":"dependencies","path":root.to_string_lossy(),"file":"entry.ts"}),
+            json!({"reasoning":"test","analysis":"dependencies","path":root.to_string_lossy(),"file":"entry.ts"}),
             root,
         )
         .expect("dependencies result");
@@ -514,7 +515,7 @@ mod drift_tests {
         std::fs::write(root.join("two.py"), "def two(): pass\n").unwrap();
 
         let out = run(
-            json!({"operation":"topology","reasoning":"test","analysis":"cycles","path":root.to_string_lossy()}),
+            json!({"reasoning":"test","analysis":"cycles","path":root.to_string_lossy()}),
             root,
         )
         .expect("cycles result");
@@ -569,7 +570,7 @@ mod dead_code_root_tests {
         std::fs::write(root.join("src/helper.rs"), "pub fn run() {}\n").unwrap();
 
         let out = run(
-            json!({"operation":"topology","reasoning":"test","analysis":"deadCode","path":root.to_string_lossy()}),
+            json!({"reasoning":"test","analysis":"deadCode","path":root.to_string_lossy()}),
             root,
         )
         .expect("dead code result");
@@ -611,7 +612,7 @@ mod dead_code_root_tests {
         std::fs::write(root.join("util.rs"), "pub fn util() {}\n").unwrap();
 
         let out = run(
-            json!({"operation":"topology","reasoning":"test","analysis":"deadCode","path":root.to_string_lossy()}),
+            json!({"reasoning":"test","analysis":"deadCode","path":root.to_string_lossy()}),
             root,
         )
         .expect("dead code result");
@@ -636,7 +637,7 @@ mod dead_code_root_tests {
             std::fs::write(root.join(name), content).unwrap();
         }
         let out = run(
-            json!({"operation":"topology","reasoning":"test","analysis":"deadCode","path":root.to_string_lossy(),"entrypoints":["main.ts"]}),
+            json!({"reasoning":"test","analysis":"deadCode","path":root.to_string_lossy(),"entrypoints":["main.ts"]}),
             root,
         )
         .expect("dead code result");
@@ -748,7 +749,7 @@ mod dead_code_root_tests {
         std::fs::write(root.join("mod.ts"), "export function unused() {}\n").unwrap();
         std::fs::write(root.join("main.ts"), "import './mod'\n").unwrap();
         let out = run(
-            json!({"operation":"topology","reasoning":"test","analysis":"deadCode","path":root.to_string_lossy(),"entrypoints":["main.ts"]}),
+            json!({"reasoning":"test","analysis":"deadCode","path":root.to_string_lossy(),"entrypoints":["main.ts"]}),
             root,
         )
         .expect("dead code result");

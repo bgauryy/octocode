@@ -9,7 +9,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 const here = dirname(fileURLToPath(import.meta.url));
 const root = mkdtempSync(join(tmpdir(), 'jev-proxy-selftest-'));
 const clients = [];
-const ordinary = ['ghSearch', 'ghGetFileContent', 'ghSearchHistory', 'ghGetHistoryItem', 'artifactSearch'];
+const ordinary = ['ghSearchRepo', 'ghSearchCode', 'ghStructure', 'ghGetFileContent', 'ghSearchHistory', 'ghGetHistoryItem', 'artifactSearch'];
 async function connect(arm, id) {
   const dir = join(root, id);
   mkdirSync(dir);
@@ -33,15 +33,15 @@ try {
   assert.deepEqual(catalog.tools.map(tool => tool.name), [...ordinary, 'jev']);
   assert.equal(catalog.tools[0].inputSchema.properties.queries.type, 'array');
   assert.equal(client.getInstructions(), `Fixture enabled names: ${[...ordinary, 'jev'].join(',')}`);
-  const echo = await call(client, 'ghSearch', { queries: [{ query: 'fixture' }] });
+  const echo = await call(client, 'ghSearchCode', { queries: [{ query: 'fixture' }] });
   assert.deepEqual(echo, { content: [{ type: 'text', text: 'untouched\nfixture response' }],
     structuredContent: { calls: 1, echo: { queries: [{ query: 'fixture' }] } }, _meta: { fixture: true } });
   const forbidden = await call(client, 'jev', { queries: [{ context: { tool: 'localFetch', query: {} } }] });
   assert.equal(forbidden.isError, true);
   assert.match(forbidden.content[0].text, /benchmarkScopeRejected/);
-  assert.equal((await call(client, 'ghSearch', { operation: 'tree', materialize: true })).isError, true);
-  assert.equal((await call(client, 'jev', { queries: [{ context: { tool: 'ghSearch', query: { operation: 'tree', materialize: true } } }] })).isError, true);
-  const tooMany = await call(client, 'ghSearch', { queries: Array.from({ length: 40 }, () => ({})) });
+  assert.equal((await call(client, 'ghStructure', { materialize: true })).isError, true);
+  assert.equal((await call(client, 'jev', { queries: [{ context: { tool: 'ghStructure', query: { materialize: true } } }] })).isError, true);
+  const tooMany = await call(client, 'ghSearchCode', { queries: Array.from({ length: 40 }, () => ({})) });
   assert.match(tooMany.content[0].text, /benchmarkBudgetExceeded/);
   const stillSecond = await call(client, 'ghGetFileContent', {});
   assert.equal(stillSecond.structuredContent.calls, 2, 'rejections must never reach downstream');
@@ -61,15 +61,15 @@ try {
   assert.equal(failed.complete, false);
   assert.equal(failed.inputTokens, null);
   assert.deepEqual(failed.unknownRows, [0]);
-  await call(client, 'jev', { queries: [{ context: { tool: 'ghSearch', query: { query: 'nested' } } }] });
+  await call(client, 'jev', { queries: [{ context: { tool: 'ghSearchCode', query: { query: 'nested' } } }] });
   const nested = log().filter(row => row.event === 'call').at(-1);
   assert.equal(nested.providerUsage.inputTokens, 12, 'singleton usage also survives success-status elision');
   assert.equal(nested.providerUsage.outputTokens, 3);
-  assert.deepEqual(nested.cost, { ordinary: 1, jev: 1, nestedTools: ['ghSearch'] });
+  assert.deepEqual(nested.cost, { ordinary: 1, jev: 1, nestedTools: ['ghSearchCode'] });
   assert.deepEqual(nested.countersAfter, { ordinary: 3, jev: 8 });
   const tooManyJev = await call(client, 'jev', { queries: Array.from({ length: 13 }, () => inline('same')) });
   assert.match(tooManyJev.content[0].text, /benchmarkBudgetExceeded/);
-  await call(client, 'ghSearch', { queries: [{ query: 'fixture-key-no-provider' }] });
+  await call(client, 'ghSearchCode', { queries: [{ query: 'fixture-key-no-provider' }] });
   assert.ok(!JSON.stringify(log()).includes('fixture-key-no-provider'), 'credentials must not enter receipts');
   assert.equal(log().filter(row => row.event === 'callStarted').length, 7);
 

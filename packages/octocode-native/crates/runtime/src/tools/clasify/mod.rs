@@ -36,7 +36,9 @@ pub(crate) fn is_context_tool(tool: &str) -> bool {
     matches!(
         ToolId::from_name(tool),
         Some(
-            ToolId::GhSearch
+            ToolId::GhSearchRepo
+                | ToolId::GhSearchCode
+                | ToolId::GhStructure
                 | ToolId::GhGetFileContent
                 | ToolId::GhSearchHistory
                 | ToolId::GhGetHistoryItem
@@ -63,16 +65,11 @@ pub(crate) fn pages_within_resource(tool: &str) -> bool {
 
 /// Validate the matrix and resolve its provider questions once, before capture.
 pub(crate) fn preflight(query: &Value) -> Result<Vec<Value>, ClassificationError> {
-    if query.to_string().len() > MAX_REQUEST_BYTES {
-        return Err(request_error(
-            "Classification request exceeded the 4 MiB limit.",
-        ));
-    }
     let query = query
         .as_object()
         .ok_or_else(|| request_error("Query must be an object."))?;
-    // `carry` (the running locate ranking from next.clasify) is optional.
-    let expected_keys = if query.contains_key("carry") { 5 } else { 4 };
+    let expected_keys =
+        3 + usize::from(query.contains_key("reasoning")) + usize::from(query.contains_key("carry"));
     if query.len() != expected_keys
         || query.get("carry").is_some_and(|carry| !carry.is_object())
         || !query.get("id").is_some_and(valid_matrix_id)
@@ -80,11 +77,10 @@ pub(crate) fn preflight(query: &Value) -> Result<Vec<Value>, ClassificationError
         || !query.get("questions").is_some_and(Value::is_array)
         || query
             .get("reasoning")
-            .and_then(Value::as_str)
-            .is_none_or(|value| value.trim().is_empty())
+            .is_some_and(|value| !value.is_string())
     {
         return Err(request_error(
-            "Supply an id, nonblank reasoning, resources, and typed questions.",
+            "Supply an id, resources, and typed questions.",
         ));
     }
     let resources = query["resources"]
@@ -114,17 +110,7 @@ pub(crate) fn preflight(query: &Value) -> Result<Vec<Value>, ClassificationError
         let value_context = context.len() == 1 && context.get("value").is_some_and(entry);
         let tool = context.get("tool").and_then(Value::as_str);
         let candidate_evidence = context.get("candidateEvidence").and_then(Value::as_str);
-        let candidate_search = match tool {
-            Some("localSearch") => true,
-            Some("ghSearch") => {
-                context
-                    .get("query")
-                    .and_then(|query| query.get("operation"))
-                    .and_then(Value::as_str)
-                    == Some("code")
-            }
-            _ => false,
-        };
+        let candidate_search = matches!(tool, Some("localSearch" | "ghSearchCode"));
         let candidate_evidence_valid = match candidate_evidence {
             None => true,
             Some("search" | "fileChunks") => candidate_search,
@@ -370,7 +356,7 @@ mod tests {
     }
 
     #[test]
-    fn reasoning_is_required_metadata_and_never_provider_evidence() {
+    fn reasoning_is_optional_metadata_and_never_provider_evidence() {
         let provider = jev_provider();
         let mut query = semantic_query(json!({"value":{"observation":true}}), question());
         let resolved = preflight(&query).expect("reasoning metadata accepted");
@@ -384,12 +370,16 @@ mod tests {
             .unwrap(),
             json!({"model":"m","state":{"observation":true},"questions":{"answer":question()}})
         );
-        for invalid in [Value::Null, json!(7), json!(""), json!(" \t\n")] {
+        for invalid in [Value::Null, json!(7)] {
             query["reasoning"] = invalid;
             assert!(preflight(&query).is_err());
         }
+        for blank in ["", " \t\n"] {
+            query["reasoning"] = json!(blank);
+            assert!(preflight(&query).is_ok());
+        }
         query.as_object_mut().unwrap().remove("reasoning");
-        assert!(preflight(&query).is_err());
+        assert!(preflight(&query).is_ok());
     }
 
     #[test]
@@ -435,7 +425,9 @@ mod tests {
             "astSearch",
             "astTopology",
             "lspSearch",
-            "ghSearch",
+            "ghSearchRepo",
+            "ghSearchCode",
+            "ghStructure",
             "ghGetFileContent",
             "ghSearchHistory",
             "ghGetHistoryItem",
@@ -453,16 +445,16 @@ mod tests {
         for context in [
             json!({"tool":"localSearch","query":{},"candidateEvidence":"search"}),
             json!({"tool":"localSearch","query":{},"candidateEvidence":"fileChunks"}),
-            json!({"tool":"ghSearch","query":{"operation":"code"},"candidateEvidence":"search"}),
-            json!({"tool":"ghSearch","query":{"operation":"code"},"candidateEvidence":"fileChunks"}),
+            json!({"tool":"ghSearchCode","query":{},"candidateEvidence":"search"}),
+            json!({"tool":"ghSearchCode","query":{},"candidateEvidence":"fileChunks"}),
         ] {
             assert!(preflight(&semantic_query(context, question())).is_ok());
         }
         for context in [
             json!({"tool":"localFetch","query":{},"candidateEvidence":"fileChunks"}),
             json!({"tool":"localFetch","query":{},"candidateEvidence":"search"}),
-            json!({"tool":"ghSearch","query":{"operation":"tree"},"candidateEvidence":"search"}),
-            json!({"tool":"ghSearch","query":{"operation":"tree"},"candidateEvidence":"fileChunks"}),
+            json!({"tool":"ghStructure","query":{},"candidateEvidence":"search"}),
+            json!({"tool":"ghSearchRepo","query":{},"candidateEvidence":"fileChunks"}),
             json!({"tool":"localSearch","query":{},"candidateEvidence":"unknown"}),
         ] {
             assert!(preflight(&semantic_query(context, question())).is_err());
@@ -477,8 +469,6 @@ mod tests {
         ] {
             assert!(preflight(&invalid).is_err());
         }
-        let oversized = semantic_query(json!({"value":"x".repeat(MAX_REQUEST_BYTES)}), question());
-        assert!(preflight(&oversized).is_err());
     }
 
     #[test]

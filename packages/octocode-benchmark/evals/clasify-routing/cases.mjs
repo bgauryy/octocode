@@ -34,7 +34,7 @@ export const cases = [
   // --- positive: bounded judgment over UNREAD candidates changes the next read ---
   positive(
     'unread-candidate-noul',
-    'A ghSearch returned five candidate files for "retry backoff". Without pulling their bodies into my context, judge which single file most likely implements exponential backoff so I read only that one.',
+    'A ghSearchCode call returned five candidate files for "retry backoff". Without pulling their bodies into my context, judge which single file most likely implements exponential backoff so I read only that one.',
     'noul',
   ),
   positive(

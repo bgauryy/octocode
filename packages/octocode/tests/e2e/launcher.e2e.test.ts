@@ -59,9 +59,7 @@ describe.skipIf(!ready)('launcher → native binary e2e', () => {
       const instructions = JSON.parse(main.stdout).instructions as string;
       expect(instructions.length).toBeGreaterThan(0);
       expect(JSON.parse(scheme.stdout).instructions).toBe(instructions);
-      expect(
-        instructions.includes('delegate the read before loading its body')
-      ).toBe(Boolean(key));
+      expect(/\bclasify\b/i.test(instructions)).toBe(Boolean(key));
       for (const args of [['--help'], ['-h'], ['help']]) {
         const help = runLauncher(args, env);
         expect(help.status).toBe(0);

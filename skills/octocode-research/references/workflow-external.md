@@ -7,9 +7,9 @@ Load for a remote repository, package, upstream change, or external implementati
 |---|---|
 | Package name | `artifactSearch` with ecosystem `type` and exact `packageName` |
 | Package concept | `artifactSearch` with `type` and `keywords`; copy `next.nextPage` unchanged |
-| Repository concept | `ghSearch operation:"repositories"`; combine intended filters, separate alternatives |
-| Known repository | `ghSearch operation:"tree"` only if orientation is needed |
-| Code term in a repository | `ghSearch operation:"code"`, then exact-read decisive hits |
+| Repository concept | `ghSearchRepo`; combine intended filters, separate alternatives |
+| Known repository | `ghStructure` only if orientation is needed |
+| Code term in a repository | `ghSearchCode`, then exact-read decisive hits |
 | Known file/ref | Exact `ghGetFileContent` for known lines; unread semantic localization below when broad reads would otherwise be needed |
 | Known history identity | `ghGetHistoryItem` directly; no prerequisite history search |
 

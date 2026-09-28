@@ -15,7 +15,7 @@ node packages/octocode/out/octocode.js scheme lspSearch --view query --compact
 | Where are files? | `structureSearch`: `files` or `tree` | Paths, directory outlines, and bounded filesystem metadata |
 | Where does this text or regex occur? | `localSearch` | Lexical file/line anchors; literal, Rust regex, or PCRE2 |
 | What syntax or declarations are present? | `astSearch`: `match`, `symbols`, or `syntaxTree` | Syntax matches, declaration ranges, node kinds and parents |
-| How do files depend on each other? | `astTopology`: `operation:"topology"`, selecting `analysis` | Dependencies, dependents, shortest paths, cycles/SCCs, reachability, dead-code candidates |
+| How do files depend on each other? | `astTopology`: selecting `analysis` | Dependencies, dependents, shortest paths, cycles/SCCs, reachability, dead-code candidates |
 | What does the source contain? | `localFetch` | Exact content by default; path-only reads are valid, and selectors/views are optional |
 | Which symbol is this, and where is it used? | `lspSearch` | Semantic provider results when available, or explicitly labeled syntactic/native fallback evidence |
 

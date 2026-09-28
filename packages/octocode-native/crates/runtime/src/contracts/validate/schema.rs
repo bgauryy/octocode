@@ -329,19 +329,28 @@ fn validate_number(
     if integer && number.fract() != 0.0 {
         return Err(issue("schema.integer", path.to_vec(), "Expected integer"));
     }
-    if schema
-        .get("minimum")
-        .and_then(Value::as_f64)
-        .is_some_and(|minimum| number < minimum)
-        || schema
-            .get("maximum")
-            .and_then(Value::as_f64)
-            .is_some_and(|maximum| number > maximum)
+    let minimum = schema.get("minimum").and_then(Value::as_f64);
+    let maximum = schema.get("maximum").and_then(Value::as_f64);
+    if minimum.is_some_and(|minimum| number < minimum)
+        || maximum.is_some_and(|maximum| number > maximum)
     {
+        // Name the bounds so the caller can fix the value in one step.
+        let bound = |value: f64| {
+            Value::from(value)
+                .to_string()
+                .trim_end_matches(".0")
+                .to_owned()
+        };
+        let range = match (minimum, maximum) {
+            (Some(minimum), Some(maximum)) => format!("{}-{}", bound(minimum), bound(maximum)),
+            (Some(minimum), None) => format!(">= {}", bound(minimum)),
+            (None, Some(maximum)) => format!("<= {}", bound(maximum)),
+            (None, None) => String::new(),
+        };
         return Err(schema_issue(
             "schema.range",
             path.to_vec(),
-            "Number is outside the allowed range",
+            format!("Number is outside the allowed range ({range})"),
             schema,
             value,
         ));

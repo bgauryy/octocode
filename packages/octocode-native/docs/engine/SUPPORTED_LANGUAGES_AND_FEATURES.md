@@ -183,7 +183,7 @@ yarn workspace @octocodeai/octocode-native test:node
 | `caseMode` | `smart` · `sensitive` · `insensitive` |
 | `wholeWord`, `invertMatch` | boolean |
 | `multiline` | `off` · `on` · `dotall` (`.` spans newlines) |
-| `resultView` | `paginated` · `discovery` · `detailed` · `content` · `files` · `filesWithout` · `countLines` · `countMatches` · `matchOnly` |
+| `resultView` | `paginated` · `detailed` · `content` · `files` · `filesWithout` · `countLines` · `countMatches` · `matchOnly` |
 | `unique` | `off` · `list` · `count` (requires `resultView:"matchOnly"`) |
 | `sort` / `reverse` | `relevance` · `matchCount` · `path` · `modified` · `accessed` · `created`, all reversible |
 | `include` / `exclude` / `excludeDir` | glob arrays |

@@ -10,7 +10,7 @@ For response fields, path reconstruction, pagination layers, and producer-to-con
 handoffs, use the [tool data contract](TOOL_DATA_CONTRACT.md). Keep ratings dated
 and evidence-backed; a documentation correction does not establish a runtime improvement.
 
-Every acceptance run must cover the shared contract as well as tool-specific behavior: a strict `{ queries: [...] }` envelope; 1–5 same-tool query rows; required per-query `reasoning` and optional `goal`; zero-based result `index` alignment; isolated row errors; compact `variants` and `relations`; collection/content/whole-response continuations; and typed terminal limits. The [tool reference's base-call section](OCTOCODE_TOOLS.md#how-every-tool-call-works) is the normative prose summary.
+Every acceptance run must cover the shared contract as well as tool-specific behavior: a strict `{ queries: [...] }` envelope; 1–5 same-tool query rows; optional per-query `reasoning` and optional `goal`; zero-based result `index` alignment; isolated row errors; compact `variants` and `relations`; collection/content/whole-response continuations; and typed terminal limits. The [tool reference's base-call section](OCTOCODE_TOOLS.md#how-every-tool-call-works) is the normative prose summary.
 
 ## Inspect the surface being tested
 
@@ -22,7 +22,7 @@ node packages/octocode/out/octocode.js scheme localFetch --view query --compact
 node packages/octocode/out/octocode.js scheme ghGetHistoryItem --view query
 ```
 
-The discovery catalog contains 14 tools, with 10 enabled by default when no Jev provider key is resolved, clone is not enabled, and beta tools are disabled. Enabled tools depend on local-tool,
+The discovery catalog contains 16 tools, with 12 enabled by default when no Jev provider key is resolved, clone is not enabled, and beta tools are disabled. Enabled tools depend on local-tool,
 clone, storage, allowlist, and credential-gated `clasify` settings. MCP omits that tool when no classification key resolves (`OCTOCODE_CLASSIFICATION_API`, `OCTOCODE_JEV_KEY`, or `.octocoderc` `classification.api`) or `OCTOCODE_CLASSIFICATION_API` is present but blank. Record the effective configuration and
 unavailable capabilities with each acceptance run. Enabling a tool does not
 install its external language server or grant provider access.
@@ -134,7 +134,7 @@ for measured comparisons; record commands and artifacts with the result.
 | `astTopology` | Exercise all seven graph analyses. | Traverse results and diagnostics; expose unresolved edges and coverage limits; corroborate deletion candidates. |
 | `astRewrite` | Exercise preview, stale snapshots, hash guards, and apply on an isolated fixture. | Verify overlap guidance, transaction recovery, changed bytes, and unchanged files. |
 | `lspSearch` | Exercise document, workspace, anchored, and hierarchy operations. | Distinguish unavailable server, unsupported capability, failed anchor, and valid empty result; verify server provenance and paginated snapshots. |
-| `ghSearch` | Exercise code, repository, and tree variants; reject branch selection for indexed code search. | Preserve candidate matches, selected operation, immutable tree identity, metadata pages, indexing uncertainty, and provider-limit diagnostics. |
+| `ghSearchRepo`, `ghSearchCode`, `ghStructure` | Exercise code, repository, and tree variants (one tool each); reject branch selection for indexed code search. | Preserve candidate matches, immutable tree identity, metadata pages, indexing uncertainty, and provider-limit diagnostics. |
 | `ghGetFileContent` | Exercise exact, compact, full, and paginated file views. | Compare local/remote matching and windows; verify pinned refs, repeated-outline prevention, security redaction, and rejection of directory inputs. |
 | `ghSearchHistory` | Exercise PR, issue, and commit discovery with operation-specific scope. | Traverse discovery pages; preserve filters and exact-detail hints; check supported minification modes and provider-incomplete results. |
 | `ghGetHistoryItem` | Exercise PR/issue identities, exact commits, comparisons, and selected content. | Independently traverse files, comments, reviews, commits, bodies, and patches; preserve omitted-patch/error state and immutable refs. |

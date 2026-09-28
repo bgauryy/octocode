@@ -120,14 +120,7 @@ const invoke = async (name, args) => {
   return response;
 };
 const call = async (name, query) => {
-  const publicQuery = {
-    ...(name === 'clasify' ? {} : {
-      reasoning: `Exercise ${name} through built stdio acceptance.`,
-      debug: false,
-    }),
-    ...query,
-  };
-  const response = await invoke(name, { queries: [publicQuery] });
+  const response = await invoke(name, { queries: [query] });
   assert.equal(response.isError, false, `${name} returned a tool error`);
   assert.ok(response.structuredContent, `${name} has no structured content`);
   assert.ok(
@@ -250,15 +243,16 @@ try {
         id: 'caller-model-rejected',
         reasoning: 'Verify that provider model selection remains runtime-owned.',
         resources: [{ id: 'evidence', context: { value: 'Supplied evidence.' } }],
-        questions: [{ id: 'bounded', question: {
+        questions: [{ id: 'bounded',
           type: 'noul',
           instructions: 'Is evidence supplied?',
-        } }],
+        }],
         model: 'caller-model-is-forbidden',
       });
       const row = response.structuredContent?.results?.[0];
       assert.ok(response.isError || row?.status === 'error');
       assert.equal(row?.data?.usage, undefined);
+      assert.match(JSON.stringify(response), /unknown field 'model'/i);
     });
   }
   await check('CLI catalog and MCP input schemas match the canonical contracts', () => {
@@ -274,7 +268,9 @@ try {
       );
       assert.equal(cli.name, tool.name);
       assert.equal(cli.availability.enabled, true);
-      assert.ok(cli.querySchema, `${tool.name} has no CLI query contract`);
+      assert.deepEqual(cli.inputSchema, tool.inputSchema, `${tool.name} CLI and MCP input schemas differ`);
+      assert.equal(Object.hasOwn(cli, 'querySchema'), false);
+      assert.equal(Object.hasOwn(cli, 'outputSchema'), false);
       const definition = definitions.get(tool.name);
       assert.ok(definition, `${tool.name} has no canonical contract`);
       assert.deepEqual(tool.inputSchema, z.toJSONSchema(definition.inputSchema, {
@@ -562,7 +558,6 @@ try {
     });
     await check('file graph dependency positive', async () => {
       const data = await call('astTopology', {
-        operation: 'topology',
         analysis: 'dependencies',
         path: fixture,
         file: 'entry.ts',
@@ -575,7 +570,6 @@ try {
       'graph diagnostic continuation union preserves the complete inventory',
       async () => {
         const query = {
-          operation: 'topology',
           analysis: 'dependencies',
           path: `${fixture}-diagnostics`,
           file: 'entry.ts',
@@ -685,26 +679,20 @@ try {
           questions: [
             {
               id: 'noul',
-              question: {
-                type: 'noul',
-                instructions: 'Does the fixture state that alpha is enabled?',
-              },
+              type: 'noul',
+              instructions: 'Does the fixture state that alpha is enabled?',
             },
             {
               id: 'choice',
-              question: {
-                type: 'choice',
-                instructions: 'Which state does the fixture assign to alpha?',
-                criteria: { enabled: null, disabled: null },
-              },
+              type: 'choice',
+              instructions: 'Which state does the fixture assign to alpha?',
+              criteria: { enabled: null, disabled: null },
             },
             {
               id: 'score',
-              question: {
-                type: 'score',
-                instructions: 'How explicit is the fixture about alpha being enabled?',
-                criteria: ['not stated', 'implied', 'explicitly stated'],
-              },
+              type: 'score',
+              instructions: 'How explicit is the fixture about alpha being enabled?',
+              criteria: ['not stated', 'implied', 'explicitly stated'],
             },
           ],
         }] });
@@ -719,6 +707,11 @@ try {
     }
     const repo = { owner: 'octocat', repo: 'Hello-World' };
     const sha = '7fd1a60b01f91b314f59955a4e4d4e80d8edf11d';
+    await check('GitHub tree preserves paths and the requested revision', async () => {
+      const data = await call('ghStructure', { ...repo, branch: sha, pageSize: 1 });
+      assert.equal(data.resolvedBranch, sha);
+      assert.ok(data.structure.some(directory => directory.files.includes('README')));
+    });
     await check('GitHub full file reads return content without a checkout', async () => {
       const data = await call('ghGetFileContent', { ...repo, branch: sha, path: 'README', fullContent: true });
       assert.equal(data.files[0].content, 'Hello World!\n');
@@ -741,8 +734,7 @@ try {
       assert.ok(rejected);
     });
     await check('GitHub repository search positive', async () => {
-      const data = await call('ghSearch', {
-        operation: 'repositories',
+      const data = await call('ghSearchRepo', {
         owner: 'octocat',
         keywords: ['Hello-World'],
         pageSize: 1,
@@ -750,8 +742,7 @@ try {
       assert.ok(JSON.stringify(data).includes('Hello-World'));
     });
     await check('GitHub code search positive', async () => {
-      const data = await call('ghSearch', {
-        operation: 'code',
+      const data = await call('ghSearchCode', {
         owner: 'jonschlinkert',
         repo: 'is-number',
         filename: 'index.js',
@@ -782,7 +773,7 @@ try {
     );
     await check('GitHub/local search-to-match fetch parity in both chunk units', async () => {
       const repo = { owner: 'jonschlinkert', repo: 'is-number' };
-      const found = await call('ghSearch', { ...repo, operation: 'code', filename: 'index.js', keywords: ['module.exports'], pageSize: 1 });
+      const found = await call('ghSearchCode', { ...repo, filename: 'index.js', keywords: ['module.exports'], pageSize: 1 });
       assert.ok(found.files?.length > 0);
       const remotePath = found.files[0].path;
       const full = await call('ghGetFileContent', { ...repo, path: remotePath, fullContent: true });
@@ -870,13 +861,63 @@ try {
         'Hello World!\n'
       );
     });
+    if (expectedTools.includes(TOOL_NAMES.CLASIFY)) {
+      await check('clasify captures every allowed resource tool and completes continuations', async () => {
+        const resourceTools = new Set();
+        const visit = value => {
+          if (!value || typeof value !== 'object') return;
+          for (const name of value.properties?.tool?.enum ?? []) resourceTools.add(name);
+          Object.values(value).forEach(visit);
+        };
+        visit(list.tools.find(tool => tool.name === TOOL_NAMES.CLASIFY).inputSchema);
+        assert.ok(resourceTools.size > 0);
+        const resources = [...resourceTools].map(tool => {
+          const sample = receipt.calls.find(call =>
+            call.name === tool && call.response.isError === false
+            && call.response.structuredContent?.results?.[0]?.data
+            && !['empty', 'error'].includes(call.response.structuredContent.results[0].status)
+          );
+          assert.ok(sample, `${tool}: no successful resource fixture`);
+          return { id: tool, context: { tool, query: sample.arguments.queries[0] } };
+        });
+        let query = {
+          resources,
+          questions: [{ id: 'evidence', type: 'noul', instructions: 'Does this evidence identify a named file, repository, package, or code symbol?' }],
+        };
+        const completed = new Set();
+        let calls = 0;
+        while (query) {
+          assert.ok(calls++ < 20, 'clasify continuations did not terminate');
+          const response = await invoke(TOOL_NAMES.CLASIFY, query);
+          assert.equal(response.isError, false);
+          const matrix = response.structuredContent?.queries?.[0];
+          assert.ok(matrix?.resources?.length);
+          assert.deepEqual(matrix.resources.map(resource => resource.resourceId), query.resources.map(resource => resource.id));
+          for (const resource of matrix.resources) {
+            assert.ok(['complete', 'partial'].includes(resource.coverage), JSON.stringify(resource));
+            assert.ok(resource.pages.length > 0);
+            for (const page of resource.pages) {
+              assert.equal(page.error, undefined);
+              const answer = page.answers?.evidence?.noul;
+              assert.ok(typeof answer === 'number' && answer >= 0 && answer <= 1, JSON.stringify(page));
+              assert.equal(page.content, undefined);
+              assert.equal(page.body, undefined);
+            }
+            if (resource.coverage === 'complete') completed.add(resource.resourceId);
+            else assert.ok(matrix.next?.clasify?.resources.some(next => next.id === resource.resourceId));
+          }
+          query = matrix.next?.clasify;
+        }
+        assert.deepEqual([...completed].sort(), [...resourceTools].sort());
+      });
+    }
   }
   if (values['cli-mcp-parity']) {
     await check('deterministic same-query CLI and real MCP structured result parity', async () => {
       const parity = [];
       receipt.cliMcpParity = parity;
       const cacheVolatileTools = new Set([
-        'ghSearch', 'ghGetFileContent', 'ghSearchHistory', 'ghGetHistoryItem', 'artifactSearch',
+        'ghSearchRepo', 'ghSearchCode', 'ghStructure', 'ghGetFileContent', 'ghSearchHistory', 'ghGetHistoryItem', 'artifactSearch',
       ]);
       const liveOnlyTools = cacheVolatileTools;
       for (const name of expectedTools) {
@@ -926,7 +967,7 @@ try {
         const cliBase = cliResponse?.base;
         const differences = differingFields(mcpResults, cliResults);
         // Provider cache state depends on which cross-process arm reached the
-        // provider first. For these five provider tools it is receipt metadata,
+        // provider first. For these provider tools it is receipt metadata,
         // not evidence or tool data; retain the raw pair and compare all other
         // fields explicitly. No local/AST/LSP result receives this exception.
         const cacheOnly = cacheVolatileTools.has(name) && differences.every(field => field === '/0/cache');

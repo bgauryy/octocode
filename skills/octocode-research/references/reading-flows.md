@@ -38,7 +38,7 @@ Byte context follows full-source redaction, keeps UTF-8 characters whole, and jo
 | File dependencies | `astTopology` (beta), explicit analysis and root | Confirm relevant symbols and dynamic edges before deletion claims |
 | Local source | `localFetch`, range/match when known | Continue the same view or select a body from its outline |
 | Semantic code question | `lspSearch`, observed source anchor; structured output retains typed locations | Exact source or subsequent semantic query; inspect provider capabilities |
-| Unknown GitHub repo/path/anchor | `ghSearch` repositories/tree/code respectively | Fetch at the intended ref; code search cannot select a non-default branch |
+| Unknown GitHub repo/path/anchor | `ghSearchRepo` / `ghStructure` / `ghSearchCode` respectively | Fetch at the intended ref; code search cannot select a non-default branch |
 | Known GitHub file | `ghGetFileContent`, same read choices as local | Exact region, continuation, or local checkout for repeated analysis |
 | Unknown history item | `ghSearchHistory`, metadata triage with relevant repo/path/time filters | `ghGetHistoryItem` after identifying the item |
 | Known history item | `ghGetHistoryItem`, select only needed body/comments/files/patches | For PR review, changed files before selected patches; request `minify:"none"` for exact PR text or diff context. PR `standard` is a separate triage default, not the file-reader default |

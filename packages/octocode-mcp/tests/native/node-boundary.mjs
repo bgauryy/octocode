@@ -19,7 +19,7 @@ class FakeRuntime {
       fingerprint: getNativeContractFingerprint(),
       tools: [
         { name: 'localFetch', available: true },
-        { name: 'ghSearch', available: false },
+        { name: 'ghSearchCode', available: false },
       ],
     };
   }

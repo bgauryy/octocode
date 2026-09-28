@@ -62,10 +62,12 @@ describe('scheme contract-drift gate', () => {
 describe('scheme availability-scoped guidance', () => {
   it('restricts Clasify delegated reads to enabled tools in the query schema', async () => {
     machine.fingerprint = getNativeContractFingerprint();
-    machine.tools = ['clasify', 'ghSearch', 'ghGetFileContent'].map(name => ({
-      name,
-      availability: { enabled: true },
-    }));
+    machine.tools = ['clasify', 'ghSearchCode', 'ghGetFileContent'].map(
+      name => ({
+        name,
+        availability: { enabled: true },
+      })
+    );
     const output = vi.spyOn(console, 'log').mockImplementation(() => {});
     expect(
       await runScheme({
@@ -85,10 +87,10 @@ describe('scheme availability-scoped guidance', () => {
   it.each([
     ['localSearch', 'full', false],
     ['localSearch', 'query', false],
-    ['ghSearch', 'full', false],
-    ['ghSearch', 'query', false],
+    ['ghSearchCode', 'full', false],
+    ['ghSearchCode', 'query', false],
     ['localSearch', 'full', true],
-    ['ghSearch', 'full', true],
+    ['ghSearchCode', 'full', true],
   ] as const)(
     '%s %s respects clasify enabled=%s',
     async (tool, view, enabled) => {
@@ -96,7 +98,7 @@ describe('scheme availability-scoped guidance', () => {
       machine.tools = [
         'localSearch',
         'localFetch',
-        'ghSearch',
+        'ghSearchCode',
         'ghGetFileContent',
         'clasify',
       ].map(name => ({
@@ -114,9 +116,8 @@ describe('scheme availability-scoped guidance', () => {
       const result = JSON.parse(String(output.mock.calls[0]?.[0]));
       const description = result.description ?? result.querySchema.description;
       expect(description.includes('semanticRerank')).toBe(false);
-      expect(
-        JSON.stringify(result.querySchema).includes('semanticRerank')
-      ).toBe(false);
+      const schema = view === 'full' ? result.inputSchema : result.querySchema;
+      expect(JSON.stringify(schema).includes('semanticRerank')).toBe(false);
     }
   );
 });

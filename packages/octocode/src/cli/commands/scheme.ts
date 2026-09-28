@@ -197,6 +197,10 @@ export async function runScheme(args: ParsedArgs): Promise<number> {
     console.log(USAGE);
     return EXIT.OK;
   }
+  if (args.args.length > 1) {
+    emitError('scheme accepts one tool name per call.', jsonErrors);
+    return EXIT.USAGE;
+  }
   const compact = useCompactJson(args.options, process.stdout.isTTY === true);
   const viewOption = args.options.view;
   if (

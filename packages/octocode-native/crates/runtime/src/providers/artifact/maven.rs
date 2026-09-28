@@ -2,7 +2,7 @@ use super::http::RegistryClient;
 use super::util::{endpoint, object_for, parse_url, required, rows, string, total};
 use super::{
     ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState, ArtifactSearchQuery,
-    ArtifactSearchQueryType,
+    ArtifactType,
 };
 use url::Url;
 
@@ -69,27 +69,27 @@ pub(crate) async fn maven(
         ],
     )?;
     let response = client
-        .json(ArtifactSearchQueryType::Maven, url, false, None)
+        .json(ArtifactType::Maven, url, false, None)
         .await?
-        .ok_or_else(|| super::util::invalid(ArtifactSearchQueryType::Maven))?;
+        .ok_or_else(|| super::util::invalid(ArtifactType::Maven))?;
     let data = object_for(
-        object_for(&response, ArtifactSearchQueryType::Maven)?
+        object_for(&response, ArtifactType::Maven)?
             .get("response")
-            .ok_or_else(|| super::util::invalid(ArtifactSearchQueryType::Maven))?,
-        ArtifactSearchQueryType::Maven,
+            .ok_or_else(|| super::util::invalid(ArtifactType::Maven))?,
+        ArtifactType::Maven,
     )?;
     let artifacts = rows(
         data.get("docs")
-            .ok_or_else(|| super::util::invalid(ArtifactSearchQueryType::Maven))?,
-        ArtifactSearchQueryType::Maven,
+            .ok_or_else(|| super::util::invalid(ArtifactType::Maven))?,
+        ArtifactType::Maven,
     )?
     .iter()
     .map(|value| {
-        let row = object_for(value, ArtifactSearchQueryType::Maven)?;
-        let group = required(row.get("g"), ArtifactSearchQueryType::Maven)?;
-        let name = required(row.get("a"), ArtifactSearchQueryType::Maven)?;
+        let row = object_for(value, ArtifactType::Maven)?;
+        let group = required(row.get("g"), ArtifactType::Maven)?;
+        let name = required(row.get("a"), ArtifactType::Maven)?;
         let mut artifact = ArtifactItem::new(
-            ArtifactSearchQueryType::Maven,
+            ArtifactType::Maven,
             format!("{group}:{name}"),
             format!(
                 "https://central.sonatype.com/artifact/{}/{}",
@@ -141,14 +141,11 @@ async fn exact(
         "https://repo.maven.apache.org/maven2/{group_path}/{}/maven-metadata.xml",
         super::util::encode_component(name)
     ))?;
-    let Some(xml) = client
-        .text(ArtifactSearchQueryType::Maven, url, true)
-        .await?
-    else {
+    let Some(xml) = client.text(ArtifactType::Maven, url, true).await? else {
         return Ok(ArtifactProviderPage::empty(Some(0)));
     };
     if patterns::doctype().is_match(&xml) {
-        return Err(super::util::invalid(ArtifactSearchQueryType::Maven));
+        return Err(super::util::invalid(ArtifactType::Maven));
     }
     let clean = patterns::comment().replace_all(&xml, "");
     let field = |tag: &str| -> Option<String> {
@@ -158,11 +155,11 @@ async fn exact(
             .map(|value| value.as_str().trim().to_owned())
     };
     let returned_group =
-        field("groupId").ok_or_else(|| super::util::invalid(ArtifactSearchQueryType::Maven))?;
+        field("groupId").ok_or_else(|| super::util::invalid(ArtifactType::Maven))?;
     let returned_name =
-        field("artifactId").ok_or_else(|| super::util::invalid(ArtifactSearchQueryType::Maven))?;
+        field("artifactId").ok_or_else(|| super::util::invalid(ArtifactType::Maven))?;
     let mut artifact = ArtifactItem::new(
-        ArtifactSearchQueryType::Maven,
+        ArtifactType::Maven,
         format!("{returned_group}:{returned_name}"),
         format!(
             "https://central.sonatype.com/artifact/{}/{}",
@@ -199,10 +196,7 @@ async fn repository_from_pom(
     let url = parse_url(&format!(
         "https://repo1.maven.org/maven2/{group_path}/{encoded_name}/{encoded_version}/{encoded_name}-{encoded_version}.pom"
     ))?;
-    let Some(xml) = client
-        .text(ArtifactSearchQueryType::Maven, url, true)
-        .await?
-    else {
+    let Some(xml) = client.text(ArtifactType::Maven, url, true).await? else {
         return Ok(None);
     };
     if patterns::doctype().is_match(&xml) {
@@ -297,7 +291,7 @@ mod tests {
 
     fn guava_query() -> ArtifactSearchQuery {
         artifact_query(
-            serde_json::json!({"type": ArtifactSearchQueryType::Maven, "packageName": "com.google.guava:guava".to_string()}),
+            serde_json::json!({"type": ArtifactType::Maven, "packageName": "com.google.guava:guava".to_string()}),
             None,
         )
     }
@@ -379,7 +373,7 @@ mod tests {
             cache_enabled: false,
         };
         let q = artifact_query(
-            serde_json::json!({"type": ArtifactSearchQueryType::Maven, "packageName": "com.fasterxml.jackson.core:jackson-databind".to_string()}),
+            serde_json::json!({"type": ArtifactType::Maven, "packageName": "com.fasterxml.jackson.core:jackson-databind".to_string()}),
             None,
         );
         let page = maven(&q, &ArtifactProviderState::default(), &client)
@@ -407,7 +401,7 @@ mod tests {
             cache_enabled: false,
         };
         let q = artifact_query(
-            serde_json::json!({"type": ArtifactSearchQueryType::Maven, "packageName": "not-a-maven-coordinate".to_string()}),
+            serde_json::json!({"type": ArtifactType::Maven, "packageName": "not-a-maven-coordinate".to_string()}),
             None,
         );
         let err = maven(&q, &ArtifactProviderState::default(), &client)

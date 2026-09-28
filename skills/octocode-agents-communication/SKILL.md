@@ -5,9 +5,10 @@ description: Use when agents need cross-vendor messaging, discovery, file coordi
 # Agents communication
 tools: Bound communication tools or `scripts/agents-communication`.
 output: Shared DB/workspace state; documents in `<workspace>/.octocode/communication/`.
+routes: use the CLI when a bound tool is missing; use the bundled host adapters under Host setup only when wiring hooks, Pi or edit guards.
 
 **Choose:** Prefer bound communication tools (MCP or host-native). Use CLI for unavailable actions or setup/view/DB administration with authorized, supplied bindings. Missing capability/binding: ask the host or hand off; never bypass a restricted profile. Reuse identity and delivery owner; don't join/start MCP to switch interfaces.
-CLI: `scripts/agents-communication` wraps `scripts/octocode-agents-communication` (Windows `.ps1`/`.exe`).
+When using the CLI, run `scripts/agents-communication`; it wraps `scripts/octocode-agents-communication` (Windows `.ps1`/`.exe`).
 
 ## CLI command map
 `<command> '<json>' --workspace <repo> --database <db> --session <id>`; `-` reads stdin. `<command> --help` or `schema <command>` gives one contract; bare `schema` includes the full protocol/SQL. Workers expose a subset.
@@ -46,4 +47,12 @@ For standalone MCP, launch `scripts/agents-communication mcp --managed --tools m
 Reuse bindings; else `join`, `attach` real host endpoints/IDs. Use one delivery owner. `listen` maintains presence and native delivery; otherwise heartbeat every 15s (60s presence). Heartbeats cannot revive identity or renew leases. `leave` on completion; `run` only when requested.
 Choose `--tools messaging` for coordination, `review` for shared evidence, or `editing` for leases too; explicit comma lists also work. Setup must report supported/configured edit guards; enable them for editing. Guards cover only reported operations, never arbitrary shell/OS writes.
 `host-config --help` configures hooks/Pi. Context hooks cannot wake idle hosts. `completion-check` allows one recovery turn, never automatically completes work. Verify health/arrival before retrying: retries may duplicate context.
+
+**When wiring a host adapter**, use these bundled `scripts/` files; each needs the launcher and binary beside it, and `SHA256SUMS` pins the binary:
+- `inbox-hook` (`.ps1`): run from a host context event; inject stdout into agent context, empty means no new messages.
+- `pi-inbox.mjs`: Pi bridge (`registerPiInbox`); loads `pi-extension.mjs` for bound tools and adds edit guards for `editing`.
+- `hooks/claude-lease-guard.mjs --config --binary … --workspace … --database … --session … --host-session …` prints Claude `PreToolUse` Write/Edit hooks to merge.
+- `hooks/opencode-lease-guard.mjs`: `createOpenCodeLeaseGuard({binary,workspace,database,sessions})` returns an OpenCode plugin guarding write/edit.
+- `hooks/lease-check.mjs`: shared `check_write` admission for the guards; never run it on its own.
+
 Use a local same-machine DB, not a cross-machine network share. SQLite WAL indexes state; documents stay in workspace files. `db export` excludes files; back them up separately.

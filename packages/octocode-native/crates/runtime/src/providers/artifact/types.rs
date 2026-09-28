@@ -3,9 +3,10 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use url::Url;
 
-pub use crate::contracts::tool_types::{ArtifactSearchQuery, ArtifactSearchQueryType};
+pub use crate::contracts::tool_types::{ArtifactSearchQuery, ArtifactType};
+use crate::contracts::tool_types::{RegistryDiscoveryType, RegistryExactType};
 
-impl ArtifactSearchQueryType {
+impl ArtifactType {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Npm => "npm",
@@ -22,23 +23,88 @@ impl ArtifactSearchQueryType {
 
 /// Registry-facing views over the generated wire query.
 impl ArtifactSearchQuery {
+    pub fn artifact_type(&self) -> ArtifactType {
+        match self {
+            Self::NpmExact(_) | Self::NpmDiscovery(_) => ArtifactType::Npm,
+            Self::RegistryExact(query) => match query.type_ {
+                RegistryExactType::Pypi => ArtifactType::Pypi,
+                RegistryExactType::Crates => ArtifactType::Crates,
+                RegistryExactType::Maven => ArtifactType::Maven,
+                RegistryExactType::Nuget => ArtifactType::Nuget,
+                RegistryExactType::Go => ArtifactType::Go,
+                RegistryExactType::Packagist => ArtifactType::Packagist,
+                RegistryExactType::Rubygems => ArtifactType::Rubygems,
+            },
+            Self::RegistryDiscovery(query) => match query.type_ {
+                RegistryDiscoveryType::Crates => ArtifactType::Crates,
+                RegistryDiscoveryType::Maven => ArtifactType::Maven,
+                RegistryDiscoveryType::Nuget => ArtifactType::Nuget,
+                RegistryDiscoveryType::Go => ArtifactType::Go,
+                RegistryDiscoveryType::Packagist => ArtifactType::Packagist,
+                RegistryDiscoveryType::Rubygems => ArtifactType::Rubygems,
+            },
+        }
+    }
     pub fn package_name(&self) -> Option<&str> {
-        self.package_name.as_deref().map(String::as_str)
+        match self {
+            Self::NpmExact(query) => Some(query.package_name.as_str()),
+            Self::RegistryExact(query) => Some(query.package_name.as_str()),
+            _ => None,
+        }
+    }
+    pub fn registry(&self) -> Option<&str> {
+        match self {
+            Self::NpmExact(query) => query.registry.as_deref(),
+            Self::NpmDiscovery(query) => query.registry.as_deref(),
+            _ => None,
+        }
     }
     pub fn cursor(&self) -> Option<&str> {
-        self.cursor.as_deref().map(String::as_str)
+        match self {
+            Self::NpmDiscovery(query) => query.cursor.as_ref().map(|value| value.as_str()),
+            Self::RegistryDiscovery(query) => query.cursor.as_ref().map(|value| value.as_str()),
+            _ => None,
+        }
+    }
+    pub fn set_cursor(&mut self, value: &str) -> Result<(), ArtifactError> {
+        let invalid =
+            |_| ArtifactError::new("invalid_query", "Invalid artifact continuation cursor.");
+        match self {
+            Self::NpmDiscovery(query) => query.cursor = Some(value.parse().map_err(invalid)?),
+            Self::RegistryDiscovery(query) => query.cursor = Some(value.parse().map_err(invalid)?),
+            _ => {
+                return Err(ArtifactError::new(
+                    "invalid_query",
+                    "Exact lookups do not accept cursors.",
+                ));
+            }
+        }
+        Ok(())
     }
     pub fn page_size(&self) -> Option<usize> {
-        self.page_size
-            .map(|size| usize::try_from(size.get()).unwrap_or(usize::MAX))
+        match self {
+            Self::NpmDiscovery(query) => Some(query.page_size.get() as usize),
+            Self::RegistryDiscovery(query) => Some(query.page_size.get() as usize),
+            _ => None,
+        }
     }
     /// Keywords as one space-joined registry search text.
     pub fn terms(&self) -> String {
-        self.keywords
-            .iter()
-            .map(|keyword| keyword.as_str())
-            .collect::<Vec<_>>()
-            .join(" ")
+        match self {
+            Self::NpmDiscovery(query) => query
+                .keywords
+                .iter()
+                .map(|word| word.as_str())
+                .collect::<Vec<_>>()
+                .join(" "),
+            Self::RegistryDiscovery(query) => query
+                .keywords
+                .iter()
+                .map(|word| word.as_str())
+                .collect::<Vec<_>>()
+                .join(" "),
+            _ => String::new(),
+        }
     }
 }
 
@@ -68,7 +134,7 @@ pub(crate) fn artifact_query(
 #[serde(rename_all = "camelCase")]
 pub struct ArtifactItem {
     #[serde(rename = "type")]
-    pub artifact_type: ArtifactSearchQueryType,
+    pub artifact_type: ArtifactType,
     pub name: String,
     pub registry_url: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -90,11 +156,7 @@ pub struct ArtifactItem {
 }
 
 impl ArtifactItem {
-    pub(crate) fn new(
-        artifact_type: ArtifactSearchQueryType,
-        name: String,
-        registry_url: String,
-    ) -> Self {
+    pub(crate) fn new(artifact_type: ArtifactType, name: String, registry_url: String) -> Self {
         Self {
             artifact_type,
             name,

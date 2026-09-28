@@ -80,7 +80,8 @@ pub fn execute_files(
     let validated = paths
         .validate(q.path.as_str())
         .map_err(super::StructureError::from)?;
-    let (time, mut warnings) = valid_time(q.time.clone());
+    validate_time(q.time.as_ref())?;
+    let time = &q.time;
     let access = q.access();
     let access = access.as_deref();
     let native = octocode_engine::portable::query_file_system_filtered(
@@ -114,12 +115,10 @@ pub fn execute_files(
     )
     .map_err(super::walk_error)?;
     cancel.check().map_err(super::cancelled)?;
-    warnings.extend(walk_warnings(native.skipped, native.permission_denied));
-    let full = q.detail() == "full";
-    // Modification times are collected for the `modified` sort (the schema
-    // default, newest first; ties keep walk order) and `detail` modified/full.
-    let collect_modified = full || q.detail() == "modified" || q.sort() == "modified";
-    let count_lines = (full || q.sort() == "lines") && native.entries.len() <= 2_000;
+    let mut warnings = walk_warnings(native.skipped, native.permission_denied);
+    let detail = q.detail();
+    let sort = q.sort();
+    let count_lines = detail == "full" || sort == "lines";
     let mut rows = native
         .entries
         .iter()
@@ -128,14 +127,14 @@ pub fn execute_files(
                 e,
                 &validated.canonical,
                 security,
-                full,
+                &detail,
                 count_lines,
                 paths,
                 cancel,
             )
         })
         .collect::<Result<Vec<_>, super::StructureError>>()?;
-    sort_rows(&mut rows, &q.sort(), collect_modified);
+    sort_rows(&mut rows, &sort);
     let available = rows.len();
     let requested = q.limit().unwrap_or(MAX_WALK).min(MAX_WALK) as usize;
     rows.truncate(requested);
@@ -229,11 +228,12 @@ fn make_row(
     e: &FileSystemEntry,
     root: &std::path::Path,
     security: &ContentSecurity,
-    full: bool,
+    detail: &str,
     count_lines: bool,
     paths: &PathPolicy,
     cancel: &dyn CancellationCheck,
 ) -> Result<Row, super::StructureError> {
+    let full = detail == "full";
     let root_name = root.file_name().unwrap_or_default().to_string_lossy();
     let relative = if e.relative_path == root_name || e.relative_path.is_empty() {
         root_name.into_owned()
@@ -262,6 +262,11 @@ fn make_row(
         }
     }
     let modified = e.modified_ms.unwrap_or(0.0);
+    if (full || detail == "modified")
+        && let Some(modified) = e.modified_ms
+    {
+        output["modifiedMs"] = json!(modified);
+    }
     let lines = if count_lines && kind != "directory" {
         line_count(std::path::Path::new(&e.path), paths, cancel)?
     } else {
@@ -279,13 +284,13 @@ fn make_row(
         lines,
     })
 }
-fn sort_rows(r: &mut [Row], sort: &str, modified: bool) {
+fn sort_rows(r: &mut [Row], sort: &str) {
     r.sort_by(|a, b| match sort {
         "lines" => b.lines.cmp(&a.lines),
         "size" => b.size.cmp(&a.size),
         "name" => a.name.cmp(&b.name),
         "path" => a.path.cmp(&b.path),
-        _ if modified => b.modified.total_cmp(&a.modified),
+        "modified" => b.modified.total_cmp(&a.modified),
         _ => a.path.cmp(&b.path),
     })
 }
@@ -338,24 +343,27 @@ pub(super) fn format_size(n: i64) -> String {
         format!("{:.1}TB", b / 1_099_511_627_776.)
     }
 }
-fn valid_time(
-    time: Option<StructureSearchQueryFilesTime>,
-) -> (Option<StructureSearchQueryFilesTime>, Vec<String>) {
-    let Some(mut t) = time else {
-        return (None, vec![]);
+fn validate_time(
+    time: Option<&StructureSearchQueryFilesTime>,
+) -> Result<(), super::StructureError> {
+    let Some(t) = time else {
+        return Ok(());
     };
-    let mut w = vec![];
     for (key, value) in [
-        ("modifiedWithin", &mut t.modified_within),
-        ("modifiedBefore", &mut t.modified_before),
-        ("accessedWithin", &mut t.accessed_within),
+        ("modifiedWithin", &t.modified_within),
+        ("modifiedBefore", &t.modified_before),
+        ("accessedWithin", &t.accessed_within),
     ] {
-        if value.as_deref().is_some_and(|v| !valid_duration(v)) {
-            let bad = value.take().unwrap_or_default();
-            w.push(format!("time.{key}=\"{bad}\" has an unsupported format — filter was skipped. Use a relative duration like \"7d\", \"2h\", \"1w\", or \"3m\"."))
+        if let Some(value) = value.as_deref().filter(|value| !valid_duration(value)) {
+            return Err(super::StructureError::new(
+                "invalidInput",
+                format!(
+                    "time.{key}=\"{value}\" has an unsupported format. Use a relative duration like \"7d\", \"2h\", \"1w\", or \"3m\"."
+                ),
+            ));
         }
     }
-    (Some(t), w)
+    Ok(())
 }
 fn valid_duration(v: &str) -> bool {
     v.len() > 1

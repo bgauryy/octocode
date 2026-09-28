@@ -8,7 +8,7 @@ import { GitHubViewRepoStructureQueryLocalSchema } from '@octocodeai/config/sche
 import { ArtifactSearchQueryLocalSchema } from '@octocodeai/config/schema';
 import { LocalFetchContentQuerySchema } from '@octocodeai/config/schema';
 import { StructureFilesQuerySchema } from '@octocodeai/config/schema';
-import { LocalRipgrepQuerySchema } from '@octocodeai/config/schema';
+import { LocalSearchQuerySchema } from '@octocodeai/config/schema';
 import { StructureTreeQuerySchema } from '@octocodeai/config/schema';
 import { LspSearchQuerySchema } from '@octocodeai/config/schema';
 
@@ -23,7 +23,7 @@ const schemas: Record<string, z.ZodTypeAny> = {
   'artifactSearch(remote)': ArtifactSearchQueryLocalSchema,
   'fetchContent(local)': LocalFetchContentQuerySchema,
   structureFiles: StructureFilesQuerySchema,
-  ripgrep: LocalRipgrepQuerySchema,
+  localSearch: LocalSearchQuerySchema,
   structureTree: StructureTreeQuerySchema,
   lspSemantic: LspSearchQuerySchema,
 };

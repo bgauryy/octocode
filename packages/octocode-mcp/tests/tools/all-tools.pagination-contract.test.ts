@@ -16,7 +16,9 @@ const TOOL_PAGINATION_CONTRACT: Record<
   string,
   { controls: string[]; exemption?: string }
 > = {
-  ghSearch: { controls: ['page', 'pageSize'] },
+  ghSearchRepo: { controls: ['page', 'pageSize'] },
+  ghSearchCode: { controls: ['page', 'pageSize'] },
+  ghStructure: { controls: ['page', 'pageSize', 'metadataPage'] },
   ghGetFileContent: { controls: ['chunkType', 'offset', 'chunkSize'] },
   ghSearchHistory: { controls: ['page', 'pageSize'] },
   ghGetHistoryItem: {

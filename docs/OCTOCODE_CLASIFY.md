@@ -133,7 +133,7 @@ Research presets are `locate`, `contribution`, `addsEvidence`, and `supportsClai
 
 `locate` accepts only `target` and applies to a contiguous original-source `localFetch` or `ghGetFileContent` page. The runtime tags small source passages, asks Jev a Choice question to rank them and a Noul question to estimate whether an answer exists, then projects the answer back to original line numbers. Where the engine outlines the language, passages are grouped by their innermost declaration (leading doc comment included) and a doc-comment hit shows the declaration line. The answer is `{exists,matches:[{startLine,endLine,probability}]}` with one match, or two when the page answers (`exists` ≥ 0.5) and the runner-up holds at least half the winner's probability. Each query's `best[questionId]` ranks windows across pages by `exists`, then `probability`; identifier-like targets add a `hints` entry pointing to localSearch. `next.clasify` carries the running `best` as `carry`, so the last call of a multi-call walk ranks the whole file. A file resource may add `prefilter:[terms]`: the runtime reads the file once for those literals and captures only the three densest 600-line windows of hits (one call for a huge file). A ranking always has a winner; low `exists` means the returned range is merely the closest passage.
 
-`answers.matches` provides each question’s source coordinates once. Batch nearby windows into at most five ranges per read call and verify the source before asserting. Results contain hints, never captured bodies. MCP returns a single structured payload with empty text content.
+`answers.matches` provides each question’s source coordinates once. These are verification windows around ranked passages, not guaranteed complete declarations or answers. Batch nearby windows into at most five ranges per read call; expand or follow the source if the deciding statement is absent. Even a high score needs source verification. Results contain hints, never captured bodies. MCP returns a single structured payload with empty text content.
 
 Each question must describe one source-local fact. Split lists, conjunctions, and
 facts expected in distant sections into separate questions over the same capture.
@@ -178,7 +178,7 @@ tokens. This is a transport proxy, not proof of model-context savings.
 
 ## Scout over search candidates
 
-One unread `localSearch` or GitHub `ghSearch` code resource fans its returned file entries into independent pages.
+One unread `localSearch` or GitHub `ghSearchCode` resource fans its returned file entries into independent pages.
 
 - Omit `candidateEvidence`, or use `"search"`, to judge only returned paths, snippets, and metadata.
 - Use `"fileChunks"` only for an explicit experiment where snippets cannot route the next read.

@@ -6,7 +6,7 @@ Load when judging whether an agent will chain this tool into a smart research wo
 
 - **Next step is explicit.** Every result state (hits, zero hits, too many hits, error, partial) returns either an executable `next.*` call or a diagnostic naming the correction. Zero-result and invalid-input paths matter most.
 - **Hints are specific and earned.** A hint names the tool + fields to call next with values from this result (path, line, SHA, symbol). Flag generic advice, hints repeated on every row, and hints pointing to disabled tools.
-- **Cross-tool handoffs line up.** Producer fields feed consumer inputs without reshaping: search → fetch (`path` + line/anchor), ghSearch → ghGetFileContent (owner/repo/ref), history → item (number/SHA), astSearch topology → lspSearch confirmation. Check against `docs/TOOL_DATA_CONTRACT.md` "Connections between tools".
+- **Cross-tool handoffs line up.** Producer fields feed consumer inputs without reshaping: search → fetch (`path` + line/anchor), ghSearchCode/ghStructure → ghGetFileContent (owner/repo/ref), history → item (number/SHA), astSearch topology → lspSearch confirmation. Check against `docs/TOOL_DATA_CONTRACT.md` "Connections between tools".
 - **Routing text matches behavior.** Instructions' locate cascade (anchor → search → fetch → rerank/clasify → lsp) reflects what tools actually return; flag guidance that asks for a field the tool does not emit.
 - **Reasoning/goal fields.** Optional `goal`/`reasoning` must not be required to get correct results, and output should not echo them back as filler.
 - **Confidence vocabulary.** `kind`, `confidence`, coverage, and `lowSignal` states are consistent across tools and tell the agent when to verify.

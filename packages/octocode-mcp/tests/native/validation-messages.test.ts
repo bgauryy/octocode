@@ -78,10 +78,9 @@ describe('MCP validation messages are actionable (CLI parity)', () => {
   it('names a missing required field plainly', async () => {
     const message = await sdkMessage('localSearch', {
       path: '.',
-      searchText: 'a',
     });
     expect(message).toBe(
-      'queries.0.reasoning: Missing required field: reasoning'
+      'queries.0.searchText: Missing required field: searchText'
     );
   });
 
@@ -112,13 +111,13 @@ describe('MCP validation messages are actionable (CLI parity)', () => {
 
 describe('discriminated unions', () => {
   it('lists allowed values when a z.discriminatedUnion discriminator is wrong', async () => {
-    const message = await sdkMessage('ghSearch', {
-      operation: 'cod',
+    const message = await sdkMessage('ghSearchHistory', {
+      operation: 'comit',
       keywords: ['a'],
       reasoning: 'r',
     });
     expect(message).toBe(
-      'queries.0.operation: Value "cod" is outside the allowed enum; allowed: code, repositories, tree (did you mean \'code\'?)'
+      'queries.0.operation: Value "comit" is outside the allowed enum; allowed: pullRequest, issue, commit (did you mean \'commit\'?)'
     );
   });
 });

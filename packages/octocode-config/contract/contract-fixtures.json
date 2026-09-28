@@ -252,11 +252,39 @@
     }
   },
   {
-    "id": "ghSearch.curated-1",
-    "tool": "ghSearch",
+    "id": "ghSearchRepo.curated-1",
+    "tool": "ghSearchRepo",
     "input": {
-      "reasoning": "Use ghSearch for the code search example.",
-      "operation": "code",
+      "reasoning": "Use ghSearchRepo for the repository search example.",
+      "keywords": [
+        "code research"
+      ],
+      "language": "TypeScript",
+      "pageSize": 5
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "goal": "Execute ghSearchRepo via fixture",
+          "reasoning": "Use ghSearchRepo for the repository search example.",
+          "debug": false,
+          "keywords": [
+            "code research"
+          ],
+          "language": "TypeScript",
+          "sort": "best-match",
+          "page": 1,
+          "pageSize": 5
+        }
+      ]
+    }
+  },
+  {
+    "id": "ghSearchCode.curated-1",
+    "tool": "ghSearchCode",
+    "input": {
+      "reasoning": "Use ghSearchCode for the code search example.",
       "keywords": [
         "localSearch"
       ],
@@ -268,8 +296,8 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute ghSearch via fixture",
-          "reasoning": "Use ghSearch for the code search example.",
+          "goal": "Execute ghSearchCode via fixture",
+          "reasoning": "Use ghSearchCode for the code search example.",
           "debug": false,
           "keywords": [
             "localSearch"
@@ -278,49 +306,16 @@
           "repo": "octocode",
           "match": "file",
           "page": 1,
-          "pageSize": 5,
-          "operation": "code"
+          "pageSize": 5
         }
       ]
     }
   },
   {
-    "id": "ghSearch.curated-2",
-    "tool": "ghSearch",
+    "id": "ghStructure.curated-1",
+    "tool": "ghStructure",
     "input": {
-      "reasoning": "Use ghSearch for the repository search example.",
-      "operation": "repositories",
-      "keywords": [
-        "code research"
-      ],
-      "language": "TypeScript",
-      "pageSize": 5
-    },
-    "accepted": true,
-    "normalized": {
-      "queries": [
-        {
-          "goal": "Execute ghSearch via fixture",
-          "reasoning": "Use ghSearch for the repository search example.",
-          "debug": false,
-          "keywords": [
-            "code research"
-          ],
-          "language": "TypeScript",
-          "sort": "best-match",
-          "page": 1,
-          "pageSize": 5,
-          "operation": "repositories"
-        }
-      ]
-    }
-  },
-  {
-    "id": "ghSearch.curated-3",
-    "tool": "ghSearch",
-    "input": {
-      "reasoning": "Use ghSearch for the repository tree example.",
-      "operation": "tree",
+      "reasoning": "Use ghStructure for the repository tree example.",
       "owner": "bgauryy",
       "repo": "octocode",
       "path": "packages",
@@ -330,8 +325,8 @@
     "normalized": {
       "queries": [
         {
-          "goal": "Execute ghSearch via fixture",
-          "reasoning": "Use ghSearch for the repository tree example.",
+          "goal": "Execute ghStructure via fixture",
+          "reasoning": "Use ghStructure for the repository tree example.",
           "debug": false,
           "owner": "bgauryy",
           "repo": "octocode",
@@ -339,97 +334,6 @@
           "maxDepth": 2,
           "page": 1,
           "metadataPage": 1,
-          "operation": "tree",
-          "pageSize": 100
-        }
-      ]
-    }
-  },
-  {
-    "id": "ghSearch.curated-4",
-    "tool": "ghSearch",
-    "input": {
-      "reasoning": "Use ghSearch for the code variant.",
-      "operation": "code",
-      "keywords": [
-        "toolSchemas"
-      ],
-      "owner": "bgauryy",
-      "repo": "octocode"
-    },
-    "accepted": true,
-    "normalized": {
-      "queries": [
-        {
-          "goal": "Execute ghSearch via fixture",
-          "reasoning": "Use ghSearch for the code variant.",
-          "debug": false,
-          "keywords": [
-            "toolSchemas"
-          ],
-          "owner": "bgauryy",
-          "repo": "octocode",
-          "match": "file",
-          "page": 1,
-          "pageSize": 30,
-          "operation": "code"
-        }
-      ]
-    }
-  },
-  {
-    "id": "ghSearch.curated-5",
-    "tool": "ghSearch",
-    "input": {
-      "reasoning": "Use ghSearch for the repositories variant.",
-      "operation": "repositories",
-      "keywords": [
-        "octocode"
-      ]
-    },
-    "accepted": true,
-    "normalized": {
-      "queries": [
-        {
-          "goal": "Execute ghSearch via fixture",
-          "reasoning": "Use ghSearch for the repositories variant.",
-          "debug": false,
-          "keywords": [
-            "octocode"
-          ],
-          "sort": "best-match",
-          "page": 1,
-          "pageSize": 30,
-          "operation": "repositories"
-        }
-      ]
-    }
-  },
-  {
-    "id": "ghSearch.curated-6",
-    "tool": "ghSearch",
-    "input": {
-      "reasoning": "Use ghSearch for the tree variant.",
-      "operation": "tree",
-      "owner": "bgauryy",
-      "repo": "octocode",
-      "path": "packages",
-      "maxDepth": 2
-    },
-    "accepted": true,
-    "normalized": {
-      "queries": [
-        {
-          "goal": "Execute ghSearch via fixture",
-          "reasoning": "Use ghSearch for the tree variant.",
-          "debug": false,
-          "owner": "bgauryy",
-          "repo": "octocode",
-          "path": "packages",
-          "maxDepth": 2,
-          "page": 1,
-          "metadataPage": 1,
-          "operation": "tree",
           "pageSize": 100
         }
       ]
@@ -1399,7 +1303,6 @@
     "tool": "astTopology",
     "input": {
       "reasoning": "Use astTopology for the dead code from detected entrypoints example.",
-      "operation": "topology",
       "analysis": "deadCode",
       "path": "/ABS/repo",
       "limit": 20
@@ -1415,7 +1318,6 @@
           "limit": 20,
           "page": 1,
           "includeTests": true,
-          "operation": "topology",
           "analysis": "deadCode"
         }
       ]
@@ -1426,7 +1328,6 @@
     "tool": "astTopology",
     "input": {
       "reasoning": "Use astTopology for the cycles example.",
-      "operation": "topology",
       "analysis": "cycles",
       "path": "/ABS/repo",
       "limit": 20
@@ -1441,7 +1342,6 @@
           "path": "/ABS/repo",
           "limit": 20,
           "page": 1,
-          "operation": "topology",
           "analysis": "cycles"
         }
       ]
@@ -1452,7 +1352,6 @@
     "tool": "astTopology",
     "input": {
       "reasoning": "Use astTopology for the dependencies of one file example.",
-      "operation": "topology",
       "analysis": "dependencies",
       "path": "/ABS/repo",
       "file": "src/index.ts",
@@ -1469,7 +1368,6 @@
           "page": 1,
           "file": "src/index.ts",
           "depth": 2,
-          "operation": "topology",
           "analysis": "dependencies"
         }
       ]
@@ -1480,7 +1378,6 @@
     "tool": "astTopology",
     "input": {
       "reasoning": "Use astTopology for the dependents of one file example.",
-      "operation": "topology",
       "analysis": "dependents",
       "path": "/ABS/repo",
       "file": "src/index.ts",
@@ -1497,7 +1394,6 @@
           "page": 1,
           "file": "src/index.ts",
           "depth": 2,
-          "operation": "topology",
           "analysis": "dependents"
         }
       ]
@@ -1508,7 +1404,6 @@
     "tool": "astTopology",
     "input": {
       "reasoning": "Use astTopology for the shortest dependency path example.",
-      "operation": "topology",
       "analysis": "path",
       "path": "/ABS/repo",
       "file": "src/index.ts",
@@ -1525,7 +1420,6 @@
           "page": 1,
           "file": "src/index.ts",
           "target": "src/responses.ts",
-          "operation": "topology",
           "analysis": "path"
         }
       ]
@@ -1536,7 +1430,6 @@
     "tool": "astTopology",
     "input": {
       "reasoning": "Use astTopology for the reachability from detected entrypoints example.",
-      "operation": "topology",
       "analysis": "reachability",
       "path": "/ABS/repo",
       "limit": 20
@@ -1552,7 +1445,6 @@
           "limit": 20,
           "page": 1,
           "includeTests": true,
-          "operation": "topology",
           "analysis": "reachability"
         }
       ]
@@ -1564,7 +1456,6 @@
     "input": {
       "reasoning": "Use astTopology for the dependencies variant.",
       "path": ".",
-      "operation": "topology",
       "analysis": "dependencies",
       "file": "src/index.ts"
     },
@@ -1579,7 +1470,6 @@
           "page": 1,
           "file": "src/index.ts",
           "depth": 1,
-          "operation": "topology",
           "analysis": "dependencies"
         }
       ]
@@ -1591,7 +1481,6 @@
     "input": {
       "reasoning": "Use astTopology for the dependents variant.",
       "path": ".",
-      "operation": "topology",
       "analysis": "dependents",
       "file": "src/index.ts"
     },
@@ -1606,7 +1495,6 @@
           "page": 1,
           "file": "src/index.ts",
           "depth": 1,
-          "operation": "topology",
           "analysis": "dependents"
         }
       ]
@@ -1618,7 +1506,6 @@
     "input": {
       "reasoning": "Use astTopology for the path variant.",
       "path": ".",
-      "operation": "topology",
       "analysis": "path",
       "file": "src/index.ts",
       "target": "src/utils.ts"
@@ -1634,7 +1521,6 @@
           "page": 1,
           "file": "src/index.ts",
           "target": "src/utils.ts",
-          "operation": "topology",
           "analysis": "path"
         }
       ]
@@ -1646,7 +1532,6 @@
     "input": {
       "reasoning": "Use astTopology for the cycles variant.",
       "path": ".",
-      "operation": "topology",
       "analysis": "cycles"
     },
     "accepted": true,
@@ -1658,7 +1543,6 @@
           "debug": false,
           "path": ".",
           "page": 1,
-          "operation": "topology",
           "analysis": "cycles"
         }
       ]
@@ -1670,7 +1554,6 @@
     "input": {
       "reasoning": "Use astTopology for the reachability variant.",
       "path": ".",
-      "operation": "topology",
       "analysis": "reachability"
     },
     "accepted": true,
@@ -1683,7 +1566,6 @@
           "path": ".",
           "page": 1,
           "includeTests": true,
-          "operation": "topology",
           "analysis": "reachability"
         }
       ]
@@ -1695,7 +1577,6 @@
     "input": {
       "reasoning": "Use astTopology for the deadCode variant.",
       "path": ".",
-      "operation": "topology",
       "analysis": "deadCode"
     },
     "accepted": true,
@@ -1708,7 +1589,6 @@
           "path": ".",
           "page": 1,
           "includeTests": true,
-          "operation": "topology",
           "analysis": "deadCode"
         }
       ]
@@ -1720,7 +1600,6 @@
     "input": {
       "reasoning": "Use astTopology for the drift variant.",
       "path": ".",
-      "operation": "topology",
       "analysis": "drift",
       "baseline": "../baseline"
     },
@@ -1734,7 +1613,6 @@
           "path": ".",
           "page": 1,
           "baseline": "../baseline",
-          "operation": "topology",
           "analysis": "drift"
         }
       ]
@@ -2052,8 +1930,6 @@
           "debug": false,
           "uri": "/ABS/repo/packages/octocode-native/crates/runtime/src/runtime/engine.rs",
           "operation": "documentSymbols",
-          "orderHint": 0,
-          "includeDeclaration": true,
           "page": 1
         }
       ]
@@ -2076,8 +1952,6 @@
           "debug": false,
           "uri": "/ABS/repo/src/index.ts",
           "operation": "diagnostic",
-          "orderHint": 0,
-          "includeDeclaration": true,
           "page": 1
         }
       ]
@@ -2136,7 +2010,6 @@
             "line": 0,
             "character": 0
           },
-          "orderHint": 0,
           "includeDeclaration": true,
           "page": 1
         }
@@ -2160,8 +2033,6 @@
           "debug": false,
           "uri": "src/index.ts",
           "operation": "documentSymbols",
-          "orderHint": 0,
-          "includeDeclaration": true,
           "page": 1
         }
       ]
@@ -2186,8 +2057,6 @@
           "uri": "src/index.ts",
           "operation": "workspaceSymbol",
           "symbolName": "Schema",
-          "orderHint": 0,
-          "includeDeclaration": true,
           "page": 1
         }
       ]
@@ -2211,8 +2080,6 @@
           "debug": false,
           "operation": "workspaceSymbol",
           "symbolName": "Schema",
-          "orderHint": 0,
-          "includeDeclaration": true,
           "page": 1,
           "workspaceRoot": "."
         }
@@ -2246,7 +2113,17 @@
       "path": "/fixture/a.ts",
       "goal": " "
     },
-    "accepted": false
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "goal": "Execute localFetch via fixture",
+          "reasoning": "",
+          "debug": false,
+          "path": "/fixture/a.ts"
+        }
+      ]
+    }
   },
   {
     "id": "local-fetch.reject-low",
@@ -2687,11 +2564,20 @@
     }
   },
   {
-    "id": "gh-search.no-constraint",
-    "tool": "ghSearch",
+    "id": "gh-search-code.no-constraint",
+    "tool": "ghSearchCode",
     "input": {
-      "reasoning": "Exercise the gh-search.no-constraint native parity fixture.",
-      "operation": "code"
+      "reasoning": "Exercise the gh-search-code.no-constraint native parity fixture.",
+      "owner": "o"
+    },
+    "accepted": false
+  },
+  {
+    "id": "gh-search-repo.no-constraint",
+    "tool": "ghSearchRepo",
+    "input": {
+      "reasoning": "Exercise the gh-search-repo.no-constraint native parity fixture.",
+      "page": 2
     },
     "accepted": false
   },

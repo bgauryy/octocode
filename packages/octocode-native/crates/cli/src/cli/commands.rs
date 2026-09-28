@@ -76,8 +76,12 @@ pub(super) enum Command {
     AstRewrite(ToolArgs),
     #[command(name = "lspSearch")]
     LspSearch(ToolArgs),
-    #[command(name = "ghSearch")]
-    GhSearch(ToolArgs),
+    #[command(name = "ghSearchRepo")]
+    GhSearchRepo(ToolArgs),
+    #[command(name = "ghSearchCode")]
+    GhSearchCode(ToolArgs),
+    #[command(name = "ghStructure")]
+    GhStructure(ToolArgs),
     #[command(name = "ghGetFileContent")]
     GhGetFileContent(ToolArgs),
     #[command(name = "ghSearchHistory")]
@@ -123,9 +127,9 @@ pub(super) enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Run an Octocode skill — `list`, `install`, `run <name>`, or any other skill command.
+    /// Manage bundled Octocode skills — `list`, `install`, `remove`, `check`, or `info`.
     Skill {
-        /// Arguments forwarded verbatim to `octocode skill` (e.g. `list`, `run octocode-research`).
+        /// Arguments forwarded verbatim to `octocode skill` (e.g. `list`, `check --fix`, `info octocode-research`).
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },

@@ -4,10 +4,10 @@
 workspace analysis, GitHub research, package discovery, skill management, and
 MCP client setup.
 
-The CLI is a presentation layer. Tool contracts come from
-`@octocodeai/octocode-core`, execution comes from
-`@octocodeai/octocode-native`, including native search and LSP support from
-its internal engine crate.
+The CLI is a presentation layer. Tool contracts are authored in
+`@octocodeai/octocode-core` and consumed through `@octocodeai/config`;
+execution comes from `@octocodeai/octocode-native`, including native search and
+LSP support from its internal engine crate.
 
 ## Requirements
 
@@ -31,7 +31,8 @@ Common management commands:
 - `octocode install` configures supported MCP clients.
 - `octocode auth` shows GitHub authentication; `auth login` / `auth logout` manage it.
 - `octocode config` shows config file paths and set key names (never values).
-- `octocode skill` manages bundled Agent Skills.
+- `octocode skill` manages bundled Agent Skills (`list`, `install`, `check`,
+  `info`, `remove`); `skill check --fix` repairs stale or broken installs.
 
 Research runs through one command per tool: `octocode <toolName> '<json>'`
 (e.g. `octocode localSearch '{…}'`). Results use structured exit codes and

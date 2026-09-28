@@ -29,7 +29,7 @@ comparisons.
 
 ## Tools
 
-- [ghSearch](./ghSearch.md)
+- [ghSearchRepo, ghSearchCode, ghStructure](./ghSearchTools.md)
 - [ghGetFileContent](./ghGetFileContent.md)
 - [ghSearchHistory and ghGetHistoryItem](./githubHistory.md)
 - [artifactSearch](./artifactSearch.md)

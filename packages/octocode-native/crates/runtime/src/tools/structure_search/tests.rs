@@ -47,6 +47,64 @@ fn run(root: &std::path::Path, query: Value) -> super::StructureResult {
 }
 
 #[test]
+fn invalid_time_filters_are_rejected_instead_of_skipped() {
+    let root = Fixture::new();
+    std::fs::write(root.0.join("source.rs"), "source\n").expect("source");
+    for field in ["modifiedWithin", "modifiedBefore", "accessedWithin"] {
+        let error = run(
+            &root.0,
+            json!({"operation":"files","reasoning":"test","path":root.0,"time":{field:"banana"}}),
+        )
+        .expect_err("invalid filter must not broaden the result");
+        assert_eq!(error.code, "invalidInput");
+        assert!(error.message.contains(field), "{}", error.message);
+    }
+}
+
+#[test]
+fn modified_and_full_detail_return_the_file_modification_time() {
+    let root = Fixture::new();
+    let source = root.0.join("source.rs");
+    std::fs::write(&source, "source\n").expect("source");
+    let modified = source
+        .metadata()
+        .expect("metadata")
+        .modified()
+        .expect("modified")
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("epoch")
+        .as_millis() as f64;
+    for detail in ["basic", "modified", "full"] {
+        let out = run(&root.0, json!({"operation":"files","reasoning":"test","path":root.0,"entryType":"f","detail":detail,"sort":"name"})).expect("files");
+        if detail == "basic" {
+            assert!(out["files"][0].get("modifiedMs").is_none());
+        } else {
+            let actual = out["files"][0]["modifiedMs"].as_f64().expect("modifiedMs");
+            assert!((actual - modified).abs() < 1.0, "{out}");
+        }
+    }
+}
+
+#[test]
+fn line_sort_and_full_counts_work_above_two_thousand_entries() {
+    let root = Fixture::new();
+    for i in 0..2001 {
+        std::fs::write(root.0.join(format!("file-{i:04}.rs")), "line\n").expect("file");
+    }
+    std::fs::write(root.0.join("largest.rs"), "line\n".repeat(7)).expect("largest");
+    let out = run(&root.0, json!({"operation":"files","reasoning":"test","path":root.0,"entryType":"f","detail":"full","sort":"lines","pageSize":1})).expect("files");
+    assert_eq!(out["pagination"]["totalFiles"], 2002);
+    assert!(
+        out["files"][0]["path"]
+            .as_str()
+            .expect("path")
+            .ends_with("/largest.rs"),
+        "{out}"
+    );
+    assert_eq!(out["files"][0]["lineCount"], 7, "{out}");
+}
+
+#[test]
 fn descendant_policy_precedes_discovery_totals_and_line_reads() {
     let root = Fixture::new();
     std::fs::create_dir(root.0.join(".aws")).expect("sensitive directory");

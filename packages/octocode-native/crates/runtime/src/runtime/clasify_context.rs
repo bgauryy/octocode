@@ -71,10 +71,10 @@ fn prepare(tool: &str, query: &Value) -> Result<Value, ClassificationError> {
             "Context query cannot contain a bulk envelope, cursor, or response paging options.",
         ));
     }
-    if tool == "ghSearch" && query.get("materialize") == Some(&Value::Bool(true)) {
+    if tool == "ghStructure" && query.get("materialize") == Some(&Value::Bool(true)) {
         return Err(error(
             "invalidClassificationContext",
-            "Clasify context cannot materialize a repository tree; use ghSearch directly when files are needed locally.",
+            "Clasify context cannot materialize a repository tree; use ghStructure directly when files are needed locally.",
         ));
     }
     let mut queries =
@@ -424,7 +424,7 @@ fn page_source(tool: &str, state: &Value, evidence_hash: &str) -> Value {
                     || path.to_owned(),
                     |base| Path::new(base).join(path).to_string_lossy().into_owned(),
                 ),
-            "ghGetFileContent" | "ghSearch" => {
+            "ghGetFileContent" | "ghSearchCode" => {
                 let owner = file
                     .get("owner")
                     .or_else(|| data.get("owner"))
@@ -851,23 +851,23 @@ mod tests {
             assert!(prepare("localFetch", &query).is_err(), "{query}");
         }
         assert!(prepare("localFetch", &json!({"path":"/tmp/f","reasoning":"Read"})).is_ok());
-        assert!(prepare("localFetch", &json!({"path":"/tmp/f"})).is_err());
+        assert!(prepare("localFetch", &json!({"path":"/tmp/f"})).is_ok());
     }
 
     #[test]
     fn nested_context_cannot_materialize_tree_files() {
         let query = json!({
-            "operation":"tree", "owner":"o", "repo":"r",
+            "owner":"o", "repo":"r",
             "reasoning":"Inspect tree", "materialize":true
         });
-        let error = prepare("ghSearch", &query).expect_err("materialization writes files");
+        let error = prepare("ghStructure", &query).expect_err("materialization writes files");
         assert_eq!(error.code, "invalidClassificationContext");
         assert!(error.message.contains("materialize"));
         assert!(
             prepare(
-                "ghSearch",
+                "ghStructure",
                 &json!({
-                    "operation":"tree", "owner":"o", "repo":"r",
+                    "owner":"o", "repo":"r",
                     "reasoning":"Inspect tree", "materialize":false
                 })
             )
@@ -877,11 +877,11 @@ mod tests {
 
     #[test]
     fn contract_violation_in_nested_context_includes_field_details() {
-        let err = prepare("localFetch", &json!({"path":"/tmp/f"}))
-            .expect_err("path-only localFetch must be rejected");
+        let err = prepare("localFetch", &json!({"path":42}))
+            .expect_err("non-string path must be rejected");
         assert_eq!(err.code, "invalidClassificationContext");
         assert!(
-            err.message.contains("reasoning"),
+            err.message.contains("path"),
             "error message must name the failing field; got: {}",
             err.message
         );
@@ -986,13 +986,13 @@ mod tests {
 
     #[test]
     fn empty_code_search_does_not_replay_tree_discovery_as_a_continuation() {
-        let state = json!({"results":[{"status":"empty","data":{"operation":"code","next":{
-            "viewStructure":{"tool":"ghSearch","confidence":"exact","query":{
-                "reasoning":"Verify the repository scope","operation":"tree","owner":"fastify",
-                "repo":"fastify","path":"","pageSize":30
+        let state = json!({"results":[{"status":"empty","data":{"next":{
+            "viewStructure":{"tool":"ghStructure","confidence":"exact","query":{
+                "reasoning":"Verify the repository scope","owner":"fastify",
+                "repo":"fastify","path":"","pageSize":100
             }}
         }}}]});
-        let receipt = receipt("ghSearch", &state);
+        let receipt = receipt("ghSearchCode", &state);
         assert!(continuation(&receipt).is_none(), "{receipt}");
     }
 

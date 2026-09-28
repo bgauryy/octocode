@@ -10,7 +10,7 @@ npx octocode scheme <toolName> --compact
 
 | Family | Tools |
 |--------|-------|
-| GitHub | `ghSearch`, `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem`, `ghCloneRepo` |
+| GitHub | `ghSearchRepo`, `ghSearchCode`, `ghStructure`, `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem`, `ghCloneRepo` |
 | Packages | `artifactSearch` |
 | Local | `localSearch`, `localFetch`, `structureSearch`, `astSearch`, `astTopology`, `astRewrite` |
 | LSP | `lspSearch` |
@@ -56,7 +56,7 @@ The CLI and MCP server expose the same canonical contracts from `@octocodeai/oct
 | `responseCharLength` | Optional outer field | Limits the rendered whole-response text window to 1–50,000 characters. It does not replace a tool's own result pagination. When omitted, responses larger than `output.pagination.defaultCharLength` (default 50,000) are paged automatically; follow `responsePagination.next`. |
 | `responseCharOffset` | Optional outer field | Continues a whole-response text window. Copy the returned executable `responsePagination.next` call instead of constructing an offset by hand. |
 
-For ordinary tools, `goal` and `reasoning` are the shared query fields. All other fields belong to a specific tool variant. The schemas are strict: fields from different `operation` branches cannot be mixed, selector pairs such as `startLine`/`endLine` must be complete, and mutually exclusive selectors must not be combined. `clasify` has its own matrix contract and required query-level `reasoning` field.
+For ordinary tools, `goal` and `reasoning` are optional shared query fields. All other fields belong to a specific tool variant. Fields from different `operation` branches cannot be mixed, selector pairs such as `startLine`/`endLine` must be complete, and mutually exclusive selectors must not be combined. `clasify` has its own matrix contract with optional query-level `reasoning`.
 
 ### Schema discovery, variants, relations, and hints
 
@@ -95,11 +95,13 @@ Row fields are `index`, optional `status`, optional `cache`, `meta`, and `data`.
 
 ## Internal, external, and hybrid tools
 
-"External" describes the data or provider boundary, not the MCP transport. All fourteen catalog entries use the same MCP and CLI contracts; availability gates can hide or reject an entry on a particular surface.
+"External" describes the data or provider boundary, not the MCP transport. All sixteen catalog entries use the same MCP and CLI contracts; availability gates can hide or reject an entry on a particular surface.
 
 | Tool | Boundary | How it works |
 | --- | --- | --- |
-| `ghSearch` | External | Calls GitHub search/tree APIs to discover code, repositories, or a known repository tree. Code search covers the indexed default branch; read exact bytes afterward. |
+| `ghSearchRepo` | External | Calls GitHub repository search (or the owner listing) to discover repositories. |
+| `ghSearchCode` | External | Calls GitHub code search to discover files and snippets. Covers the indexed default branch; read exact bytes afterward. |
+| `ghStructure` | External | Calls the GitHub tree API to browse a known repository tree, with optional repository metadata. |
 | `ghGetFileContent` | External | Reads a known GitHub file, ref, range, or match. Full reads return content without creating a local checkout. |
 | `ghSearchHistory` | External | Searches GitHub pull-request, issue, or commit metadata. It discovers history identities; it does not replace exact history reads. |
 | `ghGetHistoryItem` | External | Reads one known pull request, issue, commit, or comparison, with explicit selectors for bodies, comments, files, reviews, commits, and patches. |
@@ -182,62 +184,80 @@ Search match values and provider text snippets are evidence previews, not collec
 
 | Need | Tool |
 |------|------|
-| Search code across GitHub | `ghSearch` with `operation: "code"` |
-| Read a known file | `ghGetFileContent` (browse directories with `ghSearch` tree; bring a repo to disk with `ghCloneRepo`) |
-| Browse a repository tree | `ghSearch` with `operation: "tree"` |
-| Discover repositories | `ghSearch` with `operation: "repositories"` |
+| Search code across GitHub | `ghSearchCode` |
+| Read a known file | `ghGetFileContent` (browse directories with `ghStructure`; bring a repo to disk with `ghCloneRepo`) |
+| Browse a repository tree | `ghStructure` |
+| Discover repositories | `ghSearchRepo` |
 | Search PRs, issues, or commits | `ghSearchHistory` with `operation: "pullRequest"`, `"issue"`, or `"commit"` |
 | Inspect one PR, issue, commit, or ref comparison | `ghGetHistoryItem` with `operation: "pullRequest"`, `"issue"`, `"commit"`, or `"compare"` |
 | Materialize a repo/subtree locally | `ghCloneRepo` |
 | Resolve package identity or find packages by capability | `artifactSearch` |
 
-### `ghSearch`
+GitHub discovery is split into three tools with no `operation` field.
+`ghGetFileContent` stays separate because it reads and minifies known content
+rather than discovering it.
 
-Use the default unified discovery tool with one strict operation per query:
+### `ghSearchRepo`
 
-- `operation: "code"` accepts the code-search fields documented below.
-- `operation: "repositories"` accepts repository discovery fields.
-- `operation: "tree"` requires `owner` and `repo` and accepts tree browsing fields.
+Discover repositories by keywords, topics, owner, and metadata filters.
 
-Fields from another operation are rejected rather than silently ignored. Mixed bulk
-queries are allowed and results retain input order. `ghGetFileContent` stays
-separate because it reads and minifies known content rather than discovering it.
-
-<!-- tool: ghSearch -->
+<!-- tool: ghSearchRepo -->
 ```json
-{"reasoning": "Use ghSearch for this documented evidence request.", "operation": "code", "keywords": ["useReducer"], "owner": "vercel", "repo": "next.js"}
-{"reasoning": "Use ghSearch for this documented evidence request.", "operation": "repositories", "keywords": ["code research"], "language": "TypeScript"}
-{"reasoning": "Use ghSearch for this documented evidence request.", "operation": "tree", "owner": "vercel", "repo": "next.js", "path": "packages", "maxDepth": 2}
+{"reasoning": "Use ghSearchRepo for this documented evidence request.", "keywords": ["code research"], "language": "TypeScript"}
 ```
 
-Operation-specific fields:
+Fields: `keywords`, `topics`, `language`, `owner`, `stars`, `forks`,
+`goodFirstIssues`, `updated`, `created`, `size`, `license`, `archived`,
+`visibility`, `match` (array of `name`, `description`, `readme`), `sort`,
+`page`, `pageSize` (1-100), and `concise`.
 
-| Operation | Fields |
-|---|---|
-| `code` | `keywords`, `owner`, `repo`, `extension`, `filename`, `path`, `language`, `match`, `pageSize`, `page`, `concise` |
-| `repositories` | `keywords`, `topics`, `language`, `owner`, repository-range filters, `match`, `sort`, `pageSize`, `page`, `archived`, `visibility`, `license`, `concise` |
-| `tree` | required `owner` and `repo`; optional `branch`, `path`, `maxDepth`, `page`, `pageSize`, and `include` |
-
-Use `match:"path"` for path-only code discovery and `match:"file"` when snippets
-matter. Repository `match` instead selects searchable metadata fields. For the
-exact active branch requirements and field types, inspect the compact schema.
-
-Keywords are literal ANDed terms. Each one is sent as a bare word or as a single
-quoted phrase. Interior double quotes and backslashes are dropped, so a keyword
-such as `"hello" NOT` becomes the phrase `"hello NOT"` and cannot negate or
-replace the `repo:` scope. `owner` and `repo` must be GitHub names. A value with
-spaces, quotes, colons, or operators is a validation error.
-
-`repositories` with only `owner` (optionally `sort:"updated"`) reads the REST
+`ghSearchRepo` with only `owner` (optionally `sort:"updated"`) reads the REST
 owner listing and excludes archived repositories. One call reads up to 5
 provider pages to fill a page, so it can return more than `pageSize` rows.
 `page` and `nextPage` are provider page cursors that follow GitHub's `Link`
 header. The listing reports no `totalMatches` or `totalPages`
 (`countScope: "unknown"`).
 
+### `ghSearchCode`
+
+Search indexed default-branch code within one owner (required) and optional repo.
+
+<!-- tool: ghSearchCode -->
+```json
+{"reasoning": "Use ghSearchCode for this documented evidence request.", "keywords": ["useReducer"], "owner": "vercel", "repo": "next.js"}
+```
+
+Fields: `keywords`, required `owner`, `repo`, `path` (prefix), `extension`,
+`filename`, `language`, `match` (`"file"` or `"path"`), `page`, `pageSize`
+(1-100), and `concise`. Use `match:"path"` for path-only discovery and
+`match:"file"` when snippets matter. `next.readTopMatch` routes to
+`ghGetFileContent`.
+
+Keywords (also for `ghSearchRepo`) are literal ANDed terms. Each one is sent as
+a bare word or as a single quoted phrase. Interior double quotes and backslashes
+are dropped, so a keyword such as `"hello" NOT` becomes the phrase `"hello NOT"`
+and cannot negate or replace the `repo:` scope. `owner` and `repo` must be
+GitHub names. A value with spaces, quotes, colons, or operators is a validation
+error.
+
+### `ghStructure`
+
+Browse a known repository tree. `owner` and `repo` are required; `path` is a
+directory (`""` or `"."` for the root).
+
+<!-- tool: ghStructure -->
+```json
+{"reasoning": "Use ghStructure for this documented evidence request.", "owner": "vercel", "repo": "next.js", "path": "packages", "maxDepth": 2}
+```
+
+Fields: `owner`, `repo`, `path`, `branch`, `maxDepth` (1-20), `page`,
+`pageSize` (1-200), `include` (`sizes`, `languages`, `contributors`,
+`branches`, `tags`), `metadataPage`, `materialize`, and `materializeOffset`.
+For exact field types and relations, inspect the compact schema.
+
 ### `ghGetFileContent`
 
-Read one GitHub file. For directories use `ghSearch` `operation:"tree"`; for local analysis use `ghCloneRepo`.
+Read one GitHub file. For directories use `ghStructure`; for local analysis use `ghCloneRepo`.
 
 Key fields:
 
@@ -257,7 +277,7 @@ Choose one extraction intent: whole file, line range, matching slices, or symbol
 
 `fullContent:true` requests an unpaged view and rejects chunk controls. A view over 50000 bytes (or a source over 100 KB) returns its first bounded line page inline, `partialReasons:["full-content-limit"]`, and `next.continue` for the rest. A range remains bounded by its original `endLine`; continuing a match preserves its pattern and source-line context. `totalLines` and `sourceBytes` describe the original file; `pagination.totalLines`/`totalBytes` describe the complete selected view. `matchedLines` contains source anchors on the current page and `selectedMatchCount` counts all selected matching lines. `minifyFallback` explains when match evidence or unavailable outlines prevent the requested transform.
 
-File reads return content without creating a checkout. Use `ghSearch operation:"tree"` to browse directories or `ghCloneRepo` with `sparsePath` to create a local subtree.
+File reads return content without creating a checkout. Use `ghStructure` to browse directories or `ghCloneRepo` with `sparsePath` to create a local subtree.
 
 Examples:
 
@@ -305,7 +325,7 @@ with `ghGetHistoryItem`; search queries do not accept singular-item identities.
 Prefer title-first PR and issue searches. For commit archaeology, narrow by path
 and time before fetching a commit diff.
 
-Keywords follow the `ghSearch` rule: a bare word or one quoted phrase, never an
+Keywords follow the `ghSearchCode` rule: a bare word or one quoted phrase, never an
 operator. `owner`, `repo`, and person fields (`author`, `committer`, `assignee`,
 `mentions`, `commenter`, `reviewed-by`, `review-requested`) must be GitHub logins,
 names, or commit emails. Labels cannot contain quotes or backslashes. Range and
@@ -450,7 +470,7 @@ For npm, scoped names honor `@scope:registry` and an explicit `registry` takes p
 
 | Goal | Cheapest approach |
 |------|------------------|
-| Find if a function exists in a file | `ghSearch(operation:"code")` with `keywords: ["functionName"]` |
+| Find if a function exists in a file | `ghSearchCode` with `keywords: ["functionName"]` |
 | Read one function body | `ghGetFileContent` with `matchString: "function name"` + small `contextLines` |
 | Scan a whole file's structure | `ghGetFileContent` with `minify: "symbols"` |
 | Read 2–10 functions from a file | Multiple `startLine`/`endLine` reads in one batched call |
@@ -465,17 +485,17 @@ For npm, scoped names honor `@scope:registry` and an explicit `registry` takes p
 
 | Task | Flow |
 |------|------|
-| Understand a package | `artifactSearch` -> `ghSearch(operation:"tree")` -> `ghSearch(operation:"code")` -> `ghGetFileContent` |
-| Find examples of a pattern | `ghSearch(operation:"code")` -> `ghGetFileContent` |
-| Explore a repository | `ghSearch(operation:"tree")` -> `ghGetFileContent(README)` -> `ghSearch(operation:"code")` |
-| Explain why code changed | `ghSearch(operation:"code")` -> `ghSearchHistory` -> `ghGetHistoryItem` with the returned identity |
+| Understand a package | `artifactSearch` -> `ghStructure` -> `ghSearchCode` -> `ghGetFileContent` |
+| Find examples of a pattern | `ghSearchCode` -> `ghGetFileContent` |
+| Explore a repository | `ghStructure` -> `ghGetFileContent(README)` -> `ghSearchCode` |
+| Explain why code changed | `ghSearchCode` -> `ghSearchHistory` -> `ghGetHistoryItem` with the returned identity |
 | Deep local analysis | `ghCloneRepo` -> local tools |
 
 ### GitHub tool rules
 
 - Use GitHub tools for remote repositories, not files already on disk.
 - Use `artifactSearch` for a known dependency or a package capability need; set the ecosystem `type`. Skip it when the source repository is already known or installed behavior needs local evidence.
-- Use `ghSearch(operation:"tree")` before reading unknown paths.
+- Use `ghStructure` before reading unknown paths.
 - Use `matchString`, line ranges, or `minify: "symbols"` instead of `fullContent` for large files.
 - Use PR metadata first, then selected content.
 - Use `ghCloneRepo` only when local analysis is worth the clone cost.
@@ -611,7 +631,7 @@ matches, syntax trees, or symbols, and `astTopology` for file-graph queries.
 |-----------|-------------|
 | `path` | File or directory to search. Relative paths resolve from the workspace root. For remote repos: pass `localPath` from a `ghCloneRepo` result — it is already absolute and immediately valid. |
 | `searchText` | Text or regex pattern. Required. |
-| `resultView` | Lexical response shape: `paginated`, `discovery`, `detailed`, `content`, `files`, `filesWithout`, `countLines`, `countMatches`, or `matchOnly`. |
+| `resultView` | Lexical response shape: `paginated`, `detailed`, `content`, `files`, `filesWithout`, `countLines`, `countMatches`, or `matchOnly`. |
 | `matchWindow` | With `resultView:"matchOnly"`, widen each matched span by this many characters of context on each side (… marks trimmed sides). 0 = bare match. |
 | `unique` | With `resultView:"matchOnly"`, use `list` for distinct match values per file or `count` for frequencies. |
 | `contextLines` | Lines around each match. Default 0 (`detailed`: 3), max 100. |
@@ -641,8 +661,8 @@ matches, syntax trees, or symbols, and `astTopology` for file-graph queries.
 | `excludeDir` | Directory names to skip. |
 | `hidden` | Include hidden files. |
 | `noIgnore` | Ignore `.gitignore` and `.ignore` files. |
-| `sort` | Text/structural: `relevance`, `matchCount`, `path`, `modified`, `accessed`, or `created`. Files: `modified`, `name`, `path`, or `size`. Tree: `name`, `size`, `time`, or `extension`. |
-| `reverse` | Reverse the selected sort direction where the selected operation supports it. |
+| `sort` | `relevance` (default), `traversal`, `matchCount`, `path`, `modified`, `accessed`, or `created`. |
+| `reverse` | Reverse the selected sort before pagination. |
 
 #### Output
 
@@ -810,17 +830,17 @@ Metadata search for files and directories.
 | `entryType` | `f` for files, `d` for directories. |
 | `minDepth` / `maxDepth` | Depth bounds. |
 | `time.modifiedWithin` | Files modified within a window, such as `7d` or `2h`. |
-| `time.modifiedBefore` | Files modified before a date/window. |
+| `time.modifiedBefore` | Files older than a relative window, such as `7d`. |
 | `time.accessedWithin` | Files accessed within a window. |
 | `size.greater` / `size.less` | Size filters such as `100k` or `1m`. |
 | `empty` | Empty files/directories only. |
 | `permissions` | Permission string filter. |
 | `access` | Permission predicate: `executable`, `readable`, or `writable`. |
 | `excludeDir` | Directory names to skip. |
-| `detail` | `basic` (default), `modified` (+mtime), or `full` (all metadata). |
-| `sort` | Sort by `modified`, `name`, `path`, or `size`. |
+| `detail` | `basic` (default), `modified` (adds `modifiedMs`, Unix milliseconds), or `full` (also adds exact size and line count). |
+| `sort` | Sort by `modified`, `name`, `path`, `size`, or `lines`. |
 | `page` | Result page. |
-| `pageSize` | Files per page. Max 50. |
+| `pageSize` | Files per page. Max 100. |
 | `limit` | Hard pre-pagination cap. Max 10000. |
 
 #### Examples
@@ -845,7 +865,7 @@ Read a known local path. Path-only reads are valid and return exact source subje
 | `matchString` | Nonempty literal source text; enable `matchStringIsRegex` for regex or `matchStringCaseSensitive` for case sensitivity. |
 | `contextLines` | Explicit source-line context per side, 0–100; default 5 for line chunks. Exclusive with `contextBytes`. |
 | `contextBytes` | UTF-8 context bytes per side, 0–16384; default 256 for byte chunks. Requires `matchString`. Full-source redaction precedes byte matching; edges expand to whole code points, and disjoint windows are separated by a `... [N bytes omitted] ...` marker. |
-| `minify` | `none` (default), `standard` compact source, or `symbols` whole-file outline. Symbols cannot accompany range/match selectors. |
+| `minify` | `none` (default), `standard` compact source, or `symbols` whole-file outline. Match views preserve source text; symbols cannot accompany range/match selectors. |
 | `fullContent` | Complete unpaged view within resource/security limits; cannot accompany chunk controls. |
 
 Selection precedes minification, redaction, and pagination. Line pages preserve complete lines within a 16384-byte budget. An offset at or past the end of the view returns empty content with `pagination.outOfRange:true` and an offset-zero `next.restart`. An oversized line switches to byte paging from the unreturned position. Byte ends extend by at most three bytes to finish a UTF-8 code point. Copy the complete `next.continue` query; do not calculate offsets. Continuations stop at the selected range or matched view.
@@ -921,7 +941,6 @@ Use `astTopology` to discover repository-scale file topology and candidate reach
 
 | Parameter | Description |
 |-----------|-------------|
-| `operation` | Required discriminator: `topology`. |
 | `analysis` | Required: `dependencies`, `dependents`, `path`, `reachability`, `cycles`, `deadCode`, or `drift`. |
 | `path` | Repository root to analyze. Required. |
 | `languageGlobs` | Optional root-relative AST parser map, e.g. `{"cpp":["include/**/*.h"]}`. Also accepted by directory `astSearch` symbols. Does not configure clangd; use compile commands or `.clangd` for C++ header LSP parsing. |
@@ -953,9 +972,9 @@ The graph assigns no weights to edges. `path` therefore uses breadth-first searc
 #### Examples
 
 ```bash
-astTopology(operation="topology", analysis="dependencies", path="/ABS/repo", file="src/index.ts", depth=2)
-astTopology(operation="topology", analysis="cycles", path="/ABS/repo", pageSize=20, limit=100)
-astTopology(operation="topology", analysis="deadCode", path="/ABS/repo", entrypoints=["src/index.ts"], includeTests=false)
+astTopology(analysis="dependencies", path="/ABS/repo", file="src/index.ts", depth=2)
+astTopology(analysis="cycles", path="/ABS/repo", pageSize=20, limit=100)
+astTopology(analysis="deadCode", path="/ABS/repo", entrypoints=["src/index.ts"], includeTests=false)
 ```
 
 For a cycle, read the exact imports named by `cycleEdges`; use `runtimeCycleEdges` when investigating loading behavior. Verify a dead-code or transitive-edge candidate with `lspSearch` before removing it.
@@ -1466,7 +1485,7 @@ Use `ghCloneRepo` to bring remote source into local AST, search, and LSP tools. 
 | Need | Tool |
 |---|---|
 | Read one remote file | `ghGetFileContent` |
-| Browse remote paths | `ghSearch operation:"tree"` |
+| Browse remote paths | `ghStructure` |
 | Inspect a subtree locally | `ghCloneRepo` with `sparsePath` |
 | Analyze cross-file semantics | `ghCloneRepo`, then `lspSearch` |
 
@@ -1488,8 +1507,8 @@ ghCloneRepo(owner="microsoft", repo="TypeScript", sparsePath="src/compiler")
 
 - **Browse a cloned tree:** `ghCloneRepo` → `structureSearch(operation="tree", path=localPath, maxDepth=2)`, drilling into subdirectories.
 - **Deep analysis with LSP:** `ghCloneRepo` → `localSearch` for the symbol + `lineHint` → `lspSearch(operation="definition"|"callers", uri=localPath+"/file", symbolName, lineHint)`.
-- **GitHub browse → local:** `ghSearch(operation="tree")` to scout → `ghCloneRepo` → `localSearch` (full regex/type filters) → `lspSearch(operation="references")`.
-- **Sparse monorepo package:** scout with `ghSearch(operation="tree")` → `ghCloneRepo(sparsePath=...)` → `localSearch`/`structureSearch(operation="files")` within the subtree.
+- **GitHub browse → local:** `ghStructure` to scout → `ghCloneRepo` → `localSearch` (full regex/type filters) → `lspSearch(operation="references")`.
+- **Sparse monorepo package:** scout with `ghStructure` → `ghCloneRepo(sparsePath=...)` → `localSearch`/`structureSearch(operation="files")` within the subtree.
 
 ---
 
@@ -1498,8 +1517,8 @@ ghCloneRepo(owner="microsoft", repo="TypeScript", sparsePath="src/compiler")
 | Behavior | Details |
 |----------|---------|
 | **Materialization TTL** | Clone entries use 24 hours by default (configurable through `OCTOCODE_CACHE_TTL_MS`) |
-| **Shared response cache** | `ghSearch`, `ghSearchHistory`, `ghGetHistoryItem`, and `artifactSearch` use per-response freshness periods from 5 minutes to 24 hours |
-| **Conditional cache** | `ghGetFileContent` and the `ghSearch` tree operation retain response bodies and ETags for conditional refresh; stale bodies can remain available for up to 24 hours |
+| **Shared response cache** | `ghSearchRepo`, `ghSearchCode`, `ghSearchHistory`, `ghGetHistoryItem`, and `artifactSearch` use per-response freshness periods from 5 minutes to 24 hours |
+| **Conditional cache** | `ghGetFileContent` and `ghStructure` retain response bodies and ETags for conditional refresh; stale bodies can remain available for up to 24 hours |
 | **Response marker** | A result whose primary response payload was served from cache includes `cache: 1`. Fresh results and helper-only cache hits omit `cache`; no other marker value is valid. The contract is identical in CLI and MCP output. |
 | **Clone cache** | `ghCloneRepo` uses the clone/materialization cache |
 | **Live tools** | `localSearch`, `localFetch`, `structureSearch`, `astSearch`, and `lspSearch` read the workspace directly and don't cache tool results |

@@ -6,7 +6,7 @@ const empty = value => Array.isArray(value) && value.length === 0;
 const paging = {page:one,pageSize:any};
 const safeExtras = {
   artifactSearch:{pageSize:any},
-  ghSearch:{...paging,match:values('file'),concise:values(true,false)},
+  ghSearchCode:{...paging,match:values('file'),concise:values(true,false)},
   ghGetFileContent:{limit:any,chunkType:values('lines','bytes'),offset:zero,minify:values('none'),forceRefresh:values(true,false)},
   ghSearchHistory:{...paging,concise:values(true,false),sort:any,order:any},
   ghGetHistoryItem:{pageSize:any,charOffset:zero,charLength:any},

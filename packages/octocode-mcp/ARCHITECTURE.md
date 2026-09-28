@@ -11,7 +11,7 @@ select, sanitize, or execute tools in TypeScript.
   enabled tools with MCP SDK v2, forwards each call to `executeMcp()`, forwards
   cancellation, and closes the transport before it closes the runtime.
 - `src/public.ts` exposes typed wrappers for embedding the same native adapter.
-- `@octocodeai/octocode-core/schema` supplies the Standard Schema objects needed
+- `@octocodeai/config/schema` supplies the core-owned Standard Schema objects needed
   by `McpServer.registerTool()`. Public contracts remain owned by core.
 - `@octocodeai/octocode-native` owns configuration, policy, validation,
   execution, response shaping, sanitization, pagination, and shutdown of tool
@@ -22,7 +22,7 @@ missing or invalid, startup fails closed.
 
 ## Tool registration
 
-The native catalog contains thirteen tools. MCP registers only the available
+The native catalog contains fourteen tools. MCP registers only the available
 subset: `astTopology` is a beta feature requiring `OCTOCODE_BETA=true` (or
 `local.beta:true`), filtered from discovery while the gate is off.
 `ghCloneRepo` and `astRewrite` mutate the machine and are CLI-only: the native

@@ -121,11 +121,20 @@ export function checkSkill(
 function annotateFreshness(result: SkillCheckResult): void {
   const bundled = getSkill(result.skillName);
   if (!bundled) return;
+  const compared = new Map<string, Freshness | undefined>();
   for (const location of [result.home, ...result.platforms, result.workspace]) {
     if (location.status !== 'installed' && location.status !== 'linked') {
       continue;
     }
-    const freshness = contentFreshness(bundled.dir, location.path);
+    let real: string;
+    try {
+      real = fs.realpathSync(location.path);
+    } catch {
+      continue;
+    }
+    if (!compared.has(real))
+      compared.set(real, contentFreshness(bundled.dir, real));
+    const freshness = compared.get(real);
     if (freshness) location.content = freshness;
   }
 }

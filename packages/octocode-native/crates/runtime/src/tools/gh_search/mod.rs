@@ -14,8 +14,9 @@ use crate::tools::local_fetch::ContentScan;
 use crate::tools::result::remove_null_fields;
 
 pub use crate::contracts::tool_types::{
-    GhSearchQuery, GhSearchQueryIncludeItem, GhSearchQueryMatch, GhSearchQueryMatchItem,
-    GhSearchQuerySort, GhSearchQueryVisibility,
+    GhSearchCodeQuery, GhSearchCodeQueryMatch, GhSearchRepoQuery, GhSearchRepoQueryMatchItem,
+    GhSearchRepoQuerySort, GhSearchRepoQueryVisibility, GhStructureQuery,
+    GhStructureQueryIncludeItem,
 };
 
 /// The provider pages in `usize`; the wire contract owns the integer types.
@@ -23,254 +24,272 @@ pub(crate) fn usize_of(value: std::num::NonZeroU64) -> usize {
     usize::try_from(value.get()).unwrap_or(usize::MAX)
 }
 
-pub async fn execute<R: CredentialResolver, C: crate::providers::github::ConditionalCache>(
+/// `ghStructure`: browse a known repository's tree.
+pub async fn execute_structure<
+    R: CredentialResolver,
+    C: crate::providers::github::ConditionalCache,
+>(
     provider: &crate::providers::github::GitHubProvider<R, C>,
-    query: &GhSearchQuery,
+    query: &GhStructureQuery,
     context: &RequestContext,
-    security: &impl ContentScan,
     home: &std::path::Path,
 ) -> Result<ToolData, ProviderError> {
+    tree::execute(provider, query, context, home).await
+}
+
+/// `ghSearchCode`: indexed default-branch code or path search.
+pub async fn execute_code<R: CredentialResolver, C: crate::providers::github::ConditionalCache>(
+    provider: &crate::providers::github::GitHubProvider<R, C>,
+    query: &GhSearchCodeQuery,
+    context: &RequestContext,
+    security: &impl ContentScan,
+) -> Result<ToolData, ProviderError> {
     let transport = &provider.transport;
-    queries::validate_scope(query)?;
-    match query {
-        GhSearchQuery::Code {
-            match_,
-            page,
-            page_size,
-            ..
-        } => {
-            if !queries::code_has_narrowing_selector(query) {
-                return Err(ProviderError::new(
-                    ProviderErrorKind::Validation,
-                    "Code search requires non-empty keywords, path, extension, filename, or language; owner/repo alone is not a bounded code search.",
-                ));
-            }
-            let q = queries::code(query);
-            let current = usize_of(*page);
-            let per = usize_of(*page_size).min(100);
-            reject_window(current, per)?;
-            let data = transport
-                .search_code(
-                    &CodeSearchRequest {
-                        query: q,
-                        page: current,
-                        per_page: per,
-                        include_fragments: *match_ != GhSearchQueryMatch::Path,
-                    },
-                    context,
-                )
-                .await?;
-            let total = data.total_count.min(1000);
-            let pages = total.div_ceil(per);
-            let more = current < pages;
-            let items = code_output::files(&data.items, query, security)?;
-            let mut value = json!({"operation":"code"});
-            if !items.is_empty() {
-                value["files"] = json!(items);
-            }
-            if pages > 1 {
-                value["pagination"] = json!({"currentPage":current,"totalPages":pages,"perPage":per,"totalMatches":total,"totalMatchesCapped":data.total_count>total,"uniqueFileCount":code_output::unique_file_count(&data.items),"hasMore":more,"nextPage":more.then_some(current+1)});
-            }
-            if !more && let Some(page) = value.get_mut("pagination").and_then(Value::as_object_mut)
-            {
-                page.remove("nextPage");
-            }
-            add_next(&mut value, query, current, more);
-            if let Some(read) = code_output::read_top_match(&value) {
-                value["next"]["readTopMatch"] = read;
-            }
-            apply_partial(
-                &mut value,
-                query,
-                data.incomplete_results && data.items.is_empty(),
-                data.total_count > 1000,
-                current,
-                more,
-                "code",
-            );
-            let mut output = ToolData::from(value);
-            let value = &mut output.data;
-            if data.incomplete_results {
-                if data.items.is_empty() {
-                    value["incompleteResults"] = json!(true);
-                }
-                output.diagnostics.add(
-                    "ghIncompleteResults",
-                    "GitHub reported an incomplete search index result; retry, narrow the scope, or verify locally before concluding absence.",
-                    more || data.items.is_empty(),
-                );
-                let mut retry = serde_json::to_value(query).map_err(|error| {
-                    ProviderError::new(ProviderErrorKind::Decode, error.to_string())
-                })?;
-                remove_null_fields(&mut retry);
-                value["next"]["retry"] =
-                    json!({"tool":"ghSearch","query":retry,"confidence":"exact"});
-                if data.items.is_empty() {
-                    value["next"]["retry"]["why"] =
-                        json!("Retry the same query because GitHub marked the result incomplete.");
-                }
-            }
-            if data.items.is_empty() {
-                output.status = Some("empty");
-                code_output::empty_scope(value, &mut output.diagnostics, query, transport, context)
-                    .await?;
-                if value.get("next").is_none() {
-                    value["hints"] = json!(["Broaden keywords or remove filters."]);
-                }
-            }
-            Ok(output)
-        }
-        GhSearchQuery::Repositories {
-            keywords,
-            owner,
-            language,
-            stars,
-            forks,
-            good_first_issues,
-            updated,
-            created,
-            size,
-            match_,
-            sort,
-            archived,
-            visibility,
-            license,
-            topics,
-            concise,
-            page,
-            page_size,
-            ..
-        } => {
-            let mut terms = keywords.clone();
-            terms.extend(topics.iter().map(|x| format!("topic:{x}")));
-            let q = queries::repositories(query);
-            let current = usize_of(*page);
-            let per = usize_of(*page_size).min(100);
-            let owner_only = terms.is_empty()
-                && owner.is_some()
-                && language.is_none()
-                && stars.is_none()
-                && forks.is_none()
-                && good_first_issues.is_none()
-                && updated.is_none()
-                && created.is_none()
-                && size.is_none()
-                && match_.is_empty()
-                && archived.is_none()
-                && visibility.is_none()
-                && license.is_none()
-                && matches!(
-                    sort,
-                    GhSearchQuerySort::BestMatch | GhSearchQuerySort::Updated
-                );
-            // The owner listing pages through the REST list API, which has no
-            // 1,000-result search window; only search is bounded by it.
-            if !owner_only {
-                reject_window(current, per)?;
-            }
-            let mut listing: Option<OwnerListing> = None;
-            let data = if owner_only {
-                let owner = owner.as_deref().map_or("", String::as_str);
-                let sort = (*sort == GhSearchQuerySort::Updated).then_some("updated");
-                // Search excludes archived repositories by default
-                // (`archived:false`); the owner listing API cannot, so filter
-                // and keep reading provider pages until a page of kept rows,
-                // the end of the listing (no Link next), or the page budget.
-                let mut items = Vec::new();
-                let mut provider_page = current;
-                let more = loop {
-                    let (batch, has_next) = transport
-                        .list_owner_repositories(owner, sort, provider_page, per, context)
-                        .await?;
-                    items.extend(batch.into_iter().filter(|item| !item.archived));
-                    if !has_next
-                        || items.len() >= per
-                        || provider_page + 1 - current >= MAX_OWNER_LISTING_PAGES
-                    {
-                        break has_next;
-                    }
-                    provider_page += 1;
-                };
-                listing = Some(OwnerListing {
-                    last_page: provider_page,
-                    more,
-                });
-                RepositorySearchPage {
-                    total_count: items.len(),
-                    incomplete_results: false,
-                    items,
-                }
-            } else {
-                transport
-                    .search_repositories(
-                        &RepositorySearchRequest {
-                            query: q,
-                            sort: (*sort != GhSearchQuerySort::BestMatch).then(|| sort.to_string()),
-                            page: current,
-                            per_page: per,
-                        },
-                        context,
-                    )
-                    .await?
-            };
-            let total = data.total_count.min(1000);
-            let pages = total.div_ceil(per);
-            let more = match &listing {
-                Some(listing) => listing.more,
-                None => current < pages,
-            };
-            let provider_incomplete = data.incomplete_results;
-            let provider_capped = listing.is_none() && data.total_count > 1000;
-            let repositories = if *concise == Some(true) {
-                data.items
-                    .into_iter()
-                    .map(|r| json!(r.full_name))
-                    .collect::<Vec<_>>()
-            } else {
-                data.items.into_iter().map(|r| { let (o,n)=r.full_name.split_once('/').unwrap_or(("",&r.name)); json!({"owner":o,"repo":n,"stars":r.stargazers_count,"forks":r.forks_count,"language":r.language,"license":r.license.and_then(|v|v.spdx_id),"description":r.description,"pushedAt":date(r.pushed_at),"createdAt":date(r.created_at),"updatedAt":date(r.updated_at),"topics":r.topics}) }).collect::<Vec<_>>()
-            };
-            let repositories_empty = repositories.is_empty();
-            let mut value = match &listing {
-                // The REST listing reports no total: `page` is the provider
-                // page cursor and `nextPage` follows the real Link header.
-                Some(listing) => {
-                    json!({"operation":"repositories","repositories":repositories,"pagination":{
-                        "currentPage":current,"perPage":per,"hasMore":more,
-                        "nextPage":more.then_some(listing.last_page + 1),
-                        "providerPagesRead":listing.last_page + 1 - current,
-                        "countScope":"unknown"
-                    }})
-                }
-                None => {
-                    json!({"operation":"repositories","repositories":repositories,"pagination":{"currentPage":current,"totalPages":pages,"perPage":per,"totalMatches":total,"totalMatchesCapped":provider_capped,"hasMore":more,"nextPage":more.then_some(current+1)}})
-                }
-            };
-            if !more && let Some(page) = value.get_mut("pagination").and_then(Value::as_object_mut)
-            {
-                page.remove("nextPage");
-            }
-            let next_from = listing
-                .as_ref()
-                .map_or(current, |listing| listing.last_page);
-            add_next(&mut value, query, next_from, more);
-            apply_partial(
-                &mut value,
-                query,
-                provider_incomplete,
-                provider_capped,
-                current,
-                more,
-                "repositories",
-            );
-            Ok(repository_output(
-                value,
-                repositories_empty && !more,
-                provider_incomplete,
-                provider_capped,
-            ))
-        }
-        GhSearchQuery::Tree { .. } => tree::execute(provider, query, context, home).await,
+    queries::validate_code_scope(query)?;
+    let GhSearchCodeQuery {
+        match_,
+        page,
+        page_size,
+        ..
+    } = query;
+    if !queries::code_has_narrowing_selector(query) {
+        return Err(ProviderError::new(
+            ProviderErrorKind::Validation,
+            "Code search requires non-empty keywords, path, extension, filename, or language; owner/repo alone is not a bounded code search.",
+        ));
     }
+    let q = queries::code(query);
+    let current = usize_of(*page);
+    let per = usize_of(*page_size).min(100);
+    reject_window(current, per)?;
+    let data = transport
+        .search_code(
+            &CodeSearchRequest {
+                query: q,
+                page: current,
+                per_page: per,
+                include_fragments: *match_ != GhSearchCodeQueryMatch::Path,
+            },
+            context,
+        )
+        .await?;
+    let total = data.total_count.min(1000);
+    let pages = total.div_ceil(per);
+    let more = current < pages;
+    let items = code_output::files(&data.items, query, security)?;
+    let mut value = json!({});
+    if !items.is_empty() {
+        value["files"] = json!(items);
+    }
+    if pages > 1 {
+        value["pagination"] = json!({"currentPage":current,"totalPages":pages,"perPage":per,"totalMatches":total,"totalMatchesCapped":data.total_count>total,"uniqueFileCount":code_output::unique_file_count(&data.items),"hasMore":more,"nextPage":more.then_some(current+1)});
+    }
+    if !more && let Some(page) = value.get_mut("pagination").and_then(Value::as_object_mut) {
+        page.remove("nextPage");
+    }
+    add_next(&mut value, "ghSearchCode", query, current, more);
+    if let Some(read) = code_output::read_top_match(&value) {
+        value["next"]["readTopMatch"] = read;
+    }
+    apply_partial(
+        &mut value,
+        "ghSearchCode",
+        query,
+        data.incomplete_results && data.items.is_empty(),
+        data.total_count > 1000,
+        current,
+        more,
+        "code",
+    );
+    let mut output = ToolData::from(value);
+    let value = &mut output.data;
+    if data.incomplete_results {
+        if data.items.is_empty() {
+            value["incompleteResults"] = json!(true);
+        }
+        output.diagnostics.add(
+            "ghIncompleteResults",
+            "GitHub reported an incomplete search index result; retry, narrow the scope, or verify locally before concluding absence.",
+            more || data.items.is_empty(),
+        );
+        let mut retry = serde_json::to_value(query)
+            .map_err(|error| ProviderError::new(ProviderErrorKind::Decode, error.to_string()))?;
+        remove_null_fields(&mut retry);
+        value["next"]["retry"] = json!({"tool":"ghSearchCode","query":retry,"confidence":"exact"});
+        if data.items.is_empty() {
+            value["next"]["retry"]["why"] =
+                json!("Retry the same query because GitHub marked the result incomplete.");
+        }
+    }
+    if data.items.is_empty() {
+        output.status = Some("empty");
+        code_output::empty_scope(value, &mut output.diagnostics, query, transport, context).await?;
+        if value.get("next").is_none() {
+            value["hints"] = json!(["Broaden keywords or remove filters."]);
+        }
+    }
+    Ok(output)
+}
+
+/// `ghSearchRepo`: repository search, or an owner-only repository listing.
+pub async fn execute_repositories<
+    R: CredentialResolver,
+    C: crate::providers::github::ConditionalCache,
+>(
+    provider: &crate::providers::github::GitHubProvider<R, C>,
+    query: &GhSearchRepoQuery,
+    context: &RequestContext,
+) -> Result<ToolData, ProviderError> {
+    let transport = &provider.transport;
+    queries::validate_repo_scope(query)?;
+    let GhSearchRepoQuery {
+        keywords,
+        owner,
+        language,
+        stars,
+        forks,
+        good_first_issues,
+        updated,
+        created,
+        size,
+        match_,
+        sort,
+        archived,
+        visibility,
+        license,
+        topics,
+        concise,
+        page,
+        page_size,
+        ..
+    } = query;
+    let mut terms = keywords.clone();
+    terms.extend(topics.iter().map(|x| format!("topic:{x}")));
+    let q = queries::repositories(query);
+    let current = usize_of(*page);
+    let per = usize_of(*page_size).min(100);
+    let owner_only = terms.is_empty()
+        && owner.is_some()
+        && language.is_none()
+        && stars.is_none()
+        && forks.is_none()
+        && good_first_issues.is_none()
+        && updated.is_none()
+        && created.is_none()
+        && size.is_none()
+        && match_.is_empty()
+        && archived.is_none()
+        && visibility.is_none()
+        && license.is_none()
+        && matches!(
+            sort,
+            GhSearchRepoQuerySort::BestMatch | GhSearchRepoQuerySort::Updated
+        );
+    // The owner listing pages through the REST list API, which has no
+    // 1,000-result search window; only search is bounded by it.
+    if !owner_only {
+        reject_window(current, per)?;
+    }
+    let mut listing: Option<OwnerListing> = None;
+    let data = if owner_only {
+        let owner = owner.as_deref().map_or("", String::as_str);
+        let sort = (*sort == GhSearchRepoQuerySort::Updated).then_some("updated");
+        // Search excludes archived repositories by default
+        // (`archived:false`); the owner listing API cannot, so filter
+        // and keep reading provider pages until a page of kept rows,
+        // the end of the listing (no Link next), or the page budget.
+        let mut items = Vec::new();
+        let mut provider_page = current;
+        let more = loop {
+            let (batch, has_next) = transport
+                .list_owner_repositories(owner, sort, provider_page, per, context)
+                .await?;
+            items.extend(batch.into_iter().filter(|item| !item.archived));
+            if !has_next
+                || items.len() >= per
+                || provider_page + 1 - current >= MAX_OWNER_LISTING_PAGES
+            {
+                break has_next;
+            }
+            provider_page += 1;
+        };
+        listing = Some(OwnerListing {
+            last_page: provider_page,
+            more,
+        });
+        RepositorySearchPage {
+            total_count: items.len(),
+            incomplete_results: false,
+            items,
+        }
+    } else {
+        transport
+            .search_repositories(
+                &RepositorySearchRequest {
+                    query: q,
+                    sort: (*sort != GhSearchRepoQuerySort::BestMatch).then(|| sort.to_string()),
+                    page: current,
+                    per_page: per,
+                },
+                context,
+            )
+            .await?
+    };
+    let total = data.total_count.min(1000);
+    let pages = total.div_ceil(per);
+    let more = match &listing {
+        Some(listing) => listing.more,
+        None => current < pages,
+    };
+    let provider_incomplete = data.incomplete_results;
+    let provider_capped = listing.is_none() && data.total_count > 1000;
+    let repositories = if *concise == Some(true) {
+        data.items
+            .into_iter()
+            .map(|r| json!(r.full_name))
+            .collect::<Vec<_>>()
+    } else {
+        data.items.into_iter().map(|r| { let (o,n)=r.full_name.split_once('/').unwrap_or(("",&r.name)); json!({"owner":o,"repo":n,"stars":r.stargazers_count,"forks":r.forks_count,"language":r.language,"license":r.license.and_then(|v|v.spdx_id),"description":r.description,"pushedAt":date(r.pushed_at),"createdAt":date(r.created_at),"updatedAt":date(r.updated_at),"topics":r.topics}) }).collect::<Vec<_>>()
+    };
+    let repositories_empty = repositories.is_empty();
+    let mut value = match &listing {
+        // The REST listing reports no total: `page` is the provider
+        // page cursor and `nextPage` follows the real Link header.
+        Some(listing) => {
+            json!({"repositories":repositories,"pagination":{
+                "currentPage":current,"perPage":per,"hasMore":more,
+                "nextPage":more.then_some(listing.last_page + 1),
+                "providerPagesRead":listing.last_page + 1 - current,
+                "countScope":"unknown"
+            }})
+        }
+        None => {
+            json!({"repositories":repositories,"pagination":{"currentPage":current,"totalPages":pages,"perPage":per,"totalMatches":total,"totalMatchesCapped":provider_capped,"hasMore":more,"nextPage":more.then_some(current+1)}})
+        }
+    };
+    if !more && let Some(page) = value.get_mut("pagination").and_then(Value::as_object_mut) {
+        page.remove("nextPage");
+    }
+    let next_from = listing
+        .as_ref()
+        .map_or(current, |listing| listing.last_page);
+    add_next(&mut value, "ghSearchRepo", query, next_from, more);
+    apply_partial(
+        &mut value,
+        "ghSearchRepo",
+        query,
+        provider_incomplete,
+        provider_capped,
+        current,
+        more,
+        "repositories",
+    );
+    Ok(repository_output(
+        value,
+        repositories_empty && !more,
+        provider_incomplete,
+        provider_capped,
+    ))
 }
 
 /// Provider pages read by one owner-only listing call before it stops.
@@ -308,24 +327,31 @@ fn reject_window(page: usize, per: usize) -> Result<(), ProviderError> {
         Ok(())
     }
 }
-fn add_next(value: &mut Value, query: &GhSearchQuery, page: usize, has_more: bool) {
+fn add_next(
+    value: &mut Value,
+    tool: &str,
+    query: &impl serde::Serialize,
+    page: usize,
+    has_more: bool,
+) {
     if !has_more {
         return;
     }
     let mut next = serde_json::to_value(query).unwrap_or_default();
     remove_null_fields(&mut next);
     next["page"] = json!(page + 1);
-    value["next"] = json!({"nextPage":{"tool":"ghSearch","query":next,"confidence":"exact"}});
+    value["next"] = json!({"nextPage":{"tool":tool,"query":next,"confidence":"exact"}});
 }
 #[allow(clippy::too_many_arguments)]
 fn apply_partial(
     value: &mut Value,
-    query: &GhSearchQuery,
+    tool: &str,
+    query: &impl serde::Serialize,
     incomplete: bool,
     capped: bool,
     page: usize,
     has_more: bool,
-    operation: &str,
+    subject: &str,
 ) {
     let mut reasons = Vec::new();
     if capped {
@@ -342,7 +368,7 @@ fn apply_partial(
         let mut retry = serde_json::to_value(query).unwrap_or_default();
         remove_null_fields(&mut retry);
         retry["page"] = json!(page);
-        value["next"]["retry"] = json!({"tool":"ghSearch","query":retry,"why":format!("Retry the same {operation} provider page because the provider reported incomplete results."),"confidence":"exact"});
+        value["next"]["retry"] = json!({"tool":tool,"query":retry,"why":format!("Retry the same {subject} provider page because the provider reported incomplete results."),"confidence":"exact"});
     }
     if !reasons.is_empty() {
         value["isPartial"] = json!(true);
@@ -361,56 +387,46 @@ mod tests {
         assert!(reject_window(11, 100).is_err());
         assert!(reject_window(10, 100).is_ok());
         for raw in [
-            r#"{"operation":"code","reasoning":"test","owner":"o"}"#,
-            r#"{"operation":"code","reasoning":"test","owner":"o","keywords":[]}"#,
-            r#"{"operation":"code","reasoning":"test","owner":"o","keywords":["   "]}"#,
-            r#"{"operation":"code","reasoning":"test","owner":"o","repo":"r"}"#,
+            r#"{"reasoning":"test","owner":"o"}"#,
+            r#"{"reasoning":"test","owner":"o","keywords":[]}"#,
+            r#"{"reasoning":"test","owner":"o","keywords":["   "]}"#,
+            r#"{"reasoning":"test","owner":"o","repo":"r"}"#,
         ] {
-            let query: GhSearchQuery =
+            let query: GhSearchCodeQuery =
                 serde_json::from_str(raw).expect("code search fixture should deserialize");
             assert!(!queries::code_has_narrowing_selector(&query), "{raw}");
         }
         for raw in [
-            r#"{"operation":"code","reasoning":"test","owner":"o","keywords":["needle"]}"#,
-            r#"{"operation":"code","reasoning":"test","owner":"o","path":"src"}"#,
-            r#"{"operation":"code","reasoning":"test","owner":"o","extension":"rs"}"#,
-            r#"{"operation":"code","reasoning":"test","owner":"o","filename":"Cargo.toml"}"#,
-            r#"{"operation":"code","reasoning":"test","owner":"o","language":"rust"}"#,
+            r#"{"reasoning":"test","owner":"o","keywords":["needle"]}"#,
+            r#"{"reasoning":"test","owner":"o","path":"src"}"#,
+            r#"{"reasoning":"test","owner":"o","extension":"rs"}"#,
+            r#"{"reasoning":"test","owner":"o","filename":"Cargo.toml"}"#,
+            r#"{"reasoning":"test","owner":"o","language":"rust"}"#,
         ] {
-            let query: GhSearchQuery =
+            let query: GhSearchCodeQuery =
                 serde_json::from_str(raw).expect("bounded code search fixture should deserialize");
             assert!(queries::code_has_narrowing_selector(&query), "{raw}");
         }
     }
     #[test]
-    fn parses_each_public_variant() {
-        for raw in [
-            r#"{"operation":"code","reasoning":"test","owner":"o","keywords":["x"]}"#,
-            r#"{"operation":"repositories","reasoning":"test","owner":"o"}"#,
-            r#"{"operation":"tree","reasoning":"test","owner":"o","repo":"r"}"#,
-        ] {
-            serde_json::from_str::<GhSearchQuery>(raw)
-                .expect("GitHub search test data should be valid");
-        }
+    fn parses_each_public_tool_query() {
+        serde_json::from_str::<GhSearchCodeQuery>(
+            r#"{"reasoning":"test","owner":"o","keywords":["x"]}"#,
+        )
+        .expect("ghSearchCode query");
+        serde_json::from_str::<GhSearchRepoQuery>(r#"{"reasoning":"test","owner":"o"}"#)
+            .expect("ghSearchRepo query");
+        serde_json::from_str::<GhStructureQuery>(r#"{"reasoning":"test","owner":"o","repo":"r"}"#)
+            .expect("ghStructure query");
     }
     #[test]
     fn complete_repository_zero_is_empty_but_partial_zero_is_not() {
-        let complete = repository_output(
-            json!({"operation":"repositories","repositories":[]}),
-            true,
-            false,
-            false,
-        );
+        let complete = repository_output(json!({"repositories":[]}), true, false, false);
         assert_eq!(complete.status, Some("empty"));
         assert!(complete.data["hints"][0].is_string());
 
         for (incomplete, capped) in [(true, false), (false, true)] {
-            let partial = repository_output(
-                json!({"operation":"repositories","repositories":[]}),
-                true,
-                incomplete,
-                capped,
-            );
+            let partial = repository_output(json!({"repositories":[]}), true, incomplete, capped);
             assert_eq!(partial.status, None);
             assert!(partial.data.get("hints").is_none());
         }
@@ -462,21 +478,35 @@ mod tests {
             }
         }
 
-        async fn run(server: &MockServer, query: Value) -> Result<ToolData, ProviderError> {
-            let query: GhSearchQuery = serde_json::from_value(query).expect("query");
+        /// Fixtures name their tool with a test-only `operation` key:
+        /// code → ghSearchCode, repositories → ghSearchRepo, tree → ghStructure.
+        async fn run(server: &MockServer, mut query: Value) -> Result<ToolData, ProviderError> {
+            let operation = query
+                .as_object_mut()
+                .and_then(|object| object.remove("operation"))
+                .expect("fixture operation");
             let home = std::env::temp_dir().join(format!(
                 "gh-search-test-{}-{}",
                 std::process::id(),
                 server.address().port()
             ));
-            execute(
-                &provider(server),
-                &query,
-                &RequestContext::with_timeout(Duration::from_secs(5), 1 << 20),
-                &Passthrough,
-                &home,
-            )
-            .await
+            let provider = provider(server);
+            let context = RequestContext::with_timeout(Duration::from_secs(5), 1 << 20);
+            match operation.as_str() {
+                Some("code") => {
+                    let query = serde_json::from_value(query).expect("code query");
+                    execute_code(&provider, &query, &context, &Passthrough).await
+                }
+                Some("repositories") => {
+                    let query = serde_json::from_value(query).expect("repositories query");
+                    execute_repositories(&provider, &query, &context).await
+                }
+                Some("tree") => {
+                    let query = serde_json::from_value(query).expect("tree query");
+                    execute_structure(&provider, &query, &context, &home).await
+                }
+                other => panic!("unknown fixture operation {other:?}"),
+            }
         }
 
         fn repo_item(name: &str, archived: bool) -> Value {
@@ -938,12 +968,21 @@ mod tests {
 
     #[test]
     fn incomplete_and_cap_are_losslessly_typed() {
-        let query = serde_json::from_str::<GhSearchQuery>(
-            r#"{"operation":"code","reasoning":"test","owner":"o","keywords":["x"],"page":10,"pageSize":100}"#,
+        let query = serde_json::from_str::<GhSearchCodeQuery>(
+            r#"{"reasoning":"test","owner":"o","keywords":["x"],"page":10,"pageSize":100}"#,
         )
         .expect("GitHub search test data should be valid");
-        let mut value = json!({"operation":"code","pagination":{"hasMore":false}});
-        apply_partial(&mut value, &query, true, true, 10, false, "code");
+        let mut value = json!({"pagination":{"hasMore":false}});
+        apply_partial(
+            &mut value,
+            "ghSearchCode",
+            &query,
+            true,
+            true,
+            10,
+            false,
+            "code",
+        );
         assert_eq!(value["terminalLimit"], true);
         assert_eq!(value["providerLimit"]["maxResults"], 1000);
         assert_eq!(

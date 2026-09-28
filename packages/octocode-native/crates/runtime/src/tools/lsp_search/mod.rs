@@ -130,16 +130,33 @@ impl LspSearchQuery {
     }
     /// The occurrence index; the default (first occurrence) reads as unset.
     pub fn order_hint(&self) -> Option<u32> {
-        each_shape!(self, order_hint => (*order_hint != 0).then(|| u32_of_signed(*order_hint)))
+        match self {
+            Self::Anchored(query) => {
+                (query.order_hint != 0).then(|| u32_of_signed(query.order_hint))
+            }
+            _ => None,
+        }
     }
     pub fn include_declaration(&self) -> Option<bool> {
-        each_shape!(self, include_declaration => Some(*include_declaration))
+        match self {
+            Self::Anchored(query) => Some(query.include_declaration),
+            Self::Position(query) => Some(query.include_declaration),
+            _ => None,
+        }
     }
     pub fn group_by_file(&self) -> Option<bool> {
-        each_shape!(self, group_by_file => *group_by_file)
+        match self {
+            Self::Anchored(query) => query.group_by_file,
+            Self::Position(query) => query.group_by_file,
+            _ => None,
+        }
     }
     pub fn depth(&self) -> Option<u32> {
-        each_shape!(self, depth => depth.map(u32_of_signed))
+        match self {
+            Self::Anchored(query) => query.depth.map(u32_of_signed),
+            Self::Position(query) => query.depth.map(u32_of_signed),
+            _ => None,
+        }
     }
     pub fn page(&self) -> Option<u32> {
         each_shape!(self, page => Some(u32_of(page.get())))
@@ -151,7 +168,11 @@ impl LspSearchQuery {
         each_shape!(self, snapshot => snapshot.as_ref().map(|snapshot| snapshot.as_str()))
     }
     pub fn context_lines(&self) -> Option<u32> {
-        each_shape!(self, context_lines => context_lines.map(u32_of_signed))
+        match self {
+            Self::Anchored(query) => query.context_lines.map(u32_of_signed),
+            Self::Position(query) => query.context_lines.map(u32_of_signed),
+            _ => None,
+        }
     }
     /// The Rust build context as JSON, decoded by [`receipt`].
     pub fn rust_context(&self) -> Option<Value> {

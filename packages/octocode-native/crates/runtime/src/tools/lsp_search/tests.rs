@@ -112,8 +112,7 @@ fn semantic_pagination_continuations_cover_the_full_result_fixture() {
         "operation": "documentSymbols", "reasoning": "test",
         "uri": "/repo/src/lib.rs",
         "page": 1,
-        "pageSize": 3,
-        "includeDeclaration": true
+        "pageSize": 3
     }))
     .expect("canonical lsp query");
     let snapshot = semantic_snapshot(&query, "symbols", &expected);
@@ -164,8 +163,7 @@ fn document_wide_operations_do_not_require_a_position_anchor() {
             "operation": operation, "reasoning": "test",
             "uri": "/repo/src/lib.rs",
             "page": 1,
-            "pageSize": 40,
-            "includeDeclaration": true
+            "pageSize": 40
         });
         // The contract requires a query name for workspaceSymbol; it is still unanchored.
         if operation == "workspaceSymbol" {
@@ -189,8 +187,7 @@ fn later_pages_require_the_semantic_snapshot_and_carry_it_forward() {
         "operation": "documentSymbols", "reasoning": "test",
         "uri": "/repo/src/lib.rs",
         "page": 2,
-        "pageSize": 1,
-        "includeDeclaration": true
+        "pageSize": 1
     }))
     .expect("canonical lsp query");
     let items = vec![

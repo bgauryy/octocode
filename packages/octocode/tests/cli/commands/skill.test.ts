@@ -3,8 +3,13 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
+const isolated = vi.hoisted(() => ({ home: '' }));
+vi.mock('node:os', async importOriginal => ({
+  ...(await importOriginal<typeof import('node:os')>()),
+  homedir: () => isolated.home,
+}));
 vi.mock('@octocodeai/config', () => ({
-  getOctocodeHome: () => '/mock-home/.octocode',
+  getOctocodeHome: () => path.join(isolated.home, '.octocode'),
 }));
 
 vi.mock('../../../src/utils/colors.js', () => ({
@@ -37,6 +42,8 @@ function loggedJson<T>(): T {
 
 describe('skill command', () => {
   beforeEach(() => {
+    isolated.home = fs.mkdtempSync(path.join(tmpdir(), 'octocode-skill-test-'));
+    vi.spyOn(process, 'cwd').mockReturnValue(isolated.home);
     process.exitCode = undefined;
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -44,6 +51,7 @@ describe('skill command', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    fs.rmSync(isolated.home, { recursive: true, force: true });
     process.exitCode = undefined;
   });
 
@@ -158,7 +166,7 @@ describe('skill command', () => {
     expect(parsed.dryRun).toBe(true);
     expect(parsed.skills[0]?.name).toBe('octocode-research');
     expect(parsed.skills[0]?.canonical).toBe(
-      '/mock-home/.octocode/skills/octocode-research'
+      path.join(isolated.home, '.octocode', 'skills', 'octocode-research')
     );
     expect(parsed.summary.failed).toBe(0);
   });
@@ -268,7 +276,7 @@ describe('skill command', () => {
       expect(parsed.ok).toBe(true);
       expect(parsed.skills[0]?.name).toBe('fixture-skill');
       expect(parsed.skills[0]?.canonical).toBe(
-        '/mock-home/.octocode/skills/fixture-skill'
+        path.join(isolated.home, '.octocode', 'skills', 'fixture-skill')
       );
       expect(parsed.skills[0]?.destinations).toEqual([
         {
@@ -282,7 +290,12 @@ describe('skill command', () => {
           ),
           mode: 'symlink',
           status: 'linked',
-          linkTarget: '/mock-home/.octocode/skills/fixture-skill',
+          linkTarget: path.join(
+            isolated.home,
+            '.octocode',
+            'skills',
+            'fixture-skill'
+          ),
         },
         {
           platform: 'cursor',
@@ -295,7 +308,12 @@ describe('skill command', () => {
           ),
           mode: 'symlink',
           status: 'linked',
-          linkTarget: '/mock-home/.octocode/skills/fixture-skill',
+          linkTarget: path.join(
+            isolated.home,
+            '.octocode',
+            'skills',
+            'fixture-skill'
+          ),
         },
         {
           platform: 'codex',
@@ -308,7 +326,12 @@ describe('skill command', () => {
           ),
           mode: 'symlink',
           status: 'linked',
-          linkTarget: '/mock-home/.octocode/skills/fixture-skill',
+          linkTarget: path.join(
+            isolated.home,
+            '.octocode',
+            'skills',
+            'fixture-skill'
+          ),
         },
       ]);
 
@@ -342,7 +365,12 @@ describe('skill command', () => {
           ),
           mode: 'symlink',
           status: 'linked',
-          linkTarget: '/mock-home/.octocode/skills/fixture-skill',
+          linkTarget: path.join(
+            isolated.home,
+            '.octocode',
+            'skills',
+            'fixture-skill'
+          ),
         },
       ]);
     } finally {

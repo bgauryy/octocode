@@ -159,7 +159,7 @@ yarn workspace @octocodeai/octocode-native platforms:check
 # discover availability + canonical workflow, then one tool's contract
 octocode scheme
 octocode scheme localFetch
-octocode scheme ghSearch --view query --select operation=code   # workflow + one union branch
+octocode scheme ghSearchHistory --view query --select operation=commit   # workflow + one union branch
 
 # local file read (paginated; exit 6 + a re-runnable next.* continuation in the JSON)
 octocode localFetch '{"path":"src/cli/mod.rs","startLine":1,"endLine":50,"reasoning":"Read the dispatch entry."}'
@@ -183,7 +183,7 @@ octocode lspSearch '{"operation":"definition","uri":"src/cli/mod.rs","symbolName
 octocode ghGetFileContent '{"owner":"cli","repo":"cli","path":"README.md","reasoning":"Read upstream docs."}'
 
 # GitHub repository / code search
-octocode ghSearch '{"operation":"repositories","keywords":["ast-grep"],"reasoning":"Find pattern-matching repos."}'
+octocode ghSearchRepo '{"keywords":["ast-grep"],"reasoning":"Find pattern-matching repos."}'
 
 # PR / issue / commit history
 octocode ghSearchHistory '{"operation":"pullRequest","owner":"octocodeai","repo":"octocode","keywords":["fix"],"reasoning":"Find fix PRs."}'
@@ -216,7 +216,9 @@ contract is identical to the MCP server tool of the same name.
 | `astTopology` | Dependency graph analysis for paths, cycles, reachability, dead code, and drift. |
 | `astRewrite` | Structural find-and-replace; previews before writing. |
 | `lspSearch` | Definitions, references, hover, call/type hierarchy, diagnostics. |
-| `ghSearch` | GitHub repository and code search. |
+| `ghSearchRepo` | GitHub repository search. |
+| `ghSearchCode` | GitHub indexed code and path search. |
+| `ghStructure` | GitHub repository tree browsing. |
 | `ghGetFileContent` | Read a GitHub file without cloning. |
 | `ghSearchHistory` | Search PRs, issues, and commits. |
 | `ghGetHistoryItem` | Read one PR, issue, commit, or comparison. |

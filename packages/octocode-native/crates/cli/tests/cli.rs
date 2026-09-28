@@ -33,7 +33,9 @@ fn help_lists_only_the_minimal_command_surface() {
         "astSearch",
         "astRewrite",
         "lspSearch",
-        "ghSearch",
+        "ghSearchRepo",
+        "ghSearchCode",
+        "ghStructure",
         "ghGetFileContent",
         "ghSearchHistory",
         "ghGetHistoryItem",
@@ -757,7 +759,8 @@ fn scheme_lists_the_compact_discovery_catalog() {
             .unwrap_or_default()
             .to_owned()
     };
-    assert!(fields_of("ghSearch").contains("operation=tree[owner*, repo*"));
+    assert!(fields_of("ghStructure").contains("owner*"));
+    assert!(fields_of("ghSearchCode").contains("owner*"));
     assert!(fields_of("astSearch").contains("operation=match(rule)"));
     assert!(fields_of("astTopology").starts_with("analysis=deadCode["));
     assert!(first["availability"]["enabled"].is_boolean());
@@ -836,18 +839,18 @@ fn scheme_query_view_selects_a_single_union_branch() {
         .cli()
         .args([
             "scheme",
-            "ghSearch",
+            "ghSearchHistory",
             "--view",
             "query",
             "--select",
-            "operation=code",
+            "operation=commit",
             "--compact",
         ])
         .output()
         .expect("scheme select");
     assert!(output.status.success(), "{}", stderr(&output));
     let value: serde_json::Value = serde_json::from_str(stdout(&output)).expect("schema JSON");
-    assert_eq!(value["name"], "ghSearch");
+    assert_eq!(value["name"], "ghSearchHistory");
     // instructions live at catalog level (scheme with no args), not per-tool.
     assert!(value["instructions"].is_null());
     assert_eq!(

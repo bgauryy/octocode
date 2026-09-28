@@ -392,7 +392,9 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
         Command::AstTopology(args) => run_tool(runtime, "astTopology", args, json_errors).await,
         Command::AstRewrite(args) => run_tool(runtime, "astRewrite", args, json_errors).await,
         Command::LspSearch(args) => run_tool(runtime, "lspSearch", args, json_errors).await,
-        Command::GhSearch(args) => run_tool(runtime, "ghSearch", args, json_errors).await,
+        Command::GhSearchRepo(args) => run_tool(runtime, "ghSearchRepo", args, json_errors).await,
+        Command::GhSearchCode(args) => run_tool(runtime, "ghSearchCode", args, json_errors).await,
+        Command::GhStructure(args) => run_tool(runtime, "ghStructure", args, json_errors).await,
         Command::GhGetFileContent(args) => {
             run_tool(runtime, "ghGetFileContent", args, json_errors).await
         }

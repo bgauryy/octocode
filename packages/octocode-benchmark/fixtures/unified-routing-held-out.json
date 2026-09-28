@@ -1,8 +1,8 @@
 {
   "version": 1,
   "provenance": {
-    "heldOut": true,
-    "note": "Post-merge routing prompts frozen for regression measurement; they were not used to design the unified runtime surface."
+    "heldOut": false,
+    "note": "Public schema regression fixtures updated for current routes. These are not held-out behavioral or token-efficiency measurements."
   },
   "kpiContract": {
     "goal": "Preserve correct research routing while reducing the public tool-selection context carried by agents.",
@@ -92,14 +92,13 @@
   "cases": [
     {
       "id": "remote-symbol-definition",
-      "heldOut": true,
+      "heldOut": false,
       "prompt": "Find where the repository defines the dispatch symbol.",
       "capability": "github-code",
       "unified": {
-        "tool": "ghSearch",
+        "tool": "ghSearchCode",
         "query": {
           "reasoning": "Locate the remote dispatch-symbol definition.",
-          "operation": "code",
           "keywords": ["dispatchSymbol"],
           "owner": "fixture-owner",
           "repo": "fixture-repo"
@@ -109,14 +108,13 @@
     },
     {
       "id": "repository-discovery-by-topic",
-      "heldOut": true,
+      "heldOut": false,
       "prompt": "Discover repositories related to language-server routing.",
       "capability": "github-repositories",
       "unified": {
-        "tool": "ghSearch",
+        "tool": "ghSearchRepo",
         "query": {
           "reasoning": "Discover repositories for language-server routing.",
-          "operation": "repositories",
           "keywords": ["language server", "routing"]
         }
       },
@@ -124,14 +122,13 @@
     },
     {
       "id": "remote-package-tree",
-      "heldOut": true,
+      "heldOut": false,
       "prompt": "Orient within the src directory of a known repository.",
       "capability": "github-tree",
       "unified": {
-        "tool": "ghSearch",
+        "tool": "ghStructure",
         "query": {
           "reasoning": "Orient the known repository's source tree.",
-          "operation": "tree",
           "owner": "fixture-owner",
           "repo": "fixture-repo",
           "path": "src",
@@ -142,7 +139,7 @@
     },
     {
       "id": "merged-routing-prs",
-      "heldOut": true,
+      "heldOut": false,
       "prompt": "List merged pull requests that mention routing.",
       "capability": "github-pull-requests",
       "unified": {
@@ -160,7 +157,7 @@
     },
     {
       "id": "open-schema-issues",
-      "heldOut": true,
+      "heldOut": false,
       "prompt": "Find open issues about schema drift in one repository.",
       "capability": "github-issues",
       "unified": {
@@ -178,7 +175,7 @@
     },
     {
       "id": "path-commit-history",
-      "heldOut": true,
+      "heldOut": false,
       "prompt": "List commits that changed the routing module.",
       "capability": "github-commits",
       "unified": {
@@ -195,7 +192,7 @@
     },
     {
       "id": "local-lexical-anchor",
-      "heldOut": true,
+      "heldOut": false,
       "prompt": "Find lexical occurrences of the route selector locally.",
       "capability": "local-text",
       "unified": {
@@ -211,51 +208,49 @@
     },
     {
       "id": "local-structural-calls",
-      "heldOut": true,
+      "heldOut": false,
       "prompt": "Find structural calls into the route selector locally.",
       "capability": "local-text",
       "unified": {
-        "tool": "localSearch",
+        "tool": "astSearch",
         "query": {
           "reasoning": "Find local route-selector call content.",
           "path": "/fixture/repo",
-          "searchText": "selectRoute",
-          "regex": "literal",
-          "resultView": "content"
+          "operation": "match",
+          "pattern": "selectRoute($$$ARGS)",
+          "langType": "typescript"
         }
       },
       "retired": { "tool": "localSearchCode" }
     },
     {
       "id": "local-schema-files",
-      "heldOut": true,
+      "heldOut": false,
       "prompt": "Discover schema files in the local repository.",
       "capability": "local-files",
       "unified": {
-        "tool": "localSearch",
+        "tool": "structureSearch",
         "query": {
           "reasoning": "Discover local schema files.",
           "path": "/fixture/repo",
-          "searchText": "schema",
-          "regex": "literal",
-          "resultView": "files"
+          "operation": "files",
+          "names": ["*schema*"]
         }
       },
       "retired": { "tool": "localFindFiles" }
     },
     {
       "id": "local-source-tree",
-      "heldOut": true,
+      "heldOut": false,
       "prompt": "Browse the local source tree two levels deep.",
       "capability": "local-tree",
       "unified": {
-        "tool": "localSearch",
+        "tool": "structureSearch",
         "query": {
           "reasoning": "Browse the local source tree.",
           "path": "/fixture/repo/src",
-          "searchText": "src",
-          "regex": "literal",
-          "resultView": "discovery"
+          "operation": "tree",
+          "maxDepth": 2
         }
       },
       "retired": { "tool": "localViewStructure" }

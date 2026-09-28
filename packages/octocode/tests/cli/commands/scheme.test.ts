@@ -24,8 +24,8 @@ const toolNamed = (name: string): JsonObject => {
 };
 
 describe('core public catalog', () => {
-  it('carries presentation for all 14 tools and never an output schema', () => {
-    expect(tools).toHaveLength(14);
+  it('carries presentation for all 16 tools and never an output schema', () => {
+    expect(tools).toHaveLength(16);
     for (const tool of tools) {
       expect(tool.outputSchema, String(tool.name)).toBeUndefined();
       expect(typeof tool.description, String(tool.name)).toBe('string');
@@ -42,7 +42,7 @@ describe('core public catalog', () => {
     const instructions = buildMcpInstructions(
       tools.map(tool => String(tool.name))
     );
-    expect(instructions).toContain('Each call answers one stated question');
+    expect(buildMcpInstructions([])).not.toMatch(/\bclasify\b/i);
     expect(instructions).toContain('clasify');
     // Hard cutover: the pre-rename public name never appears in instructions.
     expect(buildMcpInstructions([])).not.toContain('semanticAssess');
@@ -60,6 +60,20 @@ describe('scheme output format', () => {
 });
 
 describe('scheme command admission', () => {
+  it('rejects extra tool names instead of silently ignoring them', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await expect(
+      runScheme({
+        command: 'scheme',
+        args: ['localFetch', 'localSearch'],
+        options: {},
+      })
+    ).resolves.toBe(2);
+    expect(error).toHaveBeenCalledWith(
+      'scheme accepts one tool name per call.'
+    );
+  });
+
   it.each(['help', 'h'])('prints usage for --%s', async option => {
     const output = vi.spyOn(console, 'log').mockImplementation(() => {});
     await expect(
@@ -109,42 +123,25 @@ describe('project', () => {
   it('full view returns the public tool object', () => {
     const full = project(toolNamed('localFetch'), 'full');
     expect(full.name).toBe('localFetch');
-    expect(full.querySchema).toBeDefined();
+    expect(full.querySchema).toBeUndefined();
+    expect(full.inputSchema).toEqual(toolNamed('localFetch').inputSchema);
     expect(full.description).toBeDefined();
     expect(full.outputSchema).toBeUndefined();
   });
 
-  it('full view dedupes a union envelope whose $defs copy querySchema', () => {
-    const tool = toolNamed('clasify');
-    const full = project(tool, 'full');
-    expect((full.inputSchema as Record<string, any>).$defs).toEqual({
-      querySchema: {
-        description: 'Identical to querySchema.$defs; resolve #/$defs/* there.',
-      },
-    });
-    expect((full.querySchema as Record<string, any>).$defs).toEqual(
-      (tool.querySchema as Record<string, any>).$defs
-    );
-    expect(JSON.stringify(full).length).toBeLessThan(
-      JSON.stringify(tool).length * 0.8
-    );
-  });
-
-  it('full view prints querySchema once instead of repeating it in inputSchema', () => {
-    const tool = toolNamed('localSearch');
-    const full = project(tool, 'full');
-    const queries = (full.inputSchema as Record<string, any>).properties
-      .queries;
-    expect(queries.items).toEqual({
-      description: 'Each item is one querySchema object.',
-    });
-    expect(queries.maxItems).toBe(
-      (tool.inputSchema as Record<string, any>).properties.queries.maxItems
-    );
-    expect(JSON.stringify(full).length).toBeLessThan(
-      JSON.stringify(tool).length * 0.7
-    );
-  });
+  it.each(['clasify', 'localSearch'])(
+    'full view keeps one complete input schema for %s',
+    name => {
+      const tool = toolNamed(name);
+      const full = project(tool, 'full');
+      expect(full.inputSchema).toEqual(tool.inputSchema);
+      expect(full).not.toHaveProperty('querySchema');
+      expect(full).not.toHaveProperty('outputSchema');
+      expect(JSON.stringify(full).length).toBeLessThan(
+        JSON.stringify(tool).length
+      );
+    }
+  );
 
   it('variants view exposes compact branch selectors before schema details', () => {
     const searchVariants = project(toolNamed('astSearch'), 'variants');
@@ -181,25 +178,28 @@ describe('usageLines', () => {
     const lines = usageLines(toolNamed('localFetch'));
     expect(lines[0]).toBe('octocode localFetch \'{"queries":[ … ]}\'');
     const body = lines[1]!;
-    expect(body).toContain('<reasoning>');
+    expect(body).toContain('[reasoning]');
     expect(body).toContain('<path>');
     expect(body).toContain('[goal]');
     // A required field is never also shown as optional.
-    expect(body).not.toContain('[reasoning]');
+    expect(body).not.toContain('<reasoning>');
     expect(body).not.toContain('[path]');
   });
 
   it('labels each union branch by its discriminator const and drops it from fields', () => {
-    const lines = usageLines(toolNamed('ghSearch'));
-    const code = lines.find(line => line.startsWith('operation=code'));
-    const repos = lines.find(line => line.startsWith('operation=repositories'));
-    const tree = lines.find(line => line.startsWith('operation=tree'));
-    expect(code).toBeDefined();
-    expect(repos).toBeDefined();
-    expect(tree).toBeDefined();
+    const lines = usageLines(toolNamed('ghSearchHistory'));
+    const commit = lines.find(line => line.startsWith('operation=commit'));
+    const issue = lines.find(line => line.startsWith('operation=issue'));
+    expect(commit).toBeDefined();
+    expect(issue).toBeDefined();
     // The discriminator is the label, not a field.
-    expect(code).not.toContain('<operation>');
-    // Tree requires both fields; code requires an owner but not a repo.
+    expect(commit).not.toContain('<operation>');
+  });
+
+  it('lists required fields for a single-shape tool', () => {
+    // ghStructure requires both fields; ghSearchCode requires an owner only.
+    const [, tree] = usageLines(toolNamed('ghStructure'));
+    const [, code] = usageLines(toolNamed('ghSearchCode'));
     expect(tree).toContain('<owner>');
     expect(tree).toContain('<repo>');
     expect(code).toContain('<owner>');
@@ -216,7 +216,7 @@ describe('usageLines', () => {
   });
 
   it('labels branches by the const that varies, not one shared by every branch', () => {
-    // Every astTopology branch fixes operation=topology; analysis differs.
+    // Topology branches select their operation through analysis.
     const lines = usageLines(toolNamed('astTopology')).slice(1);
     expect(lines.length).toBeGreaterThan(1);
     expect(lines.every(line => line.startsWith('analysis='))).toBe(true);
@@ -235,30 +235,30 @@ describe('usageLines', () => {
 describe('projectSelected', () => {
   it('passes through when no selection is given', () => {
     const projected = projectSelected(
-      toolNamed('ghSearch'),
+      toolNamed('ghSearchHistory'),
       'query',
       undefined
     );
-    expect(projected.name).toBe('ghSearch');
+    expect(projected.name).toBe('ghSearchHistory');
   });
 
   it('rejects selection outside query view', () => {
     expect(() =>
-      projectSelected(toolNamed('ghSearch'), 'full', 'operation=code')
+      projectSelected(toolNamed('ghSearchHistory'), 'full', 'operation=commit')
     ).toThrow('--select requires --view query');
   });
 
   it('rejects malformed selections', () => {
     expect(() =>
-      projectSelected(toolNamed('ghSearch'), 'query', 'operation')
+      projectSelected(toolNamed('ghSearchHistory'), 'query', 'operation')
     ).toThrow('FIELD=VALUE');
   });
 
   it('isolates exactly one union branch and prunes unreachable defs', () => {
     const projected = projectSelected(
-      toolNamed('ghSearch'),
+      toolNamed('ghSearchHistory'),
       'query',
-      'operation=code'
+      'operation=commit'
     );
     const schema = projected.querySchema as JsonObject;
     const union = (schema.oneOf ?? schema.anyOf) as unknown[];
@@ -280,10 +280,7 @@ describe('projectSelected', () => {
     const union = (schema.oneOf ?? schema.anyOf) as JsonObject[];
     expect(union).toHaveLength(1);
     const properties = union[0]!.properties as JsonObject;
-    const operation = properties.operation as JsonObject;
-    const defs = schema.$defs as JsonObject;
-    expect((defs.T_Operation as JsonObject).const).toBe('topology');
-    expect(operation.$ref).toBe('#/$defs/T_Operation');
+    expect(properties).not.toHaveProperty('operation');
     expect((properties.analysis as JsonObject).const).toBe('dependencies');
   });
 
@@ -321,9 +318,96 @@ describe('projectSelected', () => {
     expect(union[0]!.required).toContain('pattern');
   });
 
+  it.each([
+    ['definition', ['anchored', 'position']],
+    ['references', ['anchored', 'position']],
+    ['diagnostic', ['document']],
+    ['workspaceSymbol', ['workspace:uri', 'workspace:root']],
+  ])('selects all LSP shapes accepting operation=%s', (operation, titles) => {
+    const projected = projectSelected(
+      toolNamed('lspSearch'),
+      'query',
+      `operation=${operation}`
+    );
+    const schema = projected.querySchema as JsonObject;
+    expect((schema.anyOf as JsonObject[]).map(branch => branch.title)).toEqual(
+      titles
+    );
+    expect(JSON.stringify(schema)).not.toContain('outputSchema');
+  });
+
+  it.each([
+    'anchored',
+    'position',
+    'document',
+    'workspace:uri',
+    'workspace:root',
+  ])('selects the exact named LSP variant %s', variant => {
+    const schema = projectSelected(
+      toolNamed('lspSearch'),
+      'query',
+      `variant=${variant}`
+    ).querySchema as JsonObject;
+    expect((schema.anyOf as JsonObject[]).map(branch => branch.title)).toEqual([
+      variant,
+    ]);
+  });
+
+  it('follows chained local refs but never treats a default as an enum', () => {
+    const branch = (operation: JsonObject): JsonObject => ({
+      type: 'object',
+      properties: { operation },
+    });
+    const tool: JsonObject = {
+      name: 'fixture',
+      querySchema: {
+        anyOf: [
+          branch({ $ref: '#/$defs/alias' }),
+          branch({ default: 'definition', type: 'string' }),
+        ],
+        $defs: {
+          alias: { $ref: '#/$defs/operations' },
+          operations: { enum: ['definition', 'references'] },
+        },
+      },
+    };
+    const schema = projectSelected(tool, 'query', 'operation=references')
+      .querySchema as JsonObject;
+    expect(schema.anyOf).toHaveLength(1);
+    expect(schema.$defs).toEqual((tool.querySchema as JsonObject).$defs);
+    expect(() => projectSelected(tool, 'query', 'operation=missing')).toThrow(
+      'matched 0'
+    );
+  });
+
+  it('preserves oneOf exclusions when an enum branch can overlap its sibling', () => {
+    const sibling = {
+      type: 'object',
+      properties: { operation: { const: 'references' } },
+      required: ['operation'],
+    };
+    const tool: JsonObject = {
+      name: 'fixture',
+      querySchema: {
+        oneOf: [
+          {
+            type: 'object',
+            properties: { operation: { enum: ['definition', 'references'] } },
+            required: ['operation'],
+          },
+          sibling,
+        ],
+      },
+    };
+    const schema = projectSelected(tool, 'query', 'operation=definition')
+      .querySchema as JsonObject;
+    expect(schema.oneOf).toHaveLength(1);
+    expect(schema.allOf).toEqual([{ not: { anyOf: [sibling] } }]);
+  });
+
   it('rejects selections matching no branch', () => {
     expect(() =>
-      projectSelected(toolNamed('ghSearch'), 'query', 'operation=nope')
+      projectSelected(toolNamed('ghSearchHistory'), 'query', 'operation=nope')
     ).toThrow('matched 0');
   });
 });

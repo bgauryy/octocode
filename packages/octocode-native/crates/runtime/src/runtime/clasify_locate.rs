@@ -31,6 +31,10 @@ struct Unit {
 pub(super) struct LocatedPage {
     passages: Vec<LocatedPassage>,
     units: Vec<Unit>,
+    /// Original page lines (the first is `passages[0].start_line`) and the
+    /// file extension, for the doc-comment rule.
+    lines: Vec<String>,
+    ext: String,
 }
 
 /// A JSON record or prose sentence can cross a passage edge; the window keeps
@@ -111,7 +115,22 @@ pub(super) fn located_state(state: &Value) -> Result<(Value, LocatedPage), Class
         .unwrap_or_default();
     let mut tagged_state = object.clone();
     tagged_state.insert("content".into(), json!(tagged));
-    Ok((Value::Object(tagged_state), LocatedPage { passages, units }))
+    let ext = object
+        .get("path")
+        .and_then(Value::as_str)
+        .and_then(|path| path.rsplit_once('.'))
+        .map(|(_, ext)| ext.to_ascii_lowercase())
+        .unwrap_or_default();
+    let lines = source_lines.iter().map(|line| (*line).to_owned()).collect();
+    Ok((
+        Value::Object(tagged_state),
+        LocatedPage {
+            passages,
+            units,
+            lines,
+            ext,
+        },
+    ))
 }
 
 /// Declarations the engine outlines on this page (none for unsupported
@@ -181,10 +200,12 @@ pub(super) fn locate_provider_questions(target: &str, page: &LocatedPage) -> [Va
     ]
 }
 
-/// Passages that share an innermost declaration, or a lone passage outside
-/// every declaration.
+/// Passages that share an innermost declaration, or that anchor to the same
+/// passage outside every declaration.
 struct Group {
     unit: Option<usize>,
+    /// Passage holding the anchor line when no declaration covers it.
+    lone: Option<usize>,
     probability: f64,
     best: usize,
     best_probability: f64,
@@ -207,6 +228,13 @@ fn window(page: &LocatedPage, group: &Group) -> (u64, u64) {
         .last()
         .map_or(passage.end_line, |last| last.end_line);
     let middle = (passage.start_line + passage.end_line) / 2;
+    // A doc-comment passage shows the code line its comment block documents.
+    if let Some(target) = doc_target(page, passage) {
+        return (
+            target.saturating_sub(DECLARATION_HEAD.0).max(page_start),
+            (target + DECLARATION_HEAD.1).min(page_end),
+        );
+    }
     let (start, end) = match group.unit.map(|index| &page.units[index]) {
         // Doc comment or attributes above the name: show the declaration.
         Some(unit) if middle < unit.line => (
@@ -222,6 +250,55 @@ fn window(page: &LocatedPage, group: &Group) -> (u64, u64) {
         ),
     };
     (start.max(page_start), end.min(page_end))
+}
+
+/// Whether a source line is a comment line in this language (`#` only in
+/// Python, where C/C++ `#include`/`#define` are code).
+fn is_comment_line(line: &str, ext: &str) -> bool {
+    let line = line.trim_start();
+    if ext == "py" {
+        line.starts_with('#')
+    } else {
+        line.starts_with("//") || line.starts_with("/*") || line.starts_with('*')
+    }
+}
+
+/// A passage inside a comment block anchors to the code line directly after
+/// the block (the item the comment documents), when that line is on the page.
+/// Needs no parser, so it holds on page fragments a parser cannot outline.
+fn doc_target(page: &LocatedPage, passage: &LocatedPassage) -> Option<u64> {
+    let first = page.passages.first()?.start_line;
+    let middle = (passage.start_line + passage.end_line) / 2;
+    let mut index = usize::try_from(middle.checked_sub(first)?).ok()?;
+    if !is_comment_line(page.lines.get(index)?, &page.ext) {
+        return None;
+    }
+    while page
+        .lines
+        .get(index)
+        .is_some_and(|line| is_comment_line(line, &page.ext))
+    {
+        index += 1;
+    }
+    // Rust attributes and decorators sit between a doc comment and its item.
+    while page.lines.get(index).is_some_and(|line| {
+        let line = line.trim_start();
+        line.starts_with("#[") || line.starts_with('@')
+    }) {
+        index += 1;
+    }
+    let code = page.lines.get(index)?;
+    (!code.trim().is_empty()).then(|| first + index as u64)
+}
+
+fn anchor_line(page: &LocatedPage, passage: &LocatedPassage) -> u64 {
+    doc_target(page, passage).unwrap_or((passage.start_line + passage.end_line) / 2)
+}
+
+fn passage_at(page: &LocatedPage, line: u64) -> Option<usize> {
+    page.passages
+        .iter()
+        .position(|passage| passage.start_line <= line && line <= passage.end_line)
 }
 
 fn rounded(value: f64) -> f64 {
@@ -261,10 +338,14 @@ pub(super) fn collapse_locate_answer(
             .get(&passage.id)
             .and_then(Value::as_f64)
             .unwrap_or(0.0);
-        let unit = innermost_unit(&page.units, (passage.start_line + passage.end_line) / 2);
+        let anchor = anchor_line(page, passage);
+        let unit = innermost_unit(&page.units, anchor);
+        let lone = unit
+            .is_none()
+            .then(|| passage_at(page, anchor).unwrap_or(index));
         match groups
             .iter_mut()
-            .find(|group| unit.is_some() && group.unit == unit)
+            .find(|group| group.unit == unit && group.lone == lone)
         {
             Some(group) => {
                 group.probability += probability;
@@ -275,6 +356,7 @@ pub(super) fn collapse_locate_answer(
             }
             None => groups.push(Group {
                 unit,
+                lone,
                 probability,
                 best: index,
                 best_probability: probability,
@@ -518,6 +600,25 @@ mod tests {
         assert_eq!(
             projected["answer"]["matches"],
             json!([{"startLine":6,"endLine":13,"probability":0.8}])
+        );
+    }
+
+    #[test]
+    fn a_doc_comment_passage_joins_the_line_it_documents_without_a_parser() {
+        // A fragment no outline covers (`.txt`: no units): the doc block
+        // (lines 3-9) documents `function debounce` on line 10.
+        let content = "  x();\n}\n/**\n * Delays calls.\n * More.\n * More.\n * More.\n * More.\n */\nfunction debounce(func) {\n  return func;\n}\n";
+        let (_, page) =
+            located_state(&json!({"path":"/page.txt","lines":[100,111],"content":content}))
+                .unwrap();
+        assert!(page.units.is_empty());
+        // Doc passage P001 (103-106) and declaration passage P002 (107-110) tie.
+        let [choice, exists] = answers(json!({"P000":0.1,"P001":0.45,"P002":0.45}), 0.95);
+        let projected = collapse_locate_answer(&choice, &exists, &page).unwrap();
+        // One group (0.9), window on the documented line 109.
+        assert_eq!(
+            projected["answer"]["matches"],
+            json!([{"startLine":106,"endLine":111,"probability":0.9}])
         );
     }
 

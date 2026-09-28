@@ -4,12 +4,11 @@
  * The installer materializes a real copy at the canonical home
  * (~/.octocode/skills/<name>) and symlinks vendor dirs to it, so an
  * installed skill silently goes stale when the bundled package updates.
- * Freshness is a content-hash comparison between the installed copy and
+ * Freshness compares file paths, sizes and bytes between the installed copy and
  * the bundled source shipped with this package version — no separate
  * manifest to drift.
  */
 
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -17,41 +16,26 @@ export type Freshness = 'fresh' | 'stale';
 
 const IGNORED_FILES = new Set(['.DS_Store']);
 
-function collectFiles(root: string, dir: string, out: string[]): void {
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (IGNORED_FILES.has(entry.name)) continue;
-    const p = path.join(dir, entry.name);
-    // Follow symlinks so a linked tree hashes as its content.
-    const stat = fs.statSync(p);
-    if (stat.isDirectory()) collectFiles(root, p, out);
-    else if (stat.isFile()) out.push(path.relative(root, p));
-  }
-}
-
-/**
- * Stable content hash of a directory: sorted relative paths plus file bytes.
- * Returns null when the directory is missing or unreadable.
- */
-export function hashDirContent(dir: string): string | null {
-  const files: string[] = [];
+function collectFiles(
+  root: string,
+  dir: string,
+  out: Map<string, number>,
+  ancestors = new Set<string>()
+): void {
+  const real = fs.realpathSync(dir);
+  if (ancestors.has(real)) throw new Error('Skill directory symlink cycle');
+  ancestors.add(real);
   try {
-    collectFiles(dir, dir, files);
-  } catch {
-    return null;
-  }
-  if (files.length === 0) return null;
-  const digest = crypto.createHash('sha256');
-  try {
-    for (const rel of files.sort()) {
-      digest.update(rel.split(path.sep).join('/'));
-      digest.update('\0');
-      digest.update(fs.readFileSync(path.join(dir, rel)));
-      digest.update('\0');
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (IGNORED_FILES.has(entry.name)) continue;
+      const p = path.join(dir, entry.name);
+      const stat = fs.statSync(p);
+      if (stat.isDirectory()) collectFiles(root, p, out, ancestors);
+      else if (stat.isFile()) out.set(path.relative(root, p), stat.size);
     }
-  } catch {
-    return null;
+  } finally {
+    ancestors.delete(real);
   }
-  return digest.digest('hex');
 }
 
 /**
@@ -72,8 +56,26 @@ export function contentFreshness(
     return undefined;
   }
   if (installed === bundled) return 'fresh';
-  const bundledHash = hashDirContent(bundled);
-  const installedHash = hashDirContent(installed);
-  if (!bundledHash || !installedHash) return undefined;
-  return bundledHash === installedHash ? 'fresh' : 'stale';
+  try {
+    const expected = new Map<string, number>();
+    const actual = new Map<string, number>();
+    collectFiles(bundled, bundled, expected);
+    collectFiles(installed, installed, actual);
+    if (expected.size === 0 || actual.size === 0) return undefined;
+    if (expected.size !== actual.size) return 'stale';
+    for (const [relative, size] of expected) {
+      if (actual.get(relative) !== size) return 'stale';
+    }
+    for (const relative of expected.keys()) {
+      if (
+        !fs
+          .readFileSync(path.join(bundled, relative))
+          .equals(fs.readFileSync(path.join(installed, relative)))
+      )
+        return 'stale';
+    }
+    return 'fresh';
+  } catch {
+    return undefined;
+  }
 }

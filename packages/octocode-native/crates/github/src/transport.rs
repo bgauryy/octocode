@@ -713,34 +713,66 @@ fn parse_next(
     let Some(value) = headers.get("link").and_then(|v| v.to_str().ok()) else {
         return Ok(None);
     };
-    for part in value.split(',') {
-        if part.contains("rel=\"next\"") {
-            let raw = part
-                .trim()
-                .split(';')
-                .next()
-                .unwrap_or_default()
-                .trim()
-                .trim_start_matches('<')
-                .trim_end_matches('>');
-            let url = Url::parse(raw).map_err(|_| {
-                ProviderError::new(ProviderErrorKind::Decode, "invalid GitHub pagination link")
-            })?;
-            if !endpoint.permits(&url) {
-                return Err(ProviderError::new(
-                    ProviderErrorKind::RedirectDenied,
-                    "GitHub pagination link changed origin",
-                ));
-            }
-            return Ok(Some(url));
-        }
+    let link = |relation: &str| {
+        value
+            .split(',')
+            .find(|part| part.contains(relation))
+            .map(|part| {
+                part.trim()
+                    .split(';')
+                    .next()
+                    .unwrap_or_default()
+                    .trim()
+                    .trim_start_matches('<')
+                    .trim_end_matches('>')
+            })
+    };
+    let Some(raw) = link("rel=\"next\"") else {
+        return Ok(None);
+    };
+    let next = Url::parse(raw).map_err(|_| {
+        ProviderError::new(ProviderErrorKind::Decode, "invalid GitHub pagination link")
+    })?;
+    if !endpoint.permits(&next) {
+        return Err(ProviderError::new(
+            ProviderErrorKind::RedirectDenied,
+            "GitHub pagination link changed origin",
+        ));
     }
-    Ok(None)
+    let page = |url: &Url| {
+        url.query_pairs()
+            .find(|(key, _)| key == "page")
+            .and_then(|(_, value)| value.parse::<u64>().ok())
+    };
+    // GitHub may advertise next=N+1 alongside last=N on a full final page.
+    // Only comparable numbered links establish that next is past the end.
+    if let Some(last) = link("rel=\"last\"").and_then(|raw| Url::parse(raw).ok())
+        && last.origin() == next.origin()
+        && last.path() == next.path()
+        && last
+            .query_pairs()
+            .filter(|(key, _)| key != "page")
+            .eq(next.query_pairs().filter(|(key, _)| key != "page"))
+        && page(&next)
+            .zip(page(&last))
+            .is_some_and(|(next, last)| next > last)
+    {
+        return Ok(None);
+    }
+    Ok(Some(next))
 }
 #[derive(Deserialize, Default)]
 struct ErrorBody {
     message: Option<String>,
     documentation_url: Option<String>,
+    /// GitHub validation failures carry the specific cause here
+    /// (`"abc" is not a numeric value`) under a generic `Validation Failed`.
+    #[serde(default)]
+    errors: Vec<ErrorDetail>,
+}
+#[derive(Deserialize, Default)]
+struct ErrorDetail {
+    message: Option<String>,
 }
 fn response_error(status: StatusCode, headers: &HeaderMap, body: Bytes) -> ProviderError {
     let parsed: ErrorBody = serde_json::from_slice(&body).unwrap_or_default();
@@ -755,6 +787,14 @@ fn response_error(status: StatusCode, headers: &HeaderMap, body: Bytes) -> Provi
         _ => ProviderErrorKind::HttpStatus,
     };
     let code = status.as_u16();
+    let validation_details: Vec<String> = parsed
+        .errors
+        .into_iter()
+        .filter_map(|error| error.message)
+        .map(|message| message.trim().to_owned())
+        .filter(|message| !message.is_empty())
+        .take(3)
+        .collect();
     let message = match (kind, parsed.message) {
         (ProviderErrorKind::Unavailable, Some(detail)) => {
             format!("GitHub resource blocked for legal reasons (HTTP 451): {detail}")
@@ -765,6 +805,10 @@ fn response_error(status: StatusCode, headers: &HeaderMap, body: Bytes) -> Provi
         (ProviderErrorKind::HttpStatus, Some(detail)) => {
             format!("GitHub API returned HTTP {code}: {detail}")
         }
+        (ProviderErrorKind::Validation, detail) if !validation_details.is_empty() => match detail {
+            Some(detail) => format!("{detail}: {}", validation_details.join("; ")),
+            None => validation_details.join("; "),
+        },
         (_, Some(detail)) => detail,
         (_, None) => format!("GitHub API returned HTTP {code}"),
     };
@@ -784,4 +828,28 @@ fn response_error(status: StatusCode, headers: &HeaderMap, body: Bytes) -> Provi
 }
 fn header_u64(headers: &HeaderMap, name: &str) -> Option<u64> {
     headers.get(name)?.to_str().ok()?.parse().ok()
+}
+
+#[cfg(test)]
+mod response_error_tests {
+    use super::*;
+
+    #[test]
+    fn validation_errors_keep_github_detail() {
+        let body = Bytes::from_static(
+            br#"{"message":"Validation Failed","errors":[{"message":"\"abc\" is not a numeric value"}]}"#,
+        );
+        let error = response_error(StatusCode::UNPROCESSABLE_ENTITY, &HeaderMap::new(), body);
+        assert_eq!(error.kind, ProviderErrorKind::Validation);
+        assert_eq!(
+            &*error.message,
+            "Validation Failed: \"abc\" is not a numeric value"
+        );
+        let bare = response_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            &HeaderMap::new(),
+            Bytes::from_static(br#"{"message":"Validation Failed"}"#),
+        );
+        assert_eq!(&*bare.message, "Validation Failed");
+    }
 }

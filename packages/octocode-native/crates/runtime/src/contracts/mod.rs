@@ -258,12 +258,7 @@ fn validate_semantic_relations(query: &serde_json::Value) -> Result<(), Contract
     for (index, resource) in resources.iter().enumerate() {
         let context = &resource["context"];
         if context.get("candidateEvidence").is_some() {
-            let supported = context["tool"] == "localSearch"
-                || (context["tool"] == "ghSearch"
-                    && context
-                        .pointer("/query/operation")
-                        .and_then(serde_json::Value::as_str)
-                        == Some("code"));
+            let supported = context["tool"] == "localSearch" || context["tool"] == "ghSearchCode";
             if !supported {
                 return Err(ContractValidationError {
                     issues: vec![ValidationIssue {
@@ -274,9 +269,7 @@ fn validate_semantic_relations(query: &serde_json::Value) -> Result<(), Contract
                             "context".into(),
                             "candidateEvidence".into(),
                         ],
-                        message:
-                            "candidateEvidence requires localSearch or ghSearch with operation: code."
-                                .into(),
+                        message: "candidateEvidence requires localSearch or ghSearchCode.".into(),
                         schema: None,
                         received: context.get("candidateEvidence").cloned(),
                     }],
@@ -432,33 +425,25 @@ mod contract_owner_tests {
     }
 
     #[test]
-    fn public_queries_require_nonblank_reasoning() {
-        // Reasoning is mandatory on every tool: omitting it is rejected.
+    fn public_queries_accept_optional_trace_context() {
         let omitted = prepare_and_validate(
             "localFetch",
             json!({"path":"/tmp/source.rs"}),
             PrepareOptions::default(),
         );
-        assert!(omitted.is_err(), "reasoning must be required: {omitted:?}");
-
-        // A supplied-but-blank reasoning is likewise rejected.
+        assert_eq!(omitted.unwrap()["reasoning"], "");
         let blank = prepare_and_validate(
             "localFetch",
             json!({"path":"/tmp/source.rs","reasoning":"   "}),
             PrepareOptions::default(),
         );
-        assert!(
-            blank.is_err(),
-            "blank reasoning must be rejected: {blank:?}"
-        );
-
-        // A supplied non-blank reasoning is accepted and preserved verbatim.
+        assert_eq!(blank.unwrap()["reasoning"], "");
         let ok = prepare_and_validate(
             "localFetch",
             json!({"path":"/tmp/source.rs","reasoning":"Read the source."}),
             PrepareOptions::default(),
         )
-        .expect("non-blank reasoning must be accepted");
+        .expect("trace context is accepted");
         assert_eq!(ok["reasoning"], "Read the source.");
     }
 
@@ -830,6 +815,68 @@ mod contract_owner_tests {
     }
 
     #[test]
+    fn output_contract_validates_shared_evidence_without_mutating_compact_output() {
+        for (tool, data) in [
+            (
+                "ghGetFileContent",
+                json!({"files":[
+                    {"path":"alpha.rs","content":"fn placeholder(){}"},
+                    {"path":"beta.rs","content":"fn placeholder(){}"}
+                ]}),
+            ),
+            (
+                "ghSearchHistory",
+                json!({"type":"commits","commits":[
+                    {"sha":"abc123","message":"first"},
+                    {"sha":"abc123","message":"second"}
+                ]}),
+            ),
+        ] {
+            let output = crate::runtime::response::envelope(vec![json!({"index":0,"data":data})]);
+            assert!(
+                output["shared"].is_object(),
+                "test must exercise real compaction"
+            );
+            let original = output.clone();
+            validate_output(tool, &output).expect("shared evidence satisfies canonical schema");
+            assert_eq!(
+                output, original,
+                "validation must preserve compact wire output"
+            );
+        }
+    }
+
+    #[test]
+    fn output_contract_rejects_missing_or_invalid_shared_file_evidence() {
+        let output = json!({"results":[{"index":0,"data":{"files":[{"path":"alpha.rs"}]}}]});
+        validate_output("ghGetFileContent", &output).expect_err("path alone is not file evidence");
+        let mut invalid = output.clone();
+        invalid["shared"] = json!({"content":42});
+        validate_output("ghGetFileContent", &invalid).expect_err("shared content must be text");
+        invalid["shared"] = json!({"content":"valid shared text"});
+        invalid["results"][0]["data"]["files"][0]["content"] = json!(42);
+        validate_output("ghGetFileContent", &invalid)
+            .expect_err("shared defaults must not conceal malformed explicit evidence");
+    }
+
+    #[test]
+    fn output_contract_isolates_invalid_rows_with_shared_evidence() {
+        let output = json!({"shared":{"content":"shared text"},"results":[
+            {"index":0,"data":{"files":[{"path":"alpha.rs"}]}},
+            {"index":1,"data":{"files":[{"path":"beta.rs","content":42}]}}
+        ]});
+        let error =
+            validate_output("ghGetFileContent", &output).expect_err("second row is invalid");
+        let isolated = isolate_row_violations("ghGetFileContent", &output, &error)
+            .expect("valid compressed row survives isolation");
+        assert_eq!(isolated["results"][0], output["results"][0]);
+        assert_eq!(
+            isolated["results"][1]["data"]["errorCode"],
+            "outputContractViolation"
+        );
+    }
+
+    #[test]
     fn history_output_accepts_pull_request_optional_content_actions() {
         let output = json!({"results":[{
             "index":0,
@@ -910,37 +957,30 @@ mod contract_owner_tests {
     }
 
     #[test]
-    fn ghsearch_advisory_next_action_accepts_defaults_but_requires_operation() {
+    fn ghsearchcode_advisory_next_action_accepts_defaults_but_requires_repo() {
         // Continuation validation applies query defaults on a clone, so
-        // page/pageSize/debug may be omitted. The operation discriminator is
-        // genuinely required and keeps the follow-up executable.
-        let data = |mut query: serde_json::Value| {
-            // Real continuations inherit the caller's now-mandatory reasoning via
-            // preserve_continuation_metadata; mirror that here.
-            query
-                .as_object_mut()
-                .unwrap()
-                .entry("reasoning")
-                .or_insert_with(|| json!("Continue the paged read."));
+        // page/pageSize/debug may be omitted. ghStructure's owner/repo are
+        // genuinely required and keep the follow-up executable.
+        let data = |query: serde_json::Value| {
             json!({"results":[{"index":0,"data":{
-                "operation":"tree",
-                "next":{"viewStructure":{"tool":"ghSearch","query":query,
+                "files":[],
+                "next":{"viewStructure":{"tool":"ghStructure","query":query,
                     "confidence":"exact","why":"Verify structure."}}
             }}]})
         };
         validate_output(
-            "ghSearch",
-            &data(json!({"operation":"tree","owner":"o","repo":"r","path":""})),
+            "ghSearchCode",
+            &data(json!({"owner":"o","repo":"r","path":""})),
         )
         .expect("defaulted pagination fields may be omitted");
-        let invalid = validate_output("ghSearch", &data(json!({"owner":"o","repo":"r","path":""})))
-            .expect_err("missing operation must be rejected");
+        let invalid = validate_output("ghSearchCode", &data(json!({"owner":"o","path":""})))
+            .expect_err("missing repo must be rejected");
         assert!(
             invalid
                 .issues
                 .iter()
-                .any(|issue| issue.path.iter().any(|part| part == "operation")),
-            "expected an operation issue, got {invalid:?}"
+                .any(|issue| issue.path.iter().any(|part| part == "repo")),
+            "expected a repo issue, got {invalid:?}"
         );
     }
 
@@ -955,7 +995,6 @@ mod contract_owner_tests {
                 .entry("reasoning")
                 .or_insert_with(|| json!("Verify the candidate before deletion."));
             json!({"results":[{"index":0,"data":{
-                "operation":"topology",
                 "analysis":"deadCode",
                 "results":[{"file":"src/util.ts","name":"greet","kind":"function",
                     "line":1,"reason":"unreferenced-export","viaHeuristic":"reexport-chain"}],
@@ -982,9 +1021,9 @@ mod contract_owner_tests {
     }
 
     #[test]
-    fn filecontent_viewtree_accepts_defaults_but_requires_operation() {
+    fn filecontent_viewtree_accepts_defaults_but_requires_repo() {
         // Tree pagination/debug fields are defaulted during validation; the
-        // operation discriminator is still required.
+        // repository identity is still required.
         let data = |mut query: serde_json::Value| {
             query
                 .as_object_mut()
@@ -993,26 +1032,23 @@ mod contract_owner_tests {
                 .or_insert_with(|| json!("Continue the paged read."));
             json!({"results":[{"index":0,"data":{
                 "owner":"o","repo":"r","path":"missing.md","error":"not found",
-                "next":{"viewTree":{"tool":"ghSearch","query":query,
+                "next":{"viewTree":{"tool":"ghStructure","query":query,
                     "confidence":"low"}}
             }}]})
         };
         validate_output(
             "ghGetFileContent",
-            &data(json!({"operation":"tree","owner":"o","repo":"r","path":"."})),
-        )
-        .expect("defaulted tree pagination fields may be omitted");
-        let invalid = validate_output(
-            "ghGetFileContent",
             &data(json!({"owner":"o","repo":"r","path":"."})),
         )
-        .expect_err("missing operation must be rejected");
+        .expect("defaulted tree pagination fields may be omitted");
+        let invalid = validate_output("ghGetFileContent", &data(json!({"owner":"o","path":"."})))
+            .expect_err("missing repo must be rejected");
         assert!(
             invalid
                 .issues
                 .iter()
-                .any(|issue| issue.path.iter().any(|part| part == "operation")),
-            "expected an operation issue, got {invalid:?}"
+                .any(|issue| issue.path.iter().any(|part| part == "repo")),
+            "expected a repo issue, got {invalid:?}"
         );
     }
 
@@ -1092,9 +1128,8 @@ mod contract_owner_tests {
     #[test]
     fn tree_materialize_fields_survive_generated_validation() {
         let query = prepare_and_validate(
-            "ghSearch",
+            "ghStructure",
             json!({
-                "operation": "tree",
                 "owner": "a",
                 "repo": "b",
                 "materialize": true,

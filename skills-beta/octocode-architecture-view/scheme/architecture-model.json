@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "octocode-architecture-view/architecture-model",
+  "title": "Architecture model (scan output and agent overlay)",
+  "description": "scan.mjs writes the mechanical part; the agent writes an overlay with the same shape holding only semantics. render.mjs merges overlay onto scan by id: objects shallow-merge, arrays replace, `remove` deletes, `mergeInto` folds a node (files, loc, edges) into another.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "version": { "const": 1 },
+    "meta": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "System name shown in the header." },
+        "root": { "type": "string", "description": "Absolute repo root; enables editor links for evidence." },
+        "summary": { "type": "string", "description": "3-8 sentence explanation: purpose, main runtime path, layering, where state lives, key risks. Supports **bold**, `code`, - bullets, blank-line paragraphs." },
+        "stack": { "type": "array", "items": { "type": "string" } },
+        "editor": { "enum": ["vscode", "cursor", "idea", "none"], "default": "vscode" },
+        "derivedFindings": { "type": "boolean", "default": true, "description": "false suppresses render-derived cycle/upward-dependency findings." },
+        "generatedAt": { "type": "string" },
+        "scanner": { "type": "object" }
+      }
+    },
+    "layers": {
+      "type": "array",
+      "description": "Ordered top (callers) to bottom (stores). Dependencies should point down; an edge from a lower to a higher layer is flagged upward. Omit to keep the defaults: clients, interface, application, domain, infrastructure, data, tooling.",
+      "items": {
+        "type": "object",
+        "required": ["id", "label", "order"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "label": { "type": "string" },
+          "order": { "type": "number" },
+          "description": { "type": "string", "description": "What belongs here and the rule it obeys." },
+          "color": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+          "exempt": { "type": "boolean", "description": "Edges from this layer are never flagged upward (tests, tooling)." }
+        }
+      }
+    },
+    "exclude": { "type": "array", "items": { "type": "string" }, "description": "Node-id globs to drop (`*` = one segment, `**` = any), e.g. \"packages/bench/**\"." },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": { "type": "string", "description": "Scan ids are repo-relative dirs; add stores as store:<name>, externals as ext:<name>, actors as actor:<name>." },
+          "label": { "type": "string" },
+          "kind": { "enum": ["actor", "ui", "cli", "api", "mcp", "extension", "service", "worker", "library", "data-access", "adapter", "store", "queue", "external", "config", "test", "tooling"] },
+          "layer": { "type": "string" },
+          "parent": { "type": "string", "description": "Container id; the Containers level folds children into it." },
+          "path": { "type": "string" },
+          "description": { "type": "string", "description": "One or two sentences: responsibility, not implementation." },
+          "responsibilities": { "type": "array", "items": { "type": "string" } },
+          "tech": { "type": "array", "items": { "type": "string" } },
+          "entrypoints": { "type": "array", "items": { "type": "string" } },
+          "evidence": { "$ref": "#/$defs/evidence" },
+          "remove": { "type": "boolean" },
+          "mergeInto": { "type": "string" },
+          "guess": { "type": "boolean", "description": "true = heuristic, not yet confirmed; the viewer marks it. Overlay nodes default to false." }
+        }
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["source", "target", "kind"],
+        "properties": {
+          "source": { "type": "string" },
+          "target": { "type": "string" },
+          "kind": { "enum": ["import", "type-import", "call", "http", "rpc", "mcp", "db", "event", "spawn", "ffi", "llm", "config", "file", "stdio"] },
+          "label": { "type": "string", "description": "Verb phrase: \"calls tool via napi\", \"reads/writes sessions\"." },
+          "weight": { "type": "number" },
+          "allowed": { "type": "boolean", "description": "Declared-legal upward edge (callback, plugin registration)." },
+          "evidence": { "$ref": "#/$defs/evidence" },
+          "remove": { "type": "boolean" }
+        }
+      }
+    },
+    "flows": {
+      "type": "array",
+      "description": "Representative runtime scenarios, each 3-12 steps, traced from exact code.",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "steps"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "trigger": { "type": "string" },
+          "steps": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["from", "to", "action"],
+              "properties": {
+                "from": { "type": "string" },
+                "to": { "type": "string" },
+                "action": { "type": "string" },
+                "kind": { "type": "string" },
+                "async": { "type": "boolean" },
+                "evidence": { "$ref": "#/$defs/evidence" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "severity", "title"],
+        "properties": {
+          "id": { "type": "string" },
+          "severity": { "enum": ["info", "warn", "risk"] },
+          "title": { "type": "string" },
+          "detail": { "type": "string" },
+          "confidence": { "enum": ["confirmed", "likely", "candidate"] },
+          "source": { "type": "string" },
+          "nodes": { "type": "array", "items": { "type": "string" } },
+          "evidence": { "$ref": "#/$defs/evidence" }
+        }
+      }
+    },
+    "files": {
+      "type": "object",
+      "description": "Scan-only drill-down: list rows are [path, nodeIndex, lang, loc]; edges are [fromIndex, toIndex, typeOnly?].",
+      "properties": { "list": { "type": "array" }, "edges": { "type": "array" } }
+    }
+  },
+  "$defs": {
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path"],
+        "properties": {
+          "path": { "type": "string", "description": "Repo-relative file." },
+          "line": { "type": "integer", "minimum": 1 },
+          "note": { "type": "string" }
+        }
+      }
+    }
+  }
+}

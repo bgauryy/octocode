@@ -87,95 +87,25 @@ function pruneUnreachableDefs(schema: JsonObject): void {
   }
 }
 
-/**
- * The bulk inputSchema embeds querySchema verbatim as `queries.items` (with
- * its $defs hoisted). Replace that copy with a pointer so the full view does
- * not print the same schema twice; leave any non-identical envelope intact.
- */
-function dedupeInputSchema(
-  inputSchema: JsonValue | undefined,
-  querySchema: JsonValue | undefined
-): JsonValue | undefined {
-  if (
-    !inputSchema ||
-    typeof inputSchema !== 'object' ||
-    Array.isArray(inputSchema)
-  )
-    return inputSchema;
-  if (
-    !querySchema ||
-    typeof querySchema !== 'object' ||
-    Array.isArray(querySchema)
-  )
-    return inputSchema;
-  const { $schema: _schema, $defs: queryDefs, ...queryBody } = querySchema;
-  const queries = (inputSchema.properties as JsonObject | undefined)?.queries;
-  if (!queries || typeof queries !== 'object' || Array.isArray(queries))
-    return dedupeDefinedQuery(inputSchema, queryDefs);
-  if (
-    !deepEqual(queries.items, queryBody) ||
-    JSON.stringify(inputSchema.$defs ?? null) !==
-      JSON.stringify(queryDefs ?? null)
-  )
-    return inputSchema;
-  const deduped = cloneJson(inputSchema) as JsonObject;
-  const dedupedQueries = (deduped.properties as JsonObject)
-    .queries as JsonObject;
-  dedupedQueries.items = {
-    description: 'Each item is one querySchema object.',
-  };
-  pruneUnreachableDefs(deduped);
-  return deduped;
-}
-
-/**
- * Union envelopes (e.g. clasify: one matrix or `queries[]`) reference the
- * query through `$ref`s into $defs that are an exact copy of querySchema's
- * $defs. Print those definitions once, under querySchema.
- */
-function dedupeDefinedQuery(
-  inputSchema: JsonObject,
-  queryDefs: JsonValue | undefined
-): JsonValue {
-  if (
-    !queryDefs ||
-    typeof queryDefs !== 'object' ||
-    Array.isArray(queryDefs) ||
-    Object.keys(queryDefs).length === 0 ||
-    !deepEqual(inputSchema.$defs, queryDefs)
-  )
-    return inputSchema;
-  const deduped = cloneJson(inputSchema) as JsonObject;
-  deduped.$defs = {
-    querySchema: {
-      description: 'Identical to querySchema.$defs; resolve #/$defs/* there.',
-    },
-  };
-  return deduped;
-}
-
 export function project(tool: JsonObject, view: SchemeView): JsonObject {
   if (view === 'full') {
-    // Put branch selectors before the large schema so bounded renderers do not
-    // hide the one-step route an agent needs to choose a union branch. `usage`
-    // is the gh-CLI-style param cheat-sheet (mandatory <>, optional []) an agent
-    // reads before the full schema.
+    // Selectors, examples (the only guide for single-shape tools), and the
+    // gh-CLI-style `usage` precede the large schema so bounded renderers keep them.
     const {
       outputSchema: _outputSchema,
       name,
       variants,
-      querySchema,
+      examples,
+      querySchema: _querySchema,
       ...published
     } = tool;
     const projected: JsonObject = {
       name,
       variants,
+      ...(examples !== undefined ? { examples } : {}),
       usage: usageLines(tool),
-      querySchema,
       ...published,
     };
-    const inputSchema = dedupeInputSchema(published.inputSchema, querySchema);
-    if (inputSchema !== undefined) projected.inputSchema = inputSchema;
     return projected;
   }
   if (view === 'variants') {
@@ -244,10 +174,10 @@ export function projectSelected(
   if (!schema || typeof schema !== 'object' || Array.isArray(schema)) {
     throw new Error('Query schema must be an object');
   }
-  const propertyConst = (
+  const propertySchema = (
     branch: JsonValue,
     propertyName: string
-  ): JsonValue | undefined => {
+  ): JsonObject | undefined => {
     if (!branch || typeof branch !== 'object' || Array.isArray(branch))
       return undefined;
     const properties = (branch as JsonObject).properties;
@@ -262,28 +192,44 @@ export function projectSelected(
     if (!property || typeof property !== 'object' || Array.isArray(property)) {
       return undefined;
     }
-    const reference = (property as JsonObject).$ref;
-    if (typeof reference === 'string' && reference.startsWith('#/$defs/')) {
-      const name = reference
-        .slice('#/$defs/'.length)
-        .replaceAll('~1', '/')
-        .replaceAll('~0', '~');
-      const definitions = (schema as JsonObject).$defs;
-      if (
-        definitions &&
-        typeof definitions === 'object' &&
-        !Array.isArray(definitions)
-      ) {
-        const target = (definitions as JsonObject)[name];
-        if (target && typeof target === 'object' && !Array.isArray(target)) {
-          return (target as JsonObject).const;
-        }
+    let resolved = property as JsonObject;
+    const seen = new Set<string>();
+    while (typeof resolved.$ref === 'string') {
+      const reference = resolved.$ref;
+      if (!reference.startsWith('#/') || seen.has(reference)) return undefined;
+      seen.add(reference);
+      let target: JsonValue | undefined = schema;
+      for (const token of reference.slice(2).split('/')) {
+        if (!target || typeof target !== 'object' || Array.isArray(target))
+          return undefined;
+        target = (target as JsonObject)[
+          token.replaceAll('~1', '/').replaceAll('~0', '~')
+        ];
       }
+      if (!target || typeof target !== 'object' || Array.isArray(target))
+        return undefined;
+      // Ref siblings remain constraints; default is annotation, never a selector.
+      resolved = { ...target, ...resolved };
+      delete resolved.$ref;
+      if (typeof (target as JsonObject).$ref === 'string')
+        resolved.$ref = (target as JsonObject).$ref!;
     }
-    return (property as JsonObject).const;
+    return resolved;
   };
+  const propertyConst = (
+    branch: JsonValue,
+    name: string
+  ): JsonValue | undefined => propertySchema(branch, name)?.const;
   const constOf = (branch: JsonValue): JsonValue | undefined =>
     propertyConst(branch, field);
+  const accepts = (branch: JsonValue, target: JsonValue): boolean => {
+    const property = propertySchema(branch, field);
+    if (property?.const !== undefined) return deepEqual(property.const, target);
+    return (
+      Array.isArray(property?.enum) &&
+      property.enum.some(item => deepEqual(item, target))
+    );
+  };
   const variant =
     field === 'variant' &&
     typeof value === 'string' &&
@@ -330,7 +276,27 @@ export function projectSelected(
     const required = (branch as JsonObject | null)?.required;
     return Array.isArray(required) && required.includes(name);
   };
+  const variantTitle =
+    variant && typeof variant === 'object' && !Array.isArray(variant)
+      ? variant.name
+      : undefined;
+  const hasNamedBranch =
+    variantTitle !== undefined &&
+    ['oneOf', 'anyOf'].some(union => {
+      const branches = (schema as JsonObject)[union];
+      return (
+        Array.isArray(branches) &&
+        branches.some(
+          branch =>
+            branch &&
+            typeof branch === 'object' &&
+            !Array.isArray(branch) &&
+            branch.title === variantTitle
+        )
+      );
+    });
   const matchesVariant = (branch: JsonValue): boolean => {
+    if (hasNamedBranch) return (branch as JsonObject).title === variantTitle;
     const selectors = Object.entries(variantExample ?? {}).filter(
       ([name]) => propertyConst(branch, name) !== undefined
     );
@@ -346,7 +312,7 @@ export function projectSelected(
       branches.forEach((branch, index) => {
         const hit = variantExample
           ? matchesVariant(branch)
-          : deepEqual(constOf(branch), target) &&
+          : accepts(branch, target) &&
             (requiredField === undefined || requires(branch, requiredField));
         if (hit) found.push([union, index]);
       });
@@ -362,7 +328,7 @@ export function projectSelected(
   // keeps both the pattern and rule shapes); only an empty match is an error.
   if (candidates.length === 0) {
     throw new Error(
-      `--select "${selection}" matched 0 top-level oneOf/anyOf branches; choose a variant name or const field/value identifying one branch in --view query.`
+      `--select "${selection}" matched 0 top-level oneOf/anyOf branches; choose a variant name or const/enum field value identifying a branch in --view query.`
     );
   }
   const union = candidates[0]![0];
@@ -382,7 +348,12 @@ export function projectSelected(
       const other = constOf(branch);
       const provablyDisjoint =
         other !== undefined &&
-        constsDisjoint(other, value) &&
+        selectedBranches.every(selected => {
+          const selectedConst = constOf(selected);
+          return (
+            selectedConst !== undefined && constsDisjoint(other, selectedConst)
+          );
+        }) &&
         (selectedBranches.every(selected => requires(selected, field)) ||
           requires(branch, field));
       if (!provablyDisjoint) overlaps.push(branch);

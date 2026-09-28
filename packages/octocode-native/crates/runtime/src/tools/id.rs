@@ -25,7 +25,9 @@ pub enum ToolFamily {
 /// Every tool the native runtime can execute.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum ToolId {
-    GhSearch,
+    GhSearchRepo,
+    GhSearchCode,
+    GhStructure,
     GhGetFileContent,
     GhSearchHistory,
     GhGetHistoryItem,
@@ -43,8 +45,10 @@ pub enum ToolId {
 
 impl ToolId {
     /// All tool identities in declaration order.
-    pub const ALL: [ToolId; 14] = [
-        ToolId::GhSearch,
+    pub const ALL: [ToolId; 16] = [
+        ToolId::GhSearchRepo,
+        ToolId::GhSearchCode,
+        ToolId::GhStructure,
         ToolId::GhGetFileContent,
         ToolId::GhSearchHistory,
         ToolId::GhGetHistoryItem,
@@ -65,7 +69,9 @@ impl ToolId {
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
-            ToolId::GhSearch => "ghSearch",
+            ToolId::GhSearchRepo => "ghSearchRepo",
+            ToolId::GhSearchCode => "ghSearchCode",
+            ToolId::GhStructure => "ghStructure",
             ToolId::GhGetFileContent => "ghGetFileContent",
             ToolId::GhSearchHistory => "ghSearchHistory",
             ToolId::GhGetHistoryItem => "ghGetHistoryItem",
@@ -99,7 +105,9 @@ impl ToolId {
             | ToolId::AstTopology
             | ToolId::AstRewrite
             | ToolId::LspSearch => ToolFamily::Local,
-            ToolId::GhSearch
+            ToolId::GhSearchRepo
+            | ToolId::GhSearchCode
+            | ToolId::GhStructure
             | ToolId::GhGetFileContent
             | ToolId::GhSearchHistory
             | ToolId::GhGetHistoryItem
@@ -221,7 +229,9 @@ mod tests {
     fn family_covers_every_tool() {
         // GitHub tools
         for id in [
-            ToolId::GhSearch,
+            ToolId::GhSearchRepo,
+            ToolId::GhSearchCode,
+            ToolId::GhStructure,
             ToolId::GhGetFileContent,
             ToolId::GhSearchHistory,
             ToolId::GhGetHistoryItem,
@@ -249,7 +259,9 @@ mod tests {
     fn availability_env_hint_covers_gated_tools_and_is_none_for_always_on() {
         // Always available (no env gate)
         for id in [
-            ToolId::GhSearch,
+            ToolId::GhSearchRepo,
+            ToolId::GhSearchCode,
+            ToolId::GhStructure,
             ToolId::GhGetFileContent,
             ToolId::GhSearchHistory,
             ToolId::GhGetHistoryItem,

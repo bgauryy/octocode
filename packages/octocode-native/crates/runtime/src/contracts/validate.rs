@@ -243,6 +243,7 @@ pub fn validate_output(tool_name: &str, output: &Value) -> Result<(), ContractVa
         })?;
     let schema = &tool["outputSchema"];
     let mut candidate = output.clone();
+    crate::runtime::response::restore_shared_fields(&mut candidate);
     validate_schema(schema, schema, &mut candidate, &mut Vec::new())
 }
 
@@ -312,7 +313,12 @@ fn apply_validation_rules(rules: &Value, input: &Value) -> Result<(), ContractVa
                 validate_artifact_queries(input)
             }
             Some("schema_union") | Some("json_schema") => Ok(()),
-            Some("github_search_runnable") => validate_github_search_queries(input),
+            Some("github_code_search_runnable") => {
+                validate_github_search_queries(input, GithubSearchKind::Code)
+            }
+            Some("github_repo_search_runnable") => {
+                validate_github_search_queries(input, GithubSearchKind::Repositories)
+            }
             Some("ast_rewrite_apply") => validate_ast_rewrite_queries(input),
             Some("local_search_mode") => validate_local_search_queries(input),
             Some("ast_topology") => validate_topology_queries(input),
@@ -343,25 +349,6 @@ fn apply_validation_rules(rules: &Value, input: &Value) -> Result<(), ContractVa
 
 fn validate_history_content_selection(input: &Value) -> Result<(), ContractValidationError> {
     for (index, query) in query_values(input) {
-        // An empty comments object would silently return no comments.
-        if let Some(comments) = query
-            .pointer("/content/comments")
-            .and_then(Value::as_object)
-            && !["discussion", "reviewInline"]
-                .iter()
-                .any(|field| comments.get(*field) == Some(&Value::Bool(true)))
-        {
-            return Err(issue(
-                "history.content-selection",
-                vec![
-                    "queries".into(),
-                    index.to_string(),
-                    "content".into(),
-                    "comments".into(),
-                ],
-                "content.comments needs discussion:true (or reviewInline:true on pull requests)",
-            ));
-        }
         let Some(patches) = query.pointer("/content/patches").and_then(Value::as_object) else {
             continue;
         };
@@ -799,12 +786,20 @@ fn validate_artifact_queries(input: &Value) -> Result<(), ContractValidationErro
     Ok(())
 }
 
-fn validate_github_search_queries(input: &Value) -> Result<(), ContractValidationError> {
+#[derive(Clone, Copy)]
+enum GithubSearchKind {
+    Code,
+    Repositories,
+}
+
+fn validate_github_search_queries(
+    input: &Value,
+    kind: GithubSearchKind,
+) -> Result<(), ContractValidationError> {
     let Some(queries) = input["queries"].as_array() else {
         return Ok(());
     };
     for (index, query) in queries.iter().enumerate() {
-        let operation = query.get("operation").and_then(Value::as_str);
         let has_text = |field: &str| {
             query
                 .get(field)
@@ -821,14 +816,15 @@ fn validate_github_search_queries(input: &Value) -> Result<(), ContractValidatio
                         .any(|value| value.as_str().is_some_and(|text| !text.trim().is_empty()))
                 })
         };
-        let runnable = match operation {
-            Some("code") => {
+        let (runnable, message) = match kind {
+            GithubSearchKind::Code => (
                 has_terms("keywords")
                     || ["path", "extension", "filename", "language"]
                         .iter()
-                        .any(|field| has_text(field))
-            }
-            Some("repositories") => {
+                        .any(|field| has_text(field)),
+                "ghSearchCode needs keywords or a path, extension, filename, or language filter",
+            ),
+            GithubSearchKind::Repositories => (
                 has_terms("keywords")
                     || has_terms("topics")
                     || [
@@ -845,25 +841,22 @@ fn validate_github_search_queries(input: &Value) -> Result<(), ContractValidatio
                     ]
                     .iter()
                     .any(|field| has_text(field))
-                    || query.get("archived").is_some_and(Value::is_boolean)
-            }
-            _ => true,
+                    || query.get("archived").is_some_and(Value::is_boolean),
+                "ghSearchRepo needs keywords, topics, owner, or a filter",
+            ),
         };
         if !runnable {
             return Err(issue(
                 "gh-search.runnable-constraint",
-                vec!["queries".into(), index.to_string(), "operation".into()],
-                format!(
-                    "{} needs at least one search term or scope filter",
-                    operation.unwrap_or("search")
-                ),
+                vec!["queries".into(), index.to_string(), "keywords".into()],
+                message.to_owned(),
             ));
         }
         // Code search must be scoped to an owner: the public contract states code
         // "cannot wildcard repositories", so an unscoped code query (which the
         // provider would run across all of GitHub) is rejected here rather than
         // silently returning global noise.
-        if operation == Some("code") && !has_text("owner") {
+        if matches!(kind, GithubSearchKind::Code) && !has_text("owner") {
             return Err(issue(
                 "gh-search.code-scope",
                 vec!["queries".into(), index.to_string(), "owner".into()],
@@ -1068,7 +1061,7 @@ mod tests {
                 "{field}"
             );
         }
-        for field in ["reasoning", "resources", "questions"] {
+        for field in ["resources", "questions"] {
             let mut invalid = query.clone();
             invalid.as_object_mut().expect("query object").remove(field);
             assert!(
@@ -1079,8 +1072,8 @@ mod tests {
         let mut blank_reasoning = query.clone();
         blank_reasoning["reasoning"] = json!("");
         assert!(
-            prepare_and_validate("clasify", blank_reasoning, PrepareOptions::default()).is_err(),
-            "blank semantic reasoning"
+            prepare_and_validate("clasify", blank_reasoning, PrepareOptions::default()).is_ok(),
+            "blank trace context is harmless"
         );
     }
 
@@ -1152,9 +1145,8 @@ mod tests {
     #[test]
     fn rejects_repo_scoped_code_wildcards_before_provider_io() {
         let error = validate(
-            "ghSearch",
+            "ghSearchCode",
             json!({"queries":[{
-                "operation":"code",
                 "owner":"octocode",
                 "repo":"octocode",
                 "reasoning":"Reject a repo-wide wildcard."
@@ -1169,9 +1161,8 @@ mod tests {
         );
 
         validate(
-            "ghSearch",
+            "ghSearchCode",
             json!({"queries":[{
-                "operation":"code",
                 "owner":"octocode",
                 "repo":"octocode",
                 "path":"src",
@@ -1184,9 +1175,8 @@ mod tests {
     #[test]
     fn rejects_unscoped_code_search_that_would_wildcard_all_of_github() {
         let error = validate(
-            "ghSearch",
+            "ghSearchCode",
             json!({"queries":[{
-                "operation":"code",
                 "keywords":["isEmptyArray"],
                 "reasoning":"A keyword-only code search must not run globally."
             }]}),
@@ -1202,9 +1192,8 @@ mod tests {
         }));
         // owner alone (no repo) is a legitimate org-wide code search.
         validate(
-            "ghSearch",
+            "ghSearchCode",
             json!({"queries":[{
-                "operation":"code",
                 "owner":"sindresorhus",
                 "keywords":["isEmptyArray"],
                 "reasoning":"Owner-scoped code search is allowed."

@@ -113,9 +113,7 @@ pub fn execute_local_search(
         LocalSearchQuerySort::Relevance | LocalSearchQuerySort::MatchCount
     ) && !matches!(
         view,
-        LocalSearchQueryResultView::Files
-            | LocalSearchQueryResultView::FilesWithout
-            | LocalSearchQueryResultView::Discovery
+        LocalSearchQueryResultView::Files | LocalSearchQueryResultView::FilesWithout
     );
     let options = RipgrepSearchOptions {
         path: validated.canonical.to_string_lossy().into_owned(),
@@ -128,11 +126,7 @@ pub fn execute_local_search(
         invert_match: query.invert_match,
         multiline: Some(multiline != LocalSearchQueryMultiline::Off),
         multiline_dotall: Some(multiline == LocalSearchQueryMultiline::Dotall),
-        // discovery renders the same path list as files; skip content matching.
-        files_only: Some(matches!(
-            view,
-            LocalSearchQueryResultView::Files | LocalSearchQueryResultView::Discovery
-        )),
+        files_only: Some(matches!(view, LocalSearchQueryResultView::Files)),
         files_without_match: Some(view == LocalSearchQueryResultView::FilesWithout),
         count_lines_per_file: Some(view == LocalSearchQueryResultView::CountLines),
         count_matches_per_file: Some(view == LocalSearchQueryResultView::CountMatches),
@@ -385,7 +379,6 @@ pub fn execute_local_search(
         view,
         LocalSearchQueryResultView::Files
             | LocalSearchQueryResultView::FilesWithout
-            | LocalSearchQueryResultView::Discovery
             | LocalSearchQueryResultView::CountLines
             | LocalSearchQueryResultView::CountMatches
     );
@@ -654,9 +647,7 @@ pub fn execute_local_search(
                 total_files,
                 total_matches: (!matches!(
                     view,
-                    LocalSearchQueryResultView::Files
-                        | LocalSearchQueryResultView::FilesWithout
-                        | LocalSearchQueryResultView::Discovery
+                    LocalSearchQueryResultView::Files | LocalSearchQueryResultView::FilesWithout
                 ))
                 .then_some(total_matches),
                 has_more,
@@ -1048,9 +1039,7 @@ fn rank_relevance(
     // Path-list views carry no per-file match-density signal — order by path.
     if matches!(
         view,
-        LocalSearchQueryResultView::Files
-            | LocalSearchQueryResultView::FilesWithout
-            | LocalSearchQueryResultView::Discovery
+        LocalSearchQueryResultView::Files | LocalSearchQueryResultView::FilesWithout
     ) {
         files.sort_by(|a, b| a.path.cmp(&b.path));
         return;
@@ -1095,7 +1084,6 @@ fn default_page_size(view: LocalSearchQueryResultView) -> u32 {
     match view {
         LocalSearchQueryResultView::Files
         | LocalSearchQueryResultView::FilesWithout
-        | LocalSearchQueryResultView::Discovery
         | LocalSearchQueryResultView::CountLines
         | LocalSearchQueryResultView::CountMatches => DEFAULT_LIST_PAGE_SIZE,
         _ => DEFAULT_SNIPPET_PAGE_SIZE,
@@ -1210,7 +1198,6 @@ fn fingerprint(
     identity.insert(
         "mode".into(),
         json!(match q.result_view {
-            LocalSearchQueryResultView::Discovery => "discovery",
             LocalSearchQueryResultView::Detailed => "detailed",
             _ => "paginated",
         }),

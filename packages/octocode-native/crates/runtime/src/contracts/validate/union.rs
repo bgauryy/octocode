@@ -209,7 +209,9 @@ fn score(issues: &[ValidationIssue], depth: usize) -> [usize; 4] {
         .count();
     let count = group_unknown_fields(issues.to_vec()).len();
     [
-        invalid(&["operation", "type", "questionType"]),
+        // A continuation names its tool: a branch for another tool is never
+        // the closest match, however few field issues it reports.
+        invalid(&["tool", "operation", "type", "questionType"]),
         invalid(&["analysis", "resultView"]),
         rejected,
         count,

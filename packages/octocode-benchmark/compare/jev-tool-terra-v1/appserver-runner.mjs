@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const ALLOWED = ['ghSearch', 'ghGetFileContent', 'ghSearchHistory', 'ghGetHistoryItem', 'artifactSearch', 'jev'];
+const ALLOWED = ['ghSearchRepo', 'ghSearchCode', 'ghStructure', 'ghGetFileContent', 'ghSearchHistory', 'ghGetHistoryItem', 'artifactSearch', 'jev'];
 const DISABLED = ['shell_tool', 'apps', 'plugins', 'browser_use', 'browser_use_external', 'computer_use', 'multi_agent', 'hooks', 'image_generation', 'view_image', 'workspace_dependencies', 'skill_search', 'tool_suggest', 'sleep_tool', 'goals', 'memories'];
 const toml = value => Array.isArray(value) ? `[${value.map(toml).join(',')}]`
   : value && typeof value === 'object' ? `{${Object.entries(value).map(([key, val]) => `${JSON.stringify(key)}=${toml(val)}`).join(',')}}` : JSON.stringify(value);
@@ -20,26 +20,27 @@ function emptyResourceDiscovery(item) {
 
 // A standard one-call approval, correlated with a live host-generated MCP item.
 // Unknown server elicitations, authentication forms and persistent grants are never accepted.
-export function approvalFor(params, pending, threadId) {
+export function approvalFor(params, pending, threadId, allowedTools = ALLOWED) {
   if (params.threadId !== threadId || params.serverName !== 'octocode' || params.mode !== 'form' ||
       params._meta?.codex_approval_kind !== 'mcp_tool_call' ||
       params.requestedSchema?.type !== 'object' || Object.keys(params.requestedSchema?.properties ?? {}).length !== 0) return null;
-  const matches = [...pending.values()].filter(item => item.server === 'octocode' && ALLOWED.includes(item.tool) &&
+  const matches = [...pending.values()].filter(item => item.server === 'octocode' && allowedTools.includes(item.tool) &&
     params.message === `Allow the octocode MCP server to run tool "${item.tool}"?` &&
     same(params._meta?.tool_params, item.arguments));
   return matches.length === 1 ? matches[0] : null;
 }
 
 export async function runAppServer({ cwd, env, model, effort = 'medium', prompt, outputSchema, runDir, proxyPath,
-  deadlineMs = 300000, codexPath = 'codex', modelProvider, providerConfig }) {
+  deadlineMs = 300000, codexPath = 'codex', modelProvider, providerConfig, allowedTools = ALLOWED,
+  proxyConfigEnv = 'JEV_BENCH_CONFIG' }) {
   mkdirSync(runDir, { recursive: true });
   const started = Date.now();
   const secrets = Object.entries(env).filter(([key, value]) => /(?:TOKEN|SECRET|PASSWORD|(?:^|_)KEY)$/.test(key) && value).map(([, value]) => value);
   const redact = text => secrets.reduce((out, secret) => out.split(secret).join('[REDACTED]'), text);
   const log = (name, value) => appendFileSync(join(runDir, name), redact(JSON.stringify(value)) + '\n', { mode: 0o600 });
   const config = { mcp_servers: { octocode: { command: process.execPath, args: [proxyPath], required: true,
-    env_vars: ['JEV_BENCH_CONFIG', 'OCTOCODE_HOME', 'OCTOCODE_NATIVE_BINDING', 'OCTOCODE_REGEX_WORKER', 'OCTOCODE_CLASSIFICATION_API', 'OCTOCODE_CLASSIFICATION_API_HOST', 'GITHUB_TOKEN', 'GH_TOKEN', 'ENABLE_LOCAL', 'ENABLE_CLONE', 'MAX_RETRIES', 'OCTOCODE_ENABLE_STATS', 'OCTOCODE_STORAGE_MODE'],
-    enabled_tools: ALLOWED, default_tools_approval_mode: 'prompt', startup_timeout_sec: 30, tool_timeout_sec: 120 } },
+    env_vars: [proxyConfigEnv, 'OCTOCODE_HOME', 'OCTOCODE_NATIVE_BINDING', 'OCTOCODE_REGEX_WORKER', 'OCTOCODE_CLASSIFICATION_API', 'OCTOCODE_CLASSIFICATION_API_HOST', 'GITHUB_TOKEN', 'GH_TOKEN', 'ENABLE_LOCAL', 'ENABLE_CLONE', 'MAX_RETRIES', 'OCTOCODE_ENABLE_STATS', 'OCTOCODE_STORAGE_MODE'],
+    enabled_tools: allowedTools, default_tools_approval_mode: 'prompt', startup_timeout_sec: 30, tool_timeout_sec: 120 } },
     project_doc_max_bytes: 0, developer_instructions: '', web_search: 'disabled', tool_output_token_limit: 12000,
     features: { ...Object.fromEntries(DISABLED.map(key => [key, false])), skip_host_skill_discovery: true, tool_call_mcp_elicitation: true },
     model_provider: modelProvider ?? 'openai', model_reasoning_effort: effort, approval_policy: 'on-request', approvals_reviewer: 'user', sandbox_mode: 'read-only' };
@@ -79,7 +80,7 @@ export async function runAppServer({ cwd, env, model, effort = 'medium', prompt,
     const params = message.params ?? {};
     if (message.id !== undefined && message.method) {
       if (message.method === 'mcpServer/elicitation/request') {
-        const approved = approvalFor(params, pendingTools, threadId);
+        const approved = approvalFor(params, pendingTools, threadId, allowedTools);
         if (approved) approvals++; else declined++;
         log('approvals.jsonl', { requestId: message.id, approved: !!approved, server: params.serverName, tool: approved?.tool ?? null });
         send({ jsonrpc: '2.0', id: message.id, result: approved ? { action: 'accept', content: {} } : { action: 'decline' } });
@@ -96,7 +97,7 @@ export async function runAppServer({ cwd, env, model, effort = 'medium', prompt,
       itemTypes.add(item.type);
       const resourceDiscovery = item.type === 'mcpToolCall' && item.server === 'codex' && resourceListKey(item.tool);
       if (['commandExecution', 'fileChange', 'webSearch', 'collabAgentToolCall'].includes(item.type) ||
-          item.type === 'mcpToolCall' && !resourceDiscovery && (item.server !== 'octocode' || !ALLOWED.includes(item.tool)) ||
+          item.type === 'mcpToolCall' && !resourceDiscovery && (item.server !== 'octocode' || !allowedTools.includes(item.tool)) ||
           resourceDiscovery && message.method === 'item/completed' && !emptyResourceDiscovery(item)) prohibitedToolEvents++;
       if (item.type === 'mcpToolCall') {
         if (message.method === 'item/started') pendingTools.set(item.id, item); else pendingTools.delete(item.id);
@@ -136,7 +137,7 @@ export async function runAppServer({ cwd, env, model, effort = 'medium', prompt,
     const octocode = catalog.data?.find(server => server.name === 'octocode');
     const names = Object.keys(octocode?.tools ?? {});
     if (catalog.nextCursor || octocode?.runtimeStatus !== 'connected' || octocode.toolsError ||
-        names.length !== ALLOWED.length || ALLOWED.some(name => !names.includes(name)) ||
+        names.length !== allowedTools.length || allowedTools.some(name => !names.includes(name)) ||
         catalog.data.some(server => server.name !== 'octocode' && server.runtimeStatus === 'connected')) throw new Error('Unexpected effective MCP catalog');
     await request('turn/start', { threadId, input: [{ type: 'text', text: prompt }], model, effort, outputSchema });
     await finished;

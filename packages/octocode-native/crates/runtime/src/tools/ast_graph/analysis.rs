@@ -283,6 +283,8 @@ fn cycles(b: &BuiltGraph) -> (Vec<Value>, Value, Vec<String>, bool) {
     let trans = find_transitive(&c);
     let runtime = runtime_graph(&b.nodes);
     let runtime_cycles = scc(&runtime, true);
+    let file_witnesses = CycleWitnesses::new(&b.nodes);
+    let runtime_witnesses = CycleWitnesses::new(&runtime);
     let mut items = Vec::new();
     for (id, files) in c.components.iter().enumerate() {
         if files.len() == 1 && !b.nodes[&files[0]].edges.contains_key(&files[0]) {
@@ -303,7 +305,7 @@ fn cycles(b: &BuiltGraph) -> (Vec<Value>, Value, Vec<String>, bool) {
             .unwrap_or_default()
             .into_iter()
             .collect::<Vec<_>>();
-        items.push(json!({"files":files,"edgeKinds":kinds,"runtimeCycle":runtime_count>0,"runtimeCycles":contained,"runtimeCycleCount":runtime_count,"cycleEdges":cycle_witness(&b.nodes,&members),"runtimeCycleEdges":cycle_witness(&runtime,&members),"componentId":id,"topologicalLayer":layers.get(&id),"outgoingComponents":outgoing,"confidence":"syntactic"}));
+        items.push(json!({"files":files,"edgeKinds":kinds,"runtimeCycle":runtime_count>0,"runtimeCycles":contained,"runtimeCycleCount":runtime_count,"cycleEdges":file_witnesses.witness(&members),"runtimeCycleEdges":runtime_witnesses.witness(&members),"componentId":id,"topologicalLayer":layers.get(&id),"outgoingComponents":outgoing,"confidence":"syntactic"}));
     }
     let rc = items.iter().filter(|x| x["runtimeCycle"] == true).count();
     let ce = c.edges.values().map(BTreeSet::len).sum::<usize>();
@@ -1463,7 +1465,7 @@ mod tests {
     #[test]
     fn diagnostic_continuation_stays_on_ast_topology() {
         let query: AstTopologyQuery = serde_json::from_value(json!({
-            "operation":"topology","reasoning":"test",
+            "reasoning":"test",
             "analysis":"dependencies",
             "path":".",
             "file":"src/index.ts",
@@ -1486,9 +1488,10 @@ mod tests {
         add_next(&mut result, &query, Path::new("/repo"), false, false, false);
 
         assert_eq!(result["next"]["nextDiagnostics"]["tool"], "astTopology");
-        assert_eq!(
-            result["next"]["nextDiagnostics"]["query"]["operation"],
-            "topology"
+        assert!(
+            result["next"]["nextDiagnostics"]["query"]
+                .get("operation")
+                .is_none()
         );
         assert_eq!(
             result["next"]["nextDiagnostics"]["query"]["diagnosticSnapshot"],

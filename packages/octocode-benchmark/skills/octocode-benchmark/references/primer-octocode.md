@@ -9,7 +9,9 @@ and is **not** counted; use it instead of paying for schema discovery.
 
 | Tool | Use it for — and when NOT to |
 |---|---|
-| `ghSearch` | Remote discovery through strict operations: `code` for code/file paths, `repositories` for repository discovery, and `tree` for a known repository. For code, use `match:"path"` when only filenames matter. For repositories, start with `concise:true`. Skip discovery when you already know the exact file path. |
+| `ghSearchRepo` | Repository discovery; start with `concise:true`. Skip discovery when you already know the exact file path. |
+| `ghSearchCode` | Indexed code/file-path discovery (`owner` required); use `match:"path"` when only filenames matter. |
+| `ghStructure` | Browse the tree of a known repository (`owner`+`repo`, optional `branch`/`path`). |
 | `ghGetFileContent` | Read a file or a **region** once you know the path — not for discovery. A code-search snippet can narrow the candidate; fetch exact source when the answer depends on source text, line identity, or a fixed revision. |
 | `ghSearchHistory` | Search or list history with `operation:"pullRequest"`, `"issue"`, or `"commit"`. Use it for discovery, not exact item reads. |
 | `ghGetHistoryItem` | Read one PR or issue by `number`, one commit by `ref`, or compare `base`+`head`. Select only the content or diff you need. |
@@ -24,7 +26,7 @@ and is **not** counted; use it instead of paying for schema discovery.
 
 ## Lean path
 
-- **Use snippets as leads.** A `ghSearch(operation:"code")` result can identify a candidate, but fetch the file when exact source, line identity, or revision matters.
+- **Use snippets as leads.** A `ghSearchCode` result can identify a candidate, but fetch the file when exact source, line identity, or revision matters.
 - **Choose the needed source view.** Read a known region directly with `matchString` or `startLine`+`endLine`. For an unfamiliar large file, use `minify:"symbols"` only when its outline can select the decisive region. Path-only reads are valid and exact by default; selectors are optional and mutually exclusive with `fullContent`. Both readers use `chunkType:"lines"|"bytes"`, `offset`, and `chunkSize`; copy `next.continue` unchanged. Match context defaults to five lines or 256 UTF-8 bytes according to chunk type; explicit `contextLines` and `contextBytes` are exclusive.
 - **Structured/config membership needs exact content.** Keep `minify:"none"`; fetch the enclosing object or a small full file. A partial slice cannot establish that a field is absent; follow relevant continuations before an absence claim.
 - **Inspect the returned envelope.** Use fields present in the operation's response, including `meta.evidence`, diagnostics, pagination, and `next` continuations; never invent a field or quote.
@@ -33,9 +35,9 @@ and is **not** counted; use it instead of paying for schema discovery.
 ## Query forms
 
 ```bash
-npx octocode ghSearch '{"reasoning":"Locate candidate paths.","operation":"code","owner":"OWNER","repo":"REPO","keywords":["TERM"],"match":"path"}'
-npx octocode ghSearch '{"reasoning":"Find the source repository.","operation":"repositories","keywords":["TERM"],"concise":true}'
-npx octocode ghSearch '{"reasoning":"Browse the known revision.","operation":"tree","owner":"OWNER","repo":"REPO","branch":"SHA","path":"PATH"}'
+npx octocode ghSearchCode '{"reasoning":"Locate candidate paths.","owner":"OWNER","repo":"REPO","keywords":["TERM"],"match":"path"}'
+npx octocode ghSearchRepo '{"reasoning":"Find the source repository.","keywords":["TERM"],"concise":true}'
+npx octocode ghStructure '{"reasoning":"Browse the known revision.","owner":"OWNER","repo":"REPO","branch":"SHA","path":"PATH"}'
 npx octocode ghGetFileContent '{"reasoning":"Read the deciding source region.","owner":"OWNER","repo":"REPO","path":"PATH","branch":"SHA","matchString":"SYMBOL","contextLines":8}'
 npx octocode ghGetFileContent '{"reasoning":"Map declarations before an exact read.","owner":"OWNER","repo":"REPO","path":"PATH","branch":"SHA","minify":"symbols"}'
 npx octocode ghSearchHistory '{"reasoning":"Find revisions that changed this path.","operation":"commit","owner":"OWNER","repo":"REPO","path":"PATH"}'

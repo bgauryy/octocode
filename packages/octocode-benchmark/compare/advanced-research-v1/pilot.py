@@ -81,7 +81,7 @@ def command(argv, cwd=WORKSPACE):
 class Policy:
     """Deliberately small, conservative shell grammar. No pipes or substitutions."""
     local_tools = {"localSearch", "localFetch", "astSearch", "lspSearch"}
-    remote_tools = {"ghSearch", "ghGetFileContent", "ghSearchHistory", "ghGetHistoryItem"}
+    remote_tools = {"ghSearchCode", "ghStructure", "ghGetFileContent", "ghSearchHistory", "ghGetHistoryItem"}
 
     def __init__(self, arm, cli, roots, remote=False):
         self.arm, self.cli = arm, Path(cli).resolve()
@@ -115,13 +115,13 @@ class Policy:
             commit = REMOTE_REPOS.get((query.get("owner"), query.get("repo")))
             if not self.remote or not commit:
                 return False
-            if tool == "ghGetFileContent" or (tool == "ghSearch" and query.get("operation") == "tree"):
+            if tool in ("ghGetFileContent", "ghStructure"):
                 return query.get("branch") == commit
             if tool == "ghSearchHistory":
                 return query.get("operation") == "commits" and query.get("branch") == commit
             if tool == "ghGetHistoryItem":
                 return query.get("operation") == "commit" and bool(re.fullmatch(r"[0-9a-f]{40}", query.get("ref", "")))
-            return tool == "ghSearch" and query.get("operation") == "code"
+            return tool == "ghSearchCode"
         if "path" in query and not self.scoped(query["path"]):
             return False
         if tool == "lspSearch":
@@ -345,7 +345,7 @@ class Policy:
         if not match or (match[1], match[2]) not in REMOTE_REPOS:
             return "github_scope_violation"
         from urllib.parse import parse_qs
-        query = parse_qs(url.query, strict_parsing=True)
+        query = parse_qs(url.query, strict_parsing=True) if url.query else {}
         if match[3] is None:
             return "github_query_violation" if query else None
         if not set(query) <= {"ref", "sha", "path", "per_page", "page", "recursive"}:

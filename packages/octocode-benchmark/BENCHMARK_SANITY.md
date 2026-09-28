@@ -64,14 +64,14 @@ cd "$FIX"
 `outputContractViolation`, no `Invalid arguments`/`invalidInput`, no crash, and
 the stated content check holds.
 
-**0.5 — Availability and automated runners.** `scheme` always discovers 14
+**0.5 — Availability and automated runners.** `scheme` always discovers 16
 tools. `ghCloneRepo` is CLI-only: the CLI enables it with persistent storage
 (`OCTOCODE_STORAGE_MODE`, persistent by default), and MCP never registers it —
 `ENABLE_CLONE` has no effect. Without `OCTOCODE_BETA` and
-`OCTOCODE_CLASSIFICATION_API`, MCP registers 10 tools and omits `clasify`,
+`OCTOCODE_CLASSIFICATION_API`, MCP registers 12 tools and omits `clasify`,
 `astRewrite`, and `astTopology`; the CLI keeps all commands and schemas
 discoverable and reports the missing gate when one is called. This setup opts
-into beta tools. Section 13 runs the 13 non-provider tools across
+into beta tools. Section 13 runs the 15 non-provider tools across
 three surfaces, section 12 checks the gated semantic tool, and section 14 covers
 advanced variants. Use the corresponding tool section to diagnose a failure.
 
@@ -87,7 +87,7 @@ advanced variants. Use the corresponding tool section to diagnose a failure.
 - [ ] 4. `localFetch` — read file + minify / matchString / line-range / chunk pagination
 - [ ] 5. `lspSearch` — all semantic operations + anchoring modes
 - [ ] 6. `artifactSearch` — all 8 ecosystems, exact + keyword
-- [ ] 7. `ghSearch` — code / repositories / tree + filters
+- [ ] 7. `ghSearchRepo` / `ghSearchCode` / `ghStructure` + filters
 - [ ] 8. `ghGetFileContent` — read + minify / matchString / line-range  (incl. **R2**)
 - [ ] 9. `ghSearchHistory` — commit / pullRequest / issue  (incl. **R3**)
 - [ ] 10. `ghGetHistoryItem` — commit / pullRequest / issue / compare  (incl. **R4**)
@@ -304,23 +304,25 @@ require `uri` + (`symbolName`+`lineHint`) **or** `position`. `documentSymbols`/
 
 ---
 
-## 7. ghSearch
+## 7. GitHub search: ghSearchRepo / ghSearchCode / ghStructure
 
-**Purpose:** search GitHub code / repositories / a repo tree. **Network.**
+**Purpose:** search GitHub repositories / code / a repo tree — three tools, no
+`operation` field. **Network.**
 
-**Schema:** required `reasoning`, `operation` (`code`|`repositories`|`tree`).
-`code`: keywords + `owner`/`repo`/`language`/`extension`/`filename`/`path`/`match`
-(`file`|`path`). `repositories`: ≥1 of `owner`/`language`/`stars`/`topics`/… +
-`sort` (`stars`|`forks`|`updated`|`best-match`|…). `tree`: `owner`+`repo` (+`branch`,
-`materialize`, `maxDepth`). Advanced: `page`/`pageSize`, `visibility`, `archived`.
+**Schema:** required `reasoning` for all three.
+`ghSearchCode`: keywords + required `owner`, `repo`/`language`/`extension`/`filename`/
+`path`/`match` (`file`|`path`). `ghSearchRepo`: ≥1 of `owner`/`language`/`stars`/
+`topics`/… + `sort` (`stars`|`forks`|`updated`|`best-match`|…). `ghStructure`:
+`owner`+`repo` (+`branch`, `materialize`, `maxDepth`). Advanced: `page`/`pageSize`,
+`visibility`, `archived`.
 
 **Core task:** *"Repositories owned by `bgauryy`."*
-`{"operation":"repositories","owner":"bgauryy"}` → **PASS:** non-empty `repositories`.
+`ghSearchRepo {"owner":"bgauryy"}` → **PASS:** non-empty `repositories`.
 
 **Advanced coverage:**
-- [ ] `operation:"code"` + `owner`/`repo`/`language:"typescript"`
-- [ ] `operation:"tree"` `owner`/`repo`
-- [ ] `operation:"repositories"` `sort:"stars"`
+- [ ] `ghSearchCode` + `owner`/`repo`/`language:"typescript"`
+- [ ] `ghStructure` `owner`/`repo`
+- [ ] `ghSearchRepo` `sort:"stars"`
 
 - [ ] native CLI [ ] node CLI [ ] MCP
 
@@ -479,7 +481,7 @@ and run `next.clasify` unchanged when present.
 
 ---
 
-## 13. Core matrix runner (13 non-provider tools × 3 surfaces)
+## 13. Core matrix runner (15 non-provider tools × 3 surfaces)
 
 Run from the fixture cwd (§0.3) with the env from §0.2. Prints a pass grid;
 `ghCloneRepo` shows `reached-net(auth)` in credential-less sandboxes and is
@@ -498,7 +500,9 @@ const tools = {
   localFetch:{reasoning:"x",path:"src/util.ts"},
   lspSearch:{reasoning:"x",operation:"references",uri:FIX+"/src/util.ts",symbolName:"greet",lineHint:1},
   artifactSearch:{reasoning:"x",type:"npm",packageName:"left-pad"},
-  ghSearch:{reasoning:"x",operation:"repositories",owner:"bgauryy"},
+  ghSearchRepo:{reasoning:"x",owner:"bgauryy"},
+  ghSearchCode:{reasoning:"x",owner:"bgauryy",repo:"octocode",keywords:["octocode"]},
+  ghStructure:{reasoning:"x",owner:"bgauryy",repo:"octocode",maxDepth:1},
   ghGetFileContent:{reasoning:"x",owner:"bgauryy",repo:"octocode",path:"README.md"},
   ghSearchHistory:{reasoning:"x",operation:"commit",owner:"bgauryy",repo:"octocode"},
   ghGetHistoryItem:{reasoning:"x",owner:"bgauryy",repo:"octocode",operation:"commit",ref:"HEAD"},

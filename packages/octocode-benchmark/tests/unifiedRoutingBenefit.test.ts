@@ -6,7 +6,7 @@ import { DIRECT_TOOL_DEFINITIONS } from '@octocodeai/config/schema';
 
 type RoutingCase = {
   id: string;
-  heldOut: true;
+  heldOut: false;
   capability: string;
   unified: { tool: string; query: Record<string, unknown> };
   retired: { tool: string };
@@ -48,9 +48,9 @@ const fixture = JSON.parse(
   )
 ) as RoutingFixture;
 
-describe('held-out unified routing correctness', () => {
+describe('public routing schema regressions', () => {
   it.each(fixture.cases)('$id stays correct on both surfaces', testCase => {
-    expect(testCase.heldOut).toBe(true);
+    expect(testCase.heldOut).toBe(false);
 
     const unified = DIRECT_TOOL_DEFINITIONS.find(
       tool => tool.name === testCase.unified.tool
@@ -75,8 +75,10 @@ describe('held-out unified routing correctness', () => {
   });
 });
 
-describe('unified routing keep/revert gate', () => {
-  const unifiedNames = ['ghSearch', 'ghSearchHistory', 'localSearch'];
+describe('routing serialization budget', () => {
+  const unifiedNames = [
+    ...new Set(fixture.cases.map(testCase => testCase.unified.tool)),
+  ];
   const unifiedTools = DIRECT_TOOL_DEFINITIONS.filter(tool =>
     unifiedNames.includes(tool.name)
   );
@@ -84,10 +86,13 @@ describe('unified routing keep/revert gate', () => {
   it('does not reintroduce any retired public runtime alias', () => {
     const publicNames = DIRECT_TOOL_DEFINITIONS.map(tool => tool.name);
     const retiredNames = fixture.retiredSurface.tools.map(tool => tool.name);
-    expect(publicNames).not.toEqual(expect.arrayContaining(retiredNames));
+    // ghSearchCode kept its canonical name; the remaining names are retired aliases.
+    for (const name of retiredNames.filter(name => name !== 'ghSearchCode')) {
+      expect(publicNames).not.toContain(name);
+    }
   });
 
-  it('keeps unified routing only with equal correctness and lower cost', () => {
+  it('accepts every fixture and stays within the serialized catalog budget', () => {
     const unifiedCorrect = fixture.cases.filter(testCase => {
       const tool = unifiedTools.find(
         item => item.name === testCase.unified.tool

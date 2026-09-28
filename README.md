@@ -205,17 +205,17 @@ than `gh`+Headroom, and ~3.2× fewer than `gh`+RTK** in the local-build headline
 
 ## Tools
 
-**14 tools in the full discovery catalog.** By default MCP registers **10**.
+**16 tools in the full discovery catalog.** By default MCP registers **12**.
 `ghCloneRepo` and `astRewrite` mutate the machine, so they are CLI-only; MCP
 never registers them. `clasify` needs `OCTOCODE_CLASSIFICATION_API` (or its
 `OCTOCODE_JEV_KEY` alias), while `astRewrite` and `astTopology` need
-`OCTOCODE_BETA`. The CLI keeps all 14 commands discoverable; cloning requires
+`OCTOCODE_BETA`. The CLI keeps all 16 commands discoverable; cloning requires
 persistent storage.
 
 | Surface | Registers by default | Gated tools |
 |---|---:|---|
-| MCP, no flags | 10 of 14 | `ghCloneRepo` and `astRewrite` are always omitted; `clasify` and `astTopology` can be enabled. |
-| CLI, no flags | 14 discoverable | Clone runs with persistent storage; other gated commands explain the gate to set. |
+| MCP, no flags | 12 of 16 | `ghCloneRepo` and `astRewrite` are always omitted; `clasify` and `astTopology` can be enabled. |
+| CLI, no flags | 16 discoverable | Clone runs with persistent storage; other gated commands explain the gate to set. |
 
 Use `TOOLS_TO_RUN` for a strict allowlist or `DISABLE_TOOLS` to remove tools from
 the default set. `ENABLE_LOCAL=false` disables local, graph, and LSP tools.
@@ -227,14 +227,15 @@ Flags: [Configuration](https://github.com/bgauryy/octocode/blob/main/docs/CONFIG
 
 | Tool | What it does | Knob |
 |------|--------------|------|
-| `ghSearch` | Discover GitHub code, repositories, or repository trees through strict `operation:"code"`, `"repositories"`, or `"tree"` queries. Accepts 1 to 5 parallel queries. | `operation` |
+| `ghSearchRepo` | Discover GitHub repositories by keywords, topics, owner, and metadata filters. | `match` |
+| `ghSearchCode` | Search indexed default-branch code within an owner (and optional repo); paths only or snippets. | `match` |
+| `ghStructure` | Browse a known repository tree with optional sizes, languages, contributors, branches, and tags. | `include` |
 | `ghGetFileContent` | Read a GitHub file or region: full file, line range, match slice, or paginated chars. | `minify` |
 | `ghSearchHistory` | Search or list pull requests, issues, or commits through strict `operation:"pullRequest"`, `"issue"`, or `"commit"` queries. | `operation` |
 | `ghGetHistoryItem` | Read one pull request or issue by `number`, one commit by `ref`, or a comparison by `base`+`head`. | `operation` |
 | `ghCloneRepo` | CLI-only clone of a repository or sparse subtree into the local cache for local and LSP analysis. Requires persistent storage. | `sparsePath` |
 
-`ghSearch` is the only GitHub discovery interface; select code, repositories,
-or trees with its strict `operation` field.
+Each GitHub search tool accepts 1 to 5 parallel queries and has no `operation` field.
 
 ### Local tools
 

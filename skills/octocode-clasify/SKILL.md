@@ -1,6 +1,6 @@
 ---
 name: octocode-clasify
-description: "Use when an explicit classification request needs a typed judgment, or when a semantic answer should be located inside an unread known file before the host reads it. The locate flow spends cheap provider tokens and returns a small declaration-aligned verification window (two on a near-tie) plus P(answer), ranked across pages in best; use direct search for literals. Batch independent same-evidence questions in one matrix. Supports unread Scout resources, saved scrape/browser artifacts, and supplied-state judgments; not proof, missing facts, or summaries."
+description: "Use when an explicit classification request needs a typed judgment, or when a semantic answer should be located inside an unread known file before the host reads it. Locate returns small source verification windows (two on a near-tie) plus P(answer), ranked across pages in best; use direct search for literals. Batch independent same-evidence questions in one matrix. Supports unread Scout resources, saved scrape/browser artifacts, and supplied-state judgments; not proof, missing facts, or summaries."
 ---
 # Clasify
 
@@ -14,7 +14,7 @@ Clasify is the only semantic tool (Jev is its provider). **Scout** screens unrea
 ## Admission
 - Use it for an explicit classification request, or before reading a large known file when the target is semantic (no useful literal) and locating it avoids broad host reads. Literals and known anchors: search directly.
 - Skip it when an exact check, held evidence, direct reasoning, or a cheap bounded read decides. File size, candidate count, or one search miss alone is not a reason.
-- Optimize host context at acceptable quality; provider tokens are a separate, cheaper budget. Record usage and latency.
+- Optimize host context at acceptable quality; measure provider usage and latency separately. Unreported usage is unknown, not zero.
 
 ## Workflow
 1. State the unresolved decision and what each outcome changes.
@@ -37,7 +37,7 @@ Unread: `context:{tool, query}` with an absolute local path or GitHub owner/repo
 ```
 
 ## Results and verification
-- Locate answer: `{exists, matches:[{startLine,endLine,probability}]}`. `exists` = does this page answer; `probability` = which declaration/passage inside it. Windows align to declarations (a doc-comment hit shows the declaration line). Two matches = near-tie: read both.
+- Locate answer: `{exists, matches:[{startLine,endLine,probability}]}`. `exists` = does this page answer; `probability` = which declaration/passage inside it. Windows surround ranked passages; doc-comment hits may show the declaration head. Two matches = near-tie: read both. Expand or follow the source if the deciding statement is absent, even with a high score.
 - Read the query's `best[questionId]` first: windows across pages ranked by `exists`, then `probability`. Across calls rank the same way; **never multiply them**. A `hints` entry for an identifier target means localSearch is exact and cheaper.
 - Read the top windows together (≤5 ranges) with `localFetch` at `source.path` + `startLine/endLine` (GitHub: resource owner/repo/path, `branch` = returned `source.ref`; `source.path` includes owner/repo). High window + low `exists` = closest passage, not an answer.
 - Follow `next.clasify` unchanged while coverage remains (exit 6); it carries the running `best`, so the final call's `best` is file-wide. `partial`, `error`, `insufficient`, and mid-band results mean narrow or read, never "no". Partial coverage never proves absence.

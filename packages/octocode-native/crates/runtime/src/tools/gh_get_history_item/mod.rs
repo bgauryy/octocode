@@ -376,6 +376,22 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    #[test]
+    fn false_content_selectors_do_not_request_sections() {
+        let query = HistoryItemRequest::from_row(json!({
+            "operation":"pullRequest", "owner":"o", "repo":"r", "number":1,
+            "content":{
+                "body":false,"changedFiles":false,"reviews":false,
+                "comments":{"discussion":false,"reviewInline":false,"includeBots":false}
+            }
+        }))
+        .expect("false selectors are valid booleans");
+        let wants = pull_request::content_wants(&query);
+        assert!(
+            !wants.body && !wants.files && !wants.discussion && !wants.reviews && !wants.commits
+        );
+    }
+
     struct ReplacingScan;
     impl ContentScan for ReplacingScan {
         fn sanitize(

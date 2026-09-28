@@ -2,7 +2,7 @@ use super::http::RegistryClient;
 use super::util::{endpoint, object_for, parse_url, required, rows, safe_url, string, total};
 use super::{
     ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState, ArtifactSearchQuery,
-    ArtifactSearchQueryType,
+    ArtifactType,
 };
 use serde_json::{Map, Value};
 use std::cmp::Ordering;
@@ -50,20 +50,20 @@ pub(crate) async fn nuget(
         ],
     )?;
     let response = client
-        .json(ArtifactSearchQueryType::Nuget, url, false, None)
+        .json(ArtifactType::Nuget, url, false, None)
         .await?
-        .ok_or_else(|| super::util::invalid(ArtifactSearchQueryType::Nuget))?;
-    let data = object_for(&response, ArtifactSearchQueryType::Nuget)?;
+        .ok_or_else(|| super::util::invalid(ArtifactType::Nuget))?;
+    let data = object_for(&response, ArtifactType::Nuget)?;
     let fetched = rows(
         data.get("data")
-            .ok_or_else(|| super::util::invalid(ArtifactSearchQueryType::Nuget))?,
-        ArtifactSearchQueryType::Nuget,
+            .ok_or_else(|| super::util::invalid(ArtifactType::Nuget))?,
+        ArtifactType::Nuget,
     )?;
     let artifacts = fetched
         .iter()
         .skip(drop)
         .take(size)
-        .map(|value| item(object_for(value, ArtifactSearchQueryType::Nuget)?))
+        .map(|value| item(object_for(value, ArtifactType::Nuget)?))
         .collect::<Result<Vec<_>, _>>()?;
     let count = total(data.get("totalHits"));
     let next_offset = offset + artifacts.len() as u64;
@@ -104,17 +104,14 @@ async fn exact(
         base.as_str().trim_end_matches('/'),
         super::util::encode_component(&package_name.to_ascii_lowercase())
     ))?;
-    let Some(response) = client
-        .json(ArtifactSearchQueryType::Nuget, url, true, None)
-        .await?
-    else {
+    let Some(response) = client.json(ArtifactType::Nuget, url, true, None).await? else {
         return Ok(ArtifactProviderPage::empty(Some(0)));
     };
     let pages = rows(
-        object_for(&response, ArtifactSearchQueryType::Nuget)?
+        object_for(&response, ArtifactType::Nuget)?
             .get("items")
-            .ok_or_else(|| super::util::invalid(ArtifactSearchQueryType::Nuget))?,
-        ArtifactSearchQueryType::Nuget,
+            .ok_or_else(|| super::util::invalid(ArtifactType::Nuget))?,
+        ArtifactType::Nuget,
     )?;
     if pages.is_empty() {
         return Ok(ArtifactProviderPage::empty(Some(0)));
@@ -124,10 +121,10 @@ async fn exact(
     // clients resolve "latest").
     let mut pages = pages
         .iter()
-        .map(|page| object_for(page, ArtifactSearchQueryType::Nuget))
+        .map(|page| object_for(page, ArtifactType::Nuget))
         .collect::<Result<Vec<_>, _>>()?;
     let upper = |page: &Map<String, Value>| {
-        required(page.get("upper"), ArtifactSearchQueryType::Nuget).unwrap_or_default()
+        required(page.get("upper"), ArtifactType::Nuget).unwrap_or_default()
     };
     pages.sort_by(|a, b| compare_versions(&upper(b), &upper(a)).unwrap_or(Ordering::Equal));
     let mut stable: Option<Map<String, Value>> = None;
@@ -139,19 +136,19 @@ async fn exact(
         } else {
             let advertised = official_url(page.get("@id"))?;
             owned_page = client
-                .json(ArtifactSearchQueryType::Nuget, advertised, false, None)
+                .json(ArtifactType::Nuget, advertised, false, None)
                 .await?
-                .ok_or_else(|| super::util::invalid(ArtifactSearchQueryType::Nuget))?;
-            object_for(&owned_page, ArtifactSearchQueryType::Nuget)?
+                .ok_or_else(|| super::util::invalid(ArtifactType::Nuget))?;
+            object_for(&owned_page, ArtifactType::Nuget)?
                 .get("items")
-                .ok_or_else(|| super::util::invalid(ArtifactSearchQueryType::Nuget))?
+                .ok_or_else(|| super::util::invalid(ArtifactType::Nuget))?
         };
-        for leaf in rows(items, ArtifactSearchQueryType::Nuget)? {
+        for leaf in rows(items, ArtifactType::Nuget)? {
             let candidate = catalog(leaf)?;
             if candidate.get("listed") == Some(&Value::Bool(false)) {
                 continue;
             }
-            let version = required(candidate.get("version"), ArtifactSearchQueryType::Nuget)?;
+            let version = required(candidate.get("version"), ArtifactType::Nuget)?;
             let slot = if version.contains('-') {
                 &mut prerelease
             } else {
@@ -160,7 +157,7 @@ async fn exact(
             let newer = match slot.as_ref() {
                 None => true,
                 Some(current) => {
-                    let current = required(current.get("version"), ArtifactSearchQueryType::Nuget)?;
+                    let current = required(current.get("version"), ArtifactType::Nuget)?;
                     compare_versions(&version, &current)? == Ordering::Greater
                 }
             };
@@ -174,7 +171,7 @@ async fn exact(
     }
     let latest = stable
         .or(prerelease)
-        .ok_or_else(|| super::util::invalid(ArtifactSearchQueryType::Nuget))?;
+        .ok_or_else(|| super::util::invalid(ArtifactType::Nuget))?;
     let mut artifact = item(&latest)?;
     // The registration catalogEntry usually omits `repository`; the package's
     // own nuspec declares it.
@@ -210,7 +207,7 @@ async fn nuspec_repository(
     ))
     .ok()?;
     let nuspec = client
-        .text(ArtifactSearchQueryType::Nuget, url, true)
+        .text(ArtifactType::Nuget, url, true)
         .await
         .ok()
         .flatten()?;
@@ -222,18 +219,18 @@ async fn nuspec_repository(
 async fn service_endpoint(kind: &str, client: &RegistryClient<'_>) -> Result<Url, ArtifactError> {
     let index = client
         .json(
-            ArtifactSearchQueryType::Nuget,
+            ArtifactType::Nuget,
             parse_url("https://api.nuget.org/v3/index.json")?,
             false,
             None,
         )
         .await?
-        .ok_or_else(|| super::util::invalid(ArtifactSearchQueryType::Nuget))?;
+        .ok_or_else(|| super::util::invalid(ArtifactType::Nuget))?;
     let resources = rows(
-        object_for(&index, ArtifactSearchQueryType::Nuget)?
+        object_for(&index, ArtifactType::Nuget)?
             .get("resources")
-            .ok_or_else(|| super::util::invalid(ArtifactSearchQueryType::Nuget))?,
-        ArtifactSearchQueryType::Nuget,
+            .ok_or_else(|| super::util::invalid(ArtifactType::Nuget))?,
+        ArtifactType::Nuget,
     )?;
     let preferred = if kind == "RegistrationsBaseUrl" {
         "RegistrationsBaseUrl/3.6.0"
@@ -285,16 +282,16 @@ fn official_url(value: Option<&Value>) -> Result<Url, ArtifactError> {
 }
 
 fn catalog(value: &Value) -> Result<&Map<String, Value>, ArtifactError> {
-    object_for(value, ArtifactSearchQueryType::Nuget)?
+    object_for(value, ArtifactType::Nuget)?
         .get("catalogEntry")
-        .ok_or_else(|| super::util::invalid(ArtifactSearchQueryType::Nuget))
-        .and_then(|value| object_for(value, ArtifactSearchQueryType::Nuget))
+        .ok_or_else(|| super::util::invalid(ArtifactType::Nuget))
+        .and_then(|value| object_for(value, ArtifactType::Nuget))
 }
 
 fn item(row: &Map<String, Value>) -> Result<ArtifactItem, ArtifactError> {
-    let name = required(row.get("id"), ArtifactSearchQueryType::Nuget)?;
+    let name = required(row.get("id"), ArtifactType::Nuget)?;
     let mut artifact = ArtifactItem::new(
-        ArtifactSearchQueryType::Nuget,
+        ArtifactType::Nuget,
         name.clone(),
         format!(
             "https://www.nuget.org/packages/{}",
@@ -347,9 +344,9 @@ fn compare_versions(left: &str, right: &str) -> Result<Ordering, ArtifactError> 
             .split('.')
             .map(str::parse::<u64>)
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|_| super::util::invalid(ArtifactSearchQueryType::Nuget))?;
+            .map_err(|_| super::util::invalid(ArtifactType::Nuget))?;
         if values.is_empty() || values.len() > 4 {
-            return Err(super::util::invalid(ArtifactSearchQueryType::Nuget));
+            return Err(super::util::invalid(ArtifactType::Nuget));
         }
         Ok((
             values,
@@ -507,7 +504,7 @@ mod tests {
             cache_enabled: false,
         };
         let q = artifact_query(
-            serde_json::json!({"type": ArtifactSearchQueryType::Nuget, "packageName": "Newtonsoft.Json".to_string()}),
+            serde_json::json!({"type": ArtifactType::Nuget, "packageName": "Newtonsoft.Json".to_string()}),
             None,
         );
         let page = nuget(&q, &ArtifactProviderState::default(), &client)
@@ -556,7 +553,7 @@ mod tests {
             cache_enabled: false,
         };
         let q = artifact_query(
-            serde_json::json!({"type": ArtifactSearchQueryType::Nuget, "packageName": "Newtonsoft.Json".to_string()}),
+            serde_json::json!({"type": ArtifactType::Nuget, "packageName": "Newtonsoft.Json".to_string()}),
             None,
         );
         let page = nuget(&q, &ArtifactProviderState::default(), &client)
@@ -649,7 +646,7 @@ mod tests {
             cache_enabled: false,
         };
         let q = artifact_query(
-            json!({"type": ArtifactSearchQueryType::Nuget, "keywords": ["json"], "pageSize": 2}),
+            json!({"type": ArtifactType::Nuget, "keywords": ["json"], "pageSize": 2}),
             None,
         );
         let at = |offset: u64| ArtifactProviderState {
@@ -718,7 +715,7 @@ mod tests {
             cache_enabled: false,
         };
         let q = artifact_query(
-            serde_json::json!({"type": ArtifactSearchQueryType::Nuget, "packageName": "Serilog".to_string()}),
+            serde_json::json!({"type": ArtifactType::Nuget, "packageName": "Serilog".to_string()}),
             None,
         );
         let page = nuget(&q, &ArtifactProviderState::default(), &client)

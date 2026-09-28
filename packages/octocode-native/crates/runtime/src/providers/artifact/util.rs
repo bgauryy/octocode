@@ -1,17 +1,17 @@
-use super::{ArtifactError, ArtifactSearchQueryType};
+use super::{ArtifactError, ArtifactType};
 use serde_json::{Map, Value};
 use url::Url;
 
 pub(crate) fn object_for(
     value: &Value,
-    artifact_type: ArtifactSearchQueryType,
+    artifact_type: ArtifactType,
 ) -> Result<&Map<String, Value>, ArtifactError> {
     value.as_object().ok_or_else(|| invalid(artifact_type))
 }
 
 pub(crate) fn rows(
     value: &Value,
-    artifact_type: ArtifactSearchQueryType,
+    artifact_type: ArtifactType,
 ) -> Result<&Vec<Value>, ArtifactError> {
     value.as_array().ok_or_else(|| invalid(artifact_type))
 }
@@ -26,7 +26,7 @@ pub(crate) fn string(value: Option<&Value>) -> Option<String> {
 
 pub(crate) fn required(
     value: Option<&Value>,
-    artifact_type: ArtifactSearchQueryType,
+    artifact_type: ArtifactType,
 ) -> Result<String, ArtifactError> {
     string(value).ok_or_else(|| invalid(artifact_type))
 }
@@ -117,7 +117,7 @@ pub(crate) fn coordinate_path(value: &str) -> String {
         .join("/")
 }
 
-pub(crate) fn invalid(artifact_type: ArtifactSearchQueryType) -> ArtifactError {
+pub(crate) fn invalid(artifact_type: ArtifactType) -> ArtifactError {
     ArtifactError::new(
         "provider_error",
         format!(

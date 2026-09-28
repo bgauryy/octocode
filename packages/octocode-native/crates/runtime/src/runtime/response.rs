@@ -143,10 +143,9 @@ fn has_recovery(value: &Value) -> bool {
 /// `ToolId` so a new tool must choose its fallback at compile time.
 fn fallback_hint(tool: ToolId, query: &Value) -> &'static str {
     match tool {
-        ToolId::GhSearch if query["operation"] == "tree" => {
-            "Verify owner/repo/branch, or broaden path/depth."
-        }
-        ToolId::GhSearch => "Broaden keywords or remove filters.",
+        ToolId::GhStructure => "Verify owner/repo/branch, or broaden path/depth.",
+        ToolId::GhSearchCode => "Broaden keywords or remove filters.",
+        ToolId::GhSearchRepo => "Broaden keywords or remove repository filters.",
         ToolId::GhGetFileContent => "Verify owner/repo/branch/path, or remove matchString.",
         ToolId::GhSearchHistory => "Broaden keywords or remove history filters.",
         ToolId::GhGetHistoryItem => "Verify owner/repo and the number, ref, or compare refs.",
@@ -518,7 +517,7 @@ pub fn result_row(
         }
     }
     codes.extend(pagination_codes(&data));
-    let mut meta = if tool == "ghSearch" {
+    let mut meta = if matches!(tool, "ghSearchRepo" | "ghSearchCode" | "ghStructure") {
         json!({"evidence":{"confidence":confidence,"kind":kind}})
     } else {
         json!({"evidence":{"kind":kind,"confidence":confidence}})
@@ -792,7 +791,7 @@ pub fn envelope(mut rows: Vec<Value>) -> Value {
     value
 }
 
-fn hoist_shared_fields(rows: &mut [Value]) -> Option<Map<String, Value>> {
+fn can_share_field(key: &str, value: &Value) -> bool {
     const EXCLUDED: &[&str] = &[
         "path",
         "uri",
@@ -835,6 +834,40 @@ fn hoist_shared_fields(rows: &mut [Value]) -> Option<Map<String, Value>> {
         "totalMatchRows",
         "returnedMatchRows",
     ];
+    !EXCLUDED.contains(&key)
+        && (value.is_number()
+            || value.is_boolean()
+            || value.as_str().is_some_and(|s| !s.is_empty()))
+}
+
+fn shared_leaves_mut(rows: &mut [Value]) -> impl Iterator<Item = &mut Map<String, Value>> {
+    rows.iter_mut()
+        .filter_map(|row| row["data"].as_object_mut())
+        .flat_map(|data| data.values_mut().filter_map(Value::as_array_mut))
+        .flatten()
+        .filter_map(Value::as_object_mut)
+}
+
+/// Restore the canonical evidence view for validation without changing the
+/// compact response returned to the caller. Explicit leaf values take priority.
+pub(crate) fn restore_shared_fields(output: &mut Value) {
+    let shared = match output.get("shared").and_then(Value::as_object) {
+        Some(shared) => shared.clone(),
+        None => return,
+    };
+    let Some(rows) = output.get_mut("results").and_then(Value::as_array_mut) else {
+        return;
+    };
+    for leaf in shared_leaves_mut(rows) {
+        for (key, value) in &shared {
+            if can_share_field(key, value) {
+                leaf.entry(key.clone()).or_insert_with(|| value.clone());
+            }
+        }
+    }
+}
+
+fn hoist_shared_fields(rows: &mut [Value]) -> Option<Map<String, Value>> {
     let leaves: Vec<&Map<String, Value>> = rows
         .iter()
         .filter_map(|row| row["data"].as_object())
@@ -848,24 +881,14 @@ fn hoist_shared_fields(rows: &mut [Value]) -> Option<Map<String, Value>> {
     let shared: Map<String, Value> = leaves[0]
         .iter()
         .filter(|(key, value)| {
-            !EXCLUDED.contains(&key.as_str())
-                && (value.is_number()
-                    || value.is_boolean()
-                    || value.as_str().is_some_and(|s| !s.is_empty()))
-                && leaves.iter().all(|leaf| leaf.get(*key) == Some(*value))
+            can_share_field(key, value) && leaves.iter().all(|leaf| leaf.get(*key) == Some(*value))
         })
         .map(|(key, value)| (key.clone(), value.clone()))
         .collect();
     if shared.is_empty() {
         return None;
     }
-    for leaf in rows
-        .iter_mut()
-        .filter_map(|row| row["data"].as_object_mut())
-        .flat_map(|data| data.values_mut().filter_map(Value::as_array_mut))
-        .flatten()
-        .filter_map(Value::as_object_mut)
-    {
+    for leaf in shared_leaves_mut(rows) {
         for key in shared.keys() {
             leaf.remove(key);
         }
@@ -1009,11 +1032,13 @@ mod tests {
 
     #[test]
     fn error_hints_match_exact_codes_not_substrings() {
-        let query = json!({"operation":"repositories","keywords":["octocode"]});
-        assert!(error_hint("ghSearch", &query, "rateLimited", "slow down").contains("Retry-After"));
+        let query = json!({"owner":"o","keywords":["octocode"]});
+        assert!(
+            error_hint("ghSearchCode", &query, "rateLimited", "slow down").contains("Retry-After")
+        );
         // A code merely containing "auth" is not an authentication failure.
         assert_eq!(
-            error_hint("ghSearch", &query, "authorizationPending", "x"),
+            error_hint("ghSearchCode", &query, "authorizationPending", "x"),
             "Broaden keywords or remove filters."
         );
         // The sandbox hint keys on the dedicated code, never on message text.
@@ -1356,13 +1381,13 @@ mod tests {
 
     #[test]
     fn error_fallbacks_are_failure_class_aware_and_preserve_domain_recovery() {
-        let query = json!({"operation":"repositories","keywords":["octocode"]});
+        let query = json!({"owner":"o","keywords":["octocode"]});
         let mut timeout = json!({
             "index": 0,
             "status": "error",
             "data": {"error":"timed out","errorCode":"timeout"}
         });
-        apply_hint_policy(&mut timeout, "ghSearch", &query);
+        apply_hint_policy(&mut timeout, "ghSearchCode", &query);
         let hint = timeout["data"]["hints"][0].as_str().expect("hint");
         assert!(hint.contains("Retry once"), "{timeout}");
         assert!(!hint.contains("Broaden keywords"), "{timeout}");
@@ -1372,7 +1397,7 @@ mod tests {
             "status": "error",
             "data": {"error":"forbidden","errorCode":"permission"}
         });
-        apply_hint_policy(&mut permission, "ghSearch", &query);
+        apply_hint_policy(&mut permission, "ghSearchCode", &query);
         assert!(
             permission["data"]["hints"][0]
                 .as_str()
@@ -1389,7 +1414,7 @@ mod tests {
                 "hints":["Inspect the repository tree."]
             }
         });
-        apply_hint_policy(&mut owned, "ghSearch", &query);
+        apply_hint_policy(&mut owned, "ghSearchCode", &query);
         assert_eq!(
             owned["data"]["hints"],
             json!(["Inspect the repository tree."])

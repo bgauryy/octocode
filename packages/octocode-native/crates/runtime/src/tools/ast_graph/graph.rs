@@ -1,3 +1,4 @@
+use super::cargo::{CargoCrates, load_cargo_crates};
 use super::packages::{PackageIndex, PackageLink};
 use super::types::*;
 use crate::{
@@ -93,10 +94,14 @@ pub(crate) fn build_graph(
         .iter()
         .map(|entry| normalize(&entry.relative_path))
         .collect();
-    let mut graph_builder = octocode_engine::graph::CodeGraphBuilder::new(
-        validated.canonical.to_string_lossy(),
-        scan.schema_version,
-    );
+    // Only drift diffs the evidence graph; every other analysis runs on
+    // `BuiltGraph`, so the (costly) evidence graph is built for drift only.
+    let mut graph_builder = (q.analysis() == super::GraphAnalysis::Drift).then(|| {
+        octocode_engine::graph::CodeGraphBuilder::new(
+            validated.canonical.to_string_lossy(),
+            scan.schema_version,
+        )
+    });
     let mut built = BuiltGraph {
         root: validated.canonical,
         display_path: paths.redact(&requested_root),
@@ -104,8 +109,10 @@ pub(crate) fn build_graph(
         truncated: scan.truncated,
         ..Default::default()
     };
-    if scan.truncated || scan.files_skipped > 0 {
-        graph_builder.mark_incomplete("scan-incomplete", scan.files_skipped);
+    if (scan.truncated || scan.files_skipped > 0)
+        && let Some(builder) = graph_builder.as_mut()
+    {
+        builder.mark_incomplete("scan-incomplete", scan.files_skipped);
     }
     let rust_cargo_unavailable = q.rust_workspace() == Some(AstTopologyQueryRustWorkspace::Cargo)
         && known.iter().any(|file| file.ends_with(".rs"))
@@ -130,11 +137,11 @@ pub(crate) fn build_graph(
                     code: "unsupported-linking".into(),
                     message: format!("Cargo metadata failed: {message}"),
                 });
-                BTreeMap::new()
+                CargoCrates::default()
             }
         }
     } else {
-        BTreeMap::new()
+        CargoCrates::default()
     };
     let workspace_packages = load_workspace_packages(&built.root, &known, paths, security);
     let packages = PackageIndex::build(&built.root, &known);
@@ -178,9 +185,11 @@ pub(crate) fn build_graph(
             });
             continue;
         }
-        graph_builder
-            .ingest_facts(&file, entry.content_digest, &parsed)
-            .map_err(|error| AstGraphError::new("ast.graph.modelFailed", error))?;
+        if let Some(builder) = graph_builder.as_mut() {
+            builder
+                .ingest_facts(&file, entry.content_digest, &parsed)
+                .map_err(|error| AstGraphError::new("ast.graph.modelFailed", error))?;
+        }
         link_file(
             &mut built,
             &known,
@@ -196,12 +205,14 @@ pub(crate) fn build_graph(
             &cargo_crates,
             &workspace_packages,
             &packages,
-            &mut graph_builder,
+            graph_builder.as_mut(),
         )?;
     }
     // astTopology identifies results by their own digest (analysis
     // `resultId`); the whole-graph digest is never read here.
-    built.code_graph = graph_builder.finish_without_digest();
+    if let Some(builder) = graph_builder {
+        built.code_graph = builder.finish_without_digest();
+    }
     built.diagnostics.sort();
     built.diagnostics.dedup();
     Ok(built)
@@ -332,10 +343,10 @@ fn link_file(
     counts: BTreeMap<String, u32>,
     security: &ContentSecurity,
     rust_cargo_unavailable: bool,
-    cargo_crates: &BTreeMap<String, String>,
+    cargo_crates: &CargoCrates,
     workspace_packages: &BTreeMap<String, String>,
     packages: &PackageIndex,
-    graph_builder: &mut octocode_engine::graph::CodeGraphBuilder,
+    mut graph_builder: Option<&mut octocode_engine::graph::CodeGraphBuilder>,
 ) -> Result<(), AstGraphError> {
     let ext = extension(&file).to_owned();
     let language = if p.language.is_empty() {
@@ -435,7 +446,7 @@ fn link_file(
                 if target != &file {
                     add_edge(
                         b,
-                        graph_builder,
+                        graph_builder.as_deref_mut(),
                         &file,
                         &mut node,
                         target,
@@ -494,7 +505,7 @@ fn link_file(
         if let Some(t) = &target {
             add_edge(
                 b,
-                graph_builder,
+                graph_builder.as_deref_mut(),
                 &file,
                 &mut node,
                 t,
@@ -550,14 +561,22 @@ fn link_file(
                     } else {
                         "star-reexport"
                     };
-                    add_edge(b, graph_builder, &file, &mut node, &t, kind, x.line)?;
+                    add_edge(
+                        b,
+                        graph_builder.as_deref_mut(),
+                        &file,
+                        &mut node,
+                        &t,
+                        kind,
+                        x.line,
+                    )?;
                     b.star_reexporters.entry(t).or_default().push(file.clone());
                 }
             } else {
                 if let Some(t) = &target {
                     add_edge(
                         b,
-                        graph_builder,
+                        graph_builder.as_deref_mut(),
                         &file,
                         &mut node,
                         t,
@@ -593,7 +612,7 @@ fn link_file(
             if let Some(t) = target {
                 add_edge(
                     b,
-                    graph_builder,
+                    graph_builder.as_deref_mut(),
                     &file,
                     &mut node,
                     &t,
@@ -627,7 +646,7 @@ fn link_file(
                 if let Some(t) = target {
                     add_edge(
                         b,
-                        graph_builder,
+                        graph_builder.as_deref_mut(),
                         &file,
                         &mut node,
                         &t,
@@ -668,7 +687,7 @@ const MAX_GRAPH_EDGES: u32 = 2_000_000;
 
 fn add_edge(
     b: &mut BuiltGraph,
-    graph_builder: &mut octocode_engine::graph::CodeGraphBuilder,
+    graph_builder: Option<&mut octocode_engine::graph::CodeGraphBuilder>,
     source: &str,
     node: &mut Node,
     target: &str,
@@ -695,9 +714,12 @@ fn add_edge(
         .entry(target.into())
         .or_default()
         .insert(kind.into());
-    graph_builder
-        .add_file_relation(source, target, kind, line)
-        .map_err(|error| AstGraphError::new("ast.graph.modelFailed", error))
+    if let Some(builder) = graph_builder {
+        builder
+            .add_file_relation(source, target, kind, line)
+            .map_err(|error| AstGraphError::new("ast.graph.modelFailed", error))?;
+    }
+    Ok(())
 }
 /// A Rust `use` path that unambiguously targets the current crate, so failing to
 /// resolve it means the intra-crate edge graph is incomplete — never a benign
@@ -788,7 +810,7 @@ fn resolve(
     hint: Option<&str>,
     imported: &str,
     known: &BTreeSet<String>,
-    cargo_crates: &BTreeMap<String, String>,
+    cargo_crates: &CargoCrates,
     workspace_packages: &BTreeMap<String, String>,
 ) -> Option<String> {
     if matches!(ext, "py" | "pyi") {
@@ -936,13 +958,13 @@ fn resolve_rust(
     spec: &str,
     importer: &str,
     known: &BTreeSet<String>,
-    cargo_crates: &BTreeMap<String, String>,
+    cargo_crates: &CargoCrates,
 ) -> Option<String> {
     let trimmed = spec.trim_end_matches(';');
     let segments = trimmed.split("::").collect::<Vec<_>>();
     let first = *segments.first().unwrap_or(&"");
     if !matches!(first, "crate" | "self" | "super" | "")
-        && let Some(src) = cargo_crates.get(first)
+        && let Some(src) = cargo_crates.resolve(importer, first)
     {
         let rest = &segments[1..];
         let base = dirname(src);
@@ -976,7 +998,7 @@ fn resolve_rust(
         // nothing to link inside this scan unless cargo metadata knows it.
         "" => segments
             .get(1)
-            .and_then(|name| cargo_crates.get(*name))
+            .and_then(|name| cargo_crates.resolve(importer, name))
             .filter(|src| known.contains(*src))
             .cloned(),
         _ => {
@@ -1182,184 +1204,6 @@ pub(crate) fn normalize(p: &str) -> String {
     parts.join("/")
 }
 
-/// `cargo metadata` output per workspace root, reused while the root
-/// manifest and lockfile are unchanged (size + mtime). The TTL bounds staleness
-/// from glob-added members, which do not touch the root manifest.
-fn load_cargo_crates(root: &Path) -> Result<BTreeMap<String, String>, String> {
-    use std::sync::{LazyLock, Mutex};
-    use std::time::{Duration, Instant, SystemTime};
-    type Stamp = [(u64, Option<SystemTime>); 2];
-    type Entry = (Stamp, Instant, BTreeMap<String, String>);
-    static CACHE: LazyLock<Mutex<BTreeMap<std::path::PathBuf, Entry>>> =
-        LazyLock::new(|| Mutex::new(BTreeMap::new()));
-    const TTL: Duration = Duration::from_secs(300);
-    let stamp = |name: &str| {
-        std::fs::metadata(root.join(name))
-            .map(|m| (m.len(), m.modified().ok()))
-            .unwrap_or((0, None))
-    };
-    let current: Stamp = [stamp("Cargo.toml"), stamp("Cargo.lock")];
-    if let Ok(cache) = CACHE.lock()
-        && let Some((cached, at, crates)) = cache.get(root)
-        && *cached == current
-        && at.elapsed() < TTL
-    {
-        return Ok(crates.clone());
-    }
-    let crates = run_cargo_metadata(root)?;
-    if let Ok(mut cache) = CACHE.lock() {
-        cache.insert(
-            root.to_path_buf(),
-            (current, Instant::now(), crates.clone()),
-        );
-    }
-    Ok(crates)
-}
-
-fn run_cargo_metadata(root: &Path) -> Result<BTreeMap<String, String>, String> {
-    const MAX_METADATA_BYTES: usize = 32 * 1024 * 1024;
-    // Resolve cargo from an explicit env-provided path when available rather than
-    // trusting the ambient PATH against an untrusted working directory. `--no-deps`
-    // keeps metadata to the workspace's own crates, cutting work and attack surface.
-    let cargo = std::env::var_os("OCTOCODE_CARGO")
-        .or_else(|| std::env::var_os("CARGO"))
-        .unwrap_or_else(|| std::ffi::OsString::from("cargo"));
-    let mut child = std::process::Command::new(&cargo)
-        .args([
-            "metadata",
-            "--format-version",
-            "1",
-            "--no-deps",
-            "--offline",
-        ])
-        .current_dir(root)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .map_err(|error| error.to_string())?;
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| "cargo metadata stdout was unavailable".to_owned())?;
-    let reader = std::thread::spawn(move || {
-        use std::io::Read;
-        let mut stdout = stdout;
-        let mut bytes = Vec::new();
-        let mut chunk = [0_u8; 16 * 1024];
-        let mut exceeded = false;
-        loop {
-            let read = stdout.read(&mut chunk).map_err(|error| error.to_string())?;
-            if read == 0 {
-                break;
-            }
-            if bytes.len().saturating_add(read) <= MAX_METADATA_BYTES {
-                bytes.extend_from_slice(&chunk[..read]);
-            } else {
-                exceeded = true;
-            }
-        }
-        if exceeded {
-            Err("cargo metadata exceeded the 32 MiB output limit".to_owned())
-        } else {
-            Ok(bytes)
-        }
-    });
-    let started = std::time::Instant::now();
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Err(error) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                let _ = reader.join();
-                return Err(error.to_string());
-            }
-            Ok(None) if started.elapsed() > std::time::Duration::from_secs(5) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                let _ = reader.join();
-                return Err("cargo metadata timed out".into());
-            }
-            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(20)),
-        }
-    };
-    let bytes = reader
-        .join()
-        .map_err(|_| "cargo metadata output reader failed".to_owned())??;
-    if !status.success() {
-        return Err("cargo metadata exited unsuccessfully".into());
-    }
-    let value: serde_json::Value =
-        serde_json::from_slice(&bytes).map_err(|error| error.to_string())?;
-    let mut map = BTreeMap::new();
-    for package in value
-        .get("packages")
-        .and_then(serde_json::Value::as_array)
-        .into_iter()
-        .flatten()
-    {
-        let name = package
-            .get("name")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or_default();
-        for target in package
-            .get("targets")
-            .and_then(serde_json::Value::as_array)
-            .into_iter()
-            .flatten()
-        {
-            let kinds = target
-                .get("kind")
-                .and_then(serde_json::Value::as_array)
-                .cloned()
-                .unwrap_or_default();
-            let lib = kinds.iter().any(|kind| {
-                kind.as_str().is_some_and(|kind| {
-                    matches!(
-                        kind,
-                        "lib" | "rlib" | "dylib" | "cdylib" | "staticlib" | "proc-macro"
-                    )
-                })
-            });
-            if !lib {
-                continue;
-            }
-            if let Some(src) = target.get("src_path").and_then(serde_json::Value::as_str) {
-                let relative = Path::new(src).strip_prefix(root).unwrap_or(Path::new(src));
-                let relative = normalize(&relative.to_string_lossy());
-                map.insert(name.to_owned(), relative.clone());
-                map.insert(name.replace('-', "_"), relative.clone());
-                if let Some(crate_name) = target.get("name").and_then(serde_json::Value::as_str) {
-                    map.insert(crate_name.replace('-', "_"), relative);
-                }
-            }
-        }
-        for dependency in package
-            .get("dependencies")
-            .and_then(serde_json::Value::as_array)
-            .into_iter()
-            .flatten()
-        {
-            let package_name = dependency
-                .get("name")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or_default();
-            let alias = dependency
-                .get("rename")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or(package_name);
-            if let Some(src) = map
-                .get(package_name)
-                .cloned()
-                .or_else(|| map.get(&package_name.replace('-', "_")).cloned())
-            {
-                map.insert(alias.replace('-', "_"), src);
-            }
-        }
-    }
-    Ok(map)
-}
-
 fn load_workspace_packages(
     root: &Path,
     known: &BTreeSet<String>,
@@ -1478,6 +1322,96 @@ fn export_target(package: &serde_json::Value) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    fn cargo_fixture() -> tempfile::TempDir {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(
+            root.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"a\", \"b\", \"z_one\", \"z_two\"]\nresolver = \"2\"\n",
+        )
+        .unwrap();
+        for (name, dependency) in [
+            ("a", "shared = { package = \"z_one\", path = \"../z_one\" }"),
+            ("b", "shared = { package = \"z_two\", path = \"../z_two\" }"),
+            ("z_one", ""),
+            ("z_two", ""),
+        ] {
+            let directory = root.path().join(name);
+            std::fs::create_dir_all(directory.join("src")).unwrap();
+            std::fs::write(directory.join("src/lib.rs"), "pub fn item() {}\n").unwrap();
+            std::fs::write(directory.join("Cargo.toml"), format!(
+                "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n[dependencies]\n{dependency}\n"
+            )).unwrap();
+        }
+        root
+    }
+
+    #[test]
+    fn cargo_aliases_are_resolved_in_the_importing_package() {
+        let fixture = cargo_fixture();
+        let crates = super::load_cargo_crates(&fixture.path().canonicalize().unwrap()).unwrap();
+        let known = [
+            "a/src/lib.rs",
+            "b/src/lib.rs",
+            "z_one/src/lib.rs",
+            "z_two/src/lib.rs",
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+        for (importer, expected) in [
+            ("a/src/lib.rs", "z_one/src/lib.rs"),
+            ("b/src/lib.rs", "z_two/src/lib.rs"),
+        ] {
+            assert_eq!(
+                super::resolve_rust("shared::item", importer, &known, &crates),
+                Some(expected.to_owned())
+            );
+        }
+        assert_eq!(
+            super::resolve_rust("shared::item", "z_one/src/lib.rs", &known, &crates),
+            None
+        );
+        assert_eq!(
+            super::resolve_rust("z_two::item", "a/src/lib.rs", &known, &crates),
+            None
+        );
+    }
+
+    #[test]
+    fn cargo_member_manifest_changes_refresh_dependency_aliases() {
+        let fixture = cargo_fixture();
+        let manifest = fixture.path().join("z_two/Cargo.toml");
+        let text = std::fs::read_to_string(&manifest).unwrap();
+        std::fs::write(
+            &manifest,
+            format!("{text}shared = {{ package = \"z_one\", path = \"../z_one\" }}\n"),
+        )
+        .unwrap();
+        // Warm up after any first-run lockfile creation, so only the member
+        // manifest changes between the two observations below.
+        super::load_cargo_crates(&fixture.path().canonicalize().unwrap()).unwrap();
+        let before = super::load_cargo_crates(&fixture.path().canonicalize().unwrap()).unwrap();
+        let text = std::fs::read_to_string(&manifest).unwrap();
+        std::fs::write(&manifest, text.replace("shared =", "renamed =")).unwrap();
+        let after = super::load_cargo_crates(&fixture.path().canonicalize().unwrap()).unwrap();
+        let known = ["z_two/src/lib.rs", "z_one/src/lib.rs"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        assert_eq!(
+            super::resolve_rust("shared::item", "z_two/src/lib.rs", &known, &before),
+            Some("z_one/src/lib.rs".to_owned())
+        );
+        assert_eq!(
+            super::resolve_rust("renamed::item", "z_two/src/lib.rs", &known, &before),
+            None
+        );
+        assert_eq!(
+            super::resolve_rust("renamed::item", "z_two/src/lib.rs", &known, &after),
+            Some("z_one/src/lib.rs".to_owned())
+        );
+    }
+
     #[test]
     fn python_parent_imports_climb_the_declared_number_of_packages() {
         let known = ["pkg/shared.py", "pkg/sub/shared.py", "shared.py"]
@@ -1592,7 +1526,7 @@ mod tests {
         .iter()
         .map(|path| (*path).to_owned())
         .collect::<std::collections::BTreeSet<_>>();
-        let crates = std::collections::BTreeMap::new();
+        let crates = super::CargoCrates::default();
         // `crate::` anchors to the importer's own crate root, not a global
         // `src/` — the multi-crate workspace case.
         assert_eq!(
@@ -1672,7 +1606,7 @@ mod tests {
             .iter()
             .map(|path| (*path).to_owned())
             .collect::<std::collections::BTreeSet<_>>();
-        let crates = std::collections::BTreeMap::new();
+        let crates = super::CargoCrates::default();
         // A same-named file elsewhere in the tree must not become an edge for a
         // path that is not one of the importer's own child modules.
         assert_eq!(
@@ -1697,7 +1631,9 @@ mod tests {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
         let crates = super::load_cargo_crates(root).expect("cargo metadata");
         assert_eq!(
-            crates.get("octocode_native").map(String::as_str),
+            crates
+                .resolve("src/lib.rs", "octocode_native")
+                .map(String::as_str),
             Some("src/lib.rs")
         );
     }

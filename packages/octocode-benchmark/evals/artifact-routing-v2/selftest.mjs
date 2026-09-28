@@ -71,7 +71,7 @@ for (const test of cases) {
   else output.calls[0].arguments.responseSnapshot='invented';
   assert.equal(evaluate(test,normalized(output),specs).success,false,`${test.id}: unexpected continuation accepted`);assertions++;
 }
-const forbiddenByTool={artifactSearch:['cursor','invented'],ghSearch:['path','unrequested'],ghGetFileContent:['matchString','unrequested'],
+const forbiddenByTool={artifactSearch:['cursor','invented'],ghSearchCode:['path','unrequested'],ghGetFileContent:['matchString','unrequested'],
   ghSearchHistory:['author','unrequested'],ghGetHistoryItem:['charOffset',12],ghCloneRepo:['sparsePath','src'],
   localSearch:['include',['*.md']],structureSearch:['names',['not-requested.ts']],localFetch:['matchString','unrequested'],
   lspSearch:['workspaceRoot','/unrelated/repo']};

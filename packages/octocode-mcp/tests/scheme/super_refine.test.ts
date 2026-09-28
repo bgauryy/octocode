@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 
 import { LocalFetchContentQuerySchema } from '@octocodeai/config/schema';
-import { LocalRipgrepQuerySchema } from '@octocodeai/config/schema';
+import { LocalSearchQuerySchema } from '@octocodeai/config/schema';
 import { FileContentQueryLocalSchema } from '@octocodeai/config/schema';
 import { ArtifactSearchBulkQueryLocalSchema } from '@octocodeai/config/schema';
 
@@ -180,19 +180,15 @@ describe('FileContentQueryLocalSchema (github) three-mode mutual exclusion', () 
   });
 });
 
-describe('LocalRipgrepQuerySchema enum contract', () => {
-  // The old mutually-exclusive booleans (fixedString/perlRegex, filesOnly/
-  // filesWithoutMatch, countLinesPerFile/countMatchesPerFile) were collapsed to
-  // single enums (regex/output/unique), so those pairings are now impossible by
-  // construction. These check the surviving cross-field gates instead.
+describe('LocalSearchQuerySchema enum contract', () => {
   const baseQuery = {
     reasoning: 'exercise enum contract',
     searchText: 'foo',
     path: '/repo',
   };
 
-  it('accepts the output enum values (files / filesWithout / count*)', () => {
-    for (const output of [
+  it('accepts the resultView enum values (files / filesWithout / count*)', () => {
+    for (const resultView of [
       'content',
       'files',
       'filesWithout',
@@ -200,35 +196,35 @@ describe('LocalRipgrepQuerySchema enum contract', () => {
       'countMatches',
     ] as const) {
       expect(
-        LocalRipgrepQuerySchema.safeParse({ ...baseQuery, output }).success
+        LocalSearchQuerySchema.safeParse({ ...baseQuery, resultView }).success
       ).toBe(true);
     }
   });
 
-  it('accepts the regex enum values (smart / fixed / perl)', () => {
-    for (const regex of ['smart', 'fixed', 'perl'] as const) {
+  it('accepts the regex enum values (rust / literal / pcre2)', () => {
+    for (const regex of ['rust', 'literal', 'pcre2'] as const) {
       expect(
-        LocalRipgrepQuerySchema.safeParse({ ...baseQuery, regex }).success
+        LocalSearchQuerySchema.safeParse({ ...baseQuery, regex }).success
       ).toBe(true);
     }
   });
 
-  it('rejects unique without output:"matchOnly"', () => {
-    const result = LocalRipgrepQuerySchema.safeParse({
+  it('rejects unique without resultView:"matchOnly"', () => {
+    const result = LocalSearchQuerySchema.safeParse({
       ...baseQuery,
       unique: 'list',
     });
     expect(result.success).toBe(false);
     if (!result.success) {
       const messages = result.error.issues.map(i => i.message).join('\n');
-      expect(messages).toMatch(/unique requires output:"matchOnly"/);
+      expect(messages).toMatch(/require resultView:"matchOnly"/);
     }
   });
 
-  it('accepts unique:"count" with output:"matchOnly"', () => {
-    const result = LocalRipgrepQuerySchema.safeParse({
+  it('accepts unique:"count" with resultView:"matchOnly"', () => {
+    const result = LocalSearchQuerySchema.safeParse({
       ...baseQuery,
-      output: 'matchOnly',
+      resultView: 'matchOnly',
       unique: 'count',
     });
     expect(result.success).toBe(true);

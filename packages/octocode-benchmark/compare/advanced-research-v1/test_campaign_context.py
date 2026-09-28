@@ -82,9 +82,10 @@ class CampaignContext(unittest.TestCase):
                 argv = ["node", str(cli), "localFetch", json.dumps(query)]
                 self.assertIsNone(policy.audit(shlex.join(argv)))
                 result = subprocess.run(argv, capture_output=True, text=True, timeout=30)
-                self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
                 page = json.loads(result.stdout)
                 pagination = page["responsePagination"]
+                self.assertEqual(result.returncode, 6 if pagination["hasMore"] else 0,
+                                 result.stderr + result.stdout)
                 self.assertFalse(pagination.get("restart", False))
                 offsets.append(pagination["charOffset"])
                 pages.append(pagination)

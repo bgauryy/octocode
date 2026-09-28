@@ -199,16 +199,24 @@ function renderHuman(
   }
   if (!result.dryRun) {
     console.log(`  ${dim('Verify:')} ${c('cyan', 'octocode skill check')}`);
-    const needsEnv = getSkillsEnvStatus(
-      skills.map(skill => skill.folder)
-    ).filter(
-      status =>
-        status.readiness === 'needs-config' || status.readiness === 'partial'
-    );
-    if (needsEnv.length > 0) {
+    const envStatus = getSkillsEnvStatus(skills.map(skill => skill.folder));
+    const names = (readiness: string) =>
+      envStatus
+        .filter(status => status.readiness === readiness)
+        .map(status => status.skillName);
+    const needsConfig = names('needs-config');
+    const partial = names('partial');
+    if (needsConfig.length > 0) {
       console.log(
-        `  ${c('yellow', '⚠')} ${needsEnv.map(status => status.skillName).join(', ')} need environment configuration.`
+        `  ${c('yellow', '⚠')} ${needsConfig.join(', ')} need environment configuration.`
       );
+    }
+    if (partial.length > 0) {
+      console.log(
+        `  ${dim(`ℹ ${partial.join(', ')} work now; optional env settings unlock more.`)}`
+      );
+    }
+    if (needsConfig.length > 0 || partial.length > 0) {
       console.log(
         `  ${dim('Configure ~/.octocode/.env, then run octocode skill check.')}`
       );

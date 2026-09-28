@@ -12,7 +12,7 @@
 //! | Section | Tool | Contract |
 //! |---|---|---|
 //! | ghGetFileContent | ghGetFileContent | hit sets `cache:1`; forceRefresh bypasses |
-//! | ghSearch tree | ghSearch (tree) | tree traversal hit saves one HTTP round-trip |
+//! | ghStructure | ghStructure | tree traversal hit saves one HTTP round-trip |
 //! | ghSearchHistory | ghSearchHistory | never sets `cache:1` |
 //! | ghGetHistoryItem | ghGetHistoryItem | never sets `cache:1` |
 //! | artifactSearch | artifactSearch | memory-mode disables in-process cache |
@@ -158,9 +158,9 @@ async fn ghgetfilecontent_force_refresh_bypasses_populated_cache() {
     runtime.close().await;
 }
 
-// ─── ghSearch (tree) ─────────────────────────────────────────────────────────
+// ─── ghStructure ──────────────────────────────────────────────────────────────
 
-/// A repeated `ghSearch` tree traversal with `maxDepth >= 2` must cache the
+/// A repeated `ghStructure` traversal with `maxDepth >= 2` must cache the
 /// git-tree response.  The second call must not issue a new tree HTTP request.
 ///
 /// Proof: the mock is mounted with `expect(1)`.  If the second call fetches
@@ -191,18 +191,17 @@ async fn ghsearch_tree_second_call_hits_cache_and_skips_http() {
     let runtime = workspace.runtime(&settings);
 
     let query = json!({
-        "operation": "tree",
         "owner": "o",
         "repo": "r",
         "branch": sha,
         "maxDepth": 2,   // > 1 activates the ConditionalCache path in traverse()
     });
 
-    let first = call(&runtime, "ghSearch", query.clone()).await.unwrap();
+    let first = call(&runtime, "ghStructure", query.clone()).await.unwrap();
     assert_eq!(row_status(&first), "success");
 
     // Second call: must be served entirely from cache.
-    let second = call(&runtime, "ghSearch", query).await.unwrap();
+    let second = call(&runtime, "ghStructure", query).await.unwrap();
     assert_eq!(row_status(&second), "success");
     // wiremock expect(1) enforced on Mock drop.
     runtime.close().await;

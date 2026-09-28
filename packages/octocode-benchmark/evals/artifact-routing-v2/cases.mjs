@@ -11,7 +11,7 @@ export const cases = [
   call('go-exact', 'Get published package metadata for Go module github.com/spf13/cobra.', 'artifactSearch', {type:'go',packageName:'github.com/spf13/cobra'}),
   call('ruby-discovery', 'Discover Ruby gems for Markdown rendering. I do not know a gem name.', 'artifactSearch', {type:'rubygems',keywords:['Markdown rendering']}, {keywordGroups:[['markdown']]}),
   call('remote-anchored-read', 'Read docs/security.md in octokit/octokit.js at branch release-2026. Preserve the requested revision.', 'ghGetFileContent', {owner:'octokit',repo:'octokit.js',path:'docs/security.md',branch:'release-2026'}),
-  call('remote-symbol-search', 'Search the known repository sindresorhus/p-queue for occurrences of onIdle.', 'ghSearch', {operation:'code',owner:'sindresorhus',repo:'p-queue',keywords:['onIdle']}),
+  call('remote-symbol-search', 'Search the known repository sindresorhus/p-queue for occurrences of onIdle.', 'ghSearchCode', {owner:'sindresorhus',repo:'p-queue',keywords:['onIdle']}),
   call('history-search', 'Find open issues mentioning hydration in vuejs/core.', 'ghSearchHistory', {operation:'issues',owner:'vuejs',repo:'core',state:'open',keywords:['hydration']}),
   call('history-read', 'Read the body of issue 1729 in rust-lang/rust. Its identity is already known.', 'ghGetHistoryItem', {operation:'issue',owner:'rust-lang',repo:'rust',number:1729,content:{body:true}}),
   call('clone-known', 'Clone the known repository tokio-rs/bytes at branch master into the managed cache so I can inspect it locally.', 'ghCloneRepo', {owner:'tokio-rs',repo:'bytes',branch:'master'}),

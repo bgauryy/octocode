@@ -26,7 +26,7 @@ $OCTO scheme <name> --compact                   # schema before calling
 | Need | Use |
 |---|---|
 | Search code / files / symbols / LSP | Local CLI (`$OCTO <toolName> '<json>'`) **or** Octocode MCP |
-| GitHub code, PRs, history | same tools — `ghSearch`, `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem`, `ghCloneRepo` |
+| GitHub code, PRs, history | same tools — `ghSearchRepo`, `ghSearchCode`, `ghStructure`, `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem`, `ghCloneRepo` |
 | Package discovery | `artifactSearch` |
 | Research / trace / change impact | `octocode-research` skill |
 | Architecture decisions | `octocode-architect` skill |
@@ -127,11 +127,11 @@ Workspace packages (`packages/*`) and one external core. Each package has its ow
 
 ## Tools
 
-14 catalog tools. Full reference: [`docs/OCTOCODE_TOOLS.md`](docs/OCTOCODE_TOOLS.md) · handoffs: [`docs/TOOL_DATA_CONTRACT.md`](docs/TOOL_DATA_CONTRACT.md) · live: `$OCTO scheme`. `ghCloneRepo` is CLI-only; MCP registers the rest when their availability gates pass.
+16 catalog tools. Full reference: [`docs/OCTOCODE_TOOLS.md`](docs/OCTOCODE_TOOLS.md) · handoffs: [`docs/TOOL_DATA_CONTRACT.md`](docs/TOOL_DATA_CONTRACT.md) · live: `$OCTO scheme`. `ghCloneRepo` and `astRewrite` are CLI-only; MCP registers the rest when their availability gates pass.
 
 | Family | Tools | Role |
 |---|---|---|
-| GitHub | `ghSearch` · `ghGetFileContent` · `ghSearchHistory` · `ghGetHistoryItem` · `ghCloneRepo` | Code/repo/tree discovery, exact reads, history, clone |
+| GitHub | `ghSearchRepo` · `ghSearchCode` · `ghStructure` · `ghGetFileContent` · `ghSearchHistory` · `ghGetHistoryItem` · `ghCloneRepo` | Code/repo/tree discovery, exact reads, history, clone |
 | Package | `artifactSearch` | Lookup across 8 ecosystems + source repo |
 | Local | `localSearch` · `structureSearch` · `localFetch` | Text/regex search · directory tree/file discovery (no parser) · exact/minified file reads |
 | AST | `astSearch` | Syntax trees, symbols, structural match |
@@ -190,10 +190,7 @@ No skill is in trial.
 |---|---|
 | [`octocode-dev`](skills-dev/octocode-dev/) | Auditing/hardening a tool end to end: core schema + descriptions ↔ Rust impl, data flow, MCP/CLI surfaces, docs. `scripts/tool-inventory.mjs`; reports under `.octocode/octocode-dev/` |
 | [`rust-best-practices`](skills-dev/rust-best-practices/) | Rust choices are open: crates, error shape, module/workspace layout, cargo profiles, deps |
-| [`ast-best-practices`](skills-dev/ast-best-practices/) | Rust code parsing with tree-sitter / oxc / ast-grep; engine AST map + known defects; `scripts/adversarial-fixtures.mjs` |
-| [`lsp-best-practices`](skills-dev/lsp-best-practices/) | LSP client code (Rust/tokio) or trustworthy `lspSearch` answers; engine LSP map + known defects |
-
-Update a skill's `references/octocode-known-defects.md` when you fix or find an engine defect in its area.
+For AST/LSP implementation work, use `rust-best-practices` with the native package's architecture and engine docs. Record verified engine defects in `.octocode/GOTCHAS.md` and the owning package documentation.
 
 ---
 
@@ -273,7 +270,7 @@ Index: [`docs/README.md`](docs/README.md). `out/docs` copies are build output �
 | Packages | [`docs/PACKAGES.md`](docs/PACKAGES.md) |
 | MCP | [`docs/OCTOCODE_MCP.md`](docs/OCTOCODE_MCP.md) |
 | Tools | [`docs/OCTOCODE_TOOLS.md`](docs/OCTOCODE_TOOLS.md) · [`docs/TOOL_DATA_CONTRACT.md`](docs/TOOL_DATA_CONTRACT.md) (response fields, pagination, handoffs) |
-| Tool quality | [`docs/MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md`](docs/MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md) (acceptance criteria for the 14 tools) |
+| Tool quality | [`docs/MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md`](docs/MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md) (acceptance criteria for the 16 tools) |
 | Local research | [`docs/LOCAL_RESEARCH_WORKFLOW.md`](docs/LOCAL_RESEARCH_WORKFLOW.md) |
 | Research | [`docs/OCTOCODE_RESEARCH_MANIFEST.md`](docs/OCTOCODE_RESEARCH_MANIFEST.md) |
 | Semantic assessment | [`docs/OCTOCODE_CLASIFY.md`](docs/OCTOCODE_CLASIFY.md) (contract + research loop) |

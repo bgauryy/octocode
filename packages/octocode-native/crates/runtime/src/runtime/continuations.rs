@@ -227,15 +227,17 @@ mod tests {
         let query = json!({"reasoning":"continue", "next":{"readFile":{"tool":"localFetch","query":{"path":"/tmp/a"}}}});
         let mut out = json!({"results":[{"data":{
             "next":{
-                "nextPage":{"tool":"ghSearch","query":query.clone()},
+                "nextPage":{"tool":"ghSearchCode","query":query.clone()},
                 "readTopMatch":{"tool":"ghGetFileContent","query":{"path":"a.rs"}},
                 "readSite":{"tool":"localFetch","query":{"path":"/tmp/a"}}
             },
             "content":{"tool":"ghGetFileContent","query":{"next":{"readFile":{"tool":"localFetch","query":{}}}}},
-            "nestedEvidence":{"next":{"nextPage":{"tool":"ghSearch","query":{"page":2}}}}
+            "nestedEvidence":{"next":{"nextPage":{"tool":"ghSearchCode","query":{"page":2}}}}
         }}]});
         let original_content = out["results"][0]["data"]["content"].clone();
-        filter_unavailable_cross_tool_next(&mut out, "ghSearch", |target| target == "localFetch");
+        filter_unavailable_cross_tool_next(&mut out, "ghSearchCode", |target| {
+            target == "localFetch"
+        });
         let next = &out["results"][0]["data"]["next"];
         assert_eq!(next["nextPage"]["query"], query);
         assert!(next.get("readTopMatch").is_none());
@@ -243,15 +245,15 @@ mod tests {
         assert_eq!(out["results"][0]["data"]["content"], original_content);
         assert_eq!(
             out["results"][0]["data"]["nestedEvidence"]["next"]["nextPage"]["tool"],
-            "ghSearch"
+            "ghSearchCode"
         );
     }
 
     #[test]
     fn removes_empty_next_map_but_keeps_opaque_query_payload() {
         let mut out = json!({"results":[{"data":{
-            "next":{"viewRepo":{"tool":"ghSearch","query":{"next":{"nested":{"tool":"localFetch","query":{}}}}}},
-            "context":{"next":{"nested":{"tool":"ghSearch","query":{"reasoning":"r"}}}}
+            "next":{"viewRepo":{"tool":"ghStructure","query":{"next":{"nested":{"tool":"localFetch","query":{}}}}}},
+            "context":{"next":{"nested":{"tool":"ghSearchCode","query":{"reasoning":"r"}}}}
         }}]});
         filter_unavailable_cross_tool_next(&mut out, "artifactSearch", |_| false);
         assert!(out["results"][0]["data"].get("next").is_none());

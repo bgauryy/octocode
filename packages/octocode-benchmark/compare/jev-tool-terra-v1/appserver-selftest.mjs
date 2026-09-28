@@ -17,7 +17,7 @@ const provider = createServer(async (req, res) => {
   const request = JSON.parse(body);
   posts++;
   const tools = request.tools ?? request.input.find(item => item.type === 'additional_tools')?.tools ?? [];
-  toolName ??= tools.find(tool => tool.name?.endsWith('ghSearch'))?.name ?? 'mcp__octocode__ghSearch';
+  toolName ??= tools.find(tool => tool.name?.endsWith('ghSearchCode'))?.name ?? 'mcp__octocode__ghSearchCode';
   const item = posts === 1 ? { id: 'fc_fixture', type: 'custom_tool_call', call_id: 'call_fixture', name: 'exec', namespace: 'functions',
     input: `text(await tools.${toolName}({queries:[{query:"offline"}]}));`, status: 'completed' }
     : { id: 'msg_fixture', type: 'message', role: 'assistant', phase: 'final_answer', status: 'completed',
@@ -43,7 +43,7 @@ try {
   writeFileSync(configPath, JSON.stringify({ version: 1, arm: 'candidate', entrypoint: join(here, 'fixtures/fake-mcp.mjs'), runDir, cwd: dir, requestTimeoutMs: 5000 }));
   const result = await runAppServer({ cwd: dir, env: { PATH: process.env.PATH, HOME: dir, CODEX_HOME: dir,
     OCTOCODE_HOME: join(dir, 'octocode'), JEV_BENCH_CONFIG: configPath, OCTOCODE_CLASSIFICATION_API: 'fixture-no-provider', BENCH_MOCK_KEY: 'fixture-not-real' },
-    model: fixtureModel, effort: 'medium', prompt: 'Use ghSearch once, then return the fixture result.',
+    model: fixtureModel, effort: 'medium', prompt: 'Use ghSearchCode once, then return the fixture result.',
     outputSchema: { type: 'object', properties: { answer: { type: 'string' } }, required: ['answer'], additionalProperties: false },
     runDir, proxyPath: join(here, 'mcp-proxy.mjs'), deadlineMs: 15000,
     modelProvider: 'benchmark_loopback', providerConfig: { name: 'offline loopback fixture', base_url: `http://127.0.0.1:${provider.address().port}/v1`,
@@ -67,10 +67,16 @@ try {
   const events = readFileSync(join(runDir, 'events.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
   assert.ok(events.find(row => row.configRead)?.serverNames.includes('fixture_unrelated'));
   assert.equal(approvalFor({ serverName: 'evil', threadId: 't', mode: 'form' }, new Map(), 't'), null);
-  const pending = new Map([['item', { server: 'octocode', tool: 'ghSearch', arguments: { query: 'x' } }]]);
-  const approval = { serverName: 'octocode', threadId: 't', mode: 'form', message: 'Allow the octocode MCP server to run tool "ghSearch"?',
+  const pending = new Map([['item', { server: 'octocode', tool: 'ghSearchCode', arguments: { query: 'x' } }]]);
+  const approval = { serverName: 'octocode', threadId: 't', mode: 'form', message: 'Allow the octocode MCP server to run tool "ghSearchCode"?',
     requestedSchema: { type: 'object', properties: {} }, _meta: { codex_approval_kind: 'mcp_tool_call', tool_params: { query: 'x' } } };
   assert.ok(approvalFor(approval, pending, 't'));
+  assert.equal(approvalFor(approval, pending, 't', ['clasify']), null);
+  const classification = { server: 'octocode', tool: 'clasify', arguments: { resources: [] } };
+  const classificationApproval = { ...approval, message: 'Allow the octocode MCP server to run tool "clasify"?',
+    _meta: { ...approval._meta, tool_params: classification.arguments } };
+  assert.ok(approvalFor(classificationApproval, new Map([['c', classification]]), 't', ['clasify']));
+  assert.equal(approvalFor(classificationApproval, new Map([['c', classification]]), 't'), null);
   assert.equal(approvalFor({ ...approval, _meta: {} }, pending, 't'), null);
   assert.equal(approvalFor({ ...approval, message: 'Authenticate this server' }, pending, 't'), null);
   assert.equal(approvalFor(approval, new Map(), 't'), null);

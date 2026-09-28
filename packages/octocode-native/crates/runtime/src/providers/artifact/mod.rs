@@ -14,7 +14,7 @@ pub use http::{
 pub(crate) use types::artifact_query;
 pub use types::{
     ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState, ArtifactSearchQuery,
-    ArtifactSearchQueryType, ResolvedNpmRegistry,
+    ArtifactType, ResolvedNpmRegistry,
 };
 
 pub(crate) use npmrc::{authorization_from_file as npm_authorization, user_npmrc_path};
@@ -61,8 +61,8 @@ pub async fn execute_artifact(
         None => ArtifactProviderState::default(),
     };
     validate_cursor_state(&state)?;
-    match query.type_ {
-        ArtifactSearchQueryType::Npm => {
+    match query.artifact_type() {
+        ArtifactType::Npm => {
             let default_registry = ResolvedNpmRegistry {
                 base: Url::parse("https://registry.npmjs.org/").map_err(|_| {
                     ArtifactError::new("invalid_query", "Invalid default npm registry URL.")
@@ -80,13 +80,13 @@ pub async fn execute_artifact(
             )
             .await
         }
-        ArtifactSearchQueryType::Pypi => registries::pypi(query, &client).await,
-        ArtifactSearchQueryType::Crates => registries::crates(query, &state, &client).await,
-        ArtifactSearchQueryType::Go => registries::go(query, &state, &client).await,
-        ArtifactSearchQueryType::Packagist => registries::packagist(query, &state, &client).await,
-        ArtifactSearchQueryType::Rubygems => registries::rubygems(query, &state, &client).await,
-        ArtifactSearchQueryType::Maven => maven::maven(query, &state, &client).await,
-        ArtifactSearchQueryType::Nuget => nuget::nuget(query, &state, &client).await,
+        ArtifactType::Pypi => registries::pypi(query, &client).await,
+        ArtifactType::Crates => registries::crates(query, &state, &client).await,
+        ArtifactType::Go => registries::go(query, &state, &client).await,
+        ArtifactType::Packagist => registries::packagist(query, &state, &client).await,
+        ArtifactType::Rubygems => registries::rubygems(query, &state, &client).await,
+        ArtifactType::Maven => maven::maven(query, &state, &client).await,
+        ArtifactType::Nuget => nuget::nuget(query, &state, &client).await,
     }
 }
 

@@ -43,9 +43,7 @@ function branchProps(branch: JsonObject): JsonObject {
 
 /**
  * Return the branch's scalar discriminator as `[property, value]`: the first
- * const whose value differs across sibling branches (astTopology fixes
- * `operation=topology` in every branch; `analysis` is what varies), else the
- * first const.
+ * const whose value differs across sibling branches, else the first const.
  */
 function discriminator(
   props: JsonObject,

@@ -417,9 +417,9 @@ astSearch (operation:"match", pattern or YAML rule)
 **5. Discover → orient → read**
 
 ```
-ghSearch (operation:"repositories", concise:true) or artifactSearch (package → source repo)
-  → ghSearch (operation:"tree"; resolvedBranch confirms the ref)
-  → ghSearch (operation:"code", match:"path" first; match:"file" for snippets)
+ghSearchRepo (concise:true) or artifactSearch (package → source repo)
+  → ghStructure (resolvedBranch confirms the ref)
+  → ghSearchCode (match:"path" first; match:"file" for snippets)
   → ghGetFileContent (matchString → matchRanges, same anchor contract as local)
 ```
 

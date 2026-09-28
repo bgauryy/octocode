@@ -10,7 +10,7 @@
 npx octocode → Node launcher → native CLI → Rust ToolRuntime
 ```
 
-The native path is mandatory for public tools. If its platform package cannot be resolved, the launcher fails closed. Rust owns contract validation, availability, security, GitHub and artifact providers, local/AST/LSP behavior, bulk orchestration, pagination, response shaping, cancellation, and exit classification. `@octocodeai/octocode-core` owns public schemas and instructions.
+The native path is mandatory for public tools. If its platform package cannot be resolved, the launcher fails closed. Rust owns contract validation, availability, security, GitHub and artifact providers, local/AST/LSP behavior, bulk orchestration, pagination, response shaping, cancellation, and exit classification. `@octocodeai/octocode-core` authors public schemas and instructions; the CLI reads them through `@octocodeai/config` (`./schema`, `./mcp`), never from core directly.
 
 ## TypeScript management surface
 
@@ -30,7 +30,7 @@ Everything else—`config`, `auth`, `lsp-server`, tool invocations (`<toolName> 
 
 - `build.mjs` bundles `src/index.ts` to `out/octocode.js` as an ESM launcher.
 - `@octocodeai/octocode-native` is a runtime dependency; its optional platform packages supply the native binary and N-API addon.
-- `@octocodeai/octocode-core` remains external for public contracts.
+- `@octocodeai/config` (bundled into the tarball via `bundledDependencies`) supplies public contracts and instructions; the skill installer is inlined at build time.
 - The build fails when a bare external import is not declared.
 - `__APP_VERSION__` is injected from `package.json`.
 
@@ -39,7 +39,7 @@ Publish native platform packages, the native root, contract/config prerequisites
 ## Rules
 
 - Public tool behavior belongs in Rust.
-- Public contract presentation belongs in core; `scheme` only reconciles it
+- Public contract content belongs in core (delivered via config); `scheme` only reconciles it
   with native availability and the enforcement fingerprint.
 - The Node launcher delegates or fails closed; it has no TypeScript tool fallback.
 - Keep management-only TypeScript paths explicit and small.

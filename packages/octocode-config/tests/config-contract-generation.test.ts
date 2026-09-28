@@ -61,7 +61,7 @@ describe('generated config contract', () => {
         allowedPaths: [42],
         workspaceRoot: 'relative/path',
       },
-      tools: { enabled: 'ghSearch' },
+      tools: { enabled: 'ghSearchCode' },
       network: { timeout: Number.NaN, maxRetries: 'many' },
       lsp: { configPath: 10 },
       output: { format: 1 },

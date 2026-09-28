@@ -379,7 +379,89 @@ pub fn condense(graph: &BTreeMap<String, Node>) -> Condensed {
         layers,
     }
 }
+/// Components above which descendant bitsets (n²/8 bytes) cost more memory
+/// than they save; larger graphs use the per-edge search.
+const BITSET_COMPONENT_LIMIT: usize = 16_384;
+
+/// Transitive edges of a DAG (the condensation): `(u, v)` whose target is
+/// also reachable through another successor of `u`. One post-order pass
+/// builds each node's descendant bitset, so the whole check costs
+/// O(edges × nodes / 64) instead of one graph search per edge.
 pub fn transitive_edges(edges: &BTreeMap<usize, BTreeSet<usize>>) -> BTreeSet<(usize, usize)> {
+    let size = edges
+        .keys()
+        .chain(edges.values().flatten())
+        .max()
+        .map_or(0, |max| max + 1);
+    if size > BITSET_COMPONENT_LIMIT {
+        return transitive_edges_by_search(edges);
+    }
+    let words = size.div_ceil(64);
+    // Descendants of each node, itself excluded.
+    let mut descendants = vec![0_u64; size * words];
+    for node in postorder(edges, size) {
+        let mut row = vec![0_u64; words];
+        for &successor in edges.get(&node).into_iter().flatten() {
+            row[successor / 64] |= 1 << (successor % 64);
+            let below = &descendants[successor * words..(successor + 1) * words];
+            for (word, bits) in row.iter_mut().zip(below) {
+                *word |= bits;
+            }
+        }
+        descendants[node * words..(node + 1) * words].copy_from_slice(&row);
+    }
+    let mut out = BTreeSet::new();
+    for (&source, targets) in edges {
+        let mut through = vec![0_u64; words];
+        for &successor in targets {
+            let below = &descendants[successor * words..(successor + 1) * words];
+            for (word, bits) in through.iter_mut().zip(below) {
+                *word |= bits;
+            }
+        }
+        for &target in targets {
+            if through[target / 64] >> (target % 64) & 1 == 1 {
+                out.insert((source, target));
+            }
+        }
+    }
+    out
+}
+
+/// Nodes in post-order (every successor before its predecessors).
+fn postorder(edges: &BTreeMap<usize, BTreeSet<usize>>, size: usize) -> Vec<usize> {
+    let mut visited = vec![false; size];
+    let mut order = Vec::with_capacity(size);
+    for start in 0..size {
+        if visited[start] {
+            continue;
+        }
+        visited[start] = true;
+        let mut stack = vec![(start, edges.get(&start).map(|t| t.iter()))];
+        while let Some((node, successors)) = stack.last_mut() {
+            let next = successors.as_mut().and_then(|iter| {
+                iter.by_ref()
+                    .copied()
+                    .find(|successor| !visited[*successor])
+            });
+            match next {
+                Some(successor) => {
+                    visited[successor] = true;
+                    stack.push((successor, edges.get(&successor).map(|t| t.iter())));
+                }
+                None => {
+                    order.push(*node);
+                    stack.pop();
+                }
+            }
+        }
+    }
+    order
+}
+
+fn transitive_edges_by_search(
+    edges: &BTreeMap<usize, BTreeSet<usize>>,
+) -> BTreeSet<(usize, usize)> {
     let mut out = BTreeSet::new();
     for (source, targets) in edges {
         for target in targets {
@@ -403,78 +485,87 @@ pub fn transitive_edges(edges: &BTreeMap<usize, BTreeSet<usize>>) -> BTreeSet<(u
     out
 }
 
-pub fn cycle_witness(graph: &BTreeMap<String, Node>, members: &BTreeSet<String>) -> Vec<Value> {
-    struct Frame {
-        node: u32,
-        offset: usize,
+/// Cycle witnesses over one graph: index the graph once, then find a witness
+/// cycle for each strongly connected component's members.
+pub struct CycleWitnesses<'g>(Indexed<'g>);
+
+impl<'g> CycleWitnesses<'g> {
+    pub fn new(graph: &'g BTreeMap<String, Node>) -> Self {
+        Self(Indexed::build(graph))
     }
-    const UNSET: u32 = u32::MAX;
-    let indexed = Indexed::build(graph);
-    let mut member_mask = vec![false; indexed.names.len()];
-    for member in members {
-        if let Some(&id) = indexed.ids.get(member.as_str()) {
-            member_mask[id as usize] = true;
+
+    pub fn witness(&self, members: &BTreeSet<String>) -> Vec<Value> {
+        struct Frame {
+            node: u32,
+            offset: usize,
         }
-    }
-    // 0 = unvisited, 1 = on the DFS path, 2 = finished.
-    let mut state = vec![0_u8; indexed.names.len()];
-    let mut parent = vec![UNSET; indexed.names.len()];
-    let next_member = |node: u32, offset: &mut usize| {
-        while let Some(successor) = indexed.successors[node as usize].get(*offset) {
-            *offset += 1;
-            if member_mask[successor.id as usize] {
-                return Some(successor.id);
+        const UNSET: u32 = u32::MAX;
+        let indexed = &self.0;
+        let mut member_mask = vec![false; indexed.names.len()];
+        for member in members {
+            if let Some(&id) = indexed.ids.get(member.as_str()) {
+                member_mask[id as usize] = true;
             }
         }
-        None
-    };
-    for root_name in members {
-        let Some(&root) = indexed.ids.get(root_name.as_str()) else {
-            continue;
+        // 0 = unvisited, 1 = on the DFS path, 2 = finished.
+        let mut state = vec![0_u8; indexed.names.len()];
+        let mut parent = vec![UNSET; indexed.names.len()];
+        let next_member = |node: u32, offset: &mut usize| {
+            while let Some(successor) = indexed.successors[node as usize].get(*offset) {
+                *offset += 1;
+                if member_mask[successor.id as usize] {
+                    return Some(successor.id);
+                }
+            }
+            None
         };
-        if (root as usize) >= indexed.key_count || state[root as usize] != 0 {
-            continue;
-        }
-        state[root as usize] = 1;
-        let mut frames = vec![Frame {
-            node: root,
-            offset: 0,
-        }];
-        while let Some(frame) = frames.last_mut() {
-            let Some(successor) = next_member(frame.node, &mut frame.offset) else {
-                state[frame.node as usize] = 2;
-                frames.pop();
+        for root_name in members {
+            let Some(&root) = indexed.ids.get(root_name.as_str()) else {
                 continue;
             };
-            match state[successor as usize] {
-                0 => {
-                    parent[successor as usize] = frame.node;
-                    state[successor as usize] = 1;
-                    frames.push(Frame {
-                        node: successor,
-                        offset: 0,
-                    });
-                }
-                1 => {
-                    let cycle_end = frame.node;
-                    let mut nodes = vec![cycle_end];
-                    while nodes.last().is_some_and(|node| *node != successor) {
-                        let Some(&last) = nodes.last() else {
-                            return Vec::new();
-                        };
-                        let previous = parent[last as usize];
-                        if previous == UNSET {
-                            return Vec::new();
-                        }
-                        nodes.push(previous);
+            if (root as usize) >= indexed.key_count || state[root as usize] != 0 {
+                continue;
+            }
+            state[root as usize] = 1;
+            let mut frames = vec![Frame {
+                node: root,
+                offset: 0,
+            }];
+            while let Some(frame) = frames.last_mut() {
+                let Some(successor) = next_member(frame.node, &mut frame.offset) else {
+                    state[frame.node as usize] = 2;
+                    frames.pop();
+                    continue;
+                };
+                match state[successor as usize] {
+                    0 => {
+                        parent[successor as usize] = frame.node;
+                        state[successor as usize] = 1;
+                        frames.push(Frame {
+                            node: successor,
+                            offset: 0,
+                        });
                     }
-                    nodes.reverse();
-                    let mut witness = nodes
-                        .windows(2)
-                        .map(|pair| (pair[0], pair[1]))
-                        .collect::<Vec<_>>();
-                    witness.push((cycle_end, successor));
-                    return witness
+                    1 => {
+                        let cycle_end = frame.node;
+                        let mut nodes = vec![cycle_end];
+                        while nodes.last().is_some_and(|node| *node != successor) {
+                            let Some(&last) = nodes.last() else {
+                                return Vec::new();
+                            };
+                            let previous = parent[last as usize];
+                            if previous == UNSET {
+                                return Vec::new();
+                            }
+                            nodes.push(previous);
+                        }
+                        nodes.reverse();
+                        let mut witness = nodes
+                            .windows(2)
+                            .map(|pair| (pair[0], pair[1]))
+                            .collect::<Vec<_>>();
+                        witness.push((cycle_end, successor));
+                        return witness
                         .into_iter()
                         .map(|(from, to)| {
                             let edge_kinds = indexed.successors[from as usize]
@@ -485,17 +576,46 @@ pub fn cycle_witness(graph: &BTreeMap<String, Node>, members: &BTreeSet<String>)
                             json!({"from":indexed.name(from),"to":indexed.name(to),"edgeKinds":edge_kinds})
                         })
                         .collect();
+                    }
+                    _ => {}
                 }
-                _ => {}
             }
         }
+        Vec::new()
     }
-    Vec::new()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    proptest::proptest! {
+        /// The bitset pass equals the per-edge search on random DAGs (edges
+        /// only point from lower to higher ids, so every input is acyclic).
+        #[test]
+        fn bitset_transitive_edges_match_the_per_edge_search(
+            pairs in proptest::collection::vec((0_usize..40, 0_usize..40), 0..160)
+        ) {
+            let mut edges = BTreeMap::<usize, BTreeSet<usize>>::new();
+            for (a, b) in pairs {
+                if a < b {
+                    edges.entry(a).or_default().insert(b);
+                }
+            }
+            proptest::prop_assert_eq!(transitive_edges(&edges), transitive_edges_by_search(&edges));
+        }
+    }
+
+    #[test]
+    fn transitive_edges_finds_the_shortcut_of_a_diamond() {
+        // 0→1→3, 0→2→3, and the shortcut 0→3.
+        let edges = BTreeMap::from([
+            (0, BTreeSet::from([1, 2, 3])),
+            (1, BTreeSet::from([3])),
+            (2, BTreeSet::from([3])),
+        ]);
+        assert_eq!(transitive_edges(&edges), BTreeSet::from([(0, 3)]));
+    }
 
     fn node(edges: &[&str]) -> Node {
         Node {
