@@ -235,6 +235,15 @@ impl GhGetHistoryItemQuery {
             _ => None,
         }
     }
+    /// Lines kept around each `matchString` hit in a patch (`matchContext`).
+    pub fn match_context(&self) -> Option<usize> {
+        match self {
+            Self::PullRequest { match_context, .. } => {
+                match_context.and_then(|lines| usize::try_from(lines).ok())
+            }
+            _ => None,
+        }
+    }
     pub fn comment_body_offset(&self) -> Option<usize> {
         match self {
             Self::PullRequest {

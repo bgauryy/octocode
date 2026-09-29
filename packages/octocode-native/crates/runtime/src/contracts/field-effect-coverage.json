@@ -702,6 +702,10 @@
           "forwarded",
           "output-control"
         ],
+        "matchContext": [
+          "forwarded",
+          "output-control"
+        ],
         "matchString": [
           "forwarded"
         ],

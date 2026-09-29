@@ -265,20 +265,17 @@ pub(super) async fn pull_request<R: CredentialResolver>(
     let slim = (query.follow_up() || file_read) && !query.debug();
     let mut row = pr_metadata(&raw, query, wants.body);
     if slim && let Some(fields) = row.as_object_mut() {
-        // A first file read also keeps the diff size it lists.
-        let totals = !query.follow_up();
+        // A patch read re-proves only the head it read; a list page also
+        // keeps the merge commit and file count, and a first inventory page
+        // the diff size it lists.
+        let patches = patch_mode != "none";
+        let totals = !query.follow_up() && !patches;
         fields.retain(|key, _| {
             matches!(
                 key.as_str(),
-                "number"
-                    | "title"
-                    | "state"
-                    | "author"
-                    | "createdAt"
-                    | "sourceSha"
-                    | "mergeCommitSha"
-                    | "changedFilesCount"
-            ) || (totals && matches!(key.as_str(), "additions" | "deletions"))
+                "number" | "title" | "state" | "author" | "createdAt" | "sourceSha"
+            ) || (!patches && matches!(key.as_str(), "mergeCommitSha" | "changedFilesCount"))
+                || (totals && matches!(key.as_str(), "additions" | "deletions"))
         });
     }
     if !sanitization_warnings.is_empty() {
@@ -354,9 +351,9 @@ pub(super) async fn pull_request<R: CredentialResolver>(
             first_changed_path.as_deref(),
             &raw,
         );
-    } else if file_read && !query.follow_up() {
-        // A file read's own next steps: selected patches (from an
-        // inventory), the merge commit.
+    } else if file_read && patch_mode == "none" && !query.follow_up() {
+        // An inventory's own next steps: selected patches, the merge commit.
+        // A patch read keeps only its continuations.
         let mut menu = pr_next_menu(
             query,
             content,

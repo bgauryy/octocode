@@ -470,6 +470,23 @@ async fn match_string_returns_matching_hunks_and_offers_the_whole_patch() {
     );
     assert!(patch.len() < 200, "{patch}");
     assert_eq!(files[0]["fullPatchChars"], big.chars().count());
+    // A patch read carries the identity it re-proves and no follow-up menu.
+    let row = &data["pullRequests"][0];
+    assert!(row.get("next").is_none(), "{row}");
+    for dropped in ["mergeCommitSha", "additions", "deletions", "labels"] {
+        assert!(row.get(dropped).is_none(), "{dropped} kept: {row}");
+    }
+    assert!(row.get("sourceSha").is_some(), "{row}");
+    let only_hits = run(
+        &server,
+        json!({"content": {"patches": {"mode": "all"}}, "matchString": "esbuild",
+               "matchContext": 0, "minify": "none", "debug": false}),
+    )
+    .await;
+    assert_eq!(
+        only_hits["pullRequests"][0]["changedFiles"][0]["patch"],
+        "@@ -201,1 +201,1 @@\n-old esbuild\n+new esbuild\n"
+    );
     assert_eq!(
         data["next"]["readFullPatches"]["query"]["content"]["patches"]["files"],
         json!(["src/big.rs"]),

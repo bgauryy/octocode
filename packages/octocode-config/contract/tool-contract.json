@@ -1,6 +1,6 @@
 {
   "contractFormatVersion": 2,
-  "fingerprint": "951448ae4f43f8736cd7bb300aea89506f55e34b83e452c52f002358bd024d9d",
+  "fingerprint": "688403588113fb5b8d06b3c8fe224686a5ffda4464ac5ee7fa1366142fed909c",
   "tools": [
     {
       "defaults": [
@@ -3562,6 +3562,11 @@
                                                       "pattern": "\\S",
                                                       "type": "string"
                                                     },
+                                                    "matchContext": {
+                                                      "maximum": 10,
+                                                      "minimum": 0,
+                                                      "type": "integer"
+                                                    },
                                                     "matchString": {
                                                       "type": "string"
                                                     },
@@ -4954,6 +4959,11 @@
                                                       "maxLength": 500,
                                                       "pattern": "\\S",
                                                       "type": "string"
+                                                    },
+                                                    "matchContext": {
+                                                      "maximum": 10,
+                                                      "minimum": 0,
+                                                      "type": "integer"
                                                     },
                                                     "matchString": {
                                                       "type": "string"
@@ -8620,6 +8630,11 @@
                             "maxLength": 500,
                             "pattern": "\\S",
                             "type": "string"
+                          },
+                          "matchContext": {
+                            "maximum": 10,
+                            "minimum": 0,
+                            "type": "integer"
                           },
                           "matchString": {
                             "type": "string"
@@ -15187,6 +15202,11 @@
                             "maxLength": 500,
                             "pattern": "\\S",
                             "type": "string"
+                          },
+                          "matchContext": {
+                            "maximum": 10,
+                            "minimum": 0,
+                            "type": "integer"
                           },
                           "matchString": {
                             "type": "string"
@@ -21912,6 +21932,11 @@
                             "pattern": "\\S",
                             "type": "string"
                           },
+                          "matchContext": {
+                            "maximum": 10,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
                           "matchString": {
                             "type": "string"
                           },
@@ -28445,6 +28470,11 @@
                             "maxLength": 500,
                             "pattern": "\\S",
                             "type": "string"
+                          },
+                          "matchContext": {
+                            "maximum": 10,
+                            "minimum": 0,
+                            "type": "integer"
                           },
                           "matchString": {
                             "type": "string"
@@ -35574,6 +35604,11 @@
                             "pattern": "\\S",
                             "type": "string"
                           },
+                          "matchContext": {
+                            "maximum": 10,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
                           "matchString": {
                             "type": "string"
                           },
@@ -41118,7 +41153,7 @@
                           "type": "boolean"
                         },
                         "changedFiles": {
-                          "description": "Patch-free inventory rows \"M +3 -1 path\" (A added, D removed, R renamed, C copied, T changed, U unchanged); \"!tooLarge\"/\"!binary\"/\"!omitted\" before path: no patch; \" <- full/old/path\": rename origin. {\"dir/\": [rows]}: path = dir + name.",
+                          "description": "Patch-free rows \"M +3 -1 [!tooLarge|!binary|!omitted ]path[ <- full/old/path]\" (git status letters, T changed, U unchanged; ! = no patch). {\"dir/\": [rows]}: path = dir + name.",
                           "type": "boolean"
                         },
                         "comments": {
@@ -41252,7 +41287,7 @@
                           "type": "integer"
                         },
                         "paths": {
-                          "description": "Any-of. A plain path matches that file or directory; a glob (\"*\" one segment, \"**\" any) matches the path, or the file name when it has no \"/\" (\"*.ts\").",
+                          "description": "Any-of: file/dir path, or glob (\"*\" one segment, \"**\" any; no \"/\" = file name, \"*.ts\").",
                           "items": {
                             "minLength": 1,
                             "type": "string"
@@ -41301,6 +41336,12 @@
                       "pattern": "\\S",
                       "type": "string"
                     },
+                    "matchContext": {
+                      "description": "Lines around each patch hit; omit: 3.",
+                      "maximum": 10,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
                     "matchString": {
                       "description": "Filter text; patches keep matching lines ±3.",
                       "type": "string"
@@ -41325,7 +41366,7 @@
                       "$ref": "#/$defs/HI_Owner"
                     },
                     "pageSize": {
-                      "description": "Omit: 30 comments/reviews/commits/patch files (max 100); a patch-free inventory fills the response page (max 1000).",
+                      "description": "Omit: 30 (max 100); a patch-free inventory fills the page (max 1000).",
                       "maximum": 1000,
                       "minimum": 1,
                       "type": "integer"
@@ -43694,6 +43735,11 @@
                             "maxLength": 500,
                             "pattern": "\\S",
                             "type": "string"
+                          },
+                          "matchContext": {
+                            "maximum": 10,
+                            "minimum": 0,
+                            "type": "integer"
                           },
                           "matchString": {
                             "type": "string"
@@ -47564,6 +47610,11 @@
                                   "pattern": "\\S",
                                   "type": "string"
                                 },
+                                "matchContext": {
+                                  "maximum": 10,
+                                  "minimum": 0,
+                                  "type": "integer"
+                                },
                                 "matchString": {
                                   "type": "string"
                                 },
@@ -48300,6 +48351,11 @@
                                               "maxLength": 500,
                                               "pattern": "\\S",
                                               "type": "string"
+                                            },
+                                            "matchContext": {
+                                              "maximum": 10,
+                                              "minimum": 0,
+                                              "type": "integer"
                                             },
                                             "matchString": {
                                               "type": "string"
@@ -49365,7 +49421,7 @@
                     "type": "boolean"
                   },
                   "changedFiles": {
-                    "description": "Patch-free inventory rows \"M +3 -1 path\" (A added, D removed, R renamed, C copied, T changed, U unchanged); \"!tooLarge\"/\"!binary\"/\"!omitted\" before path: no patch; \" <- full/old/path\": rename origin. {\"dir/\": [rows]}: path = dir + name.",
+                    "description": "Patch-free rows \"M +3 -1 [!tooLarge|!binary|!omitted ]path[ <- full/old/path]\" (git status letters, T changed, U unchanged; ! = no patch). {\"dir/\": [rows]}: path = dir + name.",
                     "type": "boolean"
                   },
                   "comments": {
@@ -49499,7 +49555,7 @@
                     "type": "integer"
                   },
                   "paths": {
-                    "description": "Any-of. A plain path matches that file or directory; a glob (\"*\" one segment, \"**\" any) matches the path, or the file name when it has no \"/\" (\"*.ts\").",
+                    "description": "Any-of: file/dir path, or glob (\"*\" one segment, \"**\" any; no \"/\" = file name, \"*.ts\").",
                     "items": {
                       "minLength": 1,
                       "type": "string"
@@ -49548,6 +49604,12 @@
                 "pattern": "\\S",
                 "type": "string"
               },
+              "matchContext": {
+                "description": "Lines around each patch hit; omit: 3.",
+                "maximum": 10,
+                "minimum": 0,
+                "type": "integer"
+              },
               "matchString": {
                 "description": "Filter text; patches keep matching lines ±3.",
                 "type": "string"
@@ -49572,7 +49634,7 @@
                 "$ref": "#/$defs/HI_Owner"
               },
               "pageSize": {
-                "description": "Omit: 30 comments/reviews/commits/patch files (max 100); a patch-free inventory fills the response page (max 1000).",
+                "description": "Omit: 30 (max 100); a patch-free inventory fills the page (max 1000).",
                 "maximum": 1000,
                 "minimum": 1,
                 "type": "integer"
@@ -49916,7 +49978,8 @@
             "charLength",
             "minify",
             "number",
-            "fileFilter"
+            "fileFilter",
+            "matchContext"
           ],
           "name": "pullRequest",
           "requires": [
@@ -52423,6 +52486,11 @@
                             "maxLength": 500,
                             "pattern": "\\S",
                             "type": "string"
+                          },
+                          "matchContext": {
+                            "maximum": 10,
+                            "minimum": 0,
+                            "type": "integer"
                           },
                           "matchString": {
                             "type": "string"
@@ -59147,6 +59215,11 @@
                             "pattern": "\\S",
                             "type": "string"
                           },
+                          "matchContext": {
+                            "maximum": 10,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
                           "matchString": {
                             "type": "string"
                           },
@@ -65652,6 +65725,11 @@
                             "maxLength": 500,
                             "pattern": "\\S",
                             "type": "string"
+                          },
+                          "matchContext": {
+                            "maximum": 10,
+                            "minimum": 0,
+                            "type": "integer"
                           },
                           "matchString": {
                             "type": "string"
@@ -73188,6 +73266,11 @@
                             "maxLength": 500,
                             "pattern": "\\S",
                             "type": "string"
+                          },
+                          "matchContext": {
+                            "maximum": 10,
+                            "minimum": 0,
+                            "type": "integer"
                           },
                           "matchString": {
                             "type": "string"
@@ -80842,6 +80925,11 @@
                             "maxLength": 500,
                             "pattern": "\\S",
                             "type": "string"
+                          },
+                          "matchContext": {
+                            "maximum": 10,
+                            "minimum": 0,
+                            "type": "integer"
                           },
                           "matchString": {
                             "type": "string"
@@ -90749,6 +90837,11 @@
                             "pattern": "\\S",
                             "type": "string"
                           },
+                          "matchContext": {
+                            "maximum": 10,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
                           "matchString": {
                             "type": "string"
                           },
@@ -99641,6 +99734,11 @@
                             "pattern": "\\S",
                             "type": "string"
                           },
+                          "matchContext": {
+                            "maximum": 10,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
                           "matchString": {
                             "type": "string"
                           },
@@ -107575,6 +107673,11 @@
                             "pattern": "\\S",
                             "type": "string"
                           },
+                          "matchContext": {
+                            "maximum": 10,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
                           "matchString": {
                             "type": "string"
                           },
@@ -114874,6 +114977,11 @@
                             "maxLength": 500,
                             "pattern": "\\S",
                             "type": "string"
+                          },
+                          "matchContext": {
+                            "maximum": 10,
+                            "minimum": 0,
+                            "type": "integer"
                           },
                           "matchString": {
                             "type": "string"

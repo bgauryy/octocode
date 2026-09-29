@@ -350,10 +350,13 @@ fn render_structured(response: Value, format: TextFormat) -> String {
 
 /// History items in YAML: a patch inside YAML is a double-quoted scalar that
 /// escapes every line break, carriage return, quote and backslash (5–15% of a
-/// diff). Each non-empty patch leaves its changed-file row and follows the
-/// metadata verbatim under `=== patch <path> (<n> chars) ===`; diff lines
-/// start with ` `, `+`, `-`, `@` or `\`, so the header cannot be mistaken
-/// for patch text. JSON text keeps the structured encoding unchanged.
+/// diff). Each non-empty patch leaves the YAML with its changed-file row and
+/// follows the metadata verbatim under one header that folds the row in:
+/// `=== patch M +3 -1 path[ <- old/path] (<span>) ===`, where the span is
+/// `n chars`, `n of F chars` (a `matchString` view of an F-char patch) or
+/// `chars a-b of T` (a window). Diff lines start with ` `, `+`, `-`, `@` or
+/// `\`, so a header cannot be mistaken for patch text. Structured content
+/// keeps every row; JSON text keeps the structured encoding unchanged.
 fn render_diff(mut response: Value, format: TextFormat) -> String {
     if format == TextFormat::Json {
         return render_structured(response, format);
@@ -374,20 +377,18 @@ fn render_diff(mut response: Value, format: TextFormat) -> String {
         );
     }
     let mut text = render_structured(response, format);
-    for (path, patch) in patches {
-        text.push_str(&format!(
-            "\n=== patch {path} ({} chars) ===\n{patch}\n",
-            patch.chars().count()
-        ));
+    for (header, patch) in patches {
+        text.push_str(&format!("\n=== patch {header} ===\n{patch}\n"));
     }
     text
 }
 
-/// Move non-empty `patch` strings out of changed-file rows (`changedFiles`,
-/// `files`) in document order; `next.*` continuation queries stay intact.
+/// Move changed-file rows with a non-empty `patch` (`changedFiles`, `files`)
+/// out of the YAML in document order; `next.*` continuation queries stay.
 fn take_patches(value: &mut Value, label: &str, out: &mut Vec<(String, String)>) {
     match value {
         Value::Object(map) => {
+            let mut emptied = Vec::new();
             for (key, child) in map.iter_mut() {
                 if key == "next" {
                     continue;
@@ -395,11 +396,21 @@ fn take_patches(value: &mut Value, label: &str, out: &mut Vec<(String, String)>)
                 if matches!(key.as_str(), "changedFiles" | "files")
                     && let Some(rows) = child.as_array_mut()
                 {
-                    for row in rows.iter_mut() {
-                        take_row_patch(row, label, out);
+                    rows.retain(|row| match patch_section(row, label) {
+                        Some(section) => {
+                            out.push(section);
+                            false
+                        }
+                        None => true,
+                    });
+                    if rows.is_empty() {
+                        emptied.push(key.clone());
                     }
                 }
                 take_patches(child, label, out);
+            }
+            for key in emptied {
+                map.remove(&key);
             }
         }
         Value::Array(items) => items
@@ -409,26 +420,48 @@ fn take_patches(value: &mut Value, label: &str, out: &mut Vec<(String, String)>)
     }
 }
 
-fn take_row_patch(row: &mut Value, label: &str, out: &mut Vec<(String, String)>) {
-    let Some(fields) = row.as_object_mut() else {
-        return;
+/// The `(header, patch)` section of a changed-file row with a non-empty patch.
+fn patch_section(row: &Value, label: &str) -> Option<(String, String)> {
+    let patch = row
+        .get("patch")?
+        .as_str()
+        .filter(|patch| !patch.is_empty())?;
+    let text = |key: &str| row.get(key).and_then(Value::as_str);
+    let count = |key: &str| row.get(key).and_then(Value::as_u64);
+    let mut header = label.to_owned();
+    if let Some(status) = text("status") {
+        let code = match status {
+            "added" => "A",
+            "removed" => "D",
+            "modified" => "M",
+            "renamed" => "R",
+            "copied" => "C",
+            "changed" => "T",
+            "unchanged" => "U",
+            other => other,
+        };
+        header.push_str(&format!(
+            "{code} +{} -{} ",
+            count("additions").unwrap_or(0),
+            count("deletions").unwrap_or(0)
+        ));
+    }
+    header.push_str(text("path").or_else(|| text("filename")).unwrap_or(""));
+    if let Some(previous) = text("previousPath").or_else(|| text("previousFilename")) {
+        header.push_str(&format!(" <- {previous}"));
+    }
+    let chars = patch.chars().count();
+    let span = match (row.get("patchPagination"), count("fullPatchChars")) {
+        (Some(page), _) => {
+            let from = page.get("charOffset").and_then(Value::as_u64).unwrap_or(0);
+            let total = page.get("totalChars").and_then(Value::as_u64).unwrap_or(0);
+            format!("chars {from}-{} of {total}", from + chars as u64)
+        }
+        (None, Some(full)) => format!("{chars} of {full} chars"),
+        (None, None) => format!("{chars} chars"),
     };
-    if fields
-        .get("patch")
-        .and_then(Value::as_str)
-        .is_none_or(str::is_empty)
-    {
-        return;
-    }
-    let path = fields
-        .get("path")
-        .or_else(|| fields.get("filename"))
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_owned();
-    if let Some(Value::String(patch)) = fields.remove("patch") {
-        out.push((format!("{label}{path}"), patch));
-    }
+    header.push_str(&format!(" ({span})"));
+    Some((header, patch.to_owned()))
 }
 
 fn order_fields(value: &mut Value, keys: &[&str]) {
@@ -682,7 +715,11 @@ mod tests {
         let patch = "@@ -1 +1 @@\r\n-say(\"a\\b\")\r\n+say(\"c\")";
         let response = json!({"results":[{"index":0,"data":{"type":"pullRequests","pullRequests":[{
             "number":1,"changedFiles":[
-                {"path":"src/a.ts","status":"modified","patch":patch},
+                {"path":"src/a.ts","status":"modified","additions":1,"deletions":1,"patch":patch},
+                {"path":"src/b.ts","status":"renamed","previousPath":"old/b.ts","additions":2,"deletions":0,
+                 "fullPatchChars":900,"patch":"+b"},
+                {"path":"src/c.ts","status":"added","additions":9,"deletions":0,"patch":"+c",
+                 "patchPagination":{"charOffset":10,"charLength":2,"totalChars":30,"hasMore":true,"nextCharOffset":12}},
                 {"path":"src/moved.ts","status":"renamed","patch":""},
                 {"path":"big.ts","patchUnavailable":"tooLarge"}
             ]}],
@@ -695,7 +732,17 @@ mod tests {
         );
         let (yaml, patches) = text.split_once("\n=== patch ").expect("patch section");
         assert!(!yaml.contains("say("), "{yaml}");
-        assert!(yaml.contains("path: src/a.ts"), "{yaml}");
+        // A row whose patch follows is folded into that patch's header.
+        for folded in [
+            "src/a.ts",
+            "src/b.ts",
+            "src/c.ts",
+            "fullPatchChars",
+            "patchPagination",
+        ] {
+            assert!(!yaml.contains(folded), "{folded} repeated: {yaml}");
+        }
+        assert!(yaml.contains("path: big.ts"), "patchless rows stay: {yaml}");
         assert!(
             yaml.contains("patch: ''"),
             "empty rename diff stays inline: {yaml}"
@@ -706,7 +753,12 @@ mod tests {
         );
         assert_eq!(
             patches,
-            format!("src/a.ts ({} chars) ===\n{patch}\n", patch.chars().count())
+            format!(
+                "M +1 -1 src/a.ts ({} chars) ===\n{patch}\n\
+                 \n=== patch R +2 -0 src/b.ts <- old/b.ts (2 of 900 chars) ===\n+b\n\
+                 \n=== patch A +9 -0 src/c.ts (chars 10-12 of 30) ===\n+c\n",
+                patch.chars().count()
+            )
         );
         // JSON text keeps the exact structured encoding.
         let json_text = render_tool(

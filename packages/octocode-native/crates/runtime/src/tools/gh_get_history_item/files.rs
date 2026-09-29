@@ -381,7 +381,11 @@ pub(super) fn shape_pr_files(
 
 fn history_patch_view(value: &str, query: &HistoryItemRequest) -> String {
     if let Some(needle) = needle(query)
-        && let Some(hunks) = matching_hunks(value, &needle)
+        && let Some(hunks) = matching_hunks(
+            value,
+            &needle,
+            query.match_context().unwrap_or(MATCH_CONTEXT_LINES),
+        )
     {
         return hunks;
     }
@@ -399,7 +403,7 @@ fn history_patch_view(value: &str, query: &HistoryItemRequest) -> String {
     }
 }
 
-/// Unchanged lines kept around each `matchString` hit.
+/// Diff lines kept around each `matchString` hit when `matchContext` is omitted.
 const MATCH_CONTEXT_LINES: usize = 3;
 /// A `matchString` view clips diff lines longer than this (generated or
 /// minified text) to the characters around each hit.
@@ -483,11 +487,11 @@ struct DiffLine<'a> {
 }
 
 /// A `matchString` patch view: only the diff lines containing `needle`
-/// (lowercase) plus [`MATCH_CONTEXT_LINES`] around them, each run under a
+/// (lowercase) plus `context` lines around them, each run under a
 /// recomputed `@@ -a,b +c,d @@` header (the original section heading kept),
 /// line text verbatim. `None` when no diff line matches (the file matched by
 /// path), so the caller keeps the whole patch.
-fn matching_hunks(patch: &str, needle: &str) -> Option<String> {
+fn matching_hunks(patch: &str, needle: &str, context: usize) -> Option<String> {
     let mut hunks: Vec<(&str, Vec<DiffLine<'_>>)> = Vec::new();
     let (mut old, mut new) = (0usize, 0usize);
     for text in patch.split_inclusive('\n') {
@@ -535,8 +539,8 @@ fn matching_hunks(patch: &str, needle: &str) -> Option<String> {
         let mut runs: Vec<(usize, usize)> = Vec::new();
         for hit in hits {
             let (from, to) = (
-                hit.saturating_sub(MATCH_CONTEXT_LINES),
-                (hit + MATCH_CONTEXT_LINES).min(lines.len() - 1),
+                hit.saturating_sub(context),
+                (hit + context).min(lines.len() - 1),
             );
             match runs.last_mut() {
                 Some(run) if from <= run.1 + 1 => run.1 = run.1.max(to),
@@ -1229,20 +1233,25 @@ mod tests {
         let patch = format!(
             "@@ -1,22 +1,22 @@ fn main\r\n{body}-old Needle\r\n+new needle\r\n{body}@@ -80,3 +80,3 @@\n x\n-y\n+z"
         );
-        let view = matching_hunks(&patch, "needle").expect("a line matches");
+        let view = matching_hunks(&patch, "needle", 3).expect("a line matches");
         assert_eq!(
             view,
             "@@ -18,4 +18,4 @@ fn main\n line 18\r\n line 19\r\n line 20\r\n-old Needle\r\n+new needle\r\n line 1\r\n line 2\r\n line 3\r\n"
                 .replace("@@ -18,4 +18,4 @@", "@@ -18,7 +18,7 @@")
         );
-        assert!(matching_hunks(&patch, "absent").is_none());
+        assert!(matching_hunks(&patch, "absent", 3).is_none());
+        // matchContext 0: only the hit lines, under one header per run.
+        assert_eq!(
+            matching_hunks(&patch, "needle", 0).as_deref(),
+            Some("@@ -21,1 +21,1 @@ fn main\n-old Needle\r\n+new needle\r\n")
+        );
         // A generated one-line diff keeps only the text around each hit.
         let long = format!(
             "@@ -1 +1 @@\n+{}PointerEvent{}\r\n",
             "a".repeat(1_000),
             "b".repeat(1_000)
         );
-        let clipped = matching_hunks(&long, "pointerevent").expect("hit");
+        let clipped = matching_hunks(&long, "pointerevent", 3).expect("hit");
         assert_eq!(
             clipped,
             format!(
