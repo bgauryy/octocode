@@ -214,8 +214,9 @@ fn compact_inventory(files: &[Value]) -> Vec<Value> {
             out.push(Value::Object(group));
         } else {
             out.extend(
-                run.iter()
-                    .map(|file| json!(inventory_row(file, str_at(file, "/filename").unwrap_or("")))),
+                run.iter().map(|file| {
+                    json!(inventory_row(file, str_at(file, "/filename").unwrap_or("")))
+                }),
             );
         }
         start = end;
@@ -1118,7 +1119,8 @@ mod tests {
                     Value::Object(group) => {
                         for (dir, rows) in group {
                             for row in rows.as_array().into_iter().flatten() {
-                                let name = row.as_str().unwrap_or("").rsplit(' ').next().unwrap_or("");
+                                let name =
+                                    row.as_str().unwrap_or("").rsplit(' ').next().unwrap_or("");
                                 out.push(format!("{dir}{name}"));
                             }
                         }

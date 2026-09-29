@@ -61,7 +61,10 @@ async fn ordinary_tools_require_trace_context() {
         )
         .await
         .expect("a followUp continuation needs no brief");
-    assert_eq!(follow_up.structured_content["results"][0]["data"]["content"], "ok\n");
+    assert_eq!(
+        follow_up.structured_content["results"][0]["data"]["content"],
+        "ok\n"
+    );
 
     let outcome = runtime
         .execute(
@@ -1037,12 +1040,24 @@ async fn continuations_carry_follow_up_instead_of_the_brief_and_replay() {
     let next = &first.structured_content["results"][0]["data"]["next"]["nextPage"];
     let query = next["query"].clone();
     assert_eq!(query["followUp"], true, "{next}");
-    assert!(query.get("goal").is_none() && query.get("reasoning").is_none(), "{next}");
+    assert!(
+        query.get("goal").is_none() && query.get("reasoning").is_none(),
+        "{next}"
+    );
     let second = runtime
-        .execute("page-2".into(), next["tool"].as_str().unwrap().into(), query)
+        .execute(
+            "page-2".into(),
+            next["tool"].as_str().unwrap().into(),
+            query,
+        )
         .await
         .expect("the continuation replays unchanged");
-    assert_eq!(second.structured_content["results"][0]["data"]["files"].as_array().map(Vec::len), Some(1));
+    assert_eq!(
+        second.structured_content["results"][0]["data"]["files"]
+            .as_array()
+            .map(Vec::len),
+        Some(1)
+    );
     runtime.close().await;
 }
 
@@ -1055,10 +1070,18 @@ async fn default_excludes_false_walks_dependency_directories() {
     let names = |outcome: &octocode_native::runtime::ToolOutcome| {
         serde_json::to_string(&outcome.structured_content).unwrap_or_default()
     };
-    let pruned = call(&runtime, "localSearch", json!({"path":workspace.workspace,"searchText":"needle"}))
-        .await
-        .expect("default prune");
-    assert!(!names(&pruned).contains("node_modules"), "{}", names(&pruned));
+    let pruned = call(
+        &runtime,
+        "localSearch",
+        json!({"path":workspace.workspace,"searchText":"needle"}),
+    )
+    .await
+    .expect("default prune");
+    assert!(
+        !names(&pruned).contains("node_modules"),
+        "{}",
+        names(&pruned)
+    );
     let all = call(
         &runtime,
         "localSearch",

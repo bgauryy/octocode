@@ -19,7 +19,10 @@ fn cursor_scope(query: &ArtifactSearchQuery) -> Result<String, ArtifactError> {
     if let Some(object) = value.as_object_mut() {
         // Caller intent and diagnostics do not change which results a page
         // holds; a replayed page may restate them freely.
-        for meta in crate::runtime::cursor::INTENT_FIELDS.iter().chain(&["cursor"]) {
+        for meta in crate::runtime::cursor::INTENT_FIELDS
+            .iter()
+            .chain(&["cursor"])
+        {
             object.remove(*meta);
         }
         // Removing optional fields can reorder a preserve_order JSON map.

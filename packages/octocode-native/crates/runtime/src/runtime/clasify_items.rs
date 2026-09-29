@@ -19,7 +19,6 @@ pub(super) struct Item {
     pub item: Option<String>,
 }
 
-
 /// Split one captured list page into candidates. `None` leaves the page whole:
 /// the tool has no candidate list, or the page lists nothing.
 pub(super) fn split(source: &Value, state: &Value) -> Option<Vec<Item>> {
@@ -103,11 +102,7 @@ fn line(value: &Value, key: &str) -> Option<u64> {
     value.get(key).and_then(Value::as_u64)
 }
 
-fn ast_matches(
-    state: &Value,
-    data: &Value,
-    base: Option<&str>
-) -> Option<Vec<Item>> {
+fn ast_matches(state: &Value, data: &Value, base: Option<&str>) -> Option<Vec<Item>> {
     let items = data
         .get("files")?
         .as_array()?
@@ -131,11 +126,7 @@ fn ast_matches(
 }
 
 /// A directory outline is already grouped per file: one candidate each.
-fn symbol_files(
-    state: &Value,
-    data: &Value,
-    base: Option<&str>
-) -> Option<Vec<Item>> {
+fn symbol_files(state: &Value, data: &Value, base: Option<&str>) -> Option<Vec<Item>> {
     let items = data
         .get("files")?
         .as_array()?
@@ -178,7 +169,7 @@ fn declarations(
     state: &Value,
     data: &Value,
     base: Option<&str>,
-    query: &Value
+    query: &Value,
 ) -> Option<Vec<Item>> {
     let rows = data.get("declarations")?.as_array()?;
     let fallback = data
@@ -201,12 +192,7 @@ fn declarations(
     Some(items)
 }
 
-fn references(
-    state: &Value,
-    data: &Value,
-    base: Option<&str>,
-    query: &Value
-) -> Option<Vec<Item>> {
+fn references(state: &Value, data: &Value, base: Option<&str>, query: &Value) -> Option<Vec<Item>> {
     let rows = data.pointer("/payload/locations")?.as_array()?;
     let fallback = query.get("uri").and_then(Value::as_str);
     let items = grouped(rows, fallback)

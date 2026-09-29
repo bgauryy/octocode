@@ -1,7 +1,7 @@
 //! Public-page windows over GitHub REST collections: provider batch loading
 //! derived from public page cursors, and the page objects reported back.
-use super::{DEFAULT_PAGE_SIZE, fetch};
 use super::files::MAX_INVENTORY_PAGE;
+use super::{DEFAULT_PAGE_SIZE, fetch};
 use crate::providers::github::{
     CredentialResolver, GitHubTransport, ProviderError, RequestContext,
 };

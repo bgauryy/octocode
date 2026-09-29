@@ -151,13 +151,8 @@ pub(super) async fn shape_pr_commits<R: CredentialResolver>(
             )
             .await?;
             let files = array(detail.get("files").cloned().unwrap_or(json!([])));
-            let (files, files_page) = paginate_window(
-                files,
-                0,
-                !more,
-                Some(1),
-                Some(query.collection_page_size()),
-            );
+            let (files, files_page) =
+                paginate_window(files, 0, !more, Some(1), Some(query.collection_page_size()));
             commit["files"] = shape_files(files, true, query);
             commit["filesPagination"] = commit_files_pagination(files_page);
             attach_diff_continuations(&mut commit, query, ItemOperation::Commit, Some(&sha), true);

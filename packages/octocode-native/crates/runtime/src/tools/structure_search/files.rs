@@ -110,7 +110,9 @@ pub fn execute_files(
             executable: Some(access == Some("executable")),
             readable: Some(access == Some("readable")),
             writable: Some(access == Some("writable")),
-            exclude_dir: Some(PruneMode::SyntaxVisible.directories(&q.exclude_dir, q.default_excludes.defaults())),
+            exclude_dir: Some(
+                PruneMode::SyntaxVisible.directories(&q.exclude_dir, q.default_excludes.defaults()),
+            ),
             stop_at_limit: Some(true),
             limit: Some(MAX_WALK),
         },

@@ -247,7 +247,10 @@ fn execute_match_inner(
                     }),
                     exclude: q.exclude(),
                     exclude_dir: Some(
-                        PruneMode::SyntaxVisible.directories(&q.exclude_dir().unwrap_or_default(), q.default_excludes()),
+                        PruneMode::SyntaxVisible.directories(
+                            &q.exclude_dir().unwrap_or_default(),
+                            q.default_excludes(),
+                        ),
                     ),
                     hidden: q.hidden(),
                     no_ignore: q.no_ignore(),

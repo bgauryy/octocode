@@ -263,6 +263,8 @@ pub(super) async fn pull_request<R: CredentialResolver>(
     let slim = (query.follow_up() || inventory) && !query.debug();
     let mut row = pr_metadata(&raw, query, wants.body);
     if slim && let Some(fields) = row.as_object_mut() {
+        // A first inventory page also keeps the diff size it lists.
+        let totals = !query.follow_up();
         fields.retain(|key, _| {
             matches!(
                 key.as_str(),
@@ -274,7 +276,7 @@ pub(super) async fn pull_request<R: CredentialResolver>(
                     | "sourceSha"
                     | "mergeCommitSha"
                     | "changedFilesCount"
-            )
+            ) || (totals && matches!(key.as_str(), "additions" | "deletions"))
         });
     }
     if !sanitization_warnings.is_empty() {
@@ -351,7 +353,7 @@ pub(super) async fn pull_request<R: CredentialResolver>(
             &raw,
         );
     } else if inventory && !query.follow_up() {
-        // The inventory's own next step: read selected patches.
+        // The inventory's own next steps: selected patches, the merge commit.
         let mut menu = pr_next_menu(
             query,
             content,
@@ -360,7 +362,7 @@ pub(super) async fn pull_request<R: CredentialResolver>(
             &raw,
         );
         if let Some(menu) = menu.as_object_mut() {
-            menu.retain(|name, _| name == "getSelectedPatches");
+            menu.retain(|name, _| matches!(name.as_str(), "getSelectedPatches" | "getMergeCommit"));
         }
         if menu.as_object().is_some_and(|menu| !menu.is_empty()) {
             row["next"] = menu;

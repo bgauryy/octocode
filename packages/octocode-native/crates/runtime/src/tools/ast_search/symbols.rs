@@ -154,7 +154,10 @@ pub fn execute_symbols(
         let r = octocode_engine::portable::scan_graph_facts_filtered(
             GraphFactsScanOptions {
                 path: p.canonical.to_string_lossy().into_owned(),
-                exclude_dir: Some(PruneMode::SyntaxVisible.directories(&q.exclude_dir, q.default_excludes.defaults())),
+                exclude_dir: Some(
+                    PruneMode::SyntaxVisible
+                        .directories(&q.exclude_dir, q.default_excludes.defaults()),
+                ),
                 max_files: Some(q.max_files()),
                 max_file_bytes: u32::try_from(super::MAX_PARSE_SOURCE_BYTES).ok(),
                 language_globs: q.language_globs().map(|map| {

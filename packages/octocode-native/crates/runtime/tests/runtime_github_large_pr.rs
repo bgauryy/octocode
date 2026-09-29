@@ -162,7 +162,7 @@ async fn large_pr_inventory_flags_patchless_files_and_keeps_rename_origin() {
 }
 
 #[tokio::test]
-async fn pr_inventory_carries_the_identity_header_and_its_patch_step_only() {
+async fn pr_inventory_carries_the_identity_header_and_its_own_next_steps_only() {
     let server = MockServer::start().await;
     mount_pr(&server, 250).await;
     mount_file_batches(
@@ -177,7 +177,15 @@ async fn pr_inventory_carries_the_identity_header_and_its_patch_step_only() {
     )
     .await;
     let row = &data["pullRequests"][0];
-    for kept in ["number", "title", "state", "sourceSha", "mergeCommitSha"] {
+    for kept in [
+        "number",
+        "title",
+        "state",
+        "sourceSha",
+        "mergeCommitSha",
+        "additions",
+        "deletions",
+    ] {
         assert!(row.get(kept).is_some(), "{kept} missing: {row}");
     }
     for dropped in ["labels", "bodyPreview", "updatedAt", "targetBranch"] {
@@ -186,7 +194,7 @@ async fn pr_inventory_carries_the_identity_header_and_its_patch_step_only() {
     let menu = row["next"].as_object().expect("next");
     assert_eq!(
         menu.keys().collect::<Vec<_>>(),
-        ["getSelectedPatches"],
+        ["getSelectedPatches", "getMergeCommit"],
         "{row}"
     );
     // An omitted pageSize reads the whole 250-file inventory in one page.

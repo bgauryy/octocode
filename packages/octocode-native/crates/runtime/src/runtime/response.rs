@@ -1425,7 +1425,10 @@ mod tests {
                 "diagnostics":[{"code":"unlinkedImport","file":"b.rs"}],
                 "diagnosticsPagination":{"currentPage":1,"totalPages":2,"hasMore":true}}}),
         );
-        assert_eq!(row["data"]["coverage"]["diagnostics"][0]["file"], "b.rs", "{row}");
+        assert_eq!(
+            row["data"]["coverage"]["diagnostics"][0]["file"], "b.rs",
+            "{row}"
+        );
         assert!(row["data"].get("filesScanned").is_none(), "{row}");
     }
 

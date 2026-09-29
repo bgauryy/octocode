@@ -1675,7 +1675,10 @@ async fn partial_provider_answers_are_not_cached_and_a_failed_read_is_isolated()
     assert_eq!(resources[0]["coverage"], "error", "{resources}");
     assert!(resources[0]["pages"][0]["error"]["code"].is_string());
     assert_eq!(resources[1]["coverage"], "partial", "{resources}");
-    assert_eq!(resources[1]["pages"][0]["answers"]["a"], json!({"noul":0.3}));
+    assert_eq!(
+        resources[1]["pages"][0]["answers"]["a"],
+        json!({"noul":0.3})
+    );
     assert!(resources[1]["pages"][0]["answers"]["b"]["error"].is_object());
     let second = runtime
         .execute("partial-2".into(), "clasify".into(), input)

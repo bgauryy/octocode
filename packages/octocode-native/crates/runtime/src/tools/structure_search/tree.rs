@@ -61,7 +61,9 @@ pub fn execute_tree(
             show_hidden: Some(q.hidden.unwrap_or(false)),
             extensions: (!q.extensions.is_empty()).then(|| q.extensions.clone()),
             entry_type: q.entry_type.map(|kind| kind.to_string()),
-            exclude_dir: Some(PruneMode::SyntaxVisible.directories(&q.exclude_dir, q.default_excludes.defaults())),
+            exclude_dir: Some(
+                PruneMode::SyntaxVisible.directories(&q.exclude_dir, q.default_excludes.defaults()),
+            ),
             stop_at_limit: Some(true),
             limit: Some(MAX_WALK),
             ..Default::default()
