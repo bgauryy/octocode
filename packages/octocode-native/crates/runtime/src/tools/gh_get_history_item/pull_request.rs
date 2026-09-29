@@ -1,6 +1,8 @@
 //! `operation: "pullRequest"`: concurrent collection loads (GraphQL first page
 //! or REST windows), metadata row, and assembly of the shaped sections.
-use super::continuations::{BODY_PREVIEW_CHARS, pr_next_menu, promote_pr_continuations};
+use super::continuations::{
+    BODY_PREVIEW_CHARS, attach_full_patch_continuation, pr_next_menu, promote_pr_continuations,
+};
 use super::files::{FileFilter, InventoryFilter, file_page_size, patch_selection, shape_pr_files};
 use super::graphql::{
     GraphqlCollection, GraphqlPr, graphql_complete_collection_eligible, graphql_pull_request,
@@ -256,14 +258,14 @@ pub(super) async fn pull_request<R: CredentialResolver>(
     }
 
     // A continuation replay already holds the header and the follow-up menu,
-    // and a file inventory is read for its rows: both carry only the identity
-    // fields every page must re-prove, plus the fields the output contract
-    // requires of every pull-request row.
-    let inventory = content_flag(content, "changedFiles") && patch_mode == "none";
-    let slim = (query.follow_up() || inventory) && !query.debug();
+    // and a file inventory or patch read is read for its files: both carry
+    // only the identity fields every page must re-prove, plus the fields the
+    // output contract requires of every pull-request row.
+    let file_read = wants.files;
+    let slim = (query.follow_up() || file_read) && !query.debug();
     let mut row = pr_metadata(&raw, query, wants.body);
     if slim && let Some(fields) = row.as_object_mut() {
-        // A first inventory page also keeps the diff size it lists.
+        // A first file read also keeps the diff size it lists.
         let totals = !query.follow_up();
         fields.retain(|key, _| {
             matches!(
@@ -352,8 +354,9 @@ pub(super) async fn pull_request<R: CredentialResolver>(
             first_changed_path.as_deref(),
             &raw,
         );
-    } else if inventory && !query.follow_up() {
-        // The inventory's own next steps: selected patches, the merge commit.
+    } else if file_read && !query.follow_up() {
+        // A file read's own next steps: selected patches (from an
+        // inventory), the merge commit.
         let mut menu = pr_next_menu(
             query,
             content,
@@ -380,6 +383,7 @@ pub(super) async fn pull_request<R: CredentialResolver>(
         ]);
     }
     promote_pr_continuations(&mut out, query);
+    attach_full_patch_continuation(&mut out, query);
     if !query.debug() {
         trim_content_pagination(&mut out);
     }

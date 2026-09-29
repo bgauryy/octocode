@@ -380,6 +380,11 @@ pub(super) fn shape_pr_files(
 }
 
 fn history_patch_view(value: &str, query: &HistoryItemRequest) -> String {
+    if let Some(needle) = needle(query)
+        && let Some(hunks) = matching_hunks(value, &needle)
+    {
+        return hunks;
+    }
     if minified_view(query) {
         octocode_engine::portable::filter_patch(
             value,
@@ -392,6 +397,177 @@ fn history_patch_view(value: &str, query: &HistoryItemRequest) -> String {
     } else {
         value.to_owned()
     }
+}
+
+/// Unchanged lines kept around each `matchString` hit.
+const MATCH_CONTEXT_LINES: usize = 3;
+/// A `matchString` view clips diff lines longer than this (generated or
+/// minified text) to the characters around each hit.
+const MATCH_LINE_CHARS: usize = 400;
+/// Characters kept on each side of a hit inside a clipped line, and at the
+/// start of a clipped line without one.
+const MATCH_LINE_SIDE: usize = 150;
+
+/// Clip a long diff line for a `matchString` view: keep the diff marker, the
+/// text around each hit, and its line ending; each cut becomes
+/// `[… N chars …]`. Lines up to [`MATCH_LINE_CHARS`] stay verbatim.
+fn clip_line<'a>(text: &'a str, needle: &str) -> std::borrow::Cow<'a, str> {
+    if text.chars().count() <= MATCH_LINE_CHARS {
+        return text.into();
+    }
+    let lower = text.to_lowercase();
+    let body_end = text.trim_end_matches(['\r', '\n']).len();
+    let floor = |mut at: usize| {
+        at = at.min(body_end);
+        while !text.is_char_boundary(at) {
+            at -= 1;
+        }
+        at
+    };
+    let ceil = |mut at: usize| {
+        at = at.min(body_end);
+        while !text.is_char_boundary(at) {
+            at += 1;
+        }
+        at
+    };
+    // Byte offsets carry over only when lowercasing kept every length.
+    let hits = if lower.len() == text.len() && !needle.is_empty() {
+        lower
+            .match_indices(needle)
+            .map(|(at, _)| (at, at + needle.len()))
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    let mut keep: Vec<(usize, usize)> = vec![(0, ceil(1))];
+    if hits.is_empty() {
+        keep.push((0, ceil(MATCH_LINE_SIDE)));
+    }
+    for (start, end) in hits {
+        let span = (
+            floor(start.saturating_sub(MATCH_LINE_SIDE)),
+            ceil(end + MATCH_LINE_SIDE),
+        );
+        match keep.last_mut() {
+            Some(last) if span.0 <= last.1 => last.1 = last.1.max(span.1),
+            _ => keep.push(span),
+        }
+    }
+    let mut out = String::new();
+    let mut at = 0;
+    for (start, end) in keep {
+        let start = start.max(at);
+        if start > at {
+            out.push_str(&format!("[… {} chars …]", text[at..start].chars().count()));
+        }
+        out.push_str(&text[start..end.max(start)]);
+        at = end.max(start);
+    }
+    if at < body_end {
+        out.push_str(&format!(
+            "[… {} chars …]",
+            text[at..body_end].chars().count()
+        ));
+    }
+    out.push_str(&text[body_end..]);
+    out.into()
+}
+
+/// One diff body line: its text (with its line ending) and the old/new line
+/// numbers it occupies (`None` on the side it is absent from).
+struct DiffLine<'a> {
+    text: &'a str,
+    old: Option<usize>,
+    new: Option<usize>,
+}
+
+/// A `matchString` patch view: only the diff lines containing `needle`
+/// (lowercase) plus [`MATCH_CONTEXT_LINES`] around them, each run under a
+/// recomputed `@@ -a,b +c,d @@` header (the original section heading kept),
+/// line text verbatim. `None` when no diff line matches (the file matched by
+/// path), so the caller keeps the whole patch.
+fn matching_hunks(patch: &str, needle: &str) -> Option<String> {
+    let mut hunks: Vec<(&str, Vec<DiffLine<'_>>)> = Vec::new();
+    let (mut old, mut new) = (0usize, 0usize);
+    for text in patch.split_inclusive('\n') {
+        if let Some(rest) = text.strip_prefix("@@ -") {
+            let mut sides = rest.split(' ');
+            let start = |side: Option<&str>| {
+                side.and_then(|s| s.split(',').next())
+                    .and_then(|n| n.trim_start_matches(['-', '+']).parse().ok())
+                    .unwrap_or(0)
+            };
+            old = start(sides.next());
+            new = start(sides.next());
+            let heading = rest
+                .split_once(" @@")
+                .map_or("", |(_, heading)| heading)
+                .trim_end_matches(['\r', '\n']);
+            hunks.push((heading, Vec::new()));
+            continue;
+        }
+        let Some((_, lines)) = hunks.last_mut() else {
+            continue;
+        };
+        let (at_old, at_new) = match text.as_bytes().first() {
+            Some(b'+') => (None, Some(new)),
+            Some(b'-') => (Some(old), None),
+            Some(b'\\') => (None, None),
+            _ => (Some(old), Some(new)),
+        };
+        old += usize::from(at_old.is_some());
+        new += usize::from(at_new.is_some());
+        lines.push(DiffLine {
+            text,
+            old: at_old,
+            new: at_new,
+        });
+    }
+    let mut out = String::new();
+    for (heading, lines) in &hunks {
+        let hits = lines
+            .iter()
+            .enumerate()
+            .filter(|(_, line)| line.text.to_lowercase().contains(needle))
+            .map(|(i, _)| i)
+            .collect::<Vec<_>>();
+        let mut runs: Vec<(usize, usize)> = Vec::new();
+        for hit in hits {
+            let (from, to) = (
+                hit.saturating_sub(MATCH_CONTEXT_LINES),
+                (hit + MATCH_CONTEXT_LINES).min(lines.len() - 1),
+            );
+            match runs.last_mut() {
+                Some(run) if from <= run.1 + 1 => run.1 = run.1.max(to),
+                _ => runs.push((from, to)),
+            }
+        }
+        for (from, to) in runs {
+            let run = &lines[from..=to];
+            let side = |pick: fn(&DiffLine<'_>) -> Option<usize>,
+                        after: fn(&DiffLine<'_>) -> usize| {
+                let count = run.iter().filter(|line| pick(line).is_some()).count();
+                let start = run
+                    .iter()
+                    .find_map(pick)
+                    .unwrap_or_else(|| run.first().map_or(0, after).saturating_sub(1));
+                (start, count)
+            };
+            let (old_start, old_count) = side(|l| l.old, |l| l.new.unwrap_or(0));
+            let (new_start, new_count) = side(|l| l.new, |l| l.old.unwrap_or(0));
+            if !out.is_empty() && !out.ends_with('\n') {
+                out.push('\n');
+            }
+            out.push_str(&format!(
+                "@@ -{old_start},{old_count} +{new_start},{new_count} @@{heading}\n"
+            ));
+            for line in run {
+                out.push_str(&clip_line(line.text, needle));
+            }
+        }
+    }
+    (!out.is_empty()).then_some(out)
 }
 
 /// How a patch page's continuation cursor (`nextCharOffset`) is counted.
@@ -497,6 +673,17 @@ pub(super) fn shape_patch_page(
         .iter()
         .map(|view| view.as_deref().map_or(0, |v| v.chars().count()))
         .collect::<Vec<_>>();
+    // A `matchString` view narrowed to matching hunks names the whole
+    // patch's size, so the caller knows more exists.
+    let narrowed = files
+        .iter()
+        .zip(&views)
+        .map(|(file, view)| {
+            let patch = str_at(file, "/patch")?;
+            (needle(query).is_some() && view.as_deref() != Some(patch))
+                .then(|| patch.chars().count())
+        })
+        .collect::<Vec<_>>();
     let total = lengths.iter().sum::<usize>();
     let offset = query.char_offset().unwrap_or(0).min(total);
     let end = (offset + patch_window(query.char_length(), query.auto_page_chars)).min(total);
@@ -558,6 +745,9 @@ pub(super) fn shape_patch_page(
                 if !started && !is_cursor && !first_window {
                     continue;
                 }
+                if let Some(full) = narrowed[i] {
+                    row["fullPatchChars"] = json!(full);
+                }
                 if started || is_cursor {
                     let text = view
                         .chars()
@@ -603,16 +793,16 @@ pub(super) fn shape_files(
 
 /// Patch characters one call carries across a page's files by default, and
 /// the ceiling for an explicit `charLength`, derived from the effective
-/// automatic response page (`output.pagination.defaultCharLength`, 1k–50k):
-/// most of the page (7/10 by default, 4/5 at most), less a fixed reserve for
-/// string escapes and row metadata, never below 2/5 and 3/5 of it. A window
-/// of patches plus row metadata then fits one response page, so
-/// responsePagination rarely splits the row; when it does, the row's `next.*`
-/// rides only its last `rowPart`.
-const PATCH_DEFAULT_SHARE: (usize, usize) = (7, 10);
-const PATCH_BUDGET_SHARE: (usize, usize) = (4, 5);
-const PATCH_DEFAULT_RESERVE: usize = 2_000;
-const PATCH_BUDGET_RESERVE: usize = 1_500;
+/// automatic response page (`output.pagination.defaultCharLength`, 1k–50k).
+/// Rendered text prints patches verbatim (no escaping), so a window takes
+/// most of the page (4/5 by default, 9/10 at most) less a fixed reserve for
+/// the row header and metadata, never below 2/5 and 3/5 of it. A window of patches plus row
+/// metadata then fits one response page, so responsePagination rarely splits
+/// the row; when it does, the row's `next.*` rides only its last `rowPart`.
+const PATCH_DEFAULT_SHARE: (usize, usize) = (4, 5);
+const PATCH_BUDGET_SHARE: (usize, usize) = (9, 10);
+const PATCH_DEFAULT_RESERVE: usize = 5_000;
+const PATCH_BUDGET_RESERVE: usize = 3_000;
 /// Page assumed when the runtime did not supply one (direct callers, tests).
 const FALLBACK_AUTO_PAGE: usize = 20_000;
 
@@ -1012,7 +1202,7 @@ mod tests {
             json!({"mode":"selected","files":["a.rs","next.rs","b.rs"]}),
             "{out}"
         );
-        assert_eq!(next["filePage"], 1);
+        assert!(next.get("filePage").is_none(), "{next}");
         assert_eq!(next["charOffset"], 2);
         assert!(next.get("collectionPages").is_none());
     }
@@ -1021,12 +1211,55 @@ mod tests {
     /// patch reads in three calls at the default 50k page, not thirteen.
     #[test]
     fn patch_window_is_one_budget_for_the_whole_page() {
-        assert_eq!(patch_window(None, None), 14_000);
-        assert_eq!(patch_window(Some(50_000), None), 16_000);
+        assert_eq!(patch_window(None, None), 15_000);
+        assert_eq!(patch_window(Some(50_000), None), 17_000);
         assert_eq!(patch_window(Some(2), None), 2);
-        assert_eq!(patch_window(None, Some(50_000)), 35_000);
-        assert_eq!(patch_window(Some(100_000), Some(50_000)), 40_000);
+        assert_eq!(patch_window(None, Some(50_000)), 40_000);
+        assert_eq!(patch_window(Some(100_000), Some(50_000)), 45_000);
         assert_eq!(100_071usize.div_ceil(patch_window(None, Some(50_000))), 3);
+    }
+
+    /// `matchString` narrows a patch to the matching lines plus context under
+    /// recomputed hunk headers; a path-only match keeps the whole patch.
+    #[test]
+    fn match_string_patch_view_keeps_only_matching_hunks() {
+        let body = (1..=20)
+            .map(|n| format!(" line {n}\r\n"))
+            .collect::<String>();
+        let patch = format!(
+            "@@ -1,22 +1,22 @@ fn main\r\n{body}-old Needle\r\n+new needle\r\n{body}@@ -80,3 +80,3 @@\n x\n-y\n+z"
+        );
+        let view = matching_hunks(&patch, "needle").expect("a line matches");
+        assert_eq!(
+            view,
+            "@@ -18,4 +18,4 @@ fn main\n line 18\r\n line 19\r\n line 20\r\n-old Needle\r\n+new needle\r\n line 1\r\n line 2\r\n line 3\r\n"
+                .replace("@@ -18,4 +18,4 @@", "@@ -18,7 +18,7 @@")
+        );
+        assert!(matching_hunks(&patch, "absent").is_none());
+        // A generated one-line diff keeps only the text around each hit.
+        let long = format!(
+            "@@ -1 +1 @@\n+{}PointerEvent{}\r\n",
+            "a".repeat(1_000),
+            "b".repeat(1_000)
+        );
+        let clipped = matching_hunks(&long, "pointerevent").expect("hit");
+        assert_eq!(
+            clipped,
+            format!(
+                "@@ -0,0 +1,1 @@\n+[… 850 chars …]{}PointerEvent{}[… 850 chars …]\r\n",
+                "a".repeat(150),
+                "b".repeat(150)
+            )
+        );
+        let query = patch_request(json!({"matchString":"NEEDLE"}));
+        let page = shape_patch_page(
+            vec![file("src/a.rs", &patch)],
+            true,
+            &query,
+            PatchCursor::FirstUnfinished,
+        );
+        assert_eq!(page.rows[0]["patch"], view);
+        assert_eq!(page.rows[0]["fullPatchChars"], patch.chars().count());
     }
 
     fn inventory_request(fields: Value) -> HistoryItemRequest {

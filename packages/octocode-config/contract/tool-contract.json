@@ -1,6 +1,6 @@
 {
   "contractFormatVersion": 2,
-  "fingerprint": "e60e1529b2b0bf3a825f9dfbaf343167ebc4c8f000f7775bda0081fa87f0c878",
+  "fingerprint": "951448ae4f43f8736cd7bb300aea89506f55e34b83e452c52f002358bd024d9d",
   "tools": [
     {
       "defaults": [
@@ -41302,7 +41302,7 @@
                       "type": "string"
                     },
                     "matchString": {
-                      "description": "Filter selected text windows.",
+                      "description": "Filter text; patches keep matching lines ±3.",
                       "type": "string"
                     },
                     "minify": {
@@ -49549,7 +49549,7 @@
                 "type": "string"
               },
               "matchString": {
-                "description": "Filter selected text windows.",
+                "description": "Filter text; patches keep matching lines ±3.",
                 "type": "string"
               },
               "minify": {

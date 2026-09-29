@@ -41,6 +41,8 @@ enum RenderFamily {
     FileText(FileLayout),
     /// Ranked search hits (files, match rows, page cursor).
     SearchHits,
+    /// History items: metadata, then each changed file's patch verbatim.
+    Diff,
     /// Every other result: generic ordered encoding.
     Structured,
 }
@@ -57,11 +59,11 @@ impl RenderFamily {
             ToolId::LocalFetch => Self::FileText(FileLayout::Inline),
             ToolId::GhGetFileContent => Self::FileText(FileLayout::Files),
             ToolId::LocalSearch => Self::SearchHits,
+            ToolId::GhGetHistoryItem => Self::Diff,
             ToolId::GhSearchRepo
             | ToolId::GhSearchCode
             | ToolId::GhStructure
             | ToolId::GhSearchHistory
-            | ToolId::GhGetHistoryItem
             | ToolId::GhCloneRepo
             | ToolId::ArtifactSearch
             | ToolId::StructureSearch
@@ -80,6 +82,7 @@ pub fn render_tool(tool: ToolId, response: &Value, query: &Value, format: TextFo
         RenderFamily::FileText(FileLayout::Inline) => render_inline_file(response, format),
         RenderFamily::FileText(FileLayout::Files) => render_file_list(response.clone(), format),
         RenderFamily::SearchHits => render_search_hits(response.clone(), query, format),
+        RenderFamily::Diff => render_diff(response.clone(), format),
         RenderFamily::Structured => render_structured(response.clone(), format),
     }
 }
@@ -345,6 +348,89 @@ fn render_structured(response: Value, format: TextFormat) -> String {
     )
 }
 
+/// History items in YAML: a patch inside YAML is a double-quoted scalar that
+/// escapes every line break, carriage return, quote and backslash (5–15% of a
+/// diff). Each non-empty patch leaves its changed-file row and follows the
+/// metadata verbatim under `=== patch <path> (<n> chars) ===`; diff lines
+/// start with ` `, `+`, `-`, `@` or `\`, so the header cannot be mistaken
+/// for patch text. JSON text keeps the structured encoding unchanged.
+fn render_diff(mut response: Value, format: TextFormat) -> String {
+    if format == TextFormat::Json {
+        return render_structured(response, format);
+    }
+    let rows = response
+        .get_mut("results")
+        .and_then(Value::as_array_mut)
+        .map(|rows| rows.as_mut_slice())
+        .unwrap_or_default();
+    let labelled = rows.len() > 1;
+    let mut patches = Vec::new();
+    for row in rows {
+        let label = labelled.then(|| format!("[{}] ", row["index"]));
+        take_patches(
+            &mut row["data"],
+            label.as_deref().unwrap_or(""),
+            &mut patches,
+        );
+    }
+    let mut text = render_structured(response, format);
+    for (path, patch) in patches {
+        text.push_str(&format!(
+            "\n=== patch {path} ({} chars) ===\n{patch}\n",
+            patch.chars().count()
+        ));
+    }
+    text
+}
+
+/// Move non-empty `patch` strings out of changed-file rows (`changedFiles`,
+/// `files`) in document order; `next.*` continuation queries stay intact.
+fn take_patches(value: &mut Value, label: &str, out: &mut Vec<(String, String)>) {
+    match value {
+        Value::Object(map) => {
+            for (key, child) in map.iter_mut() {
+                if key == "next" {
+                    continue;
+                }
+                if matches!(key.as_str(), "changedFiles" | "files")
+                    && let Some(rows) = child.as_array_mut()
+                {
+                    for row in rows.iter_mut() {
+                        take_row_patch(row, label, out);
+                    }
+                }
+                take_patches(child, label, out);
+            }
+        }
+        Value::Array(items) => items
+            .iter_mut()
+            .for_each(|item| take_patches(item, label, out)),
+        _ => {}
+    }
+}
+
+fn take_row_patch(row: &mut Value, label: &str, out: &mut Vec<(String, String)>) {
+    let Some(fields) = row.as_object_mut() else {
+        return;
+    };
+    if fields
+        .get("patch")
+        .and_then(Value::as_str)
+        .is_none_or(str::is_empty)
+    {
+        return;
+    }
+    let path = fields
+        .get("path")
+        .or_else(|| fields.get("filename"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_owned();
+    if let Some(Value::String(patch)) = fields.remove("patch") {
+        out.push((format!("{label}{path}"), patch));
+    }
+}
+
 fn order_fields(value: &mut Value, keys: &[&str]) {
     if let Some(map) = value.as_object_mut() {
         let mut ordered = serde_json::Map::new();
@@ -557,6 +643,7 @@ mod tests {
                 ToolId::LocalFetch => RenderFamily::FileText(FileLayout::Inline),
                 ToolId::GhGetFileContent => RenderFamily::FileText(FileLayout::Files),
                 ToolId::LocalSearch => RenderFamily::SearchHits,
+                ToolId::GhGetHistoryItem => RenderFamily::Diff,
                 _ => RenderFamily::Structured,
             };
             assert_eq!(RenderFamily::of(tool), expected, "{tool}");
@@ -586,6 +673,52 @@ mod tests {
             TextFormat::Json,
         );
         assert!(plain.contains(r#"{"matches":[],"path":"a.rs"}"#), "{plain}");
+    }
+
+    /// YAML escapes every `\n`, `\r`, quote and backslash of a patch (5–15%
+    /// of a diff); history items print patches verbatim after the metadata.
+    #[test]
+    fn history_patches_render_verbatim_after_the_metadata() {
+        let patch = "@@ -1 +1 @@\r\n-say(\"a\\b\")\r\n+say(\"c\")";
+        let response = json!({"results":[{"index":0,"data":{"type":"pullRequests","pullRequests":[{
+            "number":1,"changedFiles":[
+                {"path":"src/a.ts","status":"modified","patch":patch},
+                {"path":"src/moved.ts","status":"renamed","patch":""},
+                {"path":"big.ts","patchUnavailable":"tooLarge"}
+            ]}],
+            "next":{"continuePatch":{"tool":"ghGetHistoryItem","query":{"patch":"not a patch"}}}}}]});
+        let text = render_tool(
+            ToolId::GhGetHistoryItem,
+            &response,
+            &json!({}),
+            TextFormat::Yaml,
+        );
+        let (yaml, patches) = text.split_once("\n=== patch ").expect("patch section");
+        assert!(!yaml.contains("say("), "{yaml}");
+        assert!(yaml.contains("path: src/a.ts"), "{yaml}");
+        assert!(
+            yaml.contains("patch: ''"),
+            "empty rename diff stays inline: {yaml}"
+        );
+        assert!(
+            yaml.contains("not a patch"),
+            "continuations untouched: {yaml}"
+        );
+        assert_eq!(
+            patches,
+            format!("src/a.ts ({} chars) ===\n{patch}\n", patch.chars().count())
+        );
+        // JSON text keeps the exact structured encoding.
+        let json_text = render_tool(
+            ToolId::GhGetHistoryItem,
+            &response,
+            &json!({}),
+            TextFormat::Json,
+        );
+        assert_eq!(
+            serde_json::from_str::<Value>(&json_text).expect("json"),
+            response
+        );
     }
 
     #[test]

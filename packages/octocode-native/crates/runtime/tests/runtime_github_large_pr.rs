@@ -437,3 +437,42 @@ async fn selected_patch_scan_reads_file_batches_concurrently() {
         "sequential scan: {elapsed:?}"
     );
 }
+
+#[tokio::test]
+async fn match_string_returns_matching_hunks_and_offers_the_whole_patch() {
+    let server = MockServer::start().await;
+    mount_pr(&server, 2).await;
+    let body = (1..=200)
+        .map(|n| format!(" line {n}\n"))
+        .collect::<String>();
+    let big = format!("@@ -1,401 +1,401 @@\n{body}-old esbuild\n+new esbuild\n{body}");
+    mount_file_batches(
+        &server,
+        vec![vec![
+            rest_file("src/big.rs", Some(&big), 1, 1),
+            rest_file("src/other.rs", Some("@@ -1 +1 @@\n-a\n+b"), 1, 1),
+        ]],
+        Duration::ZERO,
+    )
+    .await;
+    let data = run(
+        &server,
+        json!({"content": {"patches": {"mode": "all"}}, "matchString": "esbuild",
+               "minify": "none", "debug": false}),
+    )
+    .await;
+    let files = &data["pullRequests"][0]["changedFiles"];
+    assert_eq!(files.as_array().map(Vec::len), Some(1), "{data}");
+    let patch = files[0]["patch"].as_str().expect("patch");
+    assert!(
+        patch.starts_with("@@ -198,7 +198,7 @@\n line 198\n"),
+        "{patch}"
+    );
+    assert!(patch.len() < 200, "{patch}");
+    assert_eq!(files[0]["fullPatchChars"], big.chars().count());
+    assert_eq!(
+        data["next"]["readFullPatches"]["query"]["content"]["patches"]["files"],
+        json!(["src/big.rs"]),
+        "{data}"
+    );
+}

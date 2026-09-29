@@ -278,6 +278,32 @@ pub(super) fn promote_pr_continuations(out: &mut Value, q: &HistoryItemRequest) 
     }
 }
 
+/// `next.readFullPatches`: the whole patches of files a `matchString` view
+/// narrowed to their matching hunks (rows carrying `fullPatchChars`).
+pub(super) fn attach_full_patch_continuation(out: &mut Value, q: &HistoryItemRequest) {
+    let narrowed = out
+        .pointer("/pullRequests/0/changedFiles")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|file| file.get("fullPatchChars").is_some())
+        .filter_map(|file| file.get("path").and_then(Value::as_str))
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    if narrowed.is_empty() {
+        return;
+    }
+    let mut nq = base_public_query(q, ItemOperation::PullRequest);
+    for key in ["matchString", "charOffset", "charLength", "filePage"] {
+        remove_key(&mut nq, key);
+    }
+    nq["content"] = json!({"patches":{"mode":"selected","files":narrowed}});
+    if !out.get("next").is_some_and(Value::is_object) {
+        out["next"] = json!({});
+    }
+    out["next"]["readFullPatches"] = continuation(nq);
+}
+
 /// Narrow a patch char-window continuation to the patch surface and to the
 /// files whose window has more; completed files are not re-emitted.
 fn narrow_patch_continuation(nq: &mut Value, entry: &mut Value, q: &HistoryItemRequest) {
@@ -310,7 +336,8 @@ fn narrow_patch_continuation(nq: &mut Value, entry: &mut Value, q: &HistoryItemR
         } else if let Some(patches) = nq.pointer_mut("/content/patches") {
             *patches = json!({"mode":"selected","files":unfinished});
         }
-        nq["filePage"] = json!(1);
+        // The narrowed selection restarts at the first file page (omitted).
+        remove_key(nq, "filePage");
     }
     // The continuation carries the list; keep only a count.
     if let Some(entry) = entry.as_object_mut()
@@ -630,6 +657,29 @@ mod tests {
             &json!([{"file":"src/b.rs","deletions":[2]}]),
             "{output}"
         );
+    }
+
+    #[test]
+    fn match_string_views_offer_the_whole_patches_they_narrowed() {
+        let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
+            "operation":"pullRequest","goal": "test", "reasoning":"test","owner":"a","repo":"b","number":1,
+            "content":{"patches":{"mode":"all"}},"matchString":"needle","charOffset":10,"filePage":2
+        }))
+        .expect("match query");
+        let mut out = json!({"type":"pullRequests","pullRequests":[{"changedFiles":[
+            {"path":"src/a.rs","patch":"@@ -1,1 +1,1 @@\n+needle","fullPatchChars":900},
+            {"path":"src/b.rs","patch":"+needle"}
+        ]}]});
+        attach_full_patch_continuation(&mut out, &query);
+        let next = &out["next"]["readFullPatches"]["query"];
+        assert_eq!(
+            next["content"],
+            json!({"patches":{"mode":"selected","files":["src/a.rs"]}}),
+            "{out}"
+        );
+        for key in ["matchString", "charOffset", "filePage"] {
+            assert!(next.get(key).is_none(), "{key} kept: {next}");
+        }
     }
 
     #[test]
