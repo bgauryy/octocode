@@ -1,6 +1,7 @@
 //! Public-page windows over GitHub REST collections: provider batch loading
 //! derived from public page cursors, and the page objects reported back.
 use super::{DEFAULT_PAGE_SIZE, fetch};
+use super::files::MAX_INVENTORY_PAGE;
 use crate::providers::github::{
     CredentialResolver, GitHubTransport, ProviderError, RequestContext,
 };
@@ -299,7 +300,9 @@ pub(super) fn paginate_window(
     page: Option<usize>,
     page_size: Option<usize>,
 ) -> (Vec<Value>, Value) {
-    let per = page_size.unwrap_or(DEFAULT_PAGE_SIZE).clamp(1, 100);
+    let per = page_size
+        .unwrap_or(DEFAULT_PAGE_SIZE)
+        .clamp(1, MAX_INVENTORY_PAGE);
     let loaded = skipped + values.len();
     let pages = loaded.div_ceil(per).max(1);
     let requested = page.unwrap_or(1).max(1);

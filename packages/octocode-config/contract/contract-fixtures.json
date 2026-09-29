@@ -653,7 +653,6 @@
           "debug": false,
           "owner": "microsoft",
           "repo": "TypeScript",
-          "pageSize": 30,
           "minify": "standard",
           "operation": "pullRequest",
           "number": 51387
@@ -725,7 +724,6 @@
           "debug": false,
           "owner": "microsoft",
           "repo": "TypeScript",
-          "pageSize": 30,
           "content": {
             "patches": {
               "mode": "selected",
@@ -861,7 +859,6 @@
           "debug": false,
           "owner": "o",
           "repo": "r",
-          "pageSize": 30,
           "minify": "standard",
           "operation": "pullRequest",
           "number": 1

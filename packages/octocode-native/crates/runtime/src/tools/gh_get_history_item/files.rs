@@ -1,9 +1,10 @@
 //! Changed files: selection filters, path scopes, per-file shaping and the
 //! shared patch char window.
-use super::HistoryItemRequest;
 use super::util::{minified_view, needle, str_at, string, usize_at};
 use super::window::WindowState;
+use super::{DEFAULT_PAGE_SIZE, HistoryItemRequest, MAX_COLLECTION_PAGE};
 use crate::tools::result::remove_nulls;
+use globset::{GlobBuilder, GlobMatcher};
 use serde_json::{Map, Value, json};
 use std::collections::HashMap;
 
@@ -11,20 +12,215 @@ use std::collections::HashMap;
 pub(super) struct FileFilter<'a> {
     pub(super) selected: &'a [String],
     pub(super) needle: Option<&'a str>,
+    pub(super) scope: Option<&'a InventoryFilter>,
 }
 
 impl FileFilter<'_> {
     pub(super) fn is_trivial(&self) -> bool {
-        self.selected.is_empty() && self.needle.is_none()
+        self.selected.is_empty() && self.needle.is_none() && self.scope.is_none()
     }
     pub(super) fn matches(&self, file: &Value) -> bool {
         let path = str_at(file, "/filename").unwrap_or("");
         (self.selected.is_empty() || self.selected.iter().any(|selected| selected == path))
+            && self.scope.is_none_or(|scope| scope.matches(file))
             && self.needle.is_none_or(|n| {
                 path.to_lowercase().contains(n)
                     || str_at(file, "/patch").is_some_and(|v| v.to_lowercase().contains(n))
             })
     }
+}
+
+/// One `fileFilter.paths` entry.
+enum PathPattern {
+    /// A plain path: that file, or every file under that directory.
+    Scope(String),
+    /// A glob over the whole path, or over the file name when it has no `/`.
+    Glob {
+        matcher: GlobMatcher,
+        file_name: bool,
+    },
+}
+
+impl PathPattern {
+    fn parse(pattern: &str) -> Result<Self, String> {
+        if !pattern.contains(['*', '?', '[', '{']) {
+            return Ok(Self::Scope(pattern.to_owned()));
+        }
+        GlobBuilder::new(pattern)
+            .literal_separator(true)
+            .build()
+            .map(|glob| Self::Glob {
+                matcher: glob.compile_matcher(),
+                file_name: !pattern.contains('/'),
+            })
+            .map_err(|error| format!("fileFilter.paths: invalid glob {pattern:?}: {error}"))
+    }
+
+    fn matches(&self, path: &str) -> bool {
+        match self {
+            Self::Scope(scope) => {
+                path == scope
+                    || path
+                        .strip_prefix(scope.trim_end_matches('/'))
+                        .is_some_and(|rest| rest.starts_with('/'))
+            }
+            Self::Glob { matcher, file_name } => {
+                let subject = if *file_name {
+                    path.rsplit('/').next().unwrap_or(path)
+                } else {
+                    path
+                };
+                matcher.is_match(subject)
+            }
+        }
+    }
+}
+
+/// A pull request's `fileFilter`: status, path and change-count narrowing of
+/// the changed-file list. Pages and counts then cover matching files only.
+pub(super) struct InventoryFilter {
+    paths: Vec<PathPattern>,
+    status: Vec<String>,
+    min_changes: Option<usize>,
+}
+
+impl InventoryFilter {
+    pub(super) fn from_query(query: &HistoryItemRequest) -> Result<Option<Self>, String> {
+        let Some(filter) = query.file_filter() else {
+            return Ok(None);
+        };
+        let paths = filter
+            .paths
+            .iter()
+            .map(|pattern| PathPattern::parse(pattern))
+            .collect::<Result<Vec<_>, _>>()?;
+        let status = filter.status.iter().map(ToString::to_string).collect();
+        let min_changes = filter
+            .min_changes
+            .map(|n| usize::try_from(n.get()).unwrap_or(usize::MAX));
+        Ok(Some(Self {
+            paths,
+            status,
+            min_changes,
+        }))
+    }
+
+    /// A rename matches by its new or previous path. Files GitHub sent
+    /// without line counts (no patch, 0/0) pass `minChanges`: their size is
+    /// unknown, not zero.
+    fn matches(&self, file: &Value) -> bool {
+        let status = str_at(file, "/status").unwrap_or("");
+        let path = str_at(file, "/filename").unwrap_or("");
+        let previous = str_at(file, "/previous_filename");
+        let changes = usize_at(file, "/additions") + usize_at(file, "/deletions");
+        let countless = changes == 0 && file.get("patch").is_none();
+        (self.status.is_empty() || self.status.iter().any(|s| s == status))
+            && (self.paths.is_empty()
+                || self.paths.iter().any(|pattern| {
+                    pattern.matches(path) || previous.is_some_and(|p| pattern.matches(p))
+                }))
+            && self
+                .min_changes
+                .is_none_or(|min| countless || changes >= min)
+    }
+}
+
+/// Largest patch-free inventory page.
+pub(super) const MAX_INVENTORY_PAGE: usize = 1_000;
+/// Rendered chars budgeted per compact inventory row when sizing the default
+/// inventory page to the automatic response page.
+const INVENTORY_ROW_CHARS: usize = 60;
+
+/// Changed files per page. A patch-free inventory defaults to as many compact
+/// rows as fit one automatic response page (100–1000); a page carrying
+/// patches keeps provider-sized pages.
+pub(super) fn file_page_size(query: &HistoryItemRequest, patches: bool) -> usize {
+    match (query.page_size(), patches) {
+        (_, true) => query.collection_page_size(),
+        (Some(size), false) => size.clamp(1, MAX_INVENTORY_PAGE),
+        (None, false) => (auto_page(query.auto_page_chars) / INVENTORY_ROW_CHARS)
+            .clamp(MAX_COLLECTION_PAGE, MAX_INVENTORY_PAGE)
+            .max(DEFAULT_PAGE_SIZE),
+    }
+}
+
+/// GitHub file status as one inventory letter (git's diff letters; T is
+/// GitHub's `changed`, U its `unchanged`).
+fn status_code(status: &str) -> &str {
+    match status {
+        "added" => "A",
+        "removed" => "D",
+        "modified" => "M",
+        "renamed" => "R",
+        "copied" => "C",
+        "changed" => "T",
+        "unchanged" => "U",
+        other => other,
+    }
+}
+
+/// One compact inventory row: `M +3 -1 [!reason ]name[ <- full/old/path]`.
+fn inventory_row(file: &Value, name: &str) -> String {
+    let mut row = format!(
+        "{} +{} -{}",
+        status_code(str_at(file, "/status").unwrap_or("")),
+        usize_at(file, "/additions"),
+        usize_at(file, "/deletions")
+    );
+    if let Some(reason) = str_at(file, "/patchUnavailable") {
+        row.push_str(" !");
+        row.push_str(reason);
+    }
+    row.push(' ');
+    row.push_str(name);
+    if let Some(previous) = str_at(file, "/previousFilename") {
+        row.push_str(" <- ");
+        row.push_str(previous);
+    }
+    row
+}
+
+/// Compact a patch-free file page, in provider order: a run of two or more
+/// consecutive files in one directory becomes `{"dir/": [rows]}` whose rows
+/// name files relative to it; every other file is a full-path row.
+fn compact_inventory(files: &[Value]) -> Vec<Value> {
+    let dir_of = |file: &Value| {
+        str_at(file, "/filename")
+            .unwrap_or("")
+            .rsplit_once('/')
+            .map_or("", |(dir, _)| dir)
+            .to_owned()
+    };
+    let mut out = Vec::new();
+    let mut start = 0;
+    while start < files.len() {
+        let dir = dir_of(&files[start]);
+        let end = start
+            + files[start..]
+                .iter()
+                .take_while(|file| dir_of(file) == dir)
+                .count();
+        let run = &files[start..end];
+        if run.len() >= 2 && !dir.is_empty() {
+            let rows = run
+                .iter()
+                .map(|file| {
+                    let path = str_at(file, "/filename").unwrap_or("");
+                    json!(inventory_row(file, &path[dir.len() + 1..]))
+                })
+                .collect::<Vec<_>>();
+            let mut group = Map::new();
+            group.insert(format!("{dir}/"), Value::Array(rows));
+            out.push(Value::Object(group));
+        } else {
+            out.extend(
+                run.iter()
+                    .map(|file| json!(inventory_row(file, str_at(file, "/filename").unwrap_or("")))),
+            );
+        }
+        start = end;
+    }
+    out
 }
 
 type PatchRanges = HashMap<String, (Option<Vec<i64>>, Option<Vec<i64>>)>;
@@ -65,8 +261,17 @@ pub(super) fn patch_selection(selector: Option<&Map<String, Value>>) -> (Vec<Str
     (selected_names, ranges)
 }
 
-/// Shape a pull request's changed-file page into `row`. Returns true when a
-/// selected path matched no changed file and the provider has no more files.
+/// What shaping a pull request's changed-file page found.
+pub(super) struct ShapedFiles {
+    /// A selected path matched no changed file and the provider has no more.
+    pub(super) no_selected_match: bool,
+    /// The page's first file path (the `getSelectedPatches` template).
+    pub(super) first_path: Option<String>,
+}
+
+/// Shape a pull request's changed-file page into `row`: compact inventory
+/// rows without patches, one object per file with them.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn shape_pr_files(
     row: &mut Value,
     pagination: &mut Map<String, Value>,
@@ -75,7 +280,8 @@ pub(super) fn shape_pr_files(
     query: &HistoryItemRequest,
     selector: Option<&Map<String, Value>>,
     patch_mode: &str,
-) -> bool {
+    scope: Option<&InventoryFilter>,
+) -> ShapedFiles {
     let (selected_names, ranges) = patch_selection(selector);
     let selection_requested = patch_mode == "selected" && !selected_names.is_empty();
     let selected_path_matched = !selection_requested
@@ -87,12 +293,18 @@ pub(super) fn shape_pr_files(
     let filter = FileFilter {
         selected: &selected_names,
         needle: needle.as_deref(),
+        scope,
     };
     let filtered = files
         .into_iter()
         .filter(|file| filter.matches(file))
         .collect::<Vec<_>>();
-    let (slice, page) = state.paginate(filtered, query.file_page(), query.page_size());
+    let per_page = file_page_size(query, patch_mode != "none");
+    let (slice, page) = state.paginate(filtered, query.file_page(), Some(per_page));
+    let first_path = slice
+        .first()
+        .and_then(|file| str_at(file, "/filename"))
+        .map(str::to_owned);
     let slice = slice
         .into_iter()
         .map(|mut file| {
@@ -120,6 +332,17 @@ pub(super) fn shape_pr_files(
         query,
         PatchCursor::FirstUnfinished,
     );
+    if patch_mode == "none" {
+        let rows = compact_inventory(&patches.rows);
+        if !rows.is_empty() {
+            row["changedFiles"] = Value::Array(rows);
+        }
+        pagination.insert("changedFiles".into(), page);
+        return ShapedFiles {
+            no_selected_match: false,
+            first_path,
+        };
+    }
     let shaped = patches
         .rows
         .into_iter()
@@ -149,7 +372,10 @@ pub(super) fn shape_pr_files(
         pagination.insert("patches".into(), patch_page);
     }
     pagination.insert("changedFiles".into(), page);
-    selection_requested && !selected_path_matched && state.exhausted
+    ShapedFiles {
+        no_selected_match: selection_requested && !selected_path_matched && state.exhausted,
+        first_path,
+    }
 }
 
 fn history_patch_view(value: &str, query: &HistoryItemRequest) -> String {
@@ -375,22 +601,35 @@ pub(super) fn shape_files(
 }
 
 /// Patch characters one call carries across a page's files by default, and
-/// the ceiling for an explicit `charLength`, as shares of the effective
-/// automatic response page (`output.pagination.defaultCharLength`, 1k–50k).
-/// A window of patches plus row metadata then fits one response page, so
+/// the ceiling for an explicit `charLength`, derived from the effective
+/// automatic response page (`output.pagination.defaultCharLength`, 1k–50k):
+/// most of the page (7/10 by default, 4/5 at most), less a fixed reserve for
+/// string escapes and row metadata, never below 2/5 and 3/5 of it. A window
+/// of patches plus row metadata then fits one response page, so
 /// responsePagination rarely splits the row; when it does, the row's `next.*`
 /// rides only its last `rowPart`.
-const PATCH_DEFAULT_PAGE: usize = 8_000;
-const PATCH_PAGE_BUDGET: usize = 12_000;
+const PATCH_DEFAULT_SHARE: (usize, usize) = (7, 10);
+const PATCH_BUDGET_SHARE: (usize, usize) = (4, 5);
+const PATCH_DEFAULT_RESERVE: usize = 2_000;
+const PATCH_BUDGET_RESERVE: usize = 1_500;
 /// Page assumed when the runtime did not supply one (direct callers, tests).
 const FALLBACK_AUTO_PAGE: usize = 20_000;
 
-fn patch_window(char_length: Option<usize>, auto_page: Option<usize>) -> usize {
-    let page = auto_page
+fn auto_page(auto_page: Option<usize>) -> usize {
+    auto_page
         .filter(|page| *page > 0)
-        .unwrap_or(FALLBACK_AUTO_PAGE);
-    let default = PATCH_DEFAULT_PAGE.min(page * 2 / 5);
-    let budget = PATCH_PAGE_BUDGET.min(page * 3 / 5);
+        .unwrap_or(FALLBACK_AUTO_PAGE)
+}
+
+fn patch_window(char_length: Option<usize>, auto_page_chars: Option<usize>) -> usize {
+    let page = auto_page(auto_page_chars);
+    let share = |(num, den): (usize, usize), reserve: usize, floor: usize| {
+        (page * num / den)
+            .min(page.saturating_sub(reserve))
+            .max(page * floor / 5)
+    };
+    let default = share(PATCH_DEFAULT_SHARE, PATCH_DEFAULT_RESERVE, 2);
+    let budget = share(PATCH_BUDGET_SHARE, PATCH_BUDGET_RESERVE, 3);
     match char_length {
         Some(length) => length.clamp(1, budget.max(1)),
         None => default.max(1),
@@ -509,13 +748,11 @@ mod tests {
             assert_eq!(row["patch"].as_str().map(str::len), Some(300), "{row}");
             assert!(row.get("patchPagination").is_none(), "{row}");
         }
+        let window_chars = patch_window(None, None);
         let big = &first.rows[3];
         assert_eq!(big["patchPagination"]["charOffset"], 0);
-        assert_eq!(
-            big["patchPagination"]["charLength"],
-            PATCH_DEFAULT_PAGE - 900
-        );
-        assert_eq!(big["patchPagination"]["nextCharOffset"], PATCH_DEFAULT_PAGE);
+        assert_eq!(big["patchPagination"]["charLength"], window_chars - 900);
+        assert_eq!(big["patchPagination"]["nextCharOffset"], window_chars);
         // The rest of the page is listed (metadata only) on the first window.
         assert_eq!(first.rows.len(), 30);
         assert!(first.rows[4].get("patch").is_none());
@@ -524,7 +761,7 @@ mod tests {
         let second = shape_patch_page(
             files.clone(),
             true,
-            &window(json!({"charOffset":PATCH_DEFAULT_PAGE})),
+            &window(json!({"charOffset":window_chars})),
             PatchCursor::Page,
         );
         // Completed files are not re-emitted; the big patch continues in place.
@@ -532,12 +769,12 @@ mod tests {
         assert_eq!(second.rows[0]["filename"], "big.rs");
         assert_eq!(
             second.rows[0]["patchPagination"]["charOffset"],
-            PATCH_DEFAULT_PAGE - 900
+            window_chars - 900
         );
 
         let total: usize = 29 * 300 + 35_000;
         let (calls, patches, _) = follow_commit_page(&files, None);
-        assert_eq!(calls, total.div_ceil(PATCH_DEFAULT_PAGE));
+        assert_eq!(calls, total.div_ceil(window_chars));
         assert_eq!(patches["big.rs"], "b".repeat(35_000));
         for i in 0..29 {
             assert_eq!(patches[&format!("small{i}.rs")], "s".repeat(300));
@@ -548,7 +785,7 @@ mod tests {
     fn single_file_and_three_hundred_file_commits_stay_lossless() {
         let one = vec![file("only.rs", &"x".repeat(20_000))];
         let (calls, patches, _) = follow_commit_page(&one, None);
-        assert_eq!(calls, 3);
+        assert_eq!(calls, 20_000usize.div_ceil(patch_window(None, None)));
         assert_eq!(patches["only.rs"], "x".repeat(20_000));
 
         let many = (0..300)
@@ -622,7 +859,9 @@ mod tests {
             &query,
             None,
             "all",
-        );
+            None,
+        )
+        .no_selected_match;
         assert!(!no_match);
         assert_eq!(row["changedFiles"][0]["patch"], "CD");
         assert_eq!(row["changedFiles"][0]["patchPagination"]["hasMore"], false);
@@ -683,7 +922,9 @@ mod tests {
                 &query,
                 selection.as_object(),
                 "selected",
-            );
+                None,
+            )
+            .no_selected_match;
             (row, no_match)
         };
 
@@ -701,15 +942,19 @@ mod tests {
         };
         let mut incomplete = json!({});
         let mut incomplete_pagination = Map::new();
-        assert!(!shape_pr_files(
-            &mut incomplete,
-            &mut incomplete_pagination,
-            files.clone(),
-            incomplete_state,
-            &query,
-            json!({"files":["src/missing.rs"]}).as_object(),
-            "selected",
-        ));
+        assert!(
+            !shape_pr_files(
+                &mut incomplete,
+                &mut incomplete_pagination,
+                files.clone(),
+                incomplete_state,
+                &query,
+                json!({"files":["src/missing.rs"]}).as_object(),
+                "selected",
+                None,
+            )
+            .no_selected_match
+        );
 
         let mut output = json!({"type":"pullRequests","pullRequests":[missing]});
         if missing_no_match {
@@ -745,6 +990,7 @@ mod tests {
             &query,
             None,
             "all",
+            None,
         );
         assert_eq!(
             pagination["patches"]["files"],
@@ -770,12 +1016,167 @@ mod tests {
         assert!(next.get("collectionPages").is_none());
     }
 
+    /// A patch window fills most of the automatic response page: a 100k-char
+    /// patch reads in three calls at the default 50k page, not thirteen.
     #[test]
     fn patch_window_is_one_budget_for_the_whole_page() {
-        assert_eq!(patch_window(None, None), PATCH_DEFAULT_PAGE);
-        assert_eq!(patch_window(Some(50_000), None), PATCH_PAGE_BUDGET);
+        assert_eq!(patch_window(None, None), 14_000);
+        assert_eq!(patch_window(Some(50_000), None), 16_000);
         assert_eq!(patch_window(Some(2), None), 2);
-        assert_eq!(patch_window(None, Some(50_000)), PATCH_DEFAULT_PAGE);
+        assert_eq!(patch_window(None, Some(50_000)), 35_000);
+        assert_eq!(patch_window(Some(100_000), Some(50_000)), 40_000);
+        assert_eq!(100_071usize.div_ceil(patch_window(None, Some(50_000))), 3);
+    }
+
+    fn inventory_request(fields: Value) -> HistoryItemRequest {
+        patch_request(super::super::util::merge(
+            json!({"content":{"changedFiles":true}}),
+            fields,
+        ))
+    }
+
+    fn listed(name: &str, status: &str, additions: u64, deletions: u64, patch: bool) -> Value {
+        let mut file = json!({"sha":"1","filename":name,"status":status,
+            "additions":additions,"deletions":deletions});
+        if patch {
+            file["patch"] = json!("@@ -1 +1 @@");
+        }
+        file
+    }
+
+    fn inventory(files: Vec<Value>, query: &HistoryItemRequest) -> (Value, Map<String, Value>) {
+        let mut row = json!({});
+        let mut pagination = Map::new();
+        let scope = InventoryFilter::from_query(query).expect("valid fileFilter");
+        shape_pr_files(
+            &mut row,
+            &mut pagination,
+            files,
+            WindowState::COMPLETE,
+            query,
+            None,
+            "none",
+            scope.as_ref(),
+        );
+        (row, pagination)
+    }
+
+    /// A patch-free inventory row is one compact string; consecutive files in
+    /// one directory share a `{"dir/": [...]}` group so the prefix is written
+    /// once. Order, patchless reasons and rename origins survive.
+    #[test]
+    fn inventory_rows_are_compact_and_group_consecutive_directory_files() {
+        let mut renamed = listed("src/new.rs", "renamed", 0, 0, false);
+        renamed["previous_filename"] = json!("lib/old.rs");
+        let files = vec![
+            listed(".eslintrc", "modified", 1, 1, true),
+            listed("src/a.ts", "added", 8, 0, true),
+            listed("src/checker.ts", "modified", 39_550, 39_342, false),
+            renamed,
+            listed("src/ui/logo.png", "added", 0, 0, false),
+            listed("src/z.ts", "removed", 0, 5, true),
+            listed("docs/omitted.md", "modified", 0, 0, false),
+        ];
+        let (row, pagination) = inventory(files, &inventory_request(json!({})));
+        assert_eq!(
+            row["changedFiles"],
+            json!([
+                "M +1 -1 .eslintrc",
+                {"src/": [
+                    "A +8 -0 a.ts",
+                    "M +39550 -39342 !tooLarge checker.ts",
+                    "R +0 -0 new.rs <- lib/old.rs"
+                ]},
+                "A +0 -0 !binary src/ui/logo.png",
+                "D +0 -5 src/z.ts",
+                "M +0 -0 !omitted docs/omitted.md"
+            ])
+        );
+        assert_eq!(pagination["changedFiles"]["totalItems"], 7);
+    }
+
+    /// `fileFilter` narrows the inventory by status, path glob or prefix and
+    /// change count; totals count matches only. A file GitHub sent without
+    /// line counts is not "small": it passes `minChanges`.
+    #[test]
+    fn file_filter_narrows_by_status_path_and_change_count() {
+        let files = || {
+            vec![
+                listed("src/a.ts", "modified", 3, 1, true),
+                listed("src/deep/b.ts", "added", 40, 0, true),
+                listed("src/c.rs", "modified", 50, 0, true),
+                listed("docs/readme.md", "modified", 9, 9, true),
+                listed("src/huge.ts", "modified", 0, 0, false),
+            ]
+        };
+        let names = |fields: Value| {
+            let (row, pagination) = inventory(files(), &inventory_request(fields));
+            let mut out = Vec::new();
+            for item in row["changedFiles"].as_array().into_iter().flatten() {
+                match item {
+                    Value::String(row) => out.push(row.rsplit(' ').next().unwrap_or("").to_owned()),
+                    Value::Object(group) => {
+                        for (dir, rows) in group {
+                            for row in rows.as_array().into_iter().flatten() {
+                                let name = row.as_str().unwrap_or("").rsplit(' ').next().unwrap_or("");
+                                out.push(format!("{dir}{name}"));
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            assert_eq!(pagination["changedFiles"]["totalItems"], out.len());
+            out
+        };
+        // "**" spans zero or more directories; "*" stays in one segment.
+        assert_eq!(
+            names(json!({"fileFilter":{"paths":["src/**/*.ts"]}})),
+            ["src/a.ts", "src/deep/b.ts", "src/huge.ts"]
+        );
+        assert_eq!(
+            names(json!({"fileFilter":{"paths":["src/*.ts"]}})),
+            ["src/a.ts", "src/huge.ts"]
+        );
+        assert_eq!(
+            names(json!({"fileFilter":{"paths":["*.ts"]}})),
+            ["src/a.ts", "src/deep/b.ts", "src/huge.ts"]
+        );
+        assert_eq!(
+            names(json!({"fileFilter":{"paths":["src/deep", "docs/"]}})),
+            ["src/deep/b.ts", "docs/readme.md"]
+        );
+        assert_eq!(
+            names(json!({"fileFilter":{"status":["added"]}})),
+            ["src/deep/b.ts"]
+        );
+        assert_eq!(
+            names(json!({"fileFilter":{"paths":["*.ts"],"status":["modified"],"minChanges":10}})),
+            ["src/huge.ts"]
+        );
+        let invalid = inventory_request(json!({"fileFilter":{"paths":["src/[a"]}}));
+        assert!(InventoryFilter::from_query(&invalid).is_err());
+    }
+
+    /// An omitted pageSize sizes a patch-free inventory to the response page;
+    /// an explicit one may exceed a provider batch only without patches.
+    #[test]
+    fn inventory_page_size_fills_the_response_page() {
+        let mut query = inventory_request(json!({}));
+        query.auto_page_chars = Some(50_000);
+        assert_eq!(file_page_size(&query, false), 833);
+        assert_eq!(file_page_size(&query, true), DEFAULT_PAGE_SIZE);
+        query.auto_page_chars = Some(1_000);
+        assert_eq!(file_page_size(&query, false), MAX_COLLECTION_PAGE);
+        let explicit = inventory_request(json!({"pageSize":1000}));
+        assert_eq!(file_page_size(&explicit, false), 1_000);
+        assert_eq!(file_page_size(&explicit, true), MAX_COLLECTION_PAGE);
+        let files = (0..700)
+            .map(|i| listed(&format!("d{}/f{i}.rs", i % 2), "modified", 1, 1, true))
+            .collect::<Vec<_>>();
+        let (row, pagination) = inventory(files, &explicit);
+        assert_eq!(row["changedFiles"].as_array().map(Vec::len), Some(700));
+        assert_eq!(pagination["changedFiles"]["hasMore"], false);
     }
 
     /// H4: at `defaultCharLength` 1000 the patch window shrinks with the page,

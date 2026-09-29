@@ -668,6 +668,22 @@
         "debug": [
           "workflow-metadata"
         ],
+        "fileFilter": [
+          "forwarded",
+          "output-control"
+        ],
+        "fileFilter.minChanges": [
+          "forwarded",
+          "output-control"
+        ],
+        "fileFilter.paths": [
+          "forwarded",
+          "output-control"
+        ],
+        "fileFilter.status": [
+          "forwarded",
+          "output-control"
+        ],
         "filePage": [
           "forwarded",
           "output-control",

@@ -53,3 +53,10 @@ Open (need a decision or a contract change):
 - [ ] Import liveness is per file: a `use` inside a dead function still keeps its target alive (needs value-reference counts on import bindings).
 - [ ] A shared walk-worker limit across a batch (the engine must accept a thread budget); the current width stays until that measures faster.
 - [ ] ghSearchRepo rows carry every repository metadata field; consider a smaller default field set (`concise` exists).
+
+## Open (2026-09-29 large-PR + clasify scout pass)
+- astTopology Rust: `[patch.crates-io] tokio = { path = … }` redirects are not linked and produce no diagnostic (deps-flows Rust Sender check).
+- ghGetHistoryItem PR inventory: add path-prefix/glob + status filters (core validation/history.ts); compact rows (omit default `status: modified`); patch window fixed at 8k (13 calls for 100k patch).
+- clasify: `sufficient` preset unreliable at provider level (false "sufficient" on bare declaration) — hint only; locate `best` at walk end needs a "not found" signal (core text); goal repeated per question in payload.
+- localSearch files-view continuation pages rescan the whole tree (~24s/page on 810MB repos under load).
+- NASM `EXTN(name):` labels not recognized as declarations.

@@ -26,10 +26,8 @@ pub(super) fn base_public_query(q: &HistoryItemRequest, operation: ItemOperation
         m.remove("debug");
         match operation {
             ItemOperation::PullRequest => {
-                m.insert(
-                    "pageSize".into(),
-                    json!(q.page_size().unwrap_or(DEFAULT_PAGE_SIZE)),
-                );
+                // pageSize has no contract default: each surface sizes its own
+                // page, so an omitted pageSize stays omitted on replay.
                 m.insert(
                     "minify".into(),
                     json!(q.minify().unwrap_or_else(|| "standard".to_owned())),
@@ -667,7 +665,8 @@ mod tests {
         let content = content_value.as_ref().and_then(Value::as_object);
         let menu = pr_next_menu(&query, content, "none", Some("src/a.rs"), &json!({}));
         let reviews = &menu["getReviews"]["query"];
-        assert_eq!(reviews["pageSize"], 30);
+        // pageSize has no contract default; an omitted one stays omitted.
+        assert!(reviews.get("pageSize").is_none(), "{reviews}");
         assert_eq!(reviews["minify"], "standard");
         assert_eq!(reviews["content"], json!({"reviews":true}));
         for key in ["charOffset", "commentPage"] {

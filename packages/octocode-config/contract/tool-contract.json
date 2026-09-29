@@ -1,6 +1,6 @@
 {
   "contractFormatVersion": 2,
-  "fingerprint": "ce26b45c6604476f4e6433868fcce3373694f2b8dae8b355495758c65a3cf5c6",
+  "fingerprint": "e60e1529b2b0bf3a825f9dfbaf343167ebc4c8f000f7775bda0081fa87f0c878",
   "tools": [
     {
       "defaults": [
@@ -3509,6 +3509,44 @@
                                                     "debug": {
                                                       "type": "boolean"
                                                     },
+                                                    "fileFilter": {
+                                                      "additionalProperties": false,
+                                                      "properties": {
+                                                        "minChanges": {
+                                                          "maximum": 1000000000,
+                                                          "minimum": 1,
+                                                          "type": "integer"
+                                                        },
+                                                        "paths": {
+                                                          "items": {
+                                                            "minLength": 1,
+                                                            "type": "string"
+                                                          },
+                                                          "maxItems": 100,
+                                                          "minItems": 1,
+                                                          "type": "array"
+                                                        },
+                                                        "status": {
+                                                          "items": {
+                                                            "enum": [
+                                                              "added",
+                                                              "removed",
+                                                              "modified",
+                                                              "renamed",
+                                                              "copied",
+                                                              "changed",
+                                                              "unchanged"
+                                                            ],
+                                                            "title": "ChangedFileStatus",
+                                                            "type": "string"
+                                                          },
+                                                          "maxItems": 7,
+                                                          "minItems": 1,
+                                                          "type": "array"
+                                                        }
+                                                      },
+                                                      "type": "object"
+                                                    },
                                                     "filePage": {
                                                       "maximum": 1000,
                                                       "minimum": 1,
@@ -3545,7 +3583,7 @@
                                                       "$ref": "#/$defs/HI_Owner"
                                                     },
                                                     "pageSize": {
-                                                      "maximum": 100,
+                                                      "maximum": 1000,
                                                       "minimum": 1,
                                                       "type": "integer"
                                                     },
@@ -4864,6 +4902,44 @@
                                                     "debug": {
                                                       "type": "boolean"
                                                     },
+                                                    "fileFilter": {
+                                                      "additionalProperties": false,
+                                                      "properties": {
+                                                        "minChanges": {
+                                                          "maximum": 1000000000,
+                                                          "minimum": 1,
+                                                          "type": "integer"
+                                                        },
+                                                        "paths": {
+                                                          "items": {
+                                                            "minLength": 1,
+                                                            "type": "string"
+                                                          },
+                                                          "maxItems": 100,
+                                                          "minItems": 1,
+                                                          "type": "array"
+                                                        },
+                                                        "status": {
+                                                          "items": {
+                                                            "enum": [
+                                                              "added",
+                                                              "removed",
+                                                              "modified",
+                                                              "renamed",
+                                                              "copied",
+                                                              "changed",
+                                                              "unchanged"
+                                                            ],
+                                                            "title": "ChangedFileStatus",
+                                                            "type": "string"
+                                                          },
+                                                          "maxItems": 7,
+                                                          "minItems": 1,
+                                                          "type": "array"
+                                                        }
+                                                      },
+                                                      "type": "object"
+                                                    },
                                                     "filePage": {
                                                       "maximum": 1000,
                                                       "minimum": 1,
@@ -4900,7 +4976,7 @@
                                                       "$ref": "#/$defs/HI_Owner"
                                                     },
                                                     "pageSize": {
-                                                      "maximum": 100,
+                                                      "maximum": 1000,
                                                       "minimum": 1,
                                                       "type": "integer"
                                                     },
@@ -8492,6 +8568,44 @@
                           "debug": {
                             "type": "boolean"
                           },
+                          "fileFilter": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "minChanges": {
+                                "maximum": 1000000000,
+                                "minimum": 1,
+                                "type": "integer"
+                              },
+                              "paths": {
+                                "items": {
+                                  "minLength": 1,
+                                  "type": "string"
+                                },
+                                "maxItems": 100,
+                                "minItems": 1,
+                                "type": "array"
+                              },
+                              "status": {
+                                "items": {
+                                  "enum": [
+                                    "added",
+                                    "removed",
+                                    "modified",
+                                    "renamed",
+                                    "copied",
+                                    "changed",
+                                    "unchanged"
+                                  ],
+                                  "title": "ChangedFileStatus",
+                                  "type": "string"
+                                },
+                                "maxItems": 7,
+                                "minItems": 1,
+                                "type": "array"
+                              }
+                            },
+                            "type": "object"
+                          },
                           "filePage": {
                             "maximum": 1000,
                             "minimum": 1,
@@ -8528,7 +8642,7 @@
                             "$ref": "#/$defs/HI_Owner"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -15021,6 +15135,44 @@
                           "debug": {
                             "type": "boolean"
                           },
+                          "fileFilter": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "minChanges": {
+                                "maximum": 1000000000,
+                                "minimum": 1,
+                                "type": "integer"
+                              },
+                              "paths": {
+                                "items": {
+                                  "minLength": 1,
+                                  "type": "string"
+                                },
+                                "maxItems": 100,
+                                "minItems": 1,
+                                "type": "array"
+                              },
+                              "status": {
+                                "items": {
+                                  "enum": [
+                                    "added",
+                                    "removed",
+                                    "modified",
+                                    "renamed",
+                                    "copied",
+                                    "changed",
+                                    "unchanged"
+                                  ],
+                                  "title": "ChangedFileStatus",
+                                  "type": "string"
+                                },
+                                "maxItems": 7,
+                                "minItems": 1,
+                                "type": "array"
+                              }
+                            },
+                            "type": "object"
+                          },
                           "filePage": {
                             "maximum": 1000,
                             "minimum": 1,
@@ -15057,7 +15209,7 @@
                             "$ref": "#/$defs/HI_Owner"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -21707,6 +21859,44 @@
                           "debug": {
                             "type": "boolean"
                           },
+                          "fileFilter": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "minChanges": {
+                                "maximum": 1000000000,
+                                "minimum": 1,
+                                "type": "integer"
+                              },
+                              "paths": {
+                                "items": {
+                                  "minLength": 1,
+                                  "type": "string"
+                                },
+                                "maxItems": 100,
+                                "minItems": 1,
+                                "type": "array"
+                              },
+                              "status": {
+                                "items": {
+                                  "enum": [
+                                    "added",
+                                    "removed",
+                                    "modified",
+                                    "renamed",
+                                    "copied",
+                                    "changed",
+                                    "unchanged"
+                                  ],
+                                  "title": "ChangedFileStatus",
+                                  "type": "string"
+                                },
+                                "maxItems": 7,
+                                "minItems": 1,
+                                "type": "array"
+                              }
+                            },
+                            "type": "object"
+                          },
                           "filePage": {
                             "maximum": 1000,
                             "minimum": 1,
@@ -21743,7 +21933,7 @@
                             "$ref": "#/$defs/HI_Owner"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -28203,6 +28393,44 @@
                           "debug": {
                             "type": "boolean"
                           },
+                          "fileFilter": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "minChanges": {
+                                "maximum": 1000000000,
+                                "minimum": 1,
+                                "type": "integer"
+                              },
+                              "paths": {
+                                "items": {
+                                  "minLength": 1,
+                                  "type": "string"
+                                },
+                                "maxItems": 100,
+                                "minItems": 1,
+                                "type": "array"
+                              },
+                              "status": {
+                                "items": {
+                                  "enum": [
+                                    "added",
+                                    "removed",
+                                    "modified",
+                                    "renamed",
+                                    "copied",
+                                    "changed",
+                                    "unchanged"
+                                  ],
+                                  "title": "ChangedFileStatus",
+                                  "type": "string"
+                                },
+                                "maxItems": 7,
+                                "minItems": 1,
+                                "type": "array"
+                              }
+                            },
+                            "type": "object"
+                          },
                           "filePage": {
                             "maximum": 1000,
                             "minimum": 1,
@@ -28239,7 +28467,7 @@
                             "$ref": "#/$defs/HI_Owner"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -35293,6 +35521,44 @@
                           "debug": {
                             "type": "boolean"
                           },
+                          "fileFilter": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "minChanges": {
+                                "maximum": 1000000000,
+                                "minimum": 1,
+                                "type": "integer"
+                              },
+                              "paths": {
+                                "items": {
+                                  "minLength": 1,
+                                  "type": "string"
+                                },
+                                "maxItems": 100,
+                                "minItems": 1,
+                                "type": "array"
+                              },
+                              "status": {
+                                "items": {
+                                  "enum": [
+                                    "added",
+                                    "removed",
+                                    "modified",
+                                    "renamed",
+                                    "copied",
+                                    "changed",
+                                    "unchanged"
+                                  ],
+                                  "title": "ChangedFileStatus",
+                                  "type": "string"
+                                },
+                                "maxItems": 7,
+                                "minItems": 1,
+                                "type": "array"
+                              }
+                            },
+                            "type": "object"
+                          },
                           "filePage": {
                             "maximum": 1000,
                             "minimum": 1,
@@ -35329,7 +35595,7 @@
                             "$ref": "#/$defs/HI_Owner"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -40702,8 +40968,7 @@
           ],
           "values": {
             "debug": false,
-            "minify": "standard",
-            "pageSize": 30
+            "minify": "standard"
           },
           "when": {
             "operation": "pullRequest"
@@ -40853,7 +41118,7 @@
                           "type": "boolean"
                         },
                         "changedFiles": {
-                          "description": "Paged paths, status and change counts; no patches unless patches is selected.",
+                          "description": "Patch-free inventory rows \"M +3 -1 path\" (A added, D removed, R renamed, C copied, T changed, U unchanged); \"!tooLarge\"/\"!binary\"/\"!omitted\" before path: no patch; \" <- full/old/path\": rename origin. {\"dir/\": [rows]}: path = dir + name.",
                           "type": "boolean"
                         },
                         "comments": {
@@ -40976,6 +41241,49 @@
                       "description": "Add metadata: scan stats, provider receipts, snapshots, info notes.",
                       "type": "boolean"
                     },
+                    "fileFilter": {
+                      "additionalProperties": false,
+                      "description": "Narrow changedFiles and patches; counts cover matches.",
+                      "properties": {
+                        "minChanges": {
+                          "description": "additions+deletions >= n; files without counts pass.",
+                          "maximum": 1000000000,
+                          "minimum": 1,
+                          "type": "integer"
+                        },
+                        "paths": {
+                          "description": "Any-of. A plain path matches that file or directory; a glob (\"*\" one segment, \"**\" any) matches the path, or the file name when it has no \"/\" (\"*.ts\").",
+                          "items": {
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "maxItems": 100,
+                          "minItems": 1,
+                          "type": "array"
+                        },
+                        "status": {
+                          "description": "Keep only these statuses.",
+                          "items": {
+                            "enum": [
+                              "added",
+                              "removed",
+                              "modified",
+                              "renamed",
+                              "copied",
+                              "changed",
+                              "unchanged"
+                            ],
+                            "title": "ChangedFileStatus",
+                            "type": "string"
+                          },
+                          "maxItems": 7,
+                          "minItems": 1,
+                          "type": "array"
+                        }
+                      },
+                      "title": "PullRequestFileFilter",
+                      "type": "object"
+                    },
                     "filePage": {
                       "description": "Changed-file page; copy the returned file continuation.",
                       "maximum": 1000,
@@ -41017,7 +41325,10 @@
                       "$ref": "#/$defs/HI_Owner"
                     },
                     "pageSize": {
-                      "$ref": "#/$defs/HI_PageSize"
+                      "description": "Omit: 30 comments/reviews/commits/patch files (max 100); a patch-free inventory fills the response page (max 1000).",
+                      "maximum": 1000,
+                      "minimum": 1,
+                      "type": "integer"
                     },
                     "reasoning": {
                       "description": "Why this query advances its goal. Required unless followUp.",
@@ -43331,6 +43642,44 @@
                           "debug": {
                             "type": "boolean"
                           },
+                          "fileFilter": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "minChanges": {
+                                "maximum": 1000000000,
+                                "minimum": 1,
+                                "type": "integer"
+                              },
+                              "paths": {
+                                "items": {
+                                  "minLength": 1,
+                                  "type": "string"
+                                },
+                                "maxItems": 100,
+                                "minItems": 1,
+                                "type": "array"
+                              },
+                              "status": {
+                                "items": {
+                                  "enum": [
+                                    "added",
+                                    "removed",
+                                    "modified",
+                                    "renamed",
+                                    "copied",
+                                    "changed",
+                                    "unchanged"
+                                  ],
+                                  "title": "ChangedFileStatus",
+                                  "type": "string"
+                                },
+                                "maxItems": 7,
+                                "minItems": 1,
+                                "type": "array"
+                              }
+                            },
+                            "type": "object"
+                          },
                           "filePage": {
                             "maximum": 1000,
                             "minimum": 1,
@@ -43367,7 +43716,7 @@
                             "$ref": "#/$defs/HI_Owner"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -47162,6 +47511,44 @@
                                 "debug": {
                                   "type": "boolean"
                                 },
+                                "fileFilter": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "minChanges": {
+                                      "maximum": 1000000000,
+                                      "minimum": 1,
+                                      "type": "integer"
+                                    },
+                                    "paths": {
+                                      "items": {
+                                        "minLength": 1,
+                                        "type": "string"
+                                      },
+                                      "maxItems": 100,
+                                      "minItems": 1,
+                                      "type": "array"
+                                    },
+                                    "status": {
+                                      "items": {
+                                        "enum": [
+                                          "added",
+                                          "removed",
+                                          "modified",
+                                          "renamed",
+                                          "copied",
+                                          "changed",
+                                          "unchanged"
+                                        ],
+                                        "title": "ChangedFileStatus",
+                                        "type": "string"
+                                      },
+                                      "maxItems": 7,
+                                      "minItems": 1,
+                                      "type": "array"
+                                    }
+                                  },
+                                  "type": "object"
+                                },
                                 "filePage": {
                                   "maximum": 1000,
                                   "minimum": 1,
@@ -47198,7 +47585,7 @@
                                   "$ref": "#/$defs/HI_Owner"
                                 },
                                 "pageSize": {
-                                  "maximum": 100,
+                                  "maximum": 1000,
                                   "minimum": 1,
                                   "type": "integer"
                                 },
@@ -47601,6 +47988,41 @@
                               "author": {
                                 "type": "string"
                               },
+                              "changedFiles": {
+                                "description": "Patch-free inventory: compact rows \"M +3 -1 [!reason ]path[ <- full/old/path]\" or {\"dir/\": [rows named in dir]}. With patches: one object per file.",
+                                "items": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "additionalProperties": {
+                                        "items": {
+                                          "type": "string"
+                                        },
+                                        "type": "array"
+                                      },
+                                      "propertyNames": {
+                                        "type": "string"
+                                      },
+                                      "type": "object"
+                                    },
+                                    {
+                                      "additionalProperties": {},
+                                      "properties": {
+                                        "path": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": [
+                                        "path"
+                                      ],
+                                      "type": "object"
+                                    }
+                                  ]
+                                },
+                                "type": "array"
+                              },
                               "createdAt": {
                                 "type": "string"
                               },
@@ -47826,6 +48248,44 @@
                                             "debug": {
                                               "type": "boolean"
                                             },
+                                            "fileFilter": {
+                                              "additionalProperties": false,
+                                              "properties": {
+                                                "minChanges": {
+                                                  "maximum": 1000000000,
+                                                  "minimum": 1,
+                                                  "type": "integer"
+                                                },
+                                                "paths": {
+                                                  "items": {
+                                                    "minLength": 1,
+                                                    "type": "string"
+                                                  },
+                                                  "maxItems": 100,
+                                                  "minItems": 1,
+                                                  "type": "array"
+                                                },
+                                                "status": {
+                                                  "items": {
+                                                    "enum": [
+                                                      "added",
+                                                      "removed",
+                                                      "modified",
+                                                      "renamed",
+                                                      "copied",
+                                                      "changed",
+                                                      "unchanged"
+                                                    ],
+                                                    "title": "ChangedFileStatus",
+                                                    "type": "string"
+                                                  },
+                                                  "maxItems": 7,
+                                                  "minItems": 1,
+                                                  "type": "array"
+                                                }
+                                              },
+                                              "type": "object"
+                                            },
                                             "filePage": {
                                               "maximum": 1000,
                                               "minimum": 1,
@@ -47862,7 +48322,7 @@
                                               "$ref": "#/$defs/HI_Owner"
                                             },
                                             "pageSize": {
-                                              "maximum": 100,
+                                              "maximum": 1000,
                                               "minimum": 1,
                                               "type": "integer"
                                             },
@@ -48905,7 +49365,7 @@
                     "type": "boolean"
                   },
                   "changedFiles": {
-                    "description": "Paged paths, status and change counts; no patches unless patches is selected.",
+                    "description": "Patch-free inventory rows \"M +3 -1 path\" (A added, D removed, R renamed, C copied, T changed, U unchanged); \"!tooLarge\"/\"!binary\"/\"!omitted\" before path: no patch; \" <- full/old/path\": rename origin. {\"dir/\": [rows]}: path = dir + name.",
                     "type": "boolean"
                   },
                   "comments": {
@@ -49028,6 +49488,49 @@
                 "description": "Add metadata: scan stats, provider receipts, snapshots, info notes.",
                 "type": "boolean"
               },
+              "fileFilter": {
+                "additionalProperties": false,
+                "description": "Narrow changedFiles and patches; counts cover matches.",
+                "properties": {
+                  "minChanges": {
+                    "description": "additions+deletions >= n; files without counts pass.",
+                    "maximum": 1000000000,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "paths": {
+                    "description": "Any-of. A plain path matches that file or directory; a glob (\"*\" one segment, \"**\" any) matches the path, or the file name when it has no \"/\" (\"*.ts\").",
+                    "items": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "maxItems": 100,
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  "status": {
+                    "description": "Keep only these statuses.",
+                    "items": {
+                      "enum": [
+                        "added",
+                        "removed",
+                        "modified",
+                        "renamed",
+                        "copied",
+                        "changed",
+                        "unchanged"
+                      ],
+                      "title": "ChangedFileStatus",
+                      "type": "string"
+                    },
+                    "maxItems": 7,
+                    "minItems": 1,
+                    "type": "array"
+                  }
+                },
+                "title": "PullRequestFileFilter",
+                "type": "object"
+              },
               "filePage": {
                 "description": "Changed-file page; copy the returned file continuation.",
                 "maximum": 1000,
@@ -49069,7 +49572,10 @@
                 "$ref": "#/$defs/HI_Owner"
               },
               "pageSize": {
-                "$ref": "#/$defs/HI_PageSize"
+                "description": "Omit: 30 comments/reviews/commits/patch files (max 100); a patch-free inventory fills the response page (max 1000).",
+                "maximum": 1000,
+                "minimum": 1,
+                "type": "integer"
               },
               "reasoning": {
                 "description": "Why this query advances its goal. Required unless followUp.",
@@ -49409,7 +49915,8 @@
             "charOffset",
             "charLength",
             "minify",
-            "number"
+            "number",
+            "fileFilter"
           ],
           "name": "pullRequest",
           "requires": [
@@ -51864,6 +52371,44 @@
                           "debug": {
                             "type": "boolean"
                           },
+                          "fileFilter": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "minChanges": {
+                                "maximum": 1000000000,
+                                "minimum": 1,
+                                "type": "integer"
+                              },
+                              "paths": {
+                                "items": {
+                                  "minLength": 1,
+                                  "type": "string"
+                                },
+                                "maxItems": 100,
+                                "minItems": 1,
+                                "type": "array"
+                              },
+                              "status": {
+                                "items": {
+                                  "enum": [
+                                    "added",
+                                    "removed",
+                                    "modified",
+                                    "renamed",
+                                    "copied",
+                                    "changed",
+                                    "unchanged"
+                                  ],
+                                  "title": "ChangedFileStatus",
+                                  "type": "string"
+                                },
+                                "maxItems": 7,
+                                "minItems": 1,
+                                "type": "array"
+                              }
+                            },
+                            "type": "object"
+                          },
                           "filePage": {
                             "maximum": 1000,
                             "minimum": 1,
@@ -51900,7 +52445,7 @@
                             "$ref": "#/$defs/HI_Owner"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -58549,6 +59094,44 @@
                           "debug": {
                             "type": "boolean"
                           },
+                          "fileFilter": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "minChanges": {
+                                "maximum": 1000000000,
+                                "minimum": 1,
+                                "type": "integer"
+                              },
+                              "paths": {
+                                "items": {
+                                  "minLength": 1,
+                                  "type": "string"
+                                },
+                                "maxItems": 100,
+                                "minItems": 1,
+                                "type": "array"
+                              },
+                              "status": {
+                                "items": {
+                                  "enum": [
+                                    "added",
+                                    "removed",
+                                    "modified",
+                                    "renamed",
+                                    "copied",
+                                    "changed",
+                                    "unchanged"
+                                  ],
+                                  "title": "ChangedFileStatus",
+                                  "type": "string"
+                                },
+                                "maxItems": 7,
+                                "minItems": 1,
+                                "type": "array"
+                              }
+                            },
+                            "type": "object"
+                          },
                           "filePage": {
                             "maximum": 1000,
                             "minimum": 1,
@@ -58585,7 +59168,7 @@
                             "$ref": "#/$defs/HI_Owner"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -65017,6 +65600,44 @@
                           "debug": {
                             "type": "boolean"
                           },
+                          "fileFilter": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "minChanges": {
+                                "maximum": 1000000000,
+                                "minimum": 1,
+                                "type": "integer"
+                              },
+                              "paths": {
+                                "items": {
+                                  "minLength": 1,
+                                  "type": "string"
+                                },
+                                "maxItems": 100,
+                                "minItems": 1,
+                                "type": "array"
+                              },
+                              "status": {
+                                "items": {
+                                  "enum": [
+                                    "added",
+                                    "removed",
+                                    "modified",
+                                    "renamed",
+                                    "copied",
+                                    "changed",
+                                    "unchanged"
+                                  ],
+                                  "title": "ChangedFileStatus",
+                                  "type": "string"
+                                },
+                                "maxItems": 7,
+                                "minItems": 1,
+                                "type": "array"
+                              }
+                            },
+                            "type": "object"
+                          },
                           "filePage": {
                             "maximum": 1000,
                             "minimum": 1,
@@ -65053,7 +65674,7 @@
                             "$ref": "#/$defs/HI_Owner"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -72515,6 +73136,44 @@
                           "debug": {
                             "type": "boolean"
                           },
+                          "fileFilter": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "minChanges": {
+                                "maximum": 1000000000,
+                                "minimum": 1,
+                                "type": "integer"
+                              },
+                              "paths": {
+                                "items": {
+                                  "minLength": 1,
+                                  "type": "string"
+                                },
+                                "maxItems": 100,
+                                "minItems": 1,
+                                "type": "array"
+                              },
+                              "status": {
+                                "items": {
+                                  "enum": [
+                                    "added",
+                                    "removed",
+                                    "modified",
+                                    "renamed",
+                                    "copied",
+                                    "changed",
+                                    "unchanged"
+                                  ],
+                                  "title": "ChangedFileStatus",
+                                  "type": "string"
+                                },
+                                "maxItems": 7,
+                                "minItems": 1,
+                                "type": "array"
+                              }
+                            },
+                            "type": "object"
+                          },
                           "filePage": {
                             "maximum": 1000,
                             "minimum": 1,
@@ -72551,7 +73210,7 @@
                             "$ref": "#/$defs/HI_Owner"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -80131,6 +80790,44 @@
                           "debug": {
                             "type": "boolean"
                           },
+                          "fileFilter": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "minChanges": {
+                                "maximum": 1000000000,
+                                "minimum": 1,
+                                "type": "integer"
+                              },
+                              "paths": {
+                                "items": {
+                                  "minLength": 1,
+                                  "type": "string"
+                                },
+                                "maxItems": 100,
+                                "minItems": 1,
+                                "type": "array"
+                              },
+                              "status": {
+                                "items": {
+                                  "enum": [
+                                    "added",
+                                    "removed",
+                                    "modified",
+                                    "renamed",
+                                    "copied",
+                                    "changed",
+                                    "unchanged"
+                                  ],
+                                  "title": "ChangedFileStatus",
+                                  "type": "string"
+                                },
+                                "maxItems": 7,
+                                "minItems": 1,
+                                "type": "array"
+                              }
+                            },
+                            "type": "object"
+                          },
                           "filePage": {
                             "maximum": 1000,
                             "minimum": 1,
@@ -80167,7 +80864,7 @@
                             "$ref": "#/$defs/HI_Owner"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -89999,6 +90696,44 @@
                           "debug": {
                             "type": "boolean"
                           },
+                          "fileFilter": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "minChanges": {
+                                "maximum": 1000000000,
+                                "minimum": 1,
+                                "type": "integer"
+                              },
+                              "paths": {
+                                "items": {
+                                  "minLength": 1,
+                                  "type": "string"
+                                },
+                                "maxItems": 100,
+                                "minItems": 1,
+                                "type": "array"
+                              },
+                              "status": {
+                                "items": {
+                                  "enum": [
+                                    "added",
+                                    "removed",
+                                    "modified",
+                                    "renamed",
+                                    "copied",
+                                    "changed",
+                                    "unchanged"
+                                  ],
+                                  "title": "ChangedFileStatus",
+                                  "type": "string"
+                                },
+                                "maxItems": 7,
+                                "minItems": 1,
+                                "type": "array"
+                              }
+                            },
+                            "type": "object"
+                          },
                           "filePage": {
                             "maximum": 1000,
                             "minimum": 1,
@@ -90035,7 +90770,7 @@
                             "$ref": "#/$defs/HI_Owner"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -98853,6 +99588,44 @@
                           "debug": {
                             "type": "boolean"
                           },
+                          "fileFilter": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "minChanges": {
+                                "maximum": 1000000000,
+                                "minimum": 1,
+                                "type": "integer"
+                              },
+                              "paths": {
+                                "items": {
+                                  "minLength": 1,
+                                  "type": "string"
+                                },
+                                "maxItems": 100,
+                                "minItems": 1,
+                                "type": "array"
+                              },
+                              "status": {
+                                "items": {
+                                  "enum": [
+                                    "added",
+                                    "removed",
+                                    "modified",
+                                    "renamed",
+                                    "copied",
+                                    "changed",
+                                    "unchanged"
+                                  ],
+                                  "title": "ChangedFileStatus",
+                                  "type": "string"
+                                },
+                                "maxItems": 7,
+                                "minItems": 1,
+                                "type": "array"
+                              }
+                            },
+                            "type": "object"
+                          },
                           "filePage": {
                             "maximum": 1000,
                             "minimum": 1,
@@ -98889,7 +99662,7 @@
                             "$ref": "#/$defs/HI_Owner"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -106749,6 +107522,44 @@
                           "debug": {
                             "type": "boolean"
                           },
+                          "fileFilter": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "minChanges": {
+                                "maximum": 1000000000,
+                                "minimum": 1,
+                                "type": "integer"
+                              },
+                              "paths": {
+                                "items": {
+                                  "minLength": 1,
+                                  "type": "string"
+                                },
+                                "maxItems": 100,
+                                "minItems": 1,
+                                "type": "array"
+                              },
+                              "status": {
+                                "items": {
+                                  "enum": [
+                                    "added",
+                                    "removed",
+                                    "modified",
+                                    "renamed",
+                                    "copied",
+                                    "changed",
+                                    "unchanged"
+                                  ],
+                                  "title": "ChangedFileStatus",
+                                  "type": "string"
+                                },
+                                "maxItems": 7,
+                                "minItems": 1,
+                                "type": "array"
+                              }
+                            },
+                            "type": "object"
+                          },
                           "filePage": {
                             "maximum": 1000,
                             "minimum": 1,
@@ -106785,7 +107596,7 @@
                             "$ref": "#/$defs/HI_Owner"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -114011,6 +114822,44 @@
                           "debug": {
                             "type": "boolean"
                           },
+                          "fileFilter": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "minChanges": {
+                                "maximum": 1000000000,
+                                "minimum": 1,
+                                "type": "integer"
+                              },
+                              "paths": {
+                                "items": {
+                                  "minLength": 1,
+                                  "type": "string"
+                                },
+                                "maxItems": 100,
+                                "minItems": 1,
+                                "type": "array"
+                              },
+                              "status": {
+                                "items": {
+                                  "enum": [
+                                    "added",
+                                    "removed",
+                                    "modified",
+                                    "renamed",
+                                    "copied",
+                                    "changed",
+                                    "unchanged"
+                                  ],
+                                  "title": "ChangedFileStatus",
+                                  "type": "string"
+                                },
+                                "maxItems": 7,
+                                "minItems": 1,
+                                "type": "array"
+                              }
+                            },
+                            "type": "object"
+                          },
                           "filePage": {
                             "maximum": 1000,
                             "minimum": 1,
@@ -114047,7 +114896,7 @@
                             "$ref": "#/$defs/HI_Owner"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },

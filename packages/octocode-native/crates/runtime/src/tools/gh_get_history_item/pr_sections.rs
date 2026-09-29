@@ -38,7 +38,11 @@ pub(super) fn shape_pr_comments(
         .filter_map(|v| str_at(v, "/updatedAt").or_else(|| str_at(v, "/createdAt")))
         .max()
         .map(str::to_owned);
-    let (slice, page) = state.paginate(comments, query.comment_page(), query.page_size());
+    let (slice, page) = state.paginate(
+        comments,
+        query.comment_page(),
+        Some(query.collection_page_size()),
+    );
     let mut shaped = Vec::new();
     let mut first_body_page = None;
     for comment in slice {
@@ -80,7 +84,11 @@ pub(super) fn shape_pr_reviews(
         .into_iter()
         .filter(|v| body_matches(v, needle.as_deref()))
         .collect::<Vec<_>>();
-    let (slice, page) = state.paginate(reviews, query.review_page(), query.page_size());
+    let (slice, page) = state.paginate(
+        reviews,
+        query.review_page(),
+        Some(query.collection_page_size()),
+    );
     let mut shaped = Vec::new();
     let mut first_body_page = None;
     for review in slice {
@@ -120,7 +128,11 @@ pub(super) async fn shape_pr_commits<R: CredentialResolver>(
         .and_then(|content| content.pointer("/commits/includeFiles"))
         .and_then(Value::as_bool)
         == Some(true);
-    let (slice, page) = state.paginate(commits, query.commit_page(), query.page_size());
+    let (slice, page) = state.paginate(
+        commits,
+        query.commit_page(),
+        Some(query.collection_page_size()),
+    );
     let mut shaped = Vec::new();
     for item in slice {
         let sha = string(item.get("sha"));
@@ -139,7 +151,13 @@ pub(super) async fn shape_pr_commits<R: CredentialResolver>(
             )
             .await?;
             let files = array(detail.get("files").cloned().unwrap_or(json!([])));
-            let (files, files_page) = paginate_window(files, 0, !more, Some(1), query.page_size());
+            let (files, files_page) = paginate_window(
+                files,
+                0,
+                !more,
+                Some(1),
+                Some(query.collection_page_size()),
+            );
             commit["files"] = shape_files(files, true, query);
             commit["filesPagination"] = commit_files_pagination(files_page);
             attach_diff_continuations(&mut commit, query, ItemOperation::Commit, Some(&sha), true);

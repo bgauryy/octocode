@@ -1,7 +1,7 @@
 //! `operation: "pullRequest"`: concurrent collection loads (GraphQL first page
 //! or REST windows), metadata row, and assembly of the shaped sections.
 use super::continuations::{BODY_PREVIEW_CHARS, pr_next_menu, promote_pr_continuations};
-use super::files::{FileFilter, patch_selection, shape_pr_files};
+use super::files::{FileFilter, InventoryFilter, file_page_size, patch_selection, shape_pr_files};
 use super::graphql::{
     GraphqlCollection, GraphqlPr, graphql_complete_collection_eligible, graphql_pull_request,
     map_graphql_comments, map_graphql_commits, map_graphql_files, map_graphql_reviews,
@@ -15,7 +15,7 @@ use super::window::{
     Loaded, MAX_COLLECTION_BATCHES, MAX_FILE_BATCHES, MAX_PR_COMMIT_BATCHES, WindowSpec,
     WindowState, load_window, reconcile_file_totals,
 };
-use super::{DEFAULT_PAGE_SIZE, HistoryItemRequest, fetch, validation};
+use super::{HistoryItemRequest, fetch, validation};
 use crate::providers::github::{
     CredentialResolver, GitHubTransport, ProviderError, RequestContext,
 };
@@ -108,12 +108,14 @@ pub(super) async fn pull_request<R: CredentialResolver>(
         .and_then(Value::as_object);
     let patch_mode = wants.patch_mode.as_str();
     let include_bots = wants.include_bots;
-    let page_size = query.page_size().unwrap_or(DEFAULT_PAGE_SIZE).clamp(1, 100);
+    let page_size = query.collection_page_size();
     let selection = patch_selection(patch_selector);
     let needle = needle(query);
+    let scope = InventoryFilter::from_query(query).map_err(|message| validation(&message))?;
     let file_filter = FileFilter {
         selected: &selection.0,
         needle: needle.as_deref(),
+        scope: scope.as_ref(),
     };
     let body_filter = |value: &Value| body_matches(value, needle.as_deref());
     let comment_filter = |value: &Value| {
@@ -174,6 +176,7 @@ pub(super) async fn pull_request<R: CredentialResolver>(
             &files_path,
             WindowSpec {
                 provider_total: file_total,
+                page_size: file_page_size(query, patch_mode != "none"),
                 ..spec(
                     MAX_FILE_BATCHES,
                     query.file_page(),
@@ -252,10 +255,12 @@ pub(super) async fn pull_request<R: CredentialResolver>(
         }
     }
 
-    // A continuation replay already holds the header and the follow-up menu:
-    // it carries only the identity fields every page must re-prove, plus the
-    // fields the output contract requires of every pull-request row.
-    let slim = query.follow_up() && !query.debug();
+    // A continuation replay already holds the header and the follow-up menu,
+    // and a file inventory is read for its rows: both carry only the identity
+    // fields every page must re-prove, plus the fields the output contract
+    // requires of every pull-request row.
+    let inventory = content_flag(content, "changedFiles") && patch_mode == "none";
+    let slim = (query.follow_up() || inventory) && !query.debug();
     let mut row = pr_metadata(&raw, query, wants.body);
     if slim && let Some(fields) = row.as_object_mut() {
         fields.retain(|key, _| {
@@ -283,10 +288,11 @@ pub(super) async fn pull_request<R: CredentialResolver>(
         content_pagination.insert("body".into(), pagination);
     }
     let mut no_selected_files_matched = false;
+    let mut first_changed_path = None;
     if let Some(loaded) = files_loaded {
         let listed = loaded.state.skipped + loaded.items.len();
         let state = loaded.state;
-        no_selected_files_matched = shape_pr_files(
+        let shaped = shape_pr_files(
             &mut row,
             &mut content_pagination,
             loaded.items,
@@ -294,7 +300,10 @@ pub(super) async fn pull_request<R: CredentialResolver>(
             query,
             patch_selector,
             patch_mode,
+            scope.as_ref(),
         );
+        no_selected_files_matched = shaped.no_selected_match;
+        first_changed_path = shaped.first_path;
         if let Some(page) = content_pagination.get_mut("changedFiles") {
             let changed_files = raw
                 .get("changed_files")
@@ -333,14 +342,29 @@ pub(super) async fn pull_request<R: CredentialResolver>(
         )
         .await?;
     }
-    let first_changed_path = row
-        .get("changedFiles")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .find_map(|v| str_at(v, "/path"));
     if !slim {
-        row["next"] = pr_next_menu(query, content, patch_mode, first_changed_path, &raw);
+        row["next"] = pr_next_menu(
+            query,
+            content,
+            patch_mode,
+            first_changed_path.as_deref(),
+            &raw,
+        );
+    } else if inventory && !query.follow_up() {
+        // The inventory's own next step: read selected patches.
+        let mut menu = pr_next_menu(
+            query,
+            content,
+            patch_mode,
+            first_changed_path.as_deref(),
+            &raw,
+        );
+        if let Some(menu) = menu.as_object_mut() {
+            menu.retain(|name, _| name == "getSelectedPatches");
+        }
+        if menu.as_object().is_some_and(|menu| !menu.is_empty()) {
+            row["next"] = menu;
+        }
     }
     if !content_pagination.is_empty() {
         row["contentPagination"] = Value::Object(content_pagination);

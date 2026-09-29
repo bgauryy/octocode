@@ -32,6 +32,8 @@ mod util;
 mod window;
 
 const DEFAULT_PAGE_SIZE: usize = 30;
+/// Largest page of a provider collection (GitHub's `per_page` maximum).
+const MAX_COLLECTION_PAGE: usize = 100;
 const DEFAULT_TEXT_WINDOW: usize = 12_000;
 
 pub use crate::contracts::tool_types::GhGetHistoryItemQuery;
@@ -144,12 +146,26 @@ impl GhGetHistoryItemQuery {
     }
     pub fn page_size(&self) -> Option<usize> {
         match self {
-            Self::PullRequest { page_size, .. }
-            | Self::Issue { page_size, .. }
+            Self::PullRequest { page_size, .. } => page_size.map(|size| usize_of(size.get())),
+            Self::Issue { page_size, .. }
             | Self::Commit { page_size, .. }
             | Self::Compare { page_size, .. } => {
                 page_size.as_ref().map(|size| usize_of(size.0.get()))
             }
+        }
+    }
+    /// Items per page of a provider collection (comments, reviews, commits,
+    /// patch file pages): `pageSize` capped at one provider batch.
+    pub fn collection_page_size(&self) -> usize {
+        self.page_size()
+            .unwrap_or(DEFAULT_PAGE_SIZE)
+            .clamp(1, MAX_COLLECTION_PAGE)
+    }
+    /// The pull-request changed-file narrowing (`fileFilter`).
+    pub fn file_filter(&self) -> Option<&crate::contracts::tool_types::PullRequestFileFilter> {
+        match self {
+            Self::PullRequest { file_filter, .. } => file_filter.as_ref(),
+            _ => None,
         }
     }
     pub fn file_page(&self) -> Option<usize> {
